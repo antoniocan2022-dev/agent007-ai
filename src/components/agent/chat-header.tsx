@@ -77,7 +77,7 @@ export function ChatHeader({
       {/* capabilities badge (desktop) */}
       <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border-cyan-400/20 text-[10px] text-[#9bb5d4]">
         <ShieldCheck className="w-3 h-3 text-cyan-300" />
-        <span>8 tools • bilingual • self-learning</span>
+        <span>10 sub-agents • 8 tools • bilingual</span>
       </div>
 
       {/* right toggle */}

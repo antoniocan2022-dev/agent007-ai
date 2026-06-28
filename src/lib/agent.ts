@@ -75,15 +75,15 @@ export interface AgentRunResult {
 }
 
 let _zai: ZAI | null = null
-async function getZai(): Promise<ZAI> {
+export async function getZai(): Promise<ZAI> {
   if (!_zai) _zai = await ZAI.create()
   return _zai
 }
 
-const THOUGHT_RE = /<thought>([\s\S]*?)<\/thought>/i
-const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/tool>/i
+export const THOUGHT_RE = /<thought>([\s\S]*?)<\/thought>/i
+export const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/tool>/i
 
-interface Parsed {
+export interface Parsed {
   thought?: string
   tool?: { name: string; args: any }
   textAfterTool: string
@@ -91,7 +91,7 @@ interface Parsed {
   raw: string
 }
 
-function parseAssistant(content: string): Parsed {
+export function parseAssistant(content: string): Parsed {
   const thoughtMatch = content.match(THOUGHT_RE)
   const thought = thoughtMatch?.[1]?.trim()
   const toolMatch = content.match(TOOL_RE)
@@ -127,11 +127,11 @@ function parseAssistant(content: string): Parsed {
 }
 
 /** Build the LLM message history from the DB rows of the conversation. */
-async function buildHistoryMessages(
+export async function buildHistoryMessages(
   conversationId: string,
   currentUserMessage: string,
   currentAttachments: AttachmentMeta[]
-): Promise<Array<{ role: 'system' | 'user' | 'assistant' | 'user'; content: string }>> {
+): Promise<Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> {
   const priorMessages = await db.message.findMany({
     where: { conversationId },
     orderBy: { createdAt: 'asc' },
@@ -351,7 +351,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   }
 }
 
-function chunkText(text: string, size: number): string[] {
+export function chunkText(text: string, size: number): string[] {
   if (!text) return []
   const out: string[] = []
   for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size))

@@ -1,37 +1,63 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Sparkles, Globe, Zap } from 'lucide-react'
+import {
+  Sparkles,
+  Box,
+  TrendingUp,
+  Search,
+  Crosshair,
+  Hammer,
+  PenLine,
+  Palette,
+  Activity,
+  RefreshCw,
+  type LucideIcon,
+} from 'lucide-react'
 import { NexusLogo } from './nexus-logo'
+
+/* Sub-agent accent colors (mirror of /src/lib/subagents.ts) */
+const SUBAGENT_COLORS: Record<string, string> = {
+  aurora: '#00f0ff',
+  vertex: '#34d399',
+  quantum: '#fbbf24',
+  scout: '#38bdf8',
+  hunt: '#a78bfa',
+  forge: '#fb923c',
+  quill: '#f472b6',
+  prism: '#e879f9',
+  pulse: '#fb7185',
+  echo: '#818cf8',
+}
 
 const SUGGESTIONS = [
   {
-    icon: 'lightbulb',
-    title: 'Side-hustle ideas',
-    text: 'Pitch me 3 side-hustle ideas for a developer that can reach $2k/mo in 90 days',
+    icon: 'scout',
+    title: 'Multi-agent research',
+    text: 'Use Scout + Aurora to find trending niches and design a content monetization plan',
   },
   {
-    icon: 'search',
-    title: 'Market research',
-    text: 'Research the current market for AI consulting: rates, niches, and demand in 2025',
+    icon: 'hunt',
+    title: 'Freelance discovery',
+    text: 'Dispatch Hunt to find top freelance gigs for my skills',
   },
   {
-    icon: 'palette',
-    title: 'Logo concept',
-    text: 'Generate a logo concept for a specialty coffee brand called "Aurora Roasters"',
+    icon: 'prism',
+    title: 'Visual brand',
+    text: "Have Prism design a logo for 'Nebula Studio'",
   },
   {
-    icon: 'chart',
-    title: 'Analyze my data',
-    text: 'Run code to compute: monthly recurring revenue given 100 customers at $29 with 3% monthly churn',
+    icon: 'pulse',
+    title: 'KPIs + optimization',
+    text: 'Ask Pulse + Echo to define KPIs and an optimization plan for my SaaS',
   },
 ]
 
-const ICONS: Record<string, any> = {
-  lightbulb: Sparkles,
-  search: Globe,
-  palette: Zap,
-  chart: Zap,
+const SUGGESTION_ICONS: Record<string, LucideIcon> = {
+  scout: Search,
+  hunt: Crosshair,
+  prism: Palette,
+  pulse: Activity,
 }
 
 export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
@@ -61,8 +87,9 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         transition={{ delay: 0.25, duration: 0.6 }}
         className="mt-3 text-sm sm:text-base text-[#7c89b5] tracking-wide"
       >
-        Your AI Super Agent — <span className="text-[#e0e7ff]">Built to Learn.</span>{' '}
-        <span className="text-[#e0e7ff]">Built to Earn.</span>
+        Your AI Super Agent —{' '}
+        <span className="text-[#e0e7ff]">10 Specialists.</span>{' '}
+        <span className="text-[#e0e7ff]">One Mission: Your Income.</span>
       </motion.p>
 
       <motion.div
@@ -72,19 +99,32 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         className="mt-10 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full max-w-2xl"
       >
         {SUGGESTIONS.map((s, i) => {
-          const Icon = ICONS[s.icon] ?? Sparkles
+          const Icon = SUGGESTION_ICONS[s.icon] ?? Sparkles
+          const color = SUBAGENT_COLORS[s.icon] ?? '#00f0ff'
           return (
             <button
               key={i}
               onClick={() => onPick(s.text)}
               className="glass glass-hover rounded-xl p-4 text-left group"
+              style={{ borderColor: `${color}25`, borderWidth: 1, borderStyle: 'solid' }}
             >
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 w-9 h-9 rounded-lg flex items-center justify-center bg-cyan-400/10 border border-cyan-400/30 text-cyan-300 group-hover:scale-110 transition-transform">
-                  <Icon className="w-4 h-4" />
+                <div
+                  className="mt-0.5 w-9 h-9 rounded-lg flex items-center justify-center border group-hover:scale-110 transition-transform"
+                  style={{
+                    background: `${color}12`,
+                    borderColor: `${color}50`,
+                  }}
+                >
+                  <Icon className="w-4 h-4" style={{ color }} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs label-tag mb-0.5">{s.title}</div>
+                  <div
+                    className="text-xs label-tag mb-0.5"
+                    style={{ color }}
+                  >
+                    {s.title}
+                  </div>
                   <div className="text-sm text-[#e0e7ff]/90 leading-snug">{s.text}</div>
                 </div>
               </div>
@@ -93,21 +133,43 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         })}
       </motion.div>
 
+      {/* sub-agent chips */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.6, duration: 0.8 }}
-        className="mt-10 flex flex-wrap items-center justify-center gap-2 text-xs text-[#7c89b5]"
+        transition={{ delay: 0.55, duration: 0.8 }}
+        className="mt-8 w-full max-w-2xl"
       >
-        {[
-          'Web Search',
-          'Image Gen',
-          'Vision',
-          'Code Exec',
-          'File Handling',
-          'Memory',
-          'Bilingual',
-        ].map((c) => (
+        <div className="text-[9px] tracking-[0.25em] text-[#5b6a92] mb-3">10 SUB-AGENTS AT YOUR COMMAND</div>
+        <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+          {Object.entries(SUBAGENT_COLORS).map(([id, color]) => {
+            const Icon = SUBAGENT_ICON_MAP[id] ?? Sparkles
+            return (
+              <span
+                key={id}
+                className="px-2.5 py-1 rounded-full border inline-flex items-center gap-1 capitalize text-[10px] font-semibold tracking-wider"
+                style={{
+                  color,
+                  borderColor: `${color}40`,
+                  background: `${color}08`,
+                }}
+              >
+                <Icon className="w-3 h-3" style={{ color }} />
+                {id}
+              </span>
+            )
+          })}
+        </div>
+      </motion.div>
+
+      {/* capability chips */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.7, duration: 0.8 }}
+        className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-[#7c89b5]"
+      >
+        {['10 Sub-Agents', '8 Tools', 'Bilingual', 'Self-Learning'].map((c) => (
           <span
             key={c}
             className="px-2.5 py-1 rounded-full bg-cyan-400/5 border border-cyan-400/15 text-[#9bb5d4]"
@@ -118,4 +180,17 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
       </motion.div>
     </div>
   )
+}
+
+const SUBAGENT_ICON_MAP: Record<string, LucideIcon> = {
+  aurora: Sparkles,
+  vertex: Box,
+  quantum: TrendingUp,
+  scout: Search,
+  hunt: Crosshair,
+  forge: Hammer,
+  quill: PenLine,
+  prism: Palette,
+  pulse: Activity,
+  echo: RefreshCw,
 }

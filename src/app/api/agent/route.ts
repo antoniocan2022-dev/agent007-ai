@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { runAgent, type AttachmentMeta } from '@/lib/agent'
+import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
+import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -70,11 +71,11 @@ export async function POST(req: NextRequest) {
           closed = true
         }
       }
-      const emit = async (event: string, data: any) => {
+      const emit: OrchestratorEventEmit = async (event: string, data: any) => {
         safeEnqueue(sse(event, data))
       }
       try {
-        const result = await runAgent({
+        const result = await runOrchestrator({
           conversationId,
           userMessage: message,
           attachments: atts,
