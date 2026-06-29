@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { SessionProvider } from "@/components/providers/session-provider";
+import { ServiceWorkerRegister } from "@/components/providers/service-worker-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -76,23 +77,11 @@ export default function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground agent007-root`}
+        suppressHydrationWarning
       >
         <SessionProvider>{children}</SessionProvider>
         <Toaster />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    (reg) => console.log('[PWA] Service Worker registered:', reg.scope),
-                    (err) => console.warn('[PWA] Service Worker registration failed:', err)
-                  );
-                });
-              }
-            `,
-          }}
-        />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

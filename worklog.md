@@ -1584,3 +1584,48 @@ Stage Summary:
 - SUBAGENT_MAX_ITERATIONS increased to 15 ✅
 - Agent007 could NOT confirm (rate limit exhausted) — but developer verification is conclusive
 - The owner can now log in with: email=antonio.can2022@hotmail.com, password=antonio.can2022@hotmail.com
+
+---
+Task ID: AGENT007-HYDRATION-FIX
+Agent: main (Super Z)
+Task: Fix the React hydration error on the login page (body tag attributes mismatch)
+
+Work Log:
+- Owner reported a console hydration error: "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties."
+- Error location: src/app/layout.tsx line 77 (the <body> tag)
+- Error details: The server-rendered <body> tag had different attributes than the client-rendered one. Specifically:
+  - Server rendered: <body className="...">
+  - Client rendered: <body className="..." data-new-gr-c-s-check-loaded="14.1306.0" data-gr-ext-installed="">
+  - The extra attributes (data-new-gr-c-s-check-loaded, data-gr-ext-installed) were added by a browser extension (Grammarly)
+
+ROOT CAUSE: Browser extensions (like Grammarly) inject attributes into the <body> tag on the client side. React's hydration process detects the mismatch between server HTML and client DOM and throws a hydration error. The <html> tag already had suppressHydrationWarning but the <body> tag did not.
+
+FIX APPLIED:
+1. Added suppressHydrationWarning to the <body> tag in src/app/layout.tsx:
+   <body className="..." suppressHydrationWarning>
+   This tells React to ignore attribute mismatches on the <body> tag (caused by browser extensions).
+
+2. Moved the inline service worker <script> tag into a separate client component (ServiceWorkerRegister at src/components/providers/service-worker-register.tsx):
+   - Inline <script> tags in server components can cause hydration issues because they execute on both server and client
+   - The new component uses useEffect (client-only) to register the service worker
+   - This eliminates another potential source of hydration mismatch
+
+VERIFICATION:
+- bun run lint: clean ✅
+- Dev server: HTTP 200 ✅
+- Login page loads with ZERO hydration errors ✅
+- ZERO console errors ✅
+- ZERO page errors ✅
+- Login with antonio.can2022@hotmail.com / antonio.can2022@hotmail.com works ✅
+- Dashboard loads cleanly after login ✅
+- NEW CHAT button visible ✅
+- 18 sub-agents badge visible ✅
+
+- Attempted to tell Agent007 about the fix + ask for confirmation. The z-ai provider's rate limiter is persistently blocking all LLM calls (quota exhausted). Agent007 could not respond. However, the developer has verified the fix works end-to-end.
+
+Stage Summary:
+- Hydration error FIXED: Added suppressHydrationWarning to <body> tag ✅
+- Service worker script moved to client component ✅
+- Login page loads with zero errors ✅
+- Login works + dashboard loads cleanly ✅
+- Agent007 could NOT confirm (rate limit exhausted) — but developer verification is conclusive
