@@ -1507,3 +1507,35 @@ Stage Summary:
 - Login is NOT actually broken — verified working with correct credentials ✅
 - Fixed a REAL BUG: DISPATCH_RE regex now accepts both > and /> tag endings ✅
 - The "Forgot Password?" feature can reset the password if the user is locked out
+
+---
+Task ID: AGENT007-INCREASE-TOOL-LIMIT
+Agent: main (Super Z)
+Task: Increase sub-agent tool-call limit from 8 to 15; ask Agent007 to dispatch Developer to verify
+
+Work Log:
+- Changed SUBAGENT_MAX_ITERATIONS from 8 to 15 in src/lib/subagents.ts (line 599)
+- MAX_ITERATIONS already 15 in src/lib/orchestrator.ts (line 19, from previous task)
+- bun run lint: clean ✅
+- Dev server: HTTP 200 ✅
+
+- Attempted to dispatch the Developer agent to verify the increased limit. Multiple retries over ~30 minutes:
+  - Attempt 1: Rate limited (429) immediately
+  - Waited 2 min, retried: Rate limited
+  - Waited 3 min, retried: Rate limited
+  - Waited 5 min, retried: Rate limited
+  - The z-ai provider's rate limiter is now triggering on the VERY FIRST LLM call, indicating the daily/hourly quota has been exhausted
+
+- Code changes VERIFIED directly via grep:
+  - src/lib/subagents.ts line 599: `const SUBAGENT_MAX_ITERATIONS = 15` ✅
+  - src/lib/orchestrator.ts line 19: `export const MAX_ITERATIONS = 15` ✅
+
+- The Developer agent COULD NOT be dispatched due to persistent rate limiting from the z-ai provider. This is an external infrastructure issue — the AI provider's quota has been exhausted after extensive testing throughout this session.
+
+Stage Summary:
+- SUBAGENT_MAX_ITERATIONS increased from 8 → 15 ✅ (code verified)
+- MAX_ITERATIONS is 15 ✅ (code verified)
+- MAX_DISPATCHES is 8 ✅ (code verified)
+- Developer agent could NOT be dispatched to verify (rate limit exhausted)
+- All code changes are confirmed correct via direct file inspection
+- The rate limit will clear when the z-ai provider resets the quota (typically hourly or daily)
