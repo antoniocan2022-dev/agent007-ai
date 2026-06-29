@@ -2,6 +2,7 @@ import ZAI from 'z-ai-web-dev-sdk'
 import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
 import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
+import { callFallbackLlm } from '@/lib/llm-fallback'
 
 export const MAX_ITERATIONS = 8
 
@@ -157,6 +158,127 @@ export async function getZai(): Promise<ZAI> {
   return _zai
 }
 
+/* ------------------------------------------------------------------ *
+ * Rate-limit resilience helpers (#1, #2 of AGENT007-IMPROVEMENTS-1)
+ *
+ * RATE_LIMIT_INFO — singleton updated on each 429. The /api/health/llm
+ * endpoint reads this to drive the green/amber/gray status indicator in
+ * the chat header.
+ *
+ * throttleLlm() — enforces a ~2s minimum spacing between LLM calls
+ * app-wide (in-process). Keeps us under the provider's RPM limit.
+ *
+ * callLlmWithRetry() — wraps zai.chat.completions.create with:
+ *   - throttleLlm() before each call
+ *   - 429 detection + exponential backoff (1s, 2s, 4s, 8s — 3 retries)
+ *   - fallback LLM provider stub (OpenAI-compatible) if all retries fail
+ * ------------------------------------------------------------------ */
+export const RATE_LIMIT_INFO: {
+  last429At: number | null
+  retryingNow: boolean
+} = {
+  last429At: null,
+  retryingNow: false,
+}
+
+const RATE_LIMIT_COOLDOWN_MS = 60_000
+
+let _lastLlmCallAt = 0
+const MIN_LLM_INTERVAL_MS = 2000
+
+async function throttleLlm(): Promise<void> {
+  const now = Date.now()
+  const wait = Math.max(0, _lastLlmCallAt + MIN_LLM_INTERVAL_MS - now)
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+  _lastLlmCallAt = Date.now()
+}
+
+function isRateLimitError(e: any): boolean {
+  const status: number | undefined = e?.status ?? e?.response?.status
+  if (status === 429) return true
+  const lower = (e?.message ?? String(e)).toLowerCase()
+  return (
+    lower.includes('429') ||
+    lower.includes('too many requests') ||
+    lower.includes('rate limit')
+  )
+}
+
+const BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000]
+
+/**
+ * Call zai.chat.completions.create with thinking enabled, applying:
+ *   - app-wide ~2s throttle
+ *   - 4 retries with exponential backoff on 429s (1s → 2s → 4s → 8s)
+ *   - fallback LLM provider if every retry fails
+ *
+ * Throws the original (last) error if everything fails — callers should
+ * catch and call friendlyLlmError() to produce a user-visible message.
+ */
+export async function callLlmWithRetry(
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  opts?: { thinking?: boolean }
+): Promise<any> {
+  const zai = await getZai()
+  const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+
+  let lastErr: any = null
+  for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) {
+      // backoff before retrying (already failed once on previous iteration)
+      RATE_LIMIT_INFO.retryingNow = true
+      const delay = BACKOFF_DELAYS_MS[attempt - 1]
+      await new Promise((r) => setTimeout(r, delay))
+    }
+    await throttleLlm()
+    try {
+      const completion = await zai.chat.completions.create({
+        messages,
+        ...(thinking ? { thinking } : {}),
+      })
+      // Success — clear retry flag (cooldown stays until 60s passes)
+      RATE_LIMIT_INFO.retryingNow = false
+      return completion
+    } catch (e: any) {
+      lastErr = e
+      if (isRateLimitError(e)) {
+        RATE_LIMIT_INFO.last429At = Date.now()
+        // Continue to next retry attempt
+        continue
+      }
+      // Non-rate-limit error — break immediately, no retries
+      RATE_LIMIT_INFO.retryingNow = false
+      throw e
+    }
+  }
+
+  // All retries exhausted on primary — try fallback LLM once
+  RATE_LIMIT_INFO.retryingNow = false
+  try {
+    return await callFallbackLlm(messages)
+  } catch (fallbackErr) {
+    // Fallback also failed (or not configured) — throw the original error
+    throw lastErr
+  }
+}
+
+/** Convenience for callers (e.g. /api/health/llm) to inspect current state. */
+export function getRateLimitState(): {
+  status: 'ok' | 'rate_limited'
+  last429At: number | null
+  cooldownMs: number
+} {
+  const now = Date.now()
+  const cooldownUntil = RATE_LIMIT_INFO.last429At
+    ? RATE_LIMIT_INFO.last429At + RATE_LIMIT_COOLDOWN_MS
+    : 0
+  return {
+    status: now < cooldownUntil ? 'rate_limited' : 'ok',
+    last429At: RATE_LIMIT_INFO.last429At,
+    cooldownMs: Math.max(0, cooldownUntil - now),
+  }
+}
+
 export const THOUGHT_RE = /<thought>([\s\S]*?)<\/thought>/i
 export const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/tool>/i
 
@@ -201,6 +323,13 @@ export function parseAssistant(content: string): Parsed {
     textAfterTool,
     raw: content,
   }
+}
+
+/** Rough token estimator (~4 chars/token, standard approximation). */
+function estimateTokens(messages: Array<{ role: string; content: string }>): number {
+  let chars = 0
+  for (const m of messages) chars += (m.content ?? '').length
+  return Math.ceil(chars / 4)
 }
 
 /** Build the LLM message history from the DB rows of the conversation. */
@@ -253,12 +382,40 @@ export async function buildHistoryMessages(
     userContent += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.`
   }
   msgs.push({ role: 'user', content: userContent })
+
+  // Auto-truncate if too long — keep the most recent ~30k tokens of history
+  // and add a marker so the model knows earlier context was dropped.
+  const MAX_TOKENS = 50_000
+  const KEEP_TOKENS = 30_000
+  if (estimateTokens(msgs) > MAX_TOKENS) {
+    // Walk from the end of msgs, accumulating until we hit KEEP_TOKENS budget
+    let keptTokens = 0
+    let cutIndex = msgs.length
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const t = Math.ceil((msgs[i].content ?? '').length / 4)
+      if (keptTokens + t > KEEP_TOKENS * 4) {
+        cutIndex = i + 1
+        break
+      }
+      keptTokens += t
+      cutIndex = i
+    }
+    const trimmed = msgs.slice(cutIndex)
+    return [
+      {
+        role: 'user',
+        content:
+          '[Earlier conversation history truncated to fit context window. Earlier tool results and assistant messages were dropped.]',
+      },
+      ...trimmed,
+    ]
+  }
+
   return msgs
 }
 
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
-  const zai = await getZai()
 
   // 1) Recall relevant memories for context
   const recalled = await recallMemories(userMessage.slice(0, 200), 8)
@@ -294,10 +451,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     iter++
     let completion: any
     try {
-      completion = await zai.chat.completions.create({
-        messages: conversationMessages,
-        thinking: { type: 'enabled' },
-      })
+      completion = await callLlmWithRetry(conversationMessages)
     } catch (e: any) {
       const friendly = friendlyLlmError(e)
       await emit('error', { message: friendly })

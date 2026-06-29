@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
-import { parseAssistant, getZai, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
+import { parseAssistant, callLlmWithRetry, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
 
 /* ------------------------------------------------------------------ *
  * Sub-agent registry — 12 specialists orchestrated by Agent007 (Super)
@@ -593,6 +593,19 @@ export interface RunSubagentResult {
 
 const SUBAGENT_MAX_ITERATIONS = 6
 
+/* Per-agent request throttle (#10). Ensures each individual sub-agent waits
+ * at least MIN_AGENT_INTERVAL_MS between its own LLM calls, on top of the
+ * app-wide throttle in agent.ts. */
+const _agentLastCallAt: Record<string, number> = {}
+const MIN_AGENT_INTERVAL_MS = 1500
+async function throttleAgentCall(agentId: string): Promise<void> {
+  const now = Date.now()
+  const last = _agentLastCallAt[agentId] || 0
+  const wait = Math.max(0, last + MIN_AGENT_INTERVAL_MS - now)
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+  _agentLastCallAt[agentId] = Date.now()
+}
+
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
   // Look up the sub-agent definition from the merged list (built-in + DB-loaded
   // custom + built-in overlays). This lets the Super Agent dispatch to custom
@@ -610,7 +623,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     return { answer: `⚠️ ${err}`, steps: [] }
   }
 
-  const zai = await getZai()
   const allowed = new Set(sub.allowedTools)
   const ctx: ToolContext = { attachments: opts.attachments, language: opts.language }
 
@@ -638,12 +650,11 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
 
   while (iter < SUBAGENT_MAX_ITERATIONS) {
     iter++
+    // Per-agent throttle — keep each sub-agent's calls >=1.5s apart
+    await throttleAgentCall(sub.id)
     let completion: any
     try {
-      completion = await zai.chat.completions.create({
-        messages: conversationMessages,
-        thinking: { type: 'enabled' },
-      })
+      completion = await callLlmWithRetry(conversationMessages)
     } catch (e: any) {
       finalAnswer = friendlyLlmError(e)
       break

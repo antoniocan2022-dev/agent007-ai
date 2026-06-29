@@ -1,0 +1,913 @@
+     1→import { create } from 'zustand'
+     2→import type { AttachmentMeta } from '@/lib/tools'
+     3→
+     4→export type Lang = 'en' | 'zh'
+     5→
+     6→export type ToolStepKind =
+     7→  | 'super_thought'
+     8→  | 'super_tool'
+     9→  | 'subagent_dispatch'
+    10→  | 'subagent_thought'
+    11→  | 'subagent_tool'
+    12→  | 'subagent_complete'
+    13→  | 'manage_action'
+    14→
+    15→export interface ToolStep {
+    16→  id: string
+    17→  stepNumber: number
+    18→  thought?: string
+    19→  toolName?: string
+    20→  toolArgs?: any
+    21→  toolResult?: string
+    22→  toolPreview?: string
+    23→  toolOk?: boolean
+    24→  artifacts?: Array<{ type: 'image' | 'text' | 'link'; data: string; label?: string }>
+    25→  startedAt: number
+    26→  finishedAt?: number
+    27→  status: 'thinking' | 'running' | 'done' | 'error'
+    28→  /** categorization of this step (super vs sub-agent activity) */
+    29→  kind?: ToolStepKind
+    30→  /** if this step is from a sub-agent */
+    31→  subagentId?: string
+    32→  subagentName?: string
+    33→  subagentColor?: string
+    34→  subagentIcon?: string
+    35→  subagentTask?: string
+    36→  subagentAnswer?: string
+    37→  /** dispatch linkage so subagent_thought/tool_call/tool_result can be grouped */
+    38→  dispatchId?: string
+    39→  /** if this is a manage_action step */
+    40→  manageAction?: string
+    41→  manageAttrs?: Record<string, string>
+    42→  manageResult?: { ok: boolean; message: string; data?: any }
+    43→}
+    44→
+    45→export interface ChatMessage {
+    46→  id: string
+    47→  role: 'user' | 'assistant' | 'system'
+    48→  content: string
+    49→  attachments?: AttachmentMeta[]
+    50→  steps?: ToolStep[]
+    51→  isStreaming?: boolean
+    52→  createdAt: number
+    53→}
+    54→
+    55→export interface ConversationMeta {
+    56→  id: string
+    57→  title: string
+    58→  createdAt: string
+    59→  updatedAt: string
+    60→  _count?: { messages: number }
+    61→}
+    62→
+    63→export interface MemoryItem {
+    64→  id: string
+    65→  key: string
+    66→  value: string
+    67→  category: string
+    68→  updatedAt: string
+    69→}
+    70→
+    71→type AgentStatus = 'idle' | 'thinking' | 'tool_running' | 'streaming'
+    72→
+    73→interface ChatState {
+    74→  // conversation list
+    75→  conversations: ConversationMeta[]
+    76→  currentConversationId: string | null
+    77→  loadConversations: () => Promise<void>
+    78→  createConversation: () => Promise<string>
+    79→  selectConversation: (id: string) => Promise<void>
+    80→  deleteConversation: (id: string) => Promise<void>
+    81→
+    82→  // messages
+    83→  messages: ChatMessage[]
+    84→  loadMessages: (conversationId: string) => Promise<void>
+    85→  clearMessages: () => void
+    86→
+    87→  // input
+    88→  language: Lang
+    89→  setLanguage: (l: Lang) => void
+    90→  attachments: AttachmentMeta[]
+    91→  addAttachment: (a: AttachmentMeta) => void
+    92→  removeAttachment: (filename: string) => void
+    93→  clearAttachments: () => void
+    94→
+    95→  // agent runtime
+    96→  status: AgentStatus
+    97→  currentTool: string | null
+    98→  sendMessage: (text: string) => Promise<void>
+    99→  stopStreaming: () => void
+   100→  abortFlag: { current: boolean }
+   101→
+   102→  // memories (right panel)
+   103→  memories: MemoryItem[]
+   104→  loadMemories: () => Promise<void>
+   105→
+   106→  // sub-agent network state
+   107→  activeSubagents: string[] // dispatchIds currently running
+   108→  subagentActivity: Record<string, 'idle' | 'working' | 'done'> // by sub-agent id (aurora, vertex, ...)
+   109→  resetSubagentActivity: () => void
+   110→
+   111→  // ui
+   112→  leftOpen: boolean
+   113→  rightOpen: boolean
+   114→  toggleLeft: () => void
+   115→  toggleRight: () => void
+   116→  setLeft: (v: boolean) => void
+   117→  setRight: (v: boolean) => void
+   118→
+   119→  // active top-level tab
+   120→  activeTab: 'chat' | 'dashboard' | 'schedules' | 'settings'
+   121→  setActiveTab: (tab: 'chat' | 'dashboard' | 'schedules' | 'settings') => void
+   122→
+   123→  // global change-password modal trigger (openable from chat-header user menu + Settings tab)
+   124→  changePasswordOpen: boolean
+   125→  setChangePasswordOpen: (v: boolean) => void
+   126→
+   127→  // subagents panel refresh signal — bumped whenever a manage_action creates/edits/
+   128→  // deletes/toggles a sub-agent OR the user manually edits via the Sub-Agents panel.
+   129→  // The Sub-Agents tab subscribes to this and re-fetches /api/subagents when it changes.
+   130→  subagentsVersion: number
+   131→  bumpSubagents: () => void
+   132→}
+   133→
+   134→let msgIdCounter = 0
+   135→function makeId(prefix = 'm'): string {
+   136→  msgIdCounter += 1
+   137→  return `${prefix}_${Date.now()}_${msgIdCounter}`
+   138→}
+   139→
+   140→async function safeJson(res: Response): Promise<any> {
+   141→  const text = await res.text()
+   142→  try {
+   143→    return JSON.parse(text)
+   144→  } catch {
+   145→    return { error: text || 'parse error' }
+   146→  }
+   147→}
+   148→
+   149→export const useChatStore = create<ChatState>((set, get) => ({
+   150→  conversations: [],
+   151→  currentConversationId: null,
+   152→  messages: [],
+   153→  language: 'en',
+   154→  attachments: [],
+   155→  status: 'idle',
+   156→  currentTool: null,
+   157→  memories: [],
+   158→  activeSubagents: [],
+   159→  subagentActivity: {},
+   160→  leftOpen: true,
+   161→  rightOpen: true,
+   162→  abortFlag: { current: false },
+   163→  activeTab: 'chat',
+   164→  changePasswordOpen: false,
+   165→  subagentsVersion: 0,
+   166→
+   167→  loadConversations: async () => {
+   168→    try {
+   169→      const res = await fetch('/api/conversations')
+   170→      const data = await safeJson(res)
+   171→      set({ conversations: data.conversations ?? [] })
+   172→    } catch (e) {
+   173→      console.error('loadConversations', e)
+   174→    }
+   175→  },
+   176→
+   177→  createConversation: async () => {
+   178→    const res = await fetch('/api/conversations', {
+   179→      method: 'POST',
+   180→      headers: { 'Content-Type': 'application/json' },
+   181→      body: JSON.stringify({ title: 'New Conversation' }),
+   182→    })
+   183→    const data = await safeJson(res)
+   184→    const conv: ConversationMeta = data.conversation
+   185→    set((s) => ({
+   186→      conversations: [conv, ...s.conversations],
+   187→      currentConversationId: conv.id,
+   188→      messages: [],
+   189→    }))
+   190→    return conv.id
+   191→  },
+   192→
+   193→  selectConversation: async (id) => {
+   194→    set({ currentConversationId: id, messages: [] })
+   195→    await get().loadMessages(id)
+   196→  },
+   197→
+   198→  deleteConversation: async (id) => {
+   199→    await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+   200→    set((s) => ({
+   201→      conversations: s.conversations.filter((c) => c.id !== id),
+   202→      currentConversationId: s.currentConversationId === id ? null : s.currentConversationId,
+   203→      messages: s.currentConversationId === id ? [] : s.messages,
+   204→    }))
+   205→  },
+   206→
+   207→  loadMessages: async (conversationId) => {
+   208→    try {
+   209→      const res = await fetch(`/api/conversations/${conversationId}`)
+   210→      const data = await safeJson(res)
+   211→      const conv = data.conversation
+   212→      if (!conv) {
+   213→        set({ messages: [] })
+   214→        return
+   215→      }
+   216→      // Reconstruct messages from DB rows: collapse tool/thought rows under the *next* assistant message
+   217→      const rows: any[] = conv.messages ?? []
+   218→      const messages: ChatMessage[] = []
+   219→      let pendingSteps: ToolStep[] = []
+   220→      // Track open dispatches so subsequent subagent rows can be linked.
+   221→      // Map dispatchId → { subagentId, subagentName, subagentColor, subagentIcon, task, stepId }
+   222→      const dispatchMap = new Map<string, any>()
+   223→      let stepCounter = 0
+   224→      for (const r of rows) {
+   225→        if (r.role === 'user') {
+   226→          const atts = r.attachments ? safeParseAttachments(r.attachments) : undefined
+   227→          messages.push({
+   228→            id: r.id,
+   229→            role: 'user',
+   230→            content: r.content,
+   231→            attachments: atts,
+   232→            createdAt: new Date(r.createdAt).getTime(),
+   233→          })
+   234→        } else if (r.role === 'thought') {
+   235→          // Check if this is a sub-agent thought (prefixed with [subagent:id])
+   236→          const subMatch = r.content?.match(/^\[subagent:([^\]]+)\]\s*(.*)$/s)
+   237→          if (subMatch) {
+   238→            const subId = subMatch[1]
+   239→            // Find the most recent dispatch for this sub-agent
+   240→            let parentDispatch: any = null
+   241→            for (const [did, info] of dispatchMap.entries()) {
+   242→              if (info.subagentId === subId) parentDispatch = { did, ...info }
+   243→            }
+   244→            stepCounter++
+   245→            pendingSteps.push({
+   246→              id: r.id,
+   247→              stepNumber: stepCounter,
+   248→              thought: subMatch[2],
+   249→              status: 'done',
+   250→              startedAt: new Date(r.createdAt).getTime(),
+   251→              finishedAt: new Date(r.createdAt).getTime(),
+   252→              kind: 'subagent_thought',
+   253→              dispatchId: parentDispatch?.did,
+   254→              subagentId: subId,
+   255→              subagentName: parentDispatch?.subagentName,
+   256→              subagentColor: parentDispatch?.subagentColor,
+   257→              subagentIcon: parentDispatch?.subagentIcon,
+   258→            })
+   259→          } else {
+   260→            stepCounter++
+   261→            pendingSteps.push({
+   262→              id: r.id,
+   263→              stepNumber: stepCounter,
+   264→              thought: r.content,
+   265→              status: 'done',
+   266→              startedAt: new Date(r.createdAt).getTime(),
+   267→              finishedAt: new Date(r.createdAt).getTime(),
+   268→              kind: 'super_thought',
+   269→            })
+   270→          }
+   271→        } else if (r.role === 'tool') {
+   272→          // Sub-agent dispatch?
+   273→          if (r.toolName === 'subagent_dispatch') {
+   274→            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+   275→            stepCounter++
+   276→            const stepId = `dispatch_${meta.dispatchId ?? r.id}`
+   277→            const stepInfo: any = {
+   278→              subagentId: meta.agentId,
+   279→              subagentName: meta.agentName,
+   280→              subagentColor: meta.color,
+   281→              subagentIcon: meta.icon,
+   282→              task: meta.task,
+   283→            }
+   284→            if (meta.dispatchId) dispatchMap.set(meta.dispatchId, stepInfo)
+   285→            pendingSteps.push({
+   286→              id: stepId,
+   287→              stepNumber: stepCounter,
+   288→              subagentId: meta.agentId,
+   289→              subagentName: meta.agentName,
+   290→              subagentColor: meta.color,
+   291→              subagentIcon: meta.icon,
+   292→              subagentTask: meta.task,
+   293→              dispatchId: meta.dispatchId,
+   294→              status: 'done',
+   295→              startedAt: new Date(r.createdAt).getTime(),
+   296→              finishedAt: new Date(r.createdAt).getTime(),
+   297→              kind: 'subagent_dispatch',
+   298→              // If a subagent_complete row exists for the same dispatchId, the
+   299→              // subagentAnswer will be filled below when we encounter that row.
+   300→            })
+   301→          } else if (r.toolName === 'subagent_complete') {
+   302→            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+   303→            // Find the original dispatch step and set the answer
+   304→            const dispatchStep = pendingSteps.find(
+   305→              (st) => st.dispatchId === meta.dispatchId && st.kind === 'subagent_dispatch'
+   306→            )
+   307→            if (dispatchStep) {
+   308→              dispatchStep.subagentAnswer = r.toolResult ?? ''
+   309→              dispatchStep.status = 'done'
+   310→              dispatchStep.finishedAt = new Date(r.createdAt).getTime()
+   311→            }
+   312→          } else if (r.toolName === 'subagent_tool') {
+   313→            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+   314→            const parentDispatch = meta.dispatchId ? dispatchMap.get(meta.dispatchId) : null
+   315→            stepCounter++
+   316→            pendingSteps.push({
+   317→              id: meta.stepId ?? r.id,
+   318→              stepNumber: stepCounter,
+   319→              toolName: meta.tool,
+   320→              toolArgs: meta.args,
+   321→              toolResult: r.toolResult ?? '',
+   322→              toolPreview: (r.toolResult ?? '').slice(0, 160),
+   323→              toolOk: true,
+   324→              status: 'done',
+   325→              startedAt: new Date(r.createdAt).getTime(),
+   326→              finishedAt: new Date(r.createdAt).getTime(),
+   327→              kind: 'subagent_tool',
+   328→              dispatchId: meta.dispatchId,
+   329→              subagentId: parentDispatch?.subagentId ?? meta.agentId,
+   330→              subagentName: parentDispatch?.subagentName,
+   331→              subagentColor: parentDispatch?.subagentColor,
+   332→              subagentIcon: parentDispatch?.subagentIcon,
+   333→            })
+   334→          } else if (r.toolName === 'manage_action') {
+   335→            // Reconstruct manage_action step from persisted row
+   336→            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+   337→            stepCounter++
+   338→            pendingSteps.push({
+   339→              id: r.id,
+   340→              stepNumber: stepCounter,
+   341→              status: 'done',
+   342→              startedAt: new Date(r.createdAt).getTime(),
+   343→              finishedAt: new Date(r.createdAt).getTime(),
+   344→              kind: 'manage_action',
+   345→              manageAction: meta.action,
+   346→              manageAttrs: meta.attrs,
+   347→              manageResult: { ok: !/failed|error/i.test(r.toolResult ?? ''), message: r.toolResult ?? '' },
+   348→            })
+   349→          } else {
+   350→            // Regular super-agent tool
+   351→            stepCounter++
+   352→            pendingSteps.push({
+   353→              id: r.id,
+   354→              stepNumber: stepCounter,
+   355→              toolName: r.toolName,
+   356→              toolArgs: r.toolArgs ? safeParseJson(r.toolArgs) : undefined,
+   357→              toolResult: r.toolResult ?? '',
+   358→              toolPreview: (r.toolResult ?? '').slice(0, 160),
+   359→              toolOk: true,
+   360→              status: 'done',
+   361→              startedAt: new Date(r.createdAt).getTime(),
+   362→              finishedAt: new Date(r.createdAt).getTime(),
+   363→              kind: 'super_tool',
+   364→            })
+   365→          }
+   366→        } else if (r.role === 'assistant') {
+   367→          messages.push({
+   368→            id: r.id,
+   369→            role: 'assistant',
+   370→            content: r.content,
+   371→            steps: pendingSteps,
+   372→            createdAt: new Date(r.createdAt).getTime(),
+   373→          })
+   374→          pendingSteps = []
+   375→          stepCounter = 0
+   376→          dispatchMap.clear()
+   377→        }
+   378→      }
+   379→      set({ messages })
+   380→    } catch (e) {
+   381→      console.error('loadMessages', e)
+   382→      set({ messages: [] })
+   383→    }
+   384→  },
+   385→
+   386→  clearMessages: () => set({ messages: [] }),
+   387→
+   388→  setLanguage: (l) => set({ language: l }),
+   389→
+   390→  addAttachment: (a) => set((s) => ({ attachments: [...s.attachments, a] })),
+   391→  removeAttachment: (filename) =>
+   392→    set((s) => ({ attachments: s.attachments.filter((a) => a.filename !== filename) })),
+   393→  clearAttachments: () => set({ attachments: [] }),
+   394→
+   395→  loadMemories: async () => {
+   396→    try {
+   397→      const res = await fetch('/api/memory')
+   398→      const data = await safeJson(res)
+   399→      set({ memories: data.memories ?? [] })
+   400→    } catch (e) {
+   401→      console.error('loadMemories', e)
+   402→    }
+   403→  },
+   404→
+   405→  resetSubagentActivity: () => set({ activeSubagents: [], subagentActivity: {} }),
+   406→
+   407→  sendMessage: async (text) => {
+   408→    const trimmed = text.trim()
+   409→    if (!trimmed && get().attachments.length === 0) return
+   410→    const state = get()
+   411→    if (state.status !== 'idle') return
+   412→
+   413→    let conversationId = state.currentConversationId
+   414→    if (!conversationId) {
+   415→      conversationId = await get().createConversation()
+   416→    }
+   417→
+   418→    const userMsg: ChatMessage = {
+   419→      id: makeId('u'),
+   420→      role: 'user',
+   421→      content: trimmed,
+   422→      attachments: state.attachments.length ? [...state.attachments] : undefined,
+   423→      createdAt: Date.now(),
+   424→    }
+   425→    const assistantId = makeId('a')
+   426→    const assistantMsg: ChatMessage = {
+   427→      id: assistantId,
+   428→      role: 'assistant',
+   429→      content: '',
+   430→      steps: [],
+   431→      isStreaming: true,
+   432→      createdAt: Date.now(),
+   433→    }
+   434→    set((s) => ({
+   435→      messages: [...s.messages, userMsg, assistantMsg],
+   436→      status: 'thinking',
+   437→      currentTool: null,
+   438→      attachments: [],
+   439→      abortFlag: { current: false },
+   440→      activeSubagents: [],
+   441→      subagentActivity: {},
+   442→    }))
+   443→
+   444→    const abortFlag = get().abortFlag
+   445→    try {
+   446→      const res = await fetch('/api/agent', {
+   447→        method: 'POST',
+   448→        headers: { 'Content-Type': 'application/json' },
+   449→        body: JSON.stringify({
+   450→          message: trimmed,
+   451→          conversationId,
+   452→          attachments: userMsg.attachments ?? [],
+   453→          language: state.language,
+   454→        }),
+   455→      })
+   456→      if (!res.ok || !res.body) {
+   457→        const errText = await res.text()
+   458→        throw new Error(errText || `HTTP ${res.status}`)
+   459→      }
+   460→
+   461→      const reader = res.body.getReader()
+   462→      const decoder = new TextDecoder()
+   463→      let buffer = ''
+   464→      // Track which step is "in progress" so we can mark it done
+   465→      let currentStepId: string | null = null
+   466→
+   467→      while (true) {
+   468→        if (abortFlag.current) break
+   469→        const { done, value } = await reader.read()
+   470→        if (done) break
+   471→        buffer += decoder.decode(value, { stream: true })
+   472→
+   473→        // SSE messages separated by \n\n
+   474→        let idx: number
+   475→        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+   476→          const rawEvent = buffer.slice(0, idx)
+   477→          buffer = buffer.slice(idx + 2)
+   478→          const evt = parseSse(rawEvent)
+   479→          if (!evt) continue
+   480→          applyEvent(evt.event, evt.data, assistantId, set, get, () => {
+   481→            currentStepId = evt.data?.stepId ?? currentStepId
+   482→          })
+   483→          if (evt.event === 'done' || evt.event === 'error') {
+   484→            // finish
+   485→          }
+   486→        }
+   487→      }
+   488→
+   489→      set((s) => ({
+   490→        messages: s.messages.map((m) =>
+   491→          m.id === assistantId ? { ...m, isStreaming: false } : m
+   492→        ),
+   493→        status: 'idle',
+   494→        currentTool: null,
+   495→        activeSubagents: [],
+   496→      }))
+   497→      // Refresh conversation list (title may have changed) + memories
+   498→      get().loadConversations()
+   499→      get().loadMemories()
+   500→    } catch (e: any) {
+   501→      console.error('sendMessage error', e)
+   502→      set((s) => ({
+   503→        messages: s.messages.map((m) =>
+   504→          m.id === assistantId
+   505→            ? {
+   506→                ...m,
+   507→                isStreaming: false,
+   508→                content:
+   509→                  m.content +
+   510→                  (m.content ? '\n\n' : '') +
+   511→                  `⚠️ **Error:** ${e?.message ?? String(e)}`,
+   512→              }
+   513→            : m
+   514→        ),
+   515→        status: 'idle',
+   516→        currentTool: null,
+   517→        activeSubagents: [],
+   518→      }))
+   519→    }
+   520→  },
+   521→
+   522→  stopStreaming: () => {
+   523→    get().abortFlag.current = true
+   524→    set({ status: 'idle', currentTool: null })
+   525→  },
+   526→
+   527→  toggleLeft: () => set((s) => ({ leftOpen: !s.leftOpen })),
+   528→  toggleRight: () => set((s) => ({ rightOpen: !s.rightOpen })),
+   529→  setLeft: (v) => set({ leftOpen: v }),
+   530→  setRight: (v) => set({ rightOpen: v }),
+   531→  setActiveTab: (tab) => set({ activeTab: tab }),
+   532→  setChangePasswordOpen: (v) => set({ changePasswordOpen: v }),
+   533→  bumpSubagents: () => set((s) => ({ subagentsVersion: s.subagentsVersion + 1 })),
+   534→}))
+   535→
+   536→function safeParseJson(s: string): any {
+   537→  try {
+   538→    return JSON.parse(s)
+   539→  } catch {
+   540→    return s
+   541→  }
+   542→}
+   543→function safeParseAttachments(s: string): AttachmentMeta[] | undefined {
+   544→  try {
+   545→    const a = JSON.parse(s)
+   546→    if (Array.isArray(a)) return a
+   547→  } catch {
+   548→    /* ignore */
+   549→  }
+   550→  return undefined
+   551→}
+   552→
+   553→function parseSse(raw: string): { event: string; data: any } | null {
+   554→  const lines = raw.split('\n')
+   555→  let event = 'message'
+   556→  let data = ''
+   557→  for (const ln of lines) {
+   558→    if (ln.startsWith('event:')) event = ln.slice(6).trim()
+   559→    else if (ln.startsWith('data:')) data += ln.slice(5).trim()
+   560→  }
+   561→  try {
+   562→    return { event, data: data ? JSON.parse(data) : {} }
+   563→  } catch {
+   564→    return { event, data: { raw: data } }
+   565→  }
+   566→}
+   567→
+   568→function applyEvent(
+   569→  event: string,
+   570→  data: any,
+   571→  assistantId: string,
+   572→  set: (fn: (s: ChatState) => Partial<ChatState>) => void,
+   573→  get: () => ChatState,
+   574→  _track: () => void
+   575→) {
+   576→  if (event === 'thought') {
+   577→    set((s) => ({
+   578→      status: 'thinking',
+   579→      messages: s.messages.map((m) => {
+   580→        if (m.id !== assistantId) return m
+   581→        const steps = [...(m.steps ?? [])]
+   582→        // create a "thinking-only" step so users see the reasoning
+   583→        const stepId = `thought_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+   584→        steps.push({
+   585→          id: stepId,
+   586→          stepNumber: steps.length + 1,
+   587→          thought: data.content,
+   588→          status: 'done',
+   589→          startedAt: Date.now(),
+   590→          finishedAt: Date.now(),
+   591→          kind: 'super_thought',
+   592→        })
+   593→        return { ...m, steps }
+   594→      }),
+   595→    }))
+   596→  } else if (event === 'tool_call') {
+   597→    const stepId = data.stepId
+   598→    set((s) => ({
+   599→      status: 'tool_running',
+   600→      currentTool: data.name,
+   601→      messages: s.messages.map((m) => {
+   602→        if (m.id !== assistantId) return m
+   603→        const steps = [...(m.steps ?? [])]
+   604→        steps.push({
+   605→          id: stepId,
+   606→          stepNumber: data.stepNumber ?? steps.length + 1,
+   607→          thought: data.thought,
+   608→          toolName: data.name,
+   609→          toolArgs: data.args,
+   610→          status: 'running',
+   611→          startedAt: Date.now(),
+   612→          kind: 'super_tool',
+   613→        })
+   614→        return { ...m, steps }
+   615→      }),
+   616→    }))
+   617→  } else if (event === 'tool_result') {
+   618→    const stepId = data.stepId
+   619→    set((s) => ({
+   620→      status: 'thinking',
+   621→      currentTool: null,
+   622→      messages: s.messages.map((m) => {
+   623→        if (m.id !== assistantId) return m
+   624→        const steps = (m.steps ?? []).map((st) =>
+   625→          st.id === stepId
+   626→            ? {
+   627→                ...st,
+   628→                status: data.ok === false ? 'error' : 'done',
+   629→                toolResult: data.result,
+   630→                toolPreview: data.preview,
+   631→                toolOk: data.ok,
+   632→                artifacts: data.artifacts,
+   633→                finishedAt: Date.now(),
+   634→              }
+   635→            : st
+   636→        )
+   637→        return { ...m, steps }
+   638→      }),
+   639→    }))
+   640→  } else if (event === 'subagent_dispatch') {
+   641→    const dispatchId = data.dispatchId
+   642→    const agentId = data.agentId
+   643→    set((s) => {
+   644→      const activeSubagents = s.activeSubagents.includes(dispatchId)
+   645→        ? s.activeSubagents
+   646→        : [...s.activeSubagents, dispatchId]
+   647→      const subagentActivity = { ...s.subagentActivity, [agentId]: 'working' as const }
+   648→      return {
+   649→        status: 'thinking',
+   650→        activeSubagents,
+   651→        subagentActivity,
+   652→        messages: s.messages.map((m) => {
+   653→          if (m.id !== assistantId) return m
+   654→          const steps = [...(m.steps ?? [])]
+   655→          const stepId = `dispatch_${dispatchId}`
+   656→          steps.push({
+   657→            id: stepId,
+   658→            stepNumber: data.stepNumber ?? steps.length + 1,
+   659→            subagentId: agentId,
+   660→            subagentName: data.agentName,
+   661→            subagentColor: data.color,
+   662→            subagentIcon: data.icon,
+   663→            subagentTask: data.task,
+   664→            dispatchId,
+   665→            status: 'running',
+   666→            startedAt: Date.now(),
+   667→            kind: 'subagent_dispatch',
+   668→          })
+   669→          return { ...m, steps }
+   670→        }),
+   671→      }
+   672→    })
+   673→  } else if (event === 'subagent_thought') {
+   674→    const dispatchId = data.dispatchId
+   675→    set((s) => ({
+   676→      messages: s.messages.map((m) => {
+   677→        if (m.id !== assistantId) return m
+   678→        const steps = [...(m.steps ?? [])]
+   679→        // Find the dispatch step for this dispatchId to get sub-agent info
+   680→        const dispatchStep = steps.find(
+   681→          (st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch'
+   682→        )
+   683→        const stepId = `subthought_${dispatchId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+   684→        steps.push({
+   685→          id: stepId,
+   686→          stepNumber: steps.length + 1,
+   687→          thought: data.content,
+   688→          status: 'done',
+   689→          startedAt: Date.now(),
+   690→          finishedAt: Date.now(),
+   691→          kind: 'subagent_thought',
+   692→          dispatchId,
+   693→          subagentId: dispatchStep?.subagentId,
+   694→          subagentName: dispatchStep?.subagentName,
+   695→          subagentColor: dispatchStep?.subagentColor,
+   696→          subagentIcon: dispatchStep?.subagentIcon,
+   697→        })
+   698→        return { ...m, steps }
+   699→      }),
+   700→    }))
+   701→  } else if (event === 'subagent_tool_call') {
+   702→    const dispatchId = data.dispatchId
+   703→    const stepId = data.stepId
+   704→    set((s) => ({
+   705→      status: 'tool_running',
+   706→      currentTool: data.name,
+   707→      messages: s.messages.map((m) => {
+   708→        if (m.id !== assistantId) return m
+   709→        const steps = [...(m.steps ?? [])]
+   710→        const dispatchStep = steps.find(
+   711→          (st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch'
+   712→        )
+   713→        steps.push({
+   714→          id: stepId,
+   715→          stepNumber: data.stepNumber ?? steps.length + 1,
+   716→          thought: data.thought,
+   717→          toolName: data.name,
+   718→          toolArgs: data.args,
+   719→          status: 'running',
+   720→          startedAt: Date.now(),
+   721→          kind: 'subagent_tool',
+   722→          dispatchId,
+   723→          subagentId: dispatchStep?.subagentId,
+   724→          subagentName: dispatchStep?.subagentName,
+   725→          subagentColor: dispatchStep?.subagentColor,
+   726→          subagentIcon: dispatchStep?.subagentIcon,
+   727→        })
+   728→        return { ...m, steps }
+   729→      }),
+   730→    }))
+   731→  } else if (event === 'subagent_tool_result') {
+   732→    const stepId = data.stepId
+   733→    set((s) => ({
+   734→      status: 'thinking',
+   735→      currentTool: null,
+   736→      messages: s.messages.map((m) => {
+   737→        if (m.id !== assistantId) return m
+   738→        const steps = (m.steps ?? []).map((st) =>
+   739→          st.id === stepId
+   740→            ? {
+   741→                ...st,
+   742→                status: data.ok === false ? 'error' : 'done',
+   743→                toolResult: data.result,
+   744→                toolPreview: data.preview,
+   745→                toolOk: data.ok,
+   746→                artifacts: data.artifacts,
+   747→                finishedAt: Date.now(),
+   748→              }
+   749→            : st
+   750→        )
+   751→        return { ...m, steps }
+   752→      }),
+   753→    }))
+   754→  } else if (event === 'subagent_complete') {
+   755→    const dispatchId = data.dispatchId
+   756→    set((s) => {
+   757→      const activeSubagents = s.activeSubagents.filter((id) => id !== dispatchId)
+   758→      // Mark the sub-agent activity as done (find which agent this dispatchId was for)
+   759→      const messages = s.messages.map((m) => {
+   760→        if (m.id !== assistantId) return m
+   761→        const steps = (m.steps ?? []).map((st) => {
+   762→          if (st.dispatchId === dispatchId && st.kind === 'subagent_dispatch') {
+   763→            const subagentActivity = { ...s.subagentActivity }
+   764→            if (st.subagentId) subagentActivity[st.subagentId] = 'done'
+   765→            // Update via the outer set below (this closure can't return both)
+   766→            return {
+   767→              ...st,
+   768→              status: 'done' as const,
+   769→              subagentAnswer: data.answer,
+   770→              finishedAt: Date.now(),
+   771→            }
+   772→          }
+   773→          return st
+   774→        })
+   775→        return { ...m, steps }
+   776→      })
+   777→      // Determine subagent id for activity update
+   778→      let agentId: string | undefined
+   779→      for (const m of s.messages) {
+   780→        if (m.id !== assistantId) continue
+   781→        const ds = (m.steps ?? []).find(
+   782→          (st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch'
+   783→        )
+   784→        if (ds?.subagentId) {
+   785→          agentId = ds.subagentId
+   786→          break
+   787→        }
+   788→      }
+   789→      const subagentActivity = { ...s.subagentActivity }
+   790→      if (agentId) subagentActivity[agentId] = 'done'
+   791→      return { activeSubagents, subagentActivity, messages }
+   792→    })
+   793→  } else if (event === 'synthesis') {
+   794→    set((s) => ({
+   795→      status: 'streaming',
+   796→      messages: s.messages.map((m) => {
+   797→        if (m.id !== assistantId) return m
+   798→        const steps = [...(m.steps ?? [])]
+   799→        // Push a "synthesizing" marker step (only if not already present)
+   800→        const hasSynth = steps.some((st) => st.kind === ('super_thought' as any) && st.thought === '__synthesizing__')
+   801→        if (!hasSynth) {
+   802→          steps.push({
+   803→            id: `synth_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+   804→            stepNumber: steps.length + 1,
+   805→            thought: '__synthesizing__',
+   806→            status: 'thinking',
+   807→            startedAt: Date.now(),
+   808→            kind: 'super_thought',
+   809→          })
+   810→        }
+   811→        return { ...m, steps }
+   812→      }),
+   813→    }))
+   814→  } else if (event === 'token') {
+   815→    set((s) => ({
+   816→      status: 'streaming',
+   817→      messages: s.messages.map((m) => {
+   818→        if (m.id !== assistantId) return m
+   819→        // Drop the synthesizing marker step if it exists, since real tokens are now arriving
+   820→        const steps = (m.steps ?? []).filter(
+   821→          (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
+   822→        )
+   823→        return { ...m, content: m.content + (data.content ?? ''), steps }
+   824→      }),
+   825→    }))
+   826→  } else if (event === 'memory_update') {
+   827→    // Optimistically add/update memory in the right panel
+   828→    set((s) => {
+   829→      const exists = s.memories.find((m) => m.key === data.key)
+   830→      const item: MemoryItem = {
+   831→        id: exists?.id ?? `tmp_${Date.now()}`,
+   832→        key: data.key,
+   833→        value: data.value,
+   834→        category: data.category ?? 'general',
+   835→        updatedAt: new Date().toISOString(),
+   836→      }
+   837→      const memories = exists
+   838→        ? s.memories.map((m) => (m.key === data.key ? item : m))
+   839→        : [item, ...s.memories]
+   840→      return { memories }
+   841→    })
+   842→  } else if (event === 'manage_action') {
+   843→    // Two-phase event: status='running' pushes a new step; status='done'|'error'
+   844→    // updates that step with the result.
+   845→    const stepId = data.stepId
+   846→    if (data.status === 'running') {
+   847→      set((s) => ({
+   848→        status: 'tool_running',
+   849→        currentTool: `manage:${data.action}`,
+   850→        messages: s.messages.map((m) => {
+   851→          if (m.id !== assistantId) return m
+   852→          const steps = [...(m.steps ?? [])]
+   853→          steps.push({
+   854→            id: stepId,
+   855→            stepNumber: data.stepNumber ?? steps.length + 1,
+   856→            thought: data.thought,
+   857→            status: 'running',
+   858→            startedAt: Date.now(),
+   859→            kind: 'manage_action',
+   860→            manageAction: data.action,
+   861→            manageAttrs: data.attrs,
+   862→          })
+   863→          return { ...m, steps }
+   864→        }),
+   865→      }))
+   866→    } else {
+   867→      // done or error
+   868→      set((s) => ({
+   869→        status: 'thinking',
+   870→        currentTool: null,
+   871→        messages: s.messages.map((m) => {
+   872→          if (m.id !== assistantId) return m
+   873→          const steps = (m.steps ?? []).map((st) =>
+   874→            st.id === stepId
+   875→              ? {
+   876→                  ...st,
+   877→                  status: data.status === 'error' ? 'error' : 'done',
+   878→                  manageResult: data.result,
+   879→                  finishedAt: Date.now(),
+   880→                }
+   881→              : st
+   882→          )
+   883→          return { ...m, steps }
+   884→        }),
+   885→      }))
+   886→    }
+   887→  } else if (event === 'subagents_updated') {
+   888→    // The orchestrator created/edited/deleted/toggled a sub-agent. Bump the
+   889→    // version so any mounted Sub-Agents panel re-fetches the list. Also
+   890→    // refresh memories + conversations (cheap) so the rest of the UI is fresh.
+   891→    set((s) => ({ subagentsVersion: s.subagentsVersion + 1 }))
+   892→  } else if (event === 'error') {
+   893→    set((s) => ({
+   894→      messages: s.messages.map((m) =>
+   895→        m.id === assistantId
+   896→          ? {
+   897→              ...m,
+   898→              content:
+   899→                m.content +
+   900→                (m.content ? '\n\n' : '') +
+   901→                `⚠️ **Error:** ${data.message ?? 'unknown error'}`,
+   902→              isStreaming: false,
+   903→            }
+   904→          : m
+   905→      ),
+   906→      status: 'idle',
+   907→      currentTool: null,
+   908→      activeSubagents: [],
+   909→    }))
+   910→  }
+   911→  // 'done' event: nothing special; outer loop will set isStreaming=false
+   912→}
+   913→

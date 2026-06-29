@@ -20,6 +20,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useChatStore } from '@/store/chat-store'
 import { NexusLogo } from './nexus-logo'
+import { ApiStatusIndicator } from './api-status-indicator'
 
 type TabId = 'chat' | 'dashboard' | 'schedules' | 'settings'
 
@@ -134,10 +135,16 @@ export function ChatHeader({
           <span className={language === 'zh' ? 'text-purple-300' : 'text-[#7c89b5]'}>中文</span>
         </button>
 
-        {/* capabilities badge (desktop) */}
+        {/* capabilities badge (desktop) — with API status indicator */}
         <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border-cyan-400/20 text-[10px] text-[#9bb5d4]">
+          <ApiStatusIndicator />
           <ShieldCheck className="w-3 h-3 text-cyan-300" />
           <span>12 sub-agents • full web access • autonomous</span>
+        </div>
+
+        {/* API status indicator (mobile/tablet) — shown separately when xl hidden */}
+        <div className="xl:hidden">
+          <ApiStatusIndicator compact />
         </div>
 
         {/* user menu */}

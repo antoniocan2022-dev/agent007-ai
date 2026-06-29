@@ -105,6 +105,29 @@ model NotificationLog {
 }
 
 /**
+ * Pending manage actions — recorded before executing a <manage .../> tag so
+ * that if the run fails mid-flight (network, server crash, etc.), the action
+ * can be replayed on the next orchestrator run.
+ *
+ * Lifecycle: pending → executing → done | failed.
+ * The `attrs` field is a JSON-stringified Record<string,string> matching the
+ * attributes parsed from the <manage .../> tag.
+ */
+model PendingManageAction {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  attrs     String   // JSON
+  status    String   @default("pending") // pending | executing | done | failed
+  result    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+/**
  * Custom (user-created) sub-agent definitions. Built-in agents live in code
  * (see /src/lib/subagents.ts); custom agents are stored here and merged with
  * the built-in list at runtime. Built-in agents CANNOT be deleted (their DB

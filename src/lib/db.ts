@@ -15,7 +15,7 @@ const globalForPrisma = globalThis as unknown as {
 
 // Bump this whenever you push a schema change that adds/removes models.
 // On the next request, the client will be re-created with the new schema.
-const SCHEMA_VERSION = 'v2-legal-banker-1'
+const SCHEMA_VERSION = 'v3-pending-manage-action-1'
 
 function createPrisma(): PrismaClient {
   return new PrismaClient({ log: ['query'] })

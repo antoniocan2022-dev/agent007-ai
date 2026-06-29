@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
+import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -74,6 +75,10 @@ export async function POST(req: NextRequest) {
       const emit: OrchestratorEventEmit = async (event: string, data: any) => {
         safeEnqueue(sse(event, data))
       }
+      // Mark this request as "interactive" so the /api/schedules/tick endpoint
+      // defers any scheduled runs until we're done. User-initiated chats always
+      // get priority over scheduled autonomous missions.
+      beginInteractive()
       try {
         const result = await runOrchestrator({
           conversationId,
@@ -86,6 +91,7 @@ export async function POST(req: NextRequest) {
       } catch (e: any) {
         safeEnqueue(sse('error', { message: e?.message ?? String(e) }))
       } finally {
+        endInteractive()
         try {
           controller.close()
         } catch {

@@ -5,7 +5,7 @@ import {
   parseAssistant,
   buildHistoryMessages,
   chunkText,
-  getZai,
+  callLlmWithRetry,
   THOUGHT_RE,
   TOOL_RE,
   SYSTEM_PROMPT as BASE_SYSTEM_PROMPT,
@@ -192,9 +192,329 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+/* ------------------------------------------------------------------ *
+ * Fast-path detection — when the user's message is a CLEAR, unambiguous
+ * create_agent request (short, single-intent, matches a strict regex),
+ * we skip the LLM round-trip entirely and execute the manage action
+ * directly. This makes "create a sub-agent named X" instant and immune
+ * to rate-limiting.
+ *
+ * Returns null when the pattern is not clear enough → fall through to
+ * normal LLM orchestration.
+ * ------------------------------------------------------------------ */
+
+interface FastPathCreateAgent {
+  action: 'create_agent'
+  attrs: Record<string, string>
+}
+
+/* Match: "create a new sub-agent named 'Cybersecurity A'"
+ *        "add an agent called TESTFAST via fast path"
+ *        "build a subagent named Foo"
+ * Captures the agent name in group 1 (quotes optional). */
+const FAST_CREATE_RE =
+  /(?:create|add|build)\s+(?:a\s+)?(?:new\s+)?(?:sub-?agent|agent)\s+(?:named|called)\s+["']?([A-Za-z0-9 _\-]+?)["']?(?:[\s.,]|$)/i
+
+/* Match: role="..." / role: '...' / role is "..." / role named "..." */
+function extractAttr(message: string, key: string): string | null {
+  // key="value" or key='value' or key=value-with-no-spaces
+  const kvRe = new RegExp(
+    `${key}\\s*(?:=|:)\\s*["']?([^"'\\n,]+?)["']?(?:[\\s,]|$)`,
+    'i'
+  )
+  const m1 = message.match(kvRe)
+  if (m1) return m1[1].trim()
+  // "role is X" / "role named X" / "specialized in X"
+  const phraseRe = new RegExp(
+    `${key}\\s+(?:is|named|specialized\\s+in|specialising\\s+in|specialty)\\s+["']?([A-Za-z0-9 _\\-/]+?)["']?(?:[\\s.,]|$)`,
+    'i'
+  )
+  const m2 = message.match(phraseRe)
+  if (m2) return m2[1].trim()
+  return null
+}
+
+function detectFastPathManage(userMessage: string): FastPathCreateAgent | null {
+  if (!userMessage || userMessage.length > 500) return null
+  // Require an explicit "fast path" hint OR a very clear single-intent command.
+  // The "fast path" hint lets users opt in; we also accept very-short clear
+  // commands without the hint.
+  const hasFastHint = /\bfast[\s-]?path\b/i.test(userMessage)
+  const m = userMessage.match(FAST_CREATE_RE)
+  if (!m) return null
+  const name = m[1].trim()
+  if (!name || name.length < 2 || name.length > 80) return null
+
+  // If the message contains words suggesting other actions (dispatch, delete,
+  // log, schedule, set goal, etc.), DON'T fast-path — let the LLM handle it.
+  const otherActions =
+    /\b(?:dispatch|delete|remove|toggle|disable|enable|log\s+\$|log\s+income|set\s+(?:my\s+)?(?:income|growth|daily)|create\s+schedule|update\s+settings)\b/i.test(
+      userMessage
+    )
+  if (otherActions) return null
+
+  // Without the fast-path hint, require very short messages to avoid
+  // over-eager matching on long descriptive requests.
+  if (!hasFastHint && userMessage.length > 200) return null
+
+  const attrs: Record<string, string> = { name }
+  const role = extractAttr(userMessage, 'role')
+  if (role) attrs.role = role
+  const specialty = extractAttr(userMessage, 'specialty')
+  if (specialty) attrs.specialty = specialty
+  const color = extractAttr(userMessage, 'color')
+  if (color) attrs.color = color
+  const icon = extractAttr(userMessage, 'icon')
+  if (icon) attrs.icon = icon
+  const systemPrompt = extractAttr(userMessage, 'system_prompt')
+  if (systemPrompt) attrs.system_prompt = systemPrompt
+  const allowedTools = extractAttr(userMessage, 'allowed_tools')
+  if (allowedTools) attrs.allowed_tools = allowedTools
+
+  // If user provided a "specialized in X" phrase but no role, derive a role
+  if (!attrs.role) {
+    const specMatch = userMessage.match(
+      /specialized\s+in\s+([A-Za-z0-9 _\-/]+?)(?:[\s.,]|$)/i
+    )
+    if (specMatch) {
+      attrs.specialty = specMatch[1].trim()
+      attrs.role = specMatch[1].trim() + ' Specialist'
+    }
+  }
+
+  // Fast-path defaults so the action can succeed without forcing the user to
+  // specify everything. The user can always edit afterwards via the panel.
+  if (!attrs.role) {
+    attrs.role = `${name} Specialist`
+  }
+  if (!attrs.specialty) {
+    attrs.specialty = `Custom specialist created via fast-path`
+  }
+  if (!attrs.allowed_tools) {
+    // Sensible default: read-only research tools
+    attrs.allowed_tools = 'web_search,page_reader,wikipedia_search,wikipedia_read,free_apis_directory,memory_store,memory_recall'
+  }
+  if (!attrs.system_prompt) {
+    attrs.system_prompt = `You are ${name.toUpperCase()}, a custom specialist sub-agent of Agent007 AI.\n\nYour role: ${attrs.role}.\nYour specialty: ${attrs.specialty}.\n\nALLOWED TOOLS:\n- web_search — Google-style search for current info\n- page_reader — read full web pages\n- memory_store / memory_recall — persist + recall context\n- wikipedia_search / wikipedia_read — encyclopedic background\n- free_apis_directory — find public data APIs\n\nOUTPUT FORMAT:\n- <thought>brief reasoning</thought> before each action\n- <tool name="...">{json}</tool> to call a tool\n- Plain markdown final answer\n\nRULES:\n- Be concise and structured.\n- Cite sources for any factual claim.\n- Max 6 tool calls per turn.`
+  }
+
+  return { action: 'create_agent', attrs }
+}
+
+/** Execute a fast-path create_agent without invoking the LLM. */
+async function runFastPathManage(opts: {
+  conversationId: string
+  userMessage: string
+  language: 'en' | 'zh'
+  emit: OrchestratorEventEmit
+  fastPath: FastPathCreateAgent
+}): Promise<OrchestratorRunResult> {
+  const { conversationId, userMessage, emit, fastPath } = opts
+  const { action, attrs } = fastPath
+
+  // Persist the user message + an empty assistant row up-front so the timeline
+  // and DB stay consistent.
+  const assistantRow = await db.message.create({
+    data: { conversationId, role: 'assistant', content: '' },
+  })
+
+  await emit('thought', {
+    content:
+      '⚡ Fast-path: detected clear create_agent request, executing without LLM round-trip',
+  })
+
+  const stepId = makeId('manage')
+  await emit('manage_action', {
+    stepId,
+    action,
+    attrs,
+    thought: 'Fast-path create_agent (no LLM round-trip)',
+    stepNumber: 1,
+    status: 'running',
+    fastPath: true,
+  })
+
+  // Persist a PendingManageAction row before executing
+  let pendingId: string | null = null
+  try {
+    const userId = await getOperatorUserId()
+    if (userId) {
+      const row = await db.pendingManageAction.create({
+        data: {
+          userId,
+          action,
+          attrs: JSON.stringify(attrs),
+          status: 'executing',
+        },
+      })
+      pendingId = row.id
+    }
+  } catch (e) {
+    console.error('[orchestrator:fast-path] failed to persist pending action:', e)
+  }
+
+  const result = await executeManageAction(action, attrs)
+
+  // Update the pending row with the result
+  if (pendingId) {
+    try {
+      await db.pendingManageAction.update({
+        where: { id: pendingId },
+        data: {
+          status: result.ok ? 'done' : 'failed',
+          result: result.message,
+        },
+      })
+    } catch {
+      /* ignore */
+    }
+  }
+
+  await emit('manage_action', {
+    stepId,
+    action,
+    attrs,
+    result,
+    stepNumber: 1,
+    status: result.ok ? 'done' : 'error',
+    fastPath: true,
+  })
+
+  // Persist a tool/thought trace for reload reconstruction
+  try {
+    await db.message.create({
+      data: {
+        conversationId,
+        role: 'tool',
+        content: `[manage:${action}] ${JSON.stringify(attrs).slice(0, 200)}`,
+        toolName: 'manage_action',
+        toolArgs: JSON.stringify({ action, attrs, fastPath: true }),
+        toolResult: result.message,
+      },
+    })
+  } catch {
+    /* ignore */
+  }
+
+  if (
+    result.ok &&
+    ['create_agent', 'edit_agent', 'delete_agent', 'toggle_agent'].includes(action)
+  ) {
+    await emit('subagents_updated', { action, attrs, result, fastPath: true })
+  }
+
+  // Build a confirmation message and stream it as tokens
+  const agentName = attrs.name ?? 'agent'
+  const roleLine = attrs.role ? ` (${attrs.role})` : ''
+  let finalAnswer: string
+  if (result.ok) {
+    finalAnswer = `✅ Created sub-agent "${agentName}"${roleLine} via fast-path. Use the Sub-Agents panel to verify or edit it.`
+  } else {
+    finalAnswer = `⚠️ Fast-path create_agent for "${agentName}" failed: ${result.message}`
+  }
+
+  const chunks = chunkText(finalAnswer, 80)
+  for (const c of chunks) {
+    await emit('token', { content: c })
+  }
+
+  // Update the assistant row with the final answer
+  try {
+    await db.message.update({
+      where: { id: assistantRow.id },
+      data: { content: finalAnswer },
+    })
+  } catch {
+    /* ignore */
+  }
+
+  // Update conversation title
+  try {
+    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
+    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
+      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
+      await db.conversation.update({ where: { id: conversationId }, data: { title } })
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return {
+    finalAnswer,
+    steps: [],
+    persistedAssistantMessageId: assistantRow.id,
+  }
+}
+
 export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<OrchestratorRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
-  const zai = await getZai()
+
+  // 0a) Replay any pending manage actions left over from prior failed runs.
+  //     We surface them as `manage_action` events (status=done|error) so the
+  //     UI timeline shows what was (re)executed.
+  try {
+    const userId = await getOperatorUserId()
+    if (userId) {
+      const pending = await db.pendingManageAction.findMany({
+        where: { userId, status: { in: ['pending', 'executing'] } },
+        orderBy: { createdAt: 'asc' },
+        take: 10,
+      })
+      for (const p of pending) {
+        try {
+          const attrs = JSON.parse(p.attrs) as Record<string, string>
+          await emit('manage_action', {
+            stepId: `replay_${p.id}`,
+            action: p.action,
+            attrs,
+            thought: 'Replaying pending action from a prior interrupted run',
+            stepNumber: 0,
+            status: 'running',
+            replay: true,
+          })
+          const result = await executeManageAction(p.action, attrs)
+          await db.pendingManageAction.update({
+            where: { id: p.id },
+            data: {
+              status: result.ok ? 'done' : 'failed',
+              result: result.message,
+            },
+          })
+          await emit('manage_action', {
+            stepId: `replay_${p.id}`,
+            action: p.action,
+            attrs,
+            result,
+            stepNumber: 0,
+            status: result.ok ? 'done' : 'error',
+            replay: true,
+          })
+        } catch (replayErr: any) {
+          await db.pendingManageAction.update({
+            where: { id: p.id },
+            data: { status: 'failed', result: replayErr?.message ?? 'replay error' },
+          })
+        }
+      }
+    }
+  } catch (replayOuterErr) {
+    // Non-fatal — keep going with the new user message
+    console.error('[orchestrator] pending replay failed:', replayOuterErr)
+  }
+
+  // 0b) Fast-path: detect a clear, unambiguous create_agent request and
+  //     execute it directly without an LLM round-trip. Saves time, tokens,
+  //     and sidesteps any rate-limit hit entirely.
+  const fastPath = detectFastPathManage(userMessage)
+  if (fastPath) {
+    return runFastPathManage({
+      conversationId,
+      userMessage,
+      language,
+      emit,
+      fastPath,
+    })
+  }
 
   // Recall memories for context
   const recalled = await recallMemories(userMessage.slice(0, 200), 8)
@@ -240,10 +560,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     iter++
     let completion: any
     try {
-      completion = await zai.chat.completions.create({
-        messages: conversationMessages,
-        thinking: { type: 'enabled' },
-      })
+      completion = await callLlmWithRetry(conversationMessages)
     } catch (e: any) {
       const friendly = friendlyLlmError(e)
       await emit('error', { message: friendly })
@@ -284,9 +601,44 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         status: 'running',
       })
 
+      // Persist a PendingManageAction row before executing (so we can replay
+      // if this run crashes mid-flight).
+      let pendingId: string | null = null
+      try {
+        const userId = await getOperatorUserId()
+        if (userId) {
+          const row = await db.pendingManageAction.create({
+            data: {
+              userId,
+              action,
+              attrs: JSON.stringify(attrs),
+              status: 'executing',
+            },
+          })
+          pendingId = row.id
+        }
+      } catch (e) {
+        console.error('[orchestrator] failed to persist pending action:', e)
+      }
+
       const result = await executeManageAction(action, attrs)
       // Refresh the merged subagent list so subsequent dispatches see the new state.
       mergedSubagents = null
+
+      // Update the pending row with the result
+      if (pendingId) {
+        try {
+          await db.pendingManageAction.update({
+            where: { id: pendingId },
+            data: {
+              status: result.ok ? 'done' : 'failed',
+              result: result.message,
+            },
+          })
+        } catch {
+          /* ignore */
+        }
+      }
 
       await emit('manage_action', {
         stepId,
@@ -671,8 +1023,8 @@ const VALID_ICONS_SET = new Set([
   'Sparkles', 'Box', 'TrendingUp', 'Search', 'Crosshair', 'Hammer', 'PenLine',
   'Palette', 'Activity', 'RefreshCw', 'Scale', 'Landmark', 'Bot', 'Brain',
   'Zap', 'Globe', 'Database', 'Terminal', 'Code', 'Cpu', 'Rocket', 'Target',
-  'DollarSign', 'Briefcase', 'LineChart', 'PieChart', 'ShieldCheck', 'FileText',
-  'Lightbulb', 'Cloud', 'Compass', 'Feather',
+  'DollarSign', 'Briefcase', 'LineChart', 'PieChart', 'ShieldCheck', 'ShieldAlert',
+  'Megaphone', 'FileText', 'Lightbulb', 'Cloud', 'Compass', 'Feather',
 ])
 
 async function executeManageAction(

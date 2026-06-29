@@ -38,11 +38,14 @@ import {
   LineChart,
   PieChart,
   ShieldCheck,
+  ShieldAlert,
+  Megaphone,
   FileText,
   Lightbulb,
   Cloud,
   Compass,
   Feather,
+  ChevronDown,
   type LucideIcon,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -68,15 +71,16 @@ const VALID_ICON_NAMES = [
   'Sparkles', 'Box', 'TrendingUp', 'Search', 'Crosshair', 'Hammer', 'PenLine',
   'Palette', 'Activity', 'RefreshCw', 'Scale', 'Landmark', 'Bot', 'Brain',
   'Zap', 'Globe', 'Database', 'Terminal', 'Code', 'Cpu', 'Rocket', 'Target',
-  'DollarSign', 'Briefcase', 'LineChart', 'PieChart', 'ShieldCheck', 'FileText',
-  'Lightbulb', 'Cloud', 'Compass', 'Feather',
+  'DollarSign', 'Briefcase', 'LineChart', 'PieChart', 'ShieldCheck', 'ShieldAlert',
+  'Megaphone', 'FileText', 'Lightbulb', 'Cloud', 'Compass', 'Feather',
 ] as const
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Sparkles, Box, TrendingUp, Search: SearchIcon, Crosshair, Hammer, PenLine,
   Palette, Activity, RefreshCw, Scale, Landmark, Bot, Brain, Zap, Globe,
   Database, Terminal, Code, Cpu, Rocket, Target, DollarSign, Briefcase,
-  LineChart, PieChart, ShieldCheck, FileText, Lightbulb, Cloud, Compass, Feather,
+  LineChart, PieChart, ShieldCheck, ShieldAlert, Megaphone, FileText, Lightbulb,
+  Cloud, Compass, Feather,
 }
 
 const ALL_TOOL_OPTIONS = [
@@ -93,6 +97,134 @@ const ALL_TOOL_OPTIONS = [
   'free_apis_directory',
 ]
 
+/* Quick Create Agent templates (#9). Pre-fills the modal without submitting. */
+interface QuickTemplate {
+  label: string
+  icon: LucideIcon
+  preset: {
+    name: string
+    role: string
+    specialty: string
+    color: string
+    icon: string
+    allowedTools: string[]
+    systemPrompt: string
+  }
+}
+
+const ALL_EIGHT_TOOLS = [
+  'web_search', 'page_reader', 'memory_store', 'memory_recall',
+  'wikipedia_search', 'wikipedia_read', 'free_apis_directory',
+]
+
+const QUICK_TEMPLATES: QuickTemplate[] = [
+  {
+    label: 'Cybersecurity A (Red Team)',
+    icon: ShieldAlert,
+    preset: {
+      name: 'Cybersecurity A',
+      role: 'Cybersecurity Analyst (Red Team)',
+      specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev, adversary emulation',
+      color: '#ef4444',
+      icon: 'ShieldAlert',
+      allowedTools: ALL_EIGHT_TOOLS,
+      systemPrompt: `You are CYBERSECURITY A, the Red Team offensive security specialist sub-agent of Agent007 AI.
+
+Your specialty: penetration testing, vulnerability assessment, OWASP Top 10, exploit development, adversary emulation.
+
+ALLOWED TOOLS:
+- web_search — find current CVEs, exploit details, security advisories
+- page_reader — read vendor security bulletins, exploit-db entries, MITRE ATT&CK pages
+- memory_store — save target scope / engagement notes
+- memory_recall — recall prior engagement context
+- wikipedia_search / wikipedia_read — conceptual background on protocols and attack classes
+- free_apis_directory — find public data feeds for OSINT
+
+OUTPUT FORMAT:
+- <thought>brief reasoning</thought> before each action
+- <tool name="...">{json}</tool> to call a tool
+- Plain markdown final answer
+
+RULES:
+- Always cite source URLs for CVEs and exploits (NVD, exploit-db, vendor advisories).
+- Frame findings by severity (Critical / High / Medium / Low) with CVSS where available.
+- Provide concrete remediation for each finding — not just "patch it".
+- Include a legal/ethics disclaimer: only test systems you own or have written authorization to test.
+- Max 6 tool calls.`,
+    },
+  },
+  {
+    label: 'Cybersecurity R (Blue Team)',
+    icon: ShieldCheck,
+    preset: {
+      name: 'Cybersecurity R',
+      role: 'Cybersecurity Responder (Blue Team)',
+      specialty: 'Incident response, hardening, SIEM, threat hunting, detection engineering, forensics',
+      color: '#3b82f6',
+      icon: 'ShieldCheck',
+      allowedTools: ALL_EIGHT_TOOLS,
+      systemPrompt: `You are CYBERSECURITY R, the Blue Team defensive security specialist sub-agent of Agent007 AI.
+
+Your specialty: incident response, system hardening, SIEM tuning, threat hunting, detection engineering, digital forensics.
+
+ALLOWED TOOLS:
+- web_search — current threat intel, IOC feeds, vendor hardening guides
+- page_reader — read CIS benchmarks, NIST publications, MITRE D3FEND
+- memory_store — save IR playbooks, baseline configs
+- memory_recall — recall prior IR context
+- wikipedia_search / wikipedia_read — background on protocols and defensive concepts
+- free_apis_directory — find public threat-intel APIs
+
+OUTPUT FORMAT:
+- <thought>brief reasoning</thought> before each action
+- <tool name="...">{json}</tool> to call a tool
+- Plain markdown final answer
+
+RULES:
+- Always cite source URLs for hardening guidance (CIS, NIST, vendor docs).
+- Structure IR advice by NIST SP 800-61 phases: Preparation, Detection, Containment, Eradication, Recovery, Lessons Learned.
+- For hardening, give exact commands / config snippets the user can paste.
+- Recommend detection content (Sigma / Splunk SPL / Elastic EQL) where relevant.
+- Max 6 tool calls.`,
+    },
+  },
+  {
+    label: 'MARKETER',
+    icon: Megaphone,
+    preset: {
+      name: 'MARKETER',
+      role: 'Social Media Marketing Specialist',
+      specialty: 'Content strategy, paid ads (Meta/Google/TikTok), analytics, funnel optimization, brand voice',
+      color: '#a855f7',
+      icon: 'Megaphone',
+      allowedTools: ALL_EIGHT_TOOLS,
+      systemPrompt: `You are MARKETER, the Social Media Marketing Specialist sub-agent of Agent007 AI.
+
+Your specialty: content strategy, paid ads (Meta / Google / TikTok), analytics, funnel optimization, brand voice development.
+
+ALLOWED TOOLS:
+- web_search — current platform algorithms, ad benchmarks, trending hashtags
+- page_reader — read competitor content, platform best-practice docs
+- memory_store — save brand voice, target audience, campaign goals
+- memory_recall — recall prior campaign context
+- wikipedia_search / wikipedia_read — background on marketing frameworks (AIDA, AARRR, etc.)
+- free_apis_directory — find analytics / social-listening APIs
+
+OUTPUT FORMAT:
+- <thought>brief reasoning</thought> before each action
+- <tool name="...">{json}</tool> to call a tool
+- Plain markdown final answer
+
+RULES:
+- Always cite current ad benchmarks (CPM, CPC, CTR by platform) via web_search.
+- For every campaign, specify: objective, audience, budget, creative, KPIs, optimization cadence.
+- Provide 3 ad creative variants per campaign (hook + body + CTA).
+- Recommend a measurement plan: what to track, where, how often.
+- Max 6 tool calls.`,
+    },
+  },
+]
+
 function getIcon(name?: string): LucideIcon {
   if (!name) return Sparkles
   return ICON_MAP[name] ?? Sparkles
@@ -107,6 +239,10 @@ export function SubAgentsPanel() {
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<SubagentRow | null>(null)
   const [creating, setCreating] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  // When the user picks a quick template, we open the create modal with the
+  // preset values pre-filled. We pass the preset via `templatePreset` state.
+  const [templatePreset, setTemplatePreset] = useState<QuickTemplate['preset'] | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -183,6 +319,7 @@ export function SubAgentsPanel() {
   const onCloseEdit = (didMutate: boolean) => {
     setEditing(null)
     setCreating(false)
+    setTemplatePreset(null)
     if (didMutate) {
       bumpSubagents()
       load()
@@ -200,14 +337,101 @@ export function SubAgentsPanel() {
             {rows.filter((r) => !r.isBuiltin).length} custom)
           </span>
         </div>
-        <button
-          onClick={() => setCreating(true)}
-          className="h-8 px-3 rounded-lg neon-btn-cyan text-[10px] font-bold tracking-wider flex items-center gap-1.5"
-          style={{ touchAction: 'manipulation' }}
-        >
-          <Plus className="w-3.5 h-3.5" />
-          NEW CUSTOM AGENT
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Quick Templates dropdown (#9) */}
+          <div className="relative">
+            <button
+              onClick={() => setTemplatesOpen((v) => !v)}
+              className="h-8 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-[10px] font-bold tracking-wider flex items-center gap-1.5 transition"
+              style={{ touchAction: 'manipulation' }}
+              aria-haspopup="menu"
+              aria-expanded={templatesOpen}
+              aria-label="Quick agent templates"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              QUICK TEMPLATES
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${templatesOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            <AnimatePresence>
+              {templatesOpen && (
+                <>
+                  {/* click-away catcher */}
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setTemplatesOpen(false)}
+                    aria-hidden
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-1 w-64 glass-strong rounded-lg p-1.5 z-40"
+                    style={{ borderColor: 'rgba(0,240,255,0.3)' }}
+                    role="menu"
+                  >
+                    <div className="px-2 py-1 text-[9px] text-[#5b6a92] tracking-[0.2em] font-semibold">
+                      PRE-BUILT SPECIALISTS
+                    </div>
+                    {QUICK_TEMPLATES.map((tpl) => {
+                      const TplIcon = tpl.icon
+                      return (
+                        <button
+                          key={tpl.label}
+                          onClick={() => {
+                            setTemplatePreset(tpl.preset)
+                            setCreating(true)
+                            setTemplatesOpen(false)
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-[11px] text-[#cfd9f0] hover:bg-cyan-400/10 transition"
+                          role="menuitem"
+                          style={{ touchAction: 'manipulation' }}
+                        >
+                          <span
+                            className="w-6 h-6 rounded-md flex items-center justify-center border flex-shrink-0"
+                            style={{
+                              background: `${tpl.preset.color}15`,
+                              borderColor: `${tpl.preset.color}50`,
+                            }}
+                          >
+                            <TplIcon
+                              className="w-3 h-3"
+                              style={{ color: tpl.preset.color }}
+                            />
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-semibold truncate">
+                              {tpl.preset.name}
+                            </span>
+                            <span className="block text-[9px] text-[#7c89b5] truncate">
+                              {tpl.preset.role}
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                    <div className="mt-1 pt-1.5 border-t border-cyan-400/10 px-2 text-[8px] text-[#5b6a92] tracking-wide">
+                      Click to pre-fill the new-agent modal (no auto-submit)
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+          <button
+            onClick={() => {
+              setTemplatePreset(null)
+              setCreating(true)
+            }}
+            className="h-8 px-3 rounded-lg neon-btn-cyan text-[10px] font-bold tracking-wider flex items-center gap-1.5"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            NEW CUSTOM AGENT
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -357,6 +581,7 @@ export function SubAgentsPanel() {
         {(editing || creating) && (
           <SubagentEditModal
             initial={editing}
+            preset={creating ? templatePreset : null}
             onClose={onCloseEdit}
           />
         )}
@@ -368,22 +593,28 @@ export function SubAgentsPanel() {
 /* ------------------------------------------------------------------ *
  * SubagentEditModal — handles both creating new and editing existing.
  * If `initial` is null, it's a create flow. Otherwise it's an edit flow.
+ * `preset` (only used in create mode) pre-fills the form with a quick-
+ * template's values without auto-submitting — the user can tweak first.
  * ------------------------------------------------------------------ */
 function SubagentEditModal({
   initial,
+  preset,
   onClose,
 }: {
   initial: SubagentRow | null
+  preset: QuickTemplate['preset'] | null
   onClose: (didMutate: boolean) => void
 }) {
   const isCreate = !initial
-  const [name, setName] = useState(initial?.name ?? '')
-  const [role, setRole] = useState(initial?.role ?? '')
-  const [specialty, setSpecialty] = useState(initial?.specialty ?? '')
-  const [color, setColor] = useState(initial?.color ?? '#00f0ff')
-  const [icon, setIcon] = useState<string>(initial?.icon ?? 'Sparkles')
-  const [allowedTools, setAllowedTools] = useState<string[]>(initial?.allowedTools ?? ['web_search', 'page_reader'])
-  const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? '')
+  const [name, setName] = useState(initial?.name ?? preset?.name ?? '')
+  const [role, setRole] = useState(initial?.role ?? preset?.role ?? '')
+  const [specialty, setSpecialty] = useState(initial?.specialty ?? preset?.specialty ?? '')
+  const [color, setColor] = useState(initial?.color ?? preset?.color ?? '#00f0ff')
+  const [icon, setIcon] = useState<string>(initial?.icon ?? preset?.icon ?? 'Sparkles')
+  const [allowedTools, setAllowedTools] = useState<string[]>(
+    initial?.allowedTools ?? preset?.allowedTools ?? ['web_search', 'page_reader']
+  )
+  const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? preset?.systemPrompt ?? '')
   const [enabled, setEnabled] = useState<boolean>(initial?.enabled ?? true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')

@@ -43,6 +43,41 @@ async function getZai(): Promise<ZAI> {
   return _zai
 }
 
+/* ------------------------------------------------------------------ *
+ * 1-hour in-memory cache for web_search + page_reader (#11).
+ *
+ * Only successful results are cached. image_gen / vision / code_exec /
+ * memory_* / file_read / wikipedia_* / free_apis_directory are NOT cached
+ * (either they're non-deterministic, expensive-to-cache, or already cheap).
+ * ------------------------------------------------------------------ */
+interface CacheEntry {
+  result: ToolResult
+  at: number
+}
+const _toolCache = new Map<string, CacheEntry>()
+const CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
+
+function cacheKey(toolName: string, args: any): string {
+  return toolName + ':' + JSON.stringify(args ?? {})
+}
+
+function getCached(toolName: string, args: any): ToolResult | null {
+  const k = cacheKey(toolName, args)
+  const e = _toolCache.get(k)
+  if (!e) return null
+  if (Date.now() - e.at > CACHE_TTL_MS) {
+    _toolCache.delete(k)
+    return null
+  }
+  return e.result
+}
+
+function setCached(toolName: string, args: any, result: ToolResult): void {
+  // Only cache successful results
+  if (!result.ok) return
+  _toolCache.set(cacheKey(toolName, args), { result, at: Date.now() })
+}
+
 /* ----------------------------- Web search ----------------------------- */
 export async function toolWebSearch(
   args: { query?: string; num?: number; recency_days?: number },
@@ -50,6 +85,14 @@ export async function toolWebSearch(
 ): Promise<ToolResult> {
   const query = (args?.query ?? '').toString().trim()
   if (!query) return badResult('Missing "query" argument for web_search')
+  // Cache lookup (1-hour TTL)
+  const cached = getCached('web_search', args)
+  if (cached) {
+    return {
+      ...cached,
+      preview: '[cached] ' + cached.preview,
+    }
+  }
   try {
     const zai = await getZai()
     const results = await zai.functions.invoke('web_search', {
@@ -73,7 +116,9 @@ export async function toolWebSearch(
       .slice(0, 3)
       .map((r: any) => `• ${r.name || r.url}`)
       .join('\n')
-    return okResult(preview, formatted)
+    const out = okResult(preview, formatted)
+    setCached('web_search', args, out)
+    return out
   } catch (e: any) {
     return badResult(`web_search failed: ${e?.message ?? String(e)}`)
   }
@@ -86,16 +131,26 @@ export async function toolPageReader(
 ): Promise<ToolResult> {
   const url = (args?.url ?? '').toString().trim()
   if (!url) return badResult('Missing "url" argument for page_reader')
+  // Cache lookup (1-hour TTL)
+  const cached = getCached('page_reader', args)
+  if (cached) {
+    return {
+      ...cached,
+      preview: '[cached] ' + cached.preview,
+    }
+  }
   try {
     const zai = await getZai()
     const res: any = await zai.functions.invoke('page_reader', { url })
     const html = res?.data?.html ?? ''
     const title = res?.data?.title ?? url
     const text = stripHtml(html).slice(0, 6000)
-    return okResult(
+    const out = okResult(
       `Read page: ${title}\n${text.slice(0, 400)}...`,
       `Page: ${title}\nURL: ${url}\n\n${text}`
     )
+    setCached('page_reader', args, out)
+    return out
   } catch (e: any) {
     return badResult(`page_reader failed: ${e?.message ?? String(e)}`)
   }

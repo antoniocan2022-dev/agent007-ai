@@ -129,6 +129,13 @@ interface ChatState {
   // The Sub-Agents tab subscribes to this and re-fetches /api/subagents when it changes.
   subagentsVersion: number
   bumpSubagents: () => void
+
+  // rate-limit UX (#6): when the server emits an error containing "rate-limiting"
+  // or "429", we set rateLimitedUntil = now + 60s. The chat-input banner shows a
+  // countdown and a "Retry Now" button. When the countdown hits 0, auto-retry.
+  rateLimitedUntil: number | null
+  /** Re-send the last user message (used by the rate-limit banner's Retry button). */
+  retryLastMessage: () => Promise<void>
 }
 
 let msgIdCounter = 0
@@ -163,6 +170,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeTab: 'chat',
   changePasswordOpen: false,
   subagentsVersion: 0,
+  rateLimitedUntil: null,
 
   loadConversations: async () => {
     try {
@@ -531,6 +539,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setChangePasswordOpen: (v) => set({ changePasswordOpen: v }),
   bumpSubagents: () => set((s) => ({ subagentsVersion: s.subagentsVersion + 1 })),
+
+  retryLastMessage: async () => {
+    const state = get()
+    if (state.status !== 'idle') return
+    // Find the most recent user message in the current messages list
+    const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+    // Clear rate-limit flag so the banner hides immediately
+    set({ rateLimitedUntil: null })
+    // Put the original attachments back into the store so sendMessage picks
+    // them up. Note: data URLs were stripped at upload time, but textContent
+    // is preserved so text files still work on retry.
+    const atts: AttachmentMeta[] = (lastUser.attachments ?? []).map((a) => ({
+      filename: a.filename,
+      originalName: a.originalName,
+      mimeType: a.mimeType,
+      size: a.size,
+      dataUrl: a.dataUrl,
+      textContent: a.textContent,
+    }))
+    // Drop the last user message + the failed assistant reply that followed
+    // so sendMessage can re-add both cleanly.
+    const msgs = state.messages
+    const idx = msgs.lastIndexOf(lastUser)
+    if (idx >= 0) {
+      set({ messages: msgs.slice(0, idx), attachments: atts })
+    } else {
+      set({ attachments: atts })
+    }
+    await get().sendMessage(lastUser.content)
+  },
 }))
 
 function safeParseJson(s: string): any {
@@ -890,6 +929,8 @@ function applyEvent(
     // refresh memories + conversations (cheap) so the rest of the UI is fresh.
     set((s) => ({ subagentsVersion: s.subagentsVersion + 1 }))
   } else if (event === 'error') {
+    const msg: string = (data?.message ?? '').toString()
+    const isRateLimit = /rate-?limiting|429|too many requests/i.test(msg)
     set((s) => ({
       messages: s.messages.map((m) =>
         m.id === assistantId
@@ -906,6 +947,7 @@ function applyEvent(
       status: 'idle',
       currentTool: null,
       activeSubagents: [],
+      rateLimitedUntil: isRateLimit ? Date.now() + 60_000 : s.rateLimitedUntil,
     }))
   }
   // 'done' event: nothing special; outer loop will set isStreaming=false

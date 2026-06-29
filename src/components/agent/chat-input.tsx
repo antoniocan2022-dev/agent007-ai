@@ -72,7 +72,7 @@ export function ChatInput() {
   }
 
   return (
-    <div className="sticky bottom-0 z-30 px-3 sm:px-4 pb-3 pt-2">
+    <div className="px-3 sm:px-4 pb-3 pt-2">
       <div className="max-w-[820px] mx-auto">
         {/* attachment previews */}
         {attachments.length > 0 && (
