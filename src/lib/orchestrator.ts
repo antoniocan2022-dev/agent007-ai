@@ -20,11 +20,10 @@ export const MAX_ITERATIONS = 15
 const MAX_DISPATCHES = 8
 const MAX_MANAGE_ACTIONS = 5
 
-/* Regex to find <dispatch agent="..." task="..."/> tags (self-closing).
- * Uses non-greedy [\s\S]*? for the task value so apostrophes / quotes inside the
- * task description don't break the match (the LLM frequently emits apostrophes
- * like 'Quantum Labs' inside the task attribute value). */
-const DISPATCH_RE = /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/>/i
+/* Regex to find <dispatch agent="..." task="..."/> OR <dispatch agent="..." task="..."> tags.
+ * Accepts both self-closing (/> ) and non-self-closing (> ) forms because the LLM
+ * sometimes emits one or the other. Uses non-greedy [\s\S]*? for the task value. */
+const DISPATCH_RE = /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/?>/i
 
 /* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
  * Captures the full tag string; attribute parsing happens in parseManageTag. */

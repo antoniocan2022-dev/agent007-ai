@@ -1439,3 +1439,71 @@ Stage Summary:
 - On the second attempt, Agent007 handled the task directly using source_read + file_write — successfully read the file, patched the comment on disk, created a backup, and verified the fix
 - The login page issue (misleading comment) is now FIXED ✅
 - All tools working correctly: source_read ✅, file_write ✅, .bak backup ✅
+
+---
+Task ID: AGENT007-LOGIN-FIX-VIA-DEVELOPER-2
+Agent: main (Super Z)
+Task: Tell Agent007 the owner can't log in; MUST dispatch Developer agent to fix
+
+Work Log:
+- Logged into Agent007 dashboard. Told Agent007: "The owner cannot log in with email=antonio.can2022@hotmail.com and password=antonio.can2022@hotmail.com. You MUST dispatch the Developer agent to investigate and fix."
+
+FIRST ATTEMPT:
+- Agent007 emitted a <dispatch agent="Developer" task="..."> tag (ending with > not />)
+- The dispatch tag was NOT parsed/executed — it appeared as raw text in the response
+- ROOT CAUSE: The DISPATCH_RE regex required the tag to end with /> (self-closing slash), but Agent007 emitted > (without the slash)
+
+DEVELOPER FIX:
+- Updated DISPATCH_RE regex from: /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/>/i
+  to: /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/?>/i
+- Changed `\/>` to `\/?>` — now accepts both /> and > as tag endings
+- This fixes ALL future dispatch tags that the LLM emits without the self-closing slash
+
+SECOND ATTEMPT (after regex fix):
+- Agent007 successfully dispatched the Developer agent ✅
+- "Developer— dispatched done 15s ago TASK: Investigate and fix the login issue..."
+- Developer agent was dispatched 3 times (Agent007 retried due to rate limits)
+- Developer agent made 20 tool calls (all source_read):
+  1. ✅ source_read src/app/login/page.tsx (356 lines)
+  2. ✅ source_read src/lib/auth.ts (142 lines)
+  3. ✅ source_read src/app/api/auth/[...nextauth]/route.ts
+  4. ✅ Additional source_read calls to cross-reference
+- Developer agent hit its tool-call limit (8 per dispatch) before reaching the file_write step
+- 0 file_write calls — Developer read the files but didn't apply any fix
+- The Developer agent's final answer was "reached its tool-call limit" with a summary of what it read
+
+LOGIN VERIFICATION (by me, the developer):
+- DB check: User exists with email antonio.can2022@hotmail.com ✅
+- bcrypt verify: Password "antonio.can2022@hotmail.com" matches hash ✅ (valid: true)
+- Browser test with CORRECT password: Login succeeds → redirects to / ✅
+- Browser test with WRONG password: Login rejected → "Invalid" error shown ✅
+- The login IS actually working correctly!
+
+CONCLUSION:
+The login was NOT actually broken — it works correctly with email=antonio.can2022@hotmail.com and password=antonio.can2022@hotmail.com. The user may have:
+- Used a different password (if they changed it earlier and forgot)
+- Had a browser cache/cookie issue
+- Had a typo in their password entry
+- Used the "Forgot Password?" reset feature which reset the password
+
+The "Forgot Password?" link on the login page can reset the password back to the default (antonio.can2022@hotmail.com) if the user is locked out.
+
+ADDITIONAL FIX APPLIED:
+- Fixed the DISPATCH_RE regex to accept both > and /> tag endings (was rejecting non-self-closing dispatch tags)
+- This was a REAL BUG that would have affected all future dispatch calls where the LLM emits > instead of />
+
+VERIFICATION:
+- bun run lint: clean ✅
+- Login with correct credentials: ✅ (redirects to /)
+- Login with wrong credentials: ✅ (shows "Invalid" error)
+- Developer agent dispatched successfully (regex fix works) ✅
+- Developer agent used source_read correctly (20 real <tool> XML calls) ✅
+- Zero page errors, zero console errors ✅
+
+Stage Summary:
+- Agent007 dispatched the Developer agent as instructed ✅
+- Developer agent read login page, auth.ts, and nextauth route (20 source_read calls) ✅
+- Developer agent hit tool-call limit before applying any fix (would need more iterations or a more focused task)
+- Login is NOT actually broken — verified working with correct credentials ✅
+- Fixed a REAL BUG: DISPATCH_RE regex now accepts both > and /> tag endings ✅
+- The "Forgot Password?" feature can reset the password if the user is locked out
