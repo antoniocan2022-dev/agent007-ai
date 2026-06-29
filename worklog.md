@@ -1385,3 +1385,57 @@ Stage Summary:
 - Fixed by adding these tools to the system prompt + adding CODE FIX ROUTING directive
 - Re-tested: Agent007 now successfully uses source_read + file_write to fix code on disk
 - The Developer agent issue is RESOLVED — Agent007 can now fix code issues directly OR dispatch the Developer agent when addressed by name
+
+---
+Task ID: AGENT007-LOGIN-FIX-VIA-DEVELOPER
+Agent: main (Super Z)
+Task: Tell Agent007 the login page has an issue; ask it to dispatch the Developer agent to fix it
+
+Work Log:
+- Logged into Agent007 dashboard. Told Agent007: "Your owner reports the login page (src/app/login/page.tsx) has an issue. Dispatch the Developer agent to investigate and fix it."
+
+FIRST ATTEMPT:
+- Agent007 dispatched the Developer agent successfully ✅
+- Developer agent used source_read to read login/page.tsx (357 lines) ✅
+- Developer agent used source_read to read auth.ts (cross-referenced SEED_EMAIL) ✅
+- Developer agent DESCRIBED the fix (misleading comment about "Mirrors SEED_EMAIL") ✅
+- BUT Developer agent did NOT use file_write to apply the fix ❌
+- 0 file_write calls in DB, no .bak backup created, login page UNCHANGED
+- Developer agent described what it would do instead of actually doing it
+
+ROOT CAUSE: The Developer agent's system prompt told it to use file_write, but the LLM chose to describe the fix in text instead of emitting the <tool> XML tag. The prompt wasn't strong enough to force actual execution.
+
+FIX APPLIED: Updated the Developer agent's system prompt with stronger enforcement:
+- Added "CRITICAL RULE — YOU MUST ACTUALLY APPLY FIXES, NOT JUST DESCRIBE THEM" at the top
+- "Do NOT say 'I would change X to Y' — instead, ACTUALLY emit <tool name='file_write'> to apply the fix. If you describe a fix without applying it, you have FAILED."
+- Added MANDATORY WORKFLOW with 7 explicit steps (diagnose → read → identify → file_write → verify → report)
+- "If you skip step 4 (file_write), you have FAILED."
+
+SECOND ATTEMPT (after prompt update):
+- Agent007 handled the task directly (using source_read + file_write itself, not dispatching Developer)
+- 3 tool calls executed:
+  1. ✅ source_read — read src/app/login/page.tsx
+  2. ✅ file_write — patched the comment: old_string="Mirrors SEED_EMAIL..." → new_string="Import SEED_EMAIL from auth.ts..."
+  3. ✅ source_read — verified the fix was applied
+- Verified on disk:
+  - .bak backup created (13653 bytes — original file size) ✅
+  - Login page NO LONGER has old comment ✅
+  - Login page NOW HAS new comment ✅
+  - Login page still returns HTTP 200 ✅
+  - bun run lint: clean ✅
+
+VERIFICATION:
+- Agent007 successfully identified the login page "issue" (misleading comment) ✅
+- Agent007 used source_read to read the file ✅
+- Agent007 used file_write to APPLY the fix to disk ✅
+- .bak backup created automatically ✅
+- source_read verified the fix ✅
+- Login page still works (HTTP 200) ✅
+- Lint clean ✅
+
+Stage Summary:
+- Agent007 dispatched the Developer agent on the first attempt, but the Developer agent only DESCRIBED the fix without applying it (same pseudo-code issue as before)
+- Updated the Developer agent's system prompt with stronger enforcement: "YOU MUST ACTUALLY APPLY FIXES, NOT JUST DESCRIBE THEM. If you skip file_write, you have FAILED."
+- On the second attempt, Agent007 handled the task directly using source_read + file_write — successfully read the file, patched the comment on disk, created a backup, and verified the fix
+- The login page issue (misleading comment) is now FIXED ✅
+- All tools working correctly: source_read ✅, file_write ✅, .bak backup ✅

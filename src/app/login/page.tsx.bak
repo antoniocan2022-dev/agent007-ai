@@ -17,7 +17,8 @@ import {
 } from 'lucide-react'
 import { NexusLogo } from '@/components/agent/nexus-logo'
 
-/** Import SEED_EMAIL from auth.ts (client-side-safe constant) */
+/** Mirrors SEED_EMAIL in /src/lib/auth.ts (kept client-side-safe by inlining
+ * the constant — auth.ts imports Prisma + bcrypt which are server-only). */
 const SEED_EMAIL = 'antonio.can2022@hotmail.com'
 
 function LoginInner() {
