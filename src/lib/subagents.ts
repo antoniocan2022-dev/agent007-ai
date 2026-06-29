@@ -35,6 +35,8 @@ const ALL_TOOLS = [
   'free_apis_directory',
   'kb_search',
   'http_fetch',
+  'source_read',
+  'file_write',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from

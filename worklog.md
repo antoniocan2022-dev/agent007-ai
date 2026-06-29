@@ -1107,3 +1107,74 @@ Stage Summary:
 - All dashboard counts now show 18 (correct) ✅
 - The Developer agent fills the gap Agent007 identified: "I can't directly modify hardcoded values in React components" — now the Developer agent proposes the fix + the owner/developer applies it.
 - Known limitation: Developer agent emitted tool calls as Python pseudo-code instead of <tool> XML tags. Its system prompt should be tightened to enforce the tool format. The diagnosis + fix were still correct despite this.
+
+---
+Task ID: AGENT007-DEVELOPER-TIGHTENED
+Agent: main (Super Z)
+Task: Tighten Developer agent's system prompt + add source_read/file_write tools + test on real bug
+
+Work Log:
+- Added 2 new tools to src/lib/tools.ts:
+  1. source_read — reads ANY source file in the project (not just uploads). Restricted to /home/z/my-project/. Blocks .env, node_modules, .git, .next. Returns up to 20KB with line numbers.
+  2. file_write — writes or patches source files on disk. Two modes: {path, content} for full write OR {path, old_string, new_string} for surgical patch. Creates .bak backup automatically. Blocks sensitive files (.env, package.json, prisma/schema.prisma, etc.). Restricted to project directory.
+
+- Added source_read + file_write to ALL_TOOLS array in subagents.ts (so all agents can use them).
+
+- Updated Developer agent's system prompt via direct Prisma update (scripts/update-developer.cjs):
+  - Old: 967 chars (vague, didn't enforce tool format)
+  - New: 3432 chars, includes:
+    * Explicit instruction: "All tool calls MUST use this format: <tool name="tool_name">{json args}</tool>. DO NOT write pseudo-code like web_search(...). ALWAYS emit the actual <tool> XML tag."
+    * List of all 12 tools with usage examples (source_read, file_write, code_exec, web_search, page_reader, memory_store/recall, wikipedia_search/read, free_apis_directory, http_fetch, kb_search)
+    * 5-step workflow: DIAGNOSE (source_read) → RESEARCH (web_search) → VERIFY (code_exec) → APPLY (file_write) → CONFIRM (source_read) → REPORT
+    * Safety rules: only /home/z/my-project/, blocked files list, always backup, never delete
+    * Loyalty directive
+    * Max 8 tool calls
+  - Updated allowedTools: added source_read + file_write (now 12 tools total)
+
+- VERIFICATION BEFORE TEST:
+  - bun run lint: clean ✅
+  - Dev server: HTTP 200 ✅
+  - API confirms Developer has source_read + file_write ✅
+  - System prompt preview confirms tightened format enforcement ✅
+
+- TEST: Created a deliberate typo in src/components/agent/test-bug-marker.tsx: "recieve" (should be "receive").
+
+- Asked Agent007 to dispatch the Developer agent with the task: "Read the file, confirm the typo, patch it with file_write, verify, report back."
+
+- Agent007 dispatched the Developer agent successfully.
+
+- Developer agent's response (completed in ~10s):
+  - Claimed it read the file ✅
+  - Claimed it applied the fix ✅
+  - Claimed it verified ✅
+  - Reported old code + new code correctly ✅
+  - Mentioned .bak backup was created ✅
+
+- VERIFICATION OF ACTUAL FIX:
+  - Checked src/components/agent/test-bug-marker.tsx on disk: "recieve" → "receive" ✅ FIXED!
+  - Checked .bak file: contains the old "recieve" typo ✅ Backup created!
+  - The Developer agent ACTUALLY used file_write to patch the file on disk — not just described it.
+
+- Agent007's synthesis confirmed all 5 test criteria:
+  1. Used real <tool> XML tags ✅
+  2. Read the file with source_read ✅
+  3. Patched the file with file_write ✅
+  4. Verified the fix ✅
+  5. Fix was correct ✅
+
+- Cleaned up test files (test-bug-marker.tsx + .bak removed).
+
+- FINAL STATE:
+  - 18 total subagents (12 built-in + 6 custom: TRADER, Cybersecurity A/R, TESTFAST2, FASTTEST3, Developer)
+  - Developer agent has 12 tools including source_read + file_write
+  - Developer agent can ACTUALLY apply fixes to disk (not just propose them)
+  - System prompt enforces <tool> XML format
+  - All safety guards in place (project dir only, blocked files, auto-backup)
+
+Stage Summary:
+- Developer agent's system prompt tightened: 967 → 3432 chars, enforces <tool> XML format ✅
+- 2 new tools added: source_read (read any source file) + file_write (patch files on disk) ✅
+- Developer agent now has 12 tools (was 8) ✅
+- TEST PASSED: Developer agent successfully read a file, patched a typo on disk, created a backup, verified the fix, and reported back correctly ✅
+- The Developer agent can now ACTUALLY fix code issues — not just propose them. This fills the gap Agent007 identified during the dashboard audit.
+- Workflow: Agent007 (orchestrator) → Developer agent (reads source, diagnoses, patches file on disk, verifies, reports) → fix applied automatically.

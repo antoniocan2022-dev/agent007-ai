@@ -762,6 +762,141 @@ export async function toolKbSearch(
 // Register the kb_search tool
 TOOL_REGISTRY.kb_search = { fn: toolKbSearch, icon: 'book-marked', label: 'Knowledge Base Search' }
 
+/* ----------------------------- Source File Read ----------------------- */
+/**
+ * source_read — read any source file in the project (NOT just uploads).
+ * Restricted to the project directory (/home/z/my-project) for safety.
+ * Returns up to 20KB of text.
+ *
+ * This lets the Developer agent inspect source code to diagnose issues.
+ */
+export async function toolSourceRead(
+  args: { path?: string },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const relPath = (args?.path ?? '').toString().trim()
+  if (!relPath) return badResult('Missing "path" argument for source_read')
+
+  // Safety: resolve to project root + ensure no path traversal escapes it
+  const PROJECT_ROOT = '/home/z/my-project'
+  const resolved = path.resolve(PROJECT_ROOT, relPath)
+  if (!resolved.startsWith(PROJECT_ROOT + '/') && resolved !== PROJECT_ROOT) {
+    return badResult(`source_read: path "${relPath}" escapes project directory`)
+  }
+
+  // Block sensitive files
+  const blocked = ['.env', 'node_modules', '.git', '.next']
+  for (const b of blocked) {
+    if (resolved.includes('/' + b + '/') || resolved.endsWith('/' + b)) {
+      return badResult(`source_read: access to "${b}" is blocked`)
+    }
+  }
+
+  try {
+    const buf = await fs.readFile(resolved)
+    const text = buf.toString('utf8').slice(0, 20000)
+    const lineCount = text.split('\n').length
+    return okResult(
+      `Read ${relPath} (${buf.length} bytes, ${lineCount} lines)`,
+      `File: ${relPath}\nPath: ${resolved}\nSize: ${buf.length} bytes\nLines: ${lineCount}\n\n--- CONTENT ---\n${text}${buf.length > 20000 ? '\n... (truncated, ' + buf.length + ' total bytes)' : ''}`
+    )
+  } catch (e: any) {
+    return badResult(`source_read failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+TOOL_REGISTRY.source_read = { fn: toolSourceRead, icon: 'file-code', label: 'Source File Read' }
+
+/* ----------------------------- File Write / Patch --------------------- */
+/**
+ * file_write — write or patch a source file in the project.
+ * Restricted to the project directory. Creates a .bak backup before overwriting.
+ *
+ * Two modes:
+ *   1. { path, content } — full file write (overwrites)
+ *   2. { path, old_string, new_string } — surgical patch (replaces first occurrence)
+ *
+ * This lets the Developer agent ACTUALLY APPLY fixes, not just propose them.
+ * Safety: blocks .env, node_modules, .git, .next, package.json, bun.lock.
+ */
+export async function toolFileWrite(
+  args: { path?: string; content?: string; old_string?: string; new_string?: string },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const relPath = (args?.path ?? '').toString().trim()
+  if (!relPath) return badResult('Missing "path" argument for file_write')
+
+  const PROJECT_ROOT = '/home/z/my-project'
+  const resolved = path.resolve(PROJECT_ROOT, relPath)
+  if (!resolved.startsWith(PROJECT_ROOT + '/') && resolved !== PROJECT_ROOT) {
+    return badResult(`file_write: path "${relPath}" escapes project directory`)
+  }
+
+  // Block sensitive files
+  const blocked = ['.env', 'node_modules', '.git', '.next', 'package.json', 'bun.lock', 'prisma/schema.prisma']
+  for (const b of blocked) {
+    if (resolved.includes('/' + b + '/') || resolved.endsWith('/' + b)) {
+      return badResult(`file_write: access to "${b}" is blocked for safety`)
+    }
+  }
+
+  try {
+    // Read existing content (if file exists)
+    let existing = ''
+    let fileExists = true
+    try {
+      existing = await fs.readFile(resolved, 'utf8')
+    } catch {
+      fileExists = false
+    }
+
+    // Create backup if file exists
+    if (fileExists) {
+      const backupPath = resolved + '.bak'
+      await fs.writeFile(backupPath, existing)
+    }
+
+    let newContent: string
+    let mode: string
+
+    if (args.old_string !== undefined && args.new_string !== undefined) {
+      // Patch mode — replace first occurrence of old_string with new_string
+      mode = 'patch'
+      const oldStr = args.old_string
+      const newStr = args.new_string
+      if (!existing.includes(oldStr)) {
+        return badResult(`file_write (patch): old_string not found in ${relPath}. No changes made.`)
+      }
+      const idx = existing.indexOf(oldStr)
+      newContent = existing.slice(0, idx) + newStr + existing.slice(idx + oldStr.length)
+    } else if (args.content !== undefined) {
+      // Full write mode
+      mode = 'full-write'
+      newContent = args.content
+    } else {
+      return badResult('file_write: either {content} for full write OR {old_string, new_string} for patch mode')
+    }
+
+    // Ensure parent directory exists
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
+
+    // Write the new content
+    await fs.writeFile(resolved, newContent, 'utf8')
+
+    const oldLines = existing ? existing.split('\n').length : 0
+    const newLines = newContent.split('\n').length
+
+    return okResult(
+      `${mode === 'patch' ? 'Patched' : 'Wrote'} ${relPath} (${newLines} lines, was ${oldLines})`,
+      `File: ${relPath}\nMode: ${mode}\nBackup: ${fileExists ? resolved + '.bak' : '(new file)'}\nOld lines: ${oldLines}\nNew lines: ${newLines}\nSize: ${newContent.length} bytes\n\nThe fix has been APPLIED to disk. Use source_read to verify.`
+    )
+  } catch (e: any) {
+    return badResult(`file_write failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+TOOL_REGISTRY.file_write = { fn: toolFileWrite, icon: 'file-edit', label: 'File Write / Patch' }
+
 /* ----------------------------- HTTP Fetch ----------------------------- */
 /**
  * http_fetch — make a GET request to any URL and return the response body.
