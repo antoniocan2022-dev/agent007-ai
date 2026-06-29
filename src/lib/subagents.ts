@@ -596,7 +596,7 @@ export interface RunSubagentResult {
   }>
 }
 
-const SUBAGENT_MAX_ITERATIONS = 8
+const SUBAGENT_MAX_ITERATIONS = 15
 
 /* Per-agent request throttle (#10). Ensures each individual sub-agent waits
  * at least MIN_AGENT_INTERVAL_MS between its own LLM calls, on top of the
