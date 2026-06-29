@@ -596,7 +596,7 @@ export interface RunSubagentResult {
   }>
 }
 
-const SUBAGENT_MAX_ITERATIONS = 6
+const SUBAGENT_MAX_ITERATIONS = 8
 
 /* Per-agent request throttle (#10). Ensures each individual sub-agent waits
  * at least MIN_AGENT_INTERVAL_MS between its own LLM calls, on top of the
@@ -682,8 +682,30 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     }
 
     if (!parsed.tool) {
+      // FIX 2: Stuck detection for sub-agents.
+      // If the sub-agent produced ONLY a thought with no substantial answer,
+      // auto-recover by prompting it to continue (instead of treating the
+      // thought as the final answer).
+      const textAfterThought = content.replace(THOUGHT_RE, '').trim()
+      const isThoughtOnly = !!parsed.thought && textAfterThought.length < 20
+      const stuckPatterns = /(wait|waiting|haven't|will wait|let me wait|as i wait)/i
+      const isStuck = isThoughtOnly && stuckPatterns.test(parsed.thought)
+
+      if ((isStuck || isThoughtOnly) && iter < SUBAGENT_MAX_ITERATIONS - 1) {
+        await opts.emit('subagent_thought', {
+          dispatchId: opts.dispatchId,
+          content: `[AUTO-RECOVERY] Thought-only response. Prompting to continue...`,
+        })
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({
+          role: 'user',
+          content: '[SYSTEM] You produced only a thought. Please either call a tool or give your final answer now.',
+        })
+        continue
+      }
+
       // final answer
-      finalAnswer = content.replace(THOUGHT_RE, '').trim() || content.trim()
+      finalAnswer = textAfterThought || content.trim()
       break
     }
 

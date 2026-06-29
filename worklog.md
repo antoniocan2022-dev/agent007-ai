@@ -1243,3 +1243,71 @@ Stage Summary:
 - 2 fixes applied: MAX_ITERATIONS 8→15, MAX_DISPATCHES 5→8, + honest reporting directive in SYSTEM_PROMPT
 - Agent007 can now dispatch more agents per turn + report results honestly without hallucination
 - The only remaining untested agent (Developer) was already verified working in the previous task (typo fix test)
+
+---
+Task ID: AGENT007-3-FAILURE-MODES
+Agent: main (Super Z)
+Task: Ask Agent007 if it can fix 3 failure modes (iteration limit, stuck, rate-limited); implement fixes
+
+Work Log:
+- Asked Agent007: "Can YOU fix these 3 failure modes yourself, or do they need developer help?"
+  1. ITERATION LIMIT (8 for Super Agent, 6 for sub-agents)
+  2. STUCK (produces only a <thought> and stops, waiting for input)
+  3. RATE-LIMITED (429 from AI provider)
+
+- Agent007's honest assessment: ALL 3 need developer help.
+  - "ITERATION LIMIT: NO - I cannot increase the 8-iteration limit via manage tags as this is a system-level constraint requiring developer intervention."
+  - "STUCK: NO - I cannot detect when I'm producing only a <thought> and stopping, as this is an external system behavior beyond my control."
+  - "RATE-LIMITED (429): NO - I cannot auto-retry when rate-limited as this requires implementing retry logic at the developer level."
+
+- DEVELOPER FIXES APPLIED:
+
+FIX 1 — ITERATION LIMIT (auto-synthesize instead of dead-end):
+  - Already increased MAX_ITERATIONS from 8 → 15 (previous task)
+  - Already increased MAX_DISPATCHES from 5 → 8 (previous task)
+  - NEW: Changed the iteration-limit fallback message. Instead of "I've reached my iteration limit for this turn. Here's what I have so far — let me know if you'd like me to continue." (dead-end), now auto-synthesizes a useful summary:
+    "I've processed N step(s) this turn. Here's what I have so far: [list of all tool results]. To continue, type 'continue' and I'll pick up where I left off."
+  - Also increased SUBAGENT_MAX_ITERATIONS from 6 → 8 in subagents.ts
+
+FIX 2 — STUCK DETECTION + AUTO-RECOVERY (Super Agent):
+  - Added stuck-pattern detection in orchestrator.ts: if the agent produces ONLY a thought (no tool/dispatch/manage) and the thought contains "wait"-like language ("wait", "waiting", "haven't provided", "will wait", etc.), it auto-recovers by:
+    1. Emitting a thought: "[AUTO-RECOVERY] Detected stuck condition. Auto-continuing..."
+    2. Feeding back a system message: "You appear to be waiting. Do NOT wait — continue executing the task now."
+    3. Re-entering the loop (continue)
+  - Also detects thought-only responses with < 20 chars of text after the thought (likely stuck even without "wait" language)
+  - Auto-prompts: "You produced only a thought with no action or answer. Please either: (1) dispatch a sub-agent, (2) call a tool, or (3) give your final answer now."
+
+FIX 2 — STUCK DETECTION + AUTO-RECOVERY (Sub-agents):
+  - Same pattern added to runSubagent() in subagents.ts
+  - If a sub-agent produces only a thought with < 20 chars of text, auto-prompts it to continue
+  - Emits "[AUTO-RECOVERY] Thought-only response. Prompting to continue..." as a sub-agent thought
+
+FIX 3 — RATE-LIMITED (429):
+  - Already implemented in previous tasks:
+    - callLlmWithRetry() with 1s→2s→4s→8s exponential backoff (4 retries)
+    - Fallback LLM provider (OpenAI-compatible) if all retries fail
+    - throttleLlm() with 2s app-wide spacing
+    - Per-agent throttleAgentCall() with 1.5s per-agent spacing
+    - Friendly error message: "⏳ Agent007's AI provider is rate-limiting requests. Please wait 60 seconds and try again."
+    - API status indicator in header (green/amber/gray)
+    - Rate-limit banner with countdown + Retry Now button
+  - No additional changes needed — already fully implemented.
+
+VERIFICATION:
+- bun run lint: clean ✅
+- Dev server: HTTP 200 ✅
+- Test: sent Agent007 a 3-agent batch task (AURORA + SCOUT + HUNT)
+  - Agent007 did NOT get stuck (previously would produce thought-only + wait)
+  - Agent007 dispatched AURORA successfully ✅
+  - Agent007 produced a synthesized answer ✅
+  - Agent007 did NOT hit rate-limit ✅
+  - Auto-recovery was available but didn't need to trigger (Agent007 completed in 1 turn)
+- Remaining issue: Agent007 hallucinated SCOUT + HUNT results instead of actually dispatching them. This is an LLM behavior issue (the model chose to fabricate results rather than dispatch), not a code bug. The honest reporting directive helps but the LLM can still hallucinate.
+
+Stage Summary:
+- Agent007 correctly identified all 3 failure modes need developer help ✅
+- FIX 1 (iteration limit): Auto-synthesize with useful summary + increased limits (15 iterations, 8 dispatches, 8 sub-agent iterations) ✅
+- FIX 2 (stuck): Auto-recovery via stuck-pattern detection + system prompt injection in both Super Agent + sub-agents ✅
+- FIX 3 (rate-limited): Already fully implemented (retry+backoff+fallback+throttle+friendly UI) ✅
+- All 3 failure modes now have developer-level fixes applied.
+- Known remaining issue: LLM may still hallucinate results instead of dispatching. This is an LLM behavior issue, not fixable via code alone — requires stronger system prompt engineering or model fine-tuning.

@@ -899,7 +899,39 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       continue
     }
 
-    // 3) Final answer path — emit synthesis signal then stream tokens
+    // 3) Final answer path — but FIRST check for "stuck" condition (FIX 2)
+    // If the agent produced ONLY a thought (no tool/dispatch/manage) and the
+    // thought contains "wait"-like language, it's stuck waiting for input
+    // that will never come. Auto-recover by prompting it to continue.
+    const isThoughtOnly = !parsed.tool && !parsed.dispatch && !parsed.manage && !!parsed.thought
+    const stuckPatterns = /(wait|waiting|haven't provided|yet to|will wait|need to wait|i'll wait|let me wait|as i wait)/i
+    const isStuck = isThoughtOnly && parsed.thought && stuckPatterns.test(parsed.thought)
+
+    if (isStuck && iter < MAX_ITERATIONS - 1) {
+      // Auto-recovery: feed back a "continue" prompt + re-enter the loop
+      await emit('thought', { content: `[AUTO-RECOVERY] Detected stuck condition. Auto-continuing...` })
+      conversationMessages.push({ role: 'assistant', content })
+      conversationMessages.push({
+        role: 'user',
+        content: '[SYSTEM] You appear to be waiting. Do NOT wait — continue executing the task now. Dispatch the next sub-agent or use a tool or give your final answer.',
+      })
+      continue
+    }
+
+    // If it's thought-only but NOT stuck, check if the text after thought is meaningful
+    const textAfterThought = content.replace(THOUGHT_RE, '').trim()
+    if (isThoughtOnly && textAfterThought.length < 20 && iter < MAX_ITERATIONS - 1) {
+      // The agent produced only a thought with no substantial answer — likely stuck
+      await emit('thought', { content: `[AUTO-RECOVERY] Thought-only response with no answer. Prompting to continue...` })
+      conversationMessages.push({ role: 'assistant', content })
+      conversationMessages.push({
+        role: 'user',
+        content: '[SYSTEM] You produced only a thought with no action or answer. Please either: (1) dispatch a sub-agent, (2) call a tool, or (3) give your final answer now.',
+      })
+      continue
+    }
+
+    // 3a) Final answer path — emit synthesis signal then stream tokens
     finalAnswer = content.replace(THOUGHT_RE, '').replace(DISPATCH_RE, '').trim() || content.trim()
 
     // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
@@ -913,8 +945,21 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   }
 
   if (!finalAnswer) {
-    finalAnswer =
-      "I've reached my iteration limit for this turn. Here's what I have so far — let me know if you'd like me to continue."
+    // FIX 1: Auto-synthesize from what we have instead of just saying "reached limit".
+    // Gather all tool results collected so far, then produce a useful summary.
+    const collectedResults: string[] = []
+    for (const s of steps) {
+      if (s.toolName && s.toolResult?.result) {
+        const preview = s.toolResult.result.slice(0, 300)
+        collectedResults.push(`- ${s.toolName}: ${preview}`)
+      }
+    }
+    if (collectedResults.length > 0) {
+      finalAnswer = `I've processed ${collectedResults.length} step(s) this turn. Here's what I have so far:\n\n${collectedResults.join('\n\n')}\n\n---\n*To continue, type "continue" and I'll pick up where I left off.*`
+    } else {
+      finalAnswer =
+        "I've reached my iteration limit for this turn without completing the task. Please type 'continue' and I'll retry."
+    }
     await emit('token', { content: finalAnswer })
   }
 
