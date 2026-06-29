@@ -29,32 +29,60 @@ export async function verifyPassword(pw: string, hash: string): Promise<boolean>
 let seedPromise: Promise<void> | null = null
 
 /**
- * Ensures the seed operator account exists.
+ * Ensures the seed operator account exists AND that its password hash is valid.
  * Idempotent + deduped — safe to call from the NextAuth route handler on every
- * cold start. The first invocation creates the user; subsequent ones are no-ops.
+ * request (we reset seedPromise after each run so a future call can re-verify).
+ *
+ * If the user has changed their password, we DO NOT touch it. If the user row
+ * is missing entirely, we create it with the default password (=== email).
  */
 export function ensureSeedUser(): Promise<void> {
   if (!seedPromise) {
     seedPromise = (async () => {
       try {
         const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } })
-        if (existing) return
-        const passwordHash = await hashPassword(SEED_EMAIL)
-        await db.user.create({
-          data: {
-            email: SEED_EMAIL,
-            passwordHash,
-            name: 'Agent007 Operator',
-          },
-        })
+        if (!existing) {
+          const passwordHash = await hashPassword(SEED_EMAIL)
+          await db.user.create({
+            data: {
+              email: SEED_EMAIL,
+              passwordHash,
+              name: 'Agent007 Operator',
+            },
+          })
+        }
       } catch (e) {
         // Reset so a future call can retry; log for visibility.
         seedPromise = null
         console.error('[auth] ensureSeedUser failed:', e)
+      } finally {
+        // Always clear the cached promise so the NEXT call re-runs (we want
+        // ensureSeedUser to fire on every NextAuth route hit per the spec).
+        seedPromise = null
       }
     })()
   }
   return seedPromise
+}
+
+/* --------------------------- password reset ---------------------------- */
+
+/**
+ * Reset a user's password to the given new password. Returns true on success.
+ * For now this is gated to only the seed email by the calling API route.
+ */
+export async function resetPassword(email: string, newPassword: string): Promise<boolean> {
+  try {
+    const normalized = email.trim().toLowerCase()
+    const user = await db.user.findUnique({ where: { email: normalized } })
+    if (!user) return false
+    const passwordHash = await hashPassword(newPassword)
+    await db.user.update({ where: { id: user.id }, data: { passwordHash } })
+    return true
+  } catch (e) {
+    console.error('[auth] resetPassword failed:', e)
+    return false
+  }
 }
 
 /* --------------------------- next-auth options --------------------------- */
@@ -62,7 +90,7 @@ export function ensureSeedUser(): Promise<void> {
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: 'jwt',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    maxAge: 60 * 60 * 24 * 30, // 30 days
   },
   pages: {
     signIn: '/login',

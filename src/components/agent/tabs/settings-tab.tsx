@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSession } from 'next-auth/react'
+import { SubAgentsPanel } from './subagents-panel'
 
 /* ----------------------------- types ----------------------------- */
 interface IncomeSettings {
@@ -196,6 +197,9 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
               CHANGE PASSWORD
             </button>
           </section>
+
+          {/* Sub-Agents management */}
+          <SubAgentsPanel />
 
           {/* Income settings */}
           <section className="glass rounded-xl p-4 sm:p-5">
@@ -431,7 +435,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
 
           {/* Footer */}
           <div className="text-center text-[10px] text-[#5b6a92] tracking-wide pt-2 pb-4">
-            Agent007 AI v2.0 • powered by Z.ai SDK • 10 sub-agents • full web access
+            Agent007 AI v2.0 • powered by Z.ai SDK • 12 sub-agents • full web access
           </div>
         </div>
       </div>

@@ -53,6 +53,7 @@ model User {
   settings       UserSetting[]
   schedules      Schedule[]
   notifications  NotificationLog[]
+  customSubagents CustomSubagent[]
 }
 
 model UserSetting {
@@ -99,6 +100,38 @@ model NotificationLog {
   sent      Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/**
+ * Custom (user-created) sub-agent definitions. Built-in agents live in code
+ * (see /src/lib/subagents.ts); custom agents are stored here and merged with
+ * the built-in list at runtime. Built-in agents CANNOT be deleted (their DB
+ * row's `id` would match a built-in id if the user creates an edit overlay),
+ * but they CAN be edited via an overlay row referencing the built-in id.
+ *
+ * Convention:
+ *   - Custom agents have ids that DO NOT collide with built-in ids.
+ *   - Edit-overlays for built-in agents share the built-in id but have
+ *     `isBuiltinOverlay=true`. The runtime prefers the overlay row when
+ *     merging.
+ */
+model CustomSubagent {
+  id              String   @id @default(cuid())
+  userId          String
+  name            String
+  role            String
+  specialty       String
+  color           String
+  icon            String   // lucide icon name (string; client maps to component)
+  allowedTools    String   // JSON array of tool name strings
+  systemPrompt    String
+  enabled         Boolean  @default(true)
+  isBuiltinOverlay Boolean @default(false) // true = this row overrides a built-in agent
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

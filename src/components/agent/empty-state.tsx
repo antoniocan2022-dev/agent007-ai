@@ -12,6 +12,8 @@ import {
   Palette,
   Activity,
   RefreshCw,
+  Scale,
+  Landmark,
   Lightbulb,
   Target,
   type LucideIcon,
@@ -30,6 +32,8 @@ const SUBAGENT_COLORS: Record<string, string> = {
   prism: '#e879f9',
   pulse: '#fb7185',
   echo: '#818cf8',
+  legal: '#22d3ee',
+  banker: '#10b981',
 }
 
 const SUGGESTIONS = [
@@ -90,7 +94,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         className="mt-3 text-sm sm:text-base text-[#7c89b5] tracking-wide"
       >
         Your AI Income Operator —{' '}
-        <span className="text-[#e0e7ff]">10 Specialists.</span>{' '}
+        <span className="text-[#e0e7ff]">12 Specialists.</span>{' '}
         <span className="text-[#e0e7ff]">One Mission: +10% Daily.</span>
       </motion.p>
 
@@ -142,7 +146,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         transition={{ delay: 0.55, duration: 0.8 }}
         className="mt-8 w-full max-w-2xl"
       >
-        <div className="text-[9px] tracking-[0.25em] text-[#5b6a92] mb-3">10 SUB-AGENTS AT YOUR COMMAND</div>
+        <div className="text-[9px] tracking-[0.25em] text-[#5b6a92] mb-3">12 SUB-AGENTS AT YOUR COMMAND</div>
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
           {Object.entries(SUBAGENT_COLORS).map(([id, color]) => {
             const Icon = SUBAGENT_ICON_MAP[id] ?? Sparkles
@@ -173,7 +177,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
       >
         {[
           { icon: Target, label: '+10% Daily Mission' },
-          { icon: Sparkles, label: '10 Sub-Agents' },
+          { icon: Sparkles, label: '12 Sub-Agents' },
           { icon: Search, label: 'Full Internet Access' },
           { icon: Lightbulb, label: 'Self-Learning' },
         ].map((c) => {
@@ -204,4 +208,6 @@ const SUBAGENT_ICON_MAP: Record<string, LucideIcon> = {
   prism: Palette,
   pulse: Activity,
   echo: RefreshCw,
+  legal: Scale,
+  banker: Landmark,
 }

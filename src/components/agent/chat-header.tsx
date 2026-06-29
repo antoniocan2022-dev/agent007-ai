@@ -137,7 +137,7 @@ export function ChatHeader({
         {/* capabilities badge (desktop) */}
         <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border-cyan-400/20 text-[10px] text-[#9bb5d4]">
           <ShieldCheck className="w-3 h-3 text-cyan-300" />
-          <span>10 sub-agents • full web access • autonomous</span>
+          <span>12 sub-agents • full web access • autonomous</span>
         </div>
 
         {/* user menu */}

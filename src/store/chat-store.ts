@@ -10,6 +10,7 @@ export type ToolStepKind =
   | 'subagent_thought'
   | 'subagent_tool'
   | 'subagent_complete'
+  | 'manage_action'
 
 export interface ToolStep {
   id: string
@@ -35,6 +36,10 @@ export interface ToolStep {
   subagentAnswer?: string
   /** dispatch linkage so subagent_thought/tool_call/tool_result can be grouped */
   dispatchId?: string
+  /** if this is a manage_action step */
+  manageAction?: string
+  manageAttrs?: Record<string, string>
+  manageResult?: { ok: boolean; message: string; data?: any }
 }
 
 export interface ChatMessage {
@@ -118,6 +123,12 @@ interface ChatState {
   // global change-password modal trigger (openable from chat-header user menu + Settings tab)
   changePasswordOpen: boolean
   setChangePasswordOpen: (v: boolean) => void
+
+  // subagents panel refresh signal — bumped whenever a manage_action creates/edits/
+  // deletes/toggles a sub-agent OR the user manually edits via the Sub-Agents panel.
+  // The Sub-Agents tab subscribes to this and re-fetches /api/subagents when it changes.
+  subagentsVersion: number
+  bumpSubagents: () => void
 }
 
 let msgIdCounter = 0
@@ -151,6 +162,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abortFlag: { current: false },
   activeTab: 'chat',
   changePasswordOpen: false,
+  subagentsVersion: 0,
 
   loadConversations: async () => {
     try {
@@ -318,6 +330,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
               subagentName: parentDispatch?.subagentName,
               subagentColor: parentDispatch?.subagentColor,
               subagentIcon: parentDispatch?.subagentIcon,
+            })
+          } else if (r.toolName === 'manage_action') {
+            // Reconstruct manage_action step from persisted row
+            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+            stepCounter++
+            pendingSteps.push({
+              id: r.id,
+              stepNumber: stepCounter,
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'manage_action',
+              manageAction: meta.action,
+              manageAttrs: meta.attrs,
+              manageResult: { ok: !/failed|error/i.test(r.toolResult ?? ''), message: r.toolResult ?? '' },
             })
           } else {
             // Regular super-agent tool
@@ -503,6 +530,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setRight: (v) => set({ rightOpen: v }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setChangePasswordOpen: (v) => set({ changePasswordOpen: v }),
+  bumpSubagents: () => set((s) => ({ subagentsVersion: s.subagentsVersion + 1 })),
 }))
 
 function safeParseJson(s: string): any {
@@ -811,6 +839,56 @@ function applyEvent(
         : [item, ...s.memories]
       return { memories }
     })
+  } else if (event === 'manage_action') {
+    // Two-phase event: status='running' pushes a new step; status='done'|'error'
+    // updates that step with the result.
+    const stepId = data.stepId
+    if (data.status === 'running') {
+      set((s) => ({
+        status: 'tool_running',
+        currentTool: `manage:${data.action}`,
+        messages: s.messages.map((m) => {
+          if (m.id !== assistantId) return m
+          const steps = [...(m.steps ?? [])]
+          steps.push({
+            id: stepId,
+            stepNumber: data.stepNumber ?? steps.length + 1,
+            thought: data.thought,
+            status: 'running',
+            startedAt: Date.now(),
+            kind: 'manage_action',
+            manageAction: data.action,
+            manageAttrs: data.attrs,
+          })
+          return { ...m, steps }
+        }),
+      }))
+    } else {
+      // done or error
+      set((s) => ({
+        status: 'thinking',
+        currentTool: null,
+        messages: s.messages.map((m) => {
+          if (m.id !== assistantId) return m
+          const steps = (m.steps ?? []).map((st) =>
+            st.id === stepId
+              ? {
+                  ...st,
+                  status: data.status === 'error' ? 'error' : 'done',
+                  manageResult: data.result,
+                  finishedAt: Date.now(),
+                }
+              : st
+          )
+          return { ...m, steps }
+        }),
+      }))
+    }
+  } else if (event === 'subagents_updated') {
+    // The orchestrator created/edited/deleted/toggled a sub-agent. Bump the
+    // version so any mounted Sub-Agents panel re-fetches the list. Also
+    // refresh memories + conversations (cheap) so the rest of the UI is fresh.
+    set((s) => ({ subagentsVersion: s.subagentsVersion + 1 }))
   } else if (event === 'error') {
     set((s) => ({
       messages: s.messages.map((m) =>

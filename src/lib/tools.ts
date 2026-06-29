@@ -383,6 +383,210 @@ export async function toolFileRead(
   }
 }
 
+/* ----------------------------- Wikipedia search ----------------------- */
+/**
+ * Search Wikipedia's free API. No API key required.
+ *
+ * NOTE: We deliberately omit `origin=*` from the URL. That parameter is only
+ * needed for cross-origin browser requests (it triggers Wikimedia's CORS
+ * bypass which, combined with Node.js's undici TLS fingerprint, gets blocked
+ * with HTTP 403 by Wikimedia's bot detection in some sandbox environments).
+ * Server-side requests work fine without it.
+ *
+ * The User-Agent follows Wikimedia's policy (https://meta.wikimedia.org/wiki/User-Agent_policy):
+ * a descriptive UA with a contact URL. This also helps avoid 403 blocks.
+ *
+ * Docs: https://www.mediawiki.org/wiki/API:Search
+ */
+export async function toolWikipediaSearch(
+  args: { query?: string; limit?: number },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const query = (args?.query ?? '').toString().trim()
+  if (!query) return badResult('Missing "query" argument for wikipedia_search')
+  const limit = Math.min(Math.max(args.limit ?? 5, 1), 20)
+  try {
+    const url =
+      'https://en.wikipedia.org/w/api.php?action=query&list=search' +
+      `&srsearch=${encodeURIComponent(query)}` +
+      `&srlimit=${limit}` +
+      '&format=json'
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Agent007-AI/1.0 (https://github.com/agent007; research bot)' },
+    })
+    if (!resp.ok) return badResult(`wikipedia_search HTTP ${resp.status}`)
+    const data: any = await resp.json()
+    const items: any[] = data?.query?.search ?? []
+    if (items.length === 0) {
+      return okResult(
+        `No Wikipedia articles matched "${query}".`,
+        `No Wikipedia articles found for query: "${query}".`
+      )
+    }
+    const formatted = items
+      .map((it, i) => {
+        const title = it.title ?? ''
+        const snip = (it.snippet ?? '').toString().replace(/<[^>]+>/g, '').slice(0, 400)
+        const url = `https://en.wikipedia.org/?curid=${it.pageid}`
+        return `${i + 1}. **${title}**\n   URL: ${url}\n   ${snip}`
+      })
+      .join('\n\n')
+    const preview = items
+      .slice(0, 3)
+      .map((it) => `• ${it.title}`)
+      .join('\n')
+    return okResult(preview, formatted)
+  } catch (e: any) {
+    return badResult(`wikipedia_search failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+/* ----------------------------- Wikipedia read ------------------------- */
+/**
+ * Read a full Wikipedia article. Uses the parse API to get wikitext,
+ * then strips wikitext markup to readable plain text. Truncated to 8000 chars.
+ *
+ * Same `origin=*` omission + descriptive UA as `toolWikipediaSearch` —
+ * see that function's docstring for rationale.
+ *
+ * Docs: https://www.mediawiki.org/wiki/API:Parsing_wikitext
+ */
+export async function toolWikipediaRead(
+  args: { title?: string },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const title = (args?.title ?? '').toString().trim()
+  if (!title) return badResult('Missing "title" argument for wikipedia_read')
+  try {
+    const url =
+      'https://en.wikipedia.org/w/api.php?action=parse' +
+      `&page=${encodeURIComponent(title)}` +
+      '&prop=wikitext&format=json'
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Agent007-AI/1.0 (https://github.com/agent007; research bot)' },
+    })
+    if (!resp.ok) return badResult(`wikipedia_read HTTP ${resp.status}`)
+    const data: any = await resp.json()
+    if (data?.error) {
+      return badResult(`wikipedia_read: ${data.error.info ?? data.error.code}`)
+    }
+    const wikitext: string = data?.parse?.wikitext?.['*'] ?? ''
+    if (!wikitext) {
+      return okResult(
+        `No content for "${title}".`,
+        `Wikipedia article "${title}" returned empty content.`
+      )
+    }
+    const plain = stripWikitext(wikitext).slice(0, 8000)
+    const articleUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`
+    return okResult(
+      `Read Wikipedia: ${title}\n${plain.slice(0, 400)}...`,
+      `Title: ${title}\nURL: ${articleUrl}\n\n${plain}`
+    )
+  } catch (e: any) {
+    return badResult(`wikipedia_read failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+/**
+ * Strip MediaWiki wikitext markup to readable plain text.
+ * Best-effort — handles the most common markup patterns.
+ */
+function stripWikitext(wt: string): string {
+  return wt
+    // HTML comments
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Refs and citations
+    .replace(/<ref[^>]*\/>/gi, '')
+    .replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, '')
+    // Other HTML tags (keep their inner text)
+    .replace(/<[^>]+>/g, '')
+    // Headings: == Foo == → Foo
+    .replace(/^={2,}\s*(.+?)\s*={2,}$/gm, '$1')
+    // Bold/italic
+    .replace(/'''([^']+)'''/g, '$1')
+    .replace(/''([^']+)''/g, '$1')
+    // Internal wiki links: [[Foo|Bar]] → Bar, [[Foo]] → Foo
+    .replace(/\[\[[^\]]*\|([^\]]+)\]\]/g, '$1')
+    .replace(/\[\[([^\]]+)\]\]/g, '$1')
+    // External links: [http://x label] → label
+    .replace(/\[[^\s]+\s+([^\]]+)\]/g, '$1')
+    .replace(/\[([^\]]+)\]/g, '$1')
+    // Templates: {{...}}
+    .replace(/\{\{[^}]*\}\}/g, '')
+    // Tables: {| ... |}
+    .replace(/\{\|[\s\S]*?\|\}/g, '')
+    // Lists: "* item" → "item"
+    .replace(/^[\s]*[\*#:;]+\s*/gm, '')
+    // Multiple blank lines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/* ----------------------------- Free APIs directory -------------------- */
+/**
+ * Query the public-apis.org directory for free public APIs matching a keyword.
+ * No API key required. Returns list of API name + description + auth + HTTPS + link.
+ * Docs: https://github.com/davemachado/public-api
+ */
+export async function toolFreeApisDirectory(
+  args: { query?: string },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const query = (args?.query ?? '').toString().trim()
+  if (!query) return badResult('Missing "query" argument for free_apis_directory')
+  try {
+    // public-apis.org returns a single object { count, entries: [...] }.
+    // We can filter by title (case-insensitive contains) on the client side
+    // to support multi-word queries like "real estate" or "open data".
+    const url = 'https://api.publicapis.org/entries'
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'Agent007-AI/1.0 (research)' },
+    })
+    if (!resp.ok) return badResult(`free_apis_directory HTTP ${resp.status}`)
+    const data: any = await resp.json()
+    const all: any[] = Array.isArray(data?.entries) ? data.entries : []
+    if (all.length === 0) {
+      return okResult(
+        `No free APIs found.`,
+        `Free APIs directory returned no entries.`
+      )
+    }
+    const q = query.toLowerCase()
+    const matched = all.filter((e) => {
+      const title = (e.API ?? e.name ?? '').toString().toLowerCase()
+      const desc = (e.Description ?? '').toString().toLowerCase()
+      const cat = (e.Category ?? '').toString().toLowerCase()
+      return title.includes(q) || desc.includes(q) || cat.includes(q)
+    }).slice(0, 15)
+
+    if (matched.length === 0) {
+      return okResult(
+        `No free APIs matched "${query}".`,
+        `No free public APIs matched query "${query}". Try a broader keyword (e.g. "weather", "crypto", "data").`
+      )
+    }
+    const formatted = matched
+      .map((e, i) => {
+        const name = e.API ?? e.name ?? 'Unknown'
+        const desc = e.Description ?? ''
+        const auth = e.Auth ?? 'none'
+        const https = e.HTTPS ? 'Yes' : 'No'
+        const link = e.Link ?? ''
+        const cors = e.Cors ?? 'unknown'
+        return `${i + 1}. **${name}** (${e.Category ?? 'misc'})\n   Description: ${desc}\n   Auth: ${auth} • HTTPS: ${https} • CORS: ${cors}\n   Link: ${link}`
+      })
+      .join('\n\n')
+    const preview = matched
+      .slice(0, 3)
+      .map((e) => `• ${e.API ?? e.name}`)
+      .join('\n')
+    return okResult(preview, formatted)
+  } catch (e: any) {
+    return badResult(`free_apis_directory failed: ${e?.message ?? String(e)}`)
+  }
+}
+
 /* ----------------------------- helpers -------------------------------- */
 function okResult(preview: string, result: string): ToolResult {
   return { ok: true, preview, result }
@@ -403,6 +607,9 @@ export const TOOL_REGISTRY: Record<
   memory_store: { fn: toolMemoryStore, icon: 'database', label: 'Memory Store' },
   memory_recall: { fn: toolMemoryRecall, icon: 'brain', label: 'Memory Recall' },
   file_read: { fn: toolFileRead, icon: 'file-text', label: 'File Read' },
+  wikipedia_search: { fn: toolWikipediaSearch, icon: 'book-open', label: 'Wikipedia Search' },
+  wikipedia_read: { fn: toolWikipediaRead, icon: 'book', label: 'Wikipedia Read' },
+  free_apis_directory: { fn: toolFreeApisDirectory, icon: 'library', label: 'Free APIs Directory' },
 }
 
 export async function dispatchTool(

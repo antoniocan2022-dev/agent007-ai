@@ -21,6 +21,11 @@ import {
   Hammer,
   PenLine,
   RefreshCw,
+  Scale,
+  Landmark,
+  BookOpen,
+  Book,
+  Library,
   type LucideIcon,
 } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
@@ -34,6 +39,9 @@ const CAPABILITIES = [
   { icon: FileText, label: 'File Read', desc: 'Read uploads' },
   { icon: Database, label: 'Memory Store', desc: 'Persistent facts' },
   { icon: Brain, label: 'Memory Recall', desc: 'Context retrieval' },
+  { icon: BookOpen, label: 'Wikipedia Search', desc: 'Free encyclopedic' },
+  { icon: Book, label: 'Wikipedia Read', desc: 'Full articles' },
+  { icon: Library, label: 'Free APIs', desc: 'Public API directory' },
 ]
 
 /* Sub-agent definitions for the SUB-AGENT NETWORK panel (id, name, role, color, icon) */
@@ -56,6 +64,8 @@ const SUBAGENTS_PANEL: SubagentPanelItem[] = [
   { id: 'prism', name: 'PRISM', role: 'Visual Designer', color: '#e879f9', icon: Palette },
   { id: 'pulse', name: 'PULSE', role: 'Analytics Monitor', color: '#fb7185', icon: Activity },
   { id: 'echo', name: 'ECHO', role: 'Feedback & Opt.', color: '#818cf8', icon: RefreshCw },
+  { id: 'legal', name: 'LEGAL', role: 'Legal & Tax (US/CA)', color: '#22d3ee', icon: Scale },
+  { id: 'banker', name: 'THE BANKER', role: 'Banking (US/CA)', color: '#10b981', icon: Landmark },
 ]
 
 function StatusDot({ status }: { status: string }) {
@@ -155,7 +165,7 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
         <section>
           <div className="flex items-center justify-between mb-2">
             <div className="text-[9px] tracking-[0.2em] text-[#5b6a92]">SUB-AGENT NETWORK</div>
-            <span className="text-[9px] text-[#5b6a92]">10 specialists</span>
+            <span className="text-[9px] text-[#5b6a92]">12 specialists</span>
           </div>
           <div className="grid grid-cols-1 gap-1.5">
             {SUBAGENTS_PANEL.map((sa) => {

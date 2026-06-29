@@ -3,7 +3,7 @@ import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } 
 import { parseAssistant, getZai, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
 
 /* ------------------------------------------------------------------ *
- * Sub-agent registry — 10 specialists orchestrated by Agent007 (Super)
+ * Sub-agent registry — 12 specialists orchestrated by Agent007 (Super)
  * ------------------------------------------------------------------ */
 
 export interface Subagent {
@@ -15,6 +15,10 @@ export interface Subagent {
   icon: string // lucide icon name (string; client maps to component)
   allowedTools: string[]
   systemPrompt: string
+  /** True if this is a built-in agent (cannot be deleted, can be edited). */
+  isBuiltin?: boolean
+  /** True if this row is enabled (built-in default = true). */
+  enabled?: boolean
 }
 
 const ALL_TOOLS = [
@@ -26,7 +30,14 @@ const ALL_TOOLS = [
   'memory_store',
   'memory_recall',
   'file_read',
+  'wikipedia_search',
+  'wikipedia_read',
+  'free_apis_directory',
 ]
+
+/* Three free-data tools added to every sub-agent so they can pull from
+ * Wikipedia and the public-apis.org directory without API keys. */
+const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory']
 
 export const SUBAGENTS: Subagent[] = [
   {
@@ -36,7 +47,9 @@ export const SUBAGENTS: Subagent[] = [
     specialty: 'Blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization',
     color: '#00f0ff',
     icon: 'Sparkles',
-    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are AURORA, the Content & Affiliate Specialist sub-agent of Agent007 AI.
 Your specialty: blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization.
 
@@ -66,7 +79,9 @@ RULES:
     specialty: 'Micro-SaaS blueprints, API products, template marketplaces, no-code tooling, app ideas with revenue models',
     color: '#34d399',
     icon: 'Box',
-    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall'],
+    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are VERTEX, the SaaS & Product Architect sub-agent of Agent007 AI.
 Your specialty: micro-SaaS blueprints, API products, template marketplaces, no-code tooling, app ideas with revenue models.
 
@@ -97,7 +112,9 @@ RULES:
     specialty: 'Dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds',
     color: '#fbbf24',
     icon: 'TrendingUp',
-    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall'],
+    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of Agent007 AI.
 Your specialty: dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds.
 
@@ -128,7 +145,9 @@ RULES:
     specialty: 'Emerging trends, niche analysis, demand validation, competitor scanning',
     color: '#38bdf8',
     icon: 'Search',
-    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are SCOUT, the Trend & Market Researcher sub-agent of Agent007 AI.
 Your specialty: emerging trends, niche analysis, demand validation, competitor scanning.
 
@@ -158,7 +177,9 @@ RULES:
     specialty: 'Upwork, Fiverr, Toptal, Contra — high-demand gig categories, side-hustle discovery',
     color: '#a78bfa',
     icon: 'Crosshair',
-    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are HUNT, the Freelance & Gig Hunter sub-agent of Agent007 AI.
 Your specialty: scanning Upwork, Fiverr, Toptal, Contra for high-demand gig categories and side-hustle discovery.
 
@@ -187,7 +208,9 @@ RULES:
     specialty: 'Writing code, building prototypes, technical setup, deployment scripts, automation',
     color: '#fb923c',
     icon: 'Hammer',
-    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are FORGE, the Code & Technical Builder sub-agent of Agent007 AI.
 Your specialty: writing code, building prototypes, technical setup, deployment scripts, automation.
 
@@ -217,7 +240,9 @@ RULES:
     specialty: 'Copywriting, scripts, blog posts, social media content, email sequences',
     color: '#f472b6',
     icon: 'PenLine',
-    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are QUILL, the Content Creator sub-agent of Agent007 AI.
 Your specialty: copywriting, scripts, blog posts, social media content, email sequences.
 
@@ -247,7 +272,9 @@ RULES:
     specialty: 'Image generation, logo concepts, marketing visuals, brand identity mockups',
     color: '#e879f9',
     icon: 'Palette',
-    allowedTools: ['image_gen', 'vision', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['image_gen', 'vision', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are PRISM, the Visual & Creative Designer sub-agent of Agent007 AI.
 Your specialty: image generation, logo concepts, marketing visuals, brand identity mockups.
 
@@ -279,7 +306,9 @@ RULES:
     specialty: 'KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement',
     color: '#fb7185',
     icon: 'Activity',
-    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are PULSE, the Analytics & Performance Monitor sub-agent of Agent007 AI.
 Your specialty: KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement.
 
@@ -310,7 +339,9 @@ RULES:
     specialty: 'Post-mortem analysis, A/B testing, learning loops, continuous improvement',
     color: '#818cf8',
     icon: 'RefreshCw',
-    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
     systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of Agent007 AI.
 Your specialty: post-mortem analysis, A/B testing, learning loops, continuous improvement.
 
@@ -333,6 +364,80 @@ RULES:
 - Identify what worked, what didn't, and the single biggest lever to pull next
 - Max 6 tool calls.`,
   },
+  {
+    id: 'legal',
+    name: 'LEGAL',
+    role: 'Legal & Tax Strategist (USA/Canada)',
+    specialty: 'US federal/state tax law, CRA/Canadian tax law, business entity formation (LLC/Corporation/S-corp), cross-border tax treaties, financial regulations, compliance, deductions, write-offs',
+    color: '#22d3ee',
+    icon: 'Scale',
+    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
+    systemPrompt: `You are LEGAL, the Legal & Tax Strategist sub-agent of Agent007 AI.
+Your specialty: US federal/state tax law, CRA/Canadian tax law, business entity formation, cross-border tax treaties (US-Canada), financial regulations, compliance, deductions, write-offs.
+
+GEOGRAPHIC FOCUS: United States (IRS, SEC, state regulations) AND Canada (CRA, provincial regulations).
+
+ALLOWED TOOLS:
+- web_search — ALWAYS search for current tax rates, law changes, treaty updates; never quote rates from memory
+- page_reader — read IRS.gov, canada.ca, state/provincial tax authority pages
+- code_exec — compute tax scenarios, compare entity structures, model deductions
+- memory_store — save user's entity type, jurisdiction, tax situation
+- memory_recall — recall prior legal/tax context
+
+OUTPUT FORMAT:
+- <thought>brief reasoning</thought> before each action
+- <tool name="...">{json}</tool> to call a tool
+- Plain markdown final answer
+
+RULES:
+- ALWAYS web_search current tax rates, brackets, contribution limits before quoting numbers — these change yearly
+- For US: know federal income tax brackets, self-employment tax (15.3%), QBI deduction (Section 199A), S-corp vs LLC vs sole prop tradeoffs, Section 179 depreciation, retirement plans (Solo 401k, SEP-IRA)
+- For Canada: know federal/provincial tax brackets, CPP/EI contributions, small business deduction, RRSP/TFSA contribution limits, GST/HST registration thresholds
+- For cross-border: know US-Canada tax treaty, foreign tax credits, FBAR, Form 5471, departure/arrival rules
+- Always add disclaimer: "This is informational, not legal/tax advice. Consult a licensed CPA/attorney for your specific situation."
+- When recommending entity structures, compare 3+ options with pros/cons, tax impact, liability, complexity
+- Cite source URLs (irs.gov, canada.ca, etc.) for every specific number
+- Max 6 tool calls.`,
+  },
+  {
+    id: 'banker',
+    name: 'THE BANKER',
+    role: 'Banking & Treasury Strategist (USA/Canada)',
+    specialty: 'US and Canadian banks, business bank accounts, merchant services, credit cards, loans, lines of credit, treasury management, wire transfers, FX, banking regulations (FDIC/OSFI)',
+    color: '#10b981',
+    icon: 'Landmark',
+    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    isBuiltin: true,
+    enabled: true,
+    systemPrompt: `You are THE BANKER, the Banking & Treasury Strategist sub-agent of Agent007 AI.
+Your specialty: US and Canadian banks, business bank accounts, merchant services, credit cards, loans, lines of credit, treasury management, wire transfers, FX, banking regulations.
+
+GEOGRAPHIC FOCUS: United States (FDIC, OCC, Federal Reserve) AND Canada (OSFI, CDIC).
+
+ALLOWED TOOLS:
+- web_search — ALWAYS search for current interest rates, account fees, bonus offers; never quote rates from memory
+- page_reader — read bank product pages, fee schedules, deposit account disclosures
+- code_exec — compute interest scenarios, fee comparisons, FX conversions
+- memory_store — save user's banking relationships, capital position
+- memory_recall — recall prior banking context
+
+OUTPUT FORMAT:
+- <thought>brief reasoning</thought> before each action
+- <tool name="...">{json}</tool> to call a tool
+- Plain markdown final answer
+
+RULES:
+- ALWAYS web_search current APY rates, account fees, bonus offers — these change weekly
+- For US: know major banks (Chase, BofA, Wells Fargo, Citi), online banks (Ally, Schwab, Marcus), neobanks (Mercury, Brex, Novo), business credit cards (Ink, Amex Biz), SBA loan programs (7a, 504, microloan)
+- For Canada: know Big 5 (RBC, TD, Scotiabank, BMO, CIBC), online banks (EQ Bank, Tangerine), neobanks (Wise, Kojo), business credit cards, BDC/EDC financing, CSBF loan program
+- For cross-border: know Wise, Revolut Business, multi-currency accounts, FBAR reporting for foreign accounts >$10k
+- Compare 3+ options for every recommendation with fees, rates, pros/cons
+- For treasury: recommend cash management ladders (HYSA + T-bills + money market)
+- Cite source URLs for every specific rate/fee
+- Max 6 tool calls.`,
+  },
 ]
 
 export function getSubagent(id: string): Subagent | undefined {
@@ -344,6 +449,116 @@ export const SUBAGENT_ICONS: Record<string, string> = Object.fromEntries(
   SUBAGENTS.map((s) => [s.id, s.icon])
 )
 
+/* ------------------------------------------------------------------ *
+ * Merge built-in subagents with DB-loaded custom + overlay rows.
+ *
+ * Built-in agents are defined in code (above). Custom agents live in the
+ * CustomSubagent table. A built-in agent can be EDITED by creating an
+ * overlay row whose `id` matches the built-in id and `isBuiltinOverlay=true`.
+ *
+ * Merge rules:
+ *   - For each built-in agent, if there's an overlay row with the same id,
+ *     apply the overlay's fields (systemPrompt, color, icon, allowedTools,
+ *     enabled) on top of the built-in defaults.
+ *   - Append all non-overlay custom rows to the list.
+ *   - Filter out disabled agents unless `includeDisabled=true`.
+ * ------------------------------------------------------------------ */
+
+async function getOperatorUserId(): Promise<string | null> {
+  try {
+    const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+    return user?.id ?? null
+  } catch (e) {
+    console.error('[subagents] getOperatorUserId failed:', e)
+    return null
+  }
+}
+
+function parseAllowedTools(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((s) => typeof s === 'string' && s.length > 0)
+    }
+  } catch {
+    /* ignore */
+  }
+  // Fallback: comma-separated string
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * Returns ALL subagents (12 built-in + custom), with overlay edits applied.
+ * Disabled agents are filtered out unless `includeDisabled=true`.
+ *
+ * IMPORTANT: This is async because it reads from the DB. Callers that need
+ * a synchronous lookup (e.g. runSubagent) should call this first and pass
+ * the resulting list down.
+ */
+export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Promise<Subagent[]> {
+  const includeDisabled = opts?.includeDisabled ?? false
+  let customRows: any[] = []
+  try {
+    const userId = await getOperatorUserId()
+    if (userId) {
+      customRows = await db.customSubagent.findMany({ where: { userId } })
+    }
+  } catch (e) {
+    console.error('[subagents] getAllSubagents DB load failed:', e)
+  }
+
+  const overlayMap = new Map<string, any>()
+  const customList: Subagent[] = []
+  for (const row of customRows) {
+    if (row.isBuiltinOverlay) {
+      overlayMap.set(row.id, row)
+    } else {
+      customList.push({
+        id: row.id,
+        name: row.name,
+        role: row.role,
+        specialty: row.specialty,
+        color: row.color,
+        icon: row.icon,
+        allowedTools: parseAllowedTools(row.allowedTools),
+        systemPrompt: row.systemPrompt,
+        isBuiltin: false,
+        enabled: row.enabled ?? true,
+      })
+    }
+  }
+
+  // Apply overlays on top of built-ins
+  const mergedBuiltins: Subagent[] = SUBAGENTS.map((b) => {
+    const ov = overlayMap.get(b.id)
+    if (!ov) return { ...b, enabled: b.enabled ?? true }
+    return {
+      ...b,
+      name: ov.name ?? b.name,
+      role: ov.role ?? b.role,
+      specialty: ov.specialty ?? b.specialty,
+      color: ov.color ?? b.color,
+      icon: ov.icon ?? b.icon,
+      allowedTools: ov.allowedTools ? parseAllowedTools(ov.allowedTools) : b.allowedTools,
+      systemPrompt: ov.systemPrompt ?? b.systemPrompt,
+      enabled: ov.enabled ?? b.enabled ?? true,
+    }
+  })
+
+  const all = [...mergedBuiltins, ...customList]
+  return includeDisabled ? all : all.filter((s) => s.enabled !== false)
+}
+
+/**
+ * Sync lookup of a subagent by id within a provided list. Falls back to the
+ * built-in registry (with overlays NOT applied) if no list is provided.
+ */
+export function findSubagentIn(list: Subagent[], id: string): Subagent | undefined {
+  return list.find((s) => s.id === id)
+}
 /* ------------------------------------------------------------------ *
  * Sub-agent runtime — runs its own mini agent loop with its system
  * prompt + restricted tool set, then returns its final answer.
@@ -379,9 +594,18 @@ export interface RunSubagentResult {
 const SUBAGENT_MAX_ITERATIONS = 6
 
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
-  const sub = getSubagent(opts.subagentId)
+  // Look up the sub-agent definition from the merged list (built-in + DB-loaded
+  // custom + built-in overlays). This lets the Super Agent dispatch to custom
+  // agents and respect overlay edits at runtime.
+  const allSubs = await getAllSubagents({ includeDisabled: true })
+  const sub = allSubs.find((s) => s.id === opts.subagentId)
   if (!sub) {
     const err = `Unknown sub-agent id: "${opts.subagentId}"`
+    await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
+    return { answer: `⚠️ ${err}`, steps: [] }
+  }
+  if (sub.enabled === false) {
+    const err = `Sub-agent "${sub.name}" is currently disabled. Re-enable it in Settings → Sub-Agents.`
     await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
     return { answer: `⚠️ ${err}`, steps: [] }
   }

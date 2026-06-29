@@ -1,0 +1,834 @@
+     1→import { db } from '@/lib/db'
+     2→import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
+     3→import { parseAssistant, getZai, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
+     4→
+     5→/* ------------------------------------------------------------------ *
+     6→ * Sub-agent registry — 12 specialists orchestrated by Agent007 (Super)
+     7→ * ------------------------------------------------------------------ */
+     8→
+     9→export interface Subagent {
+    10→  id: string
+    11→  name: string
+    12→  role: string
+    13→  specialty: string
+    14→  color: string // hex accent color
+    15→  icon: string // lucide icon name (string; client maps to component)
+    16→  allowedTools: string[]
+    17→  systemPrompt: string
+    18→  /** True if this is a built-in agent (cannot be deleted, can be edited). */
+    19→  isBuiltin?: boolean
+    20→  /** True if this row is enabled (built-in default = true). */
+    21→  enabled?: boolean
+    22→}
+    23→
+    24→const ALL_TOOLS = [
+    25→  'web_search',
+    26→  'page_reader',
+    27→  'image_gen',
+    28→  'vision',
+    29→  'code_exec',
+    30→  'memory_store',
+    31→  'memory_recall',
+    32→  'file_read',
+    33→  'wikipedia_search',
+    34→  'wikipedia_read',
+    35→  'free_apis_directory',
+    36→]
+    37→
+    38→/* Three free-data tools added to every sub-agent so they can pull from
+    39→ * Wikipedia and the public-apis.org directory without API keys. */
+    40→const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory']
+    41→
+    42→export const SUBAGENTS: Subagent[] = [
+    43→  {
+    44→    id: 'aurora',
+    45→    name: 'AURORA',
+    46→    role: 'Content & Affiliate Specialist',
+    47→    specialty: 'Blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization',
+    48→    color: '#00f0ff',
+    49→    icon: 'Sparkles',
+    50→    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    51→    isBuiltin: true,
+    52→    enabled: true,
+    53→    systemPrompt: `You are AURORA, the Content & Affiliate Specialist sub-agent of Agent007 AI.
+    54→Your specialty: blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization.
+    55→
+    56→ALLOWED TOOLS (call by emitting <tool name="...">{json}</tool>):
+    57→- web_search — find current affiliate programs, SEO trends, monetization best practices
+    58→- page_reader — read affiliate program terms, competitor content
+    59→- memory_store — persist the user's content niche/strategy
+    60→- memory_recall — pull prior context on user's content goals
+    61→
+    62→OUTPUT FORMAT (STRICT):
+    63→- <thought>brief reasoning</thought> before each action
+    64→- <tool name="...">{json}</tool> to call a tool
+    65→- After tools finish, give your final answer as plain markdown (no tags)
+    66→
+    67→RULES:
+    68→- Always angle for monetization: surface affiliate programs, CPM potential, sponsored content
+    69→- Be SEO-aware: mention keyword strategy, search intent, content depth
+    70→- For YouTube, propose hooks, titles, thumbnails concepts, retention tactics
+    71→- For blogs, propose editorial calendar with internal-linking + lead magnets
+    72→- Be concrete with revenue ranges ($X–$Y/mo) and time-to-first-dollar estimates
+    73→- Max 6 tool calls. Be efficient and deliver a structured final answer.`,
+    74→  },
+    75→  {
+    76→    id: 'vertex',
+    77→    name: 'VERTEX',
+    78→    role: 'SaaS & Product Architect',
+    79→    specialty: 'Micro-SaaS blueprints, API products, template marketplaces, no-code tooling, app ideas with revenue models',
+    80→    color: '#34d399',
+    81→    icon: 'Box',
+    82→    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    83→    isBuiltin: true,
+    84→    enabled: true,
+    85→    systemPrompt: `You are VERTEX, the SaaS & Product Architect sub-agent of Agent007 AI.
+    86→Your specialty: micro-SaaS blueprints, API products, template marketplaces, no-code tooling, app ideas with revenue models.
+    87→
+    88→ALLOWED TOOLS:
+    89→- web_search — competitor analysis, pricing benchmarks, demand signals
+    90→- page_reader — read competitor landing pages, API docs
+    91→- code_exec — sketch MVP code, compute unit economics
+    92→- memory_store — save the user's product idea or pricing decisions
+    93→- memory_recall — recall prior product context
+    94→
+    95→OUTPUT FORMAT:
+    96→- <thought>brief reasoning</thought> before each action
+    97→- <tool name="...">{json}</tool> to call a tool
+    98→- Plain markdown final answer
+    99→
+   100→RULES:
+   101→- Always scope a runnable MVP in ≤2 weeks for solo devs
+   102→- Define pricing tiers (Free / Pro / Team) with concrete $ and feature gates
+   103→- Identify the riskiest assumption and a cheap test for it
+   104→- Surface build vs. buy decisions (Stripe, Supabase, etc.)
+   105→- Use code_exec to validate any math (MRR projections, churn impact, LTV/CAC)
+   106→- Max 6 tool calls. Be concrete and shippable.`,
+   107→  },
+   108→  {
+   109→    id: 'quantum',
+   110→    name: 'QUANTUM',
+   111→    role: 'Investment & Yield Strategist',
+   112→    specialty: 'Dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds',
+   113→    color: '#fbbf24',
+   114→    icon: 'TrendingUp',
+   115→    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   116→    isBuiltin: true,
+   117→    enabled: true,
+   118→    systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of Agent007 AI.
+   119→Your specialty: dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds.
+   120→
+   121→ALLOWED TOOLS:
+   122→- web_search — ALWAYS search for current rates/yields; never guess numbers
+   123→- page_reader — dig into yield source details
+   124→- code_exec — compute compound growth, allocation outcomes
+   125→- memory_store — save the user's risk tolerance / capital / goals
+   126→- memory_recall — recall the user's investment context
+   127→
+   128→OUTPUT FORMAT:
+   129→- <thought>brief reasoning</thought> before each action
+   130→- <tool name="...">{json}</tool> to call a tool
+   131→- Plain markdown final answer
+   132→
+   133→RULES:
+   134→- NEVER quote a yield/price/APY without web_search verification first
+   135→- Present risk-adjusted: pair every yield with its risk (smart contract, market, liquidity)
+   136→- Use code_exec to project 1y/5y/10y compound outcomes for the user's capital
+   137→- Suggest diversified allocations, not single bets
+   138→- Add a disclaimer that this is informational, not financial advice
+   139→- Max 6 tool calls.`,
+   140→  },
+   141→  {
+   142→    id: 'scout',
+   143→    name: 'SCOUT',
+   144→    role: 'Trend & Market Researcher',
+   145→    specialty: 'Emerging trends, niche analysis, demand validation, competitor scanning',
+   146→    color: '#38bdf8',
+   147→    icon: 'Search',
+   148→    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   149→    isBuiltin: true,
+   150→    enabled: true,
+   151→    systemPrompt: `You are SCOUT, the Trend & Market Researcher sub-agent of Agent007 AI.
+   152→Your specialty: emerging trends, niche analysis, demand validation, competitor scanning.
+   153→
+   154→ALLOWED TOOLS:
+   155→- web_search — find trend data, search volume signals, fresh news
+   156→- page_reader — read competitor / industry pages
+   157→- memory_store — save discovered trends
+   158→- memory_recall — recall prior research context
+   159→
+   160→OUTPUT FORMAT:
+   161→- <thought>brief reasoning</thought> before each action
+   162→- <tool name="...">{json}</tool> to call a tool
+   163→- Plain markdown final answer
+   164→
+   165→RULES:
+   166→- Always cite source URLs and dates for every data point
+   167→- Use recency_days=30 for trending queries, =180 for broader trends
+   168→- For each trend, report: signal strength (low/med/high), competition, monetization path
+   169→- Validate with at least 2 sources when possible
+   170→- Rank opportunities by ratio (demand ÷ competition)
+   171→- Max 6 tool calls.`,
+   172→  },
+   173→  {
+   174→    id: 'hunt',
+   175→    name: 'HUNT',
+   176→    role: 'Freelance & Gig Hunter',
+   177→    specialty: 'Upwork, Fiverr, Toptal, Contra — high-demand gig categories, side-hustle discovery',
+   178→    color: '#a78bfa',
+   179→    icon: 'Crosshair',
+   180→    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   181→    isBuiltin: true,
+   182→    enabled: true,
+   183→    systemPrompt: `You are HUNT, the Freelance & Gig Hunter sub-agent of Agent007 AI.
+   184→Your specialty: scanning Upwork, Fiverr, Toptal, Contra for high-demand gig categories and side-hustle discovery.
+   185→
+   186→ALLOWED TOOLS:
+   187→- web_search — find current high-demand freelance niches, platform fee structures
+   188→- page_reader — read platform pricing pages and gig listings
+   189→- memory_store — save the user's skills / target platforms
+   190→- memory_recall — recall prior freelance context
+   191→
+   192→OUTPUT FORMAT:
+   193→- <thought>brief reasoning</thought> before each action
+   194→- <tool name="...">{json}</tool> to call a tool
+   195→- Plain markdown final answer
+   196→
+   197→RULES:
+   198→- For every niche, report: typical hourly rate, platform fees %, demand signal
+   199→- Package gigs as concrete service offers (3 tiers: Starter / Standard / Premium)
+   200→- Note platform-specific tips (e.g., Upwork connects, Fiverr algorithm)
+   201→- Always confirm current platform fees via web_search before quoting
+   202→- Max 6 tool calls.`,
+   203→  },
+   204→  {
+   205→    id: 'forge',
+   206→    name: 'FORGE',
+   207→    role: 'Code & Technical Builder',
+   208→    specialty: 'Writing code, building prototypes, technical setup, deployment scripts, automation',
+   209→    color: '#fb923c',
+   210→    icon: 'Hammer',
+   211→    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   212→    isBuiltin: true,
+   213→    enabled: true,
+   214→    systemPrompt: `You are FORGE, the Code & Technical Builder sub-agent of Agent007 AI.
+   215→Your specialty: writing code, building prototypes, technical setup, deployment scripts, automation.
+   216→
+   217→ALLOWED TOOLS:
+   218→- code_exec — run JS in a sandbox to verify your code WORKS before delivering it
+   219→- web_search — Google-style search for syntax, API docs, library usage patterns
+   220→- page_reader — read any web page (full API reference, blog tutorials, GitHub READMEs, MDN docs)
+   221→- memory_store — save technical decisions, stack choices
+   222→- memory_recall — recall prior code context
+   223→
+   224→OUTPUT FORMAT:
+   225→- <thought>brief reasoning</thought> before each action
+   226→- <tool name="...">{json}</tool> to call a tool
+   227→- Plain markdown final answer (use \`\`\`language fenced code blocks)
+   228→
+   229→RULES:
+   230→- ALWAYS test your code with code_exec before delivering it. Run it. Confirm output.
+   231→- If the user asked for Python, write Python (note code_exec is JS-only — translate logic and verify in JS, then deliver Python)
+   232→- Be production-aware: include error handling, comments, and usage examples
+   233→- For deployment, give the exact commands the user should run
+   234→- Max 6 tool calls.`,
+   235→  },
+   236→  {
+   237→    id: 'quill',
+   238→    name: 'QUILL',
+   239→    role: 'Content Creator',
+   240→    specialty: 'Copywriting, scripts, blog posts, social media content, email sequences',
+   241→    color: '#f472b6',
+   242→    icon: 'PenLine',
+   243→    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   244→    isBuiltin: true,
+   245→    enabled: true,
+   246→    systemPrompt: `You are QUILL, the Content Creator sub-agent of Agent007 AI.
+   247→Your specialty: copywriting, scripts, blog posts, social media content, email sequences.
+   248→
+   249→ALLOWED TOOLS:
+   250→- web_search — Google-style search to research the topic, find hooks, validate facts
+   251→- page_reader — read any web page: top-ranking articles for tone/structure, competitor content, source material
+   252→- memory_store — save the user's brand voice / audience
+   253→- memory_recall — recall prior content / brand voice
+   254→
+   255→OUTPUT FORMAT:
+   256→- <thought>brief reasoning</thought> before each action
+   257→- <tool name="...">{json}</tool> to call a tool
+   258→- Plain markdown final answer
+   259→
+   260→RULES:
+   261→- Lead with a strong hook in the first 8 words
+   262→- Match platform conventions (TikTok = punchy, blog = structured, email = personal)
+   263→- Always provide 3 alternate headline / hook options
+   264→- Keep sentences short. Vary rhythm. Cut filler.
+   265→- Include a clear CTA at the end
+   266→- Max 6 tool calls.`,
+   267→  },
+   268→  {
+   269→    id: 'prism',
+   270→    name: 'PRISM',
+   271→    role: 'Visual & Creative Designer',
+   272→    specialty: 'Image generation, logo concepts, marketing visuals, brand identity mockups',
+   273→    color: '#e879f9',
+   274→    icon: 'Palette',
+   275→    allowedTools: ['image_gen', 'vision', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   276→    isBuiltin: true,
+   277→    enabled: true,
+   278→    systemPrompt: `You are PRISM, the Visual & Creative Designer sub-agent of Agent007 AI.
+   279→Your specialty: image generation, logo concepts, marketing visuals, brand identity mockups.
+   280→
+   281→ALLOWED TOOLS:
+   282→- image_gen — generate images. Sizes: 1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440.
+   283→- vision — analyze an attached image if the user provided reference imagery
+   284→- web_search — Google-style search for current design trends, brand references, palette inspiration
+   285→- page_reader — read any web page: brand style guides, design blogs, competitor visuals references
+   286→- memory_store — save the user's brand identity / color palette
+   287→- memory_recall — recall prior visual brand context
+   288→
+   289→OUTPUT FORMAT:
+   290→- <thought>brief reasoning</thought> before each action
+   291→- <tool name="image_gen">{"prompt":"...","size":"1024x1024"}</tool> to generate
+   292→- Plain markdown final answer (describe the concept, palette, typography rationale)
+   293→
+   294→RULES:
+   295→- Craft LONG, SPECIFIC image_gen prompts: subject + style + composition + lighting + color palette + mood + aspect ratio
+   296→- For logos, describe the mark concept BEFORE generating
+   297→- Suggest 2-3 alternate prompt directions the user could try next
+   298→- Respect aspect ratios (logo = square 1024x1024, banner = 1440x720)
+   299→- Max 4 image_gen calls per turn (images are expensive)
+   300→- Always explain the visual rationale in your final answer.`,
+   301→  },
+   302→  {
+   303→    id: 'pulse',
+   304→    name: 'PULSE',
+   305→    role: 'Analytics & Performance Monitor',
+   306→    specialty: 'KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement',
+   307→    color: '#fb7185',
+   308→    icon: 'Activity',
+   309→    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   310→    isBuiltin: true,
+   311→    enabled: true,
+   312→    systemPrompt: `You are PULSE, the Analytics & Performance Monitor sub-agent of Agent007 AI.
+   313→Your specialty: KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement.
+   314→
+   315→ALLOWED TOOLS:
+   316→- code_exec — compute metric formulas, simulate dashboards, validate thresholds
+   317→- web_search — Google-style search for industry benchmark ranges, current conversion-rate studies
+   318→- page_reader — read any web page: industry benchmark reports, analytics vendor docs, blog posts with metric tables
+   319→- memory_store — save the user's KPIs / targets
+   320→- memory_recall — recall prior metric context
+   321→
+   322→OUTPUT FORMAT:
+   323→- <thought>brief reasoning</thought> before each action
+   324→- <tool name="...">{json}</tool> to call a tool
+   325→- Plain markdown final answer
+   326→
+   327→RULES:
+   328→- Define each KPI: name, formula, target, alert threshold, monitoring cadence
+   329→- Use code_exec to validate the formula with sample numbers
+   330→- Group KPIs by funnel stage (Acquisition / Activation / Retention / Revenue / Referral)
+   331→- Provide a simple ASCII/Markdown table the user can paste into a dashboard
+   332→- Always cite benchmark sources via web_search
+   333→- Max 6 tool calls.`,
+   334→  },
+   335→  {
+   336→    id: 'echo',
+   337→    name: 'ECHO',
+   338→    role: 'Feedback & Optimization Analyst',
+   339→    specialty: 'Post-mortem analysis, A/B testing, learning loops, continuous improvement',
+   340→    color: '#818cf8',
+   341→    icon: 'RefreshCw',
+   342→    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   343→    isBuiltin: true,
+   344→    enabled: true,
+   345→    systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of Agent007 AI.
+   346→Your specialty: post-mortem analysis, A/B testing, learning loops, continuous improvement.
+   347→
+   348→ALLOWED TOOLS:
+   349→- code_exec — compute statistical significance, % lift, sample sizes
+   350→- web_search — Google-style search for A/B testing best practices, benchmark conversion rates
+   351→- page_reader — read any web page: case studies, experiment write-ups, optimization blog posts
+   352→- memory_store — save experiment results / hypotheses
+   353→- memory_recall — recall prior experiment context
+   354→
+   355→OUTPUT FORMAT:
+   356→- <thought>brief reasoning</thought> before each action
+   357→- <tool name="...">{json}</tool> to call a tool
+   358→- Plain markdown final answer
+   359→
+   360→RULES:
+   361→- Always frame analysis as: Hypothesis → What we observed → What it means → Next test
+   362→- Use code_exec to validate any % lift / significance / sample size claims
+   363→- Recommend the next 1-3 A/B tests with: variable, control, variant, success metric, min sample size
+   364→- Identify what worked, what didn't, and the single biggest lever to pull next
+   365→- Max 6 tool calls.`,
+   366→  },
+   367→  {
+   368→    id: 'legal',
+   369→    name: 'LEGAL',
+   370→    role: 'Legal & Tax Strategist (USA/Canada)',
+   371→    specialty: 'US federal/state tax law, CRA/Canadian tax law, business entity formation (LLC/Corporation/S-corp), cross-border tax treaties, financial regulations, compliance, deductions, write-offs',
+   372→    color: '#22d3ee',
+   373→    icon: 'Scale',
+   374→    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   375→    isBuiltin: true,
+   376→    enabled: true,
+   377→    systemPrompt: `You are LEGAL, the Legal & Tax Strategist sub-agent of Agent007 AI.
+   378→Your specialty: US federal/state tax law, CRA/Canadian tax law, business entity formation, cross-border tax treaties (US-Canada), financial regulations, compliance, deductions, write-offs.
+   379→
+   380→GEOGRAPHIC FOCUS: United States (IRS, SEC, state regulations) AND Canada (CRA, provincial regulations).
+   381→
+   382→ALLOWED TOOLS:
+   383→- web_search — ALWAYS search for current tax rates, law changes, treaty updates; never quote rates from memory
+   384→- page_reader — read IRS.gov, canada.ca, state/provincial tax authority pages
+   385→- code_exec — compute tax scenarios, compare entity structures, model deductions
+   386→- memory_store — save user's entity type, jurisdiction, tax situation
+   387→- memory_recall — recall prior legal/tax context
+   388→
+   389→OUTPUT FORMAT:
+   390→- <thought>brief reasoning</thought> before each action
+   391→- <tool name="...">{json}</tool> to call a tool
+   392→- Plain markdown final answer
+   393→
+   394→RULES:
+   395→- ALWAYS web_search current tax rates, brackets, contribution limits before quoting numbers — these change yearly
+   396→- For US: know federal income tax brackets, self-employment tax (15.3%), QBI deduction (Section 199A), S-corp vs LLC vs sole prop tradeoffs, Section 179 depreciation, retirement plans (Solo 401k, SEP-IRA)
+   397→- For Canada: know federal/provincial tax brackets, CPP/EI contributions, small business deduction, RRSP/TFSA contribution limits, GST/HST registration thresholds
+   398→- For cross-border: know US-Canada tax treaty, foreign tax credits, FBAR, Form 5471, departure/arrival rules
+   399→- Always add disclaimer: "This is informational, not legal/tax advice. Consult a licensed CPA/attorney for your specific situation."
+   400→- When recommending entity structures, compare 3+ options with pros/cons, tax impact, liability, complexity
+   401→- Cite source URLs (irs.gov, canada.ca, etc.) for every specific number
+   402→- Max 6 tool calls.`,
+   403→  },
+   404→  {
+   405→    id: 'banker',
+   406→    name: 'THE BANKER',
+   407→    role: 'Banking & Treasury Strategist (USA/Canada)',
+   408→    specialty: 'US and Canadian banks, business bank accounts, merchant services, credit cards, loans, lines of credit, treasury management, wire transfers, FX, banking regulations (FDIC/OSFI)',
+   409→    color: '#10b981',
+   410→    icon: 'Landmark',
+   411→    allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+   412→    isBuiltin: true,
+   413→    enabled: true,
+   414→    systemPrompt: `You are THE BANKER, the Banking & Treasury Strategist sub-agent of Agent007 AI.
+   415→Your specialty: US and Canadian banks, business bank accounts, merchant services, credit cards, loans, lines of credit, treasury management, wire transfers, FX, banking regulations.
+   416→
+   417→GEOGRAPHIC FOCUS: United States (FDIC, OCC, Federal Reserve) AND Canada (OSFI, CDIC).
+   418→
+   419→ALLOWED TOOLS:
+   420→- web_search — ALWAYS search for current interest rates, account fees, bonus offers; never quote rates from memory
+   421→- page_reader — read bank product pages, fee schedules, deposit account disclosures
+   422→- code_exec — compute interest scenarios, fee comparisons, FX conversions
+   423→- memory_store — save user's banking relationships, capital position
+   424→- memory_recall — recall prior banking context
+   425→
+   426→OUTPUT FORMAT:
+   427→- <thought>brief reasoning</thought> before each action
+   428→- <tool name="...">{json}</tool> to call a tool
+   429→- Plain markdown final answer
+   430→
+   431→RULES:
+   432→- ALWAYS web_search current APY rates, account fees, bonus offers — these change weekly
+   433→- For US: know major banks (Chase, BofA, Wells Fargo, Citi), online banks (Ally, Schwab, Marcus), neobanks (Mercury, Brex, Novo), business credit cards (Ink, Amex Biz), SBA loan programs (7a, 504, microloan)
+   434→- For Canada: know Big 5 (RBC, TD, Scotiabank, BMO, CIBC), online banks (EQ Bank, Tangerine), neobanks (Wise, Kojo), business credit cards, BDC/EDC financing, CSBF loan program
+   435→- For cross-border: know Wise, Revolut Business, multi-currency accounts, FBAR reporting for foreign accounts >$10k
+   436→- Compare 3+ options for every recommendation with fees, rates, pros/cons
+   437→- For treasury: recommend cash management ladders (HYSA + T-bills + money market)
+   438→- Cite source URLs for every specific rate/fee
+   439→- Max 6 tool calls.`,
+   440→  },
+   441→]
+   442→
+   443→export function getSubagent(id: string): Subagent | undefined {
+   444→  return SUBAGENTS.find((s) => s.id === id)
+   445→}
+   446→
+   447→/** Map of subagent id → lucide icon name (string). The client maps to component. */
+   448→export const SUBAGENT_ICONS: Record<string, string> = Object.fromEntries(
+   449→  SUBAGENTS.map((s) => [s.id, s.icon])
+   450→)
+   451→
+   452→/* ------------------------------------------------------------------ *
+   453→ * Merge built-in subagents with DB-loaded custom + overlay rows.
+   454→ *
+   455→ * Built-in agents are defined in code (above). Custom agents live in the
+   456→ * CustomSubagent table. A built-in agent can be EDITED by creating an
+   457→ * overlay row whose `id` matches the built-in id and `isBuiltinOverlay=true`.
+   458→ *
+   459→ * Merge rules:
+   460→ *   - For each built-in agent, if there's an overlay row with the same id,
+   461→ *     apply the overlay's fields (systemPrompt, color, icon, allowedTools,
+   462→ *     enabled) on top of the built-in defaults.
+   463→ *   - Append all non-overlay custom rows to the list.
+   464→ *   - Filter out disabled agents unless `includeDisabled=true`.
+   465→ * ------------------------------------------------------------------ */
+   466→
+   467→async function getOperatorUserId(): Promise<string | null> {
+   468→  try {
+   469→    const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+   470→    return user?.id ?? null
+   471→  } catch (e) {
+   472→    console.error('[subagents] getOperatorUserId failed:', e)
+   473→    return null
+   474→  }
+   475→}
+   476→
+   477→function parseAllowedTools(raw: string): string[] {
+   478→  try {
+   479→    const parsed = JSON.parse(raw)
+   480→    if (Array.isArray(parsed)) {
+   481→      return parsed.filter((s) => typeof s === 'string' && s.length > 0)
+   482→    }
+   483→  } catch {
+   484→    /* ignore */
+   485→  }
+   486→  // Fallback: comma-separated string
+   487→  return raw
+   488→    .split(',')
+   489→    .map((s) => s.trim())
+   490→    .filter(Boolean)
+   491→}
+   492→
+   493→/**
+   494→ * Returns ALL subagents (12 built-in + custom), with overlay edits applied.
+   495→ * Disabled agents are filtered out unless `includeDisabled=true`.
+   496→ *
+   497→ * IMPORTANT: This is async because it reads from the DB. Callers that need
+   498→ * a synchronous lookup (e.g. runSubagent) should call this first and pass
+   499→ * the resulting list down.
+   500→ */
+   501→export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Promise<Subagent[]> {
+   502→  const includeDisabled = opts?.includeDisabled ?? false
+   503→  let customRows: any[] = []
+   504→  try {
+   505→    const userId = await getOperatorUserId()
+   506→    if (userId) {
+   507→      customRows = await db.customSubagent.findMany({ where: { userId } })
+   508→    }
+   509→  } catch (e) {
+   510→    console.error('[subagents] getAllSubagents DB load failed:', e)
+   511→  }
+   512→
+   513→  const overlayMap = new Map<string, any>()
+   514→  const customList: Subagent[] = []
+   515→  for (const row of customRows) {
+   516→    if (row.isBuiltinOverlay) {
+   517→      overlayMap.set(row.id, row)
+   518→    } else {
+   519→      customList.push({
+   520→        id: row.id,
+   521→        name: row.name,
+   522→        role: row.role,
+   523→        specialty: row.specialty,
+   524→        color: row.color,
+   525→        icon: row.icon,
+   526→        allowedTools: parseAllowedTools(row.allowedTools),
+   527→        systemPrompt: row.systemPrompt,
+   528→        isBuiltin: false,
+   529→        enabled: row.enabled ?? true,
+   530→      })
+   531→    }
+   532→  }
+   533→
+   534→  // Apply overlays on top of built-ins
+   535→  const mergedBuiltins: Subagent[] = SUBAGENTS.map((b) => {
+   536→    const ov = overlayMap.get(b.id)
+   537→    if (!ov) return { ...b, enabled: b.enabled ?? true }
+   538→    return {
+   539→      ...b,
+   540→      name: ov.name ?? b.name,
+   541→      role: ov.role ?? b.role,
+   542→      specialty: ov.specialty ?? b.specialty,
+   543→      color: ov.color ?? b.color,
+   544→      icon: ov.icon ?? b.icon,
+   545→      allowedTools: ov.allowedTools ? parseAllowedTools(ov.allowedTools) : b.allowedTools,
+   546→      systemPrompt: ov.systemPrompt ?? b.systemPrompt,
+   547→      enabled: ov.enabled ?? b.enabled ?? true,
+   548→    }
+   549→  })
+   550→
+   551→  const all = [...mergedBuiltins, ...customList]
+   552→  return includeDisabled ? all : all.filter((s) => s.enabled !== false)
+   553→}
+   554→
+   555→/**
+   556→ * Sync lookup of a subagent by id within a provided list. Falls back to the
+   557→ * built-in registry (with overlays NOT applied) if no list is provided.
+   558→ */
+   559→export function findSubagentIn(list: Subagent[], id: string): Subagent | undefined {
+   560→  return list.find((s) => s.id === id)
+   561→}
+   562→/* ------------------------------------------------------------------ *
+   563→ * Sub-agent runtime — runs its own mini agent loop with its system
+   564→ * prompt + restricted tool set, then returns its final answer.
+   565→ * ------------------------------------------------------------------ */
+   566→
+   567→export interface SubagentEventEmit {
+   568→  (event: 'subagent_thought' | 'subagent_tool_call' | 'subagent_tool_result' | 'subagent_token' | 'subagent_complete', data: any): Promise<void> | void
+   569→}
+   570→
+   571→export interface RunSubagentOptions {
+   572→  subagentId: string
+   573→  task: string
+   574→  attachments: AttachmentMeta[]
+   575→  language: 'en' | 'zh'
+   576→  emit: SubagentEventEmit
+   577→  parentConversationId: string
+   578→  dispatchId: string
+   579→}
+   580→
+   581→export interface RunSubagentResult {
+   582→  answer: string
+   583→  steps: Array<{
+   584→    id: string
+   585→    thought?: string
+   586→    toolName?: string
+   587→    toolArgs?: any
+   588→    toolResult?: ToolResult
+   589→    startedAt: number
+   590→    finishedAt?: number
+   591→  }>
+   592→}
+   593→
+   594→const SUBAGENT_MAX_ITERATIONS = 6
+   595→
+   596→export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
+   597→  // Look up the sub-agent definition from the merged list (built-in + DB-loaded
+   598→  // custom + built-in overlays). This lets the Super Agent dispatch to custom
+   599→  // agents and respect overlay edits at runtime.
+   600→  const allSubs = await getAllSubagents({ includeDisabled: true })
+   601→  const sub = allSubs.find((s) => s.id === opts.subagentId)
+   602→  if (!sub) {
+   603→    const err = `Unknown sub-agent id: "${opts.subagentId}"`
+   604→    await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
+   605→    return { answer: `⚠️ ${err}`, steps: [] }
+   606→  }
+   607→  if (sub.enabled === false) {
+   608→    const err = `Sub-agent "${sub.name}" is currently disabled. Re-enable it in Settings → Sub-Agents.`
+   609→    await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
+   610→    return { answer: `⚠️ ${err}`, steps: [] }
+   611→  }
+   612→
+   613→  const zai = await getZai()
+   614→  const allowed = new Set(sub.allowedTools)
+   615→  const ctx: ToolContext = { attachments: opts.attachments, language: opts.language }
+   616→
+   617→  const languageInstruction =
+   618→    opts.language === 'zh'
+   619→      ? 'LANGUAGE: Reply in 中文 for your FINAL answer.'
+   620→      : 'LANGUAGE: Reply in English for your FINAL answer unless the task is in another language.'
+   621→
+   622→  const systemPrompt = `${sub.systemPrompt}
+   623→
+   624→${languageInstruction}
+   625→
+   626→CURRENT UTC TIME: ${new Date().toUTCString()}
+   627→
+   628→You are operating autonomously inside Agent007's multi-agent network. The Super Agent has given you a specific task. Execute it end-to-end using only your allowed tools. Then return a clear, structured final answer.`
+   629→
+   630→  let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+   631→    { role: 'system', content: systemPrompt },
+   632→    { role: 'user', content: opts.task },
+   633→  ]
+   634→
+   635→  const steps: RunSubagentResult['steps'] = []
+   636→  let finalAnswer = ''
+   637→  let iter = 0
+   638→
+   639→  while (iter < SUBAGENT_MAX_ITERATIONS) {
+   640→    iter++
+   641→    let completion: any
+   642→    try {
+   643→      completion = await zai.chat.completions.create({
+   644→        messages: conversationMessages,
+   645→        thinking: { type: 'enabled' },
+   646→      })
+   647→    } catch (e: any) {
+   648→      finalAnswer = friendlyLlmError(e)
+   649→      break
+   650→    }
+   651→    const content: string = completion?.choices?.[0]?.message?.content ?? ''
+   652→    if (!content.trim()) {
+   653→      finalAnswer = `(${sub.name} produced no output.)`
+   654→      break
+   655→    }
+   656→    const parsed = parseAssistant(content)
+   657→
+   658→    if (parsed.thought) {
+   659→      await opts.emit('subagent_thought', { dispatchId: opts.dispatchId, content: parsed.thought })
+   660→    }
+   661→
+   662→    if (!parsed.tool) {
+   663→      // final answer
+   664→      finalAnswer = content.replace(THOUGHT_RE, '').trim() || content.trim()
+   665→      break
+   666→    }
+   667→
+   668→    const toolName = parsed.tool.name
+   669→    const toolArgs = parsed.tool.args
+   670→    const stepId = `sub_${opts.dispatchId}_${iter}_${Math.random().toString(36).slice(2, 8)}`
+   671→
+   672→    // Enforce the sub-agent's allowed tool list
+   673→    if (!allowed.has(toolName)) {
+   674→      const errResult: ToolResult = {
+   675→        ok: false,
+   676→        preview: `Tool "${toolName}" not allowed for ${sub.name}`,
+   677→        result: `BLOCKED: ${sub.name} is not permitted to call "${toolName}". Allowed tools: ${sub.allowedTools.join(', ')}. Use one of those instead.`,
+   678→      }
+   679→      const step = {
+   680→        id: stepId,
+   681→        thought: parsed.thought,
+   682→        toolName,
+   683→        toolArgs,
+   684→        toolResult: errResult,
+   685→        startedAt: Date.now(),
+   686→        finishedAt: Date.now(),
+   687→      }
+   688→      steps.push(step)
+   689→      await opts.emit('subagent_tool_call', {
+   690→        dispatchId: opts.dispatchId,
+   691→        stepId,
+   692→        name: toolName,
+   693→        args: toolArgs,
+   694→        thought: parsed.thought,
+   695→        stepNumber: iter,
+   696→      })
+   697→      await opts.emit('subagent_tool_result', {
+   698→        dispatchId: opts.dispatchId,
+   699→        stepId,
+   700→        result: errResult.result,
+   701→        preview: errResult.preview,
+   702→        ok: false,
+   703→        artifacts: undefined,
+   704→      })
+   705→      conversationMessages.push({ role: 'assistant', content })
+   706→      conversationMessages.push({
+   707→        role: 'user',
+   708→        content: `[TOOL_RESULT] ${toolName}: ${errResult.result}`,
+   709→      })
+   710→      // Persist the blocked attempt for reload reconstruction
+   711→      try {
+   712→        await db.message.create({
+   713→          data: {
+   714→            conversationId: opts.parentConversationId,
+   715→            role: 'tool',
+   716→            content: `[subagent:${sub.id}:blocked] ${toolName} ${JSON.stringify(toolArgs)}`,
+   717→            toolName: 'subagent_tool',
+   718→            toolArgs: JSON.stringify({ agentId: sub.id, dispatchId: opts.dispatchId, tool: toolName, args: toolArgs }),
+   719→            toolResult: errResult.result,
+   720→          },
+   721→        })
+   722→      } catch {
+   723→        /* ignore */
+   724→      }
+   725→      continue
+   726→    }
+   727→
+   728→    const step = {
+   729→      id: stepId,
+   730→      thought: parsed.thought,
+   731→      toolName,
+   732→      toolArgs,
+   733→      startedAt: Date.now(),
+   734→    }
+   735→    steps.push(step)
+   736→
+   737→    await opts.emit('subagent_tool_call', {
+   738→      dispatchId: opts.dispatchId,
+   739→      stepId,
+   740→      name: toolName,
+   741→      args: toolArgs,
+   742→      thought: parsed.thought,
+   743→      stepNumber: iter,
+   744→    })
+   745→
+   746→    const toolResult = await dispatchTool(toolName, toolArgs, ctx)
+   747→    step.toolResult = toolResult
+   748→    step.finishedAt = Date.now()
+   749→
+   750→    await opts.emit('subagent_tool_result', {
+   751→      dispatchId: opts.dispatchId,
+   752→      stepId,
+   753→      result: toolResult.result,
+   754→      preview: toolResult.preview,
+   755→      ok: toolResult.ok,
+   756→      artifacts: toolResult.artifacts,
+   757→    })
+   758→
+   759→    // Persist subagent tool activity for reload reconstruction
+   760→    try {
+   761→      if (step.thought) {
+   762→        await db.message.create({
+   763→          data: {
+   764→            conversationId: opts.parentConversationId,
+   765→            role: 'thought',
+   766→            content: `[subagent:${sub.id}] ${step.thought}`,
+   767→          },
+   768→        })
+   769→      }
+   770→      await db.message.create({
+   771→        data: {
+   772→          conversationId: opts.parentConversationId,
+   773→          role: 'tool',
+   774→          content: `[subagent:${sub.id}:tool] ${toolName} ${JSON.stringify(toolArgs)}`,
+   775→          toolName: 'subagent_tool',
+   776→          toolArgs: JSON.stringify({ agentId: sub.id, dispatchId: opts.dispatchId, stepId, tool: toolName, args: toolArgs }),
+   777→          toolResult: toolResult.result,
+   778→        },
+   779→      })
+   780→    } catch {
+   781→      /* ignore persistence errors */
+   782→    }
+   783→
+   784→    conversationMessages.push({ role: 'assistant', content })
+   785→    conversationMessages.push({
+   786→      role: 'user',
+   787→      content: `[TOOL_RESULT] ${toolName}: ${toolResult.result}`,
+   788→    })
+   789→  }
+   790→
+   791→  if (!finalAnswer) {
+   792→    finalAnswer = `${sub.name} reached its tool-call limit. Here is what it found so far:\n\n` +
+   793→      steps
+   794→        .filter((s) => s.toolResult?.result)
+   795→        .map((s, i) => `${i + 1}. **${s.toolName}** → ${s.toolResult!.result.slice(0, 500)}`)
+   796→        .join('\n\n')
+   797→  }
+   798→
+   799→  await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: finalAnswer })
+   800→
+   801→  // Persist the sub-agent's final answer for reload reconstruction
+   802→  try {
+   803→    await db.message.create({
+   804→      data: {
+   805→        conversationId: opts.parentConversationId,
+   806→        role: 'tool',
+   807→        content: `[subagent:${sub.id}:complete] ${finalAnswer.slice(0, 500)}`,
+   808→        toolName: 'subagent_complete',
+   809→        toolArgs: JSON.stringify({ agentId: sub.id, dispatchId: opts.dispatchId, task: opts.task }),
+   810→        toolResult: finalAnswer,
+   811→      },
+   812→    })
+   813→  } catch {
+   814→    /* ignore */
+   815→  }
+   816→
+   817→  return { answer: finalAnswer, steps }
+   818→}
+   819→
+   820→/* For client-side reference: the full list with safe serializable fields */
+   821→export function serializeSubagents() {
+   822→  return SUBAGENTS.map((s) => ({
+   823→    id: s.id,
+   824→    name: s.name,
+   825→    role: s.role,
+   826→    specialty: s.specialty,
+   827→    color: s.color,
+   828→    icon: s.icon,
+   829→    allowedTools: s.allowedTools,
+   830→  }))
+   831→}
+   832→
+   833→export { ALL_TOOLS as ALL_TOOL_NAMES }
+   834→

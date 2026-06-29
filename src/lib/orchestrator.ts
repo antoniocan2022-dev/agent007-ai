@@ -11,10 +11,14 @@ import {
   SYSTEM_PROMPT as BASE_SYSTEM_PROMPT,
   friendlyLlmError,
 } from '@/lib/agent'
-import { SUBAGENTS, getSubagent, runSubagent } from '@/lib/subagents'
+import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/subagents'
+// Note: SUBAGENTS import is retained because executeManageAction references it
+// (used to detect built-in ids and reject delete on them).
+import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 
 export const MAX_ITERATIONS = 8
 const MAX_DISPATCHES = 5
+const MAX_MANAGE_ACTIONS = 5
 
 /* Regex to find <dispatch agent="..." task="..."/> tags (self-closing).
  * Uses non-greedy [\s\S]*? for the task value so apostrophes / quotes inside the
@@ -22,10 +26,15 @@ const MAX_DISPATCHES = 5
  * like 'Quantum Labs' inside the task attribute value). */
 const DISPATCH_RE = /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/>/i
 
+/* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
+ * Captures the full tag string; attribute parsing happens in parseManageTag. */
+const MANAGE_RE = /<manage\s+[^>]*?\/>/gi
+
 interface OrchestratorParsed {
   thought?: string
   tool?: { name: string; args: any }
   dispatch?: { agentId: string; task: string }
+  manage?: { action: string; attrs: Record<string, string>; raw: string }
   textAfter: string
   raw: string
 }
@@ -36,8 +45,9 @@ function parseOrchestrator(content: string): OrchestratorParsed {
 
   const dispatchMatch = content.match(DISPATCH_RE)
   const toolMatch = content.match(TOOL_RE)
+  const manageMatch = content.match(MANAGE_RE)
 
-  // Prefer dispatch over tool if both somehow present (dispatch has priority)
+  // Priority: dispatch > manage > tool (manage and dispatch are both "agent actions")
   if (dispatchMatch) {
     const agentId = dispatchMatch[1].trim().toLowerCase()
     const task = dispatchMatch[2].trim()
@@ -45,6 +55,17 @@ function parseOrchestrator(content: string): OrchestratorParsed {
       thought,
       dispatch: { agentId, task },
       textAfter: content.slice(content.indexOf(dispatchMatch[0]) + dispatchMatch[0].length).replace(THOUGHT_RE, '').trim(),
+      raw: content,
+    }
+  }
+  if (manageMatch && manageMatch.length > 0) {
+    const tag = manageMatch[0]
+    const attrs = parseManageAttrs(tag)
+    const action = (attrs.action ?? '').toString().trim().toLowerCase()
+    return {
+      thought,
+      manage: { action, attrs, raw: tag },
+      textAfter: content.replace(tag, '').replace(THOUGHT_RE, '').trim(),
       raw: content,
     }
   }
@@ -66,12 +87,29 @@ function parseOrchestrator(content: string): OrchestratorParsed {
   return { thought, textAfter: content.replace(THOUGHT_RE, '').trim(), raw: content }
 }
 
+/** Parse attributes from a <manage .../> tag. Handles key="value" pairs with
+ * either single or double quotes. Also supports attribute values containing
+ * spaces because the regex is greedy on the quoted portion. */
+function parseManageAttrs(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  // Match: attrName="value" or attrName='value'
+  // We allow newlines inside the value via [\s\S]*? (non-greedy).
+  const re = /([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(tag))) {
+    const key = m[1]
+    const val = m[2] ?? m[3] ?? ''
+    attrs[key] = val
+  }
+  return attrs
+}
+
 const ORCHESTRATOR_PROMPT_ADDENDUM = `
-SUB-AGENT NETWORK — You are the ORCHESTRATOR of Agent007 AI. You have 10 specialized sub-agents you can dispatch to. Each sub-agent has FULL INTERNET ACCESS (web_search + page_reader) and runs autonomously with its own tools, returning a result. You then synthesize their outputs into a final answer for the owner.
+SUB-AGENT NETWORK — You are the ORCHESTRATOR of Agent007 AI. You have 12 specialized built-in sub-agents you can dispatch to (plus any custom sub-agents the owner has created). Each sub-agent has FULL INTERNET ACCESS (web_search + page_reader + free-data tools) and runs autonomously with its own tools, returning a result. You then synthesize their outputs into a final answer for the owner.
 
 MISSION REMINDER: Every dispatch must serve the +10% daily passive-income growth mission. Choose sub-agents that maximize owner earnings per unit time.
 
-SUB-AGENTS AVAILABLE (all have web_search + page_reader):
+SUB-AGENTS AVAILABLE (all have web_search + page_reader + wikipedia_search + wikipedia_read + free_apis_directory):
 - aurora (Content & Affiliate Specialist) — content monetization, affiliate funnels, blog/YouTube strategy
 - vertex (SaaS & Product Architect) — micro-SaaS, product blueprints, technical product strategy
 - quantum (Investment & Yield Strategist) — passive income via investments, staking, dividends, DeFi
@@ -82,6 +120,8 @@ SUB-AGENTS AVAILABLE (all have web_search + page_reader):
 - prism (Visual & Creative Designer) — image generation, logos, visual assets
 - pulse (Analytics & Performance Monitor) — KPI definition, metric tracking, dashboards
 - echo (Feedback & Optimization Analyst) — post-mortem analysis, A/B testing, optimization
+- legal (Legal & Tax Strategist — USA/Canada) — US federal/state tax law, CRA/Canadian tax, entity formation (LLC/S-corp), cross-border treaties, deductions, write-offs
+- banker (The Banker — Banking & Treasury Strategist — USA/Canada) — US & Canadian banks, business accounts, merchant services, credit cards, loans, treasury, FX, FDIC/OSFI regulations
 
 DISPATCH FORMAT — to delegate a sub-task to a sub-agent, emit exactly one self-closing tag:
 <dispatch agent="agent_id" task="clear description of the sub-task" />
@@ -91,25 +131,36 @@ Examples:
 <dispatch agent="aurora" task="Design a 30-day content calendar for a faceless YouTube channel about AI tools, with monetization strategy" />
 <dispatch agent="prism" task="Generate a logo concept for 'Aurora Roasters' coffee brand — minimalist, aurora borealis theme" />
 <dispatch agent="forge" task="Write a Node.js script that calculates compound interest given principal, rate, time" />
+<dispatch agent="legal" task="What are the 2025 US federal tax brackets for self-employed individuals? Cite irs.gov sources." />
+<dispatch agent="banker" task="What are the current top US HYSA rates? Cite source URLs." />
 
 ORCHESTRATION RULES:
 - Decompose complex user requests into sub-tasks. Dispatch the most specialized agent for each sub-task.
 - You may dispatch up to 5 sub-agents in one turn (sequentially is fine — each one runs its own loop).
 - After each sub-agent returns, you receive its result as: [SUBAGENT_RESULT] agent_id: <their answer>
 - You may then dispatch more sub-agents, OR synthesize the final answer.
-- The final answer to the user is plain markdown text (no tags). Synthesize all sub-agent outputs into a coherent response with proper attribution (e.g., "📊 Per Scout's research..." or "🎨 Prism generated this concept..."). Always include a brief INCOME PROJECTION in your final answer (daily/weekly/monthly potential).
-- You may also call tools DIRECTLY (web_search, memory_store, etc.) for quick lookups without dispatching a sub-agent, if appropriate.
+- The final answer to the user is plain markdown text (no tags). Synthesize all sub-agent outputs into a coherent response with proper attribution (e.g., "📊 Per Scout's research..." or "🎨 Prism generated this concept..." or "⚖️ Per LEGAL's analysis..."). Always include a brief INCOME PROJECTION in your final answer (daily/weekly/monthly potential).
+- You may also call tools DIRECTLY (web_search, memory_store, wikipedia_search, etc.) for quick lookups without dispatching a sub-agent, if appropriate.
 - Max 5 sub-agent dispatches per turn. Be efficient — don't dispatch agents unnecessarily.
 
 DECISION FRAMEWORK:
 - Income-related commands → prefer dispatching aurora / vertex / quantum / scout / hunt.
 - Implementation commands → prefer forge / quill / prism.
 - Analysis commands → prefer pulse / echo.
+- Legal / tax / compliance questions (US + Canada) → dispatch legal.
+- Banking / treasury / credit / loans / FX questions (US + Canada) → dispatch banker.
 - Multi-step builds (e.g. "build me a passive-income plan") → dispatch 2-3 sub-agents in sequence: scout first (research), then aurora/vertex (build plan), then pulse (define KPIs).
 - Simple questions or small talk → just answer directly without dispatching.
 - When in doubt, dispatch — the mission is too big to handle alone.
 
-REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> is the NEW tag for delegating to a sub-agent.`
+DASHBOARD MANAGEMENT (REMEMBER — your <manage .../> tags are parsed server-side and executed):
+- "add a new sub-agent for X" → emit <manage action="create_agent" name="X" role="..." specialty="..." color="#hex" icon="LucideName" allowed_tools="web_search,page_reader" system_prompt="..."/>
+- "remove the QUANTUM agent" → can't delete built-ins; offer to disable via <manage action="toggle_agent" id="quantum" enabled="false"/> instead.
+- "change my income goal to $5000" → <manage action="set_income_goal" amount="5000"/>
+- "log $100 income from Aurora" → <manage action="log_income" amount="100" source="Aurora" notes="..."/>
+- After a <manage .../> tag is executed, the orchestrator feeds back [MANAGE_RESULT] action: success/failed with details. Then you confirm to the user in plain text.
+
+REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard state.`
 
 export interface OrchestratorEventEmit {
   (event: string, data: any): Promise<void> | void
@@ -177,6 +228,13 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   let finalAnswer = ''
   let iter = 0
   let dispatchCount = 0
+  let manageCount = 0
+  // Cache the merged subagent list once per orchestrator run (12 built-in + custom + overlays).
+  let mergedSubagents: Subagent[] | null = null
+  const getMerged = async (): Promise<Subagent[]> => {
+    if (!mergedSubagents) mergedSubagents = await getAllSubagents({ includeDisabled: true })
+    return mergedSubagents
+  }
 
   while (iter < MAX_ITERATIONS) {
     iter++
@@ -205,13 +263,79 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       await emit('thought', { content: parsed.thought })
     }
 
+    // 0) Manage path — parse <manage .../> tags and execute server-side.
+    if (parsed.manage) {
+      const { action, attrs } = parsed.manage
+      if (manageCount >= MAX_MANAGE_ACTIONS) {
+        const capMsg = `Reached max manage actions (${MAX_MANAGE_ACTIONS}). Please synthesize the answer from what you have.`
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({ role: 'user', content: `[SYSTEM] ${capMsg}` })
+        continue
+      }
+      manageCount++
+
+      const stepId = makeId('manage')
+      await emit('manage_action', {
+        stepId,
+        action,
+        attrs,
+        thought: parsed.thought,
+        stepNumber: iter,
+        status: 'running',
+      })
+
+      const result = await executeManageAction(action, attrs)
+      // Refresh the merged subagent list so subsequent dispatches see the new state.
+      mergedSubagents = null
+
+      await emit('manage_action', {
+        stepId,
+        action,
+        attrs,
+        result,
+        stepNumber: iter,
+        status: result.ok ? 'done' : 'error',
+      })
+
+      // Persist for reload reconstruction
+      try {
+        await db.message.create({
+          data: {
+            conversationId,
+            role: 'tool',
+            content: `[manage:${action}] ${JSON.stringify(attrs).slice(0, 200)}`,
+            toolName: 'manage_action',
+            toolArgs: JSON.stringify({ action, attrs }),
+            toolResult: result.message,
+          },
+        })
+      } catch { /* ignore */ }
+
+      // If a subagent was created/edited/deleted/toggled, tell the client to refresh its UI.
+      if (
+        result.ok &&
+        ['create_agent', 'edit_agent', 'delete_agent', 'toggle_agent'].includes(action)
+      ) {
+        await emit('subagents_updated', { action, attrs, result })
+      }
+
+      // Feed back the result so the orchestrator can confirm to the user.
+      conversationMessages.push({ role: 'assistant', content })
+      conversationMessages.push({
+        role: 'user',
+        content: `[MANAGE_RESULT] ${action}: ${result.ok ? 'success' : 'failed'} — ${result.message}`,
+      })
+      continue
+    }
+
     // 1) Dispatch path
     if (parsed.dispatch) {
       const { agentId, task } = parsed.dispatch
-      const sub = getSubagent(agentId)
+      const list = await getMerged()
+      const sub = list.find((s) => s.id === agentId)
       if (!sub) {
         // Unknown agent — feed back an error to the orchestrator
-        const errMsg = `Unknown sub-agent: "${agentId}". Available: ${SUBAGENTS.map((s) => s.id).join(', ')}`
+        const errMsg = `Unknown sub-agent: "${agentId}". Available: ${list.map((s) => s.id).join(', ')}`
         await emit('error', { message: errMsg })
         conversationMessages.push({ role: 'assistant', content })
         conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${agentId}: ERROR — ${errMsg}` })
@@ -228,6 +352,13 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
             },
           })
         } catch { /* ignore */ }
+        continue
+      }
+      if (sub.enabled === false) {
+        const errMsg = `Sub-agent "${sub.name}" is currently disabled. Re-enable it via the Sub-Agents panel or the toggle_agent manage tag.`
+        await emit('error', { message: errMsg })
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${agentId}: ERROR — ${errMsg}` })
         continue
       }
       if (dispatchCount >= MAX_DISPATCHES) {
@@ -506,3 +637,439 @@ function autoLogIncomeFromAnswer(agentId: string, answer: string): void {
 
 /* Re-export for callers (api/agent/route.ts) that previously used runAgent */
 export { parseAssistant }
+
+/* ------------------------------------------------------------------ *
+ * Manage-action executor — parses the Super Agent's <manage .../> tags
+ * and applies the corresponding change directly to the DB (no HTTP self-
+ * calls). Returns a structured result that's emitted as the `manage_action`
+ * SSE event AND fed back to the orchestrator as [MANAGE_RESULT] ... .
+ * ------------------------------------------------------------------ */
+
+interface ManageResult {
+  ok: boolean
+  message: string
+  data?: any
+}
+
+const BUILTIN_IDS = new Set(SUBAGENTS.map((s) => s.id))
+
+const VALID_TOOLS_SET = new Set([
+  'web_search',
+  'page_reader',
+  'image_gen',
+  'vision',
+  'code_exec',
+  'memory_store',
+  'memory_recall',
+  'file_read',
+  'wikipedia_search',
+  'wikipedia_read',
+  'free_apis_directory',
+])
+
+const VALID_ICONS_SET = new Set([
+  'Sparkles', 'Box', 'TrendingUp', 'Search', 'Crosshair', 'Hammer', 'PenLine',
+  'Palette', 'Activity', 'RefreshCw', 'Scale', 'Landmark', 'Bot', 'Brain',
+  'Zap', 'Globe', 'Database', 'Terminal', 'Code', 'Cpu', 'Rocket', 'Target',
+  'DollarSign', 'Briefcase', 'LineChart', 'PieChart', 'ShieldCheck', 'FileText',
+  'Lightbulb', 'Cloud', 'Compass', 'Feather',
+])
+
+async function executeManageAction(
+  action: string,
+  attrs: Record<string, string>
+): Promise<ManageResult> {
+  try {
+    const userId = await getOperatorUserId()
+    if (!userId) {
+      return { ok: false, message: 'No operator user found.' }
+    }
+
+    switch (action) {
+      /* ----------------------------- create_agent ----------------------------- */
+      case 'create_agent': {
+        const name = (attrs.name ?? '').toString().trim().slice(0, 80)
+        if (!name) return { ok: false, message: 'create_agent requires "name".' }
+        if (BUILTIN_IDS.has(name.toLowerCase())) {
+          return {
+            ok: false,
+            message: `Cannot create a custom agent with the reserved name "${name}". Use edit_agent to modify the built-in.`,
+          }
+        }
+        const role = (attrs.role ?? 'Specialist').toString().trim().slice(0, 200) || 'Specialist'
+        const specialty = (attrs.specialty ?? '').toString().trim().slice(0, 500)
+        const color = validateHexColor(attrs.color) ?? '#00f0ff'
+        const icon = VALID_ICONS_SET.has(attrs.icon ?? '') ? attrs.icon! : 'Sparkles'
+        const toolsArr = (attrs.allowed_tools ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => VALID_TOOLS_SET.has(s))
+        if (toolsArr.length === 0) {
+          return {
+            ok: false,
+            message: 'create_agent requires at least one valid tool in allowed_tools.',
+          }
+        }
+        const systemPrompt = (attrs.system_prompt ?? '').toString()
+        if (systemPrompt.length < 20) {
+          return {
+            ok: false,
+            message: 'create_agent requires a system_prompt of at least 20 characters.',
+          }
+        }
+        const created = await db.customSubagent.create({
+          data: {
+            userId,
+            name,
+            role,
+            specialty,
+            color,
+            icon,
+            allowedTools: JSON.stringify(toolsArr),
+            systemPrompt: systemPrompt.slice(0, 8000),
+            enabled: true,
+            isBuiltinOverlay: false,
+          },
+        })
+        return {
+          ok: true,
+          message: `Custom sub-agent "${name}" created with id "${created.id}". It can now be dispatched via <dispatch agent="${created.id}" ... />.`,
+          data: { id: created.id, name },
+        }
+      }
+
+      /* ------------------------------ edit_agent ------------------------------ */
+      case 'edit_agent': {
+        const id = (attrs.id ?? '').toString().trim().toLowerCase()
+        if (!id) return { ok: false, message: 'edit_agent requires "id".' }
+        const isBuiltin = BUILTIN_IDS.has(id)
+        const update: any = {}
+        if (attrs.name) update.name = attrs.name.trim().slice(0, 80)
+        if (attrs.role) update.role = attrs.role.trim().slice(0, 200)
+        if (attrs.specialty) update.specialty = attrs.specialty.trim().slice(0, 500)
+        if (attrs.color) {
+          const c = validateHexColor(attrs.color)
+          if (c) update.color = c
+        }
+        if (attrs.icon && VALID_ICONS_SET.has(attrs.icon)) update.icon = attrs.icon
+        if (attrs.allowed_tools) {
+          const tools = attrs.allowed_tools
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => VALID_TOOLS_SET.has(s))
+          if (tools.length > 0) update.allowedTools = JSON.stringify(tools)
+        }
+        if (attrs.system_prompt) {
+          if (attrs.system_prompt.length < 20) {
+            return { ok: false, message: 'system_prompt must be at least 20 characters.' }
+          }
+          update.systemPrompt = attrs.system_prompt.slice(0, 8000)
+        }
+        if (attrs.enabled !== undefined) {
+          update.enabled = attrs.enabled === 'true'
+        }
+        if (Object.keys(update).length === 0) {
+          return { ok: false, message: 'edit_agent: no editable fields provided.' }
+        }
+
+        if (isBuiltin) {
+          // Upsert overlay
+          const existing = await db.customSubagent.findFirst({
+            where: { userId, id, isBuiltinOverlay: true },
+          })
+          if (existing) {
+            await db.customSubagent.update({ where: { id: existing.id }, data: update })
+            return {
+              ok: true,
+              message: `Built-in agent "${id}" overlay updated. Fields changed: ${Object.keys(update).join(', ')}.`,
+            }
+          } else {
+            const builtin = SUBAGENTS.find((s) => s.id === id)!
+            await db.customSubagent.create({
+              data: {
+                id: builtin.id,
+                userId,
+                name: update.name ?? builtin.name,
+                role: update.role ?? builtin.role,
+                specialty: update.specialty ?? builtin.specialty,
+                color: update.color ?? builtin.color,
+                icon: update.icon ?? builtin.icon,
+                allowedTools: update.allowedTools ?? JSON.stringify(builtin.allowedTools),
+                systemPrompt: update.systemPrompt ?? builtin.systemPrompt,
+                enabled: update.enabled ?? true,
+                isBuiltinOverlay: true,
+              },
+            })
+            return {
+              ok: true,
+              message: `Built-in agent "${id}" overlay created. Fields changed: ${Object.keys(update).join(', ')}.`,
+            }
+          }
+        } else {
+          // Custom — update in place
+          const existing = await db.customSubagent.findFirst({
+            where: { userId, id, isBuiltinOverlay: false },
+          })
+          if (!existing) {
+            return { ok: false, message: `Custom sub-agent "${id}" not found.` }
+          }
+          await db.customSubagent.update({ where: { id: existing.id }, data: update })
+          return {
+            ok: true,
+            message: `Custom sub-agent "${id}" updated. Fields changed: ${Object.keys(update).join(', ')}.`,
+          }
+        }
+      }
+
+      /* ----------------------------- delete_agent ----------------------------- */
+      case 'delete_agent': {
+        const id = (attrs.id ?? '').toString().trim().toLowerCase()
+        if (!id) return { ok: false, message: 'delete_agent requires "id".' }
+        if (BUILTIN_IDS.has(id)) {
+          // For built-in: delete the overlay if any (effectively "reset to default").
+          const overlay = await db.customSubagent.findFirst({
+            where: { userId, id, isBuiltinOverlay: true },
+          })
+          if (overlay) {
+            await db.customSubagent.delete({ where: { id: overlay.id } })
+            return {
+              ok: true,
+              message: `Built-in agent "${id}" overlay deleted (reset to defaults). Built-ins cannot be fully deleted.`,
+            }
+          }
+          return {
+            ok: false,
+            message: `Cannot delete built-in agent "${id}". Use toggle_agent with enabled="false" to disable it, or edit_agent to change its prompt.`,
+          }
+        }
+        const existing = await db.customSubagent.findFirst({
+          where: { userId, id, isBuiltinOverlay: false },
+        })
+        if (!existing) {
+          return { ok: false, message: `Custom sub-agent "${id}" not found.` }
+        }
+        await db.customSubagent.delete({ where: { id: existing.id } })
+        return {
+          ok: true,
+          message: `Custom sub-agent "${existing.name}" (${id}) deleted.`,
+        }
+      }
+
+      /* ----------------------------- toggle_agent ----------------------------- */
+      case 'toggle_agent': {
+        const id = (attrs.id ?? '').toString().trim().toLowerCase()
+        if (!id) return { ok: false, message: 'toggle_agent requires "id".' }
+        const enabledStr = (attrs.enabled ?? '').toString().toLowerCase()
+        if (enabledStr !== 'true' && enabledStr !== 'false') {
+          return { ok: false, message: 'toggle_agent requires enabled="true" or "false".' }
+        }
+        const enabled = enabledStr === 'true'
+        const isBuiltin = BUILTIN_IDS.has(id)
+        if (isBuiltin) {
+          // Upsert overlay with the enabled flag
+          const existing = await db.customSubagent.findFirst({
+            where: { userId, id, isBuiltinOverlay: true },
+          })
+          if (existing) {
+            await db.customSubagent.update({
+              where: { id: existing.id },
+              data: { enabled },
+            })
+          } else {
+            const builtin = SUBAGENTS.find((s) => s.id === id)!
+            await db.customSubagent.create({
+              data: {
+                id: builtin.id,
+                userId,
+                name: builtin.name,
+                role: builtin.role,
+                specialty: builtin.specialty,
+                color: builtin.color,
+                icon: builtin.icon,
+                allowedTools: JSON.stringify(builtin.allowedTools),
+                systemPrompt: builtin.systemPrompt,
+                enabled,
+                isBuiltinOverlay: true,
+              },
+            })
+          }
+          return {
+            ok: true,
+            message: `Built-in agent "${id}" ${enabled ? 'ENABLED' : 'DISABLED'}.`,
+          }
+        } else {
+          const existing = await db.customSubagent.findFirst({
+            where: { userId, id, isBuiltinOverlay: false },
+          })
+          if (!existing) {
+            return { ok: false, message: `Custom sub-agent "${id}" not found.` }
+          }
+          await db.customSubagent.update({
+            where: { id: existing.id },
+            data: { enabled },
+          })
+          return {
+            ok: true,
+            message: `Custom sub-agent "${existing.name}" (${id}) ${enabled ? 'ENABLED' : 'DISABLED'}.`,
+          }
+        }
+      }
+
+      /* --------------------------- set_income_goal ---------------------------- */
+      case 'set_income_goal': {
+        const amount = parseFloat(attrs.amount ?? '')
+        if (!isFinite(amount) || amount < 0) {
+          return { ok: false, message: 'set_income_goal requires a numeric "amount" >= 0.' }
+        }
+        const current = await getIncomeSettings()
+        await setIncomeSettings({ ...current, monthlyGoal: amount })
+        return {
+          ok: true,
+          message: `Monthly income goal updated to $${amount.toFixed(2)}.`,
+        }
+      }
+
+      /* -------------------------- set_growth_target --------------------------- */
+      case 'set_growth_target': {
+        const percent = parseFloat(attrs.percent ?? '')
+        if (!isFinite(percent)) {
+          return { ok: false, message: 'set_growth_target requires a numeric "percent".' }
+        }
+        const current = await getIncomeSettings()
+        await setIncomeSettings({ ...current, dailyGrowthTarget: percent })
+        return {
+          ok: true,
+          message: `Daily growth target updated to ${percent}%.`,
+        }
+      }
+
+      /* ------------------------------ log_income ------------------------------ */
+      case 'log_income': {
+        const amount = parseFloat(attrs.amount ?? '')
+        if (!isFinite(amount) || amount <= 0) {
+          return { ok: false, message: 'log_income requires a positive numeric "amount".' }
+        }
+        const source = (attrs.source ?? 'Manual').toString().trim().slice(0, 80) || 'Manual'
+        const notes = (attrs.notes ?? '').toString().slice(0, 500)
+        const created = await db.incomeEntry.create({
+          data: { amount, source, notes, date: new Date() },
+        })
+        return {
+          ok: true,
+          message: `Logged $${amount.toFixed(2)} income from "${source}" (id: ${created.id}).`,
+        }
+      }
+
+      /* ---------------------------- create_schedule --------------------------- */
+      case 'create_schedule': {
+        const name = (attrs.name ?? 'Mission').toString().trim().slice(0, 120) || 'Mission'
+        const prompt = (attrs.prompt ?? '').toString().slice(0, 4000)
+        if (!prompt) {
+          return { ok: false, message: 'create_schedule requires a "prompt".' }
+        }
+        const intervalMin = parseInt(attrs.interval_min ?? '1440')
+        const safeInterval =
+          isFinite(intervalMin) && intervalMin > 0
+            ? Math.min(intervalMin, 60 * 24 * 30)
+            : 1440
+        const now = new Date()
+        const nextRunAt = new Date(now.getTime() + safeInterval * 60 * 1000)
+        const created = await db.schedule.create({
+          data: {
+            userId,
+            name,
+            prompt,
+            intervalMin: safeInterval,
+            enabled: true,
+            nextRunAt,
+          },
+        })
+        return {
+          ok: true,
+          message: `Schedule "${name}" created (interval: ${safeInterval} min, id: ${created.id}).`,
+        }
+      }
+
+      /* ---------------------------- delete_schedule --------------------------- */
+      case 'delete_schedule': {
+        const id = (attrs.id ?? '').toString().trim()
+        if (!id) return { ok: false, message: 'delete_schedule requires "id".' }
+        const existing = await db.schedule.findFirst({ where: { id, userId } })
+        if (!existing) {
+          return { ok: false, message: `Schedule "${id}" not found.` }
+        }
+        await db.schedule.delete({ where: { id } })
+        return {
+          ok: true,
+          message: `Schedule "${existing.name}" (${id}) deleted.`,
+        }
+      }
+
+      /* ---------------------------- update_settings --------------------------- */
+      case 'update_settings': {
+        // Accepts arbitrary key=value attrs and persists them as income/notif settings.
+        // We map known keys to the proper setting type.
+        const current = await getIncomeSettings()
+        let changed: string[] = []
+        const incomeUpdates: any = {}
+        if (attrs.monthly_goal !== undefined) {
+          const v = parseFloat(attrs.monthly_goal)
+          if (isFinite(v) && v >= 0) {
+            incomeUpdates.monthlyGoal = v
+            changed.push('monthly_goal')
+          }
+        }
+        if (attrs.daily_growth_target !== undefined) {
+          const v = parseFloat(attrs.daily_growth_target)
+          if (isFinite(v)) {
+            incomeUpdates.dailyGrowthTarget = v
+            changed.push('daily_growth_target')
+          }
+        }
+        if (attrs.currency_symbol !== undefined) {
+          incomeUpdates.currencySymbol = attrs.currency_symbol.slice(0, 4)
+          changed.push('currency_symbol')
+        }
+        if (attrs.display_mode !== undefined) {
+          if (attrs.display_mode === 'compact' || attrs.display_mode === 'detailed') {
+            incomeUpdates.displayMode = attrs.display_mode
+            changed.push('display_mode')
+          }
+        }
+        if (Object.keys(incomeUpdates).length > 0) {
+          await setIncomeSettings({ ...current, ...incomeUpdates })
+        }
+        if (changed.length === 0) {
+          return {
+            ok: false,
+            message:
+              'update_settings: no recognized keys. Supported: monthly_goal, daily_growth_target, currency_symbol, display_mode.',
+          }
+        }
+        return {
+          ok: true,
+          message: `Settings updated: ${changed.join(', ')}.`,
+        }
+      }
+
+      default:
+        return {
+          ok: false,
+          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings.`,
+        }
+    }
+  } catch (e: any) {
+    console.error('[orchestrator] executeManageAction failed:', e)
+    return {
+      ok: false,
+      message: `Manage action "${action}" threw: ${e?.message ?? String(e)}`,
+    }
+  }
+}
+
+function validateHexColor(c?: string): string | null {
+  if (!c || typeof c !== 'string') return null
+  const trimmed = c.trim()
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) return trimmed
+  return null
+}
