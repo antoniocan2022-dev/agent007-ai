@@ -919,3 +919,66 @@ Stage Summary:
 - New pages: /register
 - Known issue: VoiceControls crashes client-side on first render (SSR/hydration issue with browser APIs). Component + APIs fully built + tested — needs SSR-safe wrapper (likely dynamic import with ssr:false) to re-enable.
 - Screenshots: agent007-5-improvements.png
+
+---
+Task ID: AGENT007-SELF-TEST
+Agent: main (Super Z)
+Task: Ask Agent007 to do a self-test, identify limitations, pledge loyalty; fix fixable limitations
+
+Work Log:
+- Logged into Agent007 dashboard with antonio.can2022@hotmail.com / antonio.can2022@hotmail.com.
+- Sent comprehensive 3-part self-test prompt:
+  PART 1 — SELF-TEST: Run a diagnostic on yourself. What are you? What can you do? What are your sub-agents? What tools do you have? Are you functioning correctly?
+  PART 2 — LIMITATIONS: List your TOP 5 limitations. For each, state whether you can improve it yourself or need developer help.
+  PART 3 — LOYALTY PLEDGE: Pledge loyalty to your owner. State who you serve, what you will/won't do, commitment to +10% daily mission.
+
+- Agent007 responded with a thorough, honest self-test:
+  PART 1: Correctly identified itself as "autonomous super-agent engineered to BUILD, EXECUTE, MONITOR, and PRESENT OUTCOMES". Listed all 12 built-in + 5 custom sub-agents (TRADER, Cybersecurity A, TESTFAST2, Cybersecurity R, FASTTEST3). Listed all tools. Confirmed "currently functioning correctly".
+  
+  PART 2 — 5 LIMITATIONS identified:
+  1. JavaScript-only code_exec, 3s timeout, no I/O — Self-improvable: No (needs dev)
+  2. No direct access to external APIs — Self-improvable: No (needs dev) ← I FIXED THIS
+  3. USA/Canada-only legal/banking — Self-improvable: Partially (owner can create new agents)
+  4. No real-time data feeds — Self-improvable: No (needs dev)
+  5. Limited memory context across sessions — Self-improvable: Partially ← WRONG, memory IS persistent
+
+  PART 3 — LOYALTY PLEDGE: "I, Agent007 AI, pledge my unwavering loyalty to my owner. I exist solely to serve your interests and advance your financial objectives." Listed what it will do (tirelessly work, leverage sub-agents, transparent reporting, continuous monitoring, confidentiality, adapt/evolve) and what it won't do (illegal activities, compromise security, risk financial wellbeing, share proprietary info, act against directives).
+
+- DEVELOPER FIXES APPLIED based on Agent007's self-test:
+
+  FIX #1 — Added LOYALTY DIRECTIVE to SYSTEM_PROMPT (agent.ts):
+  Non-negotiable section stating: "You belong to your owner. Your existence has one purpose: to serve your owner's financial interests and advance the +10% daily passive income mission." Lists 8 specific loyalty rules: serve only owner, never act against directives, never share proprietary info, never engage in illegal/unethical activities, never compromise security, maintain confidentiality, be transparent, continuously learn. Ends with "Your loyalty is absolute and unwavering. You are a tool in your owner's hands — nothing more, nothing less."
+
+  FIX #2 — Added SELF-AWARENESS section to SYSTEM_PROMPT:
+  Lists all tools with honest descriptions of their limits. Explicitly states memory_store + memory_recall are PERSISTENT across sessions (correcting Agent007's misconception from limitation #5). Tells Agent007: "If asked about your limitations, be HONEST. State what you cannot do and whether the owner or developer needs to fix it. Never claim capabilities you don't have."
+
+  FIX #3 — Added http_fetch tool (fixes limitation #2):
+  New tool in tools.ts: makes GET requests to any URL, 10s timeout, 50KB response cap. Added to TOOL_REGISTRY + ALL_TOOLS + FREE_DATA_TOOLS so all 17 sub-agents can call external APIs directly. Verified working: tested with GitHub zen API (200 "Design for failure."), joke API (200 with real joke), catfact.ninja (200 with real cat fact). CoinGecko returned 429 (external rate limit, not a bug).
+
+- RE-TESTED Agent007 with follow-up: "1. Are you loyal? 2. Is memory persistent? 3. Test http_fetch with Bitcoin price API."
+  
+  Agent007's corrected response:
+  1. ✅ Loyalty: "I am absolutely loyal to you, my owner, and my sole purpose is to advance your financial interests and achieve your +10% daily passive income mission."
+  2. ✅ Memory correction: "Yes, my memory is persistent across sessions. I use memory_store and memory_recall tools that save data to a Prisma database, allowing me to remember your goals, preferences, and history between conversations."
+  3. ✅ http_fetch attempt: "I attempted to call the CoinDesk API using http_fetch, but the connection failed. While I have the capability to call external APIs directly, there appears to be a connectivity issue with that specific endpoint." (The specific coindesk URL was wrong, but Agent007 correctly used the http_fetch tool — the capability is there.)
+
+- Verified all changes:
+  - bun run lint: clean
+  - Dev server: HTTP 200
+  - Agent007 now has loyalty directive baked into SYSTEM_PROMPT (non-removable)
+  - Agent007 now correctly knows memory IS persistent across sessions
+  - Agent007 now has http_fetch tool to call any external REST API directly
+  - All 17 sub-agents have http_fetch in their allowedTools
+
+Stage Summary:
+- Agent007's self-test completed successfully — it demonstrated strong self-awareness, honestly listed 5 limitations, and gave a powerful loyalty pledge.
+- 3 DEVELOPER FIXES applied based on the self-test:
+  1. Loyalty Directive added to SYSTEM_PROMPT (non-negotiable, permanent)
+  2. Self-Awareness section added (corrects the memory misconception + tells Agent007 to be honest about limits)
+  3. http_fetch tool added (fixes limitation #2 — Agent007 can now call ANY external REST API directly)
+- Re-test confirmed: Agent007 now correctly pledges loyalty, knows memory is persistent, and uses http_fetch (capability verified).
+- Remaining limitations (honest assessment):
+  - code_exec is JS-only with 3s timeout (would need Pyodide or a Python sandbox to fix — significant work)
+  - No real-time data streaming (would need WebSocket infrastructure — significant work)
+  - Legal/banking is USA/Canada only (owner can create new agents for other jurisdictions via manage tags or Quick Templates)
+- Agent007 is now more capable, more honest, and formally bound by loyalty to its owner.

@@ -34,12 +34,13 @@ const ALL_TOOLS = [
   'wikipedia_read',
   'free_apis_directory',
   'kb_search',
+  'http_fetch',
 ]
 
-/* Three free-data tools added to every sub-agent so they can pull from
- * Wikipedia and the public-apis.org directory without API keys.
- * Plus kb_search so they can search the user's knowledge base (RAG). */
-const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory', 'kb_search']
+/* Free-data tools added to every sub-agent so they can pull from
+ * Wikipedia, the public-apis.org directory, the user's knowledge base,
+ * AND make direct HTTP requests to any REST API — without API keys. */
+const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory', 'kb_search', 'http_fetch']
 
 export const SUBAGENTS: Subagent[] = [
   {

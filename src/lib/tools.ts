@@ -761,3 +761,55 @@ export async function toolKbSearch(
 
 // Register the kb_search tool
 TOOL_REGISTRY.kb_search = { fn: toolKbSearch, icon: 'book-marked', label: 'Knowledge Base Search' }
+
+/* ----------------------------- HTTP Fetch ----------------------------- */
+/**
+ * http_fetch — make a GET request to any URL and return the response body.
+ * Fixes Agent007's limitation #2: "No direct access to external APIs".
+ * Now the Super Agent + all sub-agents can call any REST API directly:
+ *   crypto prices, weather, stock quotes, exchange rates, etc.
+ *
+ * Safety: only GET requests (no POST/PUT/DELETE), 10s timeout, 50KB response cap.
+ * The URL must be http/https. Returns the raw response text (truncated).
+ */
+export async function toolHttpFetch(
+  args: { url?: string; max_bytes?: number },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const url = (args?.url ?? '').toString().trim()
+  if (!url) return badResult('Missing "url" argument for http_fetch')
+  if (!/^https?:\/\//i.test(url)) {
+    return badResult('http_fetch requires an http:// or https:// URL')
+  }
+  const maxBytes = Math.min(100_000, Math.max(1000, args.max_bytes || 50_000))
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Agent007-AI/2.0',
+        Accept: 'application/json, text/plain, text/html, */*',
+      },
+    })
+    clearTimeout(timeout)
+    const contentType = res.headers.get('content-type') || 'unknown'
+    const status = res.status
+    if (status >= 400) {
+      return badResult(`http_fetch got HTTP ${status} from ${url}`)
+    }
+    const text = await res.text()
+    const truncated = text.slice(0, maxBytes)
+    const truncatedNote = text.length > maxBytes ? `\n... (truncated, ${text.length} total bytes)` : ''
+    return okResult(
+      `Fetched ${url} (HTTP ${status}, ${contentType.slice(0, 50)}, ${text.length} bytes)`,
+      `URL: ${url}\nStatus: ${status}\nContent-Type: ${contentType}\n\n${truncated}${truncatedNote}`
+    )
+  } catch (e: any) {
+    return badResult(`http_fetch failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+TOOL_REGISTRY.http_fetch = { fn: toolHttpFetch, icon: 'globe', label: 'HTTP Fetch' }
