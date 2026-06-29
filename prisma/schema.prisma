@@ -69,10 +69,57 @@ model UserSetting {
 model IncomeEntry {
   id        String   @id @default(cuid())
   amount    Float
-  source    String // 'Agent007' | 'manual' | 'AURORA' | 'VERTEX' | etc.
+  source    String // 'Agent007' | 'manual' | 'AURORA' | 'VERTEX' | 'stripe' | 'paypal' | etc.
   notes     String?
   date      DateTime @default(now())
   createdAt DateTime @default(now())
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  userId          String
+  provider        String   // 'stripe' | 'paypal'
+  providerTxId    String   // unique transaction id from provider (e.g. Stripe charge id)
+  amount          Float    // in major currency units (e.g. dollars, not cents)
+  currency        String   @default("USD")
+  status          String   @default("succeeded") // 'succeeded' | 'pending' | 'refunded' | 'failed'
+  customerEmail   String?
+  customerName    String?
+  productName     String?
+  description     String?
+  rawPayload      String   // full webhook payload as JSON string
+  createdAt       DateTime @default(now())
+
+  @@unique([provider, providerTxId])
+  @@index([userId])
+}
+
+model KnowledgeDoc {
+  id           String   @id @default(cuid())
+  userId       String
+  filename     String
+  mimeType     String
+  size         Int
+  text         String   // full extracted text (up to ~500KB)
+  chunkCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+model KnowledgeChunk {
+  id           String   @id @default(cuid())
+  docId        String
+  userId       String
+  content      String   // ~500-char chunk
+  chunkIndex   Int
+  // Simple keyword index — comma-separated tokens for LIKE-based search
+  // (proper vector embeddings would require a pgvector extension)
+  keywords     String   @default("")
+  createdAt    DateTime @default(now())
+
+  @@index([docId])
+  @@index([userId])
 }
 
 model Schedule {

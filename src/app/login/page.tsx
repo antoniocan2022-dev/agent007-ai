@@ -240,8 +240,19 @@ function LoginInner() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-[10px] text-[#5b6a92] tracking-wide">
-          v2.0 • powered by Z.ai SDK • 12 sub-agents • full web access
+        <div className="mt-6 text-center text-xs text-[#7c89b5]">
+          New operator?{' '}
+          <button
+            onClick={() => router.push('/register')}
+            className="text-cyan-300 hover:text-cyan-200 font-semibold tracking-wide"
+            style={{ touchAction: 'manipulation' }}
+          >
+            Create account
+          </button>
+        </div>
+
+        <p className="mt-4 text-center text-[10px] text-[#5b6a92] tracking-wide">
+          v2.0 • powered by Z.ai SDK • multi-user • PWA • voice I/O
         </p>
       </motion.div>
 

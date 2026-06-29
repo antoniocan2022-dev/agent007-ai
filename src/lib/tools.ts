@@ -717,3 +717,47 @@ export async function dispatchTool(
     return badResult(`${name} threw: ${e?.message ?? String(e)}`)
   }
 }
+
+/* ----------------------------- Knowledge base search ----------------- */
+/**
+ * kb_search — search the user's uploaded knowledge base (RAG).
+ * Returns the top-K chunks matching the query, formatted as context.
+ *
+ * The actual implementation lives in /src/lib/knowledge-base.ts and uses
+ * a simple keyword-overlap ranking (no embeddings — SQLite doesn't support
+ * pgvector). For production scale, swap to pgvector + an embedding model.
+ */
+export async function toolKbSearch(
+  args: { query?: string; limit?: number },
+  _ctx: ToolContext
+): Promise<ToolResult> {
+  const query = (args?.query ?? '').toString().trim()
+  if (!query) return badResult('Missing "query" argument for kb_search')
+  try {
+    // Dynamic import to avoid circular dependency + keep this lazy
+    const { searchKnowledgeBase, formatKbContext } = await import('@/lib/knowledge-base')
+    const { getSessionUserId } = await import('@/lib/session-user')
+    const userId = await getSessionUserId()
+    if (!userId) {
+      return badResult('Knowledge base requires authentication.')
+    }
+    const limit = Math.min(20, Math.max(1, args.limit || 5))
+    const results = await searchKnowledgeBase(userId, query, limit)
+    if (results.length === 0) {
+      return okResult(
+        'No matching documents found.',
+        `No knowledge base documents matched "${query}". Upload documents via Settings → Knowledge Base.`
+      )
+    }
+    const context = formatKbContext(results)
+    return okResult(
+      `Found ${results.length} matching chunks from ${new Set(results.map((r) => r.docId)).size} document(s).`,
+      `Knowledge base search results for "${query}":\n\n${context}`
+    )
+  } catch (e: any) {
+    return badResult(`kb_search failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+// Register the kb_search tool
+TOOL_REGISTRY.kb_search = { fn: toolKbSearch, icon: 'book-marked', label: 'Knowledge Base Search' }

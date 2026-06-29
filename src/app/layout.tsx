@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Agent007 AI — Super Agent Console",
   description:
-    "Agent007 AI — an autonomous income-operator super-agent. 10 sub-agents, full internet access, +10% daily growth mission. Build, execute, monitor, present outcomes.",
+    "Agent007 AI — autonomous income-operator super-agent. 12+ sub-agents, voice I/O, multi-user, Stripe/PayPal income tracking, RAG knowledge base. Build, execute, monitor, present outcomes.",
   keywords: [
     "Agent007 AI",
     "AI agent",
@@ -28,11 +28,43 @@ export const metadata: Metadata = {
     "tool use",
     "reasoning trace",
     "+10% daily growth",
+    "PWA",
+    "voice AI",
+    "RAG",
+    "Stripe",
+    "PayPal",
   ],
   authors: [{ name: "Agent007 AI" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+  applicationName: "Agent007 AI",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Agent007 AI",
+    statusBarStyle: "black-translucent",
   },
+  icons: {
+    icon: [
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    shortcut: ["/favicon-32.png"],
+  },
+  openGraph: {
+    title: "Agent007 AI — Super Agent Console",
+    description: "Autonomous income-operator super-agent with 12+ sub-agents, voice I/O, multi-user, and RAG.",
+    type: "website",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#00f0ff",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -47,6 +79,20 @@ export default function RootLayout({
       >
         <SessionProvider>{children}</SessionProvider>
         <Toaster />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                  navigator.serviceWorker.register('/sw.js').then(
+                    (reg) => console.log('[PWA] Service Worker registered:', reg.scope),
+                    (err) => console.warn('[PWA] Service Worker registration failed:', err)
+                  );
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );

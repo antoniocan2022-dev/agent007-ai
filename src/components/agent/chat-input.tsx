@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { Paperclip, ArrowUp, Square, X, FileText, Image as ImageIcon } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import type { AttachmentMeta } from '@/lib/tools'
+import { VoiceControls } from './voice-controls'
 
 export function ChatInput() {
   const [text, setText] = useState('')
@@ -19,8 +20,21 @@ export function ChatInput() {
   const sendMessage = useChatStore((s) => s.sendMessage)
   const stopStreaming = useChatStore((s) => s.stopStreaming)
   const status = useChatStore((s) => s.status)
+  const messages = useChatStore((s) => s.messages)
 
   const isBusy = status !== 'idle'
+
+  // Get the latest assistant message text for TTS (defensive against undefined messages)
+  const latestAssistantText = (() => {
+    if (!messages || !Array.isArray(messages) || messages.length === 0) return ''
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m && m.role === 'assistant' && m.content && m.content.trim().length > 0 && !m.isStreaming) {
+        return m.content
+      }
+    }
+    return ''
+  })()
 
   // auto-grow
   useEffect(() => {
@@ -159,6 +173,18 @@ export function ChatInput() {
             <span className="text-[#5b6a92]">|</span>
             <span className={language === 'zh' ? 'text-purple-300' : 'text-[#7c89b5]'}>中文</span>
           </button>
+
+          {/* Voice I/O controls — mic for input, speaker for TTS */}
+          {/* Disabled temporarily — VoiceControls crashes client-side on first render.
+              Re-enable after debugging the SSR/hydration issue. */}
+          {/* <VoiceControls
+            latestAssistantText={latestAssistantText}
+            onTranscribed={(t) => {
+              setText(t)
+              setTimeout(() => textareaRef.current?.focus(), 100)
+            }}
+            disabled={isBusy}
+          /> */}
 
           {/* send / stop */}
           {isBusy ? (

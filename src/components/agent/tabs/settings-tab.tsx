@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Settings as SettingsIcon,
   User as UserIcon,
@@ -19,6 +19,11 @@ import {
   Activity,
   TrendingUp,
   Clock,
+  FileText,
+  Trash2,
+  Search,
+  CreditCard,
+  BookMarked,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSession } from 'next-auth/react'
@@ -443,12 +448,18 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
           {/* AGENT ANALYTICS */}
           <AgentAnalyticsSection />
 
+          {/* KNOWLEDGE BASE (RAG) */}
+          <KnowledgeBaseSection onToast={setSavedMsg} />
+
+          {/* PAYMENT INTEGRATIONS */}
+          <PaymentIntegrationsSection />
+
           {/* BACKUP / RESTORE */}
           <BackupRestoreSection onToast={setSavedMsg} />
 
           {/* Footer */}
           <div className="text-center text-[10px] text-[#5b6a92] tracking-wide pt-2 pb-4">
-            Agent007 AI v2.0 • powered by Z.ai SDK • 17 sub-agents • full web access • autonomous
+            Agent007 AI v2.0 • powered by Z.ai SDK • 17 sub-agents • multi-user • PWA • voice • RAG • Stripe/PayPal
           </div>
         </div>
       </div>
@@ -692,6 +703,285 @@ function BackupRestoreSection({ onToast }: { onToast: (msg: string) => void }) {
           {importResult.errors?.length > 0 && (
             <div className="mt-1 text-amber-200">{importResult.errors.length} warnings (skipped some rows)</div>
           )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Knowledge Base Section — upload + search documents (RAG)
+ * ------------------------------------------------------------------ */
+function KnowledgeBaseSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [docs, setDocs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // Need useRef import — add it
+  const loadDocs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/kb')
+      const data = await res.json()
+      setDocs(data.docs || [])
+    } catch {
+      setDocs([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadDocs()
+  }, [loadDocs])
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || uploading) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/kb', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      onToast(`Uploaded "${data.doc.filename}" — ${data.doc.chunkCount} chunks indexed`)
+      await loadDocs()
+    } catch (e: any) {
+      onToast(`Upload failed: ${e?.message ?? 'error'}`)
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const handleDelete = async (docId: string, filename: string) => {
+    if (!confirm(`Delete "${filename}" and all its chunks?`)) return
+    try {
+      await fetch(`/api/kb?id=${docId}`, { method: 'DELETE' })
+      onToast(`Deleted "${filename}"`)
+      await loadDocs()
+    } catch (e: any) {
+      onToast(`Delete failed: ${e?.message ?? 'error'}`)
+    }
+  }
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim() || searching) return
+    setSearching(true)
+    setSearchResults(null)
+    try {
+      const res = await fetch('/api/kb/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: searchQuery, limit: 5 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setSearchResults(data.results || [])
+    } catch (e: any) {
+      onToast(`Search failed: ${e?.message ?? 'error'}`)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <BookMarked className="w-4 h-4 text-cyan-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">KNOWLEDGE BASE (RAG)</h2>
+      </div>
+      <p className="text-[11px] text-[#7c89b5] mb-3 leading-relaxed">
+        Upload documents (TXT, MD, CSV, JSON, PDF, code files). Agent007 and all sub-agents can
+        search your knowledge base via the <code className="text-cyan-200">kb_search</code> tool
+        to ground their answers in your own data.
+      </p>
+
+      {/* Upload button */}
+      <label
+        className="flex items-center justify-center gap-2 w-full glass border-cyan-400/30 hover:border-cyan-400/60 rounded-lg py-2 text-xs font-bold tracking-wider cursor-pointer transition text-cyan-200 mb-3"
+        style={{ touchAction: 'manipulation' }}
+      >
+        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+        {uploading ? 'INDEXING…' : 'UPLOAD DOCUMENT'}
+        <input
+          ref={fileRef}
+          type="file"
+          onChange={handleUpload}
+          disabled={uploading}
+          className="hidden"
+          accept=".txt,.md,.csv,.json,.js,.ts,.tsx,.jsx,.py,.go,.rs,.java,.c,.cpp,.h,.sh,.sql,.yaml,.yml,.xml,.html,.css,.pdf"
+        />
+      </label>
+
+      {/* Search box */}
+      <div className="flex gap-2 mb-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#5b6a92]" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Test search your knowledge base…"
+            className="w-full glass rounded-lg pl-8 pr-3 py-1.5 text-xs text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70"
+          />
+        </div>
+        <button
+          onClick={handleSearch}
+          disabled={searching || !searchQuery.trim()}
+          className="neon-btn-cyan rounded-lg px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+          style={{ touchAction: 'manipulation' }}
+        >
+          {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'SEARCH'}
+        </button>
+      </div>
+
+      {/* Search results */}
+      {searchResults && (
+        <div className="mb-3 space-y-1.5 max-h-40 overflow-y-auto scroll-cyan pr-1">
+          {searchResults.length === 0 ? (
+            <div className="text-[11px] text-[#5b6a92] text-center py-2">No matches found.</div>
+          ) : (
+            searchResults.map((r, i) => (
+              <div key={i} className="glass rounded-md p-2 text-[10px]">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-cyan-200 font-semibold truncate">{r.filename}</span>
+                  <span className="text-[#5b6a92]">score: {r.score}</span>
+                </div>
+                <div className="text-[#9bb5d4] line-clamp-3">{r.content}</div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Doc list */}
+      {loading ? (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="w-4 h-4 animate-spin text-cyan-300" />
+        </div>
+      ) : docs.length === 0 ? (
+        <div className="text-center py-4 text-[#5b6a92] text-xs">
+          No documents uploaded yet. Upload your first doc above.
+        </div>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-y-auto scroll-cyan pr-1">
+          {docs.map((d) => (
+            <div key={d.id} className="glass rounded-md p-2 flex items-center gap-2">
+              <FileText className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] font-semibold text-[#e0e7ff] truncate">{d.filename}</div>
+                <div className="text-[9px] text-[#5b6a92]">
+                  {d.chunkCount} chunks • {(d.size / 1024).toFixed(1)}KB •{' '}
+                  {new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </div>
+              </div>
+              <button
+                onClick={() => handleDelete(d.id, d.filename)}
+                className="text-[#5b6a92] hover:text-pink-300 flex-shrink-0"
+                aria-label="Delete doc"
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Payment Integrations Section — Stripe + PayPal webhook config
+ * ------------------------------------------------------------------ */
+function PaymentIntegrationsSection() {
+  const [transactions, setTransactions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/transactions?limit=10')
+      .then((r) => r.json())
+      .then((data) => {
+        setTransactions(data.transactions || [])
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const stripeWebhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/stripe` : ''
+  const paypalWebhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/paypal` : ''
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <CreditCard className="w-4 h-4 text-cyan-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">PAYMENT INTEGRATIONS</h2>
+      </div>
+      <p className="text-[11px] text-[#7c89b5] mb-3 leading-relaxed">
+        Connect Stripe + PayPal to auto-log real payments as income. Each successful payment
+        creates a Transaction record + an IncomeEntry that appears in your Dashboard.
+      </p>
+
+      {/* Webhook URLs */}
+      <div className="space-y-2 mb-3">
+        <div className="glass rounded-md p-2">
+          <div className="text-[10px] label-tag mb-1">STRIPE WEBHOOK URL</div>
+          <code className="text-[10px] text-cyan-200 break-all">{stripeWebhookUrl}</code>
+          <div className="text-[9px] text-[#5b6a92] mt-1">
+            Set <code className="text-cyan-300">STRIPE_WEBHOOK_SECRET</code> env var. Subscribe to <code>payment_intent.succeeded</code> + <code>charge.refunded</code>.
+          </div>
+        </div>
+        <div className="glass rounded-md p-2">
+          <div className="text-[10px] label-tag mb-1">PAYPAL WEBHOOK URL</div>
+          <code className="text-[10px] text-cyan-200 break-all">{paypalWebhookUrl}</code>
+          <div className="text-[9px] text-[#5b6a92] mt-1">
+            Set <code className="text-cyan-300">PAYPAL_CLIENT_ID</code> + <code>PAYPAL_CLIENT_SECRET</code> env vars. Subscribe to <code>PAYMENT.CAPTURE.COMPLETED</code>.
+          </div>
+        </div>
+      </div>
+
+      {/* Recent transactions */}
+      <div className="text-[10px] label-tag mb-2">RECENT TRANSACTIONS</div>
+      {loading ? (
+        <div className="flex items-center justify-center py-3">
+          <Loader2 className="w-4 h-4 animate-spin text-cyan-300" />
+        </div>
+      ) : transactions.length === 0 ? (
+        <div className="text-center py-3 text-[#5b6a92] text-xs">
+          No transactions yet. Connect Stripe/PayPal to start logging real payments.
+        </div>
+      ) : (
+        <div className="space-y-1 max-h-40 overflow-y-auto scroll-cyan pr-1">
+          {transactions.map((t) => (
+            <div key={t.id} className="glass rounded-md p-2 flex items-center gap-2">
+              <span
+                className={`text-[9px] px-1.5 py-0.5 rounded-full tracking-wide border flex-shrink-0 ${
+                  t.provider === 'stripe'
+                    ? 'bg-indigo-400/10 border-indigo-400/40 text-indigo-200'
+                    : 'bg-blue-400/10 border-blue-400/40 text-blue-200'
+                }`}
+              >
+                {t.provider.toUpperCase()}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] font-semibold text-emerald-200">
+                  ${t.amount.toFixed(2)} {t.currency}
+                </div>
+                <div className="text-[9px] text-[#5b6a92] truncate">
+                  {t.customerEmail || t.description || t.providerTxId.slice(-12)}
+                </div>
+              </div>
+              <span className="text-[9px] text-[#5b6a92] flex-shrink-0">
+                {new Date(t.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </section>

@@ -17,6 +17,7 @@ import { SchedulesTab } from '@/components/agent/tabs/schedules-tab'
 import { SettingsTab } from '@/components/agent/tabs/settings-tab'
 import { MissionsTab } from '@/components/agent/tabs/missions-tab'
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
+import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
 
 export default function Home() {
   const { status } = useSession()
@@ -169,6 +170,9 @@ export default function Home() {
 
       {/* Global Change-Password modal — mounted once, openable from anywhere */}
       <ChangePasswordModal />
+
+      {/* PWA install prompt — shows when browser fires beforeinstallprompt */}
+      <PwaInstallPrompt />
 
       {/* Hidden state-keeper so conversations load on mount even if unused */}
       <span className="hidden" aria-hidden>
