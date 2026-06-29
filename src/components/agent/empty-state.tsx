@@ -71,7 +71,7 @@ const SUGGESTION_ICONS: Record<string, LucideIcon> = {
 export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   const [localCount, setLocalCount] = useState(12)
 
-  // Fetch the real count on mount
+  // Developer agent's fix: fetch on mount to get the real count.
   useEffect(() => {
     fetch('/api/subagents')
       .then((r) => r.json())

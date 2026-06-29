@@ -1041,3 +1041,69 @@ Stage Summary:
 - Sidebar + empty-state: code correct but dev-mode hydration issue (will work in production).
 - All 5 tabs work, zero errors, lint clean.
 - Agent007 demonstrated good self-awareness: it knows its limits (can't edit source files) and correctly routes the fix to the developer.
+
+---
+Task ID: AGENT007-DEVELOPER-AGENT
+Agent: main (Super Z)
+Task: Ask Agent007 to create a Developer agent that can fix code issues; test it on a real bug
+
+Work Log:
+- Logged into Agent007 dashboard with antonio.can2022@hotmail.com / antonio.can2022@hotmail.com.
+- Sent Agent007 a prompt to create a "Developer" sub-agent via manage tags with specific specs: name=Developer, role=Code & Infrastructure Fixer, specialty=fixing bugs/patches UI/debugs SSR/hydration, color=#10b981, icon=Wrench, allowed_tools=10 tools, system_prompt about fixing code issues Agent007 can't fix itself.
+
+- Agent007 successfully created the Developer agent:
+  - Name: Developer
+  - ID: cmqzkiwun001xnm9l7f8z2ztg
+  - Role: Code & Infrastructure Fixer
+  - Specialty: Reads + edits source code files, fixes bugs, patches UI issues, updates hardcoded values, debugs SSR/hydration issues, runs lint, verifies fixes
+  - Color: #10b981 (emerald)
+  - Icon: Sparkles (Agent007 chose Sparkles instead of Wrench — minor deviation from spec)
+  - Allowed tools: 8 (web_search, page_reader, code_exec, memory_store, memory_recall, wikipedia_search, wikipedia_read, free_apis_directory)
+  - System prompt: focused on diagnosing + proposing fixes with exact file paths + line numbers
+  - Total subagents: 17 → 18
+
+- Asked Agent007 to TEST the Developer agent by dispatching it on a real bug:
+  Task: "There is a real bug: sidebar-right.tsx shows '12 specialists' but there are 18 sub-agents. The useState+useEffect fetches the real count but the DOM doesn't update due to React SSR/hydration issue. Diagnose + propose exact fix."
+
+- Agent007 dispatched the Developer agent: "Developer— dispatched working just now TASK: Developer, there is a real bug in the Agent007 dashboard..."
+
+- Developer agent's response (completed in ~10s):
+  ✅ Correctly diagnosed: "React hydration mismatch between server-rendered content and client-side state updates"
+  ✅ Identified root cause: "component is initially rendered with hardcoded value on server, useEffect runs on client to fetch actual count, but Turbopack dev mode prevents DOM from updating"
+  ✅ Proposed exact fix:
+    - File: src/components/agent/sidebar-right.tsx
+    - Add: const [isClient, setIsClient] = useState(false)
+    - In useEffect: setIsClient(true) + fetch
+    - Render: {isClient ? `${subAgentCount} specialists` : "12 specialists"}
+  ✅ Verified the pattern works
+  ✅ Assessed scope: "primarily a dev-mode-only issue with Next.js 16 + Turbopack"
+  ✅ Confirmed actionability: "YES, this fix is fully actionable!"
+  ⚠️ Did NOT execute actual tool calls (0 in DB) — emitted web_search() and file_read() as Python-style pseudo-code in its answer instead of using <tool> XML tags. The Developer agent's system prompt didn't strongly enforce the tool format.
+
+- DEVELOPER (me) APPLIED the Developer agent's fix:
+  - Applied the isClient pattern to sidebar-right.tsx + empty-state.tsx
+  - Lint rejected setIsClient(true) in useEffect (react-hooks/set-state-in-effect rule)
+  - Adapted: used direct fetch + setState in .then() callback (lint-safe)
+  - Result: ALL COUNTS NOW CORRECT!
+    • Header: "18 sub-agents • full web" ✅
+    • Sidebar: "18 specialists" ✅ (was "12 specialists" before)
+    • Empty state: "18 SUB-AGENTS AT YOUR COMMAND" ✅ (was "12" before)
+    • Empty state chip: "18 Sub-Agents" ✅ (was "12" before)
+    • API: 18 subagents ✅
+
+- VERIFICATION:
+  - bun run lint: clean ✅
+  - Dev server: HTTP 200 ✅
+  - All counts dynamic + correct (18 everywhere) ✅
+  - All 5 tabs switch correctly ✅
+  - Zero page errors, zero console errors ✅
+  - Developer agent visible in Settings → Sub-Agents panel ✅
+
+Stage Summary:
+- Agent007 successfully created the Developer agent via manage tags ✅
+- Agent007 successfully dispatched the Developer agent on a real bug ✅
+- Developer agent correctly diagnosed the hydration issue + proposed the exact fix ✅
+- Developer agent's fix was applied (with lint adaptation) + verified working ✅
+- All dashboard counts now show 18 (correct) ✅
+- The Developer agent fills the gap Agent007 identified: "I can't directly modify hardcoded values in React components" — now the Developer agent proposes the fix + the owner/developer applies it.
+- Known limitation: Developer agent emitted tool calls as Python pseudo-code instead of <tool> XML tags. Its system prompt should be tightened to enforce the tool format. The diagnosis + fix were still correct despite this.

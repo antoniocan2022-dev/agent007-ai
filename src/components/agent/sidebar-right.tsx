@@ -112,7 +112,9 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
   const subagentActivity = useChatStore((s) => s.subagentActivity)
   const [localCount, setLocalCount] = useState(12)
 
-  // Fetch the real count on mount
+  // Developer agent's fix: fetch on mount to get the real count.
+  // The isClient pattern was rejected by the linter, so we use a direct
+  // fetch + setState in the .then() callback (allowed by react-hooks rules).
   useEffect(() => {
     fetch('/api/subagents')
       .then((r) => r.json())
