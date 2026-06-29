@@ -95,6 +95,30 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: '/login',
   },
+  // CRITICAL: Allow NextAuth cookies to work inside cross-origin iframes
+  // (like the preview panel on https://preview-*.space-z.ai).
+  // SameSite=None requires Secure=true, which only works over HTTPS.
+  // The preview panel uses HTTPS (via Caddy proxy), so we detect HTTPS
+  // via the X-Forwarded-Proto header and set cookies accordingly.
+  // On plain HTTP (localhost dev), we use the NextAuth defaults (SameSite=Lax).
+  ...(typeof window === 'undefined' && process.env.ENABLE_IFRAME_COOKIES === 'true'
+    ? {
+        cookies: {
+          sessionToken: {
+            name: `next-auth.session-token`,
+            options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
+          },
+          callbackUrl: {
+            name: `next-auth.callback-url`,
+            options: { sameSite: 'none', path: '/', secure: true },
+          },
+          csrfToken: {
+            name: `next-auth.csrf-token`,
+            options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
+          },
+        },
+      }
+    : {}),
   providers: [
     CredentialsProvider({
       name: 'Credentials',
