@@ -38,9 +38,9 @@ export function NexusLogo({ size = 36, className = '' }: { size?: number; classN
         stroke="rgba(0,240,255,0.3)"
         strokeWidth="1"
       />
-      {/* N glyph */}
+      {/* A glyph — left leg + right leg + crossbar, same cyan stroke / glow as the original N */}
       <path
-        d="M22 44 L22 22 L42 44 L42 22"
+        d="M22 44 L32 22 L42 44 M26 36 L38 36"
         fill="none"
         stroke="#00f0ff"
         strokeWidth="3"

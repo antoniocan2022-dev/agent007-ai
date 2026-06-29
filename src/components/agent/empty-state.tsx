@@ -12,6 +12,8 @@ import {
   Palette,
   Activity,
   RefreshCw,
+  Lightbulb,
+  Target,
   type LucideIcon,
 } from 'lucide-react'
 import { NexusLogo } from './nexus-logo'
@@ -32,24 +34,24 @@ const SUBAGENT_COLORS: Record<string, string> = {
 
 const SUGGESTIONS = [
   {
-    icon: 'scout',
-    title: 'Multi-agent research',
-    text: 'Use Scout + Aurora to find trending niches and design a content monetization plan',
+    icon: 'pulse',
+    title: 'Passive income plan',
+    text: "Build me a passive income plan targeting +10% daily growth",
   },
   {
-    icon: 'hunt',
-    title: 'Freelance discovery',
-    text: 'Dispatch Hunt to find top freelance gigs for my skills',
+    icon: 'scout',
+    title: 'Opportunity scan',
+    text: 'Use Scout + Hunt to find 3 income opportunities I can start today',
   },
   {
     icon: 'prism',
-    title: 'Visual brand',
-    text: "Have Prism design a logo for 'Nebula Studio'",
+    title: 'Brand design',
+    text: 'Have Prism design a brand for my new digital product',
   },
   {
     icon: 'pulse',
-    title: 'KPIs + optimization',
-    text: 'Ask Pulse + Echo to define KPIs and an optimization plan for my SaaS',
+    title: 'KPI dashboard',
+    text: 'Set up KPIs with Pulse to track my daily income growth',
   },
 ]
 
@@ -78,7 +80,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         transition={{ delay: 0.15, duration: 0.6 }}
         className="text-3xl sm:text-4xl font-extrabold tracking-tight"
       >
-        <span className="neon-text-cyan">NEXUS</span>{' '}
+        <span className="neon-text-cyan">Agent007</span>{' '}
         <span className="neon-text-purple">AI</span>
       </motion.h1>
       <motion.p
@@ -87,9 +89,9 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         transition={{ delay: 0.25, duration: 0.6 }}
         className="mt-3 text-sm sm:text-base text-[#7c89b5] tracking-wide"
       >
-        Your AI Super Agent —{' '}
+        Your AI Income Operator —{' '}
         <span className="text-[#e0e7ff]">10 Specialists.</span>{' '}
-        <span className="text-[#e0e7ff]">One Mission: Your Income.</span>
+        <span className="text-[#e0e7ff]">One Mission: +10% Daily.</span>
       </motion.p>
 
       <motion.div
@@ -169,14 +171,23 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         transition={{ delay: 0.7, duration: 0.8 }}
         className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-[#7c89b5]"
       >
-        {['10 Sub-Agents', '8 Tools', 'Bilingual', 'Self-Learning'].map((c) => (
-          <span
-            key={c}
-            className="px-2.5 py-1 rounded-full bg-cyan-400/5 border border-cyan-400/15 text-[#9bb5d4]"
-          >
-            {c}
-          </span>
-        ))}
+        {[
+          { icon: Target, label: '+10% Daily Mission' },
+          { icon: Sparkles, label: '10 Sub-Agents' },
+          { icon: Search, label: 'Full Internet Access' },
+          { icon: Lightbulb, label: 'Self-Learning' },
+        ].map((c) => {
+          const Icon = c.icon
+          return (
+            <span
+              key={c.label}
+              className="px-2.5 py-1 rounded-full bg-cyan-400/5 border border-cyan-400/15 text-[#9bb5d4] inline-flex items-center gap-1.5"
+            >
+              <Icon className="w-3 h-3 text-cyan-300" />
+              {c.label}
+            </span>
+          )
+        })}
       </motion.div>
     </div>
   )

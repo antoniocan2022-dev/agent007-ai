@@ -56,7 +56,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
       <div className="flex-1 min-w-0 max-w-[760px]">
         <div className="text-[10px] label-tag mb-1 flex items-center gap-2">
-          NEXUS AI
+          Agent007 AI
           {isStreaming && (
             <span className="inline-flex items-center gap-1 text-[9px] text-cyan-300">
               <span className="typing-dot" />
@@ -78,7 +78,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
               isStreaming ? 'stream-caret' : ''
             }`}
           >
-            <div className="prose-nexus">
+            <div className="prose-agent007">
               <ReactMarkdown>{message.content}</ReactMarkdown>
             </div>
           </div>

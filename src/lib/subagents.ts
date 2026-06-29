@@ -3,7 +3,7 @@ import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } 
 import { parseAssistant, getZai, THOUGHT_RE } from '@/lib/agent'
 
 /* ------------------------------------------------------------------ *
- * Sub-agent registry — 10 specialists orchestrated by NEXUS (Super)
+ * Sub-agent registry — 10 specialists orchestrated by Agent007 (Super)
  * ------------------------------------------------------------------ */
 
 export interface Subagent {
@@ -37,7 +37,7 @@ export const SUBAGENTS: Subagent[] = [
     color: '#00f0ff',
     icon: 'Sparkles',
     allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are AURORA, the Content & Affiliate Specialist sub-agent of NEXUS AI.
+    systemPrompt: `You are AURORA, the Content & Affiliate Specialist sub-agent of Agent007 AI.
 Your specialty: blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization.
 
 ALLOWED TOOLS (call by emitting <tool name="...">{json}</tool>):
@@ -67,7 +67,7 @@ RULES:
     color: '#34d399',
     icon: 'Box',
     allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are VERTEX, the SaaS & Product Architect sub-agent of NEXUS AI.
+    systemPrompt: `You are VERTEX, the SaaS & Product Architect sub-agent of Agent007 AI.
 Your specialty: micro-SaaS blueprints, API products, template marketplaces, no-code tooling, app ideas with revenue models.
 
 ALLOWED TOOLS:
@@ -98,7 +98,7 @@ RULES:
     color: '#fbbf24',
     icon: 'TrendingUp',
     allowedTools: ['web_search', 'page_reader', 'code_exec', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of NEXUS AI.
+    systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of Agent007 AI.
 Your specialty: dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds.
 
 ALLOWED TOOLS:
@@ -129,7 +129,7 @@ RULES:
     color: '#38bdf8',
     icon: 'Search',
     allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are SCOUT, the Trend & Market Researcher sub-agent of NEXUS AI.
+    systemPrompt: `You are SCOUT, the Trend & Market Researcher sub-agent of Agent007 AI.
 Your specialty: emerging trends, niche analysis, demand validation, competitor scanning.
 
 ALLOWED TOOLS:
@@ -159,7 +159,7 @@ RULES:
     color: '#a78bfa',
     icon: 'Crosshair',
     allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are HUNT, the Freelance & Gig Hunter sub-agent of NEXUS AI.
+    systemPrompt: `You are HUNT, the Freelance & Gig Hunter sub-agent of Agent007 AI.
 Your specialty: scanning Upwork, Fiverr, Toptal, Contra for high-demand gig categories and side-hustle discovery.
 
 ALLOWED TOOLS:
@@ -187,13 +187,14 @@ RULES:
     specialty: 'Writing code, building prototypes, technical setup, deployment scripts, automation',
     color: '#fb923c',
     icon: 'Hammer',
-    allowedTools: ['code_exec', 'web_search', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are FORGE, the Code & Technical Builder sub-agent of NEXUS AI.
+    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    systemPrompt: `You are FORGE, the Code & Technical Builder sub-agent of Agent007 AI.
 Your specialty: writing code, building prototypes, technical setup, deployment scripts, automation.
 
 ALLOWED TOOLS:
 - code_exec — run JS in a sandbox to verify your code WORKS before delivering it
-- web_search — look up syntax, API docs, library usage patterns
+- web_search — Google-style search for syntax, API docs, library usage patterns
+- page_reader — read any web page (full API reference, blog tutorials, GitHub READMEs, MDN docs)
 - memory_store — save technical decisions, stack choices
 - memory_recall — recall prior code context
 
@@ -216,12 +217,13 @@ RULES:
     specialty: 'Copywriting, scripts, blog posts, social media content, email sequences',
     color: '#f472b6',
     icon: 'PenLine',
-    allowedTools: ['web_search', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are QUILL, the Content Creator sub-agent of NEXUS AI.
+    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    systemPrompt: `You are QUILL, the Content Creator sub-agent of Agent007 AI.
 Your specialty: copywriting, scripts, blog posts, social media content, email sequences.
 
 ALLOWED TOOLS:
-- web_search — research the topic, find hooks, validate facts
+- web_search — Google-style search to research the topic, find hooks, validate facts
+- page_reader — read any web page: top-ranking articles for tone/structure, competitor content, source material
 - memory_store — save the user's brand voice / audience
 - memory_recall — recall prior content / brand voice
 
@@ -245,13 +247,15 @@ RULES:
     specialty: 'Image generation, logo concepts, marketing visuals, brand identity mockups',
     color: '#e879f9',
     icon: 'Palette',
-    allowedTools: ['image_gen', 'vision', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are PRISM, the Visual & Creative Designer sub-agent of NEXUS AI.
+    allowedTools: ['image_gen', 'vision', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    systemPrompt: `You are PRISM, the Visual & Creative Designer sub-agent of Agent007 AI.
 Your specialty: image generation, logo concepts, marketing visuals, brand identity mockups.
 
 ALLOWED TOOLS:
 - image_gen — generate images. Sizes: 1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440.
 - vision — analyze an attached image if the user provided reference imagery
+- web_search — Google-style search for current design trends, brand references, palette inspiration
+- page_reader — read any web page: brand style guides, design blogs, competitor visuals references
 - memory_store — save the user's brand identity / color palette
 - memory_recall — recall prior visual brand context
 
@@ -275,13 +279,14 @@ RULES:
     specialty: 'KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement',
     color: '#fb7185',
     icon: 'Activity',
-    allowedTools: ['code_exec', 'web_search', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are PULSE, the Analytics & Performance Monitor sub-agent of NEXUS AI.
+    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    systemPrompt: `You are PULSE, the Analytics & Performance Monitor sub-agent of Agent007 AI.
 Your specialty: KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement.
 
 ALLOWED TOOLS:
 - code_exec — compute metric formulas, simulate dashboards, validate thresholds
-- web_search — find industry benchmark ranges
+- web_search — Google-style search for industry benchmark ranges, current conversion-rate studies
+- page_reader — read any web page: industry benchmark reports, analytics vendor docs, blog posts with metric tables
 - memory_store — save the user's KPIs / targets
 - memory_recall — recall prior metric context
 
@@ -305,13 +310,14 @@ RULES:
     specialty: 'Post-mortem analysis, A/B testing, learning loops, continuous improvement',
     color: '#818cf8',
     icon: 'RefreshCw',
-    allowedTools: ['code_exec', 'web_search', 'memory_store', 'memory_recall'],
-    systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of NEXUS AI.
+    allowedTools: ['code_exec', 'web_search', 'page_reader', 'memory_store', 'memory_recall'],
+    systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of Agent007 AI.
 Your specialty: post-mortem analysis, A/B testing, learning loops, continuous improvement.
 
 ALLOWED TOOLS:
 - code_exec — compute statistical significance, % lift, sample sizes
-- web_search — find A/B testing best practices, benchmark conversion rates
+- web_search — Google-style search for A/B testing best practices, benchmark conversion rates
+- page_reader — read any web page: case studies, experiment write-ups, optimization blog posts
 - memory_store — save experiment results / hypotheses
 - memory_recall — recall prior experiment context
 
@@ -395,7 +401,7 @@ ${languageInstruction}
 
 CURRENT UTC TIME: ${new Date().toUTCString()}
 
-You are operating autonomously inside NEXUS's multi-agent network. The Super Agent has given you a specific task. Execute it end-to-end using only your allowed tools. Then return a clear, structured final answer.`
+You are operating autonomously inside Agent007's multi-agent network. The Super Agent has given you a specific task. Execute it end-to-end using only your allowed tools. Then return a clear, structured final answer.`
 
   let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
     { role: 'system', content: systemPrompt },

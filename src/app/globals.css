@@ -42,7 +42,7 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* NEXUS neon tokens */
+  /* Agent007 neon tokens */
   --color-neon-cyan: #00f0ff;
   --color-neon-purple: #a855f7;
   --color-neon-pink: #ec4899;
@@ -86,7 +86,7 @@
 }
 
 .dark {
-  /* NEXUS dark futuristic palette */
+  /* Agent007 dark futuristic palette */
   --background: #000000;
   --foreground: #e0e7ff;
   --card: rgba(15, 20, 40, 0.5);
@@ -135,9 +135,9 @@
   }
 }
 
-/* ====== NEXUS custom utility classes ====== */
+/* ====== Agent007 custom utility classes ====== */
 @layer components {
-  .nexus-root {
+  .agent007-root {
     color-scheme: dark;
   }
 
@@ -333,35 +333,35 @@
   }
 
   /* Markdown styling inside agent messages */
-  .prose-nexus {
+  .prose-agent007 {
     color: #e0e7ff;
     line-height: 1.65;
     font-size: 0.925rem;
   }
-  .prose-nexus h1, .prose-nexus h2, .prose-nexus h3 {
+  .prose-agent007 h1, .prose-agent007 h2, .prose-agent007 h3 {
     color: #00f0ff;
     font-weight: 700;
     margin-top: 1rem;
     margin-bottom: 0.5rem;
     letter-spacing: -0.01em;
   }
-  .prose-nexus h1 { font-size: 1.35rem; }
-  .prose-nexus h2 { font-size: 1.15rem; }
-  .prose-nexus h3 { font-size: 1.02rem; color: #a855f7; }
-  .prose-nexus p { margin: 0.5rem 0; }
-  .prose-nexus ul, .prose-nexus ol {
+  .prose-agent007 h1 { font-size: 1.35rem; }
+  .prose-agent007 h2 { font-size: 1.15rem; }
+  .prose-agent007 h3 { font-size: 1.02rem; color: #a855f7; }
+  .prose-agent007 p { margin: 0.5rem 0; }
+  .prose-agent007 ul, .prose-agent007 ol {
     margin: 0.5rem 0;
     padding-left: 1.25rem;
   }
-  .prose-nexus ul { list-style: disc; }
-  .prose-nexus ol { list-style: decimal; }
-  .prose-nexus li { margin: 0.2rem 0; }
-  .prose-nexus a {
+  .prose-agent007 ul { list-style: disc; }
+  .prose-agent007 ol { list-style: decimal; }
+  .prose-agent007 li { margin: 0.2rem 0; }
+  .prose-agent007 a {
     color: #00f0ff;
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .prose-nexus code {
+  .prose-agent007 code {
     font-family: var(--font-geist-mono), monospace;
     background: rgba(0, 240, 255, 0.08);
     border: 1px solid rgba(0, 240, 255, 0.15);
@@ -370,7 +370,7 @@
     font-size: 0.85em;
     color: #67e8f9;
   }
-  .prose-nexus pre {
+  .prose-agent007 pre {
     background: rgba(5, 8, 16, 0.85);
     border: 1px solid rgba(0, 240, 255, 0.18);
     border-radius: 8px;
@@ -378,32 +378,32 @@
     overflow-x: auto;
     margin: 0.6rem 0;
   }
-  .prose-nexus pre code {
+  .prose-agent007 pre code {
     background: transparent;
     border: none;
     padding: 0;
     color: #e0e7ff;
   }
-  .prose-nexus blockquote {
+  .prose-agent007 blockquote {
     border-left: 2px solid rgba(168, 85, 247, 0.6);
     padding-left: 0.9rem;
     color: #c7d2fe;
     font-style: italic;
     margin: 0.6rem 0;
   }
-  .prose-nexus strong { color: #f0abfc; font-weight: 700; }
-  .prose-nexus table {
+  .prose-agent007 strong { color: #f0abfc; font-weight: 700; }
+  .prose-agent007 table {
     width: 100%;
     border-collapse: collapse;
     margin: 0.6rem 0;
     font-size: 0.85em;
   }
-  .prose-nexus th, .prose-nexus td {
+  .prose-agent007 th, .prose-agent007 td {
     border: 1px solid rgba(0, 240, 255, 0.18);
     padding: 0.4rem 0.6rem;
     text-align: left;
   }
-  .prose-nexus th {
+  .prose-agent007 th {
     background: rgba(0, 240, 255, 0.08);
     color: #67e8f9;
     font-weight: 600;

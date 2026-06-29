@@ -141,8 +141,8 @@ export function ChatInput() {
             onKeyDown={onKeyDown}
             placeholder={
               language === 'zh'
-                ? '问 NEXUS AI 任何问题…（Enter 发送，Shift+Enter 换行）'
-                : 'Ask NEXUS anything… (Enter to send, Shift+Enter for new line)'
+                ? '问 Agent007 AI 任何问题…（Enter 发送，Shift+Enter 换行）'
+                : 'Ask Agent007 anything… (Enter to send, Shift+Enter for new line)'
             }
             rows={1}
             className="flex-1 bg-transparent resize-none outline-none text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] py-2 max-h-[200px] overflow-y-auto scroll-cyan"

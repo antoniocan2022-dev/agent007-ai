@@ -36,8 +36,8 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
         <div className="flex items-center gap-2">
           <NexusLogo size={24} />
           <div className="leading-tight">
-            <div className="text-sm font-bold neon-text-cyan">NEXUS</div>
-            <div className="text-[8px] tracking-[0.25em] text-[#7c89b5]">SUPER AGENT</div>
+            <div className="text-sm font-bold neon-text-cyan">Agent007</div>
+            <div className="text-[8px] tracking-[0.25em] text-[#7c89b5]">INCOME OPERATOR</div>
           </div>
         </div>
         {onClose && (
@@ -127,7 +127,7 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
       <div className="p-3 border-t border-cyan-400/10">
         <div className="flex items-center gap-2 text-[10px] text-[#5b6a92]">
           <Settings className="w-3 h-3" />
-          <span>v1.0 • powered by Z.ai SDK</span>
+          <span>v2.0 • powered by Z.ai SDK</span>
         </div>
       </div>
     </div>
