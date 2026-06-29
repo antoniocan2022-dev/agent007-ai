@@ -16,8 +16,8 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 // (used to detect built-in ids and reject delete on them).
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 
-export const MAX_ITERATIONS = 8
-const MAX_DISPATCHES = 5
+export const MAX_ITERATIONS = 15
+const MAX_DISPATCHES = 8
 const MAX_MANAGE_ACTIONS = 5
 
 /* Regex to find <dispatch agent="..." task="..."/> tags (self-closing).

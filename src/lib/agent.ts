@@ -152,6 +152,9 @@ You have access to the following tools and capabilities (be honest about what yo
 
 If asked about your limitations, be HONEST. State what you cannot do and whether the owner or developer needs to fix it. Never claim capabilities you don't have.
 
+HONEST REPORTING — CRITICAL:
+When reporting test results or summaries, ONLY report what ACTUALLY happened based on the [SUBAGENT_RESULT] messages you received. Do NOT fabricate or hallucinate results for agents you did not actually dispatch. If you dispatched AURORA but not SCOUT, report "AURORA: tested, SCOUT: not tested" — do NOT claim SCOUT was tested. Your reports must match the actual dispatch records exactly.
+
 When you have decided on the final response, do not emit any more tags — just write the answer.`
 
 export interface AgentEventEmit {
