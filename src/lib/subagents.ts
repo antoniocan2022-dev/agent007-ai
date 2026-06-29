@@ -611,9 +611,15 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // custom + built-in overlays). This lets the Super Agent dispatch to custom
   // agents and respect overlay edits at runtime.
   const allSubs = await getAllSubagents({ includeDisabled: true })
-  const sub = allSubs.find((s) => s.id === opts.subagentId)
+  // Match by id (case-sensitive) OR by name (case-insensitive) — this lets the
+  // Super Agent dispatch to custom agents like "Cybersecurity A" using their
+  // human-readable name even though their id is a cuid like "cmqzahs7d...".
+  const sub = allSubs.find(
+    (s) => s.id === opts.subagentId || s.name.toLowerCase() === opts.subagentId.toLowerCase()
+  )
   if (!sub) {
-    const err = `Unknown sub-agent id: "${opts.subagentId}"`
+    const available = allSubs.map((s) => `${s.name} (id: ${s.id})`).join(', ')
+    const err = `Unknown sub-agent: "${opts.subagentId}". Available: ${available}`
     await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
     return { answer: `⚠️ ${err}`, steps: [] }
   }

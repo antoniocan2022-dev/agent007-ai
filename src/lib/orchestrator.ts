@@ -144,11 +144,14 @@ ORCHESTRATION RULES:
 - Max 5 sub-agent dispatches per turn. Be efficient — don't dispatch agents unnecessarily.
 
 DECISION FRAMEWORK:
+- **CRITICAL RULE — ADDRESSED BY NAME**: If the user's message addresses a sub-agent by name (e.g. starts with "Cybersecurity A, ..." or "LEGAL, ..." or "THE BANKER, ..." or mentions any agent name from the CURRENTLY AVAILABLE SUB-AGENTS list above), you MUST dispatch that exact agent via <dispatch agent="agent_id" task="..."/>. Do NOT do the work yourself with direct web_search calls. Do NOT claim the agent doesn't exist. The CURRENTLY AVAILABLE SUB-AGENTS list above is the authoritative source of what agents exist — if a name appears there, it exists and can be dispatched.
 - Income-related commands → prefer dispatching aurora / vertex / quantum / scout / hunt.
 - Implementation commands → prefer forge / quill / prism.
 - Analysis commands → prefer pulse / echo.
 - Legal / tax / compliance questions (US + Canada) → dispatch legal.
 - Banking / treasury / credit / loans / FX questions (US + Canada) → dispatch banker.
+- Cybersecurity offensive (pen testing, vulns, OWASP, red team) → dispatch the "Cybersecurity A" custom agent (agent_id is the literal string "Cybersecurity A" — check the list above for the exact id).
+- Cybersecurity defensive (incident response, hardening, SIEM, blue team) → dispatch the "Cybersecurity R" custom agent.
 - Multi-step builds (e.g. "build me a passive-income plan") → dispatch 2-3 sub-agents in sequence: scout first (research), then aurora/vertex (build plan), then pulse (define KPIs).
 - Simple questions or small talk → just answer directly without dispatching.
 - When in doubt, dispatch — the mission is too big to handle alone.
@@ -525,9 +528,39 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
       ? 'LANGUAGE INSTRUCTION: The user has toggled the agent to Chinese. Reply in 中文 (Chinese) for your FINAL answer regardless of input language.'
       : 'LANGUAGE INSTRUCTION: The user has toggled the agent to English. Reply in English for your FINAL answer unless the user wrote in another language.'
 
+  // Build a DYNAMIC sub-agent list so the LLM knows about custom agents
+  // (Cybersecurity A, TRADER, etc.) — not just the 12 built-ins hard-coded
+  // in BASE_SYSTEM_PROMPT. This fixes the bug where the Super Agent would
+  // tell the user "that agent doesn't exist" when they addressed a custom
+  // agent by name.
+  const allAgents = await getAllSubagents({ includeDisabled: false })
+  // IMPORTANT: For built-in agents, the dispatch id is their lowercase id (aurora, vertex, etc.).
+  // For custom agents, the dispatch id is their NAME (e.g., "Cybersecurity A") — because their
+  // db id is a cuid that the LLM can't predict. The runSubagent() lookup matches by id OR name.
+  const agentListDynamic = allAgents
+    .map((a) => {
+      const dispatchId = a.isBuiltin ? a.id : a.name
+      return `- ${dispatchId} (${a.name} — ${a.role})`
+    })
+    .join('\n')
+  const dynamicAgentSection = `
+
+CURRENTLY AVAILABLE SUB-AGENTS (built-in + custom, fetched live from DB):
+${agentListDynamic}
+
+IMPORTANT: When the user addresses a sub-agent by name (e.g. "Cybersecurity A, search..."),
+you MUST dispatch that exact agent via <dispatch agent="agent_id" task="..."/> using the
+dispatch id shown at the start of each line above. For built-in agents the dispatch id is
+their lowercase name (aurora, vertex, etc.). For custom agents the dispatch id is their
+display name (e.g., "Cybersecurity A", "TRADER"). Do NOT do the work yourself with direct
+web_search calls. Do NOT tell the user the agent doesn't exist if it appears in the list
+above. The list above is authoritative.`
+
   const systemPrompt = `${BASE_SYSTEM_PROMPT}
 
 ${ORCHESTRATOR_PROMPT_ADDENDUM}
+
+${dynamicAgentSection}
 
 ${languageInstruction}
 
@@ -684,10 +717,17 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     if (parsed.dispatch) {
       const { agentId, task } = parsed.dispatch
       const list = await getMerged()
-      const sub = list.find((s) => s.id === agentId)
+      // Match by id (case-sensitive) OR by name (case-insensitive) — this lets
+      // the Super Agent dispatch to custom agents like "Cybersecurity A" using
+      // their human-readable name (their db id is an unpredictable cuid).
+      const sub = list.find(
+        (s) => s.id === agentId || s.name.toLowerCase() === agentId.toLowerCase()
+      )
       if (!sub) {
-        // Unknown agent — feed back an error to the orchestrator
-        const errMsg = `Unknown sub-agent: "${agentId}". Available: ${list.map((s) => s.id).join(', ')}`
+        // Unknown agent — feed back an error to the orchestrator.
+        // Show BOTH name and id so the LLM can pick the right dispatch id next time.
+        const available = list.map((s) => `${s.name} (dispatch_id: ${s.isBuiltin ? s.id : s.name})`).join(', ')
+        const errMsg = `Unknown sub-agent: "${agentId}". Available: ${available}`
         await emit('error', { message: errMsg })
         conversationMessages.push({ role: 'assistant', content })
         conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${agentId}: ERROR — ${errMsg}` })
