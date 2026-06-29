@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, MessageSquare, Trash2, X, Settings } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, X, Settings, Download } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import { NexusLogo } from './nexus-logo'
 
@@ -105,6 +105,18 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
                         {c._count?.messages ? ` • ${c._count.messages} msgs` : ''}
                       </div>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        // Export conversation as Markdown
+                        window.open(`/api/conversations/${c.id}/export?format=markdown`, '_blank')
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-[#5b6a92] hover:text-cyan-300 transition flex-shrink-0"
+                      aria-label="Export conversation"
+                      title="Export as Markdown"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation()

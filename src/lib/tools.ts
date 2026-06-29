@@ -139,6 +139,41 @@ export async function toolPageReader(
       preview: '[cached] ' + cached.preview,
     }
   }
+
+  // URL validation — pre-check with a HEAD request to avoid wasting the
+  // page_reader call (and an LLM iteration) on 404s / 5xxs. This was a
+  // recurring issue during cybersecurity testing where the agent would
+  // try URLs like "owasp.org/Top10/2025/0x01_2025-Broken_Access_Control"
+  // that returned 404, wasting iterations.
+  try {
+    const urlObj = new URL(url)
+    // Only validate http/https URLs
+    if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      try {
+        const headRes = await fetch(url, {
+          method: 'HEAD',
+          signal: controller.signal,
+          redirect: 'follow',
+          headers: { 'User-Agent': 'Agent007-AI/2.0' },
+        })
+        clearTimeout(timeout)
+        // 405 = server doesn't support HEAD (common) — allow these through
+        // 403 = often blocks bots but page_reader may still work — allow through
+        if (headRes.status === 404 || headRes.status >= 500) {
+          const skip = `URL returned HTTP ${headRes.status} — skipping page_reader to save iterations. Try a different URL or use web_search to find the correct one.`
+          return badResult(skip)
+        }
+      } catch (headErr: any) {
+        // HEAD failed (timeout, CORS, DNS) — don't block, fall through to page_reader
+        clearTimeout(timeout)
+      }
+    }
+  } catch {
+    // Invalid URL — fall through to page_reader which will report the error
+  }
+
   try {
     const zai = await getZai()
     const res: any = await zai.functions.invoke('page_reader', { url })

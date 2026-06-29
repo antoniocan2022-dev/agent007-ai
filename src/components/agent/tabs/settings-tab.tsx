@@ -12,6 +12,13 @@ import {
   CheckCircle2,
   KeyRound,
   ExternalLink,
+  BarChart3,
+  Download,
+  Upload,
+  Database,
+  Activity,
+  TrendingUp,
+  Clock,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSession } from 'next-auth/react'
@@ -433,9 +440,15 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
             )}
           </section>
 
+          {/* AGENT ANALYTICS */}
+          <AgentAnalyticsSection />
+
+          {/* BACKUP / RESTORE */}
+          <BackupRestoreSection onToast={setSavedMsg} />
+
           {/* Footer */}
           <div className="text-center text-[10px] text-[#5b6a92] tracking-wide pt-2 pb-4">
-            Agent007 AI v2.0 • powered by Z.ai SDK • 12 sub-agents • full web access
+            Agent007 AI v2.0 • powered by Z.ai SDK • 17 sub-agents • full web access • autonomous
           </div>
         </div>
       </div>
@@ -456,5 +469,231 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
         )}
       </AnimatePresence>
     </main>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Agent Analytics Section — shows per-agent usage stats
+ * ------------------------------------------------------------------ */
+function AgentAnalyticsSection() {
+  const [analytics, setAnalytics] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/analytics/agents')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) {
+          setAnalytics(data)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <BarChart3 className="w-4 h-4 text-cyan-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">AGENT ANALYTICS</h2>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="w-4 h-4 animate-spin text-cyan-300" />
+        </div>
+      ) : !analytics || !analytics.agents || analytics.agents.length === 0 ? (
+        <div className="text-center py-6 text-[#5b6a92] text-xs">
+          No agent activity yet. Dispatch some sub-agents to see analytics here.
+        </div>
+      ) : (
+        <>
+          {/* Global stats */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="glass rounded-lg p-2 text-center">
+              <div className="text-[9px] label-tag">DISPATCHES</div>
+              <div className="text-lg font-bold text-cyan-200">{analytics.global.totalDispatches}</div>
+            </div>
+            <div className="glass rounded-lg p-2 text-center">
+              <div className="text-[9px] label-tag">TOOL CALLS</div>
+              <div className="text-lg font-bold text-purple-200">{analytics.global.totalToolCalls}</div>
+            </div>
+            <div className="glass rounded-lg p-2 text-center">
+              <div className="text-[9px] label-tag">AGENTS USED</div>
+              <div className="text-lg font-bold text-emerald-200">{analytics.global.totalAgentsUsed}</div>
+            </div>
+          </div>
+
+          {analytics.global.mostUsed && (
+            <div className="text-[10px] text-[#7c89b5] mb-3 flex items-center gap-1">
+              <TrendingUp className="w-3 h-3 text-emerald-300" />
+              Most used: <strong className="text-[#e0e7ff]">{analytics.global.mostUsed.name}</strong> ({analytics.global.mostUsed.dispatchCount}x)
+            </div>
+          )}
+
+          {/* Per-agent table */}
+          <div className="space-y-1 max-h-64 overflow-y-auto scroll-cyan pr-1">
+            {analytics.agents.slice(0, 12).map((a: any) => (
+              <div key={a.id} className="glass rounded-md p-2 flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] font-semibold text-[#e0e7ff] truncate">{a.name}</div>
+                  <div className="text-[9px] text-[#5b6a92] flex items-center gap-2">
+                    <span>{a.dispatchCount} dispatches</span>
+                    <span>•</span>
+                    <span>{a.toolCallCount} tools</span>
+                    {a.lastUsedAt && (
+                      <>
+                        <span>•</span>
+                        <span className="flex items-center gap-0.5">
+                          <Clock className="w-2.5 h-2.5" />
+                          {new Date(a.lastUsedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="w-12 h-1.5 rounded-full bg-black/40 overflow-hidden">
+                    <div
+                      className="h-full bg-cyan-400"
+                      style={{
+                        width: `${Math.min(100, a.successRate)}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-[#9bb5d4] w-8 text-right">{a.successRate}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Backup / Restore Section — export + import all dashboard data
+ * ------------------------------------------------------------------ */
+function BackupRestoreSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<any>(null)
+
+  const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const res = await fetch('/api/backup')
+      if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `agent007-backup-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      onToast('Backup downloaded successfully')
+    } catch (e: any) {
+      onToast(`Export failed: ${e?.message ?? 'unknown error'}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || importing) return
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const text = await file.text()
+      const backup = JSON.parse(text)
+      const res = await fetch('/api/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup }),
+      })
+      const result = await res.json()
+      if (!res.ok || !result.ok) throw new Error(result.error || `HTTP ${res.status}`)
+      setImportResult(result.stats)
+      onToast(
+        `Restored: ${result.stats.conversations} conversations, ${result.stats.messages} messages, ${result.stats.customSubagents} agents`
+      )
+    } catch (e: any) {
+      onToast(`Import failed: ${e?.message ?? 'invalid file'}`)
+    } finally {
+      setImporting(false)
+      if (e.target) e.target.value = ''
+    }
+  }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <Database className="w-4 h-4 text-cyan-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">BACKUP & RESTORE</h2>
+      </div>
+      <p className="text-[11px] text-[#7c89b5] mb-3 leading-relaxed">
+        Export all dashboard data (conversations, memories, income entries, schedules, custom
+        sub-agents, settings) as a JSON file. Restore on any Agent007 instance.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="flex-1 neon-btn-cyan rounded-lg py-2 text-xs font-bold tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+          style={{ touchAction: 'manipulation' }}
+        >
+          {exporting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Download className="w-3.5 h-3.5" />
+          )}
+          {exporting ? 'EXPORTING…' : 'EXPORT BACKUP'}
+        </button>
+        <label
+          className="flex-1 glass border-cyan-400/30 hover:border-cyan-400/60 rounded-lg py-2 text-xs font-bold tracking-wider flex items-center justify-center gap-2 cursor-pointer transition text-cyan-200"
+          style={{ touchAction: 'manipulation' }}
+        >
+          {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          {importing ? 'RESTORING…' : 'RESTORE BACKUP'}
+          <input
+            type="file"
+            accept="application/json,.json"
+            onChange={handleImport}
+            disabled={importing}
+            className="hidden"
+          />
+        </label>
+      </div>
+      {importResult && (
+        <div className="mt-3 text-[10px] text-[#9bb5d4] glass rounded-lg p-2 border-emerald-400/20">
+          <div className="flex items-center gap-1 mb-1 text-emerald-200 font-semibold">
+            <CheckCircle2 className="w-3 h-3" />
+            Last restore result:
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+            <span>Conversations: {importResult.conversations}</span>
+            <span>Messages: {importResult.messages}</span>
+            <span>Memories: {importResult.memories}</span>
+            <span>Income: {importResult.incomeEntries}</span>
+            <span>Schedules: {importResult.schedules}</span>
+            <span>Custom agents: {importResult.customSubagents}</span>
+          </div>
+          {importResult.errors?.length > 0 && (
+            <div className="mt-1 text-amber-200">{importResult.errors.length} warnings (skipped some rows)</div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

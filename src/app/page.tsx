@@ -15,6 +15,7 @@ import { ChatTab } from '@/components/agent/tabs/chat-tab'
 import { DashboardTab } from '@/components/agent/tabs/dashboard-tab'
 import { SchedulesTab } from '@/components/agent/tabs/schedules-tab'
 import { SettingsTab } from '@/components/agent/tabs/settings-tab'
+import { MissionsTab } from '@/components/agent/tabs/missions-tab'
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 
 export default function Home() {
@@ -120,6 +121,7 @@ export default function Home() {
           {/* Center column — renders the active tab */}
           <main className="flex-1 flex flex-col min-w-0 min-h-0">
             {activeTab === 'chat' && <ChatTab />}
+            {activeTab === 'missions' && <MissionsTab />}
             {activeTab === 'dashboard' && <DashboardTab />}
             {activeTab === 'schedules' && <SchedulesTab />}
             {activeTab === 'settings' && (
