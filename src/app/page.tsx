@@ -8,17 +8,22 @@ import { Loader2 } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import { Background } from '@/components/agent/background'
 import { ChatHeader } from '@/components/agent/chat-header'
-import { ChatThread } from '@/components/agent/chat-thread'
-import { ChatInput } from '@/components/agent/chat-input'
 import { SidebarLeft } from '@/components/agent/sidebar-left'
 import { SidebarRight } from '@/components/agent/sidebar-right'
 import { NexusLogo } from '@/components/agent/nexus-logo'
+import { ChatTab } from '@/components/agent/tabs/chat-tab'
+import { DashboardTab } from '@/components/agent/tabs/dashboard-tab'
+import { SchedulesTab } from '@/components/agent/tabs/schedules-tab'
+import { SettingsTab } from '@/components/agent/tabs/settings-tab'
+import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 
 export default function Home() {
   const { status } = useSession()
   const router = useRouter()
   const [leftOpenMobile, setLeftOpenMobile] = useState(false)
   const [rightOpenMobile, setRightOpenMobile] = useState(false)
+  // Tablet (768-1023px): right sidebar collapses to a drawer by default
+  const [rightOpenTablet, setRightOpenTablet] = useState(false)
 
   const leftOpen = useChatStore((s) => s.leftOpen)
   const rightOpen = useChatStore((s) => s.rightOpen)
@@ -27,6 +32,7 @@ export default function Home() {
   const loadConversations = useChatStore((s) => s.loadConversations)
   const loadMemories = useChatStore((s) => s.loadMemories)
   const conversations = useChatStore((s) => s.conversations)
+  const activeTab = useChatStore((s) => s.activeTab)
 
   // Redirect to /login when unauthenticated.
   useEffect(() => {
@@ -64,6 +70,22 @@ export default function Home() {
     )
   }
 
+  // Decide whether the desktop right sidebar should be visible inline.
+  // - Desktop (>=1024px): use the store flag (rightOpen), inline
+  // - Tablet (768-1023px): collapse to a slide-in drawer (rightOpenTablet)
+  // - Mobile (<768px): drawer (rightOpenMobile)
+  // We achieve this by only rendering the desktop sidebar at lg+ and using
+  // the drawer markup at md and below.
+  const onToggleRight = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      // Tablet or mobile — open the right drawer
+      if (window.innerWidth < 768) setRightOpenMobile((v) => !v)
+      else setRightOpenTablet((v) => !v)
+    } else {
+      toggleRight()
+    }
+  }
+
   return (
     <div className="relative min-h-screen flex flex-col bg-black">
       <Background />
@@ -71,13 +93,13 @@ export default function Home() {
       <div className="relative z-10 flex-1 flex flex-col min-h-0">
         <ChatHeader
           onToggleLeft={() => {
-            if (window.innerWidth < 768) setLeftOpenMobile((v) => !v)
-            else toggleLeft()
+            if (typeof window !== 'undefined' && window.innerWidth < 768) {
+              setLeftOpenMobile((v) => !v)
+            } else {
+              toggleLeft()
+            }
           }}
-          onToggleRight={() => {
-            if (window.innerWidth < 768) setRightOpenMobile((v) => !v)
-            else toggleRight()
-          }}
+          onToggleRight={onToggleRight}
         />
 
         <div className="flex-1 flex min-h-0 relative">
@@ -95,13 +117,21 @@ export default function Home() {
             renderMobileContent={(onClose) => <SidebarLeft onClose={onClose} />}
           />
 
-          {/* Center column */}
+          {/* Center column — renders the active tab */}
           <main className="flex-1 flex flex-col min-w-0 min-h-0">
-            <ChatThread />
-            <ChatInput />
+            {activeTab === 'chat' && <ChatTab />}
+            {activeTab === 'dashboard' && <DashboardTab />}
+            {activeTab === 'schedules' && <SchedulesTab />}
+            {activeTab === 'settings' && (
+              <SettingsTab
+                onOpenChangePassword={() =>
+                  useChatStore.getState().setChangePasswordOpen(true)
+                }
+              />
+            )}
           </main>
 
-          {/* Right sidebar */}
+          {/* Right sidebar - desktop inline (lg+ only) */}
           <AnimatePresenceHelper
             show={rightOpen}
             desktopKey="right-desktop"
@@ -111,11 +141,32 @@ export default function Home() {
             mobileWidth={280}
             desktopWidth={300}
             side="right"
+            // Hide the desktop right sidebar on tablet (md) — only show on lg+
+            desktopClassName="hidden lg:block"
+            renderContent={() => <SidebarRight />}
+            renderMobileContent={(onClose) => <SidebarRight onClose={onClose} />}
+          />
+
+          {/* Tablet right drawer (md only, 768-1023px) */}
+          <AnimatePresenceHelper
+            show={false}
+            desktopKey="right-tablet-placeholder"
+            mobileKey="right-tablet"
+            mobileOpen={rightOpenTablet}
+            onMobileClose={() => setRightOpenTablet(false)}
+            mobileWidth={300}
+            desktopWidth={0}
+            side="right"
+            // Only render at tablet (md, not lg)
+            mobileClassName="md:block lg:hidden"
             renderContent={() => <SidebarRight />}
             renderMobileContent={(onClose) => <SidebarRight onClose={onClose} />}
           />
         </div>
       </div>
+
+      {/* Global Change-Password modal — mounted once, openable from anywhere */}
+      <ChangePasswordModal />
 
       {/* Hidden state-keeper so conversations load on mount even if unused */}
       <span className="hidden" aria-hidden>
@@ -143,6 +194,8 @@ function AnimatePresenceHelper({
   side,
   renderContent,
   renderMobileContent,
+  desktopClassName,
+  mobileClassName,
 }: {
   show: boolean
   desktopKey: string
@@ -154,19 +207,21 @@ function AnimatePresenceHelper({
   side: 'left' | 'right'
   renderContent: () => React.ReactNode
   renderMobileContent: (onClose: () => void) => React.ReactNode
+  desktopClassName?: string
+  mobileClassName?: string
 }) {
   return (
     <>
       {/* Desktop */}
       <AnimatePresence initial={false}>
-        {show && (
+        {show && desktopWidth > 0 && (
           <Motion.aside
             key={desktopKey}
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: desktopWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: 'easeInOut' }}
-            className="hidden md:block flex-shrink-0 overflow-hidden"
+            className={`flex-shrink-0 overflow-hidden ${desktopClassName ?? 'hidden md:block'}`}
           >
             <div style={{ width: desktopWidth }} className="h-full">
               {renderContent()}
@@ -175,7 +230,7 @@ function AnimatePresenceHelper({
         )}
       </AnimatePresence>
 
-      {/* Mobile drawer */}
+      {/* Mobile / tablet drawer */}
       <AnimatePresence initial={false}>
         {mobileOpen && (
           <>
@@ -185,7 +240,7 @@ function AnimatePresenceHelper({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={onMobileClose}
-              className="md:hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+              className={`fixed inset-0 bg-black/70 backdrop-blur-sm z-40 ${mobileClassName ?? 'md:hidden'}`}
             />
             <Motion.aside
               key={mobileKey}
@@ -193,7 +248,7 @@ function AnimatePresenceHelper({
               animate={{ x: 0 }}
               exit={{ x: side === 'left' ? -300 : 320 }}
               transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-              className={`md:hidden fixed top-0 bottom-0 z-50 ${side === 'left' ? 'left-0' : 'right-0'}`}
+              className={`fixed top-0 bottom-0 z-50 ${side === 'left' ? 'left-0' : 'right-0'} ${mobileClassName ?? 'md:hidden'}`}
               style={{ width: mobileWidth }}
             >
               {renderMobileContent(onMobileClose)}

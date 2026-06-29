@@ -277,11 +277,22 @@ function stringifyForLog(v: any): string {
 
 /* ----------------------------- Memory store --------------------------- */
 export async function toolMemoryStore(
-  args: { key?: string; value?: string; category?: string },
+  args: { key?: string; value?: any; category?: string },
   _ctx: ToolContext
 ): Promise<ToolResult> {
   const key = (args?.key ?? '').toString().trim()
-  const value = (args?.value ?? '').toString().trim()
+  // Coerce value to a string before storage. If the LLM accidentally passed
+  // a JS object/array, JSON.stringify it so we never end up with "[object Object]"
+  // in the Memory table. Numbers/booleans become their string form. Strings stay as-is.
+  const rawValue = args?.value
+  const value =
+    rawValue === null || rawValue === undefined
+      ? ''
+      : typeof rawValue === 'string'
+      ? rawValue.trim()
+      : typeof rawValue === 'object'
+      ? JSON.stringify(rawValue)
+      : String(rawValue).trim()
   const category = (args?.category ?? 'general').toString().trim()
   if (!key || !value) return badResult('memory_store requires both "key" and "value"')
   try {

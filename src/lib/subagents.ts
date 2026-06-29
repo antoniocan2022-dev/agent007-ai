@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
-import { parseAssistant, getZai, THOUGHT_RE } from '@/lib/agent'
+import { parseAssistant, getZai, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
 
 /* ------------------------------------------------------------------ *
  * Sub-agent registry — 10 specialists orchestrated by Agent007 (Super)
@@ -421,8 +421,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
         thinking: { type: 'enabled' },
       })
     } catch (e: any) {
-      const msg = `Sub-agent ${sub.name} LLM call failed: ${e?.message ?? String(e)}`
-      finalAnswer = `⚠️ ${msg}`
+      finalAnswer = friendlyLlmError(e)
       break
     }
     const content: string = completion?.choices?.[0]?.message?.content ?? ''

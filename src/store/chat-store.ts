@@ -110,6 +110,14 @@ interface ChatState {
   toggleRight: () => void
   setLeft: (v: boolean) => void
   setRight: (v: boolean) => void
+
+  // active top-level tab
+  activeTab: 'chat' | 'dashboard' | 'schedules' | 'settings'
+  setActiveTab: (tab: 'chat' | 'dashboard' | 'schedules' | 'settings') => void
+
+  // global change-password modal trigger (openable from chat-header user menu + Settings tab)
+  changePasswordOpen: boolean
+  setChangePasswordOpen: (v: boolean) => void
 }
 
 let msgIdCounter = 0
@@ -141,6 +149,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   leftOpen: true,
   rightOpen: true,
   abortFlag: { current: false },
+  activeTab: 'chat',
+  changePasswordOpen: false,
 
   loadConversations: async () => {
     try {
@@ -491,6 +501,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   toggleRight: () => set((s) => ({ rightOpen: !s.rightOpen })),
   setLeft: (v) => set({ leftOpen: v }),
   setRight: (v) => set({ rightOpen: v }),
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  setChangePasswordOpen: (v) => set({ changePasswordOpen: v }),
 }))
 
 function safeParseJson(s: string): any {

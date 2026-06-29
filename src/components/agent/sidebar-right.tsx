@@ -235,28 +235,42 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
               </div>
             ) : (
               <AnimatePresence initial={false}>
-                {memories.map((m) => (
-                  <motion.div
-                    key={m.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="glass rounded-md p-2"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-[10px] font-semibold text-cyan-200 truncate">
-                        {m.key}
+                {memories.map((m) => {
+                  // Defensively stringify the memory value in case it was stored
+                  // as a JS object before the value-coercion fix was deployed.
+                  const safeValue =
+                    typeof m.value === 'string'
+                      ? m.value
+                      : (() => {
+                          try {
+                            return JSON.stringify(m.value)
+                          } catch {
+                            return String(m.value)
+                          }
+                        })()
+                  return (
+                    <motion.div
+                      key={m.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="glass rounded-md p-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-[10px] font-semibold text-cyan-200 truncate">
+                          {m.key}
+                        </div>
+                        <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-purple-400/10 border border-purple-400/30 text-purple-200 flex-shrink-0">
+                          {m.category}
+                        </span>
                       </div>
-                      <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-purple-400/10 border border-purple-400/30 text-purple-200 flex-shrink-0">
-                        {m.category}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-[#9bb5d4] mt-1 leading-snug line-clamp-3">
-                      {m.value}
-                    </div>
-                  </motion.div>
-                ))}
+                      <div className="text-[10px] text-[#9bb5d4] mt-1 leading-snug line-clamp-3">
+                        {safeValue}
+                      </div>
+                    </motion.div>
+                  )
+                })}
               </AnimatePresence>
             )}
           </div>

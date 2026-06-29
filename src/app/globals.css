@@ -133,6 +133,17 @@
       radial-gradient(at 50% 95%, rgba(236, 72, 153, 0.06) 0px, transparent 50%);
     background-attachment: fixed;
   }
+  /* Remove 300ms tap delay on mobile for all interactive elements */
+  button,
+  a,
+  [role="button"],
+  [role="tab"],
+  input[type="checkbox"],
+  input[type="radio"],
+  label,
+  summary {
+    touch-action: manipulation;
+  }
 }
 
 /* ====== Agent007 custom utility classes ====== */
@@ -330,6 +341,12 @@
   }
   .scroll-cyan::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, rgba(0, 240, 255, 0.9), rgba(168, 85, 247, 0.9));
+  }
+
+  /* Hide horizontal scrollbar on the tab nav (still scrollable) */
+  .scroll-cyan[style*="scrollbar-width: none"]::-webkit-scrollbar,
+  nav[style*="scrollbar-width: none"]::-webkit-scrollbar {
+    display: none;
   }
 
   /* Markdown styling inside agent messages */

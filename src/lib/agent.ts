@@ -246,9 +246,9 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         thinking: { type: 'enabled' },
       })
     } catch (e: any) {
-      const msg = `LLM call failed: ${e?.message ?? String(e)}`
-      await emit('error', { message: msg })
-      finalAnswer = `⚠️ ${msg}`
+      const friendly = friendlyLlmError(e)
+      await emit('error', { message: friendly })
+      finalAnswer = friendly
       break
     }
     const content: string = completion?.choices?.[0]?.message?.content ?? ''
@@ -380,4 +380,28 @@ export function chunkText(text: string, size: number): string[] {
   const out: string[] = []
   for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size))
   return out
+}
+
+/**
+ * Convert a raw LLM API exception into a friendly, user-visible message.
+ * Detects rate-limit (429) errors specifically and produces a clear, actionable
+ * message instead of dumping the raw API JSON.
+ */
+export function friendlyLlmError(e: any): string {
+  const raw: string = e?.message ?? String(e)
+  const status: number | undefined = e?.status ?? e?.response?.status
+  const lower = raw.toLowerCase()
+  if (status === 429 || lower.includes('429') || lower.includes('too many requests') || lower.includes('rate limit')) {
+    return '⏳ Agent007\'s AI provider is rate-limiting requests. Please wait 60 seconds and try again.'
+  }
+  if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
+    return '🔐 Agent007\'s AI provider rejected the request (auth/permission). Please contact the operator.'
+  }
+  if (status === 500 || status === 502 || status === 503 || lower.includes('server error') || lower.includes('service unavailable')) {
+    return '🛠️ Agent007\'s AI provider is having a server-side issue. Please retry in a moment.'
+  }
+  if (lower.includes('timeout') || lower.includes('timed out')) {
+    return '⏱️ Agent007\'s AI provider took too long to respond. Please try again.'
+  }
+  return `⚠️ Agent007 hit an unexpected error while calling its AI provider. Please try again shortly.`
 }

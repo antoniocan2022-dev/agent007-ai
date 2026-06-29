@@ -9,6 +9,7 @@ import {
   THOUGHT_RE,
   TOOL_RE,
   SYSTEM_PROMPT as BASE_SYSTEM_PROMPT,
+  friendlyLlmError,
 } from '@/lib/agent'
 import { SUBAGENTS, getSubagent, runSubagent } from '@/lib/subagents'
 
@@ -186,9 +187,9 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         thinking: { type: 'enabled' },
       })
     } catch (e: any) {
-      const msg = `LLM call failed: ${e?.message ?? String(e)}`
-      await emit('error', { message: msg })
-      finalAnswer = `⚠️ ${msg}`
+      const friendly = friendlyLlmError(e)
+      await emit('error', { message: friendly })
+      finalAnswer = friendly
       break
     }
     const content: string = completion?.choices?.[0]?.message?.content ?? ''
@@ -284,7 +285,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         })
         subAnswer = result.answer
       } catch (e: any) {
-        subAnswer = `⚠️ Sub-agent ${sub.name} crashed: ${e?.message ?? String(e)}`
+        subAnswer = friendlyLlmError(e)
         await emit('subagent_complete', { dispatchId, answer: subAnswer })
       }
 
@@ -294,6 +295,17 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         role: 'user',
         content: `[SUBAGENT_RESULT] ${sub.id}: ${subAnswer}`,
       })
+
+      // BEST-EFFORT auto-logging: if the sub-agent's answer mentions dollar
+      // amounts (e.g. "$12.50", "$1,200/mo", "$45/day"), log them as income
+      // entries with source = sub-agent id. Fire-and-forget — never blocks the
+      // orchestrator. We only consider amounts that look like earnings (positive
+      // dollar values, optionally followed by /day /mo /week /month).
+      try {
+        autoLogIncomeFromAnswer(sub.id, subAnswer)
+      } catch {
+        /* ignore */
+      }
 
       // If a memory_store happened inside the sub-agent, the sub-agent already emitted it
       // (we don't double-emit memory_update here)
@@ -395,11 +407,101 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     await db.conversation.update({ where: { id: conversationId }, data: { title } })
   }
 
+  // Notification hook: if mission_complete notifications are enabled, send
+  // (or log) an email to the operator with the conversation title + preview.
+  try {
+    const { getNotificationSettings, recentlyNotified } = await import('@/lib/settings')
+    const notif = await getNotificationSettings()
+    const looksLikeError = /^⚠️|error|failed|crashed/i.test(finalAnswer.slice(0, 50))
+    const eventType = looksLikeError ? 'mission_failed' : 'mission_complete'
+    if (notif.enabled && notif.events[eventType as keyof typeof notif.events]) {
+      if (!(await recentlyNotified(eventType, notif.minDelayMinutes))) {
+        const { sendEmail } = await import('@/lib/email')
+        const { getOperatorUserId } = await import('@/lib/settings')
+        const userId = await getOperatorUserId()
+        const convTitle = conv?.title ?? 'Mission'
+        const preview = finalAnswer.slice(0, 500)
+        sendEmail({
+          to: notif.email,
+          subject: looksLikeError
+            ? `Mission Failed: ${convTitle}`
+            : `Mission Complete: ${convTitle}`,
+          body: looksLikeError
+            ? `Agent007 encountered an issue while running a mission.\n\nConversation: ${convTitle}\n\nPreview:\n${preview}\n\nOpen the dashboard at / to investigate.`
+            : `Agent007 has completed a mission.\n\nConversation: ${convTitle}\n\nResult preview:\n${preview}\n\nOpen the dashboard at / to view the full report.`,
+          userId: userId ?? undefined,
+          type: eventType,
+        }).catch(() => {/* ignore */})
+      }
+    }
+  } catch {
+    /* ignore notification errors */
+  }
+
   return {
     finalAnswer,
     steps,
     persistedAssistantMessageId: assistantRow.id,
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Auto-logging helpers
+ * ------------------------------------------------------------------ */
+
+/**
+ * Scan a sub-agent's answer for dollar amounts that look like earnings, and
+ * log them as IncomeEntry rows with source = agentId. Fire-and-forget.
+ *
+ * We're deliberately conservative — only log amounts that appear near income
+ * keywords (earned, income, revenue, MRR, /day, /mo, /week, /month, profit,
+ * ROI, yield). This avoids logging "$0 cost" or "$1,000 capital" as income.
+ */
+function autoLogIncomeFromAnswer(agentId: string, answer: string): void {
+  if (!answer || typeof answer !== 'string') return
+  // Strip code blocks to avoid logging amounts from code samples
+  const cleaned = answer.replace(/```[\s\S]*?```/g, ' ')
+  // Find all $X or $X.Y or $X,YYY mentions
+  const re = /\$([\d,]+(?:\.\d{1,2})?)\s*(?:\/(?:day|d|mo|month|m|week|wk|w|year|yr|y))?/gi
+  const incomeKeywords = /(earned|income|revenue|mrr|arr|profit|yield|roi|royalt|paying|paid|generat)/i
+  const periodKeywords = /\/(day|d|mo|month|m|week|wk|w|year|yr|y)\b/i
+  let m: RegExpExecArray | null
+  const candidates: Array<{ amount: number; line: string }> = []
+  while ((m = re.exec(cleaned))) {
+    const amountStr = m[1].replace(/,/g, '')
+    const amount = parseFloat(amountStr)
+    if (!isFinite(amount) || amount <= 0 || amount > 1_000_000) continue
+    // Look at a window of text around this match for income keywords
+    const start = Math.max(0, m.index - 80)
+    const end = Math.min(cleaned.length, m.index + m[0].length + 80)
+    const window = cleaned.slice(start, end)
+    // If the amount has a period suffix (/day /mo etc.) OR nearby income keyword → log it
+    if (periodKeywords.test(m[0]) || incomeKeywords.test(window)) {
+      candidates.push({ amount, line: m[0] })
+    }
+  }
+  if (!candidates.length) return
+  // Cap to 3 per sub-agent answer to avoid spamming the table
+  const toLog = candidates.slice(0, 3)
+  // Fire-and-forget DB inserts
+  ;(async () => {
+    try {
+      const { db } = await import('@/lib/db')
+      const now = new Date()
+      for (const c of toLog) {
+        await db.incomeEntry.create({
+          data: {
+            amount: c.amount,
+            source: agentId.charAt(0).toUpperCase() + agentId.slice(1),
+            notes: `Auto-logged from ${agentId} sub-agent answer: "${c.line}"`,
+            date: now,
+          },
+        })
+      }
+    } catch (e) {
+      console.error('[orchestrator] autoLogIncomeFromAnswer failed:', e)
+    }
+  })()
 }
 
 /* Re-export for callers (api/agent/route.ts) that previously used runAgent */

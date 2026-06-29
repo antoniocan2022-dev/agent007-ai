@@ -49,4 +49,56 @@ model User {
   name         String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  settings       UserSetting[]
+  schedules      Schedule[]
+  notifications  NotificationLog[]
+}
+
+model UserSetting {
+  id      String @id @default(cuid())
+  userId  String
+  key     String
+  value   String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+model IncomeEntry {
+  id        String   @id @default(cuid())
+  amount    Float
+  source    String // 'Agent007' | 'manual' | 'AURORA' | 'VERTEX' | etc.
+  notes     String?
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+model Schedule {
+  id           String    @id @default(cuid())
+  userId       String
+  name         String
+  prompt       String
+  intervalMin  Int
+  enabled      Boolean   @default(true)
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  lastConvId   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // 'mission_complete' | 'mission_failed' | 'income_logged' | 'daily_summary'
+  to        String
+  subject   String
+  body      String
+  sent      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
