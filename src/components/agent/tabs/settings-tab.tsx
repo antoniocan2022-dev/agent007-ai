@@ -88,6 +88,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
   const [savingNotif, setSavingNotif] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
   const [error, setError] = useState('')
+  const subagentCount = useChatStore((s) => s.subagentCount)
 
   const load = useCallback(async () => {
     try {
@@ -459,7 +460,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
 
           {/* Footer */}
           <div className="text-center text-[10px] text-[#5b6a92] tracking-wide pt-2 pb-4">
-            Agent007 AI v2.0 • powered by Z.ai SDK • 17 sub-agents • multi-user • PWA • voice • RAG • Stripe/PayPal
+            Agent007 AI v2.0 • powered by Z.ai SDK • {subagentCount} sub-agents • multi-user • PWA • voice • RAG • Stripe/PayPal
           </div>
         </div>
       </div>

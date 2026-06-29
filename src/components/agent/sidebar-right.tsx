@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -109,6 +110,21 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
   const currentTool = useChatStore((s) => s.currentTool)
   const memories = useChatStore((s) => s.memories)
   const subagentActivity = useChatStore((s) => s.subagentActivity)
+  const [localCount, setLocalCount] = useState(12)
+
+  // Fetch the real count on mount
+  useEffect(() => {
+    fetch('/api/subagents')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.subagents)) {
+          setLocalCount(data.subagents.length)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const subagentCount = localCount
 
   const statusLabel =
     status === 'idle'
@@ -165,7 +181,7 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
         <section>
           <div className="flex items-center justify-between mb-2">
             <div className="text-[9px] tracking-[0.2em] text-[#5b6a92]">SUB-AGENT NETWORK</div>
-            <span className="text-[9px] text-[#5b6a92]">12 specialists</span>
+            <span className="text-[9px] text-[#5b6a92]">{subagentCount} specialists</span>
           </div>
           <div className="grid grid-cols-1 gap-1.5">
             {SUBAGENTS_PANEL.map((sa) => {

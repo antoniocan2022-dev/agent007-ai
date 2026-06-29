@@ -33,6 +33,7 @@ export default function Home() {
   const toggleRight = useChatStore((s) => s.toggleRight)
   const loadConversations = useChatStore((s) => s.loadConversations)
   const loadMemories = useChatStore((s) => s.loadMemories)
+  const loadSubagentCount = useChatStore((s) => s.loadSubagentCount)
   const conversations = useChatStore((s) => s.conversations)
   const activeTab = useChatStore((s) => s.activeTab)
 
@@ -48,7 +49,8 @@ export default function Home() {
     if (status !== 'authenticated') return
     loadConversations()
     loadMemories()
-  }, [status, loadConversations, loadMemories])
+    loadSubagentCount()
+  }, [status, loadConversations, loadMemories, loadSubagentCount])
 
   if (status === 'loading' || status === 'unauthenticated') {
     return (

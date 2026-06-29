@@ -55,6 +55,7 @@ export function ChatHeader({
   const { data: session } = useSession()
 
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const subagentCount = useChatStore((s) => s.subagentCount)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close user menu on outside click
@@ -141,7 +142,7 @@ export function ChatHeader({
         <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border-cyan-400/20 text-[10px] text-[#9bb5d4]">
           <ApiStatusIndicator />
           <ShieldCheck className="w-3 h-3 text-cyan-300" />
-          <span>12 sub-agents • full web access • autonomous</span>
+          <span>{subagentCount} sub-agents • full web access • autonomous</span>
         </div>
 
         {/* API status indicator (mobile/tablet) — shown separately when xl hidden */}

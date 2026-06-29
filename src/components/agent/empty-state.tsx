@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Sparkles,
@@ -19,6 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { NexusLogo } from './nexus-logo'
+import { useChatStore } from '@/store/chat-store'
 
 /* Sub-agent accent colors (mirror of /src/lib/subagents.ts) */
 const SUBAGENT_COLORS: Record<string, string> = {
@@ -67,6 +69,22 @@ const SUGGESTION_ICONS: Record<string, LucideIcon> = {
 }
 
 export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
+  const [localCount, setLocalCount] = useState(12)
+
+  // Fetch the real count on mount
+  useEffect(() => {
+    fetch('/api/subagents')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.subagents)) {
+          setLocalCount(data.subagents.length)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const subagentCount = localCount
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-4 py-10 text-center">
       <motion.div
@@ -146,7 +164,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         transition={{ delay: 0.55, duration: 0.8 }}
         className="mt-8 w-full max-w-2xl"
       >
-        <div className="text-[9px] tracking-[0.25em] text-[#5b6a92] mb-3">12 SUB-AGENTS AT YOUR COMMAND</div>
+        <div className="text-[9px] tracking-[0.25em] text-[#5b6a92] mb-3">{subagentCount} SUB-AGENTS AT YOUR COMMAND</div>
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
           {Object.entries(SUBAGENT_COLORS).map(([id, color]) => {
             const Icon = SUBAGENT_ICON_MAP[id] ?? Sparkles
@@ -177,7 +195,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
       >
         {[
           { icon: Target, label: '+10% Daily Mission' },
-          { icon: Sparkles, label: '12 Sub-Agents' },
+          { icon: Sparkles, label: `${subagentCount} Sub-Agents` },
           { icon: Search, label: 'Full Internet Access' },
           { icon: Lightbulb, label: 'Self-Learning' },
         ].map((c) => {

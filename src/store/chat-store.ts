@@ -107,6 +107,8 @@ interface ChatState {
   activeSubagents: string[] // dispatchIds currently running
   subagentActivity: Record<string, 'idle' | 'working' | 'done'> // by sub-agent id (aurora, vertex, ...)
   resetSubagentActivity: () => void
+  subagentCount: number // total sub-agents (built-in + custom), fetched from /api/subagents
+  loadSubagentCount: () => Promise<void>
 
   // ui
   leftOpen: boolean
@@ -164,6 +166,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   memories: [],
   activeSubagents: [],
   subagentActivity: {},
+  subagentCount: 12, // default until fetched
   leftOpen: true,
   rightOpen: true,
   abortFlag: { current: false },
@@ -411,6 +414,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   resetSubagentActivity: () => set({ activeSubagents: [], subagentActivity: {} }),
+
+  loadSubagentCount: async () => {
+    try {
+      const res = await fetch('/api/subagents')
+      const data = await safeJson(res)
+      if (Array.isArray(data.subagents)) {
+        set({ subagentCount: data.subagents.length })
+      }
+    } catch (e) {
+      console.error('loadSubagentCount', e)
+    }
+  },
 
   sendMessage: async (text) => {
     const trimmed = text.trim()
