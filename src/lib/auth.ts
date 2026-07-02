@@ -88,6 +88,7 @@ export async function resetPassword(email: string, newPassword: string): Promise
 /* --------------------------- next-auth options --------------------------- */
 
 export const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET || "dev-only-insecure-secret-change-me",
   session: {
     strategy: 'jwt',
     maxAge: 60 * 60 * 24 * 30, // 30 days
