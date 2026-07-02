@@ -266,46 +266,48 @@ export async function callLlmWithRetry(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts?: { thinking?: boolean }
 ): Promise<any> {
-  const zai = await getZai()
-  const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
-
   let lastErr: any = null
-  for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
-    if (attempt > 0) {
-      // backoff before retrying (already failed once on previous iteration)
-      RATE_LIMIT_INFO.retryingNow = true
-      const delay = BACKOFF_DELAYS_MS[attempt - 1]
-      await new Promise((r) => setTimeout(r, delay))
-    }
-    await throttleLlm()
-    try {
-      const completion = await zai.chat.completions.create({
-        messages,
-        ...(thinking ? { thinking } : {}),
-      })
-      // Success — clear retry flag (cooldown stays until 60s passes)
-      RATE_LIMIT_INFO.retryingNow = false
-      return completion
-    } catch (e: any) {
-      lastErr = e
-      if (isRateLimitError(e)) {
-        RATE_LIMIT_INFO.last429At = Date.now()
-        // Continue to next retry attempt
-        continue
+
+  // Try primary provider (z-ai)
+  try {
+    const zai = await getZai()
+    const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+
+    for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
+      if (attempt > 0) {
+        RATE_LIMIT_INFO.retryingNow = true
+        const delay = BACKOFF_DELAYS_MS[attempt - 1]
+        await new Promise((r) => setTimeout(r, delay))
       }
-      // Non-rate-limit error — break immediately, no retries
-      RATE_LIMIT_INFO.retryingNow = false
-      throw e
+      await throttleLlm()
+      try {
+        const completion = await zai.chat.completions.create({
+          messages,
+          ...(thinking ? { thinking } : {}),
+        })
+        RATE_LIMIT_INFO.retryingNow = false
+        return completion
+      } catch (e: any) {
+        lastErr = e
+        if (isRateLimitError(e)) {
+          RATE_LIMIT_INFO.last429At = Date.now()
+          continue // retry on rate limit
+        }
+        // Non-rate-limit error (config not found, auth, etc.) — break and try fallback
+        break
+      }
     }
+  } catch (e: any) {
+    lastErr = e
   }
 
-  // All retries exhausted on primary — try fallback LLM once
+  // Primary failed — try fallback LLM (OpenAI)
   RATE_LIMIT_INFO.retryingNow = false
   try {
     return await callFallbackLlm(messages)
   } catch (fallbackErr) {
-    // Fallback also failed (or not configured) — throw the original error
-    throw lastErr
+    // Fallback also failed — throw the fallback error (more informative)
+    throw fallbackErr
   }
 }
 
