@@ -25,6 +25,18 @@ import {
   Search,
   CreditCard,
   BookMarked,
+  Shield,
+  ShieldCheck,
+  MessageCircle,
+  QrCode,
+  Send,
+  Link2,
+  Landmark,
+  Lock,
+  Key,
+  Plus,
+  X,
+  Smartphone,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSession } from 'next-auth/react'
@@ -455,6 +467,24 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
 
           {/* PAYMENT INTEGRATIONS */}
           <PaymentIntegrationsSection />
+
+          {/* BANK ACCOUNTS */}
+          <BankAccountsSection onToast={setSavedMsg} />
+
+          {/* PAYPAL ACCOUNTS */}
+          <PayPalAccountsSection onToast={setSavedMsg} />
+
+          {/* 2FA / TWO-FACTOR AUTHENTICATION */}
+          <TwoFactorSection onToast={setSavedMsg} />
+
+          {/* WHATSAPP CONNECT */}
+          <WhatsAppConnectSection onToast={setSavedMsg} />
+
+          {/* API KEY MANAGER */}
+          <ApiKeyManagerSection onToast={setSavedMsg} />
+
+          {/* AUDIT LOG */}
+          <AuditLogSection />
 
           {/* BACKUP / RESTORE */}
           <BackupRestoreSection onToast={setSavedMsg} />
@@ -985,6 +1015,331 @@ function PaymentIntegrationsSection() {
             </div>
           ))}
         </div>
+      )}
+    </section>
+  )
+}
+
+/* ================================================================ *
+ * BANK ACCOUNTS SECTION
+ * ================================================================ */
+function BankAccountsSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [holder, setHolder] = useState('')
+  const [bankName, setBankName] = useState('')
+  const [acctType, setAcctType] = useState('checking')
+  const [acctNum, setAcctNum] = useState('')
+  const [routingNum, setRoutingNum] = useState('')
+  const [label, setLabel] = useState('')
+
+  const load = useCallback(async () => {
+    try { const r = await fetch('/api/bank-accounts'); const d = await r.json(); setAccounts(d.accounts || []) } catch {}
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const add = async () => {
+    if (!holder || !bankName || !acctNum || !routingNum) { onToast('All fields required'); return }
+    try {
+      const r = await fetch('/api/bank-accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountHolder: holder, bankName, accountType: acctType, accountNumber: acctNum, routingNumber: routingNum, label: label || `${bankName} ${acctType}` }) })
+      const d = await r.json()
+      if (d.ok) { onToast('✅ Bank account added'); setShowForm(false); setHolder(''); setBankName(''); setAcctNum(''); setRoutingNum(''); setLabel(''); load() }
+      else onToast(`❌ ${d.error}`)
+    } catch { onToast('Network error') }
+  }
+
+  const remove = async (id: string) => {
+    if (!confirm('Delete this bank account? This requires owner authorization.')) return
+    try { await fetch(`/api/bank-accounts?id=${id}`, { method: 'DELETE' }); onToast('Deleted'); load() } catch { onToast('Failed') }
+  }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <Landmark className="w-4 h-4 text-amber-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">BANK ACCOUNTS</h2>
+      </div>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin text-cyan-300 mx-auto" /> : (
+        <>
+          {accounts.length === 0 ? <p className="text-[11px] text-[#7c89b5] mb-2">No bank accounts linked.</p> : (
+            <div className="space-y-1.5 mb-3">
+              {accounts.map((a) => (
+                <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg glass border-cyan-400/10 group">
+                  <Landmark className="w-4 h-4 text-amber-300 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-[#e0e7ff]">{a.label || a.bankName}</div>
+                    <div className="text-[10px] text-[#5b6a92]">{a.bankName} ••••{a.accountLast4} • {a.verificationStatus}</div>
+                  </div>
+                  <button onClick={() => remove(a.id)} className="opacity-0 group-hover:opacity-100 text-pink-300 hover:text-pink-200 transition p-1"><Trash2 className="w-3 h-3" /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          {showForm ? (
+            <div className="space-y-2 p-3 rounded-lg glass border-cyan-400/20">
+              <input value={holder} onChange={e => setHolder(e.target.value)} placeholder="Account Holder Name" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60" />
+              <input value={bankName} onChange={e => setBankName(e.target.value)} placeholder="Bank Name (e.g. Chase)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60" />
+              <select value={acctType} onChange={e => setAcctType(e.target.value)} className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none">
+                <option value="checking">Checking</option><option value="savings">Savings</option><option value="business">Business</option>
+              </select>
+              <input value={acctNum} onChange={e => setAcctNum(e.target.value)} placeholder="Account Number" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60 font-mono" />
+              <input value={routingNum} onChange={e => setRoutingNum(e.target.value)} placeholder="Routing Number" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60 font-mono" />
+              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional, e.g. Chase Checking)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60" />
+              <div className="flex gap-2">
+                <button onClick={() => setShowForm(false)} className="flex-1 h-8 rounded-md text-[11px] bg-black/30 border border-cyan-400/20 text-[#7c89b5]">CANCEL</button>
+                <button onClick={add} className="flex-1 h-8 rounded-md text-[11px] font-bold bg-amber-500/20 border border-amber-400/50 text-amber-100">ADD ACCOUNT</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowForm(true)} className="h-8 px-3 rounded-md text-[11px] font-bold bg-amber-500/10 border border-amber-400/30 text-amber-200 hover:bg-amber-500/20 transition flex items-center gap-1.5"><Plus className="w-3 h-3" /> ADD BANK ACCOUNT</button>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ================================================================ *
+ * PAYPAL ACCOUNTS SECTION
+ * ================================================================ */
+function PayPalAccountsSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [email, setEmail] = useState('')
+  const [showForm, setShowForm] = useState(false)
+
+  const load = useCallback(async () => {
+    try { const r = await fetch('/api/paypal-accounts'); const d = await r.json(); setAccounts(d.accounts || []) } catch {}
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const add = async () => {
+    if (!email) { onToast('Email required'); return }
+    try { const r = await fetch('/api/paypal-accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); const d = await r.json(); if (d.ok) { onToast('✅ PayPal account added'); setShowForm(false); setEmail(''); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Network error') }
+  }
+  const remove = async (id: string) => { if (!confirm('Delete this PayPal account?')) return; try { await fetch(`/api/paypal-accounts?id=${id}`, { method: 'DELETE' }); onToast('Deleted'); load() } catch {} }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <CreditCard className="w-4 h-4 text-blue-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">PAYPAL ACCOUNTS</h2>
+      </div>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin text-cyan-300 mx-auto" /> : (
+        <>
+          {accounts.length === 0 ? <p className="text-[11px] text-[#7c89b5] mb-2">No PayPal accounts linked.</p> : (
+            <div className="space-y-1.5 mb-3">{accounts.map(a => (<div key={a.id} className="flex items-center gap-2 p-2 rounded-lg glass border-cyan-400/10 group"><CreditCard className="w-4 h-4 text-blue-300" /><div className="flex-1 text-xs text-[#e0e7ff]">{a.email}</div>{a.verified && <span className="text-[9px] text-emerald-300">✓ Verified</span>}<button onClick={() => remove(a.id)} className="opacity-0 group-hover:opacity-100 text-pink-300 p-1"><Trash2 className="w-3 h-3" /></button></div>))}</div>
+          )}
+          {showForm ? (<div className="flex gap-2"><input value={email} onChange={e => setEmail(e.target.value)} placeholder="PayPal email" className="flex-1 h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none" /><button onClick={add} className="h-9 px-3 rounded-md text-[11px] font-bold bg-blue-500/20 border border-blue-400/50 text-blue-100">ADD</button><button onClick={() => setShowForm(false)} className="h-9 px-3 rounded-md text-[11px] bg-black/30 border border-cyan-400/20 text-[#7c89b5]">✕</button></div>) : (<button onClick={() => setShowForm(true)} className="h-8 px-3 rounded-md text-[11px] font-bold bg-blue-500/10 border border-blue-400/30 text-blue-200 hover:bg-blue-500/20 transition flex items-center gap-1.5"><Plus className="w-3 h-3" /> ADD PAYPAL</button>)}
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ================================================================ *
+ * 2FA SECTION — Google Authenticator + SMS + WhatsApp
+ * ================================================================ */
+function TwoFactorSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [status, setStatus] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [method, setMethod] = useState('google_authenticator')
+  const [phone, setPhone] = useState('')
+  const [code, setCode] = useState('')
+  const [setupData, setSetupData] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => { try { const r = await fetch('/api/2fa/status'); const d = await r.json(); setStatus(d) } catch {} finally { setLoading(false) } }, [])
+  useEffect(() => { load() }, [load])
+
+  const setup = async () => {
+    setBusy(true)
+    try { const r = await fetch('/api/2fa/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, phoneNumber: phone || undefined, email: status?.email || undefined }) }); const d = await r.json(); if (d.ok) { setSetupData(d); onToast('✅ 2FA setup started — verify with code') } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } finally { setBusy(false) }
+  }
+  const verify = async () => {
+    if (!setupData?.configId) { onToast('Setup 2FA first'); return }
+    setBusy(true)
+    try { const r = await fetch('/api/2fa/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ configId: setupData.configId, code }) }); const d = await r.json(); if (d.ok) { onToast('✅ 2FA enabled!'); setSetupData(null); setCode(''); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } finally { setBusy(false) }
+  }
+  const disable = async (id: string) => {
+    if (!confirm('⚠️ Disable 2FA? This reduces security. Owner authorization required.')) return
+    setBusy(true); try { const r = await fetch('/api/2fa/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ configId: id }) }); const d = await r.json(); if (d.ok) { onToast('2FA disabled'); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } finally { setBusy(false) }
+  }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <ShieldCheck className="w-4 h-4 text-emerald-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">TWO-FACTOR AUTHENTICATION (2FA)</h2>
+        {status?.has2FA && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 border border-emerald-400/40 text-emerald-200">ACTIVE</span>}
+      </div>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin text-cyan-300 mx-auto" /> : (
+        <>
+          {status?.configs?.map((c: any) => (
+            <div key={c.id} className="flex items-center gap-2 p-2 rounded-lg glass border-cyan-400/10 mb-2">
+              <Smartphone className="w-4 h-4 text-cyan-300" />
+              <div className="flex-1"><div className="text-xs text-[#e0e7ff]">{c.method.replace(/_/g, ' ').toUpperCase()}</div><div className="text-[10px] text-[#5b6a92]">{c.phoneNumber || c.email || 'Configured'} • {c.enabled ? '✅ Enabled' : '⚠ Pending'}</div></div>
+              {c.enabled && <button onClick={() => disable(c.id)} className="text-[10px] text-pink-300 hover:text-pink-200">DISABLE</button>}
+            </div>
+          ))}
+          {!status?.has2FA && (
+            <div className="space-y-2 p-3 rounded-lg glass border-cyan-400/20">
+              <select value={method} onChange={e => setMethod(e.target.value)} className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none">
+                <option value="google_authenticator">Google Authenticator (TOTP)</option>
+                <option value="sms">SMS</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="email">Email</option>
+              </select>
+              {(method === 'sms' || method === 'whatsapp') && <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone (+15145496297)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />}
+              {setupData?.qrCodeUrl && <div className="text-[10px] text-cyan-200 bg-cyan-400/10 rounded-md p-2 break-all font-mono">Scan in Google Authenticator: {setupData.qrCodeUrl}</div>}
+              {setupData?.configId ? (
+                <div className="flex gap-2"><input value={code} onChange={e => setCode(e.target.value)} placeholder="6-digit code" className="flex-1 h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" maxLength={6} /><button onClick={verify} disabled={busy} className="h-9 px-3 rounded-md text-[11px] font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-100">{busy ? '...' : 'VERIFY'}</button></div>
+              ) : (<button onClick={setup} disabled={busy} className="w-full h-9 rounded-md text-[11px] font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-100">{busy ? '...' : 'SETUP 2FA'}</button>)}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ================================================================ *
+ * WHATSAPP CONNECT SECTION — Baileys + CallMeBot + wa.me
+ * ================================================================ */
+function WhatsAppConnectSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [qrCode, setQrCode] = useState<string | null>(null)
+  const [provider, setProvider] = useState('none')
+  const [callmebotKey, setCallmebotKey] = useState('')
+  const [callmebotNum, setCallmebotNum] = useState('')
+  const [starting, setStarting] = useState(false)
+
+  const load = useCallback(async () => { try { const r = await fetch('/api/whatsapp-bridge'); const d = await r.json(); setData(d); setProvider(d.provider || 'none'); if (d.callmebot?.number) setCallmebotNum(d.callmebot.number) } catch {} finally { setLoading(false) } }, [])
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (provider !== 'baileys' || data?.baileys?.status === 'linked') return
+    const poll = async () => { try { const r = await fetch('/api/whatsapp-bridge/qr'); const d = await r.json(); if (d.qrCode) setQrCode(d.qrCode); if (d.status === 'linked') { load(); onToast('✅ WhatsApp linked!') } } catch {} }
+    poll(); const id = setInterval(poll, 2000); return () => clearInterval(id)
+  }, [provider, data, load, onToast])
+
+  const setProv = async (p: string) => { try { await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_provider', provider: p }) }); setProvider(p); onToast(`Provider: ${p}`) } catch { onToast('Failed') } }
+  const saveCallmebot = async () => { if (!callmebotKey || !callmebotNum) { onToast('Key + number required'); return }; try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_callmebot', apiKey: callmebotKey, number: callmebotNum }) }); const d = await r.json(); if (d.ok) { onToast('✅ CallMeBot saved'); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } }
+  const startBaileys = async () => { setStarting(true); setQrCode(null); try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start_baileys', forceFresh: true }) }); const d = await r.json(); if (d.qrCode) setQrCode(d.qrCode); onToast('QR generating — scan with WhatsApp') } catch { onToast('Failed') } finally { setStarting(false) } }
+  const sendTest = async () => { try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send_test', to: '+15145496297', message: '🤖 Test from Agent007: WhatsApp is working!' }) }); const d = await r.json(); onToast(d.ok ? `✅ ${d.message}` : `❌ ${d.message}`) } catch { onToast('Failed') } }
+  const disconnect = async () => { if (!confirm('Disconnect WhatsApp?')) return; try { await fetch('/api/whatsapp-bridge/disconnect', { method: 'POST' }); onToast('Disconnected'); load() } catch {} }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <MessageCircle className="w-4 h-4 text-emerald-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">WHATSAPP CONNECT</h2>
+        {data?.whatsappEnabled && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 border border-emerald-400/40 text-emerald-200">✓ {data.provider?.toUpperCase()}</span>}
+      </div>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin text-cyan-300 mx-auto" /> : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <button onClick={() => setProv('baileys')} className={`p-2 rounded-lg border text-left ${provider === 'baileys' ? 'bg-emerald-400/10 border-emerald-400/50' : 'glass border-cyan-400/20'}`}><QrCode className="w-4 h-4 mb-1 text-emerald-300" /><div className="text-[11px] font-bold text-[#e0e7ff]">Baileys</div><div className="text-[9px] text-[#5b6a92]">Two-way QR</div></button>
+            <button onClick={() => setProv('callmebot')} className={`p-2 rounded-lg border text-left ${provider === 'callmebot' ? 'bg-blue-400/10 border-blue-400/50' : 'glass border-cyan-400/20'}`}><Send className="w-4 h-4 mb-1 text-blue-300" /><div className="text-[11px] font-bold text-[#e0e7ff]">CallMeBot</div><div className="text-[9px] text-[#5b6a92]">One-way</div></button>
+            <button onClick={() => setProv('wa_link')} className={`p-2 rounded-lg border text-left ${provider === 'wa_link' ? 'bg-purple-400/10 border-purple-400/50' : 'glass border-cyan-400/20'}`}><Link2 className="w-4 h-4 mb-1 text-purple-300" /><div className="text-[11px] font-bold text-[#e0e7ff]">wa.me</div><div className="text-[9px] text-[#5b6a92]">Click-to-chat</div></button>
+          </div>
+          {provider === 'baileys' && (data?.baileys?.status === 'linked' ? (
+            <div className="text-center py-2"><CheckCircle2 className="w-6 h-6 text-emerald-300 mx-auto mb-1" /><div className="text-xs text-emerald-100">Linked to {data.baileys.linkedNumber || 'your number'}</div><button onClick={disconnect} className="mt-2 h-7 px-3 rounded-md text-[10px] bg-pink-500/10 border border-pink-400/30 text-pink-200">DISCONNECT</button></div>
+          ) : (
+            <div className="text-center">{qrCode ? <img src={qrCode} alt="WhatsApp QR" className="w-44 h-44 mx-auto rounded-lg bg-white p-2" /> : <div className="w-44 h-44 mx-auto rounded-lg glass flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-emerald-300" /></div>}<button onClick={startBaileys} disabled={starting} className="mt-2 h-8 px-3 rounded-md text-[11px] font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-100">{starting ? 'STARTING...' : 'GENERATE QR'}</button></div>
+          ))}
+          {provider === 'callmebot' && (
+            <div className="space-y-2"><input value={callmebotNum} onChange={e => setCallmebotNum(e.target.value)} placeholder="Your WhatsApp Number" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" /><input value={callmebotKey} onChange={e => setCallmebotKey(e.target.value)} placeholder="CallMeBot API Key" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" /><button onClick={saveCallmebot} className="h-8 px-3 rounded-md text-[11px] font-bold bg-blue-500/20 border border-blue-400/50 text-blue-100">SAVE</button></div>
+          )}
+          {data?.whatsappEnabled && <button onClick={sendTest} className="mt-2 w-full h-8 rounded-md text-[11px] font-bold bg-cyan-500/10 border border-cyan-400/30 text-cyan-200">SEND TEST MESSAGE</button>}
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ================================================================ *
+ * API KEY MANAGER SECTION
+ * ================================================================ */
+function ApiKeyManagerSection({ onToast }: { onToast: (msg: string) => void }) {
+  const [keys, setKeys] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [name, setName] = useState('')
+  const [service, setService] = useState('openai')
+  const [key, setKey] = useState('')
+
+  const load = useCallback(async () => { try { const r = await fetch('/api/api-keys'); const d = await r.json(); setKeys(d.keys || []) } catch {} finally { setLoading(false) } }, [])
+  useEffect(() => { load() }, [load])
+
+  const add = async () => {
+    if (!name || !key) { onToast('Name + key required'); return }
+    try { const r = await fetch('/api/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, service, key }) }); const d = await r.json(); if (d.ok) { onToast('✅ API key added'); setShowForm(false); setName(''); setKey(''); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') }
+  }
+  const remove = async (id: string) => { if (!confirm('Delete this API key?')) return; try { await fetch(`/api/api-keys?id=${id}`, { method: 'DELETE' }); onToast('Deleted'); load() } catch {} }
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <Key className="w-4 h-4 text-cyan-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">API KEY MANAGER</h2>
+      </div>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin text-cyan-300 mx-auto" /> : (
+        <>
+          {keys.length === 0 ? <p className="text-[11px] text-[#7c89b5] mb-2">No API keys stored. Add OpenAI, Stripe, etc.</p> : (
+            <div className="space-y-1.5 mb-3">{keys.map(k => (<div key={k.id} className="flex items-center gap-2 p-2 rounded-lg glass border-cyan-400/10 group"><Key className="w-3 h-3 text-cyan-300" /><div className="flex-1"><div className="text-xs text-[#e0e7ff]">{k.name}</div><div className="text-[10px] text-[#5b6a92]">{k.service}</div></div><button onClick={() => remove(k.id)} className="opacity-0 group-hover:opacity-100 text-pink-300 p-1"><Trash2 className="w-3 h-3" /></button></div>))}</div>
+          )}
+          {showForm ? (
+            <div className="space-y-2 p-3 rounded-lg glass border-cyan-400/20">
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Name (e.g. OpenAI)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none" />
+              <select value={service} onChange={e => setService(e.target.value)} className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="stripe">Stripe</option><option value="twilio">Twilio</option><option value="sendgrid">SendGrid</option><option value="custom">Custom</option></select>
+              <input value={key} onChange={e => setKey(e.target.value)} placeholder="API Key" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" type="password" />
+              <div className="flex gap-2"><button onClick={() => setShowForm(false)} className="flex-1 h-8 rounded-md text-[11px] bg-black/30 border border-cyan-400/20 text-[#7c89b5]">CANCEL</button><button onClick={add} className="flex-1 h-8 rounded-md text-[11px] font-bold bg-cyan-500/20 border border-cyan-400/50 text-cyan-100">ADD KEY</button></div>
+            </div>
+          ) : <button onClick={() => setShowForm(true)} className="h-8 px-3 rounded-md text-[11px] font-bold bg-cyan-500/10 border border-cyan-400/30 text-cyan-200 flex items-center gap-1.5"><Plus className="w-3 h-3" /> ADD API KEY</button>}
+        </>
+      )}
+    </section>
+  )
+}
+
+/* ================================================================ *
+ * AUDIT LOG SECTION
+ * ================================================================ */
+function AuditLogSection() {
+  const [entries, setEntries] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('')
+
+  const load = useCallback(async () => { try { const r = await fetch('/api/audit-log?limit=50'); const d = await r.json(); setEntries(d.entries || []) } catch {} finally { setLoading(false) } }, [])
+  useEffect(() => { load() }, [load])
+
+  const filtered = entries.filter(e => !filter || (e.action + e.entity + e.description).toLowerCase().includes(filter.toLowerCase()))
+
+  return (
+    <section className="glass rounded-xl p-4 border-cyan-400/15">
+      <div className="flex items-center gap-2 mb-3">
+        <FileText className="w-4 h-4 text-purple-300" />
+        <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">AUDIT LOG</h2>
+        <span className="text-[9px] text-[#5b6a92]">({entries.length} entries)</span>
+      </div>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin text-cyan-300 mx-auto" /> : (
+        <>
+          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter..." className="w-full h-8 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[11px] text-[#e0e7ff] outline-none mb-2" />
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            {filtered.slice(0, 30).map(e => (
+              <div key={e.id} className="flex items-start gap-2 p-1.5 rounded glass border-cyan-400/5">
+                <span className="text-[9px] text-cyan-300 font-mono flex-shrink-0 w-16">{new Date(e.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                <div className="flex-1 min-w-0"><span className="text-[10px] text-[#cfd9f0] font-semibold">{e.action}</span> <span className="text-[10px] text-[#5b6a92]">{e.entity}</span><div className="text-[9px] text-[#7c89b5] truncate">{e.description}</div></div>
+              </div>
+            ))}
+            {filtered.length === 0 && <p className="text-[10px] text-[#5b6a92] text-center py-2">No entries</p>}
+          </div>
+        </>
       )}
     </section>
   )
