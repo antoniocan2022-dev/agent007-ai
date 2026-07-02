@@ -109,6 +109,8 @@ async function seedData() {
       { name: 'Cybersecurity A', role: 'Cybersecurity Analyst (Red Team)', specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev', color: '#ef4444', icon: 'ShieldAlert' },
       { name: 'Cybersecurity R', role: 'Cybersecurity Responder (Blue Team)', specialty: 'Incident response, hardening, SIEM, threat hunting, forensics', color: '#3b82f6', icon: 'ShieldCheck' },
       { name: 'Developer', role: 'Code & Infrastructure Fixer', specialty: 'Reads + edits source code, fixes bugs, patches UI, debugs SSR', color: '#10b981', icon: 'Code' },
+      { name: 'TESTFAST2', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#00f0ff', icon: 'Sparkles' },
+      { name: 'FASTTEST3', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#a78bfa', icon: 'Sparkles' },
     ]
     for (const ca of customAgents) {
       try {

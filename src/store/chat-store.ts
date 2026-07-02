@@ -179,25 +179,68 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const res = await fetch('/api/conversations')
       const data = await safeJson(res)
-      set({ conversations: data.conversations ?? [] })
+      let convs = data.conversations ?? []
+      // If DB is empty (Vercel cold start), load from localStorage
+      if (convs.length === 0 && typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('agent007_conversations')
+          if (saved) convs = JSON.parse(saved)
+        } catch {}
+      }
+      // Merge localStorage with DB (DB may have lost some)
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('agent007_conversations')
+          if (saved) {
+            const localConvs = JSON.parse(saved)
+            const dbIds = new Set(convs.map((c: any) => c.id))
+            for (const lc of localConvs) {
+              if (!dbIds.has(lc.id)) convs.unshift(lc)
+            }
+            // Save merged list back to localStorage
+            localStorage.setItem('agent007_conversations', JSON.stringify(convs))
+          }
+        } catch {}
+      }
+      set({ conversations: convs })
     } catch (e) {
       console.error('loadConversations', e)
+      // Fallback: localStorage only
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('agent007_conversations')
+          if (saved) set({ conversations: JSON.parse(saved) })
+        } catch {}
+      }
     }
   },
 
   createConversation: async () => {
-    const res = await fetch('/api/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'New Conversation' }),
+    let conv: any
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'New Conversation' }),
+      })
+      const data = await safeJson(res)
+      conv = data.conversation
+    } catch {
+      conv = {
+        id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        title: 'New Conversation',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        _count: { messages: 0 },
+      }
+    }
+    set((s) => {
+      const newConvs = [conv, ...s.conversations]
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem('agent007_conversations', JSON.stringify(newConvs)) } catch {}
+      }
+      return { conversations: newConvs, currentConversationId: conv.id, messages: [] }
     })
-    const data = await safeJson(res)
-    const conv: ConversationMeta = data.conversation
-    set((s) => ({
-      conversations: [conv, ...s.conversations],
-      currentConversationId: conv.id,
-      messages: [],
-    }))
     return conv.id
   },
 
@@ -220,7 +263,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const res = await fetch(`/api/conversations/${conversationId}`)
       const data = await safeJson(res)
       const conv = data.conversation
-      if (!conv) {
+      if (!conv || !conv.messages || conv.messages.length === 0) {
+        // DB empty — try localStorage
+        if (typeof window !== 'undefined') {
+          try {
+            const saved = localStorage.getItem('agent007_messages_' + conversationId)
+            if (saved) {
+              const msgs = JSON.parse(saved)
+              if (msgs.length > 0) {
+                set({ messages: msgs })
+                return
+              }
+            }
+          } catch {}
+        }
         set({ messages: [] })
         return
       }
@@ -454,15 +510,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isStreaming: true,
       createdAt: Date.now(),
     }
-    set((s) => ({
-      messages: [...s.messages, userMsg, assistantMsg],
-      status: 'thinking',
-      currentTool: null,
-      attachments: [],
-      abortFlag: { current: false },
-      activeSubagents: [],
-      subagentActivity: {},
-    }))
+    set((s) => {
+      const newMessages = [...s.messages, userMsg, assistantMsg]
+      // Save to localStorage immediately (in case streaming fails)
+      if (typeof window !== 'undefined') {
+        try {
+          const convId = s.currentConversationId
+          if (convId) localStorage.setItem('agent007_messages_' + convId, JSON.stringify(newMessages))
+          // Update conversation title in localStorage
+          const saved = localStorage.getItem('agent007_conversations')
+          if (saved) {
+            const convs = JSON.parse(saved)
+            const idx = convs.findIndex((c: any) => c.id === convId)
+            if (idx >= 0) {
+              convs[idx].title = trimmed.slice(0, 50)
+              convs[idx].updatedAt = new Date().toISOString()
+              localStorage.setItem('agent007_conversations', JSON.stringify(convs))
+            }
+          }
+        } catch {}
+      }
+      return {
+        messages: newMessages,
+        status: 'thinking',
+        currentTool: null,
+        attachments: [],
+        abortFlag: { current: false },
+        activeSubagents: [],
+        subagentActivity: {},
+      }
+    })
 
     const abortFlag = get().abortFlag
     try {
