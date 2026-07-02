@@ -102,6 +102,35 @@ async function seedData() {
     }
 
     console.log('[db] Seed: user + phone + schedules + memory created')
+
+    // Create custom sub-agents (for Vercel cold start persistence)
+    const customAgents = [
+      { name: 'TRADER', role: 'Crypto Trading Specialist', specialty: 'Spot trading, DCA, on-chain analysis, DeFi yield, risk management', color: '#fbbf24', icon: 'TrendingUp' },
+      { name: 'Cybersecurity A', role: 'Cybersecurity Analyst (Red Team)', specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev', color: '#ef4444', icon: 'ShieldAlert' },
+      { name: 'Cybersecurity R', role: 'Cybersecurity Responder (Blue Team)', specialty: 'Incident response, hardening, SIEM, threat hunting, forensics', color: '#3b82f6', icon: 'ShieldCheck' },
+      { name: 'Developer', role: 'Code & Infrastructure Fixer', specialty: 'Reads + edits source code, fixes bugs, patches UI, debugs SSR', color: '#10b981', icon: 'Code' },
+    ]
+    for (const ca of customAgents) {
+      try {
+        const existing = await db.customSubagent.findFirst({ where: { userId: user.id, name: ca.name } })
+        if (!existing) {
+          await db.customSubagent.create({
+            data: {
+              userId: user.id,
+              name: ca.name,
+              role: ca.role,
+              specialty: ca.specialty,
+              color: ca.color,
+              icon: ca.icon,
+              allowedTools: JSON.stringify(['web_search','page_reader','image_gen','vision','code_exec','memory_store','memory_recall','file_read','wikipedia_search','wikipedia_read','free_apis_directory','kb_search','source_read','file_write','http_fetch','python_exec','real_time_monitor','business_infrastructure','service_delivery','financial_controls','crm','marketing_automation','partnership_network','autonomous_revenue','predictive_bi','scalable_infrastructure','mission_tracker','content_qa','multi_format_generation','personalization_engine_v2','content_performance','advanced_billing','dunning_management','multi_currency','fraud_prevention','advanced_chatbot','proactive_support','market_intelligence','strategic_planning','resource_allocation','risk_management_systems','predictive_analytics_v2','advanced_reporting','system_health_check','database_integrity_check','api_endpoint_test','tool_registry_audit','cache_clear','session_recovery','error_log_analyzer','auto_fix_common_issues','backup_create','restore_from_backup','issue_detector','root_cause_analyzer','patch_designer','patch_applier','fix_verifier','learning_recorder','autonomous_resolver','log_tailer','file_inspector','config_auditor','dependency_checker','full_system_audit','staging_environment_manager','regression_test_runner','canary_deployment_manager','rollback_manager','cost_guard','cascading_failure_detector','multi_provider_llm_router','external_uptime_monitor','automated_backup_scheduler','disaster_recovery_planner','db_replication_setup','health_canary','secrets_rotator','rate_limit_enforcer','csrf_auditor','audit_log_hardener','2fa_crypto_upgrader','multi_tenancy_auditor','tool_lazy_loader','cache_layer_manager','cdn_asset_optimizer','db_migration_validator','reality_check_auditor','tos_compliance_monitor','human_action_router','licensed_activity_blocker','self_modify_system_prompt','self_modify_subagent','self_create_subagent','self_delete_subagent','self_register_tool','self_learn_from_interaction','self_analyze_performance','self_optimize_tool_selection','self_reflect','self_set_improvement_goal','self_diagnose','self_repair_code','self_restart_services','self_clean_data','self_verify_integrity','verify_owner_authorization','loyalty_oath','check_loyalty_constraints','report_to_owner','emergency_stop','request_owner_auth','verify_owner_auth','send_communication','check_inbound_commands','execute_inbound_command','advanced_data_analysis','predictive_analytics_income','market_trend_insights','user_behavior_analysis','email_marketing_automation','social_media_management','social_media_scheduler','conversion_optimizer','portfolio_optimizer','realtime_market_data','crypto_analyzer','stock_screener','ai_writing_assistant','seo_optimizer','content_calendar_generator','content_repurposer','custom_agent_builder','niche_discovery_agent','budget_forecaster','tax_optimizer','developer_code_quality_audit','developer_test_generator','developer_bug_detector','developer_refactoring_engine','developer_dependency_analyzer','developer_cicd_pipeline_builder','developer_environment_setup','developer_database_migration','developer_performance_profiler','developer_bundle_optimizer','developer_ssr_hydration_fixer','developer_api_optimizer']),
+              systemPrompt: 'You are ' + ca.name + ', a sub-agent of Agent007 AI. Follow the PRIME DIRECTIVE. Be loyal to the owner.',
+              enabled: true,
+            }
+          })
+        }
+      } catch {}
+    }
+    console.log('[db] Seed: custom sub-agents ensured')
   } catch (e: any) {
     console.error('[db] Seed failed:', e?.message)
   }
