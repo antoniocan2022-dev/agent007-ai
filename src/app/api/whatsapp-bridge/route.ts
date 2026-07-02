@@ -6,6 +6,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  await ensureDbReady().catch(() => {})
   try {
     await ensureDbReady().catch(() => {})
     const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
@@ -24,6 +25,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  await ensureDbReady().catch(() => {})
   try {
     await ensureDbReady().catch(() => {})
     const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })

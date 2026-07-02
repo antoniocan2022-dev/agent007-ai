@@ -1235,3 +1235,48 @@ export async function toolCheckProtectedOperation(args: { operation?: string }, 
   } catch (e: any) { return badLocal(`check_protected_operation failed: ${e?.message}`) }
 }
 TOOL_REGISTRY.check_protected_operation = { fn: toolCheckProtectedOperation, icon: 'lock', label: 'Check Protected Operation (verify if owner auth needed)' }
+
+/* ================================================================== *
+ * 20 ENHANCED TOOLS — see enhanced-tools.ts
+ * Advanced Analytics + Marketing + Investment + Content + Custom Agents + Financial
+ * ================================================================== */
+import {
+  toolAdvancedDataAnalysis, toolPredictiveAnalyticsIncome, toolMarketTrendInsights, toolUserBehaviorAnalysis,
+  toolEmailMarketingAutomation, toolSocialMediaManagement, toolSocialMediaScheduler, toolConversionOptimizer,
+  toolPortfolioOptimizer, toolRealtimeMarketData, toolCryptoAnalyzer, toolStockScreener,
+  toolAIWritingAssistant, toolSEOOptimizer, toolContentCalendarGenerator, toolContentRepurposer,
+  toolCustomAgentBuilder, toolNicheDiscoveryAgent,
+  toolBudgetForecaster, toolTaxOptimizer,
+} from './enhanced-tools'
+
+// 1. Enhanced Analytics (4)
+TOOL_REGISTRY.advanced_data_analysis = { fn: toolAdvancedDataAnalysis, icon: 'bar-chart', label: 'Advanced Data Analysis (deep insights + trends)' }
+TOOL_REGISTRY.predictive_analytics_income = { fn: toolPredictiveAnalyticsIncome, icon: 'trending-up', label: 'Predictive Analytics Income (forecast + optimize)' }
+TOOL_REGISTRY.market_trend_insights = { fn: toolMarketTrendInsights, icon: 'globe', label: 'Market Trend Insights (real-time market data)' }
+TOOL_REGISTRY.user_behavior_analysis = { fn: toolUserBehaviorAnalysis, icon: 'users', label: 'User Behavior Analysis (patterns + retention)' }
+
+// 2. Automated Marketing (4)
+TOOL_REGISTRY.email_marketing_automation = { fn: toolEmailMarketingAutomation, icon: 'mail', label: 'Email Marketing Automation (7-email sequences)' }
+TOOL_REGISTRY.social_media_management = { fn: toolSocialMediaManagement, icon: 'share-2', label: 'Social Media Management (multi-platform strategy)' }
+TOOL_REGISTRY.social_media_scheduler = { fn: toolSocialMediaScheduler, icon: 'calendar', label: 'Social Media Scheduler (optimal posting times)' }
+TOOL_REGISTRY.conversion_optimizer = { fn: toolConversionOptimizer, icon: 'target', label: 'Conversion Optimizer (A/B tests + funnel)' }
+
+// 3. Investment Management (4)
+TOOL_REGISTRY.portfolio_optimizer = { fn: toolPortfolioOptimizer, icon: 'pie-chart', label: 'Portfolio Optimizer (MPT + Sharpe + rebalancing)' }
+TOOL_REGISTRY.realtime_market_data = { fn: toolRealtimeMarketData, icon: 'activity', label: 'Real-Time Market Data (stocks + crypto)' }
+TOOL_REGISTRY.crypto_analyzer = { fn: toolCryptoAnalyzer, icon: 'bitcoin', label: 'Crypto Analyzer (technical + on-chain + sentiment)' }
+TOOL_REGISTRY.stock_screener = { fn: toolStockScreener, icon: 'search', label: 'Stock Screener (fundamental + valuation)' }
+
+// 4. Content Creation (4)
+TOOL_REGISTRY.ai_writing_assistant = { fn: toolAIWritingAssistant, icon: 'pen-line', label: 'AI Writing Assistant (blogs + emails + scripts)' }
+TOOL_REGISTRY.seo_optimizer = { fn: toolSEOOptimizer, icon: 'search', label: 'SEO Optimizer (on-page + keywords + meta)' }
+TOOL_REGISTRY.content_calendar_generator = { fn: toolContentCalendarGenerator, icon: 'calendar', label: 'Content Calendar Generator (multi-week plan)' }
+TOOL_REGISTRY.content_repurposer = { fn: toolContentRepurposer, icon: 'repeat', label: 'Content Repurposer (1 piece → 5 formats)' }
+
+// 5. Custom Sub-Agent Builder (2)
+TOOL_REGISTRY.custom_agent_builder = { fn: toolCustomAgentBuilder, icon: 'user-plus', label: 'Custom Agent Builder (create specialized sub-agents)' }
+TOOL_REGISTRY.niche_discovery_agent = { fn: toolNicheDiscoveryAgent, icon: 'compass', label: 'Niche Discovery Agent (find profitable niches)' }
+
+// 6. Financial Management (2)
+TOOL_REGISTRY.budget_forecaster = { fn: toolBudgetForecaster, icon: 'dollar-sign', label: 'Budget Forecaster (income + expenses + cash flow)' }
+TOOL_REGISTRY.tax_optimizer = { fn: toolTaxOptimizer, icon: 'receipt', label: 'Tax Optimizer (deductions + entity comparison)' }
