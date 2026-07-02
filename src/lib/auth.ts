@@ -1,7 +1,7 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 
 /**
  * The single authorized operator of Agent007 AI.
@@ -40,6 +40,8 @@ export function ensureSeedUser(): Promise<void> {
   if (!seedPromise) {
     seedPromise = (async () => {
       try {
+        // Ensure DB tables exist first (critical for Vercel serverless)
+        await ensureDbReady()
         const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } })
         if (!existing) {
           const passwordHash = await hashPassword(SEED_EMAIL)
