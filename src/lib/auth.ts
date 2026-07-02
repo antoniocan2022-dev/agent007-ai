@@ -135,6 +135,31 @@ export const authOptions: NextAuthOptions = {
         const valid = await verifyPassword(password, user.passwordHash)
         if (!valid) return null
 
+        // ── 2FA ENFORCEMENT ──
+        // If the user has any enabled 2FA config, reject direct login.
+        // The login page must run the /api/2fa/challenge → /api/2fa/verify-login
+        // flow first, then call signIn() with twofaVerified: 'true' credential.
+        const twofaVerified = (credentials as any)?.twofaVerified === 'true'
+        if (!twofaVerified) {
+          try {
+            const enabledTwoFactor = await db.twoFactorSecret.findFirst({
+              where: { userId: user.id, enabled: true },
+            })
+            if (enabledTwoFactor) {
+              // Signal to the client that 2FA is required
+              const err = new Error('2FA_REQUIRED') as any
+              err.code = '2FA_REQUIRED'
+              err.userId = user.id
+              throw err
+            }
+          } catch (e: any) {
+            // If it's our 2FA_REQUIRED signal, re-throw
+            if (e?.code === '2FA_REQUIRED') throw e
+            // Otherwise log + allow login (fail-open for 2FA check errors)
+            console.error('[auth] 2FA check failed:', e?.message)
+          }
+        }
+
         return { id: user.id, email: user.email, name: user.name ?? user.email }
       },
     }),
