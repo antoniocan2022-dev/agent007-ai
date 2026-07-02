@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db, ensureDbReady } from '@/lib/db'
 import { listMemories, upsertMemory } from '@/lib/memory'
 
@@ -25,6 +26,22 @@ export async function POST(req: NextRequest) {
   const rec = await upsertMemory(key, value, category ?? 'general')
   // Touch updatedAt on conversation list ordering later if needed
   return NextResponse.json({ memory: rec })
+}
+
+// Owner authorization required for delete operations
+async function checkOwnerAuth(operation: string, req: any): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authHeader = req.headers.get('x-owner-auth')
+    if (authHeader) {
+      const { authId, code } = JSON.parse(authHeader)
+      const result = verifyOwnerAuthorization(authId, code)
+      if (!result.ok) return { ok: false, error: result.message }
+      return { ok: true }
+    }
+  } catch {}
+  // No auth provided — request it
+  const authResult = await requestOwnerAuthorization(operation)
+  return { ok: false, error: 'OWNER_AUTH_REQUIRED:' + JSON.stringify(authResult) }
 }
 
 export async function DELETE(req: NextRequest) {

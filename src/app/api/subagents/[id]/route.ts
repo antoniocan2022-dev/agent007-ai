@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
 import { SUBAGENTS } from '@/lib/subagents'
@@ -214,6 +215,22 @@ export async function PUT(
 /** DELETE /api/subagents/[id] — delete a CUSTOM subagent only.
  *  Built-in agents cannot be deleted (returns 403). To "remove" a built-in,
  *  the user should disable it via PUT {enabled:false} (or the toggle UI). */
+// Owner authorization required for delete operations
+async function checkOwnerAuth(operation: string, req: any): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authHeader = req.headers.get('x-owner-auth')
+    if (authHeader) {
+      const { authId, code } = JSON.parse(authHeader)
+      const result = verifyOwnerAuthorization(authId, code)
+      if (!result.ok) return { ok: false, error: result.message }
+      return { ok: true }
+    }
+  } catch {}
+  // No auth provided — request it
+  const authResult = await requestOwnerAuthorization(operation)
+  return { ok: false, error: 'OWNER_AUTH_REQUIRED:' + JSON.stringify(authResult) }
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

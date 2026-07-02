@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db, ensureDbReady } from '@/lib/db'
 import { hashPassword, SEED_EMAIL } from '@/lib/auth'
 export const runtime = 'nodejs'

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db, ensureDbReady } from '@/lib/db'
 
 export const runtime = 'nodejs'
@@ -15,6 +16,22 @@ export async function GET(
   })
   if (!conv) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ conversation: conv })
+}
+
+// Owner authorization required for delete operations
+async function checkOwnerAuth(operation: string, req: any): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authHeader = req.headers.get('x-owner-auth')
+    if (authHeader) {
+      const { authId, code } = JSON.parse(authHeader)
+      const result = verifyOwnerAuthorization(authId, code)
+      if (!result.ok) return { ok: false, error: result.message }
+      return { ok: true }
+    }
+  } catch {}
+  // No auth provided — request it
+  const authResult = await requestOwnerAuthorization(operation)
+  return { ok: false, error: 'OWNER_AUTH_REQUIRED:' + JSON.stringify(authResult) }
 }
 
 export async function DELETE(

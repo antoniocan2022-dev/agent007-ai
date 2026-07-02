@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
 import { kickOffScheduleRun } from '../route'
@@ -64,6 +65,22 @@ export async function PUT(req: NextRequest, { params }: Params) {
 }
 
 /** DELETE /api/schedules/[id] — delete a schedule. */
+// Owner authorization required for delete operations
+async function checkOwnerAuth(operation: string, req: any): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authHeader = req.headers.get('x-owner-auth')
+    if (authHeader) {
+      const { authId, code } = JSON.parse(authHeader)
+      const result = verifyOwnerAuthorization(authId, code)
+      if (!result.ok) return { ok: false, error: result.message }
+      return { ok: true }
+    }
+  } catch {}
+  // No auth provided — request it
+  const authResult = await requestOwnerAuthorization(operation)
+  return { ok: false, error: 'OWNER_AUTH_REQUIRED:' + JSON.stringify(authResult) }
+}
+
 export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const { id } = await params

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db } from '@/lib/db'
 import { getSessionUserId } from '@/lib/session-user'
 import { indexDocument } from '@/lib/knowledge-base'
@@ -121,6 +122,22 @@ export async function GET() {
 /**
  * DELETE /api/kb?id=<docId> — delete a doc + all its chunks.
  */
+// Owner authorization required for delete operations
+async function checkOwnerAuth(operation: string, req: any): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authHeader = req.headers.get('x-owner-auth')
+    if (authHeader) {
+      const { authId, code } = JSON.parse(authHeader)
+      const result = verifyOwnerAuthorization(authId, code)
+      if (!result.ok) return { ok: false, error: result.message }
+      return { ok: true }
+    }
+  } catch {}
+  // No auth provided — request it
+  const authResult = await requestOwnerAuthorization(operation)
+  return { ok: false, error: 'OWNER_AUTH_REQUIRED:' + JSON.stringify(authResult) }
+}
+
 export async function DELETE(req: NextRequest) {
   const userId = await getSessionUserId()
   if (!userId) {

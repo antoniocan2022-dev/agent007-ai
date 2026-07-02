@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db, ensureDbReady } from '@/lib/db'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
