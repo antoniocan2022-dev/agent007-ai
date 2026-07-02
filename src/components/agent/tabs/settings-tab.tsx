@@ -1157,7 +1157,16 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string) => void }) {
 
   const setup = async () => {
     setBusy(true)
-    try { const r = await fetch('/api/2fa/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, phoneNumber: phone || undefined, email: status?.email || undefined }) }); const d = await r.json(); if (d.ok) { setSetupData(d); onToast('✅ 2FA setup started — verify with code') } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } finally { setBusy(false) }
+    try {
+      const r = await fetch('/api/2fa/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, phoneNumber: phone || undefined, email: 'antonio.can2022@hotmail.com' }) })
+      const d = await r.json()
+      if (d.ok) {
+        setSetupData(d)
+        onToast(d.message || '✅ 2FA setup started — verify with code')
+      } else {
+        onToast(`❌ ${d.error}`)
+      }
+    } catch { onToast('Failed') } finally { setBusy(false) }
   }
   const verify = async () => {
     if (!setupData?.configId) { onToast('Setup 2FA first'); return }
