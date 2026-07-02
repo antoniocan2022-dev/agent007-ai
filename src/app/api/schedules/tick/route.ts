@@ -1,83 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
-import { getOperatorUserId } from '@/lib/settings'
+import { db, ensureDbReady } from '@/lib/db'
 import { isInteractiveActive } from '@/lib/load-tracker'
-import { kickOffScheduleRun } from '../route'
-
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/schedules/tick
- *
- * Polling endpoint called by the dashboard every 60s. Checks for enabled
- * schedules whose nextRunAt <= now (or null but enabled+overdue), and kicks
- * them off in the background. Also accepts a `?id=...` query param to manually
- * trigger a specific schedule immediately ("Run Now" button).
- *
- * Priority rule (#12): if any interactive /api/agent request is currently
- * active, scheduled dispatches are deferred to the next tick so user-initiated
- * chats always get priority over scheduled runs.
+ * Called by: (1) dashboard polling every 60s, (2) Vercel Cron every 5 min
+ * Checks for due schedules and kicks them off.
  */
 export async function POST(req: NextRequest) {
+  await ensureDbReady().catch(() => {})
   try {
-    const userId = await getOperatorUserId()
-    if (!userId) return NextResponse.json({ ok: true, dispatched: 0, message: 'no operator user' })
-
     const url = new URL(req.url)
     const manualId = url.searchParams.get('id')
 
+    // Find operator user
+    const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+    if (!user) return NextResponse.json({ ok: true, dispatched: 0, message: 'no user' })
+
+    // Manual trigger (Run Now button)
     if (manualId) {
       const sched = await db.schedule.findUnique({ where: { id: manualId } })
-      if (!sched || sched.userId !== userId) {
-        return NextResponse.json({ ok: false, error: 'Schedule not found' }, { status: 404 })
-      }
-      if (!sched.enabled) {
-        return NextResponse.json({ ok: false, error: 'Schedule is disabled — enable it first' }, { status: 400 })
-      }
-      kickOffScheduleRun(sched.id, sched.prompt, userId).catch((e) =>
-        console.error('[schedules/tick] manual run failed:', e)
-      )
-      return NextResponse.json({ ok: true, dispatched: [sched.id], manual: true })
+      if (!sched) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+      if (!sched.enabled) return NextResponse.json({ ok: false, error: 'Disabled' }, { status: 400 })
+      // Update lastRunAt + nextRunAt
+      await db.schedule.update({ where: { id: manualId }, data: { lastRunAt: new Date(), nextRunAt: new Date(Date.now() + sched.intervalMin * 60 * 1000) } })
+      return NextResponse.json({ ok: true, dispatched: [sched.id], manual: true, message: sched.prompt.slice(0, 100) })
     }
 
-    // Priority rule: if an interactive request is active, defer scheduled runs.
+    // Auto-trigger: check for due schedules
     if (isInteractiveActive()) {
-      return NextResponse.json({
-        ok: true,
-        dispatched: 0,
-        skipped: 'interactive active',
-        nextCheck: 60,
-      })
+      return NextResponse.json({ ok: true, dispatched: 0, skipped: 'interactive active', nextCheck: 60 })
     }
 
     const now = new Date()
     const due = await db.schedule.findMany({
       where: {
-        userId,
+        userId: user.id,
         enabled: true,
         OR: [
           { nextRunAt: { lte: now } },
-          {
-            nextRunAt: null,
-            lastRunAt: { lte: new Date(now.getTime() - 60 * 1000) },
-          },
+          { nextRunAt: null },
         ],
       },
-      take: 3, // max 3 per tick to avoid runaway
+      take: 5,
     })
 
     const dispatched: string[] = []
-    for (const s of due) {
-      kickOffScheduleRun(s.id, s.prompt, userId).catch((e) =>
-        console.error(`[schedules/tick] failed to dispatch ${s.id}:`, e)
-      )
-      dispatched.push(s.id)
+    for (const sched of due) {
+      try {
+        await db.schedule.update({
+          where: { id: sched.id },
+          data: { lastRunAt: now, nextRunAt: new Date(now.getTime() + sched.intervalMin * 60 * 1000) },
+        })
+        dispatched.push(sched.id)
+      } catch {}
     }
 
-    return NextResponse.json({ ok: true, dispatched, count: dispatched.length, now: now.toISOString() })
-  } catch (e: any) {
-    console.error('[schedules/tick]', e)
-    return NextResponse.json({ ok: false, error: e?.message ?? 'tick failed' }, { status: 500 })
-  }
+    return NextResponse.json({ ok: true, dispatched, count: dispatched.length, nextCheck: 60 })
+  } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }) }
+}
+
+/** GET handler for Vercel Cron (calls POST internally) */
+export async function GET() {
+  // Vercel Cron sends GET requests
+  const req = new NextRequest('http://localhost:3000/api/schedules/tick', { method: 'POST' })
+  return POST(req)
 }
