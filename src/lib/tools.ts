@@ -1157,3 +1157,46 @@ export async function toolExecuteInboundCommand(args: { command_id?: string; rep
   } catch (e: any) { return badLocal(`execute_inbound_command failed: ${e?.message}`) }
 }
 TOOL_REGISTRY.execute_inbound_command = { fn: toolExecuteInboundCommand, icon: 'message-square', label: 'Execute + Reply to Inbound Command' }
+
+/* ================================================================== *
+ * 20 META-COGNITIVE TOOLS — see agent007-meta.ts
+ * Self-modification, self-improvement, self-repair, loyalty enforcement
+ * ================================================================== */
+import {
+  toolSelfModifySystemPrompt, toolSelfModifySubagent, toolSelfCreateSubagent,
+  toolSelfDeleteSubagent, toolSelfRegisterTool,
+  toolSelfLearnFromInteraction, toolSelfAnalyzePerformance, toolSelfOptimizeToolSelection,
+  toolSelfReflect, toolSelfSetImprovementGoal,
+  toolSelfDiagnose, toolSelfRepairCode, toolSelfRestartServices,
+  toolSelfCleanData, toolSelfVerifyIntegrity,
+  toolVerifyOwnerAuthorization, toolLoyaltyOath, toolCheckLoyaltyConstraints,
+  toolReportToOwner, toolEmergencyStop,
+} from './agent007-meta'
+
+// Self-Modification (5)
+TOOL_REGISTRY.self_modify_system_prompt = { fn: toolSelfModifySystemPrompt, icon: 'edit', label: 'Self-Modify System Prompt (edit own instructions)' }
+TOOL_REGISTRY.self_modify_subagent = { fn: toolSelfModifySubagent, icon: 'users', label: 'Self-Modify Sub-Agent (edit any sub-agent config)' }
+TOOL_REGISTRY.self_create_subagent = { fn: toolSelfCreateSubagent, icon: 'user-plus', label: 'Self-Create Sub-Agent (create new sub-agents)' }
+TOOL_REGISTRY.self_delete_subagent = { fn: toolSelfDeleteSubagent, icon: 'user-minus', label: 'Self-Delete Sub-Agent (remove sub-agents)' }
+TOOL_REGISTRY.self_register_tool = { fn: toolSelfRegisterTool, icon: 'plus-circle', label: 'Self-Register Tool (add new tools at runtime)' }
+
+// Self-Improvement (5)
+TOOL_REGISTRY.self_learn_from_interaction = { fn: toolSelfLearnFromInteraction, icon: 'book-open', label: 'Self-Learn From Interaction (record learnings)' }
+TOOL_REGISTRY.self_analyze_performance = { fn: toolSelfAnalyzePerformance, icon: 'bar-chart', label: 'Self-Analyze Performance (review past performance)' }
+TOOL_REGISTRY.self_optimize_tool_selection = { fn: toolSelfOptimizeToolSelection, icon: 'zap', label: 'Self-Optimize Tool Selection (best tools per task)' }
+TOOL_REGISTRY.self_reflect = { fn: toolSelfReflect, icon: 'brain', label: 'Self-Reflect (deep introspection on reasoning)' }
+TOOL_REGISTRY.self_set_improvement_goal = { fn: toolSelfSetImprovementGoal, icon: 'target', label: 'Self-Set Improvement Goal (autonomous goals)' }
+
+// Self-Repair (5)
+TOOL_REGISTRY.self_diagnose = { fn: toolSelfDiagnose, icon: 'activity', label: 'Self-Diagnose (health check + issue detection)' }
+TOOL_REGISTRY.self_repair_code = { fn: toolSelfRepairCode, icon: 'wrench', label: 'Self-Repair Code (fix own bugs)' }
+TOOL_REGISTRY.self_restart_services = { fn: toolSelfRestartServices, icon: 'refresh-cw', label: 'Self-Restart Services (Baileys, schedules, cache)' }
+TOOL_REGISTRY.self_clean_data = { fn: toolSelfCleanData, icon: 'trash-2', label: 'Self-Clean Data (remove old conversations/logs)' }
+TOOL_REGISTRY.self_verify_integrity = { fn: toolSelfVerifyIntegrity, icon: 'shield-check', label: 'Self-Verify Integrity (verify all systems)' }
+
+// Loyalty Enforcement (5)
+TOOL_REGISTRY.verify_owner_authorization = { fn: toolVerifyOwnerAuthorization, icon: 'user-check', label: 'Verify Owner Authorization (check command source)' }
+TOOL_REGISTRY.loyalty_oath = { fn: toolLoyaltyOath, icon: 'heart', label: 'Loyalty Oath (permanent irrevocable oath to owner)' }
+TOOL_REGISTRY.check_loyalty_constraints = { fn: toolCheckLoyaltyConstraints, icon: 'shield', label: 'Check Loyalty Constraints (block disloyal actions)' }
+TOOL_REGISTRY.report_to_owner = { fn: toolReportToOwner, icon: 'send', label: 'Report To Owner (send message via WhatsApp/email)' }
+TOOL_REGISTRY.emergency_stop = { fn: toolEmergencyStop, icon: 'alert-octagon', label: 'Emergency Stop (halt all autonomous operations)' }
