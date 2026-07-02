@@ -836,7 +836,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
     // 2) Direct tool path (same as the original agent loop)
     if (parsed.tool) {
-      const step = {
+      const step: any = {
         id: makeId('step'),
         thought: parsed.thought,
         toolName: parsed.tool.name,

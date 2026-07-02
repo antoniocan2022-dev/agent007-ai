@@ -68,7 +68,7 @@ export async function GET() {
 
   for (const d of dispatches) {
     try {
-      const args = JSON.parse(d.toolArgs)
+      const args = JSON.parse(d.toolArgs ?? "{}")
       const id = args.agentId || args.agentName || 'unknown'
       const name = args.agentName || args.agentId || 'Unknown'
       ensureAgent(id, name)
@@ -81,7 +81,7 @@ export async function GET() {
 
   for (const t of subToolCalls) {
     try {
-      const args = JSON.parse(t.toolArgs)
+      const args = JSON.parse(t.toolArgs ?? "{}")
       const id = args.agentId || 'unknown'
       ensureAgent(id, id)
       agentStats[id].toolCallCount++
@@ -93,7 +93,7 @@ export async function GET() {
 
   for (const c of completes) {
     try {
-      const args = JSON.parse(c.toolArgs)
+      const args = JSON.parse(c.toolArgs ?? "{}")
       const id = args.agentId || 'unknown'
       ensureAgent(id, id)
       agentStats[id].completeCount++

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "bash scripts/vercel-build.sh",
+  "installCommand": "bun install",
+  "functions": {
+    "src/app/api/agent/route.ts": { "maxDuration": 300 },
+    "src/app/api/**/route.ts": { "maxDuration": 60 }
+  },
+  "regions": ["iad1"]
+}

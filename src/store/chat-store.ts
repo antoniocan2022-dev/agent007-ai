@@ -244,7 +244,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           })
         } else if (r.role === 'thought') {
           // Check if this is a sub-agent thought (prefixed with [subagent:id])
-          const subMatch = r.content?.match(/^\[subagent:([^\]]+)\]\s*(.*)$/s)
+          const subMatch = r.content?.match(/^\[subagent:([^\]]+)\]\s*([\s\S]*)$/)
           if (subMatch) {
             const subId = subMatch[1]
             // Find the most recent dispatch for this sub-agent
@@ -675,7 +675,7 @@ function applyEvent(
       currentTool: null,
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
-        const steps = (m.steps ?? []).map((st) =>
+        const steps = (m.steps ?? []).map((st): ToolStep =>
           st.id === stepId
             ? {
                 ...st,
@@ -789,7 +789,7 @@ function applyEvent(
       currentTool: null,
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
-        const steps = (m.steps ?? []).map((st) =>
+        const steps = (m.steps ?? []).map((st): ToolStep =>
           st.id === stepId
             ? {
                 ...st,
@@ -812,7 +812,7 @@ function applyEvent(
       // Mark the sub-agent activity as done (find which agent this dispatchId was for)
       const messages = s.messages.map((m) => {
         if (m.id !== assistantId) return m
-        const steps = (m.steps ?? []).map((st) => {
+        const steps = (m.steps ?? []).map((st): ToolStep => {
           if (st.dispatchId === dispatchId && st.kind === 'subagent_dispatch') {
             const subagentActivity = { ...s.subagentActivity }
             if (st.subagentId) subagentActivity[st.subagentId] = 'done'
@@ -924,7 +924,7 @@ function applyEvent(
         currentTool: null,
         messages: s.messages.map((m) => {
           if (m.id !== assistantId) return m
-          const steps = (m.steps ?? []).map((st) =>
+          const steps = (m.steps ?? []).map((st): ToolStep =>
             st.id === stepId
               ? {
                   ...st,

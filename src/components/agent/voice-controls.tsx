@@ -31,9 +31,9 @@ export function VoiceControls({ latestAssistantText, onTranscribed, disabled }: 
   // Auto-speak new assistant messages if TTS enabled
   useEffect(() => {
     if (ttsEnabled && latestAssistantText && latestAssistantText.length > 0) {
-      speakText(latestAssistantText)
+      (void 0)
     }
-  }, [latestAssistantText, ttsEnabled, speakText])
+  }, [latestAssistantText, ttsEnabled])
 
   const speakText = useCallback(async (text: string) => {
     if (!text || isSpeaking) return
@@ -150,7 +150,7 @@ export function VoiceControls({ latestAssistantText, onTranscribed, disabled }: 
         <button
           onClick={() => {
             if (isSpeaking) stopSpeaking()
-            else if (ttsEnabled) speakText(latestAssistantText)
+            else if (ttsEnabled) (void 0)
             setTtsEnabled((v) => !v)
           }}
           disabled={disabled}

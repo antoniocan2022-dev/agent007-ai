@@ -1,4 +1,5 @@
 import ZAI from 'z-ai-web-dev-sdk'
+import { db } from "./db"
 import vm from 'node:vm'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
@@ -264,7 +265,7 @@ export async function toolVision(
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: img.dataUrl } },
+            { type: 'image_url', image_url: { url: img.dataUrl ?? "" } },
           ],
         },
       ],
@@ -335,7 +336,7 @@ export async function toolCodeExec(
     const context = vm.createContext(sandbox)
     let value: any
     try {
-      value = script.runInContext(context, { timeout: 3000, microtaskMode: 'afterEvaluate' })
+      value = script.runInContext(context, { timeout: 3000 } as any)
     } catch (err: any) {
       const msg = err?.message ?? String(err)
       return badResult(`Runtime error: ${msg}\nConsole output:\n${logs.join('\n')}`)
@@ -948,3 +949,211 @@ export async function toolHttpFetch(
 }
 
 TOOL_REGISTRY.http_fetch = { fn: toolHttpFetch, icon: 'globe', label: 'HTTP Fetch' }
+
+/* ================================================================== *
+ * AGENT007 EXTENSIONS — 260+ tools from agent007-extensions.ts
+ * ================================================================== */
+import {
+  // Business Infrastructure (12)
+  toolRealTimeMonitor, toolBusinessInfrastructure, toolServiceDelivery, toolFinancialControls,
+  toolCRM, toolMarketingAutomation, toolPartnershipNetwork, toolAutonomousRevenue,
+  toolPredictiveBI, toolScalableInfrastructure, toolMissionTracker,
+  // Content + Payment + Support + Analytics + Strategic (12)
+  toolContentQA, toolMultiFormatGeneration, toolPersonalizationEngine, toolContentPerformance,
+  toolAdvancedBilling, toolDunningManagement, toolMultiCurrency, toolFraudPrevention,
+  toolAdvancedChatbot, toolProactiveSupport, toolMarketIntelligence, toolStrategicPlanning,
+  toolResourceAllocation, toolRiskManagementSystems, toolPredictiveAnalyticsV2, toolAdvancedReporting,
+  // Self-Repair (10)
+  toolSystemHealthCheck, toolDatabaseIntegrityCheck, toolApiEndpointTest, toolToolRegistryAudit,
+  toolCacheClear, toolSessionRecovery, toolErrorLogAnalyzer, toolAutoFixCommonIssues,
+  toolBackupCreate, toolRestoreFromBackup,
+  // Autonomous Resolution (12)
+  toolIssueDetector, toolRootCauseAnalyzer, toolPatchDesigner, toolPatchApplier,
+  toolFixVerifier, toolLearningRecorder, toolAutonomousResolver, toolLogTailer,
+  toolFileInspector, toolConfigAuditor, toolDependencyChecker, toolFullSystemAudit,
+  // Safety + Reliability (26)
+  toolStagingEnvironmentManager, toolRegressionTestRunner, toolCanaryDeploymentManager, toolRollbackManager,
+  toolCostGuard, toolCascadingFailureDetector, toolMultiProviderLLMRouter, toolExternalUptimeMonitor,
+  toolAutomatedBackupScheduler, toolDisasterRecoveryPlanner, toolDBReplicationSetup, toolHealthCanary,
+  toolSecretsRotator, toolRateLimitEnforcer, toolCSRFCAuditor, toolAuditLogHardener, tool2FACryptoUpgrader,
+  toolMultiTenancyAuditor, toolToolLazyLoader, toolCacheLayerManager, toolCDNAssetOptimizer,
+  toolDBMigrationValidator, toolRealityCheckAuditor, toolTOSComplianceMonitor, toolHumanActionRouter,
+  toolLicensedActivityBlocker,
+  // Developer (12)
+  toolDevCodeQualityAudit, toolDevTestGenerator, toolDevBugDetector, toolDevRefactoringEngine,
+  toolDevDependencyAnalyzer, toolDevCICDPipelineBuilder, toolDevEnvironmentSetup, toolDevDatabaseMigration,
+  toolDevPerformanceProfiler, toolDevBundleOptimizer, toolDevSSRHydrationFixer, toolDevAPIOptimizer,
+  // Sub-agent + Phase 3 maps
+  SUBAGENT_TOOLS, PHASE3_TOOLS,
+} from './agent007-extensions'
+
+// Register Business Infrastructure
+TOOL_REGISTRY.real_time_monitor = { fn: toolRealTimeMonitor, icon: 'activity', label: 'Real-Time Market Monitoring' }
+TOOL_REGISTRY.business_infrastructure = { fn: toolBusinessInfrastructure, icon: 'building', label: 'Business Infrastructure Builder' }
+TOOL_REGISTRY.service_delivery = { fn: toolServiceDelivery, icon: 'package', label: 'Service Delivery Framework' }
+TOOL_REGISTRY.financial_controls = { fn: toolFinancialControls, icon: 'dollar-sign', label: 'Financial Controls' }
+TOOL_REGISTRY.crm = { fn: toolCRM, icon: 'users', label: 'Customer Management System (CRM)' }
+TOOL_REGISTRY.marketing_automation = { fn: toolMarketingAutomation, icon: 'megaphone', label: 'Marketing Automation' }
+TOOL_REGISTRY.partnership_network = { fn: toolPartnershipNetwork, icon: 'handshake', label: 'Partnership Network' }
+TOOL_REGISTRY.autonomous_revenue = { fn: toolAutonomousRevenue, icon: 'trending-up', label: 'Autonomous Revenue Generation' }
+TOOL_REGISTRY.predictive_bi = { fn: toolPredictiveBI, icon: 'bar-chart', label: 'Predictive Business Intelligence' }
+TOOL_REGISTRY.scalable_infrastructure = { fn: toolScalableInfrastructure, icon: 'server', label: 'Scalable Infrastructure' }
+TOOL_REGISTRY.mission_tracker = { fn: toolMissionTracker, icon: 'target', label: 'Mission Tracker ($20K/mo)' }
+
+// Content + Payment + Support + Analytics + Strategic
+TOOL_REGISTRY.content_qa = { fn: toolContentQA, icon: 'check-circle', label: 'Content Quality Assurance' }
+TOOL_REGISTRY.multi_format_generation = { fn: toolMultiFormatGeneration, icon: 'file-text', label: 'Multi-Format Content Generation' }
+TOOL_REGISTRY.personalization_engine_v2 = { fn: toolPersonalizationEngine, icon: 'user-check', label: 'Personalization Engine V2' }
+TOOL_REGISTRY.content_performance = { fn: toolContentPerformance, icon: 'bar-chart-2', label: 'Content Performance Analytics' }
+TOOL_REGISTRY.advanced_billing = { fn: toolAdvancedBilling, icon: 'credit-card', label: 'Advanced Billing Systems' }
+TOOL_REGISTRY.dunning_management = { fn: toolDunningManagement, icon: 'refresh-cw', label: 'Dunning Management' }
+TOOL_REGISTRY.multi_currency = { fn: toolMultiCurrency, icon: 'globe', label: 'Multi-Currency Support' }
+TOOL_REGISTRY.fraud_prevention = { fn: toolFraudPrevention, icon: 'shield-alert', label: 'Fraud Prevention' }
+TOOL_REGISTRY.advanced_chatbot = { fn: toolAdvancedChatbot, icon: 'message-circle', label: 'Advanced AI Chatbot' }
+TOOL_REGISTRY.proactive_support = { fn: toolProactiveSupport, icon: 'bell', label: 'Proactive Support' }
+TOOL_REGISTRY.market_intelligence = { fn: toolMarketIntelligence, icon: 'globe', label: 'Market Intelligence' }
+TOOL_REGISTRY.strategic_planning = { fn: toolStrategicPlanning, icon: 'map', label: 'Strategic Planning Automation' }
+TOOL_REGISTRY.resource_allocation = { fn: toolResourceAllocation, icon: 'pie-chart', label: 'Resource Allocation' }
+TOOL_REGISTRY.risk_management_systems = { fn: toolRiskManagementSystems, icon: 'shield', label: 'Risk Management Systems' }
+TOOL_REGISTRY.predictive_analytics_v2 = { fn: toolPredictiveAnalyticsV2, icon: 'trending-up', label: 'Predictive Analytics V2' }
+TOOL_REGISTRY.advanced_reporting = { fn: toolAdvancedReporting, icon: 'file-text', label: 'Advanced Reporting' }
+
+// Self-Repair
+TOOL_REGISTRY.system_health_check = { fn: toolSystemHealthCheck, icon: 'activity', label: 'System Health Check' }
+TOOL_REGISTRY.database_integrity_check = { fn: toolDatabaseIntegrityCheck, icon: 'database', label: 'Database Integrity Check' }
+TOOL_REGISTRY.api_endpoint_test = { fn: toolApiEndpointTest, icon: 'plug', label: 'API Endpoint Test' }
+TOOL_REGISTRY.tool_registry_audit = { fn: toolToolRegistryAudit, icon: 'list', label: 'Tool Registry Audit' }
+TOOL_REGISTRY.cache_clear = { fn: toolCacheClear, icon: 'trash-2', label: 'Cache Clear' }
+TOOL_REGISTRY.session_recovery = { fn: toolSessionRecovery, icon: 'refresh-cw', label: 'Session Recovery' }
+TOOL_REGISTRY.error_log_analyzer = { fn: toolErrorLogAnalyzer, icon: 'alert-circle', label: 'Error Log Analyzer' }
+TOOL_REGISTRY.auto_fix_common_issues = { fn: toolAutoFixCommonIssues, icon: 'wrench', label: 'Auto-Fix Common Issues' }
+TOOL_REGISTRY.backup_create = { fn: toolBackupCreate, icon: 'archive', label: 'Backup Create' }
+TOOL_REGISTRY.restore_from_backup = { fn: toolRestoreFromBackup, icon: 'rotate-ccw', label: 'Restore From Backup' }
+
+// Autonomous Resolution
+TOOL_REGISTRY.issue_detector = { fn: toolIssueDetector, icon: 'alert-triangle', label: 'Issue Detector' }
+TOOL_REGISTRY.root_cause_analyzer = { fn: toolRootCauseAnalyzer, icon: 'search', label: 'Root Cause Analyzer' }
+TOOL_REGISTRY.patch_designer = { fn: toolPatchDesigner, icon: 'code', label: 'Patch Designer' }
+TOOL_REGISTRY.patch_applier = { fn: toolPatchApplier, icon: 'git-commit', label: 'Patch Applier' }
+TOOL_REGISTRY.fix_verifier = { fn: toolFixVerifier, icon: 'check-circle', label: 'Fix Verifier' }
+TOOL_REGISTRY.learning_recorder = { fn: toolLearningRecorder, icon: 'book-open', label: 'Learning Recorder' }
+TOOL_REGISTRY.autonomous_resolver = { fn: toolAutonomousResolver, icon: 'cpu', label: 'Autonomous Resolver' }
+TOOL_REGISTRY.log_tailer = { fn: toolLogTailer, icon: 'file-text', label: 'Log Tailer' }
+TOOL_REGISTRY.file_inspector = { fn: toolFileInspector, icon: 'eye', label: 'File Inspector' }
+TOOL_REGISTRY.config_auditor = { fn: toolConfigAuditor, icon: 'settings', label: 'Config Auditor' }
+TOOL_REGISTRY.dependency_checker = { fn: toolDependencyChecker, icon: 'package', label: 'Dependency Checker' }
+TOOL_REGISTRY.full_system_audit = { fn: toolFullSystemAudit, icon: 'shield-check', label: 'Full System Audit' }
+
+// Safety + Reliability
+TOOL_REGISTRY.staging_environment_manager = { fn: toolStagingEnvironmentManager, icon: 'git-branch', label: 'Staging Environment Manager' }
+TOOL_REGISTRY.regression_test_runner = { fn: toolRegressionTestRunner, icon: 'check-circle', label: 'Regression Test Runner' }
+TOOL_REGISTRY.canary_deployment_manager = { fn: toolCanaryDeploymentManager, icon: 'percent', label: 'Canary Deployment Manager' }
+TOOL_REGISTRY.rollback_manager = { fn: toolRollbackManager, icon: 'rotate-ccw', label: 'Rollback Manager' }
+TOOL_REGISTRY.cost_guard = { fn: toolCostGuard, icon: 'dollar-sign', label: 'Cost Guard' }
+TOOL_REGISTRY.cascading_failure_detector = { fn: toolCascadingFailureDetector, icon: 'alert-octagon', label: 'Cascading Failure Detector' }
+TOOL_REGISTRY.multi_provider_llm_router = { fn: toolMultiProviderLLMRouter, icon: 'shuffle', label: 'Multi-Provider LLM Router' }
+TOOL_REGISTRY.external_uptime_monitor = { fn: toolExternalUptimeMonitor, icon: 'activity', label: 'External Uptime Monitor' }
+TOOL_REGISTRY.automated_backup_scheduler = { fn: toolAutomatedBackupScheduler, icon: 'archive', label: 'Automated Backup Scheduler' }
+TOOL_REGISTRY.disaster_recovery_planner = { fn: toolDisasterRecoveryPlanner, icon: 'shield-alert', label: 'Disaster Recovery Planner' }
+TOOL_REGISTRY.db_replication_setup = { fn: toolDBReplicationSetup, icon: 'copy', label: 'DB Replication Setup' }
+TOOL_REGISTRY.health_canary = { fn: toolHealthCanary, icon: 'heart', label: 'Health Canary' }
+TOOL_REGISTRY.secrets_rotator = { fn: toolSecretsRotator, icon: 'key', label: 'Secrets Rotator' }
+TOOL_REGISTRY.rate_limit_enforcer = { fn: toolRateLimitEnforcer, icon: 'shield', label: 'Rate Limit Enforcer' }
+TOOL_REGISTRY.csrf_auditor = { fn: toolCSRFCAuditor, icon: 'lock', label: 'CSRF Auditor' }
+TOOL_REGISTRY.audit_log_hardener = { fn: toolAuditLogHardener, icon: 'fingerprint', label: 'Audit Log Hardener' }
+TOOL_REGISTRY['2fa_crypto_upgrader'] = { fn: tool2FACryptoUpgrader, icon: 'shield-check', label: '2FA Crypto Upgrader' }
+TOOL_REGISTRY.multi_tenancy_auditor = { fn: toolMultiTenancyAuditor, icon: 'users', label: 'Multi-Tenancy Auditor' }
+TOOL_REGISTRY.tool_lazy_loader = { fn: toolToolLazyLoader, icon: 'zap', label: 'Tool Lazy Loader' }
+TOOL_REGISTRY.cache_layer_manager = { fn: toolCacheLayerManager, icon: 'database', label: 'Cache Layer Manager' }
+TOOL_REGISTRY.cdn_asset_optimizer = { fn: toolCDNAssetOptimizer, icon: 'globe', label: 'CDN Asset Optimizer' }
+TOOL_REGISTRY.db_migration_validator = { fn: toolDBMigrationValidator, icon: 'database', label: 'DB Migration Validator' }
+TOOL_REGISTRY.reality_check_auditor = { fn: toolRealityCheckAuditor, icon: 'target', label: 'Reality Check Auditor' }
+TOOL_REGISTRY.tos_compliance_monitor = { fn: toolTOSComplianceMonitor, icon: 'scale', label: 'ToS Compliance Monitor' }
+TOOL_REGISTRY.human_action_router = { fn: toolHumanActionRouter, icon: 'user-check', label: 'Human Action Router' }
+TOOL_REGISTRY.licensed_activity_blocker = { fn: toolLicensedActivityBlocker, icon: 'ban', label: 'Licensed Activity Blocker' }
+
+// Developer Enhancements
+TOOL_REGISTRY.developer_code_quality_audit = { fn: toolDevCodeQualityAudit, icon: 'check-circle', label: 'Code Quality Audit' }
+TOOL_REGISTRY.developer_test_generator = { fn: toolDevTestGenerator, icon: 'flask-conical', label: 'Test Generator' }
+TOOL_REGISTRY.developer_bug_detector = { fn: toolDevBugDetector, icon: 'bug', label: 'Bug Detector' }
+TOOL_REGISTRY.developer_refactoring_engine = { fn: toolDevRefactoringEngine, icon: 'git-branch', label: 'Refactoring Engine' }
+TOOL_REGISTRY.developer_dependency_analyzer = { fn: toolDevDependencyAnalyzer, icon: 'package', label: 'Dependency Analyzer' }
+TOOL_REGISTRY.developer_cicd_pipeline_builder = { fn: toolDevCICDPipelineBuilder, icon: 'git-merge', label: 'CI/CD Pipeline Builder' }
+TOOL_REGISTRY.developer_environment_setup = { fn: toolDevEnvironmentSetup, icon: 'settings', label: 'Environment Setup' }
+TOOL_REGISTRY.developer_database_migration = { fn: toolDevDatabaseMigration, icon: 'database', label: 'Database Migration' }
+TOOL_REGISTRY.developer_performance_profiler = { fn: toolDevPerformanceProfiler, icon: 'gauge', label: 'Performance Profiler' }
+TOOL_REGISTRY.developer_bundle_optimizer = { fn: toolDevBundleOptimizer, icon: 'archive', label: 'Bundle Optimizer' }
+TOOL_REGISTRY.developer_ssr_hydration_fixer = { fn: toolDevSSRHydrationFixer, icon: 'zap', label: 'SSR/Hydration Fixer' }
+TOOL_REGISTRY.developer_api_optimizer = { fn: toolDevAPIOptimizer, icon: 'plug', label: 'API Optimizer' }
+
+// Register all 120 sub-agent enhancement tools
+for (const [name, fn] of Object.entries(SUBAGENT_TOOLS)) {
+  TOOL_REGISTRY[name] = { fn, icon: 'zap', label: name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+}
+
+// Register all 64 Phase 3 optimization tools
+for (const [name, fn] of Object.entries(PHASE3_TOOLS)) {
+  TOOL_REGISTRY[name] = { fn, icon: 'cpu', label: name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+}
+
+// Register communication tools
+async function getOperatorUserIdLocal() {
+  const u = await db.user.findFirst({ orderBy: { createdAt: "asc" } })
+  return u?.id ?? null
+}
+function okLocal(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
+function badLocal(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
+
+export async function toolSendCommunication(args: { to?: string; channel?: string; message: string; subject?: string }, _ctx: ToolContext): Promise<ToolResult> {
+  const userId = await getOperatorUserIdLocal()
+  if (!userId) return badLocal('No operator user')
+  try {
+    const { sendWhatsApp } = await import('./whatsapp-bridge')
+    const channel = args.channel ?? 'whatsapp'
+    if (channel === 'whatsapp') {
+      const result = await sendWhatsApp({ userId, to: args.to ?? '', message: args.message })
+      return result.ok ? okLocal(`Sent via WhatsApp: ${args.message.slice(0, 60)}`, `✅ ${result.message}`) : badLocal(result.message)
+    }
+    if (channel === 'email') {
+      const { sendEmail } = await import('./email')
+      try { await sendEmail({ to: args.to ?? '', subject: args.subject ?? "Agent007 Notification", body: args.message, userId, type: 'notification' }); return okLocal(`Sent via email: ${args.message.slice(0, 60)}`, `✅ Email sent to ${args.to}`) }
+      catch (e: any) { return badLocal(`Email failed: ${e?.message}`) }
+    }
+    return badLocal(`Unknown channel: ${channel}`)
+  } catch (e: any) { return badLocal(`send_communication failed: ${e?.message}`) }
+}
+TOOL_REGISTRY.send_communication = { fn: toolSendCommunication, icon: 'send', label: 'Send Communication (SMS/WhatsApp/Email)' }
+
+export async function toolCheckInboundCommands(args: { status?: string; limit?: number }, _ctx: ToolContext): Promise<ToolResult> {
+  const userId = await getOperatorUserIdLocal()
+  if (!userId) return badLocal('No operator user')
+  try {
+    const status = args.status ?? 'pending'
+    const limit = Math.min(50, Math.max(1, args.limit ?? 20))
+    const where: any = { userId }
+    if (status !== 'all') where.status = status
+    const commands = await db.incomingCommand.findMany({ where, orderBy: { receivedAt: 'desc' }, take: limit })
+    if (commands.length === 0) return okLocal(`No ${status} commands`, `No ${status} inbound commands.`)
+    const formatted = commands.map((c, i) => `[${i + 1}] ${c.source.toUpperCase()} from ${c.fromNumber || c.fromEmail || 'unknown'}: "${c.command}"`).join('\n')
+    return okLocal(`${commands.length} ${status} command(s)`, `Inbound Commands (${status}):\n${formatted}`)
+  } catch (e: any) { return badLocal(`check_inbound_commands failed: ${e?.message}`) }
+}
+TOOL_REGISTRY.check_inbound_commands = { fn: toolCheckInboundCommands, icon: 'inbox', label: 'Check Inbound Commands' }
+
+export async function toolExecuteInboundCommand(args: { command_id?: string; reply_message?: string; mark_completed?: boolean }, _ctx: ToolContext): Promise<ToolResult> {
+  const userId = await getOperatorUserIdLocal()
+  if (!userId) return badLocal('No operator user')
+  const commandId = args.command_id?.toString().trim()
+  if (!commandId) return badLocal('Missing command_id')
+  try {
+    const cmd = await db.incomingCommand.findFirst({ where: { id: commandId, userId } })
+    if (!cmd) return badLocal('Command not found')
+    if (args.reply_message) {
+      const { sendWhatsApp } = await import('./whatsapp-bridge')
+      if (cmd.source === 'whatsapp' && cmd.fromNumber) await sendWhatsApp({ userId, to: cmd.fromNumber, message: args.reply_message }).catch(() => {})
+    }
+    if (args.mark_completed !== false) await db.incomingCommand.update({ where: { id: commandId }, data: { status: 'completed', executedAt: new Date(), result: args.reply_message || 'executed' } })
+    return okLocal(`Command ${commandId} executed`, `✅ Executed: "${cmd.command}"`)
+  } catch (e: any) { return badLocal(`execute_inbound_command failed: ${e?.message}`) }
+}
+TOOL_REGISTRY.execute_inbound_command = { fn: toolExecuteInboundCommand, icon: 'message-square', label: 'Execute + Reply to Inbound Command' }

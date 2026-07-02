@@ -173,7 +173,7 @@ When reporting test results or summaries, ONLY report what ACTUALLY happened bas
 When you have decided on the final response, do not emit any more tags — just write the answer.`
 
 export interface AgentEventEmit {
-  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update', data: any): Promise<void> | void
+  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error', data: any): Promise<void> | void
 }
 
 export interface AgentRunOptions {
@@ -530,7 +530,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     }
 
     // Tool call
-    const step = {
+    const step: any = {
       id: `step_${iter}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       thought: parsed.thought,
       toolName: parsed.tool.name,

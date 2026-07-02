@@ -205,3 +205,344 @@ model CustomSubagent {
 
   @@index([userId])
 }
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entity      String
+  entityId    String?
+  description String
+  metadata    String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+}
+
+model TwoFactorSecret {
+  id              String   @id @default(cuid())
+  userId          String
+  method          String
+  phoneNumber     String?
+  email           String?
+  secret          String?
+  qrCodeUrl       String?
+  backupCodes     String?
+  enabled         Boolean  @default(false)
+  verifiedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([method])
+}
+
+model PhoneConfig {
+  id              String   @id @default(cuid())
+  userId          String
+  phoneNumber     String?
+  whatsappNumber  String?
+  email           String?
+  smsEnabled      Boolean  @default(false)
+  whatsappEnabled Boolean  @default(false)
+  emailEnabled    Boolean  @default(false)
+  whatsappProvider String?
+  callmebotApiKey  String?
+  callmebotNumber  String?
+  baileysSessionStatus String?
+  baileysLinkedNumber String?
+  baileysLinkedAt    DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model IncomingCommand {
+  id              String   @id @default(cuid())
+  userId          String
+  source          String
+  fromNumber      String?
+  fromEmail       String?
+  command         String
+  status          String   @default("pending")
+  conversationId  String?
+  result          String?
+  receivedAt      DateTime @default(now())
+  executedAt      DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model BankAccount {
+  id              String   @id @default(cuid())
+  userId          String
+  accountHolder   String
+  bankName        String
+  accountType     String   @default("checking")
+  accountNumber   String
+  routingNumber   String
+  accountLast4    String
+  bankCountry     String   @default("US")
+  bankCurrency    String   @default("USD")
+  verificationStatus String @default("pending")
+  isPrimary       Boolean  @default(false)
+  label           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model PayPalAccount {
+  id              String   @id @default(cuid())
+  userId          String
+  email           String
+  clientId        String?
+  clientSecret    String?
+  webhookId       String?
+  isPrimary       Boolean  @default(false)
+  verified        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  service     String
+  key         String
+  baseUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([service])
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  status      String   @default("lead")
+  value       Float    @default(0)
+  source      String?
+  notes       String?
+  tags        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model MarketingCampaign {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  channel     String
+  status      String   @default("draft")
+  budget      Float    @default(0)
+  spent       Float    @default(0)
+  leadsGenerated Int   @default(0)
+  conversions Int      @default(0)
+  revenue     Float    @default(0)
+  startDate   DateTime?
+  endDate     DateTime?
+  metadata    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Partnership {
+  id          String   @id @default(cuid())
+  userId      String
+  partnerName String
+  partnerType String
+  status      String   @default("proposed")
+  commissionRate Float @default(0)
+  revenueGenerated Float @default(0)
+  contactEmail String?
+  contactPhone String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model BusinessStrategy {
+  id          String   @id @default(cuid())
+  userId      String
+  phase       String
+  title       String
+  description String
+  status      String   @default("planned")
+  priority    String   @default("medium")
+  progress    Float    @default(0)
+  targetDate  DateTime?
+  completedAt DateTime?
+  metadata    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([phase])
+  @@index([status])
+}
+
+model MissionTracker {
+  id              String   @id @default(cuid())
+  userId          String
+  metric          String
+  currentValue    Float
+  targetValue     Float
+  withoutImprovements Float?
+  withImprovements Float?
+  unit            String
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([metric])
+}
+
+model ServicePackage {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String
+  category    String
+  priceMonthly Float   @default(0)
+  priceOneTime Float   @default(0)
+  deliveryTime String?
+  features    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+}
+
+model Opportunity {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  category    String?
+  potential   Float?
+  status      String   @default("new")
+  metadata    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Prediction {
+  id          String   @id @default(cuid())
+  userId      String
+  category    String
+  prediction  String
+  confidence  Float    @default(0.5)
+  timeframe   String?
+  outcome     String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([category])
+}
+
+model SystemHealth {
+  id           String   @id @default(cuid())
+  userId       String
+  component    String
+  status       String   @default("healthy")
+  details      String?
+  autoRepaired Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([component])
+}
+
+model MLModel {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  type        String
+  features    String
+  weights     String
+  accuracy    Float    @default(0.0)
+  trainSamples Int     @default(0)
+  lastTrained DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model RiskRegister {
+  id           String   @id @default(cuid())
+  userId       String
+  category     String
+  description  String
+  likelihood   Int      @default(3)
+  impact       Int      @default(3)
+  score        Int      @default(15)
+  level        String   @default("medium")
+  mitigations  String?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+}
+
+model ComplianceCheck {
+  id          String   @id @default(cuid())
+  userId      String
+  country     String
+  regulation  String
+  status      String   @default("pending")
+  details     String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ContractDraft {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  type        String
+  parties     String
+  terms       String
+  status      String   @default("draft")
+  riskScore   Int      @default(5)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}

@@ -689,7 +689,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
       const textAfterThought = content.replace(THOUGHT_RE, '').trim()
       const isThoughtOnly = !!parsed.thought && textAfterThought.length < 20
       const stuckPatterns = /(wait|waiting|haven't|will wait|let me wait|as i wait)/i
-      const isStuck = isThoughtOnly && stuckPatterns.test(parsed.thought)
+      const isStuck = isThoughtOnly && stuckPatterns.test(parsed.thought ?? "")
 
       if ((isStuck || isThoughtOnly) && iter < SUBAGENT_MAX_ITERATIONS - 1) {
         await opts.emit('subagent_thought', {
@@ -720,7 +720,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
         preview: `Tool "${toolName}" not allowed for ${sub.name}`,
         result: `BLOCKED: ${sub.name} is not permitted to call "${toolName}". Allowed tools: ${sub.allowedTools.join(', ')}. Use one of those instead.`,
       }
-      const step = {
+      const step: any = {
         id: stepId,
         thought: parsed.thought,
         toolName,
@@ -769,7 +769,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
       continue
     }
 
-    const step = {
+    const step: any = {
       id: stepId,
       thought: parsed.thought,
       toolName,
