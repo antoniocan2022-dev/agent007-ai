@@ -1200,3 +1200,38 @@ TOOL_REGISTRY.loyalty_oath = { fn: toolLoyaltyOath, icon: 'heart', label: 'Loyal
 TOOL_REGISTRY.check_loyalty_constraints = { fn: toolCheckLoyaltyConstraints, icon: 'shield', label: 'Check Loyalty Constraints (block disloyal actions)' }
 TOOL_REGISTRY.report_to_owner = { fn: toolReportToOwner, icon: 'send', label: 'Report To Owner (send message via WhatsApp/email)' }
 TOOL_REGISTRY.emergency_stop = { fn: toolEmergencyStop, icon: 'alert-octagon', label: 'Emergency Stop (halt all autonomous operations)' }
+
+/* ================================================================== *
+ * OWNER AUTHORIZATION TOOLS — for all reset/delete operations
+ * ================================================================== */
+export async function toolRequestOwnerAuth(args: { operation?: string }, _ctx: ToolContext): Promise<ToolResult> {
+  if (!args.operation) return badLocal('Missing operation')
+  try {
+    const { requestOwnerAuthorization, requiresOwnerAuth } = await import('./owner-auth')
+    if (!requiresOwnerAuth(args.operation.toString())) return okLocal('Not required', `Operation "${args.operation}" does not require owner authorization.`)
+    const result = await requestOwnerAuthorization(args.operation.toString())
+    return result.ok ? okLocal('Code sent', `✅ ${result.message}\n\nAuth ID: ${result.authId}\n\nThe owner must reply with the 6-digit code sent to +15145496297 (WhatsApp) or email. Use verify_owner_auth to check.`) : badLocal(result.message)
+  } catch (e: any) { return badLocal(`request_owner_auth failed: ${e?.message}`) }
+}
+TOOL_REGISTRY.request_owner_auth = { fn: toolRequestOwnerAuth, icon: 'key', label: 'Request Owner Auth (send 6-digit code to +15145496297)' }
+
+export async function toolVerifyOwnerAuth(args: { auth_id?: string; code?: string }, _ctx: ToolContext): Promise<ToolResult> {
+  if (!args.auth_id || !args.code) return badLocal('Missing auth_id or code')
+  try {
+    const { verifyOwnerAuthorization } = await import('./owner-auth')
+    const result = verifyOwnerAuthorization(args.auth_id.toString(), args.code.toString())
+    return result.ok ? okLocal('Authorized', `✅ ${result.message}`) : badLocal(result.message)
+  } catch (e: any) { return badLocal(`verify_owner_auth failed: ${e?.message}`) }
+}
+TOOL_REGISTRY.verify_owner_auth = { fn: toolVerifyOwnerAuth, icon: 'shield-check', label: 'Verify Owner Auth (confirm 6-digit code)' }
+
+export async function toolCheckProtectedOperation(args: { operation?: string }, _ctx: ToolContext): Promise<ToolResult> {
+  if (!args.operation) return badLocal('Missing operation')
+  try {
+    const { requiresOwnerAuth, PROTECTED_OPERATIONS } = await import('./owner-auth')
+    const required = requiresOwnerAuth(args.operation.toString())
+    const report = `Protected Operation Check\n══════════════════════════════════════════════\nOperation: ${args.operation}\nRequires owner authorization: ${required ? '✅ YES' : '❌ NO'}\n\nAll protected operations:\n${PROTECTED_OPERATIONS.map((op: string) => `  • ${op}`).join('\n')}\n\nCAPABILITY STATUS: All reset/delete operations require owner authorization via WhatsApp/SMS/email code.`
+    return okLocal(required ? 'PROTECTED' : 'NOT PROTECTED', report)
+  } catch (e: any) { return badLocal(`check_protected_operation failed: ${e?.message}`) }
+}
+TOOL_REGISTRY.check_protected_operation = { fn: toolCheckProtectedOperation, icon: 'lock', label: 'Check Protected Operation (verify if owner auth needed)' }
