@@ -1,80 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { hashPassword, SEED_EMAIL } from '@/lib/auth'
-import crypto from 'node:crypto'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// In-memory reset tokens (expires in 15 min)
 const _g: any = globalThis as any
-if (!_g.__resetTokens) _g.__resetTokens = new Map<string, { email: string; expiresAt: number }>()
+if (!_g.__resetCodes) _g.__resetCodes = new Map<string, { code: string; email: string; expiresAt: number }>()
 
 /**
  * POST /api/auth/reset-password
- * Body: { email } → sends confirmation link to email
- * Body: { email, newPassword, token } → resets password (requires token)
+ * 
+ * Phase 1: { email } → generate 6-digit code, send via email + WhatsApp, return success
+ * Phase 2: { email, code, newPassword } → verify code, set new password
  */
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
   try {
     const body = await req.json()
     const email = (body.email ?? SEED_EMAIL).toString().trim().toLowerCase()
-    
-    // Phase 1: Request reset → generate token + send email
-    if (!body.newPassword && !body.token) {
-      const user = await db.user.findUnique({ where: { email } })
-      if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
-      
-      const token = crypto.randomUUID()
-      _g.__resetTokens.set(token, { email, expiresAt: Date.now() + 15 * 60 * 1000 })
-      
-      // Send confirmation link via email
-      try {
-        const { sendEmail } = await import('@/lib/email')
-        const resetLink = `https://agent007-ai.vercel.app/login?reset=${token}&email=${encodeURIComponent(email)}`
-        await sendEmail({
-          to: email,
-          subject: '🔐 Agent007 Password Reset Confirmation',
-          body: `Hello Antonio,\n\nYou requested a password reset for Agent007 AI.\n\nClick this link to confirm and reset your password:\n${resetLink}\n\nThis link expires in 15 minutes.\n\nIf you didn't request this, ignore this email.\n\n— Agent007 AI`,
-          userId: user.id,
-          type: 'reset',
-        })
-      } catch {}
-      
-      // Also generate a wa.me link as fallback
-      const waLink = `https://wa.me/15145496297?text=${encodeURIComponent('Agent007 password reset requested. Check your email for confirmation link.')}`
-      
-      return NextResponse.json({ 
-        ok: true, 
-        message: 'Confirmation link sent to ' + email + '. Check your inbox (and spam folder).',
-        waLink,
-        token, // return token for direct use if email doesn't work
-      })
-    }
-    
-    // Phase 2: Confirm reset → verify token + set new password
-    if (body.newPassword && body.token) {
-      const stored = _g.__resetTokens.get(body.token.toString())
-      if (!stored) return NextResponse.json({ error: 'Invalid or expired token. Request a new reset.' }, { status: 400 })
-      if (Date.now() > stored.expiresAt) {
-        _g.__resetTokens.delete(body.token.toString())
-        return NextResponse.json({ error: 'Token expired. Request a new reset.' }, { status: 400 })
-      }
-      if (stored.email !== email) return NextResponse.json({ error: 'Email mismatch' }, { status: 400 })
-      
+
+    // Phase 2: Verify code + set new password
+    if (body.code && body.newPassword) {
+      const code = body.code.toString()
       const newPassword = body.newPassword.toString()
+      
       if (newPassword.length < 8) return NextResponse.json({ error: 'Password must be 8+ characters' }, { status: 400 })
       
-      const passwordHash = await hashPassword(newPassword)
+      const stored = _g.__resetCodes.get(email)
+      if (!stored) return NextResponse.json({ error: 'No reset code found. Request a new code.' }, { status: 400 })
+      if (Date.now() > stored.expiresAt) {
+        _g.__resetCodes.delete(email)
+        return NextResponse.json({ error: 'Code expired. Request a new code.' }, { status: 400 })
+      }
+      if (code !== stored.code) return NextResponse.json({ error: 'Invalid code. Try again.' }, { status: 400 })
+      
       const user = await db.user.findUnique({ where: { email } })
       if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
       
+      const passwordHash = await hashPassword(newPassword)
       await db.user.update({ where: { id: user.id }, data: { passwordHash } })
-      _g.__resetTokens.delete(body.token.toString())
+      _g.__resetCodes.delete(email)
       
-      return NextResponse.json({ ok: true, message: '✅ Password reset successfully. You can now sign in with your new password.' })
+      return NextResponse.json({ ok: true, message: '✅ Password updated successfully! You can now sign in with your new password.' })
+    }
+
+    // Phase 1: Generate code + send via email
+    const user = await db.user.findUnique({ where: { email } })
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    
+    const code = Math.floor(100000 + Math.random() * 900000).toString()
+    _g.__resetCodes.set(email, { code, email, expiresAt: Date.now() + 10 * 60 * 1000 }) // 10 min expiry
+    
+    let emailSent = false
+    let emailError = ''
+    
+    // Try sending via SMTP
+    try {
+      const { sendEmail } = await import('@/lib/email')
+      await sendEmail({
+        to: email,
+        subject: '🔐 Agent007 — Password Reset Code',
+        body: `Hello Antonio,\n\nYour password reset code is: ${code}\n\nThis code expires in 10 minutes.\n\nEnter this code on the reset page to set your new password.\n\nIf you didn't request this reset, ignore this email.\n\n— Agent007 AI`,
+        userId: user.id,
+        type: 'reset',
+      })
+      emailSent = true
+    } catch (e: any) {
+      emailError = e?.message ?? 'SMTP failed'
     }
     
-    return NextResponse.json({ error: 'Provide email for reset link, or email + newPassword + token to confirm.' }, { status: 400 })
+    // Also try WhatsApp as backup
+    let whatsappSent = false
+    try {
+      const { sendWhatsApp } = await import('@/lib/whatsapp-bridge')
+      const waResult = await sendWhatsApp({ userId: user.id, to: '+15145496297', message: `🔐 Agent007 Password Reset Code: ${code}\n\nThis code expires in 10 minutes.` })
+      whatsappSent = waResult.ok
+    } catch {}
+    
+    // Generate wa.me link as manual fallback
+    const waLink = `https://wa.me/15145496297?text=${encodeURIComponent('Agent007 reset code: ' + code)}`
+    
+    return NextResponse.json({
+      ok: true,
+      emailSent,
+      whatsappSent,
+      emailError: emailSent ? null : emailError,
+      waLink,
+      message: emailSent 
+        ? `✅ Reset code sent to ${email}. Check your inbox (and spam folder).`
+        : whatsappSent
+          ? `✅ Reset code sent via WhatsApp to +15145496297.`
+          : `⚠ Email delivery failed (${emailError}). Use this code: ${code}`,
+      // Always return the code as fallback (so the UI can show it if email fails)
+      code: emailSent ? undefined : code,
+    })
   } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }) }
 }
