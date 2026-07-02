@@ -23,6 +23,16 @@ const _g: any = globalThis as any
 if (!_g.__pendingOwnerAuth) _g.__pendingOwnerAuth = new Map<string, PendingAuth>()
 const pendingAuths: Map<string, PendingAuth> = _g.__pendingOwnerAuth
 
+// UPGRADE-ONLY MODE: reset/delete operations are DISABLED
+// Only upgrades, improvements, and additions are allowed
+export const UPGRADE_ONLY_MODE = true
+export const DISABLED_OPERATIONS = [
+  'reset_system',
+  'reset_database', 
+  'wipe_data',
+  'force_reset',
+]
+
 export const PROTECTED_OPERATIONS = [
   'delete_subagent', 'delete_bank_account', 'delete_paypal_account',
   'delete_api_key', 'delete_conversation', 'delete_memory',
@@ -33,11 +43,20 @@ export const PROTECTED_OPERATIONS = [
 ] as const
 
 export function requiresOwnerAuth(operation: string): boolean {
+  // UPGRADE-ONLY: block system resets and wipes entirely
+  if (UPGRADE_ONLY_MODE && DISABLED_OPERATIONS.includes(operation)) {
+    return false // Don't even request auth — just block
+  }
   return PROTECTED_OPERATIONS.includes(operation as any) ||
     operation.startsWith('delete_') ||
     operation.startsWith('reset_') ||
     operation.startsWith('disable_') ||
     operation.startsWith('wipe_')
+}
+
+// Check if an operation is PERMANENTLY DISABLED (upgrade-only mode)
+export function isOperationDisabled(operation: string): boolean {
+  return UPGRADE_ONLY_MODE && DISABLED_OPERATIONS.includes(operation)
 }
 
 /** Generate a 6-digit code + send it to owner's phone via WhatsApp */
