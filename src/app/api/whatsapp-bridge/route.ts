@@ -65,6 +65,15 @@ export async function POST(req: NextRequest) {
       const message = (body.message ?? 'Hello from Agent007!').toString()
       return NextResponse.json({ ok: true, link: generateWaLink(to, message), message: 'Click link to open WhatsApp.' })
     }
+    if (action === 'set_phone') {
+      const phone = normalizePhone((body.phone ?? '').toString())
+      const email = (body.email ?? '').toString().trim()
+      if (!phone) return NextResponse.json({ error: 'Phone number required' }, { status: 400 })
+      const updateData: any = { phoneNumber: phone, whatsappNumber: phone }
+      if (email) updateData.email = email
+      await db.phoneConfig.update({ where: { id: pc.id }, data: updateData })
+      return NextResponse.json({ ok: true, message: `Phone number saved: ${phone}` })
+    }
     return NextResponse.json({ error: `Unknown action "${action}"` }, { status: 400 })
   } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }) }
 }
