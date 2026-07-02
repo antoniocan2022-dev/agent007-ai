@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
     "jimp",
     "qrcode",
     "canvas",
+    "better-sqlite3",
+    "uuid",
   ],
   turbopack: {
     resolveAlias: {

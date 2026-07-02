@@ -51,14 +51,8 @@ export function ensureSeedUser(): Promise<void> {
             },
           })
         }
-      } catch (e) {
-        // Reset so a future call can retry; log for visibility.
-        seedPromise = null
-        console.error('[auth] ensureSeedUser failed:', e)
-      } finally {
-        // Always clear the cached promise so the NEXT call re-runs (we want
-        // ensureSeedUser to fire on every NextAuth route hit per the spec).
-        seedPromise = null
+      } catch (e: any) {
+        console.error('[auth] ensureSeedUser failed:', e?.message ?? String(e))
       }
     })()
   }
