@@ -268,6 +268,16 @@ export async function callLlmWithRetry(
 ): Promise<any> {
   let lastErr: any = null
 
+  // FAST PATH: If OPENAI_API_KEY is set in env, skip z-ai entirely
+  // (z-ai doesn't work on Vercel and wastes 5-10s trying to connect)
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      return await callFallbackLlm(messages)
+    } catch (fallbackErr) {
+      throw fallbackErr
+    }
+  }
+
   // Try primary provider (z-ai)
   try {
     const zai = await getZai()

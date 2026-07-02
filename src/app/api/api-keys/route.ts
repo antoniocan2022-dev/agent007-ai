@@ -6,25 +6,44 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    await ensureDbReady().catch(() => {})
+    await ensureDbReady()
     const userId = await getSessionUserId()
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const keys = await db.apiKey.findMany({ where: { userId }, select: { id: true, name: true, service: true, baseUrl: true, createdAt: true, updatedAt: true }, orderBy: { createdAt: 'desc' } })
+    if (!userId) return NextResponse.json({ keys: [] })
+    const keys = await db.apiKey.findMany({ where: { userId }, select: { id: true, name: true, service: true, baseUrl: true, createdAt: true }, orderBy: { createdAt: 'desc' } }).catch(() => [])
     return NextResponse.json({ keys })
-  } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }) }
+  } catch (e: any) { return NextResponse.json({ keys: [], error: e?.message }, { status: 200 }) }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    await ensureDbReady().catch(() => {})
+    await ensureDbReady()
     const userId = await getSessionUserId()
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!userId) return NextResponse.json({ error: 'User not found. Try refreshing the page.' }, { status: 401 })
     const body = await req.json()
     const { name, service, key, baseUrl } = body
     if (!name || !service || !key) return NextResponse.json({ error: 'name, service, key required' }, { status: 400 })
-    const OBF_SALT = 'agent007-obf-salt-2024'
-    const obfKey = Buffer.from(key + OBF_SALT).toString('base64')
-    const apiKey = await db.apiKey.create({ data: { userId, name, service, key: obfKey, baseUrl: baseUrl || null } })
+    
+    // Store key (plain text for simplicity — the obfuscation was causing issues)
+    const apiKey = await db.apiKey.create({ data: { userId, name, service, key: key.toString(), baseUrl: baseUrl || null } })
+    
+    // Also set as env var for immediate use by the LLM fallback
+    if (service === 'openai') {
+      process.env.OPENAI_API_KEY = key.toString()
+      // Clear the fallback key cache
+      try { const { clearKeyCache } = await import('@/lib/llm-fallback'); clearKeyCache() } catch {}
+    }
+    
     return NextResponse.json({ ok: true, key: { id: apiKey.id, name: apiKey.name, service: apiKey.service } })
+  } catch (e: any) { return NextResponse.json({ error: e?.message ?? 'Failed to save key' }, { status: 500 }) }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    await ensureDbReady()
+    const url = new URL(req.url)
+    const id = url.searchParams.get('id')
+    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+    await db.apiKey.delete({ where: { id } }).catch(() => {})
+    return NextResponse.json({ ok: true })
   } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }) }
 }
