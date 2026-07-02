@@ -20,7 +20,7 @@ export async function GET() {
       getIncomeSettings(),
       getNotificationSettings(),
     ])
-    return NextResponse.json({ income, notifications: notif })
+    return NextResponse.json({ income, notifications: notif, smtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS) })
   } catch (e: any) {
     console.error('[settings GET]', e)
     return NextResponse.json(

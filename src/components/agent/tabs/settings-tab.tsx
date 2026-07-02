@@ -172,7 +172,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
     }
   }
 
-  const smtpConfigured = process.env.NEXT_PUBLIC_SMTP_CONFIGURED === '1'
+  const [smtpConfigured, setSmtpConfigured] = useState(false)
 
   if (loading) {
     return (
