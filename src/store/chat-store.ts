@@ -509,16 +509,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
-      set((s) => ({
-        messages: s.messages.map((m) =>
+      set((s) => {
+        const newMessages = s.messages.map((m) =>
           m.id === assistantId ? { ...m, isStreaming: false } : m
-        ),
-        status: 'idle',
-        currentTool: null,
-        activeSubagents: [],
-      }))
+        )
+        // Save messages to localStorage for persistence
+        if (typeof window !== 'undefined') {
+          try {
+            const convId = get().currentConversationId
+            if (convId) {
+              localStorage.setItem('agent007_messages_' + convId, JSON.stringify(newMessages))
+            }
+          } catch {}
+        }
+        return {
+          messages: newMessages,
+          status: 'idle',
+          currentTool: null,
+          activeSubagents: [],
+        }
+      })
       // Refresh conversation list (title may have changed) + memories
       get().loadConversations()
+      // Update conversation title in localStorage
+      if (typeof window !== 'undefined') {
+        try {
+          const convId = get().currentConversationId
+          const msgs = get().messages
+          if (convId && msgs.length > 0) {
+            const firstUserMsg = msgs.find(m => m.role === 'user')
+            if (firstUserMsg) {
+              const title = firstUserMsg.content.slice(0, 50)
+              const saved = localStorage.getItem('agent007_conversations')
+              if (saved) {
+                const convs = JSON.parse(saved)
+                const idx = convs.findIndex((c: any) => c.id === convId)
+                if (idx >= 0) {
+                  convs[idx].title = title
+                  convs[idx].updatedAt = new Date().toISOString()
+                  localStorage.setItem('agent007_conversations', JSON.stringify(convs))
+                }
+              }
+            }
+          }
+        } catch {}
+      }
       get().loadMemories()
     } catch (e: any) {
       console.error('sendMessage error', e)
