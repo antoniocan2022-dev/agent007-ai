@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import type { AttachmentMeta } from '@/lib/tools'
@@ -12,6 +12,9 @@ function sse(event: string, data: any): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Ensure DB tables exist before any query (critical for Vercel serverless)
+  await ensureDbReady().catch(() => {})
+
   let body: any
   try {
     body = await req.json()

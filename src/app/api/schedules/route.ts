@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
 
 export const runtime = 'nodejs'
@@ -13,6 +13,7 @@ export const DEFAULT_MISSION_PROMPT =
  *  if the operator has no schedules yet (enabled=false — user must toggle on). */
 export async function GET() {
   try {
+    await ensureDbReady().catch(() => {})
     const userId = await getOperatorUserId()
     if (!userId) return NextResponse.json({ schedules: [] })
     let schedules = await db.schedule.findMany({
@@ -47,6 +48,7 @@ export async function GET() {
 /** POST /api/schedules — create a new schedule. */
 export async function POST(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const userId = await getOperatorUserId()
     if (!userId) return NextResponse.json({ error: 'No operator user found' }, { status: 500 })
 

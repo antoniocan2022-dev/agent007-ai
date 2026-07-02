@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { getSessionUserId } from '@/lib/session-user'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
+    await ensureDbReady().catch(() => {})
     const userId = await getSessionUserId()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const configs = await db.twoFactorSecret.findMany({ where: { userId }, select: { id: true, method: true, enabled: true, phoneNumber: true, email: true, verifiedAt: true } })

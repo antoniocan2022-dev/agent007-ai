@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
 
 export const runtime = 'nodejs'
@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic'
  *  (source="Sample", notes="Demo entry — delete me"). */
 export async function GET(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const url = new URL(req.url)
     const fromStr = url.searchParams.get('from')
     const toStr = url.searchParams.get('to')
@@ -99,6 +100,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/income — create a new income entry. */
 export async function POST(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const body = await req.json().catch(() => ({}))
     const { amount, source, notes, date, seedIfEmpty } = body as {
       amount?: number
@@ -162,6 +164,7 @@ export async function POST(req: NextRequest) {
 /** DELETE /api/income?id=... — delete one income entry. */
 export async function DELETE(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const url = new URL(req.url)
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })

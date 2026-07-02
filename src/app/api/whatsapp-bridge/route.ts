@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { sendWhatsApp, generateWaLink, normalizePhone, getBaileysStatus } from '@/lib/whatsapp-bridge'
 
 export const runtime = 'nodejs'
@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
+    await ensureDbReady().catch(() => {})
     const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
     if (!user) return NextResponse.json({ error: 'No user' }, { status: 500 })
     const pc = await db.phoneConfig.findFirst({ where: { userId: user.id } })
@@ -24,6 +25,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
     if (!user) return NextResponse.json({ error: 'No user' }, { status: 500 })
     const body = await req.json()

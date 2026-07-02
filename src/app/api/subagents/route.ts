@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
 import { SUBAGENTS, getAllSubagents, type Subagent } from '@/lib/subagents'
 
@@ -63,6 +63,7 @@ const VALID_ICONS = new Set([
 /** GET /api/subagents — list ALL subagents (12 built-in + custom) with overlay edits applied. */
 export async function GET() {
   try {
+    await ensureDbReady().catch(() => {})
     const list = await getAllSubagents({ includeDisabled: true })
     // Strip the systemPrompt from the listing payload (it's huge; only needed for edit)
     const slim = list.map((s) => ({
@@ -88,6 +89,7 @@ export async function GET() {
 /** POST /api/subagents — create a new CUSTOM sub-agent. */
 export async function POST(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const userId = await getOperatorUserId()
     if (!userId) return NextResponse.json({ error: 'No operator user found' }, { status: 500 })
 

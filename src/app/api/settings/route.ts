@@ -1,3 +1,4 @@
+import { db, ensureDbReady } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   getIncomeSettings,
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic'
 /** GET /api/settings — return current income + notification settings. */
 export async function GET() {
   try {
+    await ensureDbReady().catch(() => {})
     const [income, notif] = await Promise.all([
       getIncomeSettings(),
       getNotificationSettings(),
@@ -31,6 +33,7 @@ export async function GET() {
 /** PUT /api/settings — update income and/or notification settings. */
 export async function PUT(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const body = await req.json().catch(() => ({}))
     const { income, notifications } = body as {
       income?: Partial<IncomeSettings>

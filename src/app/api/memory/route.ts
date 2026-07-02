@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { listMemories, upsertMemory } from '@/lib/memory'
 
 export const runtime = 'nodejs'

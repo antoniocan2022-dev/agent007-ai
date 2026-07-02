@@ -657,5 +657,7 @@ export function friendlyLlmError(e: any): string {
   if (lower.includes('timeout') || lower.includes('timed out')) {
     return '⏱️ Agent007\'s AI provider took too long to respond. Please try again.'
   }
-  return `⚠️ Agent007 hit an unexpected error while calling its AI provider. Please try again shortly.`
+  return `⚠️ ${raw.slice(0, 200)}
+
+This may be a temporary issue. Try again, or if it persists, add an OPENAI_API_KEY in Settings → API Keys.`
 }

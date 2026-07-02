@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbReady } from '@/lib/db'
 import { getSessionUserId } from '@/lib/session-user'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
+    await ensureDbReady().catch(() => {})
     const userId = await getSessionUserId()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const accounts = await db.bankAccount.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } })
@@ -15,6 +16,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureDbReady().catch(() => {})
     const userId = await getSessionUserId()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const body = await req.json()
