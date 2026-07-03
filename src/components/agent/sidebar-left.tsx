@@ -117,16 +117,7 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (confirm('Delete this conversation?')) deleteConversation(c.id)
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-[#5b6a92] hover:text-pink-300 transition flex-shrink-0"
-                      aria-label="Delete conversation"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {/* Delete button removed — history is preserved permanently */}
                   </div>
                 </motion.div>
               )

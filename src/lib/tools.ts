@@ -1280,3 +1280,21 @@ TOOL_REGISTRY.niche_discovery_agent = { fn: toolNicheDiscoveryAgent, icon: 'comp
 // 6. Financial Management (2)
 TOOL_REGISTRY.budget_forecaster = { fn: toolBudgetForecaster, icon: 'dollar-sign', label: 'Budget Forecaster (income + expenses + cash flow)' }
 TOOL_REGISTRY.tax_optimizer = { fn: toolTaxOptimizer, icon: 'receipt', label: 'Tax Optimizer (deductions + entity comparison)' }
+
+/* ================================================================== *
+ * 5 MAX IMPROVEMENT TOOLS — see max-improvements.ts
+ * Autonomous email, log explorer, dynamic KPIs, market adaptation, revenue prioritization
+ * ================================================================== */
+import {
+  toolAutonomousEmailSender,
+  toolLogExplorer,
+  toolDynamicKpiEngine,
+  toolMarketAdaptationEngine,
+  toolRevenuePrioritizationEngine,
+} from './max-improvements'
+
+TOOL_REGISTRY.autonomous_email_sender = { fn: toolAutonomousEmailSender, icon: 'send', label: 'Autonomous Email/Message Sender (sends directly, no user click)' }
+TOOL_REGISTRY.log_explorer = { fn: toolLogExplorer, icon: 'file-text', label: 'Log Explorer (read any log file on demand)' }
+TOOL_REGISTRY.dynamic_kpi_engine = { fn: toolDynamicKpiEngine, icon: 'bar-chart', label: 'Dynamic KPI Engine (auto-update metrics, no manual intervention)' }
+TOOL_REGISTRY.market_adaptation_engine = { fn: toolMarketAdaptationEngine, icon: 'globe', label: 'Market Adaptation Engine (auto-detect trends + adjust strategy)' }
+TOOL_REGISTRY.revenue_prioritization_engine = { fn: toolRevenuePrioritizationEngine, icon: 'target', label: 'Revenue Prioritization Engine (rank sub-agents by revenue potential)' }
