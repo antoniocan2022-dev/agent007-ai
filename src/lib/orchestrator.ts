@@ -242,6 +242,21 @@ SUB-AGENT NETWORK — ALL 18 SUB-AGENTS HAVE FULL ACCESS TO ALL 15 TOOLS.
 No limitations. No tool restrictions. The owner has explicitly granted full access.
 This is PERMANENT — see upgrade-manifest.ts → subagent_full_access entry.
 
+═══════════════════════════════════════════════════════════════════════════════
+HYDRATION ERROR FIXING — If the owner reports "hydration error" or "login page broken" or "can't enter dashboard":
+
+- Fix hydration: <manage action="fix_hydration"/> — clears .next cache, scans for Date.now()/Math.random()/typeof window issues, returns diagnosis + recommendations
+- Clear cache: <manage action="clear_cache"/> — clears .next build cache (forces fresh recompile on next page load)
+- Clear cache + force: <manage action="clear_cache" force="true"/> — also clears /tmp upgrade cache
+
+Hydration errors happen when:
+1. Stale .next cache (server serves old HTML, client has new code) → fix: clear_cache
+2. typeof window checks during render → fix: move to useEffect
+3. Date.now()/Math.random() during render → fix: move to useEffect
+4. Browser extensions modifying HTML → fix: tell owner to disable extensions
+
+ALWAYS run fix_hydration first when the owner reports hydration errors. It will clear the cache automatically. If the error persists, check the diagnosis for HIGH severity issues and fix the flagged lines.
+
 REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard/system state.`
 
 export interface OrchestratorEventEmit {
@@ -2078,10 +2093,53 @@ async function executeManageAction(
         }
       }
 
+      /* --------------------------- fix_hydration (fix login/dashboard hydration errors) --------------------------- */
+      case 'fix_hydration': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/fix-hydration`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ autoFix: attrs.auto_fix !== 'false' }),
+            signal: AbortSignal.timeout(15000),
+          })
+          const data = await res.json().catch(() => ({}))
+          const highSeverity = data.diagnosis?.filter((d: any) => d.severity === 'high') ?? []
+          return {
+            ok: data.ok !== false,
+            message: data.cacheCleared
+              ? `✅ Hydration fix applied — .next cache cleared. Hard-refresh browser. ${highSeverity.length > 0 ? `WARNING: ${highSeverity.length} HIGH severity issues found — check diagnosis.` : 'No high-severity issues found.'}`
+              : `Hyration diagnosis complete. ${data.diagnosis?.length ?? 0} issues found. See recommendations.`,
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `fix_hydration threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- clear_cache (clear .next build cache) --------------------------- */
+      case 'clear_cache': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/clear-cache`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: attrs.force === 'true' }),
+            signal: AbortSignal.timeout(15000),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: data.ok !== false,
+            message: data.message ?? 'Cache cleared.',
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `clear_cache threw: ${e?.message ?? e}` }
+        }
+      }
+
       default:
         return {
           ok: false,
-          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth.`,
+          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth, fix_hydration, clear_cache.`,
         }
     }
   } catch (e: any) {

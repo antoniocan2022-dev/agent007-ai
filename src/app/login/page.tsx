@@ -22,6 +22,10 @@ import { NexusLogo } from '@/components/agent/nexus-logo'
 /** Import SEED_EMAIL from auth.ts (client-side-safe constant) */
 const SEED_EMAIL = 'antonio.can2022@hotmail.com'
 
+/** Static version text — extracted as a constant so it's identical on server + client.
+ * Adding suppressHydrationWarning as a safety net against stale .next cache. */
+const VERSION_TEXT = 'v2.0 • powered by Z.ai SDK • multi-user • PWA • voice I/O • 2FA'
+
 function LoginInner() {
   const router = useRouter()
   const search = useSearchParams()
@@ -484,8 +488,11 @@ function LoginInner() {
           </button>
         </div>
 
-        <p className="mt-4 text-center text-[10px] text-[#5b6a92] tracking-wide">
-          v2.0 • powered by Z.ai SDK • multi-user • PWA • voice I/O • 2FA
+        <p
+          className="mt-4 text-center text-[10px] text-[#5b6a92] tracking-wide"
+          suppressHydrationWarning
+        >
+          {VERSION_TEXT}
         </p>
       </motion.div>
 

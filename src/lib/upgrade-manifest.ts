@@ -141,6 +141,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/upgrade-manifest.ts', 'src/app/api/system/manifest/route.ts'],
   },
+  {
+    id: 'hydration_error_fix',
+    category: 'self_heal',
+    title: 'Hydration Error Auto-Fix (Login + Dashboard)',
+    description: 'Login page version text extracted to constant + suppressHydrationWarning added. /api/system/fix-hydration endpoint clears .next cache + scans for typeof window/Date.now/Math.random issues. /api/system/clear-cache endpoint forces fresh recompile. Agent007 can fix hydration errors autonomously via fix_hydration and clear_cache manage actions.',
+    dateApplied: '2026-07-03',
+    permanent: true,
+    files: ['src/app/login/page.tsx', 'src/app/api/system/fix-hydration/route.ts', 'src/app/api/system/clear-cache/route.ts', 'src/lib/orchestrator.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

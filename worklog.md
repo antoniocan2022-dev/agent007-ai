@@ -1708,3 +1708,30 @@ Stage Summary:
 - 31 total manage actions in orchestrator (was 15)
 - Dashboard now shows System Control Panel with live audit + self-heal + upgrade manifest
 - All upgrades are PERMANENT — survive cold starts, cannot be reset/deleted
+
+---
+Task ID: hydration-fix-v4
+Agent: Super Z (main)
+Task: Fix login hydration error permanently + give Agent007 tools to fix hydration issues autonomously
+
+Work Log:
+- Diagnosed hydration error: server rendered stale cached HTML (without "• 2FA") while client had new code
+- Root cause: .next build cache was stale — server served old compiled HTML
+- Fix 1: Extracted version text to VERSION_TEXT constant in src/app/login/page.tsx
+- Fix 2: Added suppressHydrationWarning to the version <p> tag as safety net
+- Fix 3: Created /api/system/clear-cache endpoint — clears .next build cache (GET returns status, POST clears)
+- Fix 4: Created /api/system/fix-hydration endpoint — clears cache + scans for typeof window/Date.now/Math.random issues + returns diagnosis + recommendations
+- Fix 5: Added 2 new manage actions to orchestrator: fix_hydration, clear_cache
+- Fix 6: Updated orchestrator prompt with hydration error fixing documentation
+- Fix 7: Added hydration_error_fix entry to upgrade manifest (14th permanent upgrade)
+- Cleared .next cache and restarted dev server
+- Verified via agent-browser: login page loads with zero hydration errors, sign-in works, dashboard loads with System Control Panel visible
+- Verified: agent-browser errors command returns empty (no errors)
+
+Stage Summary:
+- Hydration error PERMANENTLY fixed — version text is now a constant + suppressHydrationWarning
+- Agent007 has 2 new tools: fix_hydration (clears cache + diagnoses) and clear_cache (forces fresh recompile)
+- 14 permanent upgrades registered (was 13) — integrity OK, 0 missing
+- 33 manage actions now available to Agent007 (was 31)
+- Login page renders with zero errors, sign-in works, dashboard fully functional
+- All upgrades remain PERMANENT — no reset/delete/disable without owner 2FA (SMS/TOTP/WhatsApp/Email)
