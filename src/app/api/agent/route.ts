@@ -78,6 +78,11 @@ export async function POST(req: NextRequest) {
       const emit: OrchestratorEventEmit = async (event: string, data: any) => {
         safeEnqueue(sse(event, data))
       }
+
+      // SSE HEARTBEAT — keeps connection alive during long LLM calls
+      const heartbeat = setInterval(() => {
+        safeEnqueue(sse('ping', { ts: Date.now() }))
+      }, 5000)
       // Mark this request as "interactive" so the /api/schedules/tick endpoint
       // defers any scheduled runs until we're done. User-initiated chats always
       // get priority over scheduled autonomous missions.
@@ -94,6 +99,7 @@ export async function POST(req: NextRequest) {
       } catch (e: any) {
         safeEnqueue(sse('error', { message: e?.message ?? String(e) }))
       } finally {
+        clearInterval(heartbeat)
         endInteractive()
         try {
           controller.close()

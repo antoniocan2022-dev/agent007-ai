@@ -28,6 +28,9 @@ function LoginInner() {
   const [email, setEmail] = useState(SEED_EMAIL)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [requires2FA, setRequires2FA] = useState(false)
+  const [twofaCode, setTwofaCode] = useState('')
+  const [twofaUserId, setTwofaUserId] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   // Forgot-password modal state
@@ -41,7 +44,44 @@ function LoginInner() {
       const el = document.getElementById('agent007-password') as HTMLInputElement | null
       el?.focus()
     }, 300)
-    return () => clearTimeout(t)
+    const verify2FA = async () => {
+    if (!twofaCode || !twofaUserId) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const verifyRes = await fetch('/api/2fa/verify-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: twofaUserId, code: twofaCode }),
+      })
+      const verifyData = await verifyRes.json()
+      if (verifyData.ok) {
+        // 2FA verified — sign in with twofaVerified flag
+        const signRes = await signIn('credentials', {
+          email: email.trim().toLowerCase(),
+          password,
+          twofaVerified: 'true',
+          redirect: false,
+          callbackUrl,
+        })
+        if (!signRes || signRes.error) {
+          setError('2FA verified but login failed. Try again.')
+          setSubmitting(false)
+          return
+        }
+        router.push(callbackUrl)
+        router.refresh()
+      } else {
+        setError(verifyData.error || 'Invalid 2FA code. Try again.')
+        setSubmitting(false)
+      }
+    } catch (e: any) {
+      setError(e?.message || '2FA verification failed')
+      setSubmitting(false)
+    }
+  }
+
+  return () => clearTimeout(t)
   }, [])
 
   const onSubmit = async (e: React.FormEvent) => {
