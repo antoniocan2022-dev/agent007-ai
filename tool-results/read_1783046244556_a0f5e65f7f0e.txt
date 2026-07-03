@@ -1,0 +1,602 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useCallback, useEffect, useState } from 'react'
+     4→     4→import {
+     5→     5→  TrendingUp,
+     6→     6→  TrendingDown,
+     7→     7→  Plus,
+     8→     8→  Settings as SettingsIcon,
+     9→     9→  Trash2,
+    10→    10→  DollarSign,
+    11→    11→  Calendar,
+    12→    12→  Target,
+    13→    13→  Activity,
+    14→    14→  Loader2,
+    15→    15→  AlertCircle,
+    16→    16→  X,
+    17→    17→} from 'lucide-react'
+    18→    18→import { motion, AnimatePresence } from 'framer-motion'
+    19→    19→import {
+    20→    20→  ResponsiveContainer,
+    21→    21→  AreaChart,
+    22→    22→  Area,
+    23→    23→  LineChart,
+    24→    24→  Line,
+    25→    25→  XAxis,
+    26→    26→  YAxis,
+    27→    27→  Tooltip,
+    28→    28→  CartesianGrid,
+    29→    29→  ReferenceLine,
+    30→    30→} from 'recharts'
+    31→    31→import { useChatStore } from '@/store/chat-store'
+    32→    32→
+    33→    33→/* ----------------------------- types ----------------------------- */
+    34→    34→interface IncomeEntry {
+    35→    35→  id: string
+    36→    36→  amount: number
+    37→    37→  source: string
+    38→    38→  notes: string | null
+    39→    39→  date: string
+    40→    40→  createdAt: string
+    41→    41→}
+    42→    42→interface Aggregates {
+    43→    43→  today: number
+    44→    44→  yesterday: number
+    45→    45→  month: number
+    46→    46→  total: number
+    47→    47→  count: number
+    48→    48→  last7Total: number
+    49→    49→  last7Days: Array<{ date: string; label: string; total: number }>
+    50→    50→}
+    51→    51→interface IncomeData {
+    52→    52→  entries: IncomeEntry[]
+    53→    53→  aggregates: Aggregates
+    54→    54→}
+    55→    55→interface IncomeSettings {
+    56→    56→  monthlyGoal: number
+    57→    57→  dailyGrowthTarget: number
+    58→    58→  currencySymbol: string
+    59→    59→  displayMode: 'compact' | 'detailed'
+    60→    60→}
+    61→    61→
+    62→    62→/* ----------------------------- Dashboard tab ----------------------------- */
+    63→    63→export function DashboardTab() {
+    64→    64→  const [data, setData] = useState<IncomeData | null>(null)
+    65→    65→  const [loading, setLoading] = useState(true)
+    66→    66→  const [error, setError] = useState('')
+    67→    67→  const [settings, setSettings] = useState<IncomeSettings>({
+    68→    68→    monthlyGoal: 1000,
+    69→    69→    dailyGrowthTarget: 10,
+    70→    70→    currencySymbol: '$',
+    71→    71→    displayMode: 'detailed',
+    72→    72→  })
+    73→    73→  const [addModalOpen, setAddModalOpen] = useState(false)
+    74→    74→  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+    75→    75→
+    76→    76→  const loadIncome = useCallback(async () => {
+    77→    77→    try {
+    78→    78→      const res = await fetch('/api/income')
+    79→    79→      const json = await res.json()
+    80→    80→      if (json.error) throw new Error(json.error)
+    81→    81→      setData(json)
+    82→    82→      setError('')
+    83→    83→    } catch (e: any) {
+    84→    84→      setError(e?.message ?? 'Failed to load income data')
+    85→    85→    } finally {
+    86→    86→      setLoading(false)
+    87→    87→    }
+    88→    88→  }, [])
+    89→    89→
+    90→    90→  const loadSettings = useCallback(async () => {
+    91→    91→    try {
+    92→    92→      const res = await fetch('/api/settings')
+    93→    93→      const json = await res.json()
+    94→    94→      if (json.income) setSettings(json.income)
+    95→    95→    } catch {
+    96→    96→      /* ignore */
+    97→    97→    }
+    98→    98→  }, [])
+    99→    99→
+   100→   100→  // Initial load + seed if empty
+   101→   101→  useEffect(() => {
+   102→   102→    ;(async () => {
+   103→   103→      // Try to seed if empty so the dashboard isn't blank
+   104→   104→      try {
+   105→   105→        await fetch('/api/income', {
+   106→   106→          method: 'POST',
+   107→   107→          headers: { 'Content-Type': 'application/json' },
+   108→   108→          body: JSON.stringify({ seedIfEmpty: true }),
+   109→   109→        })
+   110→   110→      } catch {
+   111→   111→        /* ignore */
+   112→   112→      }
+   113→   113→      await loadIncome()
+   114→   114→      await loadSettings()
+   115→   115→    })()
+   116→   116→  }, [loadIncome, loadSettings])
+   117→   117→
+   118→   118→  // Also tick the scheduler every 60s while the dashboard is mounted
+   119→   119→  useEffect(() => {
+   120→   120→    const tick = () => {
+   121→   121→      fetch('/api/schedules/tick', { method: 'POST' }).catch(() => {/* ignore */})
+   122→   122→    }
+   123→   123→    tick()
+   124→   124→    const id = setInterval(tick, 60_000)
+   125→   125→    return () => clearInterval(id)
+   126→   126→  }, [])
+   127→   127→
+   128→   128→  const today = data?.aggregates.today ?? 0
+   129→   129→  const yesterday = data?.aggregates.yesterday ?? 0
+   130→   130→  const growthPct =
+   131→   131→    yesterday > 0 ? ((today - yesterday) / yesterday) * 100 : today > 0 ? 100 : 0
+   132→   132→  const monthTotal = data?.aggregates.month ?? 0
+   133→   133→  const monthPct = settings.monthlyGoal > 0 ? Math.min(100, (monthTotal / settings.monthlyGoal) * 100) : 0
+   134→   134→  const recent = data?.entries?.slice(0, 8) ?? []
+   135→   135→
+   136→   136→  return (
+   137→   137→    <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+   138→   138→      <div className="flex-1 overflow-y-auto scroll-cyan p-4 sm:p-6">
+   139→   139→        <div className="max-w-6xl mx-auto">
+   140→   140→          {/* Header */}
+   141→   141→          <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
+   142→   142→            <div>
+   143→   143→              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+   144→   144→                <span className="neon-text-cyan">Income</span>{' '}
+   145→   145→                <span className="neon-text-purple">Tracker</span>
+   146→   146→              </h1>
+   147→   147→              <p className="text-xs text-[#7c89b5] mt-1 tracking-wide">
+   148→   148→                Mission: $20,000/month passive income • 20% monthly growth • Full autonomous authority
+   149→   149→              </p>
+   150→   150→            </div>
+   151→   151→            <div className="flex items-center gap-2 flex-wrap">
+   152→   152→              <button
+   153→   153→                onClick={() => setSettingsModalOpen(true)}
+   154→   154→                className="h-9 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-xs font-semibold tracking-wider flex items-center gap-1.5 transition"
+   155→   155→                aria-label="Dashboard settings"
+   156→   156→                style={{ touchAction: 'manipulation' }}
+   157→   157→              >
+   158→   158→                <SettingsIcon className="w-3.5 h-3.5" />
+   159→   159→                <span className="hidden sm:inline">SETTINGS</span>
+   160→   160→              </button>
+   161→   161→              <button
+   162→   162→                onClick={() => setAddModalOpen(true)}
+   163→   163→                className="h-9 px-4 rounded-lg neon-btn-cyan text-xs font-bold tracking-wider flex items-center gap-1.5"
+   164→   164→                style={{ touchAction: 'manipulation' }}
+   165→   165→              >
+   166→   166→                <Plus className="w-3.5 h-3.5" />
+   167→   167→                ADD INCOME
+   168→   168→              </button>
+   169→   169→            </div>
+   170→   170→          </div>
+   171→   171→
+   172→   172→          {loading ? (
+   173→   173→            <div className="flex items-center justify-center py-20 text-[#7c89b5]">
+   174→   174→              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+   175→   175→              Loading income data…
+   176→   176→            </div>
+   177→   177→          ) : error ? (
+   178→   178→            <div className="glass rounded-xl p-4 border border-pink-400/40 text-pink-200 text-sm flex items-start gap-2">
+   179→   179→              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+   180→   180→              <div>
+   181→   181→                <div className="font-semibold mb-1">Failed to load dashboard</div>
+   182→   182→                <div className="text-xs text-[#cfd9f0]">{error}</div>
+   183→   183→              </div>
+   184→   184→            </div>
+   185→   185→          ) : (
+   186→   186→            <>
+   187→   187→              {/* Top KPI cards */}
+   188→   188→              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+   189→   189→                <KpiCard
+   190→   190→                  label="TODAY'S INCOME"
+   191→   191→                  value={`${settings.currencySymbol}${today.toFixed(2)}`}
+   192→   192→                  icon={<DollarSign className="w-4 h-4 text-cyan-300" />}
+   193→   193→                  accent="cyan"
+   194→   194→                  big
+   195→   195→                />
+   196→   196→                <KpiCard
+   197→   197→                  label="YESTERDAY"
+   198→   198→                  value={`${settings.currencySymbol}${yesterday.toFixed(2)}`}
+   199→   199→                  icon={<Calendar className="w-4 h-4 text-purple-300" />}
+   200→   200→                  accent="purple"
+   201→   201→                />
+   202→   202→                <GrowthCard
+   203→   203→                  pct={growthPct}
+   204→   204→                  target={settings.dailyGrowthTarget}
+   205→   205→                  currencySymbol={settings.currencySymbol}
+   206→   206→                />
+   207→   207→                <KpiCard
+   208→   208→                  label="THIS MONTH"
+   209→   209→                  value={`${settings.currencySymbol}${monthTotal.toFixed(2)}`}
+   210→   210→                  sub={`Goal: ${settings.currencySymbol}${settings.monthlyGoal.toFixed(0)}`}
+   211→   211→                  icon={<Target className="w-4 h-4 text-pink-300" />}
+   212→   212→                  accent="pink"
+   213→   213→                />
+   214→   214→              </div>
+   215→   215→
+   216→   216→              {/* 7-day chart + monthly progress */}
+   217→   217→              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
+   218→   218→                <div className="lg:col-span-2 glass rounded-xl p-4">
+   219→   219→                  <div className="flex items-center justify-between mb-3">
+   220→   220→                    <div className="flex items-center gap-2">
+   221→   221→                      <Activity className="w-4 h-4 text-cyan-300" />
+   222→   222→                      <h3 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">
+   223→   223→                        7-DAY INCOME TREND
+   224→   224→                      </h3>
+   225→   225→                    </div>
+   226→   226→                    <span className="text-[10px] text-[#7c89b5] tracking-wider">
+   227→   227→                      Total: {settings.currencySymbol}
+   228→   228→                      {(data?.aggregates.last7Total ?? 0).toFixed(2)}
+   229→   229→                    </span>
+   230→   230→                  </div>
+   231→   231→                  <div className="h-48 sm:h-56 w-full">
+   232→   232→                    <ResponsiveContainer width="100%" height="100%">
+   233→   233→                      <AreaChart data={data?.aggregates.last7Days ?? []} margin={{ top: 6, right: 6, left: -16, bottom: 0 }}>
+   234→   234→                        <defs>
+   235→   235→                          <linearGradient id="income-grad" x1="0" y1="0" x2="0" y2="1">
+   236→   236→                            <stop offset="0%" stopColor="#00f0ff" stopOpacity={0.6} />
+   237→   237→                            <stop offset="100%" stopColor="#00f0ff" stopOpacity={0.02} />
+   238→   238→                          </linearGradient>
+   239→   239→                        </defs>
+   240→   240→                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,240,255,0.08)" />
+   241→   241→                        <XAxis
+   242→   242→                          dataKey="label"
+   243→   243→                          tick={{ fill: '#7c89b5', fontSize: 11 }}
+   244→   244→                          tickLine={{ stroke: 'rgba(0,240,255,0.2)' }}
+   245→   245→                          axisLine={{ stroke: 'rgba(0,240,255,0.15)' }}
+   246→   246→                        />
+   247→   247→                        <YAxis
+   248→   248→                          tick={{ fill: '#7c89b5', fontSize: 11 }}
+   249→   249→                          tickLine={{ stroke: 'rgba(0,240,255,0.2)' }}
+   250→   250→                          axisLine={{ stroke: 'rgba(0,240,255,0.15)' }}
+   251→   251→                        />
+   252→   252→                        <Tooltip
+   253→   253→                          contentStyle={{
+   254→   254→                            background: 'rgba(8,10,22,0.95)',
+   255→   255→                            border: '1px solid rgba(0,240,255,0.4)',
+   256→   256→                            borderRadius: '8px',
+   257→   257→                            color: '#e0e7ff',
+   258→   258→                            fontSize: '12px',
+   259→   259→                            boxShadow: '0 0 18px rgba(0,240,255,0.25)',
+   260→   260→                          }}
+   261→   261→                          labelStyle={{ color: '#00f0ff' }}
+   262→   262→                          formatter={(v: any) => [`${settings.currencySymbol}${Number(v).toFixed(2)}`, 'Income']}
+   263→   263→                        />
+   264→   264→                        <Area
+   265→   265→                          type="monotone"
+   266→   266→                          dataKey="total"
+   267→   267→                          stroke="#00f0ff"
+   268→   268→                          strokeWidth={2.5}
+   269→   269→                          fill="url(#income-grad)"
+   270→   270→                          dot={{ r: 3, fill: '#00f0ff', strokeWidth: 0 }}
+   271→   271→                          activeDot={{ r: 5, fill: '#a855f7' }}
+   272→   272→                        />
+   273→   273→                        <ReferenceLine
+   274→   274→                          y={yesterday}
+   275→   275→                          stroke="#a855f7"
+   276→   276→                          strokeDasharray="4 4"
+   277→   277→                          strokeWidth={1}
+   278→   278→                          label={{ value: 'Yesterday', fill: '#a855f7', fontSize: 10, position: 'insideTopRight' }}
+   279→   279→                        />
+   280→   280→                      </AreaChart>
+   281→   281→                    </ResponsiveContainer>
+   282→   282→                  </div>
+   283→   283→                </div>
+   284→   284→
+   285→   285→                <div className="glass rounded-xl p-4">
+   286→   286→                  <div className="flex items-center justify-between mb-3">
+   287→   287→                    <div className="flex items-center gap-2">
+   288→   288→                      <Target className="w-4 h-4 text-pink-300" />
+   289→   289→                      <h3 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">
+   290→   290→                        MONTHLY GOAL
+   291→   291→                      </h3>
+   292→   292→                    </div>
+   293→   293→                    <span className="text-[10px] text-[#7c89b5]">
+   294→   294→                      {monthPct.toFixed(0)}%
+   295→   295→                    </span>
+   296→   296→                  </div>
+   297→   297→                  <div className="flex flex-col gap-3 mt-2">
+   298→   298→                    <div>
+   299→   299→                      <div className="flex items-baseline gap-2 mb-2">
+   300→   300→                        <span className="text-2xl sm:text-3xl font-bold neon-text-cyan">
+   301→   301→                          {settings.currencySymbol}
+   302→   302→                          {monthTotal.toFixed(2)}
+   303→   303→                        </span>
+   304→   304→                        <span className="text-xs text-[#7c89b5]">
+   305→   305→                          / {settings.currencySymbol}
+   306→   306→                          {settings.monthlyGoal.toFixed(0)}
+   307→   307→                        </span>
+   308→   308→                      </div>
+   309→   309→                      <div className="h-3 rounded-full bg-[#0a1020] overflow-hidden border border-cyan-400/15">
+   310→   310→                        <motion.div
+   311→   311→                          className="h-full rounded-full"
+   312→   312→                          style={{
+   313→   313→                            background:
+   314→   314→                              'linear-gradient(90deg, #00f0ff 0%, #a855f7 70%, #ec4899 100%)',
+   315→   315→                            boxShadow: '0 0 12px rgba(0,240,255,0.5)',
+   316→   316→                          }}
+   317→   317→                          initial={{ width: 0 }}
+   318→   318→                          animate={{ width: `${monthPct}%` }}
+   319→   319→                          transition={{ duration: 0.6, ease: 'easeOut' }}
+   320→   320→                        />
+   321→   321→                      </div>
+   322→   322→                      <div className="text-[10px] text-[#5b6a92] mt-1.5 tracking-wide">
+   323→   323→                        {settings.currencySymbol}
+   324→   324→                        {Math.max(0, settings.monthlyGoal - monthTotal).toFixed(2)} remaining to hit goal
+   325→   325→                      </div>
+   326→   326→                    </div>
+   327→   327→                    {/* Goal vs actual sparkline */}
+   328→   328→                    <div className="h-20 w-full">
+   329→   329→                      <ResponsiveContainer width="100%" height="100%">
+   330→   330→                        <LineChart data={data?.aggregates.last7Days ?? []}>
+   331→   331→                          <Line
+   332→   332→                            type="monotone"
+   333→   333→                            dataKey="total"
+   334→   334→                            stroke="#00f0ff"
+   335→   335→                            strokeWidth={2}
+   336→   336→                            dot={false}
+   337→   337→                          />
+   338→   338→                          <ReferenceLine
+   339→   339→                            y={settings.monthlyGoal / 30}
+   340→   340→                            stroke="#ec4899"
+   341→   341→                            strokeDasharray="3 3"
+   342→   342→                            strokeWidth={1}
+   343→   343→                          />
+   344→   344→                          <Tooltip
+   345→   345→                            contentStyle={{
+   346→   346→                              background: 'rgba(8,10,22,0.95)',
+   347→   347→                              border: '1px solid rgba(0,240,255,0.4)',
+   348→   348→                              borderRadius: '8px',
+   349→   349→                              color: '#e0e7ff',
+   350→   350→                              fontSize: '11px',
+   351→   351→                            }}
+   352→   352→                            formatter={(v: any) => [`${settings.currencySymbol}${Number(v).toFixed(2)}`, 'Actual']}
+   353→   353→                          />
+   354→   354→                        </LineChart>
+   355→   355→                      </ResponsiveContainer>
+   356→   356→                    </div>
+   357→   357→                    <div className="flex items-center justify-between text-[10px] text-[#5b6a92] tracking-wide">
+   358→   358→                      <span className="flex items-center gap-1">
+   359→   359→                        <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />
+   360→   360→                        Actual
+   361→   361→                      </span>
+   362→   362→                      <span className="flex items-center gap-1">
+   363→   363→                        <span className="w-2 h-2 rounded-full bg-pink-400 inline-block" />
+   364→   364→                        Target ({settings.currencySymbol}
+   365→   365→                        {(settings.monthlyGoal / 30).toFixed(2)}/day)
+   366→   366→                      </span>
+   367→   367→                    </div>
+   368→   368→                  </div>
+   369→   369→                </div>
+   370→   370→              </div>
+   371→   371→
+   372→   372→              {/* Recent income events */}
+   373→   373→              <div className="glass rounded-xl p-4">
+   374→   374→                <div className="flex items-center justify-between mb-3">
+   375→   375→                  <div className="flex items-center gap-2">
+   376→   376→                    <Activity className="w-4 h-4 text-cyan-300" />
+   377→   377→                    <h3 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">
+   378→   378→                      RECENT INCOME EVENTS
+   379→   379→                    </h3>
+   380→   380→                  </div>
+   381→   381→                  <span className="text-[10px] text-[#5b6a92] tracking-wider">
+   382→   382→                    {data?.aggregates.count ?? 0} total entries
+   383→   383→                  </span>
+   384→   384→                </div>
+   385→   385→                {recent.length === 0 ? (
+   386→   386→                  <div className="text-center py-8 text-[#5b6a92] text-xs">
+   387→   387→                    No income events yet. Click <span className="text-cyan-300 font-semibold">+ ADD INCOME</span> to log your first one.
+   388→   388→                  </div>
+   389→   389→                ) : (
+   390→   390→                  <div className="space-y-1.5 max-h-80 overflow-y-auto scroll-cyan pr-1">
+   391→   391→                    {recent.map((e) => (
+   392→   392→                      <IncomeRow
+   393→   393→                        key={e.id}
+   394→   394→                        entry={e}
+   395→   395→                        currencySymbol={settings.currencySymbol}
+   396→   396→                        onDelete={async () => {
+   397→   397→                          try {
+   398→   398→                            await fetch(`/api/income?id=${e.id}`, { method: 'DELETE' })
+   399→   399→                            await loadIncome()
+   400→   400→                          } catch {
+   401→   401→                            /* ignore */
+   402→   402→                          }
+   403→   403→                        }}
+   404→   404→                      />
+   405→   405→                    ))}
+   406→   406→                  </div>
+   407→   407→                )}
+   408→   408→              </div>
+   409→   409→            </>
+   410→   410→          )}
+   411→   411→        </div>
+   412→   412→      </div>
+   413→   413→
+   414→   414→      <AnimatePresence>
+   415→   415→        {addModalOpen && (
+   416→   416→          <AddIncomeModal
+   417→   417→            onClose={() => setAddModalOpen(false)}
+   418→   418→            onSaved={async () => {
+   419→   419→              setAddModalOpen(false)
+   420→   420→              await loadIncome()
+   421→   421→            }}
+   422→   422→          />
+   423→   423→        )}
+   424→   424→        {settingsModalOpen && (
+   425→   425→          <DashboardSettingsModal
+   426→   426→            initial={settings}
+   427→   427→            onClose={() => setSettingsModalOpen(false)}
+   428→   428→            onSaved={async (s) => {
+   429→   429→              setSettings(s)
+   430→   430→              setSettingsModalOpen(false)
+   431→   431→            }}
+   432→   432→          />
+   433→   433→        )}
+   434→   434→      </AnimatePresence>
+   435→   435→    </main>
+   436→   436→  )
+   437→   437→}
+   438→   438→
+   439→   439→/* ----------------------------- KPI card ----------------------------- */
+   440→   440→function KpiCard({
+   441→   441→  label,
+   442→   442→  value,
+   443→   443→  sub,
+   444→   444→  icon,
+   445→   445→  accent,
+   446→   446→  big,
+   447→   447→}: {
+   448→   448→  label: string
+   449→   449→  value: string
+   450→   450→  sub?: string
+   451→   451→  icon: React.ReactNode
+   452→   452→  accent: 'cyan' | 'purple' | 'pink'
+   453→   453→  big?: boolean
+   454→   454→}) {
+   455→   455→  const colorMap = {
+   456→   456→    cyan: 'text-cyan-300 border-cyan-400/30',
+   457→   457→    purple: 'text-purple-300 border-purple-400/30',
+   458→   458→    pink: 'text-pink-300 border-pink-400/30',
+   459→   459→  }
+   460→   460→  return (
+   461→   461→    <div className="glass rounded-xl p-3 sm:p-4">
+   462→   462→      <div className="flex items-center justify-between mb-2">
+   463→   463→        <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold">
+   464→   464→          {label}
+   465→   465→        </span>
+   466→   466→        <div className={`w-7 h-7 rounded-md flex items-center justify-center bg-[#0a1020] border ${colorMap[accent]}`}>
+   467→   467→          {icon}
+   468→   468→        </div>
+   469→   469→      </div>
+   470→   470→      <div className={`${big ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'} font-bold neon-text-cyan`}>
+   471→   471→        {value}
+   472→   472→      </div>
+   473→   473→      {sub && <div className="text-[10px] text-[#5b6a92] mt-1 tracking-wide">{sub}</div>}
+   474→   474→    </div>
+   475→   475→  )
+   476→   476→}
+   477→   477→
+   478→   478→function GrowthCard({
+   479→   479→  pct,
+   480→   480→  target,
+   481→   481→  currencySymbol: _currencySymbol,
+   482→   482→}: {
+   483→   483→  pct: number
+   484→   484→  target: number
+   485→   485→  currencySymbol: string
+   486→   486→}) {
+   487→   487→  const positive = pct >= 0
+   488→   488→  const metTarget = pct >= target
+   489→   489→  return (
+   490→   490→    <div className="glass rounded-xl p-3 sm:p-4">
+   491→   491→      <div className="flex items-center justify-between mb-2">
+   492→   492→        <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold">
+   493→   493→          GROWTH %
+   494→   494→        </span>
+   495→   495→        <div
+   496→   496→          className={`w-7 h-7 rounded-md flex items-center justify-center bg-[#0a1020] border ${
+   497→   497→            positive ? 'text-emerald-300 border-emerald-400/30' : 'text-pink-300 border-pink-400/30'
+   498→   498→          }`}
+   499→   499→        >
+   500→   500→          {positive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+   501→   501→        </div>
+   502→   502→      </div>
+   503→   503→      <div
+   504→   504→        className={`text-2xl sm:text-3xl font-bold ${
+   505→   505→          positive ? 'text-emerald-300' : 'text-pink-300'
+   506→   506→        }`}
+   507→   507→        style={{
+   508→   508→          textShadow: positive
+   509→   509→            ? '0 0 8px rgba(110,231,183,0.6), 0 0 18px rgba(110,231,183,0.3)'
+   510→   510→            : '0 0 8px rgba(236,72,153,0.6), 0 0 18px rgba(236,72,153,0.3)',
+   511→   511→        }}
+   512→   512→      >
+   513→   513→        {positive ? '+' : ''}
+   514→   514→        {pct.toFixed(1)}%
+   515→   515→      </div>
+   516→   516→      <div className="text-[10px] text-[#5b6a92] mt-1 tracking-wide">
+   517→   517→        vs yesterday • target +{target}%
+   518→   518→        {metTarget && <span className="text-emerald-300 ml-1">✓</span>}
+   519→   519→      </div>
+   520→   520→    </div>
+   521→   521→  )
+   522→   522→}
+   523→   523→
+   524→   524→/* ----------------------------- Income row ----------------------------- */
+   525→   525→function IncomeRow({
+   526→   526→  entry,
+   527→   527→  currencySymbol,
+   528→   528→  onDelete,
+   529→   529→}: {
+   530→   530→  entry: IncomeEntry
+   531→   531→  currencySymbol: string
+   532→   532→  onDelete: () => void
+   533→   533→}) {
+   534→   534→  const date = new Date(entry.date)
+   535→   535→  const isSample = entry.source.toLowerCase() === 'sample'
+   536→   536→  return (
+   537→   537→    <div className="flex items-center gap-3 p-2 rounded-lg glass border-cyan-400/15 hover:border-cyan-400/40 transition group">
+   538→   538→      <div
+   539→   539→        className={`w-9 h-9 rounded-md flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+   540→   540→          isSample
+   541→   541→            ? 'bg-[#1a1430] text-purple-200 border border-purple-400/30'
+   542→   542→            : 'bg-cyan-400/10 text-cyan-300 border border-cyan-400/30'
+   543→   543→        }`}
+   544→   544→      >
+   545→   545→        {entry.source.slice(0, 2).toUpperCase()}
+   546→   546→      </div>
+   547→   547→      <div className="flex-1 min-w-0">
+   548→   548→        <div className="flex items-center gap-2 flex-wrap">
+   549→   549→          <span className="text-xs font-semibold text-[#e0e7ff] truncate">{entry.source}</span>
+   550→   550→          {isSample && (
+   551→   551→            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-purple-400/10 border border-purple-400/30 text-purple-200 tracking-wide">
+   552→   552→              SAMPLE
+   553→   553→            </span>
+   554→   554→          )}
+   555→   555→        </div>
+   556→   556→        <div className="text-[10px] text-[#5b6a92] truncate">
+   557→   557→          {date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+   558→   558→          {entry.notes && <span className="ml-2">• {entry.notes.slice(0, 60)}</span>}
+   559→   559→        </div>
+   560→   560→      </div>
+   561→   561→      <div className="text-sm font-bold text-emerald-300 flex-shrink-0">
+   562→   562→        +{currencySymbol}
+   563→   563→        {entry.amount.toFixed(2)}
+   564→   564→      </div>
+   565→   565→      <button
+   566→   566→        onClick={onDelete}
+   567→   567→        className="opacity-0 group-hover:opacity-100 text-pink-300 hover:text-pink-200 transition flex-shrink-0 p-1"
+   568→   568→        aria-label="Delete income entry"
+   569→   569→        style={{ touchAction: 'manipulation' }}
+   570→   570→      >
+   571→   571→        <Trash2 className="w-3.5 h-3.5" />
+   572→   572→      </button>
+   573→   573→    </div>
+   574→   574→  )
+   575→   575→}
+   576→   576→
+   577→   577→/* ----------------------------- Add Income modal ----------------------------- */
+   578→   578→function AddIncomeModal({
+   579→   579→  onClose,
+   580→   580→  onSaved,
+   581→   581→}: {
+   582→   582→  onClose: () => void
+   583→   583→  onSaved: () => void
+   584→   584→}) {
+   585→   585→  const [amount, setAmount] = useState('')
+   586→   586→  const [source, setSource] = useState('manual')
+   587→   587→  const [notes, setNotes] = useState('')
+   588→   588→  const [date, setDate] = useState(() => {
+   589→   589→    const d = new Date()
+   590→   590→    return d.toISOString().slice(0, 10) + 'T' + d.toTimeString().slice(0, 5)
+   591→   591→  })
+   592→   592→  const [submitting, setSubmitting] = useState(false)
+   593→   593→  const [error, setError] = useState('')
+   594→   594→
+   595→   595→  const submit = async (e: React.FormEvent) => {
+   596→   596→    e.preventDefault()
+   597→   597→    if (submitting) return
+   598→   598→    const amt = parseFloat(amount)
+   599→   599→    if (!isFinite(amt) || amt <= 0) {
+   600→   600→      setError('Amount must be a positive number.')
+
+[showing lines 1-600 of 925; use offset=601 with limit to continue reading]

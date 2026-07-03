@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   X,
   HelpCircle,
+  Smartphone,
+  MessageCircle,
 } from 'lucide-react'
 import { NexusLogo } from '@/components/agent/nexus-logo'
 
@@ -28,9 +30,14 @@ function LoginInner() {
   const [email, setEmail] = useState(SEED_EMAIL)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+
+  // 2FA challenge state
   const [requires2FA, setRequires2FA] = useState(false)
   const [twofaCode, setTwofaCode] = useState('')
   const [twofaUserId, setTwofaUserId] = useState('')
+  const [twofaMethod, setTwofaMethod] = useState<string>('email')
+  const [twofaMessage, setTwofaMessage] = useState<string>('')
+  const [resendCooldown, setResendCooldown] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
   // Forgot-password modal state
@@ -38,14 +45,94 @@ function LoginInner() {
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  // small UX nudge: focus the password field on mount (email is pre-filled)
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const t = setTimeout(() => setResendCooldown((c) => Math.max(0, c - 1)), 1000)
+    return () => clearTimeout(t)
+  }, [resendCooldown])
+
+  // Auto-focus the password field on initial mount
   useEffect(() => {
     const t = setTimeout(() => {
       const el = document.getElementById('agent007-password') as HTMLInputElement | null
       el?.focus()
     }, 300)
-    const verify2FA = async () => {
-    if (!twofaCode || !twofaUserId) return
+    return () => clearTimeout(t)
+  }, [])
+
+  // Auto-focus the 2FA input when 2FA is required
+  useEffect(() => {
+    if (requires2FA) {
+      const t = setTimeout(() => {
+        const el = document.getElementById('agent007-2fa-code') as HTMLInputElement | null
+        el?.focus()
+      }, 200)
+      return () => clearTimeout(t)
+    }
+  }, [requires2FA])
+
+  /* ----- Step 1: Submit credentials → either log in OR trigger 2FA challenge ----- */
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (submitting) return
+    setError('')
+    if (!email.trim() || !password) {
+      setError('Email and password are required.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      // Pre-flight: check whether 2FA is enabled for this account.
+      // This avoids the NextAuth limitation where signIn() hides the
+      // "2FA_REQUIRED" custom error and just returns "CredentialsSignin".
+      const challengeRes = await fetch('/api/2fa/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: e?.message ?? 'Network error' }) } as any))
+
+      const challengeData = await (challengeRes as any).json().catch(() => ({}))
+
+      // If the challenge endpoint explicitly says 2FA is required → show the code input
+      if (challengeRes.status === 200 && challengeData?.requiresTwoFactor) {
+        setRequires2FA(true)
+        setTwofaUserId(challengeData.userId)
+        setTwofaMethod(challengeData.method ?? 'email')
+        setTwofaMessage(challengeData.message ?? `Code sent via ${challengeData.method ?? 'email'}`)
+        setResendCooldown(30)
+        setSubmitting(false)
+        return
+      }
+
+      // Otherwise: proceed with direct signIn (no 2FA enabled)
+      const res = await signIn('credentials', {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+        callbackUrl,
+      })
+      if (!res || res.error) {
+        setError('Invalid email or password. Access denied. Use "Forgot Password?" to reset.')
+        setSubmitting(false)
+        return
+      }
+      // success — route to the dashboard
+      router.push(callbackUrl)
+      router.refresh()
+    } catch (e: any) {
+      setError(e?.message ?? 'Sign-in failed. Try again.')
+      setSubmitting(false)
+    }
+  }
+
+  /* ----- Step 2: Verify the 2FA code, then sign in with twofaVerified flag ----- */
+  const verify2FA = useCallback(async () => {
+    if (!twofaCode || !twofaUserId || submitting) return
+    if (twofaCode.length < 6) {
+      setError('Enter the 6-digit verification code.')
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
@@ -54,9 +141,9 @@ function LoginInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: twofaUserId, code: twofaCode }),
       })
-      const verifyData = await verifyRes.json()
+      const verifyData = await verifyRes.json().catch(() => ({}))
       if (verifyData.ok) {
-        // 2FA verified — sign in with twofaVerified flag
+        // 2FA verified — sign in with twofaVerified flag set so authorize() allows login
         const signRes = await signIn('credentials', {
           email: email.trim().toLowerCase(),
           password,
@@ -79,39 +166,39 @@ function LoginInner() {
       setError(e?.message || '2FA verification failed')
       setSubmitting(false)
     }
+  }, [twofaCode, twofaUserId, submitting, email, password, router, callbackUrl])
+
+  /* ----- Resend the 2FA code ----- */
+  const resend2FA = async () => {
+    if (resendCooldown > 0) return
+    setError('')
+    try {
+      const r = await fetch('/api/2fa/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (d.requiresTwoFactor) {
+        setTwofaMessage(d.message ?? 'New code sent')
+        setResendCooldown(30)
+      } else {
+        setError(d.error ?? 'Failed to resend code')
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Network error')
+    }
   }
 
-  return () => clearTimeout(t)
-  }, [])
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (submitting) return
+  /* ----- Cancel 2FA flow, go back to password ----- */
+  const cancel2FA = () => {
+    setRequires2FA(false)
+    setTwofaCode('')
+    setTwofaUserId('')
+    setTwofaMessage('')
     setError('')
-    if (!email.trim() || !password) {
-      setError('Email and password are required.')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const res = await signIn('credentials', {
-        email: email.trim().toLowerCase(),
-        password,
-        redirect: false,
-        callbackUrl,
-      })
-      if (!res || res.error) {
-        setError('Invalid email or password. Access denied. Use "Forgot Password?" to reset.')
-        setSubmitting(false)
-        return
-      }
-      // success — route to the dashboard
-      router.push(callbackUrl)
-      router.refresh()
-    } catch (e: any) {
-      setError(e?.message ?? 'Sign-in failed. Try again.')
-      setSubmitting(false)
-    }
+    setPassword('')
+    setSubmitting(false)
   }
 
   const onForceReset = async () => {
@@ -188,96 +275,203 @@ function LoginInner() {
             <span className="neon-text-purple">AI</span>
           </h1>
           <p className="mt-2 text-xs sm:text-sm text-[#7c89b5] tracking-wide">
-            Authorized Access Only • Your AI Income Operator
+            {requires2FA
+              ? 'Two-Factor Verification Required'
+              : 'Authorized Access Only • Your AI Income Operator'}
           </p>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          {/* email */}
-          <div>
-            <label htmlFor="agent007-email" className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1.5 font-semibold">
-              EMAIL
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-300/70" />
-              <input
-                id="agent007-email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full glass rounded-lg pl-9 pr-3 py-2.5 text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70 transition"
-                placeholder="operator@example.com"
-                required
-              />
-            </div>
-          </div>
-
-          {/* password */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="agent007-password" className="block text-[10px] tracking-[0.2em] text-[#7c89b5] font-semibold">
-                PASSWORD
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotOpen(true)
-                  setResetMsg(null)
-                }}
-                className="text-[10px] text-cyan-300/80 hover:text-cyan-200 tracking-wider flex items-center gap-1 transition"
-                style={{ touchAction: 'manipulation' }}
-              >
-                <HelpCircle className="w-3 h-3" />
-                Forgot Password?
-              </button>
-            </div>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-300/70" />
-              <input
-                id="agent007-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full glass rounded-lg pl-9 pr-3 py-2.5 text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70 transition"
-                placeholder="••••••••"
-                required
-              />
-            </div>
-          </div>
-
-          {/* error */}
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-pink-500/10 border border-pink-400/40 text-pink-200 text-xs"
-            >
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
-            </motion.div>
-          )}
-
-          {/* submit */}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full neon-btn-cyan rounded-lg py-2.5 text-sm font-bold tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+        {/* ─────────── 2FA VERIFICATION FORM ─────────── */}
+        {requires2FA ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              verify2FA()
+            }}
+            className="space-y-4"
           >
-            {submitting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                AUTHENTICATING…
-              </>
-            ) : (
-              <>
-                <ShieldCheck className="w-4 h-4" />
-                SIGN IN
-              </>
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-cyan-500/10 border border-cyan-400/30 text-cyan-100 text-xs">
+              {twofaMethod === 'whatsapp' ? (
+                <MessageCircle className="w-4 h-4 flex-shrink-0 text-emerald-300" />
+              ) : twofaMethod === 'sms' ? (
+                <Smartphone className="w-4 h-4 flex-shrink-0 text-cyan-300" />
+              ) : (
+                <Mail className="w-4 h-4 flex-shrink-0 text-cyan-300" />
+              )}
+              <span className="leading-snug">{twofaMessage || `Code sent via ${twofaMethod}`}</span>
+            </div>
+
+            <div>
+              <label
+                htmlFor="agent007-2fa-code"
+                className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1.5 font-semibold"
+              >
+                VERIFICATION CODE
+              </label>
+              <div className="relative">
+                <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-300/70" />
+                <input
+                  id="agent007-2fa-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={twofaCode}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, '').slice(0, 6)
+                    setTwofaCode(v)
+                    setError('')
+                  }}
+                  className="w-full glass rounded-lg pl-9 pr-3 py-2.5 text-base tracking-[0.5em] text-center text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70 transition"
+                  placeholder="000000"
+                  required
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={cancel2FA}
+                  className="text-[10px] text-[#7c89b5] hover:text-cyan-200 tracking-wider transition"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  ← Back to sign in
+                </button>
+                <button
+                  type="button"
+                  onClick={resend2FA}
+                  disabled={resendCooldown > 0}
+                  className="text-[10px] text-cyan-300/80 hover:text-cyan-200 tracking-wider transition disabled:opacity-40"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-pink-500/10 border border-pink-400/40 text-pink-200 text-xs"
+              >
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{error}</span>
+              </motion.div>
             )}
-          </button>
-        </form>
+
+            <button
+              type="submit"
+              disabled={submitting || twofaCode.length !== 6}
+              className="w-full neon-btn-cyan rounded-lg py-2.5 text-sm font-bold tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  VERIFYING…
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  VERIFY & SIGN IN
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          /* ─────────── MAIN LOGIN FORM ─────────── */
+          <form onSubmit={onSubmit} className="space-y-4">
+            {/* email */}
+            <div>
+              <label
+                htmlFor="agent007-email"
+                className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1.5 font-semibold"
+              >
+                EMAIL
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-300/70" />
+                <input
+                  id="agent007-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full glass rounded-lg pl-9 pr-3 py-2.5 text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70 transition"
+                  placeholder="operator@example.com"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* password */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="agent007-password"
+                  className="block text-[10px] tracking-[0.2em] text-[#7c89b5] font-semibold"
+                >
+                  PASSWORD
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotOpen(true)
+                    setResetMsg(null)
+                  }}
+                  className="text-[10px] text-cyan-300/80 hover:text-cyan-200 tracking-wider flex items-center gap-1 transition"
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  Forgot Password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cyan-300/70" />
+                <input
+                  id="agent007-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full glass rounded-lg pl-9 pr-3 py-2.5 text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70 transition"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* error */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-pink-500/10 border border-pink-400/40 text-pink-200 text-xs"
+              >
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{error}</span>
+              </motion.div>
+            )}
+
+            {/* submit */}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full neon-btn-cyan rounded-lg py-2.5 text-sm font-bold tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  AUTHENTICATING…
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  SIGN IN
+                </>
+              )}
+            </button>
+          </form>
+        )}
 
         <div className="mt-6 text-center text-xs text-[#7c89b5]">
           New operator?{' '}
@@ -291,7 +485,7 @@ function LoginInner() {
         </div>
 
         <p className="mt-4 text-center text-[10px] text-[#5b6a92] tracking-wide">
-          v2.0 • powered by Z.ai SDK • multi-user • PWA • voice I/O
+          v2.0 • powered by Z.ai SDK • multi-user • PWA • voice I/O • 2FA
         </p>
       </motion.div>
 

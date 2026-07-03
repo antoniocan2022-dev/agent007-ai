@@ -14,6 +14,12 @@ import {
   Loader2,
   AlertCircle,
   X,
+  RefreshCw,
+  Zap,
+  ExternalLink,
+  Info,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -58,6 +64,20 @@ interface IncomeSettings {
   currencySymbol: string
   displayMode: 'compact' | 'detailed'
 }
+interface CustomWidget {
+  id: string
+  title: string
+  type: 'kpi' | 'stat' | 'note' | 'link' | 'progress' | 'alert'
+  value: string | number
+  subtitle?: string
+  color?: string
+  icon?: string
+  position?: 'top' | 'middle' | 'bottom'
+  link?: string
+  alertLevel?: 'info' | 'warn' | 'error'
+  progress?: number
+  updatedAt: string
+}
 
 /* ----------------------------- Dashboard tab ----------------------------- */
 export function DashboardTab() {
@@ -72,6 +92,15 @@ export function DashboardTab() {
   })
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const [customWidgets, setCustomWidgets] = useState<CustomWidget[]>([])
+  const [widgetsLoading, setWidgetsLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
+
+  // Subscribe to refresh signals from Agent007
+  const refreshVersion = useChatStore((s) => s.refreshVersion)
+  const autoRefreshEnabled = useChatStore((s) => s.autoRefreshEnabled)
+  const setAutoRefreshEnabled = useChatStore((s) => s.setAutoRefreshEnabled)
 
   const loadIncome = useCallback(async () => {
     try {
@@ -97,6 +126,26 @@ export function DashboardTab() {
     }
   }, [])
 
+  const loadCustomWidgets = useCallback(async () => {
+    setWidgetsLoading(true)
+    try {
+      const res = await fetch('/api/dashboard/widgets')
+      const json = await res.json()
+      if (json.widgets) setCustomWidgets(json.widgets)
+    } catch {
+      /* ignore */
+    } finally {
+      setWidgetsLoading(false)
+    }
+  }, [])
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true)
+    await Promise.all([loadIncome(), loadSettings(), loadCustomWidgets()])
+    setLastRefreshedAt(new Date())
+    setTimeout(() => setRefreshing(false), 600)
+  }, [loadIncome, loadSettings, loadCustomWidgets])
+
   // Initial load + seed if empty
   useEffect(() => {
     ;(async () => {
@@ -112,8 +161,16 @@ export function DashboardTab() {
       }
       await loadIncome()
       await loadSettings()
+      await loadCustomWidgets()
+      setLastRefreshedAt(new Date())
     })()
-  }, [loadIncome, loadSettings])
+  }, [loadIncome, loadSettings, loadCustomWidgets])
+
+  // Re-fetch when Agent007 emits a refresh signal
+  useEffect(() => {
+    if (refreshVersion === 0) return // skip initial
+    refreshAll()
+  }, [refreshVersion, refreshAll])
 
   // Also tick the scheduler every 60s while the dashboard is mounted
   useEffect(() => {
@@ -147,8 +204,39 @@ export function DashboardTab() {
               <p className="text-xs text-[#7c89b5] mt-1 tracking-wide">
                 Mission: $20,000/month passive income • 20% monthly growth • Full autonomous authority
               </p>
+              {lastRefreshedAt && (
+                <p className="text-[10px] text-[#5b6a92] mt-0.5 tracking-wide">
+                  Last refreshed: {lastRefreshedAt.toLocaleTimeString()}
+                  {refreshing && ' • refreshing…'}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Auto-refresh toggle */}
+              <button
+                onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                className={`h-9 px-3 rounded-lg text-xs font-semibold tracking-wider flex items-center gap-1.5 transition border ${
+                  autoRefreshEnabled
+                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
+                    : 'glass border-cyan-400/30 text-[#7c89b5]'
+                }`}
+                title={autoRefreshEnabled ? 'Auto-refresh ON (Agent007 changes appear automatically)' : 'Auto-refresh OFF'}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Zap className={`w-3.5 h-3.5 ${autoRefreshEnabled ? 'fill-emerald-300' : ''}`} />
+                <span className="hidden sm:inline">AUTO</span>
+              </button>
+              {/* Manual refresh */}
+              <button
+                onClick={refreshAll}
+                disabled={refreshing}
+                className="h-9 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-xs font-semibold tracking-wider flex items-center gap-1.5 transition disabled:opacity-50"
+                title="Manual refresh"
+                style={{ touchAction: 'manipulation' }}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">REFRESH</span>
+              </button>
               <button
                 onClick={() => setSettingsModalOpen(true)}
                 className="h-9 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-xs font-semibold tracking-wider flex items-center gap-1.5 transition"
@@ -168,6 +256,17 @@ export function DashboardTab() {
               </button>
             </div>
           </div>
+
+          {/* Custom widgets — top position */}
+          {customWidgets.filter((w) => w.position === 'top').length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+              {customWidgets
+                .filter((w) => w.position === 'top')
+                .map((w) => (
+                  <CustomWidgetCard key={w.id} widget={w} onRemove={loadCustomWidgets} />
+                ))}
+            </div>
+          )}
 
           {loading ? (
             <div className="flex items-center justify-center py-20 text-[#7c89b5]">
@@ -406,6 +505,43 @@ export function DashboardTab() {
                   </div>
                 )}
               </div>
+
+              {/* Custom widgets — middle position */}
+              {customWidgets.filter((w) => w.position === 'middle').length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mt-4">
+                  {customWidgets
+                    .filter((w) => w.position === 'middle')
+                    .map((w) => (
+                      <CustomWidgetCard key={w.id} widget={w} onRemove={loadCustomWidgets} />
+                    ))}
+                </div>
+              )}
+
+              {/* Custom widgets — bottom position */}
+              {customWidgets.filter((w) => w.position === 'bottom').length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-4">
+                  {customWidgets
+                    .filter((w) => w.position === 'bottom')
+                    .map((w) => (
+                      <CustomWidgetCard key={w.id} widget={w} onRemove={loadCustomWidgets} />
+                    ))}
+                </div>
+              )}
+
+              {/* Hint about Agent007 control */}
+              {customWidgets.length === 0 && !widgetsLoading && (
+                <div className="mt-4 glass rounded-xl p-4 border border-cyan-400/20">
+                  <div className="flex items-start gap-2 text-xs text-[#9bb5d4]">
+                    <Zap className="w-4 h-4 text-cyan-300 flex-shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">
+                      <span className="text-cyan-300 font-semibold">Agent007 has full dashboard control.</span>{' '}
+                      Tell Agent007 in chat to <em>&quot;add a KPI widget for daily revenue&quot;</em> or{' '}
+                      <em>&quot;add an alert widget for 2FA status&quot;</em> and it will appear here automatically.
+                      Agent007 can add, edit, or remove any widget via manage actions — no limitations.
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -920,5 +1056,179 @@ function DashboardSettingsModal({
         </form>
       </motion.div>
     </motion.div>
+  )
+}
+
+/* --------------------------- Custom Widget Card --------------------------- */
+function CustomWidgetCard({ widget, onRemove }: { widget: CustomWidget; onRemove: () => void }) {
+  const [removing, setRemoving] = useState(false)
+
+  const handleRemove = async () => {
+    if (removing) return
+    setRemoving(true)
+    try {
+      await fetch('/api/dashboard/widgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove', id: widget.id }),
+      })
+      onRemove()
+    } catch {
+      /* ignore */
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  const accentColor = widget.color ?? '#00f0ff'
+
+  if (widget.type === 'alert') {
+    const level = widget.alertLevel ?? 'info'
+    const levelStyles = {
+      info: { bg: 'bg-cyan-500/10', border: 'border-cyan-400/40', text: 'text-cyan-200', icon: <Info className="w-4 h-4" /> },
+      warn: { bg: 'bg-amber-500/10', border: 'border-amber-400/40', text: 'text-amber-200', icon: <AlertTriangle className="w-4 h-4" /> },
+      error: { bg: 'bg-pink-500/10', border: 'border-pink-400/40', text: 'text-pink-200', icon: <AlertCircle className="w-4 h-4" /> },
+    }
+    const s = levelStyles[level]
+    return (
+      <div className={`glass rounded-xl p-3 sm:p-4 border ${s.border} ${s.bg}`}>
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className={s.text}>{s.icon}</span>
+            <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold uppercase">
+              {widget.title}
+            </span>
+          </div>
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            className="text-[#5b6a92] hover:text-pink-300 text-[10px] transition disabled:opacity-50"
+            title="Remove widget"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+        <div className={`text-sm ${s.text} font-semibold`}>{widget.value}</div>
+        {widget.subtitle && <div className="text-[10px] text-[#7c89b5] mt-1">{widget.subtitle}</div>}
+      </div>
+    )
+  }
+
+  if (widget.type === 'note') {
+    return (
+      <div className="glass rounded-xl p-3 sm:p-4">
+        <div className="flex items-start justify-between mb-2">
+          <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold uppercase">
+            {widget.title}
+          </span>
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            className="text-[#5b6a92] hover:text-pink-300 text-[10px] transition disabled:opacity-50"
+            title="Remove widget"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="text-sm text-[#e0e7ff] leading-relaxed">{widget.value}</div>
+        {widget.subtitle && <div className="text-[10px] text-[#7c89b5] mt-1">{widget.subtitle}</div>}
+      </div>
+    )
+  }
+
+  if (widget.type === 'link') {
+    return (
+      <div className="glass rounded-xl p-3 sm:p-4">
+        <div className="flex items-start justify-between mb-2">
+          <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold uppercase">
+            {widget.title}
+          </span>
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            className="text-[#5b6a92] hover:text-pink-300 text-[10px] transition disabled:opacity-50"
+            title="Remove widget"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+        <a
+          href={widget.link ?? '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-cyan-300 hover:text-cyan-200 flex items-center gap-1.5 transition"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          {widget.value}
+        </a>
+        {widget.subtitle && <div className="text-[10px] text-[#7c89b5] mt-1">{widget.subtitle}</div>}
+      </div>
+    )
+  }
+
+  if (widget.type === 'progress') {
+    const pct = Math.max(0, Math.min(100, widget.progress ?? 0))
+    return (
+      <div className="glass rounded-xl p-3 sm:p-4">
+        <div className="flex items-start justify-between mb-2">
+          <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold uppercase">
+            {widget.title}
+          </span>
+          <button
+            onClick={handleRemove}
+            disabled={removing}
+            className="text-[#5b6a92] hover:text-pink-300 text-[10px] transition disabled:opacity-50"
+            title="Remove widget"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="text-xl sm:text-2xl font-bold" style={{ color: accentColor }}>
+            {widget.value}
+          </span>
+          <span className="text-[10px] text-[#7c89b5]">{pct.toFixed(0)}%</span>
+        </div>
+        <div className="h-2.5 rounded-full bg-[#0a1020] overflow-hidden border border-cyan-400/15">
+          <motion.div
+            className="h-full rounded-full"
+            style={{ background: accentColor, boxShadow: `0 0 8px ${accentColor}80` }}
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+          />
+        </div>
+        {widget.subtitle && <div className="text-[10px] text-[#7c89b5] mt-1">{widget.subtitle}</div>}
+      </div>
+    )
+  }
+
+  // kpi or stat (default)
+  return (
+    <div className="glass rounded-xl p-3 sm:p-4">
+      <div className="flex items-start justify-between mb-2">
+        <span className="text-[9px] sm:text-[10px] tracking-[0.18em] text-[#7c89b5] font-semibold uppercase">
+          {widget.title}
+        </span>
+        <button
+          onClick={handleRemove}
+          disabled={removing}
+          className="text-[#5b6a92] hover:text-pink-300 text-[10px] transition disabled:opacity-50"
+          title="Remove widget"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+      <div className="text-xl sm:text-2xl font-bold" style={{ color: accentColor }}>
+        {widget.value}
+      </div>
+      {widget.subtitle && <div className="text-[10px] text-[#7c89b5] mt-1">{widget.subtitle}</div>}
+    </div>
   )
 }

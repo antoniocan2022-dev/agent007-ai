@@ -138,6 +138,23 @@ interface ChatState {
   rateLimitedUntil: number | null
   /** Re-send the last user message (used by the rate-limit banner's Retry button). */
   retryLastMessage: () => Promise<void>
+
+  // ─────────────── AUTO-REFRESH SIGNALS ───────────────
+  // Agent007 emits refresh signals via /api/system/refresh (data refresh) and
+  // /api/system/reload (full page reload) whenever it modifies the dashboard,
+  // login, or settings. The client polls /api/system/refresh and bumps
+  // refreshVersion whenever the server's lastRefresh timestamp changes.
+  // DashboardTab + SettingsTab subscribe to refreshVersion to re-fetch data.
+  refreshVersion: number
+  lastRefreshTs: string | null
+  autoRefreshEnabled: boolean
+  setAutoRefreshEnabled: (v: boolean) => void
+  startAutoRefresh: () => void
+  bumpRefresh: () => void
+
+  // Full-page reload signal — when this changes, the page does window.location.reload()
+  reloadVersion: number
+  lastReloadTs: string | null
 }
 
 let msgIdCounter = 0
@@ -174,6 +191,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   changePasswordOpen: false,
   subagentsVersion: 0,
   rateLimitedUntil: null,
+  refreshVersion: 0,
+  lastRefreshTs: null,
+  autoRefreshEnabled: true,
+  reloadVersion: 0,
+  lastReloadTs: null,
 
   loadConversations: async () => {
     try {
@@ -696,6 +718,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ attachments: atts })
     }
     await get().sendMessage(lastUser.content)
+  },
+
+  setAutoRefreshEnabled: (v) => set({ autoRefreshEnabled: v }),
+  bumpRefresh: () => set((s) => ({ refreshVersion: s.refreshVersion + 1 })),
+
+  startAutoRefresh: () => {
+    if (typeof window === 'undefined') return
+    // Avoid double-starting
+    const _g: any = globalThis as any
+    if (_g.__agent007AutoRefreshInterval) return
+    // Initial poll after 3s (lets page stabilize)
+    const poll = async () => {
+      const state = get()
+      if (!state.autoRefreshEnabled) return
+      try {
+        const res = await fetch('/api/system/refresh', { signal: AbortSignal.timeout(8000) })
+        if (!res.ok) return
+        const data = await res.json().catch(() => null)
+        if (!data) return
+        // Check refresh signal
+        const serverLastRefresh = data.lastRefresh as string | undefined
+        if (serverLastRefresh && serverLastRefresh !== state.lastRefreshTs) {
+          set({ lastRefreshTs: serverLastRefresh, refreshVersion: state.refreshVersion + 1 })
+        }
+        // Check reload signal
+        const custom = data.custom ?? {}
+        const reloadInfo = custom.__lastReload
+        const serverLastReload = reloadInfo?.ts as string | undefined
+        if (serverLastReload && serverLastReload !== state.lastReloadTs) {
+          set({ lastReloadTs: serverLastReload, reloadVersion: state.reloadVersion + 1 })
+          // Do a full page reload on next tick (let state settle)
+          if (state.lastReloadTs !== null) {
+            // Only reload if we've seen a previous value (don't reload on first poll)
+            setTimeout(() => {
+              if (typeof window !== 'undefined') window.location.reload()
+            }, 200)
+          }
+        }
+      } catch {
+        // Silent — polling failure is OK
+      }
+    }
+    setTimeout(poll, 3000)
+    const interval = setInterval(poll, 15000) // poll every 15s
+    _g.__agent007AutoRefreshInterval = interval
   },
 }))
 

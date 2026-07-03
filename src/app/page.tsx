@@ -36,6 +36,7 @@ export default function Home() {
   const loadSubagentCount = useChatStore((s) => s.loadSubagentCount)
   const conversations = useChatStore((s) => s.conversations)
   const activeTab = useChatStore((s) => s.activeTab)
+  const startAutoRefresh = useChatStore((s) => s.startAutoRefresh)
 
   // Redirect to /login when unauthenticated.
   useEffect(() => {
@@ -50,7 +51,8 @@ export default function Home() {
     loadConversations()
     loadMemories()
     loadSubagentCount()
-  }, [status, loadConversations, loadMemories, loadSubagentCount])
+    startAutoRefresh()
+  }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 
   if (status === 'loading' || status === 'unauthenticated') {
     return (

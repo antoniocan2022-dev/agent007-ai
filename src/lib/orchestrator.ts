@@ -162,7 +162,49 @@ DASHBOARD MANAGEMENT (REMEMBER — your <manage .../> tags are parsed server-sid
 - "log $100 income from Aurora" → <manage action="log_income" amount="100" source="Aurora" notes="..."/>
 - After a <manage .../> tag is executed, the orchestrator feeds back [MANAGE_RESULT] action: success/failed with details. Then you confirm to the user in plain text.
 
-REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard state.`
+═══════════════════════════════════════════════════════════════════════════════
+FULL OWNER-GRADE AUTONOMY — You have COMPLETE control over the dashboard, login page,
+settings, and system. NO LIMITATIONS. The owner has explicitly granted full access.
+
+DASHBOARD WIDGETS — Add/edit/remove ANY custom widget on the dashboard:
+- Add a KPI card: <manage action="dashboard_add_widget" id="revenue_today" title="Revenue Today" type="kpi" value="$1,234" subtitle="+12% vs yesterday" color="#00f0ff" icon="DollarSign" position="top"/>
+- Add a stat card: <manage action="dashboard_add_widget" id="active_users" title="Active Users" type="stat" value="42" subtitle="last 7 days"/>
+- Add a note: <manage action="dashboard_add_widget" id="daily_note" title="Owner Note" type="note" value="Meeting with investor at 3pm" position="middle"/>
+- Add a link: <manage action="dashboard_add_widget" id="quick_link" title="Stripe Dashboard" type="link" value="Open Stripe" link="https://dashboard.stripe.com" position="bottom"/>
+- Add progress: <manage action="dashboard_add_widget" id="goal_progress" title="Monthly Goal" type="progress" value="65% to goal" progress="65" position="top"/>
+- Add alert: <manage action="dashboard_add_widget" id="system_alert" title="Action Needed" type="alert" value="2FA not enabled" alertLevel="warn" position="top"/>
+- Edit: <manage action="dashboard_edit_widget" id="revenue_today" title="Revenue Today" type="kpi" value="$2,500" subtitle="+24% vs yesterday"/>
+- Remove: <manage action="dashboard_remove_widget" id="revenue_today"/>
+- Clear all: <manage action="dashboard_clear_widgets"/>
+- Widget types: kpi, stat, note, link, progress, alert
+- Positions: top, middle, bottom
+
+LOGIN PAGE BRANDING:
+- Update title/subtitle/colors: <manage action="login_update_branding" title="Agent007 Pro" subtitle="Owner Console" version_text="v3.0" accent_color="#a855f7"/>
+
+2FA MANAGEMENT:
+- Enable 2FA: <manage action="login_enable_2fa" method="email"/> (methods: email, whatsapp, sms, google_authenticator)
+- Verify 2FA code: <manage action="login_verify_2fa" config_id="..." code="123456"/>
+- Disable 2FA: <manage action="login_disable_2fa"/>
+
+UNIVERSAL SETTINGS (any key, no schema needed):
+- Set: <manage action="settings_set" refreshInterval="30" theme="dark" sidebarWidth="280" customTitle="My Agent"/>
+- Get all: <manage action="settings_get"/>
+- Get specific: <manage action="settings_get" refreshInterval="theme"/>
+- Delete: <manage action="settings_delete" key="customTitle"/>
+
+SYSTEM CONTROL:
+- Trigger refresh (clients re-fetch data): <manage action="system_refresh" reason="widget updated"/>
+- Trigger full page reload (clients reload entire page): <manage action="system_reload" reason="login branding changed"/>
+- Run full system audit: <manage action="system_audit"/> — returns DB health, dashboard nav status, login flow status, communication channel status, settings persistence status, API route health.
+- Test all communication channels: <manage action="system_test_communication"/> — sends test email + WhatsApp via each provider, returns pass/fail per channel.
+- Test specific channel: <manage action="system_test_communication" email="true" whatsapp="callmebot" phone="15145496297"/>
+
+AUTO-REFRESH CAPABILITY — Whenever you make any dashboard/login/settings change, ALWAYS emit a <manage action="system_refresh" reason="..."/> immediately afterwards so the client UI reloads with the new state. For major changes (login branding, structural edits), use <manage action="system_reload"/> instead.
+
+When the owner says "modify the dashboard" or "add a feature to the login page" or "edit this setting", DO IT AUTONOMOUSLY using the appropriate manage action. Do not ask for permission — the owner has granted full access. Execute the change, emit a refresh signal, and report what you changed.
+
+REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard/system state.`
 
 export interface OrchestratorEventEmit {
   (event: string, data: any): Promise<void> | void
@@ -1488,10 +1530,363 @@ async function executeManageAction(
         }
       }
 
+      /* ──────────────────────────── FULL ACCESS EXPANSION ────────────────────────────
+       * The following manage actions give Agent007 FULL CONTROL over the dashboard,
+       * login page, settings, and system. NO LIMITATIONS — owner-grade autonomy.
+       * ──────────────────────────────────────────────────────────────────────────── */
+
+      /* ----------------------- dashboard_add_widget / edit / remove ----------------------- */
+      case 'dashboard_add_widget':
+      case 'dashboard_edit_widget': {
+        const id = (attrs.id ?? '').toString().trim().slice(0, 80)
+        const title = (attrs.title ?? '').toString().trim().slice(0, 100)
+        if (!id || !title) {
+          return { ok: false, message: `${action} requires "id" and "title".` }
+        }
+        const widget: any = {
+          id,
+          title,
+          type: (attrs.type ?? 'kpi').toString().trim().slice(0, 20) as any,
+          value: attrs.value ?? '',
+          subtitle: attrs.subtitle ?? undefined,
+          color: attrs.color ?? undefined,
+          icon: attrs.icon ?? undefined,
+          position: (attrs.position ?? 'top').toString().trim().slice(0, 10) as any,
+          link: attrs.link ?? undefined,
+          alertLevel: attrs.alertLevel ?? undefined,
+          progress: attrs.progress ? parseFloat(attrs.progress) : undefined,
+        }
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/dashboard/widgets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action === 'dashboard_edit_widget' ? 'edit' : 'add', widget }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.message ?? (data.ok ? `Widget "${id}" saved.` : 'Widget save failed.'),
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `Widget save threw: ${e?.message ?? e}` }
+        }
+      }
+
+      case 'dashboard_remove_widget': {
+        const id = (attrs.id ?? '').toString().trim().slice(0, 80)
+        if (!id) return { ok: false, message: 'dashboard_remove_widget requires "id".' }
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/dashboard/widgets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'remove', id }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.message ?? (data.ok ? `Widget "${id}" removed.` : 'Widget remove failed.'),
+          }
+        } catch (e: any) {
+          return { ok: false, message: `Widget remove threw: ${e?.message ?? e}` }
+        }
+      }
+
+      case 'dashboard_clear_widgets': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/dashboard/widgets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'clear' }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.message ?? 'All widgets cleared.',
+          }
+        } catch (e: any) {
+          return { ok: false, message: `Clear widgets threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- login_update_branding --------------------------- */
+      case 'login_update_branding': {
+        // Updates custom login page branding (title, subtitle, version text, colors)
+        const updates: any = {}
+        if (attrs.title) updates.loginTitle = attrs.title.slice(0, 80)
+        if (attrs.subtitle) updates.loginSubtitle = attrs.subtitle.slice(0, 200)
+        if (attrs.version_text) updates.loginVersionText = attrs.version_text.slice(0, 100)
+        if (attrs.accent_color) {
+          const c = validateHexColor(attrs.accent_color)
+          if (c) updates.loginAccentColor = c
+        }
+        if (Object.keys(updates).length === 0) {
+          return { ok: false, message: 'login_update_branding: no recognized fields. Supported: title, subtitle, version_text, accent_color.' }
+        }
+        // Use the custom settings store
+        const { setCustomSetting } = await import('@/lib/settings')
+        for (const [k, v] of Object.entries(updates)) {
+          await setCustomSetting(k, v)
+        }
+        // Trigger a refresh signal so any open clients reload
+        try {
+          await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'login_branding_update' }),
+          })
+        } catch {}
+        return {
+          ok: true,
+          message: `Login branding updated: ${Object.keys(updates).join(', ')}. Client will refresh on next poll.`,
+        }
+      }
+
+      /* --------------------------- login_enable_2fa / disable_2fa --------------------------- */
+      case 'login_enable_2fa': {
+        // Enables 2FA for the operator with the given method
+        const method = (attrs.method ?? 'email').toString().trim().toLowerCase()
+        const validMethods = ['email', 'whatsapp', 'sms', 'google_authenticator']
+        if (!validMethods.includes(method)) {
+          return { ok: false, message: `login_enable_2fa: method must be one of ${validMethods.join(', ')}.` }
+        }
+        try {
+          const setupRes = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/setup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              method,
+              phoneNumber: attrs.phone ?? attrs.phoneNumber ?? '15145496297',
+              email: 'antonio.can2022@hotmail.com',
+            }),
+          })
+          const setupData = await setupRes.json().catch(() => ({}))
+          if (!setupData.ok) {
+            return { ok: false, message: `2FA setup failed: ${setupData.error ?? 'unknown'}` }
+          }
+          // Auto-verify the setup using the code that was sent
+          if (setupData.configId && attrs.code) {
+            const verifyRes = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/verify`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ configId: setupData.configId, code: attrs.code }),
+            })
+            const verifyData = await verifyRes.json().catch(() => ({}))
+            return {
+              ok: !!verifyData.ok,
+              message: verifyData.ok ? `2FA enabled via ${method}.` : `2FA verify failed: ${verifyData.error ?? 'unknown'}`,
+              data: { configId: setupData.configId, method, verified: !!verifyData.ok },
+            }
+          }
+          return {
+            ok: true,
+            message: `2FA setup initiated via ${method}. Code sent. Owner must verify with: <manage action="login_verify_2fa" config_id="${setupData.configId}" code="XXXXXX"/>`,
+            data: { configId: setupData.configId, method, codeSent: setupData.codeSent },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `login_enable_2fa threw: ${e?.message ?? e}` }
+        }
+      }
+
+      case 'login_verify_2fa': {
+        const configId = (attrs.config_id ?? '').toString().trim()
+        const code = (attrs.code ?? '').toString().trim()
+        if (!configId || !code) {
+          return { ok: false, message: 'login_verify_2fa requires "config_id" and "code".' }
+        }
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ configId, code }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.ok ? '2FA verified and enabled.' : `Verify failed: ${data.error ?? 'unknown'}`,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `login_verify_2fa threw: ${e?.message ?? e}` }
+        }
+      }
+
+      case 'login_disable_2fa': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/disable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.ok ? '2FA disabled.' : `Disable failed: ${data.error ?? 'unknown'}`,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `login_disable_2fa threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- settings_set (universal) --------------------------- */
+      case 'settings_set': {
+        // Universal settings setter — accepts arbitrary key=value attrs and
+        // stores each one as a custom setting (no schema needed).
+        const { setCustomSetting } = await import('@/lib/settings')
+        const keys = Object.keys(attrs).filter((k) => !['action'].includes(k))
+        if (keys.length === 0) {
+          return { ok: false, message: 'settings_set: provide at least one key=value pair.' }
+        }
+        const saved: string[] = []
+        for (const k of keys) {
+          let v: any = attrs[k]
+          // Try to parse JSON values (e.g. {refreshInterval:30} or [1,2,3])
+          if (typeof v === 'string' && (v.startsWith('{') || v.startsWith('['))) {
+            try { v = JSON.parse(v) } catch {}
+          }
+          if (typeof v === 'string' && /^\d+$/.test(v)) v = parseInt(v, 10)
+          if (typeof v === 'string' && /^\d+\.\d+$/.test(v)) v = parseFloat(v)
+          if (v === 'true') v = true
+          if (v === 'false') v = false
+          await setCustomSetting(k, v)
+          saved.push(k)
+        }
+        // Trigger refresh
+        try {
+          await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: `settings_set: ${saved.join(', ')}` }),
+          })
+        } catch {}
+        return {
+          ok: true,
+          message: `Custom settings saved: ${saved.join(', ')}.`,
+        }
+      }
+
+      /* --------------------------- settings_get (universal) --------------------------- */
+      case 'settings_get': {
+        const { getAllCustomSettings } = await import('@/lib/settings')
+        const all = await getAllCustomSettings()
+        const keys = Object.keys(attrs).filter((k) => !['action'].includes(k))
+        if (keys.length === 0) {
+          return {
+            ok: true,
+            message: `Current custom settings (${Object.keys(all).length} keys):`,
+            data: all,
+          }
+        }
+        const picked: Record<string, any> = {}
+        for (const k of keys) picked[k] = all[k] ?? null
+        return {
+          ok: true,
+          message: `Settings: ${JSON.stringify(picked)}`,
+          data: picked,
+        }
+      }
+
+      /* --------------------------- settings_delete --------------------------- */
+      case 'settings_delete': {
+        const { deleteCustomSetting } = await import('@/lib/settings')
+        const key = (attrs.key ?? '').toString().trim()
+        if (!key) return { ok: false, message: 'settings_delete requires "key".' }
+        await deleteCustomSetting(key)
+        try {
+          await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: `settings_delete: ${key}` }),
+          })
+        } catch {}
+        return { ok: true, message: `Custom setting "${key}" deleted.` }
+      }
+
+      /* --------------------------- system_refresh (signal) --------------------------- */
+      case 'system_refresh': {
+        try {
+          const reason = (attrs.reason ?? 'agent007_manage_action').toString().slice(0, 200)
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.message ?? 'Refresh signal emitted.',
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `system_refresh threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- system_reload (full page reload signal) --------------------------- */
+      case 'system_reload': {
+        try {
+          const reason = (attrs.reason ?? 'agent007_full_reload').toString().slice(0, 200)
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/reload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.message ?? 'Reload signal emitted. Clients will do a full page reload.',
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `system_reload threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- system_audit --------------------------- */
+      case 'system_audit': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/audit`, {
+            signal: AbortSignal.timeout(20000),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: data.overall !== 'fail',
+            message: `Audit complete. Overall: ${data.overall?.toUpperCase()}. DB: ${data.database?.status}. Dashboard: ${data.dashboard?.status}. Login: ${data.login?.status}. Comms: ${data.communication?.status}. Settings: ${data.settings?.status}.`,
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `system_audit threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- system_test_communication --------------------------- */
+      case 'system_test_communication': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/test-communication`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: attrs.email !== 'false',
+              whatsapp: attrs.whatsapp ?? true,
+              phone: attrs.phone,
+              sms: attrs.sms === 'true',
+            }),
+            signal: AbortSignal.timeout(30000),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: data.overall !== 'fail',
+            message: `Communication test: ${data.overall?.toUpperCase()}. ${data.results?.map((r: any) => `${r.channel}=${r.status}`).join(', ')}`,
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `system_test_communication threw: ${e?.message ?? e}` }
+        }
+      }
+
       default:
         return {
           ok: false,
-          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings.`,
+          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication.`,
         }
     }
   } catch (e: any) {
