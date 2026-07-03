@@ -1298,3 +1298,15 @@ TOOL_REGISTRY.log_explorer = { fn: toolLogExplorer, icon: 'file-text', label: 'L
 TOOL_REGISTRY.dynamic_kpi_engine = { fn: toolDynamicKpiEngine, icon: 'bar-chart', label: 'Dynamic KPI Engine (auto-update metrics, no manual intervention)' }
 TOOL_REGISTRY.market_adaptation_engine = { fn: toolMarketAdaptationEngine, icon: 'globe', label: 'Market Adaptation Engine (auto-detect trends + adjust strategy)' }
 TOOL_REGISTRY.revenue_prioritization_engine = { fn: toolRevenuePrioritizationEngine, icon: 'target', label: 'Revenue Prioritization Engine (rank sub-agents by revenue potential)' }
+
+/* ================================================================== *
+ * SELF-BACKUP TOOLS — see self-backup.ts
+ * Agent007 can create downloadable backups on owner command
+ * ================================================================== */
+import {
+  toolSelfBackupCreate,
+  toolSelfBackupList,
+} from './self-backup'
+
+TOOL_REGISTRY.self_backup_create = { fn: toolSelfBackupCreate, icon: 'download', label: 'Self-Backup Create (downloadable ZIP/JSON backup on command)' }
+TOOL_REGISTRY.self_backup_list = { fn: toolSelfBackupList, icon: 'list', label: 'Self-Backup List (list all available backups)' }
