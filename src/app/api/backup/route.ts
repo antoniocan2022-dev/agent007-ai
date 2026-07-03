@@ -6,10 +6,54 @@ import path from 'node:path'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/** GET /api/backup — downloads a full backup as JSON file */
-export async function GET() {
+const VAULT_DIR = '/home/z/my-project/download/vault'
+const OWNER_KEY = 'agent007-owner-vault-key-2024-antonio'
+
+function decrypt(b64: string): string {
+  const buf = Buffer.from(b64, 'base64')
+  const keyBuf = Buffer.from(OWNER_KEY, 'utf-8')
+  const result = Buffer.alloc(buf.length)
+  for (let i = 0; i < buf.length; i++) {
+    result[i] = buf[i] ^ keyBuf[i % keyBuf.length]
+  }
+  return result.toString('utf-8')
+}
+
+/** GET /api/backup — downloads full backup OR vault file */
+export async function GET(req: NextRequest) {
   await ensureDbReady().catch(() => {})
   try {
+    const url = new URL(req.url)
+    const vaultFile = url.searchParams.get('vault')
+    
+    // Vault file download mode
+    if (vaultFile) {
+      const safeFile = path.basename(vaultFile)
+      const filepath = path.join(VAULT_DIR, safeFile)
+      try {
+        await fsp.access(filepath)
+      } catch {
+        return NextResponse.json({ error: 'Vault file not found: ' + safeFile }, { status: 404 })
+      }
+      const content = await fsp.readFile(filepath, 'utf-8')
+      const data = JSON.parse(content)
+      const decrypted = decrypt(data._encrypted || '')
+      return new NextResponse(decrypted, {
+        headers: {
+          'Content-Type': 'text/plain',
+          'Content-Disposition': `attachment; filename="${safeFile.replace('.enc', '.txt')}"`,
+        },
+      })
+    }
+
+    // Vault list mode
+    if (url.searchParams.get('list_vault') === '1') {
+      await fsp.mkdir(VAULT_DIR, { recursive: true })
+      const files = (await fsp.readdir(VAULT_DIR)).filter(f => f.endsWith('.enc'))
+      return NextResponse.json({ vaultFiles: files })
+    }
+
+    // Full backup mode (default)
     const [conversations, memories, incomeEntries, schedules, customSubagents, 
            notificationLogs, userSettings, auditLogs, phoneConfigs, bankAccounts,
            payPalAccounts, apiKeys, customers, campaigns, partnerships] = await Promise.all([
@@ -35,13 +79,6 @@ export async function GET() {
       app: 'Agent007 AI',
       exportedAt: new Date().toISOString(),
       data: { conversations, memories, incomeEntries, schedules, customSubagents, notificationLogs, userSettings, auditLogs, phoneConfigs, bankAccounts, payPalAccounts, apiKeys, customers, campaigns, partnerships },
-      stats: {
-        conversations: conversations.length,
-        memories: memories.length,
-        schedules: schedules.length,
-        subAgents: customSubagents.length,
-        auditLogs: auditLogs.length,
-      },
     }
 
     const filename = `agent007-backup-${new Date().toISOString().slice(0, 10)}.json`
@@ -64,11 +101,11 @@ export async function POST(req: NextRequest) {
   const data = body?.backup?.data || body?.data
   if (!data) return NextResponse.json({ error: 'Missing "data" field' }, { status: 400 })
   
-  const stats = { memories: 0, schedules: 0, customSubagents: 0, errors: [] as string[] }
+  const stats = { memories: 0, schedules: 0, customSubagents: 0 }
   try {
     if (Array.isArray(data.memories)) {
       for (const m of data.memories) {
-        try { await db.memory.upsert({ where: { key: m.key }, create: { key: m.key, value: m.value, category: m.category || 'general' }, update: { value: m.value, category: m.category || 'general' } }); stats.memories++ } catch {}
+        try { await db.memory.upsert({ where: { key: m.key }, create: { key: m.key, value: m.value, category: m.category || 'general' }, update: { value: m.value } }); stats.memories++ } catch {}
       }
     }
     if (Array.isArray(data.customSubagents)) {

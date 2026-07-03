@@ -1334,3 +1334,17 @@ TOOL_REGISTRY.image_process = { fn: toolImageProcess, icon: 'image', label: 'Ima
 TOOL_REGISTRY.audio_process = { fn: toolAudioProcess, icon: 'mic', label: 'Audio Process (info, transcribe speech to text)' }
 TOOL_REGISTRY.video_process = { fn: toolVideoProcess, icon: 'video', label: 'Video Process (info, extract frames for analysis)' }
 TOOL_REGISTRY.directory_list = { fn: toolDirectoryList, icon: 'folder', label: 'Directory List (browse any directory)' }
+
+/* ================================================================== *
+ * 3 OWNER VAULT TOOLS — see owner-vault.ts
+ * Create encrypted owner-exclusive files with internal capabilities/structure
+ * ================================================================== */
+import {
+  toolOwnerVaultCreate,
+  toolOwnerVaultList,
+  toolOwnerVaultDownload,
+} from './owner-vault'
+
+TOOL_REGISTRY.owner_vault_create = { fn: toolOwnerVaultCreate, icon: 'lock', label: 'Owner Vault Create (encrypted owner-only file)' }
+TOOL_REGISTRY.owner_vault_list = { fn: toolOwnerVaultList, icon: 'list', label: 'Owner Vault List (list all vault files)' }
+TOOL_REGISTRY.owner_vault_download = { fn: toolOwnerVaultDownload, icon: 'download', label: 'Owner Vault Download (get download URL)' }
