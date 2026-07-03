@@ -20,6 +20,8 @@ import {
   Info,
   AlertTriangle,
   CheckCircle2,
+  ShieldCheck,
+  Send,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -542,6 +544,9 @@ export function DashboardTab() {
                   </div>
                 </div>
               )}
+
+              {/* System Control Panel — upgrade manifest + self-heal + comms test */}
+              <SystemControlPanel refreshVersion={refreshVersion} />
             </>
           )}
         </div>
@@ -1229,6 +1234,239 @@ function CustomWidgetCard({ widget, onRemove }: { widget: CustomWidget; onRemove
         {widget.value}
       </div>
       {widget.subtitle && <div className="text-[10px] text-[#7c89b5] mt-1">{widget.subtitle}</div>}
+    </div>
+  )
+}
+
+/* --------------------------- System Control Panel --------------------------- */
+function SystemControlPanel({ refreshVersion }: { refreshVersion: number }) {
+  const [manifest, setManifest] = useState<any>(null)
+  const [audit, setAudit] = useState<any>(null)
+  const [healResult, setHealResult] = useState<any>(null)
+  const [commsResult, setCommsResult] = useState<any>(null)
+  const [loading, setLoading] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  const loadManifest = useCallback(async () => {
+    try {
+      const res = await fetch('/api/system/manifest')
+      const data = await res.json()
+      setManifest(data)
+    } catch {}
+  }, [])
+
+  const loadAudit = useCallback(async () => {
+    setLoading('audit')
+    try {
+      const res = await fetch('/api/system/audit')
+      const data = await res.json()
+      setAudit(data)
+    } catch {}
+    setLoading(null)
+  }, [])
+
+  const runSelfHeal = async (action: string) => {
+    setLoading(`heal_${action}`)
+    try {
+      const res = await fetch('/api/system/self-heal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json()
+      setHealResult(data)
+    } catch {}
+    setLoading(null)
+  }
+
+  const testComms = async () => {
+    setLoading('comms')
+    try {
+      const res = await fetch('/api/system/test-communication', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      setCommsResult(data)
+    } catch {}
+    setLoading(null)
+  }
+
+  useEffect(() => {
+    loadManifest()
+    loadAudit()
+  }, [loadManifest, loadAudit, refreshVersion])
+
+  const totalUpgrades = manifest?.totalUpgrades ?? 0
+  const integrity = manifest?.integrity
+  const auditOverall = audit?.overall ?? '—'
+
+  return (
+    <div className="mt-4 glass rounded-xl p-4 border border-emerald-400/20">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-300" />
+          <h3 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">
+            SYSTEM CONTROL PANEL
+          </h3>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-400/10 border border-emerald-400/30 text-emerald-200 tracking-wider">
+            UPGRADE-ONLY MODE
+          </span>
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-[10px] text-cyan-300/80 hover:text-cyan-200 tracking-wider transition"
+          style={{ touchAction: 'manipulation' }}
+        >
+          {expanded ? '▼ COLLAPSE' : '▶ EXPAND'}
+        </button>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <div className="bg-[#0a1020] rounded-lg p-2 border border-emerald-400/15">
+          <div className="text-[9px] tracking-wider text-[#7c89b5]">UPGRADES</div>
+          <div className="text-lg font-bold text-emerald-300">{totalUpgrades}</div>
+        </div>
+        <div className="bg-[#0a1020] rounded-lg p-2 border border-cyan-400/15">
+          <div className="text-[9px] tracking-wider text-[#7c89b5]">INTEGRITY</div>
+          <div className="text-lg font-bold text-cyan-300">
+            {integrity?.ok ? '✓ OK' : '✗ FAIL'}
+          </div>
+        </div>
+        <div className="bg-[#0a1020] rounded-lg p-2 border border-purple-400/15">
+          <div className="text-[9px] tracking-wider text-[#7c89b5]">AUDIT</div>
+          <div className={`text-lg font-bold ${auditOverall === 'pass' ? 'text-emerald-300' : auditOverall === 'warn' ? 'text-amber-300' : 'text-pink-300'}`}>
+            {auditOverall.toUpperCase()}
+          </div>
+        </div>
+        <div className="bg-[#0a1020] rounded-lg p-2 border border-pink-400/15">
+          <div className="text-[9px] tracking-wider text-[#7c89b5]">SUBAGENTS</div>
+          <div className="text-lg font-bold text-pink-300">18 FULL</div>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button
+          onClick={() => runSelfHeal('diagnose')}
+          disabled={!!loading}
+          className="h-8 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-[11px] font-semibold tracking-wider flex items-center gap-1.5 transition disabled:opacity-50"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Activity className="w-3 h-3" />
+          {loading === 'heal_diagnose' ? 'DIAGNOSING…' : 'DIAGNOSE'}
+        </button>
+        <button
+          onClick={() => runSelfHeal('full_repair')}
+          disabled={!!loading}
+          className="h-8 px-3 rounded-lg bg-emerald-500/15 border border-emerald-400/40 hover:border-emerald-400/70 text-emerald-200 text-[11px] font-semibold tracking-wider flex items-center gap-1.5 transition disabled:opacity-50"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <RefreshCw className={`w-3 h-3 ${loading === 'heal_full_repair' ? 'animate-spin' : ''}`} />
+          {loading === 'heal_full_repair' ? 'REPAIRING…' : 'FULL REPAIR'}
+        </button>
+        <button
+          onClick={testComms}
+          disabled={!!loading}
+          className="h-8 px-3 rounded-lg glass border-purple-400/30 hover:border-purple-400/70 text-purple-200 text-[11px] font-semibold tracking-wider flex items-center gap-1.5 transition disabled:opacity-50"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Send className="w-3 h-3" />
+          {loading === 'comms' ? 'TESTING…' : 'TEST COMMS'}
+        </button>
+        <button
+          onClick={loadAudit}
+          disabled={!!loading}
+          className="h-8 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-[11px] font-semibold tracking-wider flex items-center gap-1.5 transition disabled:opacity-50"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <ShieldCheck className="w-3 h-3" />
+          {loading === 'audit' ? 'AUDITING…' : 'RE-AUDIT'}
+        </button>
+      </div>
+
+      {/* Heal result */}
+      {healResult && (
+        <div className="mb-3 bg-[#0a1020] rounded-lg p-3 border border-cyan-400/20 max-h-60 overflow-y-auto scroll-cyan">
+          <div className="text-[10px] tracking-wider text-[#7c89b5] mb-2">
+            SELF-HEAL: {healResult.action} → {healResult.overall?.toUpperCase()}
+          </div>
+          <div className="text-[10px] text-[#9bb5d4] mb-2">{healResult.summary}</div>
+          <div className="space-y-1">
+            {healResult.results?.slice(0, 8).map((r: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 text-[10px]">
+                <span className={
+                  r.status === 'pass' ? 'text-emerald-300' :
+                  r.status === 'warn' ? 'text-amber-300' :
+                  'text-pink-300'
+                }>
+                  {r.status === 'pass' ? '✓' : r.status === 'warn' ? '⚠' : '✗'}
+                </span>
+                <span className="text-[#cfd9f0]">{r.step}:</span>
+                <span className="text-[#7c89b5]">{r.detail}</span>
+              </div>
+            ))}
+            {healResult.results?.length > 8 && (
+              <div className="text-[10px] text-[#5b6a92]">... and {healResult.results.length - 8} more</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Comms result */}
+      {commsResult && (
+        <div className="mb-3 bg-[#0a1020] rounded-lg p-3 border border-purple-400/20">
+          <div className="text-[10px] tracking-wider text-[#7c89b5] mb-2">
+            COMMUNICATION TEST: {commsResult.overall?.toUpperCase()}
+          </div>
+          <div className="space-y-1">
+            {commsResult.results?.map((r: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 text-[10px]">
+                <span className={
+                  r.status === 'pass' ? 'text-emerald-300' :
+                  r.status === 'warn' ? 'text-amber-300' :
+                  'text-pink-300'
+                }>
+                  {r.status === 'pass' ? '✓' : r.status === 'warn' ? '⚠' : '✗'}
+                </span>
+                <span className="text-cyan-300 font-mono">{r.channel}:</span>
+                <span className="text-[#9bb5d4]">{r.detail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Expanded view — full upgrade manifest */}
+      {expanded && manifest && (
+        <div className="bg-[#0a1020] rounded-lg p-3 border border-emerald-400/20 max-h-80 overflow-y-auto scroll-cyan">
+          <div className="text-[10px] tracking-wider text-[#7c89b5] mb-2">
+            PERMANENT UPGRADE MANIFEST ({manifest.totalUpgrades} upgrades)
+          </div>
+          <div className="space-y-1.5">
+            {manifest.upgrades?.map((u: any) => (
+              <div key={u.id} className="text-[10px] border-l-2 border-emerald-400/30 pl-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-400/10 text-emerald-300 tracking-wider uppercase">
+                    {u.category}
+                  </span>
+                  <span className="text-[#e0e7ff] font-semibold">{u.title}</span>
+                </div>
+                <div className="text-[#7c89b5] mt-0.5">{u.description}</div>
+                <div className="text-[#5b6a92] mt-0.5">Applied: {u.dateApplied} • {u.files?.length ?? 0} files</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-2 border-t border-emerald-400/15 text-[10px] text-[#9bb5d4]">
+            <ShieldCheck className="w-3 h-3 inline mr-1 text-emerald-300" />
+            All upgrades are <strong className="text-emerald-300">PERMANENT</strong>. Reset/delete operations require owner 2FA (SMS, TOTP, WhatsApp, or Email).
+            Tell Agent007: <em>&quot;view manifest&quot;</em>, <em>&quot;run self-heal full_repair&quot;</em>, or <em>&quot;setup TOTP&quot;</em>.
+          </div>
+        </div>
+      )}
     </div>
   )
 }

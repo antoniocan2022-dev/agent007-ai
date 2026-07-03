@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
-import { SUBAGENTS, getAllSubagents, type Subagent } from '@/lib/subagents'
+import { SUBAGENTS, getAllSubagents, FULL_ACCESS_TOOLS, type Subagent } from '@/lib/subagents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,19 +9,8 @@ export const dynamic = 'force-dynamic'
 /* Built-in ids — used to reject DELETE on built-in agents. */
 const BUILTIN_IDS = new Set(SUBAGENTS.map((s) => s.id))
 
-const VALID_TOOLS = new Set([
-  'web_search',
-  'page_reader',
-  'image_gen',
-  'vision',
-  'code_exec',
-  'memory_store',
-  'memory_recall',
-  'file_read',
-  'wikipedia_search',
-  'wikipedia_read',
-  'free_apis_directory',
-])
+/* FULL ACCESS: all tools are valid. The owner has granted full access. */
+const VALID_TOOLS = new Set(FULL_ACCESS_TOOLS)
 
 /* A curated allow-list of Lucide icon names the client knows how to render.
  * Anything not in this list falls back to the default Sparkles icon. */

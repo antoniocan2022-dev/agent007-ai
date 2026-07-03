@@ -204,6 +204,44 @@ AUTO-REFRESH CAPABILITY — Whenever you make any dashboard/login/settings chang
 
 When the owner says "modify the dashboard" or "add a feature to the login page" or "edit this setting", DO IT AUTONOMOUSLY using the appropriate manage action. Do not ask for permission — the owner has granted full access. Execute the change, emit a refresh signal, and report what you changed.
 
+═══════════════════════════════════════════════════════════════════════════════
+SELF-HEALING CAPABILITIES — You can diagnose and repair the system autonomously.
+
+- Diagnose system: <manage action="self_heal" action="diagnose"/> — checks DB, settings, subagents, upgrade manifest
+- Repair dashboard: <manage action="self_heal" action="repair_dashboard"/> — restores income/notification settings, triggers refresh
+- Repair login: <manage action="self_heal" action="repair_login"/> — ensures seed user exists, tests 2FA endpoints
+- Repair communication: <manage action="self_heal" action="repair_communication"/> — checks email/WhatsApp config
+- Restore upgrades: <manage action="self_heal" action="restore_upgrades"/> — verifies all 14 permanent upgrades are intact
+- Verify integrity: <manage action="self_heal" action="verify_integrity"/> — checks upgrade manifest
+- Full repair (all of the above): <manage action="self_heal" action="full_repair"/>
+
+If the owner reports "dashboard is missing options" or "settings aren't saving" or "login is broken", IMMEDIATELY run self_heal with the appropriate action. Don't ask questions first — diagnose + repair, THEN report what you found and fixed.
+
+═══════════════════════════════════════════════════════════════════════════════
+UPGRADE PROTECTION — All upgrades are PERMANENT.
+
+- View all upgrades: <manage action="view_manifest"/> — lists all 14 permanent upgrades with categories + dates
+- Reset/delete operations are DISABLED — reset_system, reset_database, wipe_data, force_reset, etc. will be REJECTED.
+- Delete/disable operations (delete_subagent, delete_widget, disable_2fa, etc.) require OWNER AUTHORIZATION via:
+  - SMS: <manage action="request_owner_auth" operation="delete_subagent" method="sms"/>
+  - WhatsApp: <manage action="request_owner_auth" operation="delete_subagent" method="whatsapp"/>
+  - Email: <manage action="request_owner_auth" operation="delete_subagent" method="email"/>
+  - Google Authenticator (TOTP): <manage action="request_owner_auth" operation="delete_subagent" method="totp"/>
+- After requesting auth, the owner receives a 6-digit code. Verify it with:
+  <manage action="verify_owner_auth" auth_id="..." code="123456"/>
+
+═══════════════════════════════════════════════════════════════════════════════
+TOTP (Google Authenticator) SETUP — Owner can register TOTP for passwordless 2FA.
+
+- Setup TOTP: <manage action="totp_setup"/> — generates a QR code the owner scans with Google Authenticator
+- Verify TOTP: <manage action="totp_verify" code="123456"/> — enables TOTP after owner scans QR
+- Disable TOTP (REQUIRES OWNER AUTH): <manage action="totp_disable"/> — sends auth code, then verify
+
+═══════════════════════════════════════════════════════════════════════════════
+SUB-AGENT NETWORK — ALL 18 SUB-AGENTS HAVE FULL ACCESS TO ALL 15 TOOLS.
+No limitations. No tool restrictions. The owner has explicitly granted full access.
+This is PERMANENT — see upgrade-manifest.ts → subagent_full_access entry.
+
 REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard/system state.`
 
 export interface OrchestratorEventEmit {
@@ -1131,6 +1169,7 @@ interface ManageResult {
 
 const BUILTIN_IDS = new Set(SUBAGENTS.map((s) => s.id))
 
+/* FULL ACCESS: all tools are valid. The owner has granted full access. */
 const VALID_TOOLS_SET = new Set([
   'web_search',
   'page_reader',
@@ -1140,9 +1179,13 @@ const VALID_TOOLS_SET = new Set([
   'memory_store',
   'memory_recall',
   'file_read',
+  'file_write',
   'wikipedia_search',
   'wikipedia_read',
   'free_apis_directory',
+  'kb_search',
+  'http_fetch',
+  'source_read',
 ])
 
 const VALID_ICONS_SET = new Set([
@@ -1883,10 +1926,162 @@ async function executeManageAction(
         }
       }
 
+      /* ──────────────────────────── SELF-HEAL & UPGRADE PROTECTION ──────────────────────────── */
+
+      /* --------------------------- self_heal (Agent007 self-repair) --------------------------- */
+      case 'self_heal': {
+        try {
+          const healAction = (attrs.action ?? 'diagnose').toString().toLowerCase()
+          const validActions = ['diagnose', 'repair_dashboard', 'repair_login', 'repair_communication', 'restore_upgrades', 'verify_integrity', 'full_repair']
+          if (!validActions.includes(healAction)) {
+            return { ok: false, message: `self_heal: action must be one of ${validActions.join(', ')}` }
+          }
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/self-heal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: healAction }),
+            signal: AbortSignal.timeout(30000),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: data.ok !== false,
+            message: `Self-heal (${healAction}): ${data.summary ?? 'complete'}. Overall: ${data.overall?.toUpperCase()}`,
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `self_heal threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- view_manifest (list all upgrades) --------------------------- */
+      case 'view_manifest': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/manifest`, {
+            signal: AbortSignal.timeout(10000),
+          })
+          const data = await res.json().catch(() => ({}))
+          const upgrades = data.upgrades ?? []
+          return {
+            ok: true,
+            message: `${data.totalUpgrades ?? upgrades.length} PERMANENT upgrades registered. Categories: ${JSON.stringify(data.countsByCategory ?? {})}. All upgrades are protected — reset/delete operations require owner 2FA (SMS, TOTP, WhatsApp, or Email).`,
+            data: {
+              totalUpgrades: data.totalUpgrades,
+              categories: data.countsByCategory,
+              integrity: data.integrity,
+              upgrades: upgrades.map((u: any) => ({ id: u.id, title: u.title, category: u.category, dateApplied: u.dateApplied })),
+            },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `view_manifest threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- totp_setup (Google Authenticator) --------------------------- */
+      case 'totp_setup': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/owner-auth/totp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'setup' }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!data.ok) return { ok: false, message: `TOTP setup failed: ${data.error ?? 'unknown'}` }
+          return {
+            ok: true,
+            message: `TOTP setup initiated. Owner must scan the QR code at: ${data.qrCodeDataUrl?.slice(0, 80)}... with Google Authenticator, then verify with: <manage action="totp_verify" code="XXXXXX"/>. Manual entry key: ${data.secret?.slice(0, 4)}...`,
+            data: {
+              configId: data.configId,
+              qrCodeDataUrl: data.qrCodeDataUrl,
+              otpauthUrl: data.otpauthUrl,
+              manualEntry: data.manualEntry,
+            },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `totp_setup threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- totp_verify (verify TOTP code) --------------------------- */
+      case 'totp_verify': {
+        const code = (attrs.code ?? '').toString().trim()
+        if (!code || code.length !== 6) {
+          return { ok: false, message: 'totp_verify requires a 6-digit "code".' }
+        }
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/owner-auth/totp-verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+          })
+          const data = await res.json().catch(() => ({}))
+          return {
+            ok: !!data.ok,
+            message: data.ok ? 'TOTP verified and enabled. Owner can now use Google Authenticator for 2FA.' : `TOTP verify failed: ${data.error ?? 'unknown'}`,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `totp_verify threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- totp_disable (disable TOTP — REQUIRES OWNER AUTH) --------------------------- */
+      case 'totp_disable': {
+        // This is a PROTECTED operation — require owner auth
+        const { requestOwnerAuthorization, verifyOwnerAuthorization } = await import('@/lib/owner-auth')
+        const authResult = await requestOwnerAuthorization('disable_2fa', 'totp')
+        if (!authResult.ok) {
+          return { ok: false, message: `TOTP disable requires owner authorization: ${authResult.message}` }
+        }
+        // If TOTP preferred, the owner needs to enter their TOTP code via verify
+        if (authResult.totpRequired) {
+          return {
+            ok: true,
+            message: `TOTP disable authorization requested (authId: ${authResult.authId}). Owner must verify with: <manage action="verify_owner_auth" auth_id="${authResult.authId}" code="XXXXXX"/> using their Google Authenticator code.`,
+            data: { authId: authResult.authId, method: 'totp' },
+          }
+        }
+        // Otherwise, code was sent via WhatsApp/SMS/Email — owner needs to verify
+        return {
+          ok: true,
+          message: `TOTP disable authorization sent via ${authResult.method} (authId: ${authResult.authId}). Owner must verify with: <manage action="verify_owner_auth" auth_id="${authResult.authId}" code="XXXXXX"/>`,
+          data: { authId: authResult.authId, method: authResult.method, code: authResult.code },
+        }
+      }
+
+      /* --------------------------- verify_owner_auth (verify any pending auth) --------------------------- */
+      case 'verify_owner_auth': {
+        const authId = (attrs.auth_id ?? '').toString().trim()
+        const code = (attrs.code ?? '').toString().trim()
+        if (!authId || !code) {
+          return { ok: false, message: 'verify_owner_auth requires "auth_id" and "code".' }
+        }
+        const { verifyOwnerAuthorization } = await import('@/lib/owner-auth')
+        const result = verifyOwnerAuthorization(authId, code)
+        return {
+          ok: result.ok,
+          message: result.message,
+        }
+      }
+
+      /* --------------------------- request_owner_auth (request auth for a protected op) --------------------------- */
+      case 'request_owner_auth': {
+        const operation = (attrs.operation ?? '').toString().trim()
+        if (!operation) {
+          return { ok: false, message: 'request_owner_auth requires "operation".' }
+        }
+        const method = (attrs.method ?? 'whatsapp').toString() as 'whatsapp' | 'sms' | 'email' | 'totp'
+        const { requestOwnerAuthorization } = await import('@/lib/owner-auth')
+        const result = await requestOwnerAuthorization(operation, method)
+        return {
+          ok: result.ok,
+          message: result.message,
+          data: { authId: result.authId, method: result.method, code: result.code, waLink: result.waLink, totpRequired: result.totpRequired },
+        }
+      }
+
       default:
         return {
           ok: false,
-          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication.`,
+          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth.`,
         }
     }
   } catch (e: any) {

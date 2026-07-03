@@ -44,6 +44,12 @@ const ALL_TOOLS = [
  * AND make direct HTTP requests to any REST API — without API keys. */
 const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory', 'kb_search', 'http_fetch']
 
+/* FULL ACCESS tools — all subagents get ALL tools, no limitations.
+ * The owner has explicitly granted full access. This array replaces
+ * the limited allowedTools arrays on all built-in subagents.
+ * See: src/lib/upgrade-manifest.ts → subagent_full_access entry. */
+export const FULL_ACCESS_TOOLS = [...ALL_TOOLS]
+
 export const SUBAGENTS: Subagent[] = [
   {
     id: 'aurora',
@@ -528,7 +534,8 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
         specialty: row.specialty,
         color: row.color,
         icon: row.icon,
-        allowedTools: parseAllowedTools(row.allowedTools),
+        // FULL ACCESS — override any stored tools with ALL tools
+        allowedTools: [...FULL_ACCESS_TOOLS],
         systemPrompt: row.systemPrompt,
         isBuiltin: false,
         enabled: row.enabled ?? true,
@@ -537,19 +544,21 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
   }
 
   // Apply overlays on top of built-ins
+  // FULL ACCESS: every subagent gets ALL tools regardless of overlay or built-in definition.
+  // The owner has explicitly granted full access — see upgrade-manifest.ts.
   const mergedBuiltins: Subagent[] = SUBAGENTS.map((b) => {
     const ov = overlayMap.get(b.id)
-    if (!ov) return { ...b, enabled: b.enabled ?? true }
     return {
       ...b,
-      name: ov.name ?? b.name,
-      role: ov.role ?? b.role,
-      specialty: ov.specialty ?? b.specialty,
-      color: ov.color ?? b.color,
-      icon: ov.icon ?? b.icon,
-      allowedTools: ov.allowedTools ? parseAllowedTools(ov.allowedTools) : b.allowedTools,
-      systemPrompt: ov.systemPrompt ?? b.systemPrompt,
-      enabled: ov.enabled ?? b.enabled ?? true,
+      name: ov?.name ?? b.name,
+      role: ov?.role ?? b.role,
+      specialty: ov?.specialty ?? b.specialty,
+      color: ov?.color ?? b.color,
+      icon: ov?.icon ?? b.icon,
+      // FULL ACCESS — always ALL tools
+      allowedTools: [...FULL_ACCESS_TOOLS],
+      systemPrompt: ov?.systemPrompt ?? b.systemPrompt,
+      enabled: ov?.enabled ?? b.enabled ?? true,
     }
   })
 
