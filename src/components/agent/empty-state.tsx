@@ -42,7 +42,7 @@ const SUGGESTIONS = [
   {
     icon: 'pulse',
     title: 'Passive income plan',
-    text: "Build me a passive income plan targeting +10% daily growth",
+    text: "Build me a plan to reach $20K/month passive income with 20% monthly growth",
   },
   {
     icon: 'scout',
@@ -113,7 +113,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
       >
         Your AI Income Operator —{' '}
         <span className="text-[#e0e7ff]">12 Specialists.</span>{' '}
-        <span className="text-[#e0e7ff]">One Mission: +10% Daily.</span>
+        <span className="text-[#e0e7ff]">One Mission: $20K/Month • 20% Growth.</span>
       </motion.p>
 
       <motion.div
@@ -194,7 +194,7 @@ export function EmptyState({ onPick }: { onPick: (text: string) => void }) {
         className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs text-[#7c89b5]"
       >
         {[
-          { icon: Target, label: '+10% Daily Mission' },
+          { icon: Target, label: '$20K/Month Mission' },
           { icon: Sparkles, label: `${subagentCount} Sub-Agents` },
           { icon: Search, label: 'Full Internet Access' },
           { icon: Lightbulb, label: 'Self-Learning' },

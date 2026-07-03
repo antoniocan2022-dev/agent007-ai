@@ -22,6 +22,7 @@ function decrypt(b64: string): string {
 /** GET /api/backup — downloads full backup OR vault file */
 export async function GET(req: NextRequest) {
   await ensureDbReady().catch(() => {})
+    await new Promise(r => setTimeout(r, 500)) // Give tables time to create
   try {
     const url = new URL(req.url)
     const vaultFile = url.searchParams.get('vault')
@@ -96,6 +97,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/backup — restore from backup */
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
+    await new Promise(r => setTimeout(r, 500)) // Give tables time to create
   let body: any
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
   const data = body?.backup?.data || body?.data

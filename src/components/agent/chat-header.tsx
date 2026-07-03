@@ -114,7 +114,7 @@ export function ChatHeader({
             </div>
             <div className="text-[9px] text-[#5b6a92] tracking-wide hidden sm:block">
               {status === 'idle'
-                ? 'Ready • +10% daily mission'
+                ? 'Ready • $20K/mo • 20% growth/mo'
                 : status === 'thinking'
                 ? 'Reasoning…'
                 : status === 'tool_running'

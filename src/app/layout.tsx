@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     "multi-agent",
     "tool use",
     "reasoning trace",
-    "+10% daily growth",
+    "$20K/month with 20% monthly growth",
     "PWA",
     "voice AI",
     "RAG",
