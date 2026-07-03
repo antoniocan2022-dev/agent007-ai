@@ -145,7 +145,7 @@ export function DashboardTab() {
                 <span className="neon-text-purple">Tracker</span>
               </h1>
               <p className="text-xs text-[#7c89b5] mt-1 tracking-wide">
-                Real-time passive-income metrics for the +10% daily mission
+                Mission: $20,000/month passive income • 20% monthly growth • Full autonomous authority
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">

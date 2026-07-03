@@ -1310,3 +1310,27 @@ import {
 
 TOOL_REGISTRY.self_backup_create = { fn: toolSelfBackupCreate, icon: 'download', label: 'Self-Backup Create (downloadable ZIP/JSON backup on command)' }
 TOOL_REGISTRY.self_backup_list = { fn: toolSelfBackupList, icon: 'list', label: 'Self-Backup List (list all available backups)' }
+
+/* ================================================================== *
+ * 8 MEDIA/FILE TOOLS — see media-tools.ts
+ * Create, read, delete, modify ANY type of file (images, video, audio, docs)
+ * ================================================================== */
+import {
+  toolFileCreate,
+  toolFileReadAny,
+  toolFileDelete,
+  toolFileModify,
+  toolImageProcess,
+  toolAudioProcess,
+  toolVideoProcess,
+  toolDirectoryList,
+} from './media-tools'
+
+TOOL_REGISTRY.file_create = { fn: toolFileCreate, icon: 'file-plus', label: 'File Create (create any type of file)' }
+TOOL_REGISTRY.file_read_any = { fn: toolFileReadAny, icon: 'file-search', label: 'File Read Any (read text, base64, binary)' }
+TOOL_REGISTRY.file_delete = { fn: toolFileDelete, icon: 'file-x', label: 'File Delete (delete any non-protected file)' }
+TOOL_REGISTRY.file_modify = { fn: toolFileModify, icon: 'file-edit', label: 'File Modify (find + replace in any file)' }
+TOOL_REGISTRY.image_process = { fn: toolImageProcess, icon: 'image', label: 'Image Process (info, base64, analyze with vision)' }
+TOOL_REGISTRY.audio_process = { fn: toolAudioProcess, icon: 'mic', label: 'Audio Process (info, transcribe speech to text)' }
+TOOL_REGISTRY.video_process = { fn: toolVideoProcess, icon: 'video', label: 'Video Process (info, extract frames for analysis)' }
+TOOL_REGISTRY.directory_list = { fn: toolDirectoryList, icon: 'folder', label: 'Directory List (browse any directory)' }
