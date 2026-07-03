@@ -30,8 +30,8 @@ export interface NotificationSettings {
 }
 
 export const DEFAULT_INCOME_SETTINGS: IncomeSettings = {
-  monthlyGoal: 1000,
-  dailyGrowthTarget: 10,
+  monthlyGoal: 20000,
+  dailyGrowthTarget: 20,
   currencySymbol: '$',
   displayMode: 'detailed',
 }
@@ -65,8 +65,8 @@ export async function getIncomeSettings(): Promise<IncomeSettings> {
   const userId = await getOperatorUserId()
   if (!userId) return DEFAULT_INCOME_SETTINGS
   try {
-    const row = await db.userSetting.findUnique({
-      where: { userId_key: { userId, key: INCOME_KEY } },
+    const row = await db.userSetting.findFirst({
+      where: { userId, key: INCOME_KEY },
     })
     if (!row) return DEFAULT_INCOME_SETTINGS
     const parsed = JSON.parse(row.value) as Partial<IncomeSettings>
@@ -79,19 +79,20 @@ export async function getIncomeSettings(): Promise<IncomeSettings> {
 export async function setIncomeSettings(s: IncomeSettings): Promise<void> {
   const userId = await getOperatorUserId()
   if (!userId) return
-  await db.userSetting.upsert({
-    where: { userId_key: { userId, key: INCOME_KEY } },
-    update: { value: JSON.stringify(s) },
-    create: { userId, key: INCOME_KEY, value: JSON.stringify(s) },
-  })
+  try {
+    await db.userSetting.deleteMany({ where: { userId, key: INCOME_KEY } })
+  } catch {}
+  try {
+    await db.userSetting.create({ data: { userId, key: INCOME_KEY, value: JSON.stringify(s) } })
+  } catch {}
 }
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
   const userId = await getOperatorUserId()
   if (!userId) return DEFAULT_NOTIFICATION_SETTINGS
   try {
-    const row = await db.userSetting.findUnique({
-      where: { userId_key: { userId, key: NOTIF_KEY } },
+    const row = await db.userSetting.findFirst({
+      where: { userId, key: NOTIF_KEY },
     })
     if (!row) return DEFAULT_NOTIFICATION_SETTINGS
     const parsed = JSON.parse(row.value) as Partial<NotificationSettings>
@@ -108,11 +109,12 @@ export async function getNotificationSettings(): Promise<NotificationSettings> {
 export async function setNotificationSettings(s: NotificationSettings): Promise<void> {
   const userId = await getOperatorUserId()
   if (!userId) return
-  await db.userSetting.upsert({
-    where: { userId_key: { userId, key: NOTIF_KEY } },
-    update: { value: JSON.stringify(s) },
-    create: { userId, key: NOTIF_KEY, value: JSON.stringify(s) },
-  })
+  try {
+    await db.userSetting.deleteMany({ where: { userId, key: NOTIF_KEY } })
+  } catch {}
+  try {
+    await db.userSetting.create({ data: { userId, key: NOTIF_KEY, value: JSON.stringify(s) } })
+  } catch {}
 }
 
 /**

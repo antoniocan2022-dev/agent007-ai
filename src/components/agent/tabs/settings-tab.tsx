@@ -1268,13 +1268,29 @@ function WhatsAppConnectSection({ onToast }: { onToast: (msg: string) => void })
             <button onClick={() => setProv('callmebot')} className={`p-2 rounded-lg border text-left ${provider === 'callmebot' ? 'bg-blue-400/10 border-blue-400/50' : 'glass border-cyan-400/20'}`}><Send className="w-4 h-4 mb-1 text-blue-300" /><div className="text-[11px] font-bold text-[#e0e7ff]">CallMeBot</div><div className="text-[9px] text-[#5b6a92]">One-way</div></button>
             <button onClick={() => setProv('wa_link')} className={`p-2 rounded-lg border text-left ${provider === 'wa_link' ? 'bg-purple-400/10 border-purple-400/50' : 'glass border-cyan-400/20'}`}><Link2 className="w-4 h-4 mb-1 text-purple-300" /><div className="text-[11px] font-bold text-[#e0e7ff]">wa.me</div><div className="text-[9px] text-[#5b6a92]">Click-to-chat</div></button>
           </div>
+          {provider === 'baileys' && (
+            <div className="p-2 rounded-lg bg-amber-400/5 border border-amber-400/20 text-[9px] text-amber-200 mb-2">
+              ⚠ Baileys works best on local dev. On Vercel, use CallMeBot instead.
+            </div>
+          )}
           {provider === 'baileys' && (data?.baileys?.status === 'linked' ? (
             <div className="text-center py-2"><CheckCircle2 className="w-6 h-6 text-emerald-300 mx-auto mb-1" /><div className="text-xs text-emerald-100">Linked to {data.baileys.linkedNumber || 'your number'}</div><button onClick={disconnect} className="mt-2 h-7 px-3 rounded-md text-[10px] bg-pink-500/10 border border-pink-400/30 text-pink-200">DISCONNECT</button></div>
           ) : (
             <div className="text-center">{qrCode ? <img src={qrCode} alt="WhatsApp QR" className="w-44 h-44 mx-auto rounded-lg bg-white p-2" /> : <div className="w-44 h-44 mx-auto rounded-lg glass flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-emerald-300" /></div>}<button onClick={startBaileys} disabled={starting} className="mt-2 h-8 px-3 rounded-md text-[11px] font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-100">{starting ? 'STARTING...' : 'GENERATE QR'}</button></div>
           ))}
           {provider === 'callmebot' && (
-            <div className="space-y-2"><input value={callmebotNum} onChange={e => setCallmebotNum(e.target.value)} placeholder="Your WhatsApp Number" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" /><input value={callmebotKey} onChange={e => setCallmebotKey(e.target.value)} placeholder="CallMeBot API Key" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" /><button onClick={saveCallmebot} className="h-8 px-3 rounded-md text-[11px] font-bold bg-blue-500/20 border border-blue-400/50 text-blue-100">SAVE</button></div>
+            <div className="space-y-2">
+              <div className="p-2 rounded-lg bg-blue-400/5 border border-blue-400/20 text-[10px] text-blue-200 leading-relaxed">
+                <strong>Setup CallMeBot (3 steps):</strong><br/>
+                1. Open WhatsApp and add this number: <strong>+34 600 83 79 75</strong><br/>
+                2. Send message: <code className="text-blue-100">I allow callmebot to send me messages</code><br/>
+                3. You will receive your API key in the reply. Paste it below.<br/>
+                <a href="https://wa.me/34600837975?text=I%20allow%20callmebot%20to%20send%20me%20messages" target="_blank" rel="noreferrer" className="text-blue-300 underline text-[10px]">→ Click here to open WhatsApp and send the message</a>
+              </div>
+              <input value={callmebotNum} onChange={e => setCallmebotNum(e.target.value)} placeholder="Your WhatsApp Number (15145496297)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />
+              <input value={callmebotKey} onChange={e => setCallmebotKey(e.target.value)} placeholder="CallMeBot API Key (from WhatsApp reply)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />
+              <button onClick={saveCallmebot} className="h-8 px-3 rounded-md text-[11px] font-bold bg-blue-500/20 border border-blue-400/50 text-blue-100">SAVE CALLMEBOT</button>
+            </div>
           )}
           {data?.whatsappEnabled && <button onClick={sendTest} className="mt-2 w-full h-8 rounded-md text-[11px] font-bold bg-cyan-500/10 border border-cyan-400/30 text-cyan-200">SEND TEST MESSAGE</button>}
         </>
