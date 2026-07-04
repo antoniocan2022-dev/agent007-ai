@@ -111,6 +111,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
       ])
       if (s.income) setIncome(s.income)
       if (s.notifications) setNotif(s.notifications)
+      if (s.smtpConfigured !== undefined) setSmtpConfigured(s.smtpConfigured)
       if (l.logs) setLogs(l.logs)
       setError('')
     } catch (e: any) {
@@ -326,7 +327,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
               </label>
             </div>
 
-            {!smtpConfigured && (
+            {!smtpConfigured ? (
               <div className="flex items-start gap-2 mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-400/40 text-amber-200 text-[11px]">
                 <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                 <div>
@@ -334,6 +335,15 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
                   NotificationLog table (visible below) and printed to the server console instead of
                   being sent. Set <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>,{' '}
                   <code>SMTP_PASS</code>, and <code>SMTP_FROM</code> env vars to enable real email delivery.
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 mb-3 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-400/40 text-emerald-200 text-[11px]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <strong>SMTP configured ✅</strong> Email notifications are enabled.
+                  If emails fail to send, it may be due to authentication issues (e.g. Outlook requires App Passwords).
+                  Use the "TEST COMMS" button in the Dashboard → System Control Panel to verify.
                 </div>
               </div>
             )}

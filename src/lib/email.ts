@@ -25,14 +25,35 @@ function getTransporter(): Transporter | null {
   if (!isEmailConfigured()) return null
   if (transporter && transportReady) return transporter
   try {
+    const port = parseInt(process.env.SMTP_PORT ?? '587', 10)
+    const host = process.env.SMTP_HOST!
+    const user = process.env.SMTP_USER!
+    const pass = process.env.SMTP_PASS!
+
+    // Detect Outlook/Hotmail and use OAuth2-compatible settings
+    // Microsoft disabled basic auth — requires App Password or OAuth2
+    const isOutlook = host.includes('outlook') || host.includes('hotmail') || host.includes('office365') || host.includes('live.com')
+
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT ?? '587', 10),
-      secure: parseInt(process.env.SMTP_PORT ?? '587', 10) === 465,
+      host,
+      port,
+      secure: port === 465,
       auth: {
-        user: process.env.SMTP_USER!,
-        pass: process.env.SMTP_PASS!,
+        user,
+        pass,
       },
+      // For Outlook, add additional settings to work around basic auth deprecation
+      ...(isOutlook ? {
+        tls: {
+          ciphers: 'SSLv3',
+          rejectUnauthorized: false,
+        },
+        requireTLS: true,
+      } : {}),
+      // Increase timeout for slow SMTP servers
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     })
     transportReady = true
     return transporter
