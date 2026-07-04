@@ -46,6 +46,11 @@ export const MAX_ITERATIONS = 15
 const MAX_DISPATCHES = 8
 const MAX_MANAGE_ACTIONS = 5
 
+// Re-export the canonical action list so callers can import it from either
+// location. The single source of truth lives in ./manage-actions to avoid a
+// circular dependency with ./system-functions (which also needs the list).
+export { MANAGE_ACTIONS, MANAGE_ACTION_COUNT, isManageAction } from './manage-actions'
+
 /* Regex to find <dispatch agent="..." task="..."/> OR <dispatch agent="..." task="..."> tags.
  * Accepts both self-closing (/> ) and non-self-closing (> ) forms because the LLM
  * sometimes emits one or the other. Uses non-greedy [\s\S]*? for the task value. */

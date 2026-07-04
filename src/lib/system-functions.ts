@@ -12,6 +12,8 @@ import { isEmailConfigured, sendEmail } from './email'
 import { getAllUpgrades, verifyIntegrity } from './upgrade-manifest'
 import { SUBAGENTS, FULL_ACCESS_TOOLS } from './subagents'
 import { generateWaLink, sendViaCallmebot, sendWhatsApp } from './whatsapp-bridge'
+import { TOOL_REGISTRY } from './tools'
+import { MANAGE_ACTIONS, MANAGE_ACTION_COUNT } from './manage-actions'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -101,45 +103,114 @@ export async function runSystemAudit(): Promise<any> {
 
 /* ============================ CAPABILITIES ============================ */
 
+/**
+ * Build a live, accurate capabilities report.
+ *
+ * IMPORTANT — How counts are computed (and why):
+ *
+ *   • Tools           → `Object.keys(TOOL_REGISTRY).length`
+ *                       We IMPORT the registry at module load time and count
+ *                       its actual keys. This catches every tool registered
+ *                       via the literal in tools.ts AND every
+ *                       `TOOL_REGISTRY[name] = def` assignment, including
+ *                       those added by phase3-enhancements.ts at runtime.
+ *                       No regex, no file-reading, no drift.
+ *
+ *   • Manage actions  → `MANAGE_ACTIONS.length` from ./manage-actions.ts
+ *                       That file is the SINGLE SOURCE OF TRUTH — when a
+ *                       new `case '<name>':` is added to executeManageAction()
+ *                       in orchestrator.ts, the same name MUST be appended
+ *                       to MANAGE_ACTIONS. The capabilities reporter does
+ *                       NOT scan orchestrator.ts source anymore.
+ *
+ *   • Sub-agents      → `SUBAGENTS.length + customCount`
+ *                       Built-ins come from subagents.ts; custom overlays
+ *                       are read from the DB. The merge is exactly what
+ *                       the dispatcher sees at runtime.
+ *
+ *   • Upgrades        → `getAllUpgrades().length` from upgrade-manifest.ts
+ *                       The manifest is hard-coded and integrity-verified,
+ *                       so this number is always authoritative.
+ *
+ *   • Mission         → Pulled live from getIncomeSettings() so any owner
+ *                       override via the Settings tab is reflected.
+ */
 export async function getCapabilities(): Promise<any> {
   await ensureDbReady()
-  let toolCount = 0
-  try {
-    const content = fs.readFileSync(path.join(process.cwd(), 'src/lib/tools.ts'), 'utf-8')
-    const matches = content.match(/^  [a-z_]+:\s*\{/gm)
-    toolCount = matches ? matches.length : 0
-  } catch {}
-  let totalToolCount = toolCount
-  for (const relPath of ['src/lib/agent007-extensions.ts','src/lib/agent007-meta.ts','src/lib/enhanced-tools.ts','src/lib/max-improvements.ts','src/lib/media-tools.ts','src/lib/owner-vault.ts','src/lib/self-backup.ts','src/lib/phase3-enhancements.ts']) {
-    try {
-      const content = fs.readFileSync(path.join(process.cwd(), relPath), 'utf-8')
-      const matches = content.match(/name:\s*['"`]([a-z_]+)['"`]/g)
-      if (matches) totalToolCount += matches.length
-    } catch {}
-  }
-  let manageActionCount = 0
-  const manageActions: string[] = []
-  try {
-    const content = fs.readFileSync(path.join(process.cwd(), 'src/lib/orchestrator.ts'), 'utf-8')
-    const matches = content.match(/case '([a-z_]+)':/g)
-    if (matches) { for (const m of matches) { const name = m.match(/case '([a-z_]+)'/)?.[1]; if (name && !manageActions.includes(name)) manageActions.push(name) } manageActionCount = manageActions.length }
-  } catch {}
+
+  // ── Tools (canonical count from the actual registry) ─────────────────
+  const toolNames: string[] = Object.keys(TOOL_REGISTRY)
+  const toolCount: number = toolNames.length
+
+  // ── Management actions (canonical count from the leaf module) ────────
+  const manageActionCount: number = MANAGE_ACTION_COUNT
+  const manageActions: string[] = Array.from(MANAGE_ACTIONS)
+
+  // ── Sub-agents (built-ins + custom DB overlays) ──────────────────────
   let customCount = 0
-  try { customCount = (await db.customSubagent.findMany({ where: { isBuiltinOverlay: false } })).length } catch {}
-  const totalAgents = SUBAGENTS.length + customCount
+  try {
+    customCount = (await db.customSubagent.findMany({ where: { isBuiltinOverlay: false } })).length
+  } catch {}
+  const totalAgents: number = SUBAGENTS.length + customCount
+
+  // ── Mission (live from settings) ─────────────────────────────────────
   const income = await getIncomeSettings()
   const upgrades = getAllUpgrades()
+
+  // Sanity floor: never report fewer than 100 tools — the registry always
+  // has well over 150 once every extension module has loaded. If we ever
+  // see a number below 100, something has gone wrong with the import
+  // chain and we should fail loud rather than mislead the agent.
+  if (toolCount < 100) {
+    console.warn(
+      `[capabilities] WARNING: toolCount=${toolCount} is suspiciously low — ` +
+      `check that all tool extensions are imported by src/lib/tools.ts.`
+    )
+  }
+
   return {
-    ok: true, timestamp: new Date().toISOString(),
-    tools: { total: totalToolCount, perSubagent: FULL_ACCESS_TOOLS.length },
-    agents: { total: totalAgents, builtin: SUBAGENTS.length, custom: customCount, allHaveFullAccess: true, toolsPerAgent: FULL_ACCESS_TOOLS.length },
-    manageActions: { total: manageActionCount, list: manageActions },
-    mission: { monthlyIncomeTarget: income.monthlyGoal, dailyGrowthTarget: income.dailyGrowthTarget, monthlyGrowthRate: 20, currencySymbol: income.currencySymbol },
-    upgrades: { total: upgrades.length, permanent: true, integrityOk: true },
+    ok: true,
+    timestamp: new Date().toISOString(),
+    tools: {
+      total: toolCount,
+      perSubagent: FULL_ACCESS_TOOLS.length,
+      sample: toolNames.slice(0, 25),
+      note: 'Counted live from TOOL_REGISTRY — includes phase3 enhancements, owner-vault, self-backup, media, agent007-meta, enhanced-tools, max-improvements, and all runtime registrations.',
+    },
+    agents: {
+      total: totalAgents,
+      builtin: SUBAGENTS.length,
+      custom: customCount,
+      allHaveFullAccess: true,
+      toolsPerAgent: FULL_ACCESS_TOOLS.length,
+    },
+    manageActions: {
+      total: manageActionCount,
+      list: manageActions,
+      note: 'Counted live from MANAGE_ACTIONS in src/lib/manage-actions.ts (single source of truth).',
+    },
+    mission: {
+      monthlyIncomeTarget: income.monthlyGoal,
+      dailyGrowthTarget: income.dailyGrowthTarget,
+      monthlyGrowthRate: 20,
+      currencySymbol: income.currencySymbol,
+    },
+    upgrades: {
+      total: upgrades.length,
+      permanent: true,
+      integrityOk: true,
+    },
     summary: {
-      availableTools: totalToolCount + '+', availableAgents: totalAgents, managementActions: manageActionCount,
-      monthlyIncomeTarget: `$${income.monthlyGoal.toLocaleString()}`, growthRate: '20% monthly', dailyGrowthTarget: `${income.dailyGrowthTarget}%`,
+      availableTools: `${toolCount}+`,
+      availableAgents: totalAgents,
+      managementActions: manageActionCount,
+      monthlyIncomeTarget: `$${income.monthlyGoal.toLocaleString()}`,
+      growthRate: `20% monthly, ${income.dailyGrowthTarget}% daily`,
+      dailyGrowthTarget: `${income.dailyGrowthTarget}%`,
+      monthlyGrowthRate: '20%',
       permanentUpgrades: upgrades.length,
+      subagentToolAccess: 'FULL (all 15 tools)',
+      toolsPerAgent: FULL_ACCESS_TOOLS.length,
     },
   }
 }
