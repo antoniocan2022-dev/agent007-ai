@@ -1371,3 +1371,9 @@ import { PHASE3_TOOLS as PHASE3_NEW_TOOLS } from './phase3-enhancements'
 for (const [name, def] of Object.entries(PHASE3_NEW_TOOLS)) {
   TOOL_REGISTRY[name] = def
 }
+
+/* TOOL ENHANCEMENTS — 12 new advanced tools */
+import { TOOL_ENHANCEMENTS } from './phase3-enhancements'
+for (const [name, def] of Object.entries(TOOL_ENHANCEMENTS)) {
+  TOOL_REGISTRY[name] = def
+}
