@@ -2037,3 +2037,27 @@ Stage Summary:
 - Growth rate display now correctly shows "20% monthly, 10% daily"
 - The 6 custom sub-agents in the DB are now properly counted toward the agent total
 - manage-actions.ts is the single source of truth — adding a new case to orchestrator.ts requires adding the name here, otherwise the capabilities count will drift again
+
+---
+Task ID: cap-fix-002
+Agent: main (parent)
+Task: After deploying cap-fix-001, discovered the /api/system/capabilities HTTP route had its OWN duplicate regex-based counting implementation that was overriding the canonical getCapabilities() numbers. Fix and redeploy.
+
+Work Log:
+- Live endpoint check showed Vercel was still reporting 110+ tools / 35 manage actions / "20% monthly" after cap-fix-001
+- Inspected src/app/api/system/capabilities/route.ts — confirmed it had its own copy of the buggy regex logic, never calling getCapabilities()
+- Rewrote the route to delegate everything (tools, agents, manageActions, mission, upgrades) to getCapabilities() and only add infrastructure metadata (apiRoutes, dbModels, sourceFiles, protectionMode, ownerAuthMethods) at the route level
+- Verified TypeScript compiles cleanly
+- Committed + redeployed to Vercel production
+- Verified live endpoint now returns:
+  - availableTools: "382+" (was "110+")
+  - managementActions: 38 (was 35)
+  - growthRate: "20% monthly, 10% daily" (was "20% monthly")
+  - availableAgents: 18 (was already correct)
+  - permanentUpgrades: 18 (was already correct)
+  - tools sample includes the phase3 enhancements (predictive_analytics, autonomous_revenue, etc.)
+
+Stage Summary:
+- All capabilities numbers on Vercel now match the codebase truth
+- The /api/system/capabilities route and the orchestrator's view_capabilities action now use the SAME getCapabilities() function — no more divergent counts
+- Agent007 will see "382+ tools, 38 manage actions, 20% monthly + 10% daily growth, 18 agents, 18 upgrades" the next time it calls <manage action="view_capabilities"/>
