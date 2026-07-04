@@ -934,6 +934,18 @@ export async function toolHttpFetch(
     const contentType = res.headers.get('content-type') || 'unknown'
     const status = res.status
     if (status >= 400) {
+      // Provide a helpful message for auth errors (401/403) — clarify this is
+      // NOT an LLM failure, just the fetched URL requiring authentication.
+      if (status === 401 || status === 403) {
+        return badResult(
+          `http_fetch got HTTP ${status} from ${url}\n\n` +
+          `This URL requires authentication (API key, bearer token, or login).\n` +
+          `NOTE: This is NOT an LLM failure — Agent007's AI brain is working fine.\n` +
+          `This is just the URL you fetched rejecting unauthenticated requests.\n\n` +
+          `If you need to call an authenticated API, ask the owner to add an API key\n` +
+          `in Settings → API Key Manager, or use a different URL that doesn't require auth.`
+        )
+      }
       return badResult(`http_fetch got HTTP ${status} from ${url}`)
     }
     const text = await res.text()
