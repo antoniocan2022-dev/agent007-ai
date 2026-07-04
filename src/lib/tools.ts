@@ -1360,3 +1360,14 @@ import {
 TOOL_REGISTRY.owner_vault_create = { fn: toolOwnerVaultCreate, icon: 'lock', label: 'Owner Vault Create (encrypted owner-only file)' }
 TOOL_REGISTRY.owner_vault_list = { fn: toolOwnerVaultList, icon: 'list', label: 'Owner Vault List (list all vault files)' }
 TOOL_REGISTRY.owner_vault_download = { fn: toolOwnerVaultDownload, icon: 'download', label: 'Owner Vault Download (get download URL)' }
+
+/* ================================================================== *
+ * PHASE 3 ENHANCEMENT TOOLS — 30 new tools (analytics, marketing,
+ * investment, content, financial, critical upgrades)
+ * Full access, no limitations.
+ * ================================================================== */
+import { PHASE3_TOOLS as PHASE3_NEW_TOOLS } from './phase3-enhancements'
+
+for (const [name, def] of Object.entries(PHASE3_NEW_TOOLS)) {
+  TOOL_REGISTRY[name] = def
+}

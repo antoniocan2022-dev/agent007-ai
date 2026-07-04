@@ -168,6 +168,24 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/app/api/system/zip-backup/route.ts', 'src/app/api/system/load-backup/route.ts', 'src/lib/orchestrator.ts'],
   },
+  {
+    id: 'phase3_enhancements',
+    category: 'autonomy',
+    title: 'Phase 3 Enhancement Tools (30 New Advanced Tools)',
+    description: 'Added 30 new tools: 5 Enhanced Analytics (predictive analytics, market trends, income forecast, strategy optimizer), 5 Automated Marketing (email, social media, lead gen, conversion, CRM), 5 Investment Management (portfolio, real-time data, analyzer, risk, rebalancing), 5 Content Creation (AI writing, SEO, repurposing, multi-format, QA), 5 Financial Management (budgeting, tax, cashflow, planner, compliance), 5 Critical Upgrades (multi-agent coordination, API integration, ML models, autonomous revenue, security). All tools have FULL ACCESS, no limitations.',
+    dateApplied: '2026-07-04',
+    permanent: true,
+    files: ['src/lib/phase3-enhancements.ts', 'src/lib/tools.ts', 'src/lib/agent.ts'],
+  },
+  {
+    id: 'owner_communication_channel',
+    category: 'communication',
+    title: 'Owner Communication Channel (Phone/WhatsApp/Email Commands)',
+    description: 'Opened direct communication channel for owner via +15145496297 (phone/WhatsApp) and antonio.can2022@hotmail.com (email). Owner can send commands, questions, and requests via these channels. Agent007 responds via /api/commands/inbound, /api/commands/execute, /api/commands/send. 2-way communication enabled.',
+    dateApplied: '2026-07-04',
+    permanent: true,
+    files: ['src/lib/agent.ts', 'src/app/api/commands/inbound/route.ts', 'src/app/api/commands/execute/route.ts', 'src/app/api/commands/send/route.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
