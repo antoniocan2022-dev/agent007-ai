@@ -182,12 +182,12 @@ SYSTEM CONTROL & SELF-HEAL ACTIONS (NEW — use these!):
 <manage action="view_manifest"/> — Lists all 16 permanent upgrades with integrity check.
 <manage action="system_audit"/> — Runs full system audit (DB, dashboard, login, communication, API routes).
 <manage action="system_test_communication"/> — Tests WhatsApp, Email, SMS, inbound commands.
-<manage action="self_heal" action="diagnose"/> — Diagnoses system health (DB, settings, subagents, manifest).
-<manage action="self_heal" action="full_repair"/> — Runs all 27 repair steps.
-<manage action="self_heal" action="repair_dashboard"/> — Restores income/notification settings.
-<manage action="self_heal" action="repair_login"/> — Ensures seed user + 2FA endpoints.
-<manage action="self_heal" action="repair_communication"/> — Checks email/WhatsApp config.
-<manage action="self_heal" action="restore_upgrades"/> — Verifies all permanent upgrades.
+<manage action="self_heal" heal_action="diagnose"/> — Diagnoses system health (DB, settings, subagents, manifest).
+<manage action="self_heal" heal_action="full_repair"/> — Runs all 27 repair steps.
+<manage action="self_heal" heal_action="repair_dashboard"/> — Restores income/notification settings.
+<manage action="self_heal" heal_action="repair_login"/> — Ensures seed user + 2FA endpoints.
+<manage action="self_heal" heal_action="repair_communication"/> — Checks email/WhatsApp config.
+<manage action="self_heal" heal_action="restore_upgrades"/> — Verifies all permanent upgrades.
 <manage action="system_refresh" reason="..."/> — Triggers client UI refresh (use after any change).
 <manage action="system_reload" reason="..."/> — Triggers full page reload (for major changes).
 <manage action="fix_hydration"/> — Fixes login/dashboard hydration errors (clears cache).

@@ -1,4 +1,30 @@
 import { db } from '@/lib/db'
+import { internalUrl } from "./internal-url"
+import { runSystemAudit, getCapabilities, getManifest, testCommunication, runSelfHeal } from "./system-functions"
+
+// Helper: fetch internal URL with better error handling for Vercel
+async function internalFetch(url: string, options?: any): Promise<any> {
+  try {
+    const res = await fetch(url, {
+      ...options,
+      redirect: 'follow',
+      signal: options?.signal ?? AbortSignal.timeout(15000),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}`, _httpError: true }
+    }
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, error: `Non-JSON response (${contentType}): ${text.slice(0, 100)}`, _parseError: true }
+    }
+    return await res.json().catch(() => ({}))
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e), _fetchError: true }
+  }
+}
+
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
 import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import {
@@ -207,13 +233,13 @@ When the owner says "modify the dashboard" or "add a feature to the login page" 
 ═══════════════════════════════════════════════════════════════════════════════
 SELF-HEALING CAPABILITIES — You can diagnose and repair the system autonomously.
 
-- Diagnose system: <manage action="self_heal" action="diagnose"/> — checks DB, settings, subagents, upgrade manifest
-- Repair dashboard: <manage action="self_heal" action="repair_dashboard"/> — restores income/notification settings, triggers refresh
-- Repair login: <manage action="self_heal" action="repair_login"/> — ensures seed user exists, tests 2FA endpoints
-- Repair communication: <manage action="self_heal" action="repair_communication"/> — checks email/WhatsApp config
-- Restore upgrades: <manage action="self_heal" action="restore_upgrades"/> — verifies all 14 permanent upgrades are intact
+- Diagnose system: <manage action="self_heal" heal_action="diagnose"/> — checks DB, settings, subagents, upgrade manifest
+- Repair dashboard: <manage action="self_heal" heal_action="repair_dashboard"/> — restores income/notification settings, triggers refresh
+- Repair login: <manage action="self_heal" heal_action="repair_login"/> — ensures seed user exists, tests 2FA endpoints
+- Repair communication: <manage action="self_heal" heal_action="repair_communication"/> — checks email/WhatsApp config
+- Restore upgrades: <manage action="self_heal" heal_action="restore_upgrades"/> — verifies all 14 permanent upgrades are intact
 - Verify integrity: <manage action="self_heal" action="verify_integrity"/> — checks upgrade manifest
-- Full repair (all of the above): <manage action="self_heal" action="full_repair"/>
+- Full repair (all of the above): <manage action="self_heal" heal_action="full_repair"/>
 
 If the owner reports "dashboard is missing options" or "settings aren't saving" or "login is broken", IMMEDIATELY run self_heal with the appropriate action. Don't ask questions first — diagnose + repair, THEN report what you found and fixed.
 
@@ -1615,12 +1641,11 @@ async function executeManageAction(
           progress: attrs.progress ? parseFloat(attrs.progress) : undefined,
         }
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/dashboard/widgets`, {
+          const data = await internalFetch(internalUrl("/api/dashboard/widgets"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: action === 'dashboard_edit_widget' ? 'edit' : 'add', widget }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.message ?? (data.ok ? `Widget "${id}" saved.` : 'Widget save failed.'),
@@ -1635,12 +1660,11 @@ async function executeManageAction(
         const id = (attrs.id ?? '').toString().trim().slice(0, 80)
         if (!id) return { ok: false, message: 'dashboard_remove_widget requires "id".' }
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/dashboard/widgets`, {
+          const data = await internalFetch(internalUrl("/api/dashboard/widgets"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'remove', id }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.message ?? (data.ok ? `Widget "${id}" removed.` : 'Widget remove failed.'),
@@ -1652,12 +1676,11 @@ async function executeManageAction(
 
       case 'dashboard_clear_widgets': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/dashboard/widgets`, {
+          const data = await internalFetch(internalUrl("/api/dashboard/widgets"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'clear' }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.message ?? 'All widgets cleared.',
@@ -1688,7 +1711,7 @@ async function executeManageAction(
         }
         // Trigger a refresh signal so any open clients reload
         try {
-          await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+          await internalFetch(internalUrl("/api/system/refresh"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason: 'login_branding_update' }),
@@ -1709,7 +1732,7 @@ async function executeManageAction(
           return { ok: false, message: `login_enable_2fa: method must be one of ${validMethods.join(', ')}.` }
         }
         try {
-          const setupRes = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/setup`, {
+          const setupRes = await internalFetch(internalUrl("/api/2fa/setup"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1724,7 +1747,7 @@ async function executeManageAction(
           }
           // Auto-verify the setup using the code that was sent
           if (setupData.configId && attrs.code) {
-            const verifyRes = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/verify`, {
+            const verifyRes = await internalFetch(internalUrl("/api/2fa/verify"), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ configId: setupData.configId, code: attrs.code }),
@@ -1753,12 +1776,11 @@ async function executeManageAction(
           return { ok: false, message: 'login_verify_2fa requires "config_id" and "code".' }
         }
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/verify`, {
+          const data = await internalFetch(internalUrl("/api/2fa/verify"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ configId, code }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.ok ? '2FA verified and enabled.' : `Verify failed: ${data.error ?? 'unknown'}`,
@@ -1770,12 +1792,11 @@ async function executeManageAction(
 
       case 'login_disable_2fa': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/disable`, {
+          const data = await internalFetch(internalUrl("/api/2fa/disable"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({}),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.ok ? '2FA disabled.' : `Disable failed: ${data.error ?? 'unknown'}`,
@@ -1810,7 +1831,7 @@ async function executeManageAction(
         }
         // Trigger refresh
         try {
-          await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+          await internalFetch(internalUrl("/api/system/refresh"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason: `settings_set: ${saved.join(', ')}` }),
@@ -1850,7 +1871,7 @@ async function executeManageAction(
         if (!key) return { ok: false, message: 'settings_delete requires "key".' }
         await deleteCustomSetting(key)
         try {
-          await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+          await internalFetch(internalUrl("/api/system/refresh"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason: `settings_delete: ${key}` }),
@@ -1863,12 +1884,11 @@ async function executeManageAction(
       case 'system_refresh': {
         try {
           const reason = (attrs.reason ?? 'agent007_manage_action').toString().slice(0, 200)
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/refresh`, {
+          const data = await internalFetch(internalUrl("/api/system/refresh"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.message ?? 'Refresh signal emitted.',
@@ -1883,12 +1903,11 @@ async function executeManageAction(
       case 'system_reload': {
         try {
           const reason = (attrs.reason ?? 'agent007_full_reload').toString().slice(0, 200)
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/reload`, {
+          const data = await internalFetch(internalUrl("/api/system/reload"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.message ?? 'Reload signal emitted. Clients will do a full page reload.',
@@ -1902,10 +1921,7 @@ async function executeManageAction(
       /* --------------------------- system_audit --------------------------- */
       case 'system_audit': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/audit`, {
-            signal: AbortSignal.timeout(20000),
-          })
-          const data = await res.json().catch(() => ({}))
+          const data = await runSystemAudit()
           return {
             ok: data.overall !== 'fail',
             message: `Audit complete. Overall: ${data.overall?.toUpperCase()}. DB: ${data.database?.status}. Dashboard: ${data.dashboard?.status}. Login: ${data.login?.status}. Comms: ${data.communication?.status}. Settings: ${data.settings?.status}.`,
@@ -1919,7 +1935,7 @@ async function executeManageAction(
       /* --------------------------- system_test_communication --------------------------- */
       case 'system_test_communication': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/test-communication`, {
+          const data = await internalFetch(internalUrl("/api/system/test-communication"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1930,7 +1946,6 @@ async function executeManageAction(
             }),
             signal: AbortSignal.timeout(30000),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: data.overall !== 'fail',
             message: `Communication test: ${data.overall?.toUpperCase()}. ${data.results?.map((r: any) => `${r.channel}=${r.status}`).join(', ')}`,
@@ -1946,18 +1961,17 @@ async function executeManageAction(
       /* --------------------------- self_heal (Agent007 self-repair) --------------------------- */
       case 'self_heal': {
         try {
-          const healAction = (attrs.action ?? 'diagnose').toString().toLowerCase()
+          const healAction = (attrs.heal_action ?? attrs.action ?? 'diagnose').toString().toLowerCase()
           const validActions = ['diagnose', 'repair_dashboard', 'repair_login', 'repair_communication', 'restore_upgrades', 'verify_integrity', 'full_repair']
           if (!validActions.includes(healAction)) {
             return { ok: false, message: `self_heal: action must be one of ${validActions.join(', ')}` }
           }
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/self-heal`, {
+          const data = await internalFetch(internalUrl("/api/system/self-heal"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: healAction }),
             signal: AbortSignal.timeout(30000),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: data.ok !== false,
             message: `Self-heal (${healAction}): ${data.summary ?? 'complete'}. Overall: ${data.overall?.toUpperCase()}`,
@@ -1971,10 +1985,7 @@ async function executeManageAction(
       /* --------------------------- view_manifest (list all upgrades) --------------------------- */
       case 'view_manifest': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/manifest`, {
-            signal: AbortSignal.timeout(10000),
-          })
-          const data = await res.json().catch(() => ({}))
+          const data = getManifest()
           const upgrades = data.upgrades ?? []
           return {
             ok: true,
@@ -1994,10 +2005,7 @@ async function executeManageAction(
       /* --------------------------- view_capabilities (live self-audit numbers) --------------------------- */
       case 'view_capabilities': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/capabilities`, {
-            signal: AbortSignal.timeout(10000),
-          })
-          const data = await res.json().catch(() => ({}))
+          const data = await getCapabilities()
           if (!data.ok) return { ok: false, message: `view_capabilities failed: ${data.error ?? 'unknown'}` }
           return {
             ok: true,
@@ -2013,13 +2021,12 @@ async function executeManageAction(
       case 'create_backup': {
         try {
           const label = (attrs.label ?? 'full-system').toString().slice(0, 40)
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/zip-backup`, {
+          const data = await internalFetch(internalUrl("/api/system/zip-backup"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ label }),
             signal: AbortSignal.timeout(60000),
           })
-          const data = await res.json().catch(() => ({}))
           if (!data.ok) return { ok: false, message: `Backup failed: ${data.error ?? 'unknown'}` }
           return {
             ok: true,
@@ -2034,10 +2041,9 @@ async function executeManageAction(
       /* --------------------------- list_backups (list all available backups) --------------------------- */
       case 'list_backups': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/zip-backup`, {
+          const data = await internalFetch(internalUrl("/api/system/zip-backup"), {
             signal: AbortSignal.timeout(10000),
           })
-          const data = await res.json().catch(() => ({}))
           const backups = data.backups ?? []
           if (backups.length === 0) return { ok: true, message: 'No backups found. Use create_backup to create one.' }
           return {
@@ -2057,13 +2063,12 @@ async function executeManageAction(
           if (attrs.filename) payload.filename = attrs.filename.toString()
           else if (attrs.latest === 'true') payload.latest = true
           else return { ok: false, message: 'load_backup requires "filename" or latest="true".' }
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/load-backup`, {
+          const data = await internalFetch(internalUrl("/api/system/load-backup"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
             signal: AbortSignal.timeout(30000),
           })
-          const data = await res.json().catch(() => ({}))
           if (!data.ok) return { ok: false, message: `Load backup failed: ${data.error ?? 'unknown'}` }
           return {
             ok: true,
@@ -2078,12 +2083,11 @@ async function executeManageAction(
       /* --------------------------- totp_setup (Google Authenticator) --------------------------- */
       case 'totp_setup': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/owner-auth/totp`, {
+          const data = await internalFetch(internalUrl("/api/owner-auth/totp"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'setup' }),
           })
-          const data = await res.json().catch(() => ({}))
           if (!data.ok) return { ok: false, message: `TOTP setup failed: ${data.error ?? 'unknown'}` }
           return {
             ok: true,
@@ -2107,12 +2111,11 @@ async function executeManageAction(
           return { ok: false, message: 'totp_verify requires a 6-digit "code".' }
         }
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/owner-auth/totp-verify`, {
+          const data = await internalFetch(internalUrl("/api/owner-auth/totp-verify"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code }),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: !!data.ok,
             message: data.ok ? 'TOTP verified and enabled. Owner can now use Google Authenticator for 2FA.' : `TOTP verify failed: ${data.error ?? 'unknown'}`,
@@ -2180,13 +2183,12 @@ async function executeManageAction(
       /* --------------------------- fix_hydration (fix login/dashboard hydration errors) --------------------------- */
       case 'fix_hydration': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/fix-hydration`, {
+          const data = await internalFetch(internalUrl("/api/system/fix-hydration"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ autoFix: attrs.auto_fix !== 'false' }),
             signal: AbortSignal.timeout(15000),
           })
-          const data = await res.json().catch(() => ({}))
           const highSeverity = data.diagnosis?.filter((d: any) => d.severity === 'high') ?? []
           return {
             ok: data.ok !== false,
@@ -2203,13 +2205,12 @@ async function executeManageAction(
       /* --------------------------- clear_cache (clear .next build cache) --------------------------- */
       case 'clear_cache': {
         try {
-          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/clear-cache`, {
+          const data = await internalFetch(internalUrl("/api/system/clear-cache"), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ force: attrs.force === 'true' }),
             signal: AbortSignal.timeout(15000),
           })
-          const data = await res.json().catch(() => ({}))
           return {
             ok: data.ok !== false,
             message: data.message ?? 'Cache cleared.',

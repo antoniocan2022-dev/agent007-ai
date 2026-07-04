@@ -1,3 +1,4 @@
+import { internalUrl } from '@/lib/internal-url'
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { getIncomeSettings, getNotificationSettings, getAllCustomSettings, setCustomSetting } from '@/lib/settings'
@@ -197,7 +198,7 @@ async function repairLogin(): Promise<Array<{ step: string; status: 'pass' | 'fa
 
   // Check 2FA challenge endpoint
   try {
-    const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/2fa/challenge`, {
+    const res = await fetch(internalUrl("/api/2fa/challenge"), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'antonio.can2022@hotmail.com' }),
