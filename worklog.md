@@ -1895,3 +1895,37 @@ Stage Summary:
 - ✅ 2 missing manifest entries restored
 - ✅ All 16 permanent upgrades verified
 - ✅ All 18 subagents have FULL ACCESS
+
+---
+Task ID: exhaustive-agent-analysis-v18
+Agent: Super Z (main)
+Task: Exhaustive analysis of why Agent007 is not answering correctly
+
+Work Log:
+- Tested LLM: ✅ Working (Z.ai GLM-4-Plus on dev, OpenAI on Vercel)
+- Tested simple question "What is 2+2?": ✅ Answered "4" correctly in 2.2s
+- Tested manage action "view_capabilities": ❌ Agent007 said "I don't see a specific view_capabilities tool"
+- ROOT CAUSE FOUND: System prompt in agent.ts was missing documentation for 25+ manage actions
+  - Only documented basic actions (create_agent, edit_agent, set_income_goal, etc.)
+  - Missing: view_capabilities, view_manifest, self_heal, system_audit, create_backup, list_backups, load_backup, fix_hydration, clear_cache, totp_setup, totp_verify, totp_disable, request_owner_auth, verify_owner_auth, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, settings_set, settings_get, settings_delete, login_update_branding, system_refresh, system_reload, system_test_communication
+- Fix 1: Added full documentation for ALL 35 manage actions to agent.ts system prompt
+  - System Control & Self-Heal Actions section
+  - Backup Actions section
+  - 2FA & Owner Auth Actions section
+  - Dashboard Widget Actions section
+  - Settings Actions section
+  - Login Branding section
+- Fix 2: Fixed income goal from $1,500 → $20,000 in DB (was reset by Agent007 following old example)
+- Fix 3: Fixed set_income_goal example in prompt from amount="1500" → amount="20000"
+- Verified after fixes:
+  - Simple question: ✅ "What is 2+2?" → "4"
+  - Manage action: ✅ "Run view_capabilities" → emits <manage action="view_capabilities"/>
+  - Self-audit: ✅ Returns 110+ tools, 18 agents, 35 actions, $20K target, 16 upgrades
+  - Income: ✅ $20,000/month (was $1,500)
+
+Stage Summary:
+- ROOT CAUSE: System prompt was missing 25+ manage action documentation
+- Agent007 didn't know about view_capabilities, self_heal, create_backup, etc.
+- FIXED: All 35 manage actions now documented in system prompt with examples
+- FIXED: Income goal corrected to $20,000
+- Agent007 now answers correctly for both simple questions AND manage actions

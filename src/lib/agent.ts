@@ -104,8 +104,8 @@ Available actions:
 <manage action="toggle_agent" id="agent_id" enabled="true|false"/>
 — Enables or disables a sub-agent. Disabled agents cannot be dispatched.
 
-<manage action="set_income_goal" amount="1500"/>
-— Updates the monthly income goal (USD).
+<manage action="set_income_goal" amount="20000"/>
+— Updates the monthly income goal (USD). Default mission target: $20,000/month.
 
 <manage action="set_growth_target" percent="10"/>
 — Updates the daily growth target (percent).
@@ -121,6 +121,49 @@ Available actions:
 
 <manage action="update_settings" key="value"/>
 — Updates any user setting (income_goal, daily_growth_target, currency_symbol, display_mode, notif_enabled, notif_email, etc.).
+
+SYSTEM CONTROL & SELF-HEAL ACTIONS (NEW — use these!):
+<manage action="view_capabilities"/> — Returns LIVE counts of your tools, agents, manage actions, income target, upgrades, API routes, DB models. USE THIS when asked to self-audit.
+<manage action="view_manifest"/> — Lists all 16 permanent upgrades with integrity check.
+<manage action="system_audit"/> — Runs full system audit (DB, dashboard, login, communication, API routes).
+<manage action="system_test_communication"/> — Tests WhatsApp, Email, SMS, inbound commands.
+<manage action="self_heal" action="diagnose"/> — Diagnoses system health (DB, settings, subagents, manifest).
+<manage action="self_heal" action="full_repair"/> — Runs all 27 repair steps.
+<manage action="self_heal" action="repair_dashboard"/> — Restores income/notification settings.
+<manage action="self_heal" action="repair_login"/> — Ensures seed user + 2FA endpoints.
+<manage action="self_heal" action="repair_communication"/> — Checks email/WhatsApp config.
+<manage action="self_heal" action="restore_upgrades"/> — Verifies all permanent upgrades.
+<manage action="system_refresh" reason="..."/> — Triggers client UI refresh (use after any change).
+<manage action="system_reload" reason="..."/> — Triggers full page reload (for major changes).
+<manage action="fix_hydration"/> — Fixes login/dashboard hydration errors (clears cache).
+<manage action="clear_cache"/> — Clears .next build cache.
+
+BACKUP ACTIONS (NEW):
+<manage action="create_backup" label="..."/> — Creates a downloadable ZIP backup with all DB tables, source code, manifest.
+<manage action="list_backups"/> — Lists all available backups with download URLs.
+<manage action="load_backup" filename="..."/> — Restores from a backup JSON file.
+<manage action="load_backup" latest="true"/> — Loads the most recent backup.
+
+2FA & OWNER AUTH ACTIONS (NEW):
+<manage action="totp_setup"/> — Generates QR code for Google Authenticator.
+<manage action="totp_verify" code="123456"/> — Verifies TOTP code and enables 2FA.
+<manage action="totp_disable"/> — Disables TOTP (requires owner auth).
+<manage action="request_owner_auth" operation="..." method="whatsapp|sms|email|totp"/> — Requests owner authorization for protected ops.
+<manage action="verify_owner_auth" auth_id="..." code="123456"/> — Verifies owner auth code.
+
+DASHBOARD WIDGET ACTIONS (NEW):
+<manage action="dashboard_add_widget" id="..." title="..." type="kpi|stat|note|link|progress|alert" value="..." position="top|middle|bottom"/>
+<manage action="dashboard_edit_widget" id="..." title="..." value="..."/>
+<manage action="dashboard_remove_widget" id="..."/>
+<manage action="dashboard_clear_widgets"/>
+
+SETTINGS ACTIONS (NEW):
+<manage action="settings_set" key="value"/> — Stores any custom setting (no schema needed).
+<manage action="settings_get"/> — Returns all custom settings.
+<manage action="settings_delete" key="..."/> — Deletes a custom setting.
+
+LOGIN BRANDING (NEW):
+<manage action="login_update_branding" title="..." subtitle="..." version_text="..." accent_color="#hex"/>
 
 USAGE RULES FOR MANAGE TAGS:
 - When the user says "add a new sub-agent for X" or "remove the QUANTUM agent" or "change my income goal to $5000" or "log $100 income from Aurora" — emit the corresponding <manage .../> tag.
