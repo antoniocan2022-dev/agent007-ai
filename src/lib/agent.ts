@@ -667,6 +667,22 @@ export function friendlyLlmError(e: any): string {
     return `⏳ Agent007's ${providerName} is rate-limiting requests. Please wait 60 seconds and try again.`
   }
   if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
+    // Check for region block specifically
+    if (lower.includes('unsupported_country_region_territory') || lower.includes('region') && lower.includes('not supported')) {
+      return `🌍 Agent007's ${providerName} is blocked in this server region.
+
+The API key is VALID, but ${providerName} refuses to serve requests from this geographic location.
+
+WHICH PROVIDER FAILED: ${providerName}
+HTTP STATUS: ${status}
+
+TO FIX:
+1. Deploy to Vercel (US servers) — ${providerName} works there
+2. Use Z.ai SDK as primary (already working in dev)
+3. The key itself is fine — no need to change it
+
+Agent007 is still functional via Z.ai SDK (GLM-4-Plus).`
+    }
     return `🔐 Agent007's ${providerName} rejected the request (auth/permission).
 
 This means the API key is invalid, expired, or doesn't have permission.

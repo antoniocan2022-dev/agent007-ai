@@ -59,18 +59,34 @@ export async function GET() {
     diagnosis.overallStatus = '✅ WORKING'
     diagnosis.message = `AI provider is working. Model: ${model}. Test response: "${content.slice(0, 50)}"`
   } catch (e: any) {
+    const rawError = e?.message ?? String(e)
+    const status = e?.status ?? e?.response?.status
+
     diagnosis.testResult = {
       success: false,
-      rawError: e?.message?.slice(0, 300),
-      status: e?.status ?? e?.response?.status,
+      rawError: rawError.slice(0, 300),
+      status,
     }
     diagnosis.error = friendlyLlmError(e)
     diagnosis.overallStatus = '❌ FAILED'
     diagnosis.message = `AI provider test failed: ${diagnosis.error.slice(0, 200)}`
 
-    // Add specific fix instructions
-    const lower = (e?.message ?? '').toLowerCase()
-    if (lower.includes('openai') || lower.includes('fallback') || process.env.OPENAI_API_KEY) {
+    // Detect region block specifically
+    const lower = rawError.toLowerCase()
+    if (lower.includes('unsupported_country_region_territory') || lower.includes('region') && lower.includes('not supported')) {
+      diagnosis.regionBlocked = true
+      diagnosis.fix = {
+        provider: 'OpenAI',
+        issue: 'Region blocked (unsupported_country_region_territory)',
+        steps: [
+          '🔑 The API key is VALID — no need to change it',
+          '🌍 OpenAI blocks requests from this server region',
+          '1. Deploy to Vercel (US servers) — OpenAI works there',
+          '2. Agent007 uses Z.ai SDK as primary in dev (works fine)',
+          '3. The key will work when deployed to a supported region',
+        ],
+      }
+    } else if (lower.includes('openai') || lower.includes('fallback') || process.env.OPENAI_API_KEY) {
       diagnosis.fix = {
         provider: 'OpenAI',
         steps: [
