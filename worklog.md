@@ -1929,3 +1929,29 @@ Stage Summary:
 - FIXED: All 35 manage actions now documented in system prompt with examples
 - FIXED: Income goal corrected to $20,000
 - Agent007 now answers correctly for both simple questions AND manage actions
+
+---
+Task ID: agent-still-not-answering-v19
+Agent: Super Z (main)
+Task: Agent007 still not answering correctly — deployed fix to Vercel
+
+Work Log:
+- Tested dev server: Agent007 IS answering correctly
+  - "What is 2+2?" → "2+2 = 4" ✅
+  - "What are your capabilities?" → detailed structured response ✅
+  - "Run view_capabilities" → emits <manage action="view_capabilities"/> ✅
+- Discovered: The fix was only on dev, NOT on Vercel
+- Deployed latest code to Vercel production (1 minute deployment)
+- Tested Vercel after deployment:
+  - "What is 2+2?" → "2 + 2 equals 4." ✅
+  - "What are your capabilities?" → detailed response listing tools, agents, actions ✅
+  - "Run view_capabilities" → emits manage actions ✅
+- Both environments now answering correctly
+
+Stage Summary:
+- ✅ Dev (localhost:3000): Z.ai GLM-4-Plus — answering correctly
+- ✅ Vercel (agent007-ai.vercel.app): OpenAI GPT-4o-mini — answering correctly
+- ✅ Fix deployed to Vercel production
+- ✅ All 35 manage actions documented in system prompt
+- ✅ Income goal: $20,000/month
+- If owner still sees issues, need to know: which URL, what message, what response
