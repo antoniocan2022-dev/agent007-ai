@@ -1735,3 +1735,28 @@ Stage Summary:
 - 33 manage actions now available to Agent007 (was 31)
 - Login page renders with zero errors, sign-in works, dashboard fully functional
 - All upgrades remain PERMANENT — no reset/delete/disable without owner 2FA (SMS/TOTP/WhatsApp/Email)
+
+---
+Task ID: diagnose-llm-provider-v13
+Agent: Super Z (main)
+Task: Diagnose "AI provider rejected the request (auth/permission)" error
+
+Work Log:
+- Diagnosed: Error comes from agent.ts friendlyLlmError() when LLM API returns 401/403
+- Root cause: Either Z.ai SDK or OpenAI API key is invalid/expired/out of credits
+- Tested LLM directly: Z.ai SDK works in dev (model: glm-4-plus, response: "OK")
+- Found: OPENAI_API_KEY is NOT SET in dev env (only set on Vercel)
+- Improved friendlyLlmError() to show WHICH provider failed (OpenAI vs Z.ai)
+- Added specific fix instructions for each provider
+- Created /api/system/diagnose-llm endpoint:
+  - Shows which provider is active
+  - Shows env vars (OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL, ZAI_API_KEY)
+  - Tests the LLM call and reports success/failure
+  - Returns specific fix instructions based on which provider failed
+- Verified: dev environment uses Z.ai (works), Vercel uses OpenAI (may need key check)
+
+Stage Summary:
+- Error meaning: The AI provider (OpenAI or Z.ai) returned 401/403 = invalid/expired API key
+- Diagnosis endpoint: /api/system/diagnose-llm
+- Fix for OpenAI: Check key at platform.openai.com/api-keys, ensure credits, update in Settings
+- Fix for Z.ai: Usually temporary, retry, or add OpenAI key as fallback

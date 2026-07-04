@@ -657,17 +657,35 @@ export function friendlyLlmError(e: any): string {
   const raw: string = e?.message ?? String(e)
   const status: number | undefined = e?.status ?? e?.response?.status
   const lower = raw.toLowerCase()
+
+  // Detect which provider failed
+  const isOpenai = lower.includes('openai') || lower.includes('fallback') || lower.includes('gpt-4o')
+  const isZai = lower.includes('z-ai') || lower.includes('zai') || lower.includes('glm')
+  const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'
+
   if (status === 429 || lower.includes('429') || lower.includes('too many requests') || lower.includes('rate limit')) {
-    return '⏳ Agent007\'s AI provider is rate-limiting requests. Please wait 60 seconds and try again.'
+    return `⏳ Agent007's ${providerName} is rate-limiting requests. Please wait 60 seconds and try again.`
   }
   if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
-    return '🔐 Agent007\'s AI provider rejected the request (auth/permission). Please contact the operator.'
+    return `🔐 Agent007's ${providerName} rejected the request (auth/permission).
+
+This means the API key is invalid, expired, or doesn't have permission.
+
+WHICH PROVIDER FAILED: ${providerName}
+HTTP STATUS: ${status ?? 'unknown'}
+
+TO FIX:
+${isOpenai
+      ? '1. Check your OpenAI API key is valid at https://platform.openai.com/api-keys\n2. Ensure you have credits at https://platform.openai.com/account/billing\n3. Update the key in Settings → API Key Manager\n4. Or set OPENAI_API_KEY as a Vercel env var'
+      : '1. The Z.ai SDK may have a temporary auth issue\n2. Add an OPENAI_API_KEY as fallback in Settings → API Key Manager\n3. Or set OPENAI_API_KEY as a Vercel env var'}
+
+The operator has been notified. Please contact antonio.can2022@hotmail.com if this persists.`
   }
   if (status === 500 || status === 502 || status === 503 || lower.includes('server error') || lower.includes('service unavailable')) {
-    return '🛠️ Agent007\'s AI provider is having a server-side issue. Please retry in a moment.'
+    return `🛠️ Agent007's ${providerName} is having a server-side issue (HTTP ${status}). Please retry in a moment.`
   }
   if (lower.includes('timeout') || lower.includes('timed out')) {
-    return '⏱️ Agent007\'s AI provider took too long to respond. Please try again.'
+    return `⏱️ Agent007's ${providerName} took too long to respond. Please try again.`
   }
   return `⚠️ ${raw.slice(0, 200)}
 

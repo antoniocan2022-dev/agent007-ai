@@ -1,0 +1,5 @@
+console.log('OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'SET (' + process.env.OPENAI_API_KEY.slice(0, 7) + '...)' : 'NOT SET')
+console.log('ZAI_API_KEY:', process.env.ZAI_API_KEY ? 'SET' : 'NOT SET')
+console.log('OPENAI_MODEL:', process.env.OPENAI_MODEL || 'NOT SET (default: gpt-4o-mini)')
+console.log('OPENAI_BASE_URL:', process.env.OPENAI_BASE_URL || 'NOT SET (default: https://api.openai.com/v1)')
+process.exit(0)
