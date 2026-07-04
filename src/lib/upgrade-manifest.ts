@@ -150,6 +150,24 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/app/login/page.tsx', 'src/app/api/system/fix-hydration/route.ts', 'src/app/api/system/clear-cache/route.ts', 'src/lib/orchestrator.ts'],
   },
+  {
+    id: 'live_capabilities_reporting',
+    category: 'self_heal',
+    title: 'Live Capabilities Reporting (No More Hardcoded Numbers)',
+    description: 'Created /api/system/capabilities endpoint that returns REAL live counts: tools, agents, manage actions, income target, growth rates, upgrades, API routes, DB models. Agent007 uses view_capabilities manage action for accurate self-audits.',
+    dateApplied: '2026-07-03',
+    permanent: true,
+    files: ['src/app/api/system/capabilities/route.ts', 'src/lib/agent.ts', 'src/lib/orchestrator.ts'],
+  },
+  {
+    id: 'zip_backup_system',
+    category: 'persistence',
+    title: 'ZIP Backup System (Downloadable Full-System Backups)',
+    description: 'Created /api/system/zip-backup endpoint that creates downloadable ZIP backups containing: all 33 DB tables, key source code files, upgrade manifest, capabilities report, restore instructions. Agent007 can create backups via create_backup manage action and load them via load_backup.',
+    dateApplied: '2026-07-03',
+    permanent: true,
+    files: ['src/app/api/system/zip-backup/route.ts', 'src/app/api/system/load-backup/route.ts', 'src/lib/orchestrator.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

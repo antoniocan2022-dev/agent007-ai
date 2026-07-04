@@ -1991,6 +1991,90 @@ async function executeManageAction(
         }
       }
 
+      /* --------------------------- view_capabilities (live self-audit numbers) --------------------------- */
+      case 'view_capabilities': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/capabilities`, {
+            signal: AbortSignal.timeout(10000),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!data.ok) return { ok: false, message: `view_capabilities failed: ${data.error ?? 'unknown'}` }
+          return {
+            ok: true,
+            message: `CAPABILITIES (LIVE):\n• Available Tools: ${data.summary.availableTools}\n• Available Agents: ${data.summary.availableAgents} (all FULL ACCESS to ${data.agents.toolsPerAgent} tools each)\n• Management Actions: ${data.summary.managementActions}\n• Monthly Income Target: ${data.summary.monthlyIncomeTarget}\n• Growth Rate: ${data.summary.growthRate} (${data.summary.dailyGrowthTarget} daily)\n• Permanent Upgrades: ${data.summary.permanentUpgrades}\n• API Routes: ${data.summary.apiRoutes}\n• DB Models: ${data.summary.dbModels}`,
+            data: data.summary,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `view_capabilities threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- create_backup (create downloadable ZIP backup) --------------------------- */
+      case 'create_backup': {
+        try {
+          const label = (attrs.label ?? 'full-system').toString().slice(0, 40)
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/zip-backup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label }),
+            signal: AbortSignal.timeout(60000),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!data.ok) return { ok: false, message: `Backup failed: ${data.error ?? 'unknown'}` }
+          return {
+            ok: true,
+            message: `✅ Backup created: ${data.zipFilename} (${data.zipSizeMB}MB)\n\nContents:\n- Database tables: ${data.contents.databaseTables}\n- Total rows: ${data.contents.totalRows}\n- Source files: ${data.contents.sourceFiles}\n- Permanent upgrades: ${data.contents.upgrades}\n\nDownload URL: ${data.downloadUrl}\nAbsolute path: ${data.absolutePath}`,
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `create_backup threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- list_backups (list all available backups) --------------------------- */
+      case 'list_backups': {
+        try {
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/zip-backup`, {
+            signal: AbortSignal.timeout(10000),
+          })
+          const data = await res.json().catch(() => ({}))
+          const backups = data.backups ?? []
+          if (backups.length === 0) return { ok: true, message: 'No backups found. Use create_backup to create one.' }
+          return {
+            ok: true,
+            message: `${backups.length} backups available:\n${backups.map((b: any, i: number) => `  ${i + 1}. ${b.name} (${b.size}) — ${b.created}`).join('\n')}\n\nTo download: /api/system/zip-backup?download=<filename>`,
+            data: { count: backups.length, backups },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `list_backups threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- load_backup (restore from a backup JSON) --------------------------- */
+      case 'load_backup': {
+        try {
+          const payload: any = {}
+          if (attrs.filename) payload.filename = attrs.filename.toString()
+          else if (attrs.latest === 'true') payload.latest = true
+          else return { ok: false, message: 'load_backup requires "filename" or latest="true".' }
+          const res = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/system/load-backup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(30000),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!data.ok) return { ok: false, message: `Load backup failed: ${data.error ?? 'unknown'}` }
+          return {
+            ok: true,
+            message: `✅ Backup loaded successfully!\n\nRestored:\n- Memories: ${data.restored?.memories ?? 0}\n- Custom subagents: ${data.restored?.customSubagents ?? 0}\n- Schedules: ${data.restored?.schedules ?? 0}\n- Income entries: ${data.restored?.incomeEntries ?? 0}\n- User settings: ${data.restored?.userSettings ?? 0}\n\nBackup was exported at: ${data.exportedAt}`,
+            data,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `load_backup threw: ${e?.message ?? e}` }
+        }
+      }
+
       /* --------------------------- totp_setup (Google Authenticator) --------------------------- */
       case 'totp_setup': {
         try {
