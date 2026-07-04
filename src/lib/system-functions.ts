@@ -31,7 +31,7 @@ export async function runSystemAudit(): Promise<any> {
 
   try {
     await ensureDbReady()
-    const tableChecks = ['User','UserSetting','IncomeEntry','Schedule','Conversation','Message','Memory','CustomSubagent','TwoFactorSecret','PhoneConfig','NotificationLog','AuditLog','IncomingCommand','BankAccount','PayPalAccount','ApiKey','Customer','MissionTracker','SystemHealth','KnowledgeDoc']
+    const tableChecks = ['User','UserSetting','IncomeEntry','Schedule','Conversation','Message','Memory','CustomSubagent','TwoFactorSecret','PhoneConfig','NotificationLog','AuditLog','IncomingCommand','BankAccount','PayPalAccount','ApiKey']
     for (const t of tableChecks) {
       try {
         const modelName = t as keyof typeof db

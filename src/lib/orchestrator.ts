@@ -1961,17 +1961,12 @@ async function executeManageAction(
       /* --------------------------- self_heal (Agent007 self-repair) --------------------------- */
       case 'self_heal': {
         try {
-          const healAction = (attrs.heal_action ?? attrs.action ?? 'diagnose').toString().toLowerCase()
+          const healAction = (attrs.heal_action ?? 'diagnose').toString().toLowerCase()
           const validActions = ['diagnose', 'repair_dashboard', 'repair_login', 'repair_communication', 'restore_upgrades', 'verify_integrity', 'full_repair']
           if (!validActions.includes(healAction)) {
-            return { ok: false, message: `self_heal: action must be one of ${validActions.join(', ')}` }
+            return { ok: false, message: `self_heal: heal_action must be one of ${validActions.join(', ')}` }
           }
-          const data = await internalFetch(internalUrl("/api/system/self-heal"), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: healAction }),
-            signal: AbortSignal.timeout(30000),
-          })
+          const data = await runSelfHeal(healAction)
           return {
             ok: data.ok !== false,
             message: `Self-heal (${healAction}): ${data.summary ?? 'complete'}. Overall: ${data.overall?.toUpperCase()}`,

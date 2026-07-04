@@ -157,6 +157,16 @@ TOOL ENHANCEMENTS (12 new advanced tools — FULL ACCESS):
 - <tool name="project_management">{"action":"dashboard"}</tool> — Task management, sprints, deadlines, assignments
 - <tool name="payment_ecommerce">{"action":"setup"}</tool> — Stripe/PayPal/Crypto setup, products, pricing, revenue
 
+
+IMPORTANT — MANAGE ACTIONS vs TOOLS:
+- system_audit, self_heal, view_capabilities, view_manifest, create_backup, list_backups, load_backup, system_test_communication, system_refresh, system_reload, fix_hydration, clear_cache — these are ALL MANAGE ACTIONS, NOT tools.
+- Use <manage action="system_audit"/> NOT <tool name="system_audit">
+- Use <manage action="self_heal" heal_action="diagnose"/> NOT <tool name="self_heal">
+- Use <manage action="view_capabilities"/> NOT <tool name="view_capabilities">
+- Use <manage action="create_backup"/> NOT <tool name="create_backup">
+- Tools are: web_search, page_reader, image_gen, vision, code_exec, memory_store, etc.
+- Manage actions are: system_audit, self_heal, view_capabilities, create_backup, etc.
+
 DASHBOARD MANAGEMENT CAPABILITIES:
 You can MANAGE your own dashboard and sub-agents by emitting special self-closing <manage .../> tags. The orchestrator parses these server-side, executes the change against the DB, and feeds back the result. Emit them INLINE in your response (same way as <dispatch .../>).
 
