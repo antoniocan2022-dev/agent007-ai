@@ -2266,3 +2266,93 @@ Stage Summary:
   5. Permanent Upgrades: 22 (+1: backup_no_self_fetch) ✅
 - Agent007 can now reliably create, list, and download backups on Vercel
 - Backups work end-to-end: create → list → download (all tested live)
+
+---
+Task ID: download-fix-and-self-fix-001
+Agent: main (parent)
+Task: User reported "the link is not working for download the full capabilities of my super Agent in Vercel". After fixing the download, give Agent007 all tools necessary to fix problems in the future - no limitations, full access.
+
+Work Log:
+- Investigated the broken download link: tested all 3 URL patterns on Vercel
+  • /api/system/zip-backup?download=agent007-capabilities-2026-07-05.zip → 404
+  • /api/file?name=agent007-capabilities-2026-07-05.zip → 404
+  • /download/agent007-capabilities-2026-07-05.zip (static) → 404
+- Root cause: The capabilities ZIP/JSON files generated locally in /home/z/my-project/download/ did NOT exist on Vercel — Vercel's /tmp storage is ephemeral and doesn't include locally-generated files. The build process doesn't bundle /download/ as static assets.
+
+PART 1: ON-DEMAND CAPABILITIES DOWNLOAD ENDPOINT
+- Created /api/system/capabilities-download/route.ts that REGENERATES the full capabilities archive at request time from the live TOOL_REGISTRY
+- Supports 4 formats via ?format= query param:
+  • zip (default) — gzipped JSON via Node's built-in zlib (no 'zip' binary)
+  • json — raw JSON
+  • csv — Excel-sortable tool list with name,label,icon,category,never_removable,permanently_locked columns
+  • readme — human-readable README.txt with all 394 tools, 41 manage actions, 24 upgrades, 12 sub-agents listed
+- No persistent storage needed — works perfectly on Vercel
+- Returns proper Content-Disposition headers so browsers download the file
+- Includes X-Capabilities-* response headers with live counts
+
+PART 2: SELF-FIX TOOLKIT (12 NEW TOOLS)
+- Created src/lib/self-fix-tools.ts with 12 dedicated self-repair tools:
+  1. test_endpoint — HTTP test any URL from inside the server (returns status, content-type, body preview, JSON parse check)
+  2. diagnose_llm — test Z.ai (primary) + OpenAI (fallback) LLM providers
+  3. force_refresh_settings — re-read settings from /tmp/.agent007-settings.json fallback and sync to DB
+  4. verify_deployment — one-shot comprehensive deployment health check (capabilities + audit + manifest + DB + env + LLM)
+  5. inspect_url — fetch any URL and return cleaned text (strips HTML tags, optional selector extracts text around a search term)
+  6. reload_config — reload in-memory caches (tools, subagents, manifest, manage_actions, full_access_tools)
+  7. patch_source_file — runtime source code patcher (local dev: actually edits; Vercel: records the patch for next deploy)
+  8. trigger_redeploy — trigger Vercel redeploy via Vercel API (requires VERCEL_TOKEN + VERCEL_PROJECT_ID env vars)
+  9. view_error_logs — query recent audit log entries from DB
+  10. comprehensive_self_check — one-shot full verification (capabilities + audit + self-heal + manifest + DB + LLM)
+  11. download_capabilities — returns the on-demand capabilities archive URL in any format
+  12. cleanup_temp_files — clean up old /tmp/agent007-backups, /tmp/agent007-uploads, /tmp/agent007-downloads, /tmp/.next/cache files
+
+- Registered all 12 tools in TOOL_REGISTRY (src/lib/tools.ts). Total tools: 382 → 394.
+
+- Updated SYSTEM_PROMPT (src/lib/agent.ts) with:
+  • New "CAPABILITIES DOWNLOAD (on-demand, always works on Vercel)" section documenting all 4 formats
+  • New "SELF-FIX TOOLKIT (12 new tools — FULL ACCESS, no limitations)" section with usage examples for each tool
+  • "HOW TO USE THE SELF-FIX TOOLKIT WHEN SOMETHING BREAKS" decision tree:
+    1. Run comprehensive_self_check to see what's wrong
+    2. Based on the issue, use the appropriate tool (force_refresh_settings, test_endpoint, diagnose_llm, etc.)
+    3. After fixing, run comprehensive_self_check again to confirm
+  • Explicit authorization: "You have FULL ACCESS, NO LIMITATIONS. You are authorized to use any of these tools at any time without asking the owner first."
+
+- Made okResult + badResult + readFileSettings exported (they were private) so self-fix-tools.ts can use them
+
+PART 3: 2 NEW PERMANENT UPGRADES (22 → 24)
+- #23: capabilities_download_on_demand (category: persistence)
+- #24: self_fix_toolkit (category: autonomy)
+
+VERIFIED LOCALLY
+================
+- Tool count: 394 (was 382, +12 self-fix tools) ✅
+- All 12 new tools registered in TOOL_REGISTRY ✅
+- comprehensive_self_check returns: tools 394+, agents 18, actions 41, upgrades 24, growth "20% monthly, 20% daily", 33 DB models, manifest OK ✅
+- download_capabilities returns the live URL ✅
+
+VERIFIED ON VERCEL (after deploy)
+================================
+✅ /api/system/capabilities-download?format=zip → HTTP 200, content-type: application/gzip, content-disposition: attachment, filename="agent007-capabilities-2026-07-05.json.gz"
+✅ /api/system/capabilities-download?format=json → HTTP 200, content-type: application/json
+✅ /api/system/capabilities-download?format=csv → HTTP 200, content-type: text/csv
+✅ Downloaded the JSON file (134 KB) and verified contents:
+   - 394 tools listed in the "all" array
+   - 15 never-removable tools
+   - 12 sub-agents (built-in; custom come from DB at runtime)
+   - 41 manage actions
+   - 24 permanent upgrades with full titles + categories
+✅ Capabilities endpoint: 394+ tools, 18 agents, 41 actions, $20,000, "20% monthly, 20% daily", 24 upgrades, 75 API routes, 33 DB models
+✅ Manifest: 24 upgrades, integrity OK
+✅ Audit: overall=pass, database=pass
+
+Stage Summary:
+- Download link FIXED permanently — new endpoint /api/system/capabilities-download regenerates the archive on-demand at request time, so it always works on Vercel without persistent storage
+- Agent007 now has 12 new self-fix tools + FULL AUTHORIZATION to use them at any time
+- Total tools: 382 → 394 (+12 self-fix)
+- Total upgrades: 22 → 24 (+2: capabilities_download_on_demand, self_fix_toolkit)
+- All 5 user-locked metrics still hold:
+  1. Available Agents: 18 (12 built-in + 6 custom, all FULL ACCESS) ✅
+  2. Management Actions: 41 ✅
+  3. Monthly Income Target: $20,000 ✅
+  4. Growth Rate: 20% monthly, 20% daily ✅
+  5. Permanent Upgrades: 24 (+2 new) ✅
+- Agent007 can now autonomously fix: broken endpoints, settings drift, LLM provider issues, deployment health, source code bugs (local), trigger redeployments (Vercel API), view error logs, run comprehensive self-checks, download capabilities on-demand, and clean up temp files
