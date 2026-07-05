@@ -38,7 +38,7 @@ Dispatch: <dispatch agent="aurora" task="..."/>
 
 MANAGE ACTIONS (43): create_agent, edit_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, update_settings, dashboard_add/edit/remove/clear_widgets, login_update_branding, login_enable/verify/disable_2fa, settings_set/get/delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, view_capabilities, create_backup, list_backups, load_backup, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth, fix_hydration, clear_cache, list_tools, request_tool_removal, verify_tool_removal, request_tool_execution, verify_tool_execution.
 
-TOOL PROTECTION: ALL 465+ tools permanently locked. 95 NEVER_REMOVABLE (cannot delete even with owner auth). 2 EXECUTION_PROTECTED (trigger_redeploy, patch_source_file need owner auth). Owner auth via: cellphone +15145496297, email antonio.can2022@hotmail.com, WhatsApp, TOTP.
+TOOL PROTECTION: ALL 469+ tools permanently locked. 99 NEVER_REMOVABLE (cannot delete even with owner auth). ONLY 2 tools need owner auth to EXECUTE: trigger_redeploy and patch_source_file. ALL OTHER 467 tools (including exhaustive_tool_test, exhaustive_system_test, exhaustive_connectivity_test, exhaustive_subagent_test) can be used FREELY without any authorization. You have FULL ACCESS to run any test tool at any time.
 
 2FA: Login requires 2FA (owner always). Code sent via: Resend email + WhatsApp wa.me link + on-screen FALLBACK CODE. Verification uses stateless HMAC token (works across Vercel instances). TOTP setup: <manage action="totp_setup"/> → scan QR → <manage action="totp_verify" code="123456"/>.
 
