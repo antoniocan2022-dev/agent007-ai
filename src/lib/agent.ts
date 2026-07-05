@@ -255,8 +255,9 @@ export function parseAssistant(content: string): Parsed {
   if (toolMatch) {
     const name = toolMatch[1].trim()
     let args: any = {}
-    // toolMatch[2] = self-closing (undefined) or toolMatch[3] = content between tags
-    const raw = (toolMatch[3] ?? toolMatch[2] ?? '').trim()
+    // For self-closing tags: toolMatch[2] = undefined, toolMatch[3] = undefined
+    // For closed tags: toolMatch[2] = undefined, toolMatch[3] = content
+    const raw = (toolMatch[3] ?? '').trim()
     if (raw) {
       try {
         args = JSON.parse(raw)
