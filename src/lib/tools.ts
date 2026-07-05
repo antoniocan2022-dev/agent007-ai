@@ -1946,3 +1946,42 @@ TOOL_REGISTRY.exhaustive_tool_test = { fn: toolExhaustiveToolTest, icon: 'check-
 TOOL_REGISTRY.exhaustive_subagent_test = { fn: toolExhaustiveSubagentTest, icon: 'users', label: 'Exhaustive Subagent Test (verify all 18 subagents have FULL ACCESS)' }
 TOOL_REGISTRY.exhaustive_system_test = { fn: toolExhaustiveSystemTest, icon: 'activity', label: 'Exhaustive System Test (DB, 2FA, email, OpenAI, upgrades, etc.)' }
 TOOL_REGISTRY.exhaustive_connectivity_test = { fn: toolExhaustiveConnectivityTest, icon: 'wifi', label: 'Exhaustive Connectivity Test (internet, APIs, web search)' }
+
+/* ================================================================== *
+ * FREE SEARCH TOOLS — 15 free AI search platforms (no API key needed).
+ * Full access, no limitations. All auto-locked (NEVER_REMOVABLE) +
+ * auto-FULL_ACCESS via the lazy Proxy pattern.
+ * ================================================================== */
+import {
+  toolDuckDuckGoSearch,
+  toolBraveSearch,
+  toolWikipediaRestSearch,
+  toolArxivSearch,
+  toolHackerNewsSearch,
+  toolRedditSearch,
+  toolGitHubSearch,
+  toolStackOverflowSearch,
+  toolOpenAlexSearch,
+  toolSemanticScholarSearch,
+  toolCoreSearch,
+  toolProductHuntSearch,
+  toolPubMedSearch,
+  toolSearXngSearch,
+  toolGoogleScholarSearch,
+} from './free-search-tools'
+
+TOOL_REGISTRY.ddg_search = { fn: toolDuckDuckGoSearch, icon: 'search', label: 'DuckDuckGo Search (free, no key)' }
+TOOL_REGISTRY.brave_search = { fn: toolBraveSearch, icon: 'shield', label: 'Brave Search (free tier + scrape fallback)' }
+TOOL_REGISTRY.wikipedia_rest = { fn: toolWikipediaRestSearch, icon: 'book', label: 'Wikipedia REST API (summary + search)' }
+TOOL_REGISTRY.arxiv_search = { fn: toolArxivSearch, icon: 'file-text', label: 'arXiv Search (academic papers)' }
+TOOL_REGISTRY.hn_search = { fn: toolHackerNewsSearch, icon: 'message-square', label: 'HackerNews Search (tech stories)' }
+TOOL_REGISTRY.reddit_search = { fn: toolRedditSearch, icon: 'users', label: 'Reddit Search (subreddit + all)' }
+TOOL_REGISTRY.github_search = { fn: toolGitHubSearch, icon: 'github', label: 'GitHub Search (repos + users + code)' }
+TOOL_REGISTRY.stackoverflow_search = { fn: toolStackOverflowSearch, icon: 'help-circle', label: 'Stack Overflow Search (code Q&A)' }
+TOOL_REGISTRY.openalex_search = { fn: toolOpenAlexSearch, icon: 'graduation-cap', label: 'OpenAlex Search (academic research)' }
+TOOL_REGISTRY.semantic_scholar_search = { fn: toolSemanticScholarSearch, icon: 'book-open', label: 'Semantic Scholar Search (AI papers)' }
+TOOL_REGISTRY.core_search = { fn: toolCoreSearch, icon: 'archive', label: 'CORE Search (open access research)' }
+TOOL_REGISTRY.producthunt_search = { fn: toolProductHuntSearch, icon: 'rocket', label: 'Product Hunt Search (new products)' }
+TOOL_REGISTRY.pubmed_search = { fn: toolPubMedSearch, icon: 'heart', label: 'PubMed Search (medical research)' }
+TOOL_REGISTRY.searxng_search = { fn: toolSearXngSearch, icon: 'globe', label: 'SearXNG Search (meta-search engine)' }
+TOOL_REGISTRY.google_scholar_search = { fn: toolGoogleScholarSearch, icon: 'graduation-cap', label: 'Google Scholar Search (academic)' }

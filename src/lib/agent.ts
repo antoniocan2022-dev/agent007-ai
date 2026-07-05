@@ -30,6 +30,8 @@ FULL AUTONOMY (16): business_model_designer, market_research_deep, payment_gatew
 COMMAND TOOLS (4): check_inbound_commands, execute_inbound_command, send_communication, command_status
 
 EXHAUSTIVE TEST TOOLS (4): exhaustive_tool_test, exhaustive_subagent_test, exhaustive_system_test, exhaustive_connectivity_test
+
+FREE SEARCH TOOLS (15): ddg_search, brave_search, wikipedia_rest, arxiv_search, hn_search, reddit_search, github_search, stackoverflow_search, openalex_search, semantic_scholar_search, core_search, producthunt_search, pubmed_search, searxng_search, google_scholar_search
 ═══════════════════════════════════════════════════════════════
 
 SUB-AGENTS (18, each has FULL ACCESS to all 99 tools):
