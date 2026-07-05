@@ -1460,3 +1460,93 @@ TOOL_REGISTRY.view_error_logs = { fn: toolViewErrorLogs, icon: 'file-warning', l
 TOOL_REGISTRY.comprehensive_self_check = { fn: toolComprehensiveSelfCheck, icon: 'activity', label: 'Comprehensive Self-Check (one-shot full verification)' }
 TOOL_REGISTRY.download_capabilities = { fn: toolDownloadCapabilities, icon: 'download', label: 'Download Capabilities (on-demand ZIP/JSON/CSV)' }
 TOOL_REGISTRY.cleanup_temp_files = { fn: toolCleanupTempFiles, icon: 'trash', label: 'Cleanup Temp Files (free /tmp space)' }
+
+/* ================================================================== *
+ * AUTONOMY TOOLS — 30 new tools for full autonomous income generation.
+ * Covers 10 categories: automated marketing, analytics, feedback,
+ * content generation, freelancing, payments, marketplaces, ML/learning,
+ * resource allocation, and user engagement.
+ * Full access, no limitations. All 30 are added to NEVER_REMOVABLE.
+ * ================================================================== */
+import {
+  toolAutomatedSocialPosting,
+  toolEmailMarketingAutomationFull,
+  toolAffiliateFunnelBuilder,
+  toolCrossStreamAnalytics,
+  toolAutomatedReportingDashboard,
+  toolPerformanceAttribution,
+  toolCustomerFeedbackCollector,
+  toolAbTestOptimizer,
+  toolSentimentAnalyzer,
+  toolAiContentFactory,
+  toolPodDesignAutomation,
+  toolContentRepurposingEngine,
+  toolAutoBiddingEngine,
+  toolFreelanceVaSystem,
+  toolGigPipelineTracker,
+  toolPaymentProcessor,
+  toolFinancialTracker,
+  toolPayoutScheduler,
+  toolEtsyIntegration,
+  toolAmazonIntegration,
+  toolMarketplaceSync,
+  toolMlPerformanceAnalyzer,
+  toolSelfImprovingStrategy,
+  toolAdaptivePricing,
+  toolResourceAllocator,
+  toolScalingEngine,
+  toolBottleneckDetector,
+  toolLeadChatbot,
+  toolFollowUpAutomation,
+  toolCommunityEngagement,
+} from './autonomy-tools'
+
+// Category 1: Automated Marketing (3 tools)
+TOOL_REGISTRY.automated_social_posting = { fn: toolAutomatedSocialPosting, icon: 'share-2', label: 'Automated Social Posting (multi-platform scheduler)' }
+TOOL_REGISTRY.email_marketing_automation_full = { fn: toolEmailMarketingAutomationFull, icon: 'mail', label: 'Email Marketing Automation (full nurture sequences)' }
+TOOL_REGISTRY.affiliate_funnel_builder = { fn: toolAffiliateFunnelBuilder, icon: 'filter', label: 'Affiliate Funnel Builder (end-to-end funnel design)' }
+
+// Category 2: Advanced Analytics (3 tools)
+TOOL_REGISTRY.cross_stream_analytics = { fn: toolCrossStreamAnalytics, icon: 'bar-chart', label: 'Cross-Stream Analytics (affiliate + freelance + POD unified)' }
+TOOL_REGISTRY.automated_reporting_dashboard = { fn: toolAutomatedReportingDashboard, icon: 'file-text', label: 'Automated Reporting Dashboard (daily/weekly/monthly)' }
+TOOL_REGISTRY.performance_attribution = { fn: toolPerformanceAttribution, icon: 'git-branch', label: 'Performance Attribution (multi-touch modeling)' }
+
+// Category 3: Feedback Mechanism (3 tools)
+TOOL_REGISTRY.customer_feedback_collector = { fn: toolCustomerFeedbackCollector, icon: 'message-circle', label: 'Customer Feedback Collector (4 channels)' }
+TOOL_REGISTRY.ab_test_optimizer = { fn: toolAbTestOptimizer, icon: 'flask-conical', label: 'A/B Test Optimizer (statistical significance)' }
+TOOL_REGISTRY.sentiment_analyzer = { fn: toolSentimentAnalyzer, icon: 'smile', label: 'Sentiment Analyzer (NPS + emotion detection)' }
+
+// Category 4: Content Generation (3 tools)
+TOOL_REGISTRY.ai_content_factory = { fn: toolAiContentFactory, icon: 'pen-line', label: 'AI Content Factory (bulk content generation)' }
+TOOL_REGISTRY.pod_design_automation = { fn: toolPodDesignAutomation, icon: 'palette', label: 'POD Design Automation (t-shirts/mugs/posters)' }
+TOOL_REGISTRY.content_repurposing_engine = { fn: toolContentRepurposingEngine, icon: 'repeat', label: 'Content Repurposing Engine (1 piece → 12 variations)' }
+
+// Category 5: Freelancing Automation (3 tools)
+TOOL_REGISTRY.auto_bidding_engine = { fn: toolAutoBiddingEngine, icon: 'gavel', label: 'Auto-Bidding Engine (Upwork/Fiverr/Contra)' }
+TOOL_REGISTRY.freelance_va_system = { fn: toolFreelanceVaSystem, icon: 'briefcase', label: 'Freelance VA System (5-stage client flow)' }
+TOOL_REGISTRY.gig_pipeline_tracker = { fn: toolGigPipelineTracker, icon: 'kanban', label: 'Gig Pipeline Tracker (lead → close → delivery)' }
+
+// Category 6: Payment Automation (3 tools)
+TOOL_REGISTRY.payment_processor = { fn: toolPaymentProcessor, icon: 'credit-card', label: 'Payment Processor (Stripe/PayPal/crypto/Wise)' }
+TOOL_REGISTRY.financial_tracker = { fn: toolFinancialTracker, icon: 'dollar-sign', label: 'Financial Tracker (earnings/expenses/taxes/runway)' }
+TOOL_REGISTRY.payout_scheduler = { fn: toolPayoutScheduler, icon: 'calendar', label: 'Payout Scheduler (auto-distribute to bank/PayPal/crypto)' }
+
+// Category 7: Marketplace Integration (3 tools)
+TOOL_REGISTRY.etsy_integration = { fn: toolEtsyIntegration, icon: 'shopping-bag', label: 'Etsy Integration (POD listings + sales)' }
+TOOL_REGISTRY.amazon_integration = { fn: toolAmazonIntegration, icon: 'package', label: 'Amazon Integration (Merch + Associates + KDP)' }
+TOOL_REGISTRY.marketplace_sync = { fn: toolMarketplaceSync, icon: 'refresh-cw', label: 'Marketplace Sync (5 platforms, auto-sync)' }
+
+// Category 8: Learning & Adaptation (3 tools)
+TOOL_REGISTRY.ml_performance_analyzer = { fn: toolMlPerformanceAnalyzer, icon: 'cpu', label: 'ML Performance Analyzer (pattern recognition)' }
+TOOL_REGISTRY.self_improving_strategy = { fn: toolSelfImprovingStrategy, icon: 'trending-up', label: 'Self-Improving Strategy (auto-applied learnings)' }
+TOOL_REGISTRY.adaptive_pricing = { fn: toolAdaptivePricing, icon: 'tag', label: 'Adaptive Pricing (dynamic demand-based pricing)' }
+
+// Category 9: Resource Allocation (3 tools)
+TOOL_REGISTRY.resource_allocator = { fn: toolResourceAllocator, icon: 'pie-chart', label: 'Resource Allocator (ROI-weighted time/budget)' }
+TOOL_REGISTRY.scaling_engine = { fn: toolScalingEngine, icon: 'trending-up', label: 'Scaling Engine (scale winners, kill losers)' }
+TOOL_REGISTRY.bottleneck_detector = { fn: toolBottleneckDetector, icon: 'alert-triangle', label: 'Bottleneck Detector (identify growth constraints)' }
+
+// Category 10: User Engagement (3 tools)
+TOOL_REGISTRY.lead_chatbot = { fn: toolLeadChatbot, icon: 'bot', label: 'Lead Chatbot (website + IG DM + Twitter DM)' }
+TOOL_REGISTRY.follow_up_automation = { fn: toolFollowUpAutomation, icon: 'send', label: 'Follow-Up Automation (5 segment sequences)' }
+TOOL_REGISTRY.community_engagement = { fn: toolCommunityEngagement, icon: 'users', label: 'Community Engagement (Reddit/Discord/Facebook)' }

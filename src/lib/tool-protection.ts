@@ -61,6 +61,51 @@ export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
   'view_error_logs',
   'force_refresh_settings',
   'reload_config',
+  // Autonomy toolkit (30 tools — the agent's full income-generation
+  // capability across 10 categories). These are the core revenue
+  // drivers; removing any of them would cripple the agent's ability
+  // to hit the $20K/month mission target. Owner-authorized removal
+  // is REFUSED.
+  // Category 1: Automated Marketing
+  'automated_social_posting',
+  'email_marketing_automation_full',
+  'affiliate_funnel_builder',
+  // Category 2: Advanced Analytics
+  'cross_stream_analytics',
+  'automated_reporting_dashboard',
+  'performance_attribution',
+  // Category 3: Feedback Mechanism
+  'customer_feedback_collector',
+  'ab_test_optimizer',
+  'sentiment_analyzer',
+  // Category 4: Content Generation
+  'ai_content_factory',
+  'pod_design_automation',
+  'content_repurposing_engine',
+  // Category 5: Freelancing Automation
+  'auto_bidding_engine',
+  'freelance_va_system',
+  'gig_pipeline_tracker',
+  // Category 6: Payment Automation
+  'payment_processor',
+  'financial_tracker',
+  'payout_scheduler',
+  // Category 7: Marketplace Integration
+  'etsy_integration',
+  'amazon_integration',
+  'marketplace_sync',
+  // Category 8: Learning & Adaptation
+  'ml_performance_analyzer',
+  'self_improving_strategy',
+  'adaptive_pricing',
+  // Category 9: Resource Allocation
+  'resource_allocator',
+  'scaling_engine',
+  'bottleneck_detector',
+  // Category 10: User Engagement
+  'lead_chatbot',
+  'follow_up_automation',
+  'community_engagement',
 ] as const
 
 /**
