@@ -2104,20 +2104,43 @@ async function executeManageAction(
       /* --------------------------- totp_setup (Google Authenticator) --------------------------- */
       case 'totp_setup': {
         try {
-          const data = await internalFetch(internalUrl("/api/owner-auth/totp"), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'setup' }),
+          // DIRECT FUNCTION CALL — no internalFetch (Vercel self-fetch returns HTML, not JSON)
+          const { db, ensureDbReady } = await import('./db')
+          const { generateTotpSecret, generateTotpUrl } = await import('./owner-auth')
+          await ensureDbReady()
+          const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+          if (!user) return { ok: false, message: 'Operator user not found' }
+
+          const secret = generateTotpSecret()
+          const otpauthUrl = generateTotpUrl(secret, user.email)
+
+          // Delete any existing TOTP configs (not yet enabled)
+          try {
+            await db.twoFactorSecret.deleteMany({ where: { userId: user.id, method: 'google_authenticator' } })
+          } catch {}
+
+          // Create new TOTP config (enabled=false until verified)
+          const config = await db.twoFactorSecret.create({
+            data: {
+              userId: user.id,
+              method: 'google_authenticator',
+              secret,
+              email: user.email,
+              enabled: false,
+            },
           })
-          if (!data.ok) return { ok: false, message: `TOTP setup failed: ${data.error ?? 'unknown'}` }
+
+          const qrCodeDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpauthUrl)}`
+
           return {
             ok: true,
-            message: `TOTP setup initiated. Owner must scan the QR code at: ${data.qrCodeDataUrl?.slice(0, 80)}... with Google Authenticator, then verify with: <manage action="totp_verify" code="XXXXXX"/>. Manual entry key: ${data.secret?.slice(0, 4)}...`,
+            message: `TOTP setup initiated. Owner must scan the QR code with Google Authenticator, then verify with: <manage action="totp_verify" code="XXXXXX"/>. Manual entry key: ${secret.slice(0, 4)}...${secret.slice(-4)}`,
             data: {
-              configId: data.configId,
-              qrCodeDataUrl: data.qrCodeDataUrl,
-              otpauthUrl: data.otpauthUrl,
-              manualEntry: data.manualEntry,
+              configId: config.id,
+              secret,
+              otpauthUrl,
+              qrCodeDataUrl,
+              manualEntry: `In Google Authenticator: Add account → Enter setup key → Name: Agent007 AI → Key: ${secret} → Time-based → 6 digits → 30s period`,
             },
           }
         } catch (e: any) {
@@ -2132,14 +2155,42 @@ async function executeManageAction(
           return { ok: false, message: 'totp_verify requires a 6-digit "code".' }
         }
         try {
-          const data = await internalFetch(internalUrl("/api/owner-auth/totp-verify"), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code }),
+          // DIRECT FUNCTION CALL — no internalFetch
+          const { db, ensureDbReady } = await import('./db')
+          const { verifyTotpCode } = await import('./owner-auth')
+          await ensureDbReady()
+          const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+          if (!user) return { ok: false, message: 'Operator user not found' }
+
+          const config = await db.twoFactorSecret.findFirst({
+            where: { userId: user.id, method: 'google_authenticator', enabled: false },
           })
+          if (!config || !config.secret) {
+            return { ok: false, message: 'No pending TOTP setup. Call <manage action="totp_setup"/> first.' }
+          }
+
+          const valid = verifyTotpCode(code, config.secret)
+          if (!valid) {
+            return { ok: false, message: 'Invalid TOTP code. Make sure your device time is correct.' }
+          }
+
+          // Enable TOTP
+          await db.twoFactorSecret.update({
+            where: { id: config.id },
+            data: { enabled: true, verifiedAt: new Date() },
+          })
+
+          // Disable email 2FA (TOTP replaces it)
+          try {
+            await db.twoFactorSecret.updateMany({
+              where: { userId: user.id, method: 'email', enabled: true },
+              data: { enabled: false },
+            })
+          } catch {}
+
           return {
-            ok: !!data.ok,
-            message: data.ok ? 'TOTP verified and enabled. Owner can now use Google Authenticator for 2FA.' : `TOTP verify failed: ${data.error ?? 'unknown'}`,
+            ok: true,
+            message: 'TOTP verified and enabled. Owner can now use Google Authenticator for 2FA. Email 2FA has been disabled (TOTP replaces it).',
           }
         } catch (e: any) {
           return { ok: false, message: `totp_verify threw: ${e?.message ?? e}` }
