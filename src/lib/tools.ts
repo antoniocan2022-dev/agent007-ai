@@ -312,8 +312,53 @@ export async function toolPageReader(
     )
     setCached('page_reader', args, out)
     return out
-  } catch (e: any) {
-    return badResult(`page_reader failed: ${e?.message ?? String(e)}`)
+  } catch (zaiError: any) {
+    // ── FALLBACK: Use http_fetch to get the page content directly ──────
+    // The Z.ai SDK's page_reader fails on Vercel because the .z-ai-config
+    // file doesn't exist. We fall back to fetching the page via http and
+    // stripping the HTML ourselves — same result, no Z.ai needed.
+    try {
+      const fetchRes = await fetch(url, {
+        signal: AbortSignal.timeout(10000),
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html, application/json, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      })
+      if (!fetchRes.ok) {
+        if (fetchRes.status === 404) {
+          return badResult(
+            `page_reader: URL returned 404 — page does not exist.\n` +
+            `ALTERNATIVES: Use web_search or ddg_search to find the correct URL, or use inspect_url on a different page.`
+          )
+        }
+        return badResult(`page_reader: URL returned HTTP ${fetchRes.status}. Try web_search or ddg_search instead.`)
+      }
+      const html = await fetchRes.text()
+      const text = stripHtml(html).slice(0, 6000)
+      // Try to extract title
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+      const title = titleMatch?.[1]?.trim() ?? url
+      if (text.length < 50) {
+        return badResult(
+          `page_reader: Page loaded but content is too short (${text.length} chars). The page may require JavaScript. ` +
+          `ALTERNATIVES: Use web_search to find the information, or use ddg_search.`
+        )
+      }
+      const out = okResult(
+        `Read page (via fallback): ${title}\n${text.slice(0, 400)}...`,
+        `Page: ${title}\nURL: ${url}\n(via http_fetch fallback — Z.ai page_reader unavailable on Vercel)\n\n${text}`
+      )
+      setCached('page_reader', args, out)
+      return out
+    } catch (fetchError: any) {
+      return badResult(
+        `page_reader failed (Z.ai: ${zaiError?.message ?? 'config not found'}, fallback: ${fetchError?.message ?? 'fetch failed'}). ` +
+        `ALTERNATIVES: Use web_search, ddg_search, or inspect_url instead.`
+      )
+    }
   }
 }
 
@@ -510,7 +555,9 @@ export async function toolMemoryStore(
       ? JSON.stringify(rawValue)
       : String(rawValue).trim()
   const category = (args?.category ?? 'general').toString().trim()
-  if (!key || !value) return badResult('memory_store requires both "key" and "value"')
+  if (!key) return badResult('memory_store requires a "key" argument. Example: <tool name="memory_store">{"key":"my_key","value":"my_value"}</tool>')
+  if (!value) return badResult(`memory_store requires a "value" argument for key "${key}". You provided an empty value. Example: <tool name="memory_store">{"key":"${key}","value":"some data here"}</tool>`)
+  // Allow storing empty string if explicitly passed (but not undefined/null)
   try {
     const rec = await upsertMemory(key, value, category)
     return okResult(
