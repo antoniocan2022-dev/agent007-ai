@@ -114,6 +114,24 @@ const ALL_TOOLS = [
   'echo_ab_test_scaling',
   'legal_proactive_compliance',
   'banker_high_yield_optimizer',
+
+  // ── Performance enhancement tools (12) — 8 factors + 4 supporting ────
+  // Covers: real-time data, predictive analytics, API integrations,
+  // feedback, resource allocation, autonomous learning, task automation,
+  // continuous audits, performance optimization, decision making,
+  // workflow orchestration, capability expansion.
+  'real_time_data_hub',
+  'predictive_analytics_engine',
+  'api_integration_orchestrator',
+  'feedback_optimization_loop',
+  'auto_resource_allocator',
+  'autonomous_learning_engine',
+  'task_automation_expander',
+  'continuous_audit_system',
+  'performance_optimizer',
+  'autonomous_decision_maker',
+  'workflow_orchestrator',
+  'capability_expander',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from

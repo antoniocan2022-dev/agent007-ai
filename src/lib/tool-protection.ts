@@ -123,6 +123,22 @@ export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
   'echo_ab_test_scaling',
   'legal_proactive_compliance',
   'banker_high_yield_optimizer',
+  // Performance enhancement tools (12 tools — covering the 8 factors
+  // the owner identified for performance + efficiency + speed + full
+  // autonomy). These are critical for the agent's continuous
+  // improvement and autonomous operation.
+  'real_time_data_hub',
+  'predictive_analytics_engine',
+  'api_integration_orchestrator',
+  'feedback_optimization_loop',
+  'auto_resource_allocator',
+  'autonomous_learning_engine',
+  'task_automation_expander',
+  'continuous_audit_system',
+  'performance_optimizer',
+  'autonomous_decision_maker',
+  'workflow_orchestrator',
+  'capability_expander',
 ] as const
 
 /**
