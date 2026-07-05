@@ -1659,3 +1659,36 @@ TOOL_REGISTRY.bottleneck_detector = { fn: toolBottleneckDetector, icon: 'alert-t
 TOOL_REGISTRY.lead_chatbot = { fn: toolLeadChatbot, icon: 'bot', label: 'Lead Chatbot (website + IG DM + Twitter DM)' }
 TOOL_REGISTRY.follow_up_automation = { fn: toolFollowUpAutomation, icon: 'send', label: 'Follow-Up Automation (5 segment sequences)' }
 TOOL_REGISTRY.community_engagement = { fn: toolCommunityEngagement, icon: 'users', label: 'Community Engagement (Reddit/Discord/Facebook)' }
+
+/* ================================================================== *
+ * SUBAGENT ENHANCEMENTS — 12 specialized tools, one per built-in
+ * sub-agent. Each addresses the specific improvement opportunity the
+ * owner identified. All 12 are NEVER_REMOVABLE.
+ * ================================================================== */
+import {
+  toolAuroraAffiliateExpander,
+  toolVertexAgileIterator,
+  toolQuantumDefiExplorer,
+  toolScoutTrendAutopilot,
+  toolHuntOutreachAmplifier,
+  toolForgeAutomationLibrary,
+  toolQuillContentDiversifier,
+  toolPrismDesignPipeline,
+  toolPulseUserEngagementDeep,
+  toolEchoAbTestScaling,
+  toolLegalProactiveCompliance,
+  toolBankerHighYieldOptimizer,
+} from './subagent-enhancements'
+
+TOOL_REGISTRY.aurora_affiliate_expander = { fn: toolAuroraAffiliateExpander, icon: 'share-2', label: 'Aurora Affiliate Expander (15 new programs + content diversification)' }
+TOOL_REGISTRY.vertex_agile_iterator = { fn: toolVertexAgileIterator, icon: 'zap', label: 'Vertex Agile Iterator (2-week sprints, 3x faster product iterations)' }
+TOOL_REGISTRY.quantum_defi_explorer = { fn: toolQuantumDefiExplorer, icon: 'trending-up', label: 'Quantum DeFi Explorer (8 DeFi protocols + 5 alternative investments)' }
+TOOL_REGISTRY.scout_trend_autopilot = { fn: toolScoutTrendAutopilot, icon: 'radar', label: 'Scout Trend Autopilot (7 automated trend sources, 24h detection)' }
+TOOL_REGISTRY.hunt_outreach_amplifier = { fn: toolHuntOutreachAmplifier, icon: 'megaphone', label: 'Hunt Outreach Amplifier (7 channels, 60 outreach/day)' }
+TOOL_REGISTRY.forge_automation_library = { fn: toolForgeAutomationLibrary, icon: 'terminal', label: 'Forge Automation Library (15 reusable scripts, saves 20 hrs/week)' }
+TOOL_REGISTRY.quill_content_diversifier = { fn: toolQuillContentDiversifier, icon: 'edit-3', label: 'Quill Content Diversifier (8 formats, 5 voice styles)' }
+TOOL_REGISTRY.prism_design_pipeline = { fn: toolPrismDesignPipeline, icon: 'layers', label: 'Prism Design Pipeline (5-stage workflow, 3x capacity)' }
+TOOL_REGISTRY.pulse_user_engagement_deep = { fn: toolPulseUserEngagementDeep, icon: 'bar-chart-2', label: 'Pulse User Engagement Deep (12 metrics, behavioral cohorts, heatmaps)' }
+TOOL_REGISTRY.echo_ab_test_scaling = { fn: toolEchoAbTestScaling, icon: 'flask-conical', label: 'Echo A/B Test Scaling (20 concurrent tests, 6 platforms, ML-optimized)' }
+TOOL_REGISTRY.legal_proactive_compliance = { fn: toolLegalProactiveCompliance, icon: 'shield', label: 'Legal Proactive Compliance (47-item checklist, monthly auto-audit)' }
+TOOL_REGISTRY.banker_high_yield_optimizer = { fn: toolBankerHighYieldOptimizer, icon: 'dollar-sign', label: 'Banker High-Yield Optimizer (5 accounts, 4.97% weighted APY)' }

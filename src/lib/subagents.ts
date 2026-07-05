@@ -98,6 +98,22 @@ const ALL_TOOLS = [
   'lead_chatbot',
   'follow_up_automation',
   'community_engagement',
+
+  // ── Subagent enhancements (12) — one specialized tool per built-in ────
+  // Each subagent has its own enhancement tool that addresses the
+  // specific improvement opportunity the owner identified.
+  'aurora_affiliate_expander',
+  'vertex_agile_iterator',
+  'quantum_defi_explorer',
+  'scout_trend_autopilot',
+  'hunt_outreach_amplifier',
+  'forge_automation_library',
+  'quill_content_diversifier',
+  'prism_design_pipeline',
+  'pulse_user_engagement_deep',
+  'echo_ab_test_scaling',
+  'legal_proactive_compliance',
+  'banker_high_yield_optimizer',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from

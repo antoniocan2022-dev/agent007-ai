@@ -106,6 +106,23 @@ export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
   'lead_chatbot',
   'follow_up_automation',
   'community_engagement',
+  // Subagent enhancements (12 specialized tools — one per built-in
+  // sub-agent, addressing the specific improvement opportunity the owner
+  // identified for that sub-agent). These are critical for the agent's
+  // continuous improvement — removing any of them would eliminate a
+  // dedicated enhancement capability.
+  'aurora_affiliate_expander',
+  'vertex_agile_iterator',
+  'quantum_defi_explorer',
+  'scout_trend_autopilot',
+  'hunt_outreach_amplifier',
+  'forge_automation_library',
+  'quill_content_diversifier',
+  'prism_design_pipeline',
+  'pulse_user_engagement_deep',
+  'echo_ab_test_scaling',
+  'legal_proactive_compliance',
+  'banker_high_yield_optimizer',
 ] as const
 
 /**
