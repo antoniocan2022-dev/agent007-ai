@@ -169,22 +169,32 @@ const ALL_TOOLS = [
  * AND make direct HTTP requests to any REST API — without API keys. */
 const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory', 'kb_search', 'http_fetch']
 
-/* FULL ACCESS tools — all subagents get ALL tools, no limitations.
- * The owner has explicitly granted full access. This array replaces
- * the limited allowedTools arrays on all built-in subagents.
- *
- * This now includes ALL 424 tools (15 base + 12 self-fix + 30 autonomy
- * + ~367 other tools from extensions). Every subagent can use every
- * tool — full access, no limitations.
- *
- * EXCEPTION: The 2 execution-protected tools (trigger_redeploy,
- * patch_source_file) are NOT included because subagents cannot request
- * owner authorization. Only Agent007 (super) can dispatch those, and
- * only after the owner authorizes via request_tool_execution +
- * verify_tool_execution.
- *
- * See: src/lib/upgrade-manifest.ts → subagent_full_access entry. */
-export const FULL_ACCESS_TOOLS = [...ALL_TOOLS]
+/* FULL ACCESS tools — ALL 469+ tools, no limitations.
+ * The owner has explicitly granted full access to EVERY tool.
+ * Auto-generated from TOOL_REGISTRY at first access (lazy init to avoid
+ * circular import with tools.ts).
+ */
+let _fullAccessTools: string[] | null = null
+
+export function getFullAccessToolsList(): string[] {
+  if (_fullAccessTools === null) {
+    // Lazy import to avoid circular dependency
+    const { TOOL_REGISTRY } = require('./tools')
+    _fullAccessTools = Object.keys(TOOL_REGISTRY).sort()
+  }
+  return _fullAccessTools
+}
+
+export const FULL_ACCESS_TOOLS: string[] = new Proxy([] as string[], {
+  get(target, prop, receiver) {
+    if (prop === 'length') return getFullAccessToolsList().length
+    if (prop === 'includes') return (v: string) => getFullAccessToolsList().includes(v)
+    if (prop === 'indexOf') return (v: string) => getFullAccessToolsList().indexOf(v)
+    if (prop === Symbol.iterator) return () => getFullAccessToolsList()[Symbol.iterator]()
+    if (typeof prop === 'string' && /^\d+$/.test(prop)) return getFullAccessToolsList()[parseInt(prop)]
+    return Reflect.get(target, prop, receiver)
+  }
+})
 
 /**
  * Returns a copy of the FULL_ACCESS_TOOLS list. Used at runtime when

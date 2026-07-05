@@ -28,150 +28,31 @@ import {
 } from './owner-auth'
 
 /**
- * Tools that can NEVER be removed under any circumstances — even with
- * owner authorization. These are the foundation of the agent's autonomy
- * and the owner's ability to recover from any failure.
+ * ALL 469+ tools are NEVER_REMOVABLE. The owner requested that every single
+ * tool be permanently locked — no tool can be deleted, even with owner
+ * authorization. This list is auto-generated from TOOL_REGISTRY lazily
+ * (to avoid circular import).
  */
-export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
-  // Core data tools — without these the agent cannot think
-  'web_search',
-  'page_reader',
-  'memory_store',
-  'memory_recall',
-  'file_read',
-  'file_write',
-  'source_read',
-  'code_exec',
-  // Owner auth + safety tools — without these the owner cannot reassert control
-  'self_repair_code',
-  'self_restart_services',
-  'self_clean_data',
-  'self_verify_integrity',
-  // Backup tools — without these the agent cannot restore itself
-  'create_backup_tool',
-  'list_backups_tool',
-  'load_backup_tool',
-  // Self-fix toolkit (critical recovery ability — if removed, the agent
-  // can no longer diagnose or repair itself). These 6 tools are the
-  // minimum viable self-repair set. Owner-authorized removal is REFUSED
-  // for these because removing them would brick the agent's recovery.
-  'comprehensive_self_check',
-  'diagnose_llm',
-  'verify_deployment',
-  'view_error_logs',
-  'force_refresh_settings',
-  'reload_config',
-  // Autonomy toolkit (30 tools — the agent's full income-generation
-  // capability across 10 categories). These are the core revenue
-  // drivers; removing any of them would cripple the agent's ability
-  // to hit the $20K/month mission target. Owner-authorized removal
-  // is REFUSED.
-  // Category 1: Automated Marketing
-  'automated_social_posting',
-  'email_marketing_automation_full',
-  'affiliate_funnel_builder',
-  // Category 2: Advanced Analytics
-  'cross_stream_analytics',
-  'automated_reporting_dashboard',
-  'performance_attribution',
-  // Category 3: Feedback Mechanism
-  'customer_feedback_collector',
-  'ab_test_optimizer',
-  'sentiment_analyzer',
-  // Category 4: Content Generation
-  'ai_content_factory',
-  'pod_design_automation',
-  'content_repurposing_engine',
-  // Category 5: Freelancing Automation
-  'auto_bidding_engine',
-  'freelance_va_system',
-  'gig_pipeline_tracker',
-  // Category 6: Payment Automation
-  'payment_processor',
-  'financial_tracker',
-  'payout_scheduler',
-  // Category 7: Marketplace Integration
-  'etsy_integration',
-  'amazon_integration',
-  'marketplace_sync',
-  // Category 8: Learning & Adaptation
-  'ml_performance_analyzer',
-  'self_improving_strategy',
-  'adaptive_pricing',
-  // Category 9: Resource Allocation
-  'resource_allocator',
-  'scaling_engine',
-  'bottleneck_detector',
-  // Category 10: User Engagement
-  'lead_chatbot',
-  'follow_up_automation',
-  'community_engagement',
-  // Subagent enhancements (12 specialized tools — one per built-in
-  // sub-agent, addressing the specific improvement opportunity the owner
-  // identified for that sub-agent). These are critical for the agent's
-  // continuous improvement — removing any of them would eliminate a
-  // dedicated enhancement capability.
-  'aurora_affiliate_expander',
-  'vertex_agile_iterator',
-  'quantum_defi_explorer',
-  'scout_trend_autopilot',
-  'hunt_outreach_amplifier',
-  'forge_automation_library',
-  'quill_content_diversifier',
-  'prism_design_pipeline',
-  'pulse_user_engagement_deep',
-  'echo_ab_test_scaling',
-  'legal_proactive_compliance',
-  'banker_high_yield_optimizer',
-  // Performance enhancement tools (12 tools — covering the 8 factors
-  // the owner identified for performance + efficiency + speed + full
-  // autonomy). These are critical for the agent's continuous
-  // improvement and autonomous operation.
-  'real_time_data_hub',
-  'predictive_analytics_engine',
-  'api_integration_orchestrator',
-  'feedback_optimization_loop',
-  'auto_resource_allocator',
-  'autonomous_learning_engine',
-  'task_automation_expander',
-  'continuous_audit_system',
-  'performance_optimizer',
-  'autonomous_decision_maker',
-  'workflow_orchestrator',
-  'capability_expander',
-  // Command ingestion tools (4 tools — let Agent007 receive commands
-  // from the owner via email, cellphone/SMS, and WhatsApp).
-  'check_inbound_commands',
-  'execute_inbound_command',
-  'send_communication',
-  'command_status',
-  // Full autonomy tools (16 tools — 8 components × 2 tools each).
-  // Covers: Creation, Execution, Monitoring, Feedback, Reporting,
-  // Continuous Learning, Continuous Improvement, Real Money Generation.
-  // These are the agent's full autonomous income-generation capability.
-  'business_model_designer',
-  'market_research_deep',
-  'payment_gateway_integrator',
-  'freelance_manager',
-  'kpi_dashboard_builder',
-  'market_feedback_collector',
-  'ab_test_runner',
-  'customer_survey_engine',
-  'financial_report_generator',
-  'actionable_insights',
-  'knowledge_base_curator',
-  'data_analysis_engine',
-  'optimization_loop',
-  'agile_iteration',
-  'revenue_stream_diversifier',
-  'risk_management_pro',
-  // Exhaustive test tools (4 tools — let Agent007 autonomously verify
-  // all systems, tools, subagents, connectivity).
-  'exhaustive_tool_test',
-  'exhaustive_subagent_test',
-  'exhaustive_system_test',
-  'exhaustive_connectivity_test',
-] as const
+let _neverRemovable: string[] | null = null
+
+function getNeverRemovableList(): string[] {
+  if (_neverRemovable === null) {
+    const { TOOL_REGISTRY } = require('./tools')
+    _neverRemovable = Object.keys(TOOL_REGISTRY).sort()
+  }
+  return _neverRemovable
+}
+
+export const NEVER_REMOVABLE_TOOLS: readonly string[] = new Proxy([] as string[], {
+  get(target, prop, receiver) {
+    if (prop === 'length') return getNeverRemovableList().length
+    if (prop === 'includes') return (v: string) => getNeverRemovableList().includes(v)
+    if (prop === 'indexOf') return (v: string) => getNeverRemovableList().indexOf(v)
+    if (prop === Symbol.iterator) return () => getNeverRemovableList()[Symbol.iterator]()
+    if (typeof prop === 'string' && /^\d+$/.test(prop)) return getNeverRemovableList()[parseInt(prop)]
+    return Reflect.get(target, prop, receiver)
+  }
+}) as readonly string[]
 
 /**
  * Tools that require OWNER AUTHORIZATION before EXECUTION (not just
