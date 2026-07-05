@@ -40,7 +40,7 @@ export interface NotificationSettings {
 
 export const DEFAULT_INCOME_SETTINGS: IncomeSettings = {
   monthlyGoal: 20000,
-  dailyGrowthTarget: 10, // 10% daily growth (matches SYSTEM_PROMPT: "Target a 10% daily growth rate")
+  dailyGrowthTarget: 20, // 20% daily growth (matches SYSTEM_PROMPT — owner confirmed 20% daily)
   currencySymbol: '$',
   displayMode: 'detailed',
 }

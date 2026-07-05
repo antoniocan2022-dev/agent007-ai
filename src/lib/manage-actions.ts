@@ -76,6 +76,11 @@ export const MANAGE_ACTIONS: readonly string[] = [
   // ── Diagnostics & repair ──────────────────────────────────────────────
   'fix_hydration',
   'clear_cache',
+
+  // ── Tool protection (owner-authorized removal flow) ───────────────────
+  'list_tools',
+  'request_tool_removal',
+  'verify_tool_removal',
 ] as const
 
 /**

@@ -87,8 +87,8 @@ export function DashboardTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [settings, setSettings] = useState<IncomeSettings>({
-    monthlyGoal: 1000,
-    dailyGrowthTarget: 10,
+    monthlyGoal: 20000,
+    dailyGrowthTarget: 20,
     currencySymbol: '$',
     displayMode: 'detailed',
   })
@@ -204,7 +204,7 @@ export function DashboardTab() {
                 <span className="neon-text-purple">Tracker</span>
               </h1>
               <p className="text-xs text-[#7c89b5] mt-1 tracking-wide">
-                Mission: $20,000/month passive income • 20% monthly growth • Full autonomous authority
+                Mission: $20,000/month passive income • 20% monthly growth • 20% daily growth • Full autonomous authority
               </p>
               {lastRefreshedAt && (
                 <p className="text-[10px] text-[#5b6a92] mt-0.5 tracking-wide">

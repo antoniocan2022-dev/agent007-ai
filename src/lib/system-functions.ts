@@ -211,7 +211,77 @@ export async function getCapabilities(): Promise<any> {
       permanentUpgrades: upgrades.length,
       subagentToolAccess: 'FULL (all 15 tools)',
       toolsPerAgent: FULL_ACCESS_TOOLS.length,
+      // Infrastructure summary — included so the orchestrator's
+      // view_capabilities manage action can show real numbers, NOT
+      // "Undefined". The HTTP /api/system/capabilities route computes
+      // these via filesystem walk + Prisma model introspection; here we
+      // compute them the same way for the in-process caller.
+      apiRoutes: countApiRoutesInProject(),
+      dbModels: countDbModelsInProject(),
+      sourceFiles: countSourceFilesInProject(),
+      protectionMode: 'UPGRADE_ONLY',
+      permanentlyDisabledOps: 13,
+      protectedOps: 21,
     },
+  }
+}
+
+/* ── Infrastructure counters (used by getCapabilities summary) ──────── */
+
+function countApiRoutesInProject(): number {
+  try {
+    const apiDir = path.join(process.cwd(), 'src/app/api')
+    if (!fs.existsSync(apiDir)) return 0
+    let count = 0
+    const walk = (dir: string) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(fullPath)
+        } else if (entry.name === 'route.ts' || entry.name === 'route.js') {
+          count += 1
+        }
+      }
+    }
+    walk(apiDir)
+    return count
+  } catch {
+    return 0
+  }
+}
+
+function countDbModelsInProject(): number {
+  try {
+    const models = Object.keys(db).filter(
+      (k) => !k.startsWith('_') && !k.startsWith('$') && typeof (db as any)[k]?.count === 'function'
+    )
+    return models.length
+  } catch {
+    return 0
+  }
+}
+
+function countSourceFilesInProject(): number {
+  try {
+    const srcDir = path.join(process.cwd(), 'src')
+    if (!fs.existsSync(srcDir)) return 0
+    let count = 0
+    const walk = (dir: string) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(fullPath)
+        } else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
+          count += 1
+        }
+      }
+    }
+    walk(srcDir)
+    return count
+  } catch {
+    return 0
   }
 }
 

@@ -15,7 +15,7 @@
 
 export interface UpgradeEntry {
   id: string
-  category: 'security' | 'dashboard' | 'subagent' | 'communication' | 'autonomy' | 'persistence' | 'self_heal'
+  category: 'security' | 'dashboard' | 'subagent' | 'communication' | 'autonomy' | 'persistence' | 'self_heal' | 'safety' | 'mission'
   title: string
   description: string
   dateApplied: string
@@ -185,6 +185,24 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     dateApplied: '2026-07-04',
     permanent: true,
     files: ['src/lib/agent.ts', 'src/app/api/commands/inbound/route.ts', 'src/app/api/commands/execute/route.ts', 'src/app/api/commands/send/route.ts'],
+  },
+  {
+    id: 'tool_protection_layer',
+    category: 'safety',
+    title: 'Permanent Tool Protection Layer (Owner-Authorized Removal Only)',
+    description: 'ALL 382+ tools in TOOL_REGISTRY are now PERMANENTLY LOCKED. No runtime API can delete, reset, or disable any tool. The ONLY way to remove a tool is via the owner-authorized removal flow: (1) <manage action="request_tool_removal" tool="..." method="whatsapp|sms|email|totp"/> sends a 6-digit code to the owner, (2) owner receives code on cellphone/email/WhatsApp, (3) <manage action="verify_tool_removal" tool="..." auth_id="..." code="123456"/> verifies and records the request in the audit log, (4) the tool is queued for removal in the NEXT source-code deployment. 14 foundation tools (web_search, page_reader, memory_store, file_read, code_exec, self_repair_code, etc.) are on the NEVER_REMOVABLE list — they cannot be removed even with owner authorization. New manage actions: list_tools, request_tool_removal, verify_tool_removal.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/tool-protection.ts', 'src/lib/orchestrator.ts', 'src/lib/manage-actions.ts', 'src/lib/agent.ts'],
+  },
+  {
+    id: 'growth_rate_20_daily',
+    category: 'mission',
+    title: 'Growth Rate Updated to 20% Monthly + 20% Daily',
+    description: 'Mission growth target updated from 10% daily → 20% daily (matches the 20% monthly growth target). Updated in: DEFAULT_INCOME_SETTINGS.dailyGrowthTarget, dashboard-tab.tsx default state, settings-tab.tsx default state, SYSTEM_PROMPT mission heading, dashboard mission subtitle. All dashboards now display "20% monthly, 20% daily" consistently.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/settings.ts', 'src/components/agent/tabs/dashboard-tab.tsx', 'src/components/agent/tabs/settings-tab.tsx', 'src/lib/agent.ts'],
   },
 ]
 

@@ -2221,10 +2221,107 @@ async function executeManageAction(
         }
       }
 
+      /* --------------------------- list_tools (enumerate all 382+ tools) --------------------------- */
+      case 'list_tools': {
+        try {
+          const { listAllToolNames, countAllTools, countToolsByCategory } = await import('./tool-protection')
+          const tools = listAllToolNames()
+          const byCat = countToolsByCategory()
+          const topCats = Object.entries(byCat)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 12)
+            .map(([cat, n]) => `${cat}: ${n}`)
+            .join(', ')
+          return {
+            ok: true,
+            message: `TOOL REGISTRY (LIVE): ${countAllTools()} tools registered. Top categories: ${topCats}. First 20: ${tools.slice(0, 20).join(', ')}. Full list available in the data field.`,
+            data: { total: tools.length, tools, byCategory: byCat },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `list_tools threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- request_tool_removal (start owner-auth flow) --------------------------- */
+      case 'request_tool_removal': {
+        try {
+          const toolName = (attrs.tool ?? '').toString().trim()
+          if (!toolName) return { ok: false, message: 'request_tool_removal requires "tool" attribute.' }
+          const method = (attrs.method ?? 'whatsapp').toString() as 'whatsapp' | 'sms' | 'email' | 'totp'
+          const { requestToolRemovalAuthorization, toolExists, NEVER_REMOVABLE_TOOLS } = await import('./tool-protection')
+          if (!toolExists(toolName)) {
+            return { ok: false, message: `Tool "${toolName}" not found in registry. Use list_tools to see all 382+ tools.` }
+          }
+          if (NEVER_REMOVABLE_TOOLS.includes(toolName)) {
+            return {
+              ok: false,
+              message: `Tool "${toolName}" is PERMANENTLY PROTECTED and cannot be removed under any circumstances — not even with owner authorization. This tool is required for the agent's autonomy and the owner's recovery ability.`,
+            }
+          }
+          const r = await requestToolRemovalAuthorization(toolName, method)
+          return {
+            ok: r.ok,
+            message: r.ok
+              ? `${r.message}${r.waLink ? ` | wa.me link: ${r.waLink}` : ''}`
+              : r.message,
+            data: { authId: r.authId, method: r.method, waLink: r.waLink, tool: toolName },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `request_tool_removal threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- verify_tool_removal (verify owner code + record) --------------------------- */
+      case 'verify_tool_removal': {
+        try {
+          const toolName = (attrs.tool ?? '').toString().trim()
+          const authId = (attrs.auth_id ?? '').toString().trim()
+          const code = (attrs.code ?? '').toString().trim()
+          if (!toolName || !authId || !code) {
+            return { ok: false, message: 'verify_tool_removal requires "tool", "auth_id", and "code" attributes.' }
+          }
+          const { canRemoveTool, NEVER_REMOVABLE_TOOLS } = await import('./tool-protection')
+          if (NEVER_REMOVABLE_TOOLS.includes(toolName)) {
+            return {
+              ok: false,
+              message: `Tool "${toolName}" is PERMANENTLY PROTECTED. Even with owner authorization, it cannot be removed.`,
+            }
+          }
+          const check = canRemoveTool(toolName, authId, code)
+          if (!check.allowed) {
+            return { ok: false, message: `Tool removal denied: ${check.reason}` }
+          }
+          // Even with authorization, we DON'T actually delete from TOOL_REGISTRY at runtime.
+          // The tool removal is recorded as an audit log entry + a flag for the next deploy.
+          // This is a HARD GUARDRAIL: tools can only be removed via source-code edit + redeploy,
+          // never via runtime API. The owner's authorization lets them request the removal,
+          // and the next deployment will honor that request if it appears in the audit log.
+          try {
+            const userId = await getOperatorUserId()
+            await db.auditLog.create({
+              data: {
+                userId,
+                action: 'tool_removal_authorized',
+                entity: 'tool',
+                entityId: toolName,
+                description: `Owner authorized removal of tool "${toolName}" via ${check.reason}. The tool will be removed in the next deployment — runtime removal is disabled by the permanent tool-protection layer.`,
+                metadata: JSON.stringify({ tool: toolName, authId, timestamp: new Date().toISOString() }),
+              },
+            })
+          } catch {}
+          return {
+            ok: true,
+            message: `Owner authorization verified for tool "${toolName}". Removal has been recorded in the audit log. NOTE: Runtime tool removal is DISABLED by the permanent tool-protection layer — the tool will remain registered until the next source-code deployment. The owner can request the source-code change at any time.`,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `verify_tool_removal threw: ${e?.message ?? e}` }
+        }
+      }
+
       default:
         return {
           ok: false,
-          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth, fix_hydration, clear_cache.`,
+          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, view_capabilities, create_backup, list_backups, load_backup, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth, fix_hydration, clear_cache, list_tools, request_tool_removal, verify_tool_removal.`,
         }
     }
   } catch (e: any) {

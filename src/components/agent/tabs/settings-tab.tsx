@@ -72,8 +72,8 @@ interface NotificationLog {
 }
 
 const DEFAULT_INCOME: IncomeSettings = {
-  monthlyGoal: 1000,
-  dailyGrowthTarget: 10,
+  monthlyGoal: 20000,
+  dailyGrowthTarget: 20,
   currencySymbol: '$',
   displayMode: 'detailed',
 }

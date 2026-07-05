@@ -1,0 +1,3976 @@
+{
+  "meta": {
+    "agent": "Agent007 AI",
+    "owner": "Antonio (antonio.can2022@hotmail.com)",
+    "phone": "+15145496297",
+    "vercelUrl": "https://agent007-ai.vercel.app",
+    "generatedAt": "2026-07-05T00:14:50.316Z",
+    "generator": "scripts/generate-capabilities-archive.ts",
+    "format": "agent007-capabilities-v1"
+  },
+  "summary": {
+    "availableTools": "382+",
+    "availableAgents": 18,
+    "managementActions": 41,
+    "monthlyIncomeTarget": "$20,000",
+    "growthRate": "20% monthly, 20% daily",
+    "dailyGrowthTarget": "20%",
+    "monthlyGrowthRate": "20%",
+    "permanentUpgrades": 20,
+    "subagentToolAccess": "FULL (all 15 tools)",
+    "toolsPerAgent": 15,
+    "apiRoutes": 74,
+    "dbModels": 33,
+    "sourceFiles": 183,
+    "protectionMode": "UPGRADE_ONLY",
+    "permanentlyDisabledOps": 13,
+    "protectedOps": 21
+  },
+  "capabilities": {
+    "tools": {
+      "total": 382,
+      "perSubagent": 15,
+      "sample": [
+        "web_search",
+        "page_reader",
+        "image_gen",
+        "vision",
+        "code_exec",
+        "memory_store",
+        "memory_recall",
+        "file_read",
+        "wikipedia_search",
+        "wikipedia_read",
+        "free_apis_directory",
+        "kb_search",
+        "source_read",
+        "file_write",
+        "http_fetch",
+        "real_time_monitor",
+        "business_infrastructure",
+        "service_delivery",
+        "financial_controls",
+        "crm",
+        "marketing_automation",
+        "partnership_network",
+        "autonomous_revenue",
+        "predictive_bi",
+        "scalable_infrastructure"
+      ],
+      "note": "Counted live from TOOL_REGISTRY — includes phase3 enhancements, owner-vault, self-backup, media, agent007-meta, enhanced-tools, max-improvements, and all runtime registrations.",
+      "all": [
+        {
+          "name": "2fa_crypto_upgrader",
+          "label": "2FA Crypto Upgrader",
+          "icon": "shield-check",
+          "category": "2fa",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "advanced_billing",
+          "label": "Advanced Billing Systems",
+          "icon": "credit-card",
+          "category": "advanced",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "advanced_chatbot",
+          "label": "Advanced AI Chatbot",
+          "icon": "message-circle",
+          "category": "advanced",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "advanced_data_analysis",
+          "label": "Advanced Data Analysis (deep insights + trends)",
+          "icon": "bar-chart",
+          "category": "advanced",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "advanced_reporting",
+          "label": "Advanced Reporting",
+          "icon": "file-text",
+          "category": "advanced",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "affiliate_management",
+          "label": "Affiliate Management",
+          "icon": "Users",
+          "category": "affiliate",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "agent_swarm_coordination",
+          "label": "Agent Swarm Coordination",
+          "icon": "cpu",
+          "category": "agent",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "ai_writing_assistant",
+          "label": "AI Writing Assistant",
+          "icon": "PenLine",
+          "category": "ai",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_0_behavior_prediction",
+          "label": "Analytics 0 Behavior Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_0_opportunity_prediction",
+          "label": "Analytics 0 Opportunity Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_0_performance_forecasting",
+          "label": "Analytics 0 Performance Forecasting",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_0_trend_prediction",
+          "label": "Analytics 0 Trend Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_1_behavior_prediction",
+          "label": "Analytics 1 Behavior Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_1_opportunity_prediction",
+          "label": "Analytics 1 Opportunity Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_1_performance_forecasting",
+          "label": "Analytics 1 Performance Forecasting",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_1_trend_prediction",
+          "label": "Analytics 1 Trend Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_2_behavior_prediction",
+          "label": "Analytics 2 Behavior Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_2_opportunity_prediction",
+          "label": "Analytics 2 Opportunity Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_2_performance_forecasting",
+          "label": "Analytics 2 Performance Forecasting",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_2_trend_prediction",
+          "label": "Analytics 2 Trend Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_3_behavior_prediction",
+          "label": "Analytics 3 Behavior Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_3_opportunity_prediction",
+          "label": "Analytics 3 Opportunity Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_3_performance_forecasting",
+          "label": "Analytics 3 Performance Forecasting",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_3_trend_prediction",
+          "label": "Analytics 3 Trend Prediction",
+          "icon": "cpu",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "analytics_reporting",
+          "label": "Analytics & Reporting",
+          "icon": "BarChart3",
+          "category": "analytics",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "api_endpoint_test",
+          "label": "API Endpoint Test",
+          "icon": "plug",
+          "category": "api",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "api_integration_manager",
+          "label": "API Integration Manager",
+          "icon": "Plug",
+          "category": "api",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "audio_process",
+          "label": "Audio Process (info, transcribe speech to text)",
+          "icon": "mic",
+          "category": "audio",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "audit_log_hardener",
+          "label": "Audit Log Hardener",
+          "icon": "fingerprint",
+          "category": "audit",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "auto_fix_common_issues",
+          "label": "Auto-Fix Common Issues",
+          "icon": "wrench",
+          "category": "auto",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "auto_knowledge_updates",
+          "label": "Auto Knowledge Updates",
+          "icon": "cpu",
+          "category": "auto",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "automated_backup_scheduler",
+          "label": "Automated Backup Scheduler",
+          "icon": "archive",
+          "category": "automated",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "automated_rebalancing",
+          "label": "Automated Rebalancing",
+          "icon": "RefreshCw",
+          "category": "automated",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "autonomous_email_sender",
+          "label": "Autonomous Email/Message Sender (sends directly, no user click)",
+          "icon": "send",
+          "category": "autonomous",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "autonomous_resolver",
+          "label": "Autonomous Resolver",
+          "icon": "cpu",
+          "category": "autonomous",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "autonomous_revenue",
+          "label": "Autonomous Revenue System",
+          "icon": "Zap",
+          "category": "autonomous",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "backlink_tracking",
+          "label": "Backlink Tracking",
+          "icon": "Link2",
+          "category": "backlink",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "backup_create",
+          "label": "Backup Create",
+          "icon": "archive",
+          "category": "backup",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_asset_allocation",
+          "label": "Banker Asset Allocation",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_asset_class_analysis",
+          "label": "Banker Asset Class Analysis",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_auto_investing",
+          "label": "Banker Auto Investing",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_auto_rebalancing",
+          "label": "Banker Auto Rebalancing",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_correlation_analysis",
+          "label": "Banker Correlation Analysis",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_optimal_allocation",
+          "label": "Banker Optimal Allocation",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_performance_monitoring",
+          "label": "Banker Performance Monitoring",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_performance_optimization",
+          "label": "Banker Performance Optimization",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_rebalancing_automation",
+          "label": "Banker Rebalancing Automation",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_risk_adjusted_returns",
+          "label": "Banker Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_risk_frameworks",
+          "label": "Banker Risk Frameworks",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "banker_risk_management",
+          "label": "Banker Risk Management",
+          "icon": "zap",
+          "category": "banker",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_asset_allocation",
+          "label": "Blueteam Asset Allocation",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_asset_class_analysis",
+          "label": "Blueteam Asset Class Analysis",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_auto_investing",
+          "label": "Blueteam Auto Investing",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_auto_rebalancing",
+          "label": "Blueteam Auto Rebalancing",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_correlation_analysis",
+          "label": "Blueteam Correlation Analysis",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_optimal_allocation",
+          "label": "Blueteam Optimal Allocation",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_performance_monitoring",
+          "label": "Blueteam Performance Monitoring",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_performance_optimization",
+          "label": "Blueteam Performance Optimization",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_rebalancing_automation",
+          "label": "Blueteam Rebalancing Automation",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_risk_adjusted_returns",
+          "label": "Blueteam Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_risk_frameworks",
+          "label": "Blueteam Risk Frameworks",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "blueteam_risk_management",
+          "label": "Blueteam Risk Management",
+          "icon": "zap",
+          "category": "blueteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "bottleneck_identification",
+          "label": "Bottleneck Identification",
+          "icon": "cpu",
+          "category": "bottleneck",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "budget_forecaster",
+          "label": "Budget Forecaster (income + expenses + cash flow)",
+          "icon": "dollar-sign",
+          "category": "budget",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "budgeting_forecast",
+          "label": "Budgeting & Forecast",
+          "icon": "Calculator",
+          "category": "budgeting",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "business_infrastructure",
+          "label": "Business Infrastructure Builder",
+          "icon": "building",
+          "category": "business",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cache_clear",
+          "label": "Cache Clear",
+          "icon": "trash-2",
+          "category": "cache",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cache_layer_manager",
+          "label": "Cache Layer Manager",
+          "icon": "database",
+          "category": "cache",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "canary_deployment_manager",
+          "label": "Canary Deployment Manager",
+          "icon": "percent",
+          "category": "canary",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cascading_failure_detector",
+          "label": "Cascading Failure Detector",
+          "icon": "alert-octagon",
+          "category": "cascading",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cashflow_optimizer",
+          "label": "Cash Flow Optimizer",
+          "icon": "DollarSign",
+          "category": "cashflow",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cdn_asset_optimizer",
+          "label": "CDN Asset Optimizer",
+          "icon": "globe",
+          "category": "cdn",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "centralized_ai_search",
+          "label": "Centralized Ai Search",
+          "icon": "cpu",
+          "category": "centralized",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "check_inbound_commands",
+          "label": "Check Inbound Commands",
+          "icon": "inbox",
+          "category": "check",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "check_loyalty_constraints",
+          "label": "Check Loyalty Constraints (block disloyal actions)",
+          "icon": "shield",
+          "category": "check",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "check_protected_operation",
+          "label": "Check Protected Operation (verify if owner auth needed)",
+          "icon": "lock",
+          "category": "check",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "code_exec",
+          "label": "Code Exec",
+          "icon": "terminal",
+          "category": "code",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "collective_intelligence",
+          "label": "Collective Intelligence",
+          "icon": "cpu",
+          "category": "collective",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "complex_task_orchestration",
+          "label": "Complex Task Orchestration",
+          "icon": "cpu",
+          "category": "complex",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "compliance_monitor",
+          "label": "Compliance Monitor",
+          "icon": "ShieldCheck",
+          "category": "compliance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "config_auditor",
+          "label": "Config Auditor",
+          "icon": "settings",
+          "category": "config",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "conflict_resolution",
+          "label": "Conflict Resolution",
+          "icon": "cpu",
+          "category": "conflict",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_calendar_generator",
+          "label": "Content Calendar Generator (multi-week plan)",
+          "icon": "calendar",
+          "category": "content",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_performance",
+          "label": "Content Performance Analytics",
+          "icon": "bar-chart-2",
+          "category": "content",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_qa",
+          "label": "Content QA",
+          "icon": "CheckCircle2",
+          "category": "content",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_repurposer",
+          "label": "Content Repurposer (1 piece → 5 formats)",
+          "icon": "repeat",
+          "category": "content",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_repurposing",
+          "label": "Content Repurposing",
+          "icon": "Copy",
+          "category": "content",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_scheduling",
+          "label": "Content Scheduling",
+          "icon": "Calendar",
+          "category": "content",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "context_aware_decisions",
+          "label": "Context Aware Decisions",
+          "icon": "cpu",
+          "category": "context",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "conversion_optimizer",
+          "label": "Conversion Optimizer",
+          "icon": "TrendingUp",
+          "category": "conversion",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "correlation_analysis",
+          "label": "Correlation Analysis",
+          "icon": "cpu",
+          "category": "correlation",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cost_guard",
+          "label": "Cost Guard",
+          "icon": "dollar-sign",
+          "category": "cost",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "crm",
+          "label": "Customer Management System (CRM)",
+          "icon": "users",
+          "category": "core",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "crm_integration",
+          "label": "CRM Integration",
+          "icon": "Database",
+          "category": "crm",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "cross_agent_analytics",
+          "label": "Cross Agent Analytics",
+          "icon": "cpu",
+          "category": "cross",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "crypto_analyzer",
+          "label": "Crypto Analyzer (technical + on-chain + sentiment)",
+          "icon": "bitcoin",
+          "category": "crypto",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "csrf_auditor",
+          "label": "CSRF Auditor",
+          "icon": "lock",
+          "category": "csrf",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "custom_agent_builder",
+          "label": "Custom Agent Builder (create specialized sub-agents)",
+          "icon": "user-plus",
+          "category": "custom",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "database_integrity_check",
+          "label": "Database Integrity Check",
+          "icon": "database",
+          "category": "database",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "db_migration_validator",
+          "label": "DB Migration Validator",
+          "icon": "database",
+          "category": "db",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "db_replication_setup",
+          "label": "DB Replication Setup",
+          "icon": "copy",
+          "category": "db",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "dependency_checker",
+          "label": "Dependency Checker",
+          "icon": "package",
+          "category": "dependency",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "dependency_management",
+          "label": "Dependency Management",
+          "icon": "cpu",
+          "category": "dependency",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_api_optimizer",
+          "label": "API Optimizer",
+          "icon": "plug",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_bug_detector",
+          "label": "Bug Detector",
+          "icon": "bug",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_bundle_optimizer",
+          "label": "Bundle Optimizer",
+          "icon": "archive",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_cicd_pipeline_builder",
+          "label": "CI/CD Pipeline Builder",
+          "icon": "git-merge",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_code_quality_audit",
+          "label": "Code Quality Audit",
+          "icon": "check-circle",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_database_migration",
+          "label": "Database Migration",
+          "icon": "database",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_dependency_analyzer",
+          "label": "Dependency Analyzer",
+          "icon": "package",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_environment_setup",
+          "label": "Environment Setup",
+          "icon": "settings",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_performance_profiler",
+          "label": "Performance Profiler",
+          "icon": "gauge",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_refactoring_engine",
+          "label": "Refactoring Engine",
+          "icon": "git-branch",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_ssr_hydration_fixer",
+          "label": "SSR/Hydration Fixer",
+          "icon": "zap",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "developer_test_generator",
+          "label": "Test Generator",
+          "icon": "flask-conical",
+          "category": "developer",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "directory_list",
+          "label": "Directory List (browse any directory)",
+          "icon": "folder",
+          "category": "directory",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "disaster_recovery_planner",
+          "label": "Disaster Recovery Planner",
+          "icon": "shield-alert",
+          "category": "disaster",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "dunning_management",
+          "label": "Dunning Management",
+          "icon": "refresh-cw",
+          "category": "dunning",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "dynamic_kpi_engine",
+          "label": "Dynamic KPI Engine (auto-update metrics, no manual intervention)",
+          "icon": "bar-chart",
+          "category": "dynamic",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "email_automation_advanced",
+          "label": "Email Automation (Advanced)",
+          "icon": "Mail",
+          "category": "email",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "email_marketing_automation",
+          "label": "Email Marketing Automation",
+          "icon": "Mail",
+          "category": "email",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "emergency_stop",
+          "label": "Emergency Stop (halt all autonomous operations)",
+          "icon": "alert-octagon",
+          "category": "emergency",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "error_log_analyzer",
+          "label": "Error Log Analyzer",
+          "icon": "alert-circle",
+          "category": "error",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "execute_inbound_command",
+          "label": "Execute + Reply to Inbound Command",
+          "icon": "message-square",
+          "category": "execute",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "external_uptime_monitor",
+          "label": "External Uptime Monitor",
+          "icon": "activity",
+          "category": "external",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_create",
+          "label": "File Create (create any type of file)",
+          "icon": "file-plus",
+          "category": "file",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_delete",
+          "label": "File Delete (delete any non-protected file)",
+          "icon": "file-x",
+          "category": "file",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_inspector",
+          "label": "File Inspector",
+          "icon": "eye",
+          "category": "file",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_modify",
+          "label": "File Modify (find + replace in any file)",
+          "icon": "file-edit",
+          "category": "file",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_read",
+          "label": "File Read",
+          "icon": "file-text",
+          "category": "file",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_read_any",
+          "label": "File Read Any (read text, base64, binary)",
+          "icon": "file-search",
+          "category": "file",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "file_write",
+          "label": "File Write / Patch",
+          "icon": "file-edit",
+          "category": "file",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "financial_controls",
+          "label": "Financial Controls",
+          "icon": "dollar-sign",
+          "category": "financial",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "financial_planner",
+          "label": "Financial Planner",
+          "icon": "Target",
+          "category": "financial",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "fix_verifier",
+          "label": "Fix Verifier",
+          "icon": "check-circle",
+          "category": "fix",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "fraud_prevention",
+          "label": "Fraud Prevention",
+          "icon": "shield-alert",
+          "category": "fraud",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "free_apis_directory",
+          "label": "Free APIs Directory",
+          "icon": "library",
+          "category": "free",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "full_system_audit",
+          "label": "Full System Audit",
+          "icon": "shield-check",
+          "category": "full",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "graphic_design",
+          "label": "Graphic Design",
+          "icon": "Palette",
+          "category": "graphic",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "health_canary",
+          "label": "Health Canary",
+          "icon": "heart",
+          "category": "health",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "http_fetch",
+          "label": "HTTP Fetch",
+          "icon": "globe",
+          "category": "http",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "human_action_router",
+          "label": "Human Action Router",
+          "icon": "user-check",
+          "category": "human",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_automated_crm",
+          "label": "Hunt Automated Crm",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_client_onboarding",
+          "label": "Hunt Client Onboarding",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_client_success_tracking",
+          "label": "Hunt Client Success Tracking",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_conversion_optimization",
+          "label": "Hunt Conversion Optimization",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_crm_integration",
+          "label": "Hunt Crm Integration",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_followup_automation",
+          "label": "Hunt Followup Automation",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_lead_generation",
+          "label": "Hunt Lead Generation",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_premium_packaging",
+          "label": "Hunt Premium Packaging",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_proposal_generation",
+          "label": "Hunt Proposal Generation",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_roi_analysis",
+          "label": "Hunt Roi Analysis",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_tier_optimization",
+          "label": "Hunt Tier Optimization",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "hunt_value_based_pricing",
+          "label": "Hunt Value Based Pricing",
+          "icon": "zap",
+          "category": "hunt",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "image_gen",
+          "label": "Image Gen",
+          "icon": "palette",
+          "category": "image",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "image_process",
+          "label": "Image Process (info, base64, analyze with vision)",
+          "icon": "image",
+          "category": "image",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "income_forecast",
+          "label": "Income Forecast",
+          "icon": "DollarSign",
+          "category": "income",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "investment_analyzer",
+          "label": "Investment Analyzer",
+          "icon": "TrendingUp",
+          "category": "investment",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "issue_detector",
+          "label": "Issue Detector",
+          "icon": "alert-triangle",
+          "category": "issue",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "kb_search",
+          "label": "Knowledge Base Search",
+          "icon": "book-marked",
+          "category": "kb",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "keyword_analysis",
+          "label": "Keyword Analysis (SEO)",
+          "icon": "Search",
+          "category": "keyword",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "lead_generation",
+          "label": "Lead Generation",
+          "icon": "UserPlus",
+          "category": "lead",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "learning_recorder",
+          "label": "Learning Recorder",
+          "icon": "book-open",
+          "category": "learning",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_asset_allocation",
+          "label": "Legal Asset Allocation",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_asset_class_analysis",
+          "label": "Legal Asset Class Analysis",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_auto_investing",
+          "label": "Legal Auto Investing",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_auto_rebalancing",
+          "label": "Legal Auto Rebalancing",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_correlation_analysis",
+          "label": "Legal Correlation Analysis",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_optimal_allocation",
+          "label": "Legal Optimal Allocation",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_performance_monitoring",
+          "label": "Legal Performance Monitoring",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_performance_optimization",
+          "label": "Legal Performance Optimization",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_rebalancing_automation",
+          "label": "Legal Rebalancing Automation",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_risk_adjusted_returns",
+          "label": "Legal Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_risk_frameworks",
+          "label": "Legal Risk Frameworks",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "legal_risk_management",
+          "label": "Legal Risk Management",
+          "icon": "zap",
+          "category": "legal",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "licensed_activity_blocker",
+          "label": "Licensed Activity Blocker",
+          "icon": "ban",
+          "category": "licensed",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "log_explorer",
+          "label": "Log Explorer (read any log file on demand)",
+          "icon": "file-text",
+          "category": "log",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "log_tailer",
+          "label": "Log Tailer",
+          "icon": "file-text",
+          "category": "log",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "loyalty_oath",
+          "label": "Loyalty Oath (permanent irrevocable oath to owner)",
+          "icon": "heart",
+          "category": "loyalty",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "market_adaptation_engine",
+          "label": "Market Adaptation Engine (auto-detect trends + adjust strategy)",
+          "icon": "globe",
+          "category": "market",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "market_intelligence",
+          "label": "Market Intelligence",
+          "icon": "globe",
+          "category": "market",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "market_research",
+          "label": "Market Research",
+          "icon": "Globe",
+          "category": "market",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "market_trend_analysis",
+          "label": "Market Trend Analysis",
+          "icon": "BarChart3",
+          "category": "market",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "market_trend_insights",
+          "label": "Market Trend Insights (real-time market data)",
+          "icon": "globe",
+          "category": "market",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "marketing_automation",
+          "label": "Marketing Automation",
+          "icon": "megaphone",
+          "category": "marketing",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "memory_recall",
+          "label": "Memory Recall",
+          "icon": "brain",
+          "category": "memory",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "memory_store",
+          "label": "Memory Store",
+          "icon": "database",
+          "category": "memory",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "mission_tracker",
+          "label": "Mission Tracker ($20K/mo)",
+          "icon": "target",
+          "category": "mission",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "multi_agent_coordinator",
+          "label": "Multi-Agent Coordinator",
+          "icon": "Network",
+          "category": "multi",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "multi_currency",
+          "label": "Multi-Currency Support",
+          "icon": "globe",
+          "category": "multi",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "multi_format_content",
+          "label": "Multi-Format Content",
+          "icon": "Layout",
+          "category": "multi",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "multi_format_generation",
+          "label": "Multi-Format Content Generation",
+          "icon": "file-text",
+          "category": "multi",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "multi_provider_llm_router",
+          "label": "Multi-Provider LLM Router",
+          "icon": "shuffle",
+          "category": "multi",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "multi_tenancy_auditor",
+          "label": "Multi-Tenancy Auditor",
+          "icon": "users",
+          "category": "multi",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "niche_discovery_agent",
+          "label": "Niche Discovery Agent (find profitable niches)",
+          "icon": "compass",
+          "category": "niche",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "on_page_optimization",
+          "label": "On-Page Optimization",
+          "icon": "FileText",
+          "category": "on",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "optimization_recommendations",
+          "label": "Optimization Recommendations",
+          "icon": "cpu",
+          "category": "optimization",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "owner_vault_create",
+          "label": "Owner Vault Create (encrypted owner-only file)",
+          "icon": "lock",
+          "category": "owner",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "owner_vault_download",
+          "label": "Owner Vault Download (get download URL)",
+          "icon": "download",
+          "category": "owner",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "owner_vault_list",
+          "label": "Owner Vault List (list all vault files)",
+          "icon": "list",
+          "category": "owner",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "page_reader",
+          "label": "Page Reader",
+          "icon": "link",
+          "category": "page",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "partnership_network",
+          "label": "Partnership Network",
+          "icon": "handshake",
+          "category": "partnership",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "patch_applier",
+          "label": "Patch Applier",
+          "icon": "git-commit",
+          "category": "patch",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "patch_designer",
+          "label": "Patch Designer",
+          "icon": "code",
+          "category": "patch",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "payment_ecommerce",
+          "label": "Payment & E-commerce",
+          "icon": "CreditCard",
+          "category": "payment",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_0_capacity_planning",
+          "label": "Performance 0 Capacity Planning",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_0_cost_optimization",
+          "label": "Performance 0 Cost Optimization",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_0_dynamic_allocation",
+          "label": "Performance 0 Dynamic Allocation",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_0_load_balancing",
+          "label": "Performance 0 Load Balancing",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_1_capacity_planning",
+          "label": "Performance 1 Capacity Planning",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_1_cost_optimization",
+          "label": "Performance 1 Cost Optimization",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_1_dynamic_allocation",
+          "label": "Performance 1 Dynamic Allocation",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_1_load_balancing",
+          "label": "Performance 1 Load Balancing",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_2_capacity_planning",
+          "label": "Performance 2 Capacity Planning",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_2_cost_optimization",
+          "label": "Performance 2 Cost Optimization",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_2_dynamic_allocation",
+          "label": "Performance 2 Dynamic Allocation",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_2_load_balancing",
+          "label": "Performance 2 Load Balancing",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_3_capacity_planning",
+          "label": "Performance 3 Capacity Planning",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_3_cost_optimization",
+          "label": "Performance 3 Cost Optimization",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_3_dynamic_allocation",
+          "label": "Performance 3 Dynamic Allocation",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "performance_3_load_balancing",
+          "label": "Performance 3 Load Balancing",
+          "icon": "cpu",
+          "category": "performance",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "personalization_engine_v2",
+          "label": "Personalization Engine V2",
+          "icon": "user-check",
+          "category": "personalization",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "portfolio_optimizer",
+          "label": "Portfolio Optimizer",
+          "icon": "PieChart",
+          "category": "portfolio",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "predictive_analytics",
+          "label": "Predictive Analytics",
+          "icon": "TrendingUp",
+          "category": "predictive",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "predictive_analytics_income",
+          "label": "Predictive Analytics Income (forecast + optimize)",
+          "icon": "trending-up",
+          "category": "predictive",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "predictive_analytics_v2",
+          "label": "Predictive Analytics V2",
+          "icon": "trending-up",
+          "category": "predictive",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "predictive_bi",
+          "label": "Predictive Business Intelligence",
+          "icon": "bar-chart",
+          "category": "predictive",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "predictive_ml_model",
+          "label": "Predictive ML Model",
+          "icon": "Cpu",
+          "category": "predictive",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "priority_management",
+          "label": "Priority Management",
+          "icon": "cpu",
+          "category": "priority",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "proactive_support",
+          "label": "Proactive Support",
+          "icon": "bell",
+          "category": "proactive",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "project_management",
+          "label": "Project Management",
+          "icon": "CheckSquare",
+          "category": "project",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_asset_allocation",
+          "label": "Quantum Asset Allocation",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_asset_class_analysis",
+          "label": "Quantum Asset Class Analysis",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_auto_investing",
+          "label": "Quantum Auto Investing",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_auto_rebalancing",
+          "label": "Quantum Auto Rebalancing",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_correlation_analysis",
+          "label": "Quantum Correlation Analysis",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_optimal_allocation",
+          "label": "Quantum Optimal Allocation",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_performance_monitoring",
+          "label": "Quantum Performance Monitoring",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_performance_optimization",
+          "label": "Quantum Performance Optimization",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_rebalancing_automation",
+          "label": "Quantum Rebalancing Automation",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_risk_adjusted_returns",
+          "label": "Quantum Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_risk_frameworks",
+          "label": "Quantum Risk Frameworks",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "quantum_risk_management",
+          "label": "Quantum Risk Management",
+          "icon": "zap",
+          "category": "quantum",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "rate_limit_enforcer",
+          "label": "Rate Limit Enforcer",
+          "icon": "shield",
+          "category": "rate",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "real_time_monitor",
+          "label": "Real-Time Market Monitoring",
+          "icon": "activity",
+          "category": "real",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "reality_check_auditor",
+          "label": "Reality Check Auditor",
+          "icon": "target",
+          "category": "reality",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "realtime_knowledge_sharing",
+          "label": "Realtime Knowledge Sharing",
+          "icon": "cpu",
+          "category": "realtime",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "realtime_market_data",
+          "label": "Real-Time Market Data",
+          "icon": "Activity",
+          "category": "realtime",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_asset_allocation",
+          "label": "Redteam Asset Allocation",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_asset_class_analysis",
+          "label": "Redteam Asset Class Analysis",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_auto_investing",
+          "label": "Redteam Auto Investing",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_auto_rebalancing",
+          "label": "Redteam Auto Rebalancing",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_correlation_analysis",
+          "label": "Redteam Correlation Analysis",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_optimal_allocation",
+          "label": "Redteam Optimal Allocation",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_performance_monitoring",
+          "label": "Redteam Performance Monitoring",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_performance_optimization",
+          "label": "Redteam Performance Optimization",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_rebalancing_automation",
+          "label": "Redteam Rebalancing Automation",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_risk_adjusted_returns",
+          "label": "Redteam Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_risk_frameworks",
+          "label": "Redteam Risk Frameworks",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "redteam_risk_management",
+          "label": "Redteam Risk Management",
+          "icon": "zap",
+          "category": "redteam",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "regression_test_runner",
+          "label": "Regression Test Runner",
+          "icon": "check-circle",
+          "category": "regression",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "report_to_owner",
+          "label": "Report To Owner (send message via WhatsApp/email)",
+          "icon": "send",
+          "category": "report",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "request_owner_auth",
+          "label": "Request Owner Auth (send 6-digit code to +15145496297)",
+          "icon": "key",
+          "category": "request",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "resource_allocation",
+          "label": "Resource Allocation",
+          "icon": "pie-chart",
+          "category": "resource",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "resource_allocation_opt",
+          "label": "Resource Allocation Opt",
+          "icon": "cpu",
+          "category": "resource",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "restore_from_backup",
+          "label": "Restore From Backup",
+          "icon": "rotate-ccw",
+          "category": "restore",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "revenue_prioritization_engine",
+          "label": "Revenue Prioritization Engine (rank sub-agents by revenue potential)",
+          "icon": "target",
+          "category": "revenue",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "risk_assessment",
+          "label": "Risk Assessment",
+          "icon": "Shield",
+          "category": "risk",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "risk_management_systems",
+          "label": "Risk Management Systems",
+          "icon": "shield",
+          "category": "risk",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "rollback_manager",
+          "label": "Rollback Manager",
+          "icon": "rotate-ccw",
+          "category": "rollback",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "root_cause_analyzer",
+          "label": "Root Cause Analyzer",
+          "icon": "search",
+          "category": "root",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scalable_infrastructure",
+          "label": "Scalable Infrastructure",
+          "icon": "server",
+          "category": "scalable",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_automated_reports",
+          "label": "Scout Automated Reports",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_competitive_opportunities",
+          "label": "Scout Competitive Opportunities",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_competitor_tracking",
+          "label": "Scout Competitor Tracking",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_custom_analytics",
+          "label": "Scout Custom Analytics",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_data_visualization",
+          "label": "Scout Data Visualization",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_executive_dashboards",
+          "label": "Scout Executive Dashboards",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_market_prediction",
+          "label": "Scout Market Prediction",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_market_share_analysis",
+          "label": "Scout Market Share Analysis",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_opportunity_identification",
+          "label": "Scout Opportunity Identification",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_predictive_forecasting",
+          "label": "Scout Predictive Forecasting",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_risk_assessment",
+          "label": "Scout Risk Assessment",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scout_strategic_positioning",
+          "label": "Scout Strategic Positioning",
+          "icon": "zap",
+          "category": "scout",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "secrets_rotator",
+          "label": "Secrets Rotator",
+          "icon": "key",
+          "category": "secrets",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "security_monitor",
+          "label": "Advanced Security Monitor",
+          "icon": "Shield",
+          "category": "security",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_0_automated_training",
+          "label": "Self-Improving 0 Automated Training",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_0_improvement_tools",
+          "label": "Self-Improving 0 Improvement Tools",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_0_optimization_framework",
+          "label": "Self-Improving 0 Optimization Framework",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_0_performance_monitoring",
+          "label": "Self-Improving 0 Performance Monitoring",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_1_automated_training",
+          "label": "Self-Improving 1 Automated Training",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_1_improvement_tools",
+          "label": "Self-Improving 1 Improvement Tools",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_1_optimization_framework",
+          "label": "Self-Improving 1 Optimization Framework",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_1_performance_monitoring",
+          "label": "Self-Improving 1 Performance Monitoring",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_2_automated_training",
+          "label": "Self-Improving 2 Automated Training",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_2_improvement_tools",
+          "label": "Self-Improving 2 Improvement Tools",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_2_optimization_framework",
+          "label": "Self-Improving 2 Optimization Framework",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_2_performance_monitoring",
+          "label": "Self-Improving 2 Performance Monitoring",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_3_automated_training",
+          "label": "Self-Improving 3 Automated Training",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_3_improvement_tools",
+          "label": "Self-Improving 3 Improvement Tools",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_3_optimization_framework",
+          "label": "Self-Improving 3 Optimization Framework",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self-improving_3_performance_monitoring",
+          "label": "Self-Improving 3 Performance Monitoring",
+          "icon": "cpu",
+          "category": "self-improving",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_analyze_performance",
+          "label": "Self-Analyze Performance (review past performance)",
+          "icon": "bar-chart",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_backup_create",
+          "label": "Self-Backup Create (downloadable ZIP/JSON backup on command)",
+          "icon": "download",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_backup_list",
+          "label": "Self-Backup List (list all available backups)",
+          "icon": "list",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_clean_data",
+          "label": "Self-Clean Data (remove old conversations/logs)",
+          "icon": "trash-2",
+          "category": "self",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_create_subagent",
+          "label": "Self-Create Sub-Agent (create new sub-agents)",
+          "icon": "user-plus",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_delete_subagent",
+          "label": "Self-Delete Sub-Agent (remove sub-agents)",
+          "icon": "user-minus",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_diagnose",
+          "label": "Self-Diagnose (health check + issue detection)",
+          "icon": "activity",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_learn_from_interaction",
+          "label": "Self-Learn From Interaction (record learnings)",
+          "icon": "book-open",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_modify_subagent",
+          "label": "Self-Modify Sub-Agent (edit any sub-agent config)",
+          "icon": "users",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_modify_system_prompt",
+          "label": "Self-Modify System Prompt (edit own instructions)",
+          "icon": "edit",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_optimize_tool_selection",
+          "label": "Self-Optimize Tool Selection (best tools per task)",
+          "icon": "zap",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_reflect",
+          "label": "Self-Reflect (deep introspection on reasoning)",
+          "icon": "brain",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_register_tool",
+          "label": "Self-Register Tool (add new tools at runtime)",
+          "icon": "plus-circle",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_repair_code",
+          "label": "Self-Repair Code (fix own bugs)",
+          "icon": "wrench",
+          "category": "self",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_restart_services",
+          "label": "Self-Restart Services (Baileys, schedules, cache)",
+          "icon": "refresh-cw",
+          "category": "self",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_set_improvement_goal",
+          "label": "Self-Set Improvement Goal (autonomous goals)",
+          "icon": "target",
+          "category": "self",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "self_verify_integrity",
+          "label": "Self-Verify Integrity (verify all systems)",
+          "icon": "shield-check",
+          "category": "self",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "send_communication",
+          "label": "Send Communication (SMS/WhatsApp/Email)",
+          "icon": "send",
+          "category": "send",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_asset_allocation",
+          "label": "Seo Master Asset Allocation",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_asset_class_analysis",
+          "label": "Seo Master Asset Class Analysis",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_auto_investing",
+          "label": "Seo Master Auto Investing",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_auto_rebalancing",
+          "label": "Seo Master Auto Rebalancing",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_correlation_analysis",
+          "label": "Seo Master Correlation Analysis",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_optimal_allocation",
+          "label": "Seo Master Optimal Allocation",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_performance_monitoring",
+          "label": "Seo Master Performance Monitoring",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_performance_optimization",
+          "label": "Seo Master Performance Optimization",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_rebalancing_automation",
+          "label": "Seo Master Rebalancing Automation",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_risk_adjusted_returns",
+          "label": "Seo Master Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_risk_frameworks",
+          "label": "Seo Master Risk Frameworks",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_master_risk_management",
+          "label": "Seo Master Risk Management",
+          "icon": "zap",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "seo_optimizer",
+          "label": "SEO Optimizer",
+          "icon": "Search",
+          "category": "seo",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "service_delivery",
+          "label": "Service Delivery Framework",
+          "icon": "package",
+          "category": "service",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "session_recovery",
+          "label": "Session Recovery",
+          "icon": "refresh-cw",
+          "category": "session",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "shared_context_bus",
+          "label": "Shared Context Bus",
+          "icon": "cpu",
+          "category": "shared",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "social_listening",
+          "label": "Social Listening",
+          "icon": "Radio",
+          "category": "social",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "social_media_automation",
+          "label": "Social Media Automation",
+          "icon": "Share2",
+          "category": "social",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "social_media_management",
+          "label": "Social Media Management (multi-platform strategy)",
+          "icon": "share-2",
+          "category": "social",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "social_media_scheduler",
+          "label": "Social Media Scheduler (optimal posting times)",
+          "icon": "calendar",
+          "category": "social",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "source_read",
+          "label": "Source File Read",
+          "icon": "file-code",
+          "category": "source",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "staging_environment_manager",
+          "label": "Staging Environment Manager",
+          "icon": "git-branch",
+          "category": "staging",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "stock_screener",
+          "label": "Stock Screener (fundamental + valuation)",
+          "icon": "search",
+          "category": "stock",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategic_planning",
+          "label": "Strategic Planning Automation",
+          "icon": "map",
+          "category": "strategic",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_adjustment_automation",
+          "label": "Strategist Adjustment Automation",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_competitive_analysis",
+          "label": "Strategist Competitive Analysis",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_kpi_tracking",
+          "label": "Strategist Kpi Tracking",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_market_intelligence",
+          "label": "Strategist Market Intelligence",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_milestone_tracking",
+          "label": "Strategist Milestone Tracking",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_opportunity_intelligence",
+          "label": "Strategist Opportunity Intelligence",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_performance_measurement",
+          "label": "Strategist Performance Measurement",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_performance_optimization",
+          "label": "Strategist Performance Optimization",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_progress_analytics",
+          "label": "Strategist Progress Analytics",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_resource_optimization",
+          "label": "Strategist Resource Optimization",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_risk_frameworks",
+          "label": "Strategist Risk Frameworks",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategist_roi_tools",
+          "label": "Strategist Roi Tools",
+          "icon": "zap",
+          "category": "strategist",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "strategy_optimizer",
+          "label": "Strategy Optimizer",
+          "icon": "Target",
+          "category": "strategy",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "system_health_check",
+          "label": "System Health Check",
+          "icon": "activity",
+          "category": "system",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "tax_optimizer",
+          "label": "Tax Optimizer",
+          "icon": "Receipt",
+          "category": "tax",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "tool_lazy_loader",
+          "label": "Tool Lazy Loader",
+          "icon": "zap",
+          "category": "tool",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "tool_registry_audit",
+          "label": "Tool Registry Audit",
+          "icon": "list",
+          "category": "tool",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "tos_compliance_monitor",
+          "label": "ToS Compliance Monitor",
+          "icon": "scale",
+          "category": "tos",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_asset_allocation",
+          "label": "Trader Asset Allocation",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_asset_class_analysis",
+          "label": "Trader Asset Class Analysis",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_auto_investing",
+          "label": "Trader Auto Investing",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_auto_rebalancing",
+          "label": "Trader Auto Rebalancing",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_correlation_analysis",
+          "label": "Trader Correlation Analysis",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_optimal_allocation",
+          "label": "Trader Optimal Allocation",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_performance_monitoring",
+          "label": "Trader Performance Monitoring",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_performance_optimization",
+          "label": "Trader Performance Optimization",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_rebalancing_automation",
+          "label": "Trader Rebalancing Automation",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_risk_adjusted_returns",
+          "label": "Trader Risk Adjusted Returns",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_risk_frameworks",
+          "label": "Trader Risk Frameworks",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "trader_risk_management",
+          "label": "Trader Risk Management",
+          "icon": "zap",
+          "category": "trader",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "user_behavior_analysis",
+          "label": "User Behavior Analysis",
+          "icon": "Users",
+          "category": "user",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "verify_owner_auth",
+          "label": "Verify Owner Auth (confirm 6-digit code)",
+          "icon": "shield-check",
+          "category": "verify",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "verify_owner_authorization",
+          "label": "Verify Owner Authorization (check command source)",
+          "icon": "user-check",
+          "category": "verify",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "video_process",
+          "label": "Video Process (info, extract frames for analysis)",
+          "icon": "video",
+          "category": "video",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "vision",
+          "label": "Vision",
+          "icon": "eye",
+          "category": "core",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "web_search",
+          "label": "Web Search",
+          "icon": "search",
+          "category": "web",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "wikipedia_read",
+          "label": "Wikipedia Read",
+          "icon": "book",
+          "category": "wikipedia",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "wikipedia_search",
+          "label": "Wikipedia Search",
+          "icon": "book-open",
+          "category": "wikipedia",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        }
+      ],
+      "byCategory": {
+        "web": 1,
+        "page": 1,
+        "image": 2,
+        "core": 2,
+        "code": 1,
+        "memory": 2,
+        "file": 7,
+        "wikipedia": 2,
+        "free": 1,
+        "kb": 1,
+        "source": 1,
+        "http": 1,
+        "real": 1,
+        "business": 1,
+        "service": 1,
+        "financial": 2,
+        "marketing": 1,
+        "partnership": 1,
+        "autonomous": 3,
+        "predictive": 5,
+        "scalable": 1,
+        "mission": 1,
+        "content": 6,
+        "multi": 6,
+        "personalization": 1,
+        "advanced": 4,
+        "dunning": 1,
+        "fraud": 1,
+        "proactive": 1,
+        "market": 5,
+        "strategic": 1,
+        "resource": 2,
+        "risk": 2,
+        "system": 1,
+        "database": 1,
+        "api": 2,
+        "tool": 2,
+        "cache": 2,
+        "session": 1,
+        "error": 1,
+        "auto": 2,
+        "backup": 1,
+        "restore": 1,
+        "issue": 1,
+        "root": 1,
+        "patch": 2,
+        "fix": 1,
+        "learning": 1,
+        "log": 2,
+        "config": 1,
+        "dependency": 2,
+        "full": 1,
+        "staging": 1,
+        "regression": 1,
+        "canary": 1,
+        "rollback": 1,
+        "cost": 1,
+        "cascading": 1,
+        "external": 1,
+        "automated": 2,
+        "disaster": 1,
+        "db": 2,
+        "health": 1,
+        "secrets": 1,
+        "rate": 1,
+        "csrf": 1,
+        "audit": 1,
+        "2fa": 1,
+        "cdn": 1,
+        "reality": 1,
+        "tos": 1,
+        "human": 1,
+        "licensed": 1,
+        "developer": 12,
+        "scout": 12,
+        "hunt": 12,
+        "strategist": 12,
+        "quantum": 12,
+        "legal": 12,
+        "banker": 12,
+        "trader": 12,
+        "redteam": 12,
+        "blueteam": 12,
+        "seo": 13,
+        "centralized": 1,
+        "realtime": 2,
+        "context": 1,
+        "complex": 1,
+        "priority": 1,
+        "cross": 1,
+        "correlation": 1,
+        "bottleneck": 1,
+        "optimization": 1,
+        "agent": 1,
+        "shared": 1,
+        "conflict": 1,
+        "collective": 1,
+        "performance": 16,
+        "analytics": 17,
+        "self-improving": 16,
+        "send": 1,
+        "check": 3,
+        "execute": 1,
+        "self": 17,
+        "verify": 2,
+        "loyalty": 1,
+        "report": 1,
+        "emergency": 1,
+        "request": 1,
+        "user": 1,
+        "email": 2,
+        "social": 4,
+        "conversion": 1,
+        "portfolio": 1,
+        "crypto": 1,
+        "stock": 1,
+        "ai": 1,
+        "custom": 1,
+        "niche": 1,
+        "budget": 1,
+        "tax": 1,
+        "dynamic": 1,
+        "revenue": 1,
+        "audio": 1,
+        "video": 1,
+        "directory": 1,
+        "owner": 3,
+        "income": 1,
+        "strategy": 1,
+        "lead": 1,
+        "crm": 1,
+        "investment": 1,
+        "budgeting": 1,
+        "cashflow": 1,
+        "compliance": 1,
+        "security": 1,
+        "keyword": 1,
+        "on": 1,
+        "backlink": 1,
+        "affiliate": 1,
+        "graphic": 1,
+        "project": 1,
+        "payment": 1
+      },
+      "neverRemovable": [
+        "web_search",
+        "page_reader",
+        "memory_store",
+        "memory_recall",
+        "file_read",
+        "file_write",
+        "source_read",
+        "code_exec",
+        "self_repair_code",
+        "self_restart_services",
+        "self_clean_data",
+        "self_verify_integrity",
+        "create_backup_tool",
+        "list_backups_tool",
+        "load_backup_tool"
+      ],
+      "protectionLayer": "src/lib/tool-protection.ts",
+      "protectionMode": "ALL_TOOLS_PERMANENTLY_LOCKED",
+      "removalRequires": "owner_authorization_via_cellphone_email_or_whatsapp"
+    },
+    "agents": {
+      "total": 18,
+      "builtin": 12,
+      "custom": 6,
+      "allHaveFullAccess": true,
+      "toolsPerAgent": 15,
+      "details": [
+        {
+          "id": "aurora",
+          "name": "AURORA",
+          "role": "Content & Affiliate Specialist",
+          "specialty": "Blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization",
+          "color": "#00f0ff",
+          "icon": "Sparkles",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "vertex",
+          "name": "VERTEX",
+          "role": "SaaS & Product Architect",
+          "specialty": "Micro-SaaS blueprints, API products, template marketplaces, no-code tooling, app ideas with revenue models",
+          "color": "#34d399",
+          "icon": "Box",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "quantum",
+          "name": "QUANTUM",
+          "role": "Investment & Yield Strategist",
+          "specialty": "Dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds",
+          "color": "#fbbf24",
+          "icon": "TrendingUp",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "scout",
+          "name": "SCOUT",
+          "role": "Trend & Market Researcher",
+          "specialty": "Emerging trends, niche analysis, demand validation, competitor scanning",
+          "color": "#38bdf8",
+          "icon": "Search",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "hunt",
+          "name": "HUNT",
+          "role": "Freelance & Gig Hunter",
+          "specialty": "Upwork, Fiverr, Toptal, Contra — high-demand gig categories, side-hustle discovery",
+          "color": "#a78bfa",
+          "icon": "Crosshair",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "forge",
+          "name": "FORGE",
+          "role": "Code & Technical Builder",
+          "specialty": "Writing code, building prototypes, technical setup, deployment scripts, automation",
+          "color": "#fb923c",
+          "icon": "Hammer",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "quill",
+          "name": "QUILL",
+          "role": "Content Creator",
+          "specialty": "Copywriting, scripts, blog posts, social media content, email sequences",
+          "color": "#f472b6",
+          "icon": "PenLine",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "prism",
+          "name": "PRISM",
+          "role": "Visual & Creative Designer",
+          "specialty": "Image generation, logo concepts, marketing visuals, brand identity mockups",
+          "color": "#e879f9",
+          "icon": "Palette",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "pulse",
+          "name": "PULSE",
+          "role": "Analytics & Performance Monitor",
+          "specialty": "KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement",
+          "color": "#fb7185",
+          "icon": "Activity",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "echo",
+          "name": "ECHO",
+          "role": "Feedback & Optimization Analyst",
+          "specialty": "Post-mortem analysis, A/B testing, learning loops, continuous improvement",
+          "color": "#818cf8",
+          "icon": "RefreshCw",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "legal",
+          "name": "LEGAL",
+          "role": "Legal & Tax Strategist (USA/Canada)",
+          "specialty": "US federal/state tax law, CRA/Canadian tax law, business entity formation (LLC/Corporation/S-corp), cross-border tax treaties, financial regulations, compliance, deductions, write-offs",
+          "color": "#22d3ee",
+          "icon": "Scale",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        },
+        {
+          "id": "banker",
+          "name": "THE BANKER",
+          "role": "Banking & Treasury Strategist (USA/Canada)",
+          "specialty": "US and Canadian banks, business bank accounts, merchant services, credit cards, loans, lines of credit, treasury management, wire transfers, FX, banking regulations (FDIC/OSFI)",
+          "color": "#10b981",
+          "icon": "Landmark",
+          "isBuiltin": true,
+          "enabled": true,
+          "fullAccess": true,
+          "toolCount": 15,
+          "tools": [
+            "web_search",
+            "page_reader",
+            "image_gen",
+            "vision",
+            "code_exec",
+            "memory_store",
+            "memory_recall",
+            "file_read",
+            "wikipedia_search",
+            "wikipedia_read",
+            "free_apis_directory",
+            "kb_search",
+            "http_fetch",
+            "source_read",
+            "file_write"
+          ]
+        }
+      ]
+    },
+    "manageActions": {
+      "total": 41,
+      "list": [
+        "create_agent",
+        "edit_agent",
+        "delete_agent",
+        "toggle_agent",
+        "set_income_goal",
+        "set_growth_target",
+        "log_income",
+        "create_schedule",
+        "delete_schedule",
+        "update_settings",
+        "settings_set",
+        "settings_get",
+        "settings_delete",
+        "dashboard_add_widget",
+        "dashboard_edit_widget",
+        "dashboard_remove_widget",
+        "dashboard_clear_widgets",
+        "login_update_branding",
+        "login_enable_2fa",
+        "login_verify_2fa",
+        "login_disable_2fa",
+        "totp_setup",
+        "totp_verify",
+        "totp_disable",
+        "verify_owner_auth",
+        "request_owner_auth",
+        "system_refresh",
+        "system_reload",
+        "system_audit",
+        "system_test_communication",
+        "self_heal",
+        "view_manifest",
+        "view_capabilities",
+        "create_backup",
+        "list_backups",
+        "load_backup",
+        "fix_hydration",
+        "clear_cache",
+        "list_tools",
+        "request_tool_removal",
+        "verify_tool_removal"
+      ],
+      "note": "Counted live from MANAGE_ACTIONS in src/lib/manage-actions.ts (single source of truth).",
+      "newToolProtectionActions": [
+        "list_tools",
+        "request_tool_removal",
+        "verify_tool_removal"
+      ]
+    },
+    "mission": {
+      "monthlyIncomeTarget": 20000,
+      "dailyGrowthTarget": 20,
+      "monthlyGrowthRate": 20,
+      "currencySymbol": "$"
+    },
+    "upgrades": {
+      "total": 20,
+      "permanent": true,
+      "integrityOk": true,
+      "all": [
+        {
+          "id": "login_2fa_flow",
+          "category": "security",
+          "title": "Login 2FA Flow (Pre-flight Challenge)",
+          "description": "Login page now pre-checks 2FA via /api/2fa/challenge before signIn(), shows 6-digit code input, supports resend + cancel. Works with email/WhatsApp/SMS/Google Auth.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/login/page.tsx",
+            "src/app/api/2fa/challenge/route.ts",
+            "src/app/api/2fa/verify-login/route.ts"
+          ]
+        },
+        {
+          "id": "settings_persistence",
+          "category": "persistence",
+          "title": "Settings Persistence (DB + File Fallback)",
+          "description": "All settings mirror to /tmp/.agent007-settings.json so they survive Vercel cold starts. Real error reporting (no silent .catch). Universal custom key/value storage added.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/settings.ts",
+            "src/app/api/settings/route.ts"
+          ]
+        },
+        {
+          "id": "auto_refresh_polling",
+          "category": "dashboard",
+          "title": "Auto-Refresh Polling (15s interval)",
+          "description": "Client polls /api/system/refresh every 15s. When Agent007 modifies dashboard/settings, it emits a refresh signal and all open tabs auto-update. Full page reload signal also supported.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/store/chat-store.ts",
+            "src/app/page.tsx",
+            "src/app/api/system/refresh/route.ts",
+            "src/app/api/system/reload/route.ts"
+          ]
+        },
+        {
+          "id": "dashboard_widgets",
+          "category": "dashboard",
+          "title": "Custom Dashboard Widgets (6 types)",
+          "description": "Agent007 can add/edit/remove widgets via manage actions. Types: kpi, stat, note, link, progress, alert. Positions: top, middle, bottom. Auto-refresh shows them instantly.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/api/dashboard/widgets/route.ts",
+            "src/components/agent/tabs/dashboard-tab.tsx"
+          ]
+        },
+        {
+          "id": "system_audit_endpoint",
+          "category": "self_heal",
+          "title": "System Audit Endpoint",
+          "description": "GET /api/system/audit returns comprehensive health check: 20 DB tables, 5 dashboard nav items, 4 login checks, 3 communication providers, 32 API routes. Agent007 can self-diagnose.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/audit/route.ts"
+          ]
+        },
+        {
+          "id": "communication_test",
+          "category": "communication",
+          "title": "Communication Channel Tester",
+          "description": "POST /api/system/test-communication sends test messages via email (SMTP), WhatsApp (wa.me/CallMeBot/Baileys), and checks inbound command queue. Returns per-channel pass/fail.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/test-communication/route.ts"
+          ]
+        },
+        {
+          "id": "manage_actions_v3",
+          "category": "autonomy",
+          "title": "15 New Manage Actions (Full Autonomy)",
+          "description": "Agent007 can: dashboard_add/edit/remove/clear_widgets, login_update_branding, login_enable/verify/disable_2fa, settings_set/get/delete, system_refresh/reload/audit/test_communication. All documented in orchestrator prompt.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/orchestrator.ts"
+          ]
+        },
+        {
+          "id": "upgrade_only_mode",
+          "category": "security",
+          "title": "Upgrade-Only Mode (No Reset/Wipe/Delete)",
+          "description": "reset_system, reset_database, wipe_data, force_reset are PERMANENTLY DISABLED. All delete/reset/disable operations require owner 2FA code via SMS or Google Authenticator.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/owner-auth.ts"
+          ]
+        },
+        {
+          "id": "totp_owner_auth",
+          "category": "security",
+          "title": "TOTP (Google Authenticator) Owner Auth",
+          "description": "Owner can register a TOTP secret in Google Authenticator. Destructive operations can be authorized via TOTP code (no phone needed) OR SMS OR WhatsApp OR Email.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/owner-auth.ts",
+            "src/app/api/owner-auth/totp/route.ts",
+            "src/app/api/owner-auth/totp-verify/route.ts"
+          ]
+        },
+        {
+          "id": "sms_owner_auth",
+          "category": "security",
+          "title": "SMS Owner Auth (Fallback)",
+          "description": "Owner authorization codes can be sent via SMS as fallback when WhatsApp/Email are unavailable. Uses wa.me link as manual fallback if no SMS provider configured.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/owner-auth.ts",
+            "src/app/api/owner-auth/sms/route.ts"
+          ]
+        },
+        {
+          "id": "subagent_full_access",
+          "category": "subagent",
+          "title": "All Subagents Have FULL ACCESS (No Limitations)",
+          "description": "All 12 built-in subagents + all custom subagents have access to ALL 15 tools (web_search, page_reader, image_gen, vision, code_exec, memory, files, wikipedia, free_apis, kb_search, http_fetch, source_read, file_write). No tool restrictions.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/subagents.ts"
+          ]
+        },
+        {
+          "id": "self_heal_tools",
+          "category": "self_heal",
+          "title": "Self-Healing Tools for Agent007",
+          "description": "Agent007 can: diagnose_system, repair_dashboard, repair_login, repair_communication, restore_upgrades, verify_integrity. All exposed via /api/system/self-heal endpoint + manage actions.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/self-heal/route.ts",
+            "src/lib/orchestrator.ts"
+          ]
+        },
+        {
+          "id": "upgrade_manifest",
+          "category": "persistence",
+          "title": "Upgrade Manifest (Permanent Record)",
+          "description": "All upgrades tracked in UPGRADE_MANIFEST. Re-applied on every cold start. Verifiable via /api/system/manifest. Cannot be reset or deleted by any operation.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/lib/upgrade-manifest.ts",
+            "src/app/api/system/manifest/route.ts"
+          ]
+        },
+        {
+          "id": "hydration_error_fix",
+          "category": "self_heal",
+          "title": "Hydration Error Auto-Fix (Login + Dashboard)",
+          "description": "Login page version text extracted to constant + suppressHydrationWarning added. /api/system/fix-hydration endpoint clears .next cache + scans for typeof window/Date.now/Math.random issues. /api/system/clear-cache endpoint forces fresh recompile. Agent007 can fix hydration errors autonomously via fix_hydration and clear_cache manage actions.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/login/page.tsx",
+            "src/app/api/system/fix-hydration/route.ts",
+            "src/app/api/system/clear-cache/route.ts",
+            "src/lib/orchestrator.ts"
+          ]
+        },
+        {
+          "id": "live_capabilities_reporting",
+          "category": "self_heal",
+          "title": "Live Capabilities Reporting (No More Hardcoded Numbers)",
+          "description": "Created /api/system/capabilities endpoint that returns REAL live counts: tools, agents, manage actions, income target, growth rates, upgrades, API routes, DB models. Agent007 uses view_capabilities manage action for accurate self-audits.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/capabilities/route.ts",
+            "src/lib/agent.ts",
+            "src/lib/orchestrator.ts"
+          ]
+        },
+        {
+          "id": "zip_backup_system",
+          "category": "persistence",
+          "title": "ZIP Backup System (Downloadable Full-System Backups)",
+          "description": "Created /api/system/zip-backup endpoint that creates downloadable ZIP backups containing: all 33 DB tables, key source code files, upgrade manifest, capabilities report, restore instructions. Agent007 can create backups via create_backup manage action and load them via load_backup.",
+          "dateApplied": "2026-07-03",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/zip-backup/route.ts",
+            "src/app/api/system/load-backup/route.ts",
+            "src/lib/orchestrator.ts"
+          ]
+        },
+        {
+          "id": "phase3_enhancements",
+          "category": "autonomy",
+          "title": "Phase 3 Enhancement Tools (30 New Advanced Tools)",
+          "description": "Added 30 new tools: 5 Enhanced Analytics (predictive analytics, market trends, income forecast, strategy optimizer), 5 Automated Marketing (email, social media, lead gen, conversion, CRM), 5 Investment Management (portfolio, real-time data, analyzer, risk, rebalancing), 5 Content Creation (AI writing, SEO, repurposing, multi-format, QA), 5 Financial Management (budgeting, tax, cashflow, planner, compliance), 5 Critical Upgrades (multi-agent coordination, API integration, ML models, autonomous revenue, security). All tools have FULL ACCESS, no limitations.",
+          "dateApplied": "2026-07-04",
+          "permanent": true,
+          "files": [
+            "src/lib/phase3-enhancements.ts",
+            "src/lib/tools.ts",
+            "src/lib/agent.ts"
+          ]
+        },
+        {
+          "id": "owner_communication_channel",
+          "category": "communication",
+          "title": "Owner Communication Channel (Phone/WhatsApp/Email Commands)",
+          "description": "Opened direct communication channel for owner via +15145496297 (phone/WhatsApp) and antonio.can2022@hotmail.com (email). Owner can send commands, questions, and requests via these channels. Agent007 responds via /api/commands/inbound, /api/commands/execute, /api/commands/send. 2-way communication enabled.",
+          "dateApplied": "2026-07-04",
+          "permanent": true,
+          "files": [
+            "src/lib/agent.ts",
+            "src/app/api/commands/inbound/route.ts",
+            "src/app/api/commands/execute/route.ts",
+            "src/app/api/commands/send/route.ts"
+          ]
+        },
+        {
+          "id": "tool_protection_layer",
+          "category": "safety",
+          "title": "Permanent Tool Protection Layer (Owner-Authorized Removal Only)",
+          "description": "ALL 382+ tools in TOOL_REGISTRY are now PERMANENTLY LOCKED. No runtime API can delete, reset, or disable any tool. The ONLY way to remove a tool is via the owner-authorized removal flow: (1) <manage action=\"request_tool_removal\" tool=\"...\" method=\"whatsapp|sms|email|totp\"/> sends a 6-digit code to the owner, (2) owner receives code on cellphone/email/WhatsApp, (3) <manage action=\"verify_tool_removal\" tool=\"...\" auth_id=\"...\" code=\"123456\"/> verifies and records the request in the audit log, (4) the tool is queued for removal in the NEXT source-code deployment. 14 foundation tools (web_search, page_reader, memory_store, file_read, code_exec, self_repair_code, etc.) are on the NEVER_REMOVABLE list — they cannot be removed even with owner authorization. New manage actions: list_tools, request_tool_removal, verify_tool_removal.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/tool-protection.ts",
+            "src/lib/orchestrator.ts",
+            "src/lib/manage-actions.ts",
+            "src/lib/agent.ts"
+          ]
+        },
+        {
+          "id": "growth_rate_20_daily",
+          "category": "mission",
+          "title": "Growth Rate Updated to 20% Monthly + 20% Daily",
+          "description": "Mission growth target updated from 10% daily → 20% daily (matches the 20% monthly growth target). Updated in: DEFAULT_INCOME_SETTINGS.dailyGrowthTarget, dashboard-tab.tsx default state, settings-tab.tsx default state, SYSTEM_PROMPT mission heading, dashboard mission subtitle. All dashboards now display \"20% monthly, 20% daily\" consistently.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/settings.ts",
+            "src/components/agent/tabs/dashboard-tab.tsx",
+            "src/components/agent/tabs/settings-tab.tsx",
+            "src/lib/agent.ts"
+          ]
+        }
+      ]
+    },
+    "infrastructure": {
+      "apiRoutes": 74,
+      "dbModels": 33,
+      "sourceFiles": 183,
+      "protectionMode": "UPGRADE_ONLY",
+      "permanentlyDisabledOps": 13,
+      "protectedOps": 21
+    }
+  },
+  "files": {
+    "toolProtection": "src/lib/tool-protection.ts",
+    "manageActionsList": "src/lib/manage-actions.ts",
+    "systemFunctions": "src/lib/system-functions.ts",
+    "orchestrator": "src/lib/orchestrator.ts",
+    "systemPrompt": "src/lib/agent.ts",
+    "upgradeManifest": "src/lib/upgrade-manifest.ts",
+    "toolsRegistry": "src/lib/tools.ts",
+    "subagents": "src/lib/subagents.ts"
+  }
+}
