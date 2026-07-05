@@ -423,7 +423,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       break
     }
     const content: string = completion?.choices?.[0]?.message?.content ?? ''
-    if (!content.trim()) {
+    if (!content || !content.trim()) {
       finalAnswer = '(The agent produced no output. Please try rephrasing.)'
       break
     }
