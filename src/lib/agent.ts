@@ -253,7 +253,11 @@ export function parseAssistant(content: string): Parsed {
   let textBeforeTool = content
   let textAfterTool = ''
   if (toolMatch) {
-    const name = toolMatch[1].trim()
+    const name = (toolMatch[1] ?? '').trim()
+    if (!name) {
+      // No tool name captured — shouldn't happen but guard against it
+      return { thought, tool: undefined, textBeforeTool: content.replace(THOUGHT_RE, '').trim(), textAfterTool: '', raw: content }
+    }
     let args: any = {}
     // Regex: /<tool\s+name=["']([^"']+)["']\s*(?:\/>|>([\s\S]*?)<\/tool>)/i
     // Group 1 = tool name
