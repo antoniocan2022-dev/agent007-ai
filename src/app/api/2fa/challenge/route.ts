@@ -81,9 +81,15 @@ export async function POST(req: NextRequest) {
         // Owner ALWAYS requires 2FA — use email as fallback method
         // Generate + send code via all channels
         const code = Math.floor(100000 + Math.random() * 900000).toString()
+        // Store in BOTH DB + in-memory (Vercel is stateless — DB survives across instances)
+        const challengeData = { code, expiresAt: Date.now() + 5 * 60 * 1000 }
+        try {
+          await db.userSetting.deleteMany({ where: { key: `2fa_challenge:${user.id}` } }).catch(() => {})
+          await db.userSetting.create({ data: { userId: user.id, key: `2fa_challenge:${user.id}`, value: JSON.stringify(challengeData) } })
+        } catch {}
         const _g: any = globalThis as any
         if (!_g.__2faChallenges) _g.__2faChallenges = new Map()
-        _g.__2faChallenges.set(user.id, { code, expiresAt: Date.now() + 5 * 60 * 1000 })
+        _g.__2faChallenges.set(user.id, challengeData)
 
         // Send via email
         try {
@@ -130,9 +136,15 @@ export async function POST(req: NextRequest) {
 
     // For WhatsApp/Email/SMS: generate + send a 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString()
+    // Store in BOTH DB + in-memory (Vercel is stateless — DB survives across instances)
+    const challengeData = { code, expiresAt: Date.now() + 5 * 60 * 1000 }
+    try {
+      await db.userSetting.deleteMany({ where: { key: `2fa_challenge:${user.id}` } }).catch(() => {})
+      await db.userSetting.create({ data: { userId: user.id, key: `2fa_challenge:${user.id}`, value: JSON.stringify(challengeData) } })
+    } catch {}
     const _g: any = globalThis as any
     if (!_g.__2faChallenges) _g.__2faChallenges = new Map()
-    _g.__2faChallenges.set(user.id, { code, expiresAt: Date.now() + 5 * 60 * 1000 })
+    _g.__2faChallenges.set(user.id, challengeData)
 
     // ── Send via ALL available channels (multi-channel redundancy) ──────
     let emailSent = false
