@@ -233,7 +233,9 @@ export function getRateLimitState(): {
 }
 
 export const THOUGHT_RE = /<thought>([\s\S]*?)<\/thought>/i
-export const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/tool>/i
+// Match both <tool name="x">{json}</tool> AND <tool name="x"/> (self-closing)
+// The LLM sometimes generates self-closing tags for tools with no args.
+export const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*(?:\/>|>([\s\S]*?)<\/tool>)/i
 
 export interface Parsed {
   thought?: string
@@ -253,16 +255,19 @@ export function parseAssistant(content: string): Parsed {
   if (toolMatch) {
     const name = toolMatch[1].trim()
     let args: any = {}
-    const raw = toolMatch[2].trim()
-    try {
-      args = JSON.parse(raw)
-    } catch {
-      // try to salvage key="value" pairs
-      const m: Record<string, string> = {}
-      const re = /"([^"]+)"\s*:\s*"([^"]*)"/g
-      let mm: RegExpExecArray | null
-      while ((mm = re.exec(raw))) m[mm[1]] = mm[2]
-      args = m
+    // toolMatch[2] = self-closing (undefined) or toolMatch[3] = content between tags
+    const raw = (toolMatch[3] ?? toolMatch[2] ?? '').trim()
+    if (raw) {
+      try {
+        args = JSON.parse(raw)
+      } catch {
+        // try to salvage key="value" pairs
+        const m: Record<string, string> = {}
+        const re = /"([^"]+)"\s*:\s*"([^"]*)"/g
+        let mm: RegExpExecArray | null
+        while ((mm = re.exec(raw))) m[mm[1]] = mm[2]
+        args = m
+      }
     }
     tool = { name, args }
     const idx = content.indexOf(toolMatch[0])
