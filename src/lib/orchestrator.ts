@@ -100,17 +100,20 @@ function parseOrchestrator(content: string): OrchestratorParsed {
     }
   }
   if (toolMatch) {
-    const name = toolMatch[1].trim()
+    const name = (toolMatch[1] ?? '').trim()
+    if (!name) return { thought, textAfter: content.replace(THOUGHT_RE, '').trim(), raw: content }
     let args: any = {}
-    const raw = toolMatch[2].trim()
-    try {
-      args = JSON.parse(raw)
-    } catch {
-      const m: Record<string, string> = {}
-      const re = /"([^"]+)"\s*:\s*"([^"]*)"/g
-      let mm: RegExpExecArray | null
-      while ((mm = re.exec(raw))) m[mm[1]] = mm[2]
-      args = m
+    const raw = (toolMatch[2] ?? '').trim()
+    if (raw) {
+      try {
+        args = JSON.parse(raw)
+      } catch {
+        const m: Record<string, string> = {}
+        const re = /"([^"]+)"\s*:\s*"([^"]*)"/g
+        let mm: RegExpExecArray | null
+        while ((mm = re.exec(raw))) m[mm[1]] = mm[2]
+        args = m
+      }
     }
     return { thought, tool: { name, args }, textAfter: '', raw: content }
   }
