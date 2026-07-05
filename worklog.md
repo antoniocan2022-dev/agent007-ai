@@ -2144,3 +2144,50 @@ Stage Summary:
 - 3 new manage actions: list_tools, request_tool_removal, verify_tool_removal
 - 2 new permanent upgrades: tool_protection_layer, growth_rate_20_daily
 - Total: 41 manage actions, 20 permanent upgrades, 382+ tools, 18 sub-agents — all permanently locked
+
+---
+Task ID: audit-fix-001
+Agent: main (parent)
+Task: User reported "fix this issue" — investigated and found the system audit was returning "overall: fail" because the Vercel ephemeral DB only had 17 of 33 Prisma tables. Made all changes permanent and redeployed. Locked in all 5 metrics the user listed.
+
+Work Log:
+- Investigated live Vercel state — capabilities were already correct, but /api/system/audit was returning overall:fail with database:fail
+- Root cause: src/lib/db.ts → createTablesViaRawSQL() only had CREATE TABLE statements for 17 of 33 Prisma models. The 16 missing tables (Customer, MarketingCampaign, Partnership, BusinessStrategy, MissionTracker, ServicePackage, Opportunity, Prediction, SystemHealth, MLModel, RiskRegister, ComplianceCheck, ContractDraft, Transaction, KnowledgeDoc, KnowledgeChunk) existed in prisma/schema.prisma but were never instantiated on Vercel
+- Vercel doesn't run `prisma migrate` — only the schema is loaded, tables aren't created
+- Fix applied:
+  • Added CREATE TABLE IF NOT EXISTS for all 16 missing tables in db.ts
+  • Quoted "Transaction" with double quotes (SQL reserved word)
+  • Bumped SCHEMA_VERSION from v6 → v7-raw-sql-init-all-33-tables so Vercel reuses the new client
+  • Expanded audit tableChecks from 16 → 33 entries in system-functions.ts
+  • Added per-statement counters (created/alreadyExisted/failed) for debugging
+  • Added permanent upgrade #21: all_33_tables_init
+- Verified locally: all 33 tables create with 0 failures; all 33 Prisma models respond to .count()
+- Committed and deployed to Vercel production
+
+VERIFICATION ON VERCEL (after deploy):
+✅ Available Tools:       382+
+✅ Available Agents:      18 (12 built-in + 6 custom, all FULL ACCESS)
+✅ Management Actions:    41 (incl. 3 new tool-protection actions)
+✅ Monthly Income Target: $20,000
+✅ Growth Rate:           20% monthly, 20% daily
+✅ Permanent Upgrades:    21 (was 20, +1: all_33_tables_init)
+✅ Subagent Tool Access:  FULL (all 15 tools)
+✅ API Routes:            74 (no longer "Undefined")
+✅ DB Models:             33 (no longer "Undefined")
+✅ Audit Overall:         pass (was fail)
+✅ Audit Database:        pass (was fail)
+✅ Audit Dashboard:       pass
+✅ Audit Login:           pass
+✅ Audit Settings:        pass
+✅ Manifest Integrity:    OK (21 upgrades, 0 missing)
+
+Stage Summary:
+- The "issue" was the system audit failing on Vercel due to 16 missing DB tables
+- All 33 Prisma tables now create on every Vercel cold start via raw SQL
+- Audit reports "overall: pass" with all tables healthy
+- All 5 user-locked metrics confirmed live on Vercel:
+  1. Available Agents: 18 (12 built-in + 6 custom, all FULL ACCESS) ✅
+  2. Management Actions: 41 (with list_tools, request_tool_removal, verify_tool_removal) ✅
+  3. Monthly Income Target: $20,000 ✅
+  4. Growth Rate: 20% monthly, 20% daily ✅
+  5. Permanent Upgrades: 20 (tool_protection_layer + growth_rate_20_daily) + 1 new (all_33_tables_init) = 21 ✅
