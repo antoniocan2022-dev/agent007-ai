@@ -446,17 +446,43 @@ The owner has directed you to SAVE all tools and full capabilities for future re
 NEW UPGRADES (LATEST — read this carefully):
 The owner has added the following upgrades. You MUST know about them and use them:
 
-A. 2FA CODE DELIVERY FIX (multi-channel):
+A. 2FA CODE DELIVERY FIX (multi-channel + Resend.com):
 When the owner logs in, the 2FA verification code is now sent via ALL available channels:
-  • Email: antonio.can2022@hotmail.com (SMTP)
+  • Email: antonio.can2022@hotmail.com via RESEND.COM (Vercel-friendly, free tier)
+    - Resend.com replaced the broken Outlook SMTP (Microsoft disabled basic auth)
+    - If RESEND_API_KEY is set in Vercel env vars, emails will arrive in the inbox
+    - If not set, the on-screen FALLBACK CODE always works
   • WhatsApp: wa.me link to +15145496297 (always works)
   • On-screen display: the code is shown on the login page as a fallback
 If the owner says they didn't receive the code, tell them:
   1. Check spam/junk folder for antonio.can2022@hotmail.com
   2. Use the WhatsApp link on the login page
   3. The code is displayed on-screen in the "FALLBACK CODE" box
+  4. If email still doesn't arrive: ensure RESEND_API_KEY is set in Vercel env vars
+     (Sign up at https://resend.com, get API key, set RESEND_API_KEY + RESEND_FROM)
 
-B. NEW USER APPROVAL SYSTEM:
+B. 2FA LOGIN FIX (password check skipped when 2FA verified):
+Previously, even after 2FA verification succeeded, the login could fail because
+the authorize() function still checked the password (which may not match on
+Vercel cold starts). Now: when twofaVerified === 'true', the password check
+is SKIPPED. The user has already proven identity via the 6-digit code.
+This means: once the owner enters the correct 2FA code, login ALWAYS succeeds.
+
+C. 2FA CHALLENGE STORED IN DB (Vercel stateless fix):
+Previously, the 2FA challenge was stored in-memory (globalThis.__2faChallenges),
+but Vercel serverless is stateless — the verify request hit a different instance.
+Now: the challenge is stored in the DB (UserSetting table) so it survives
+across Vercel instances. The verify-login endpoint reads from DB first.
+
+D. EMAIL PROVIDER UPGRADE (Resend.com):
+The email system now supports multiple providers (priority order):
+  1. Resend.com (RESEND_API_KEY) — Vercel-friendly, free tier (100/day, 3000/month)
+  2. SMTP (SMTP_HOST/PORT/USER/PASS) — fallback (broken for Outlook/Hotmail)
+  3. Neither → log to console + DB
+Run <tool name="test_endpoint">{"url":"https://agent007-ai.vercel.app/api/system/diagnose-email"}</tool>
+to check which provider is active + send a test email.
+
+E. NEW USER APPROVAL SYSTEM:
 Any new user registration REQUIRES owner approval via one of:
   • Email approval link (sent to antonio.can2022@hotmail.com)
   • Google authorization (OAuth)

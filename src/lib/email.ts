@@ -3,26 +3,94 @@ import { db } from '@/lib/db'
 import { SEED_EMAIL } from '@/lib/auth'
 
 /* ------------------------------------------------------------------ *
- * Email wrapper around Nodemailer.
+ * Email wrapper with multi-provider support.
  *
- * SMTP env vars (all optional — if unset, the email is logged to console
- * and stored in NotificationLog with sent=false instead of being sent):
- *   SMTP_HOST     e.g. "smtp.gmail.com"
- *   SMTP_PORT     e.g. 587
- *   SMTP_USER     username
- *   SMTP_PASS     password / app password
- *   SMTP_FROM     "Agent007 AI <noreply@yourdomain.com>"
+ * PRIORITY ORDER (first working provider wins):
+ *   1. RESEND_API_KEY  → Resend.com HTTP API (Vercel-friendly, free tier)
+ *      - Set RESEND_API_KEY = "re_xxx" (from https://resend.com/api-keys)
+ *      - Set RESEND_FROM = "Agent007 <onboarding@resend.dev>" or your verified domain
+ *      - Free tier: 100 emails/day, 3000/month
+ *      - Works perfectly on Vercel (no SMTP basic-auth issues)
+ *
+ *   2. SMTP env vars (fallback — Microsoft has disabled basic auth for Outlook):
+ *      SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+ *      - For Gmail: use App Password (still works)
+ *      - For Outlook/Hotmail: BROKEN (basic auth disabled by Microsoft)
+ *
+ *   3. Neither configured → log to console + DB (NotificationLog with sent=false)
  * ------------------------------------------------------------------ */
 
 let transporter: Transporter | null = null
 let transportReady = false
 
+/**
+ * Returns true if ANY email provider is configured.
+ * Checks Resend first, then SMTP.
+ */
 export function isEmailConfigured(): boolean {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS)
+  return !!process.env.RESEND_API_KEY || !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS)
+}
+
+/**
+ * Returns true if Resend is the active provider.
+ */
+export function isResendConfigured(): boolean {
+  return !!process.env.RESEND_API_KEY
+}
+
+/**
+ * Send email via Resend.com HTTP API.
+ * Resend is Vercel-friendly and doesn't have the basic-auth issues
+ * that Microsoft Outlook/Hotmail now has.
+ */
+async function sendViaResend(opts: {
+  to: string
+  subject: string
+  body: string
+}): Promise<{ sent: boolean; message?: string; error?: string }> {
+  const apiKey = process.env.RESEND_API_KEY!
+  const from = process.env.RESEND_FROM || 'Agent007 AI <onboarding@resend.dev>'
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [opts.to],
+        subject: opts.subject,
+        text: opts.body,
+        html: bodyToHtml(opts.body, opts.subject),
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { sent: true, message: `id=${data.id ?? 'resend-ok'}` }
+    } else {
+      const errText = await res.text().catch(() => '')
+      let errMsg = `Resend HTTP ${res.status}`
+      try {
+        const errJson = JSON.parse(errText)
+        errMsg = `Resend: ${errJson.message || errText}`
+      } catch {
+        errMsg = `Resend HTTP ${res.status}: ${errText.slice(0, 200)}`
+      }
+      return { sent: false, error: errMsg }
+    }
+  } catch (e: any) {
+    return { sent: false, error: `Resend fetch failed: ${e?.message ?? String(e)}` }
+  }
 }
 
 function getTransporter(): Transporter | null {
-  if (!isEmailConfigured()) return null
+  // If only Resend is configured (no SMTP), return null — Resend uses HTTP, not SMTP
+  const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS)
+  if (!hasSmtp) return null
   if (transporter && transportReady) return transporter
   try {
     const port = parseInt(process.env.SMTP_PORT ?? '587', 10)
@@ -30,27 +98,17 @@ function getTransporter(): Transporter | null {
     const user = process.env.SMTP_USER!
     const pass = process.env.SMTP_PASS!
 
-    // Detect Outlook/Hotmail and use OAuth2-compatible settings
-    // Microsoft disabled basic auth — requires App Password or OAuth2
     const isOutlook = host.includes('outlook') || host.includes('hotmail') || host.includes('office365') || host.includes('live.com')
 
     transporter = nodemailer.createTransport({
       host,
       port,
       secure: port === 465,
-      auth: {
-        user,
-        pass,
-      },
-      // For Outlook, add additional settings to work around basic auth deprecation
+      auth: { user, pass },
       ...(isOutlook ? {
-        tls: {
-          ciphers: 'SSLv3',
-          rejectUnauthorized: false,
-        },
+        tls: { ciphers: 'SSLv3', rejectUnauthorized: false },
         requireTLS: true,
       } : {}),
-      // Increase timeout for slow SMTP servers
       connectionTimeout: 15000,
       greetingTimeout: 10000,
       socketTimeout: 15000,
@@ -65,6 +123,9 @@ function getTransporter(): Transporter | null {
 }
 
 export function defaultFrom(): string {
+  if (process.env.RESEND_API_KEY) {
+    return process.env.RESEND_FROM || 'Agent007 AI <onboarding@resend.dev>'
+  }
   return process.env.SMTP_FROM ?? `Agent007 AI <noreply@${process.env.SMTP_HOST ?? 'localhost'}>`
 }
 
@@ -75,9 +136,10 @@ export interface SendEmailResult {
 }
 
 /**
- * Send an email (or, if SMTP env vars are missing, log it to console + DB
- * NotificationLog row with sent=false). Always returns gracefully so callers
- * can fire-and-forget without try/catch.
+ * Send an email via the first available provider:
+ *   1. Resend (if RESEND_API_KEY is set) — Vercel-friendly, no basic-auth issues
+ *   2. SMTP (if configured) — fallback (may fail for Outlook/Hotmail)
+ *   3. Neither → log to console + DB
  */
 export async function sendEmail(opts: {
   to: string
@@ -91,14 +153,7 @@ export async function sendEmail(opts: {
     try {
       if (userId) {
         await db.notificationLog.create({
-          data: {
-            userId,
-            type: type ?? 'mission_complete',
-            to,
-            subject,
-            body,
-            sent,
-          },
+          data: { userId, type: type ?? 'mission_complete', to, subject, body, sent },
         })
       }
     } catch (dbErr) {
@@ -107,31 +162,46 @@ export async function sendEmail(opts: {
     if (sent) {
       console.log(`[email] SENT to="${to}" subject="${subject}" ${msg ?? ''}`)
     } else {
-      console.log(`[email] LOGGED (SMTP not configured) to="${to}" subject="${subject}"`)
-      console.log(`[email]   body preview: ${body.slice(0, 280)}...`)
+      console.log(`[email] LOGGED (not sent) to="${to}" subject="${subject}"`)
       if (err) console.log(`[email]   error: ${err}`)
     }
   }
 
+  // ── PRIORITY 1: Resend (Vercel-friendly) ───────────────────────────
+  if (process.env.RESEND_API_KEY) {
+    const result = await sendViaResend({ to, subject, body })
+    await log(result.sent, result.message, result.error)
+    if (result.sent) return { sent: true, message: `Resend: ${result.message}` }
+    // If Resend fails, fall through to SMTP (if configured)
+    console.warn('[email] Resend failed, trying SMTP fallback:', result.error)
+  }
+
+  // ── PRIORITY 2: SMTP (fallback — may fail for Outlook) ─────────────
   const tx = getTransporter()
-  if (!tx) {
-    await log(false, 'SMTP not configured — logged only')
-    return { sent: false, message: 'SMTP not configured — logged only' }
+  if (tx) {
+    try {
+      const info = await tx.sendMail({
+        from: defaultFrom(),
+        to,
+        subject,
+        text: body,
+        html: bodyToHtml(body, subject),
+      })
+      await log(true, `id=${info.messageId}`)
+      return { sent: true, message: `SMTP: id=${info.messageId}` }
+    } catch (e: any) {
+      await log(false, undefined, e?.message ?? String(e))
+      // Fall through to "not sent"
+    }
   }
-  try {
-    const info = await tx.sendMail({
-      from: defaultFrom(),
-      to,
-      subject,
-      text: body,
-      html: bodyToHtml(body, subject),
-    })
-    await log(true, `id=${info.messageId}`)
-    return { sent: true, message: `id=${info.messageId}` }
-  } catch (e: any) {
-    await log(false, undefined, e?.message ?? String(e))
-    return { sent: false, error: e?.message ?? String(e) }
+
+  // ── PRIORITY 3: Neither configured or both failed ──────────────────
+  if (!process.env.RESEND_API_KEY && !tx) {
+    await log(false, 'No email provider configured — logged only')
+    return { sent: false, message: 'No email provider configured — logged only' }
   }
+
+  return { sent: false, error: 'All email providers failed' }
 }
 
 function bodyToHtml(body: string, subject: string): string {
