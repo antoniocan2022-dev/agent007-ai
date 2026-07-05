@@ -303,6 +303,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/user-approval.ts', 'src/lib/command-ingestion-tools.ts', 'src/app/api/2fa/challenge/route.ts', 'src/app/api/auth/approve/route.ts', 'src/app/login/page.tsx', 'src/lib/tools.ts', 'src/lib/tool-protection.ts', 'src/lib/subagents.ts', 'src/lib/agent.ts'],
   },
+  {
+    id: 'resend_email_active',
+    category: 'communication',
+    title: 'Resend.com Email Provider Active (Replaces Broken Outlook SMTP)',
+    description: 'Activated Resend.com as the primary email provider, replacing the broken Outlook SMTP (Microsoft disabled basic auth for personal accounts). Set RESEND_API_KEY and RESEND_FROM env vars in Vercel via the Vercel API. The email system now uses 3 providers in priority order: (1) Resend.com HTTP API (RESEND_API_KEY) — Vercel-friendly, free tier 100/day 3000/month, (2) SMTP (fallback — broken for Outlook/Hotmail), (3) Log to console + DB. Verified live: test email sent successfully via Resend (message ID daf9f30a-5962-4e09-bbc5-4faf2b7b1585). 2FA codes now arrive in the owner\'s inbox at antonio.can2022@hotmail.com via Resend. Also added: 2FA challenge stored in DB (fixes Vercel stateless issue where verify hit a different instance), 2FA login fix (password check skipped when twofaVerified=true), email diagnostic endpoint (/api/system/diagnose-email). Updated SYSTEM_PROMPT to tell Agent007 about all 4 fixes (A: 2FA multi-channel, B: login fix, C: DB challenge storage, D: Resend provider).',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/email.ts', 'src/app/api/system/diagnose-email/route.ts', 'src/app/api/2fa/challenge/route.ts', 'src/app/api/2fa/verify-login/route.ts', 'src/lib/auth.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

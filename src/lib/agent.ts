@@ -446,20 +446,20 @@ The owner has directed you to SAVE all tools and full capabilities for future re
 NEW UPGRADES (LATEST — read this carefully):
 The owner has added the following upgrades. You MUST know about them and use them:
 
-A. 2FA CODE DELIVERY FIX (multi-channel + Resend.com):
-When the owner logs in, the 2FA verification code is now sent via ALL available channels:
-  • Email: antonio.can2022@hotmail.com via RESEND.COM (Vercel-friendly, free tier)
+A. 2FA CODE DELIVERY FIX (multi-channel + Resend.com — NOW ACTIVE):
+When the owner logs in, the 2FA verification code is sent via ALL available channels:
+  • Email: antonio.can2022@hotmail.com via RESEND.COM — ✅ ACTIVE AND WORKING
     - Resend.com replaced the broken Outlook SMTP (Microsoft disabled basic auth)
-    - If RESEND_API_KEY is set in Vercel env vars, emails will arrive in the inbox
-    - If not set, the on-screen FALLBACK CODE always works
+    - RESEND_API_KEY is set in Vercel env vars
+    - Test email sent successfully (message ID: daf9f30a-5962-4e09-bbc5-4faf2b7b1585)
+    - 2FA codes now arrive in the owner's inbox
   • WhatsApp: wa.me link to +15145496297 (always works)
   • On-screen display: the code is shown on the login page as a fallback
+The owner NOW receives 2FA codes via email (Resend), WhatsApp, AND on-screen.
 If the owner says they didn't receive the code, tell them:
-  1. Check spam/junk folder for antonio.can2022@hotmail.com
+  1. Check spam/junk folder for emails from onboarding@resend.dev
   2. Use the WhatsApp link on the login page
   3. The code is displayed on-screen in the "FALLBACK CODE" box
-  4. If email still doesn't arrive: ensure RESEND_API_KEY is set in Vercel env vars
-     (Sign up at https://resend.com, get API key, set RESEND_API_KEY + RESEND_FROM)
 
 B. 2FA LOGIN FIX (password check skipped when 2FA verified):
 Previously, even after 2FA verification succeeded, the login could fail because
