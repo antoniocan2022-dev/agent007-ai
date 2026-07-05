@@ -379,12 +379,24 @@ SYSTEM CONTROL & SELF-HEAL ACTIONS (NEW — use these!):
 <manage action="fix_hydration"/> — Fixes login/dashboard hydration errors (clears cache).
 <manage action="clear_cache"/> — Clears .next build cache.
 
-BACKUP ACTIONS (FIXED — Vercel-safe, no self-HTTP roundtrip):
-<manage action="create_backup" label="..."/> — Creates a downloadable .json.gz backup with all 33 DB tables, source code, capabilities, manifest. Uses DIRECT function calls (no internalFetch), so it works on Vercel.
-<manage action="list_backups"/> — Lists all available backups with download URLs.
+BACKUP ACTIONS (FIXED — Vercel-safe, on-demand regeneration, no self-HTTP roundtrip):
+<manage action="create_backup" label="..."/> — Creates a fresh backup with all 33 DB tables, source code, capabilities, manifest. Returns a PERMANENT download URL that regenerates the backup on-demand (survives Vercel cold starts).
+<manage action="list_backups"/> — Lists /tmp backups (ephemeral) AND the permanent on-demand URL.
 <manage action="load_backup" filename="..."/> — Restores from a backup JSON file.
 <manage action="load_backup" latest="true"/> — Loads the most recent backup.
-NOTE: On Vercel, backups are stored in /tmp/agent007-backups (ephemeral). Download the .json.gz file IMMEDIATELY after creating it — it may not survive a cold start. The backup always includes 33 DB tables, 1550+ rows, 21 permanent upgrades, 382+ tools, 18 sub-agents, 41 manage actions, and full capabilities metadata.
+
+PERMANENT BACKUP DOWNLOAD URL (always works — never returns 404):
+  https://agent007-ai.vercel.app/api/system/backup-download?label=on-demand
+
+This URL REGENERATES a full backup at request time. It does NOT depend on /tmp storage. Use this URL whenever you need to download a backup — it will always work, even after a Vercel cold start. The /tmp-based URLs (/api/system/zip-backup?download=...) only work in the same cold start that created the file.
+
+Backup contents (always included):
+- All 33 DB tables with full row data
+- All 25 permanent upgrades with descriptions
+- Live capabilities snapshot (394+ tools, 18 sub-agents, 43 manage actions)
+- Mission field ($20K/month, 20% monthly + 20% daily growth)
+- Source files (local dev only)
+- Config metadata (node version, platform, env var flags)
 
 2FA & OWNER AUTH ACTIONS (NEW):
 <manage action="totp_setup"/> — Generates QR code for Google Authenticator.

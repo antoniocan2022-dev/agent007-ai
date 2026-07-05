@@ -739,9 +739,12 @@ export async function toolDownloadCapabilities(args: any, _ctx: ToolContext): Pr
     : `http://localhost:${process.env.PORT ?? 3000}`
   const url = `${baseUrl}/api/system/capabilities-download?format=${format}`
 
+  // Also build the on-demand BACKUP download URL (always works on Vercel)
+  const backupUrl = `${baseUrl}/api/system/backup-download?label=on-demand`
+
   return okResult(
     `Capabilities archive available at: ${url}`,
-    `CAPABILITIES DOWNLOAD\n${'='.repeat(60)}\nFormat: ${format}\nURL: ${url}\n\nTo download:\n  curl -OJ "${url}"\n\nOr visit in browser:\n  ${url}\n\nThe archive is generated ON-DEMAND from the live TOOL_REGISTRY, so it always reflects the current 382+ tools, 18 sub-agents, 41 manage actions, and 22+ permanent upgrades. No persistent storage needed.`
+    `CAPABILITIES DOWNLOAD\n${'='.repeat(60)}\nFormat: ${format}\nURL: ${url}\n\nTo download:\n  curl -OJ "${url}"\n\nOr visit in browser:\n  ${url}\n\nThe archive is generated ON-DEMAND from the live TOOL_REGISTRY, so it always reflects the current 394+ tools, 18 sub-agents, 43 manage actions, and 25+ permanent upgrades. No persistent storage needed.\n\n---\n\nFULL SYSTEM BACKUP (on-demand, always works on Vercel)\n${'='.repeat(60)}\nURL: ${backupUrl}\n\nThis URL regenerates a full backup at request time (all 33 DB tables, 25 permanent upgrades, capabilities snapshot, mission field, config metadata). Survives Vercel cold starts — never returns 404.\n\nTo download:\n  curl -OJ "${backupUrl}"`
   )
 }
 

@@ -2029,10 +2029,21 @@ async function executeManageAction(
           const data = await createBackup(label)
           if (!data.ok) return { ok: false, message: `Backup failed: ${data.error ?? 'unknown'}` }
           const warnLine = data.warning ? `\n\n⚠ ${data.warning}` : ''
+          // PRIMARY download URL: /api/system/backup-download — this endpoint
+          // REGENERATES the backup at request time, so it survives Vercel
+          // cold starts. The /tmp file may be gone in the next cold start,
+          // but this URL will always work.
+          const onDemandUrl = `/api/system/backup-download?label=${encodeURIComponent(data.label)}`
           return {
             ok: true,
-            message: `✅ Backup created: ${data.zipFilename} (${data.zipSizeMB}MB)${warnLine}\n\nContents:\n- Database tables: ${data.contents.databaseTables}\n- Total rows: ${data.contents.totalRows}\n- Source files: ${data.contents.sourceFiles}\n- Permanent upgrades: ${data.contents.upgrades}\n\nDownload URL: ${data.downloadUrl}\nAbsolute path: ${data.absolutePath}`,
-            data,
+            message: `✅ Backup created: ${data.zipFilename} (${data.zipSizeMB}MB)${warnLine}\n\nContents:\n- Database tables: ${data.contents.databaseTables}\n- Total rows: ${data.contents.totalRows}\n- Source files: ${data.contents.sourceFiles}\n- Permanent upgrades: ${data.contents.upgrades}\n\n📥 PERMANENT DOWNLOAD URL (works across Vercel cold starts — regenerates on-demand):\n  https://agent007-ai.vercel.app${onDemandUrl}\n\n📥 Same-cold-start URL (only works in THIS server instance):\n  ${data.downloadUrl}\n\nAbsolute path (local dev only): ${data.absolutePath}\n\nNOTE: Always use the PERMANENT URL above for downloads. The /tmp file path is ephemeral on Vercel and will not survive a cold start.`,
+            data: {
+              ...data,
+              onDemandDownloadUrl: onDemandUrl,
+              onDemandDownloadUrlFull: `https://agent007-ai.vercel.app${onDemandUrl}`,
+              primaryDownloadUrl: onDemandUrl,
+              warning: data.warning ?? 'On Vercel, the /tmp file is ephemeral. Use the on-demand URL above for permanent access.',
+            },
           }
         } catch (e: any) {
           return { ok: false, message: `create_backup threw: ${e?.message ?? e}` }
@@ -2046,15 +2057,20 @@ async function executeManageAction(
           const { listBackups } = await import('./backup-functions')
           const data = await listBackups()
           const backups = data.backups ?? []
-          if (backups.length === 0) {
-            const warnLine = data.warning ? `\n\n⚠ ${data.warning}` : ''
-            return { ok: true, message: `No backups found. Use create_backup to create one.${warnLine}` }
-          }
+          const onDemandUrl = '/api/system/backup-download?label=on-demand'
+          const onDemandUrlFull = 'https://agent007-ai.vercel.app' + onDemandUrl
           const warnLine = data.warning ? `\n\n⚠ ${data.warning}` : ''
+          if (backups.length === 0) {
+            return {
+              ok: true,
+              message: `No /tmp backups found (Vercel ephemeral storage). BUT you can ALWAYS generate a fresh backup on-demand:${warnLine}\n\n📥 PERMANENT ON-DEMAND BACKUP URL (always works — regenerates at request time):\n  ${onDemandUrlFull}\n\nOr create a labeled backup:\n  <manage action="create_backup" label="my-backup"/>\n\nThe on-demand URL above never returns 404 — it regenerates the backup from the live DB + tool registry + manifest every time.`,
+              data: { count: 0, backups: [], onDemandDownloadUrl: onDemandUrl, onDemandDownloadUrlFull: onDemandUrlFull },
+            }
+          }
           return {
             ok: true,
-            message: `${backups.length} backups available:\n${backups.map((b: any, i: number) => `  ${i + 1}. ${b.name} (${b.size}) — ${b.created}`).join('\n')}\n\nTo download: /api/system/zip-backup?download=<filename>${warnLine}`,
-            data: { count: backups.length, backups },
+            message: `${backups.length} /tmp backup(s) available (ephemeral — may not survive cold starts):${warnLine}\n${backups.map((b: any, i: number) => `  ${i + 1}. ${b.name} (${b.size}) — ${b.created}`).join('\n')}\n\n📥 PERMANENT ON-DEMAND BACKUP URL (always works — regenerates at request time):\n  ${onDemandUrlFull}\n\nTo download a /tmp backup (same cold start only): /api/system/zip-backup?download=<filename>\nTo download a fresh backup (always works): ${onDemandUrlFull}`,
+            data: { count: backups.length, backups, onDemandDownloadUrl: onDemandUrl, onDemandDownloadUrlFull: onDemandUrlFull },
           }
         } catch (e: any) {
           return { ok: false, message: `list_backups threw: ${e?.message ?? e}` }

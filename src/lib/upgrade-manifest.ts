@@ -249,6 +249,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/tool-protection.ts', 'src/lib/tools.ts', 'src/lib/orchestrator.ts', 'src/lib/manage-actions.ts', 'src/lib/agent.ts'],
   },
+  {
+    id: 'on_demand_backup_download',
+    category: 'persistence',
+    title: 'On-Demand Backup Download Endpoint (Fixes Cold-Start 404)',
+    description: 'The /api/system/zip-backup?download=<filename> endpoint returned 404 "Backup file not found" after Vercel cold starts because /tmp storage is ephemeral — a backup created in one serverless invocation does NOT exist in the next. Created /api/system/backup-download endpoint that REGENERATES a full backup at request time using createBackup() from backup-functions.ts. No /tmp dependency. The URL is stable and bookmarkable: https://agent007-ai.vercel.app/api/system/backup-download?label=on-demand — it always works, even after a cold start. Supports ?format=zip (gzipped JSON, default) and ?format=json. Updated orchestrator create_backup + list_backups actions to surface this permanent URL as the PRIMARY download URL (the /tmp-based URL is now secondary, marked "same-cold-start only"). Updated SYSTEM_PROMPT with a "PERMANENT BACKUP DOWNLOAD URL" section so Agent007 always knows the stable URL. Also updated the download_capabilities self-fix tool to return both the capabilities URL and the backup URL. This is the SAME pattern that fixed the capabilities-download 404 issue — applied to backups.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/app/api/system/backup-download/route.ts', 'src/lib/orchestrator.ts', 'src/lib/self-fix-tools.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
