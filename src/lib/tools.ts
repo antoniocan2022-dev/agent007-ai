@@ -1185,46 +1185,101 @@ export async function toolHttpFetch(
     return badResult('http_fetch requires an http:// or https:// URL')
   }
   const maxBytes = Math.min(100_000, Math.max(1000, args.max_bytes || 50_000))
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10_000)
-    const res = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Agent007-AI/2.0',
-        Accept: 'application/json, text/plain, text/html, */*',
-      },
-    })
-    clearTimeout(timeout)
-    const contentType = res.headers.get('content-type') || 'unknown'
-    const status = res.status
-    if (status >= 400) {
-      // Provide a helpful message for auth errors (401/403) — clarify this is
-      // NOT an LLM failure, just the fetched URL requiring authentication.
-      if (status === 401 || status === 403) {
-        return badResult(
-          `http_fetch got HTTP ${status} from ${url}\n\n` +
-          `This URL requires authentication (API key, bearer token, or login).\n` +
-          `NOTE: This is NOT an LLM failure — Agent007's AI brain is working fine.\n` +
-          `This is just the URL you fetched rejecting unauthenticated requests.\n\n` +
-          `If you need to call an authenticated API, ask the owner to add an API key\n` +
-          `in Settings → API Key Manager, or use a different URL that doesn't require auth.`
-        )
-      }
-      return badResult(`http_fetch got HTTP ${status} from ${url}`)
+
+  // Helper: try fetching with a given User-Agent
+  async function tryFetch(fetchUrl: string, userAgent: string): Promise<{ status: number; contentType: string; text: string } | null> {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      const res = await fetch(fetchUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: {
+          'User-Agent': userAgent,
+          'Accept': 'application/json, text/plain, text/html, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      })
+      clearTimeout(timeout)
+      const contentType = res.headers.get('content-type') || 'unknown'
+      const status = res.status
+      if (status >= 400) return { status, contentType, text: '' }
+      const text = await res.text()
+      return { status, contentType, text }
+    } catch {
+      return null
     }
-    const text = await res.text()
-    const truncated = text.slice(0, maxBytes)
-    const truncatedNote = text.length > maxBytes ? `\n... (truncated, ${text.length} total bytes)` : ''
-    return okResult(
-      `Fetched ${url} (HTTP ${status}, ${contentType.slice(0, 50)}, ${text.length} bytes)`,
-      `URL: ${url}\nStatus: ${status}\nContent-Type: ${contentType}\n\n${truncated}${truncatedNote}`
-    )
-  } catch (e: any) {
-    return badResult(`http_fetch failed: ${e?.message ?? String(e)}`)
   }
+
+  // Try with multiple User-Agents (some sites block non-browser UAs)
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Agent007-AI/2.0',
+  ]
+
+  let lastStatus = 0
+  let lastContentType = ''
+  for (const ua of userAgents) {
+    const result = await tryFetch(url, ua)
+    if (result && result.status < 400 && result.text) {
+      const truncated = result.text.slice(0, maxBytes)
+      const truncatedNote = result.text.length > maxBytes ? `\n... (truncated, ${result.text.length} total bytes)` : ''
+      return okResult(
+        `Fetched ${url} (HTTP ${result.status}, ${result.contentType.slice(0, 50)}, ${result.text.length} bytes)`,
+        `URL: ${url}\nStatus: ${result.status}\nContent-Type: ${result.contentType}\n\n${truncated}${truncatedNote}`
+      )
+    }
+    if (result) {
+      lastStatus = result.status
+      lastContentType = result.contentType
+    }
+  }
+
+  // All attempts failed — provide a helpful error with alternatives
+  if (lastStatus === 401 || lastStatus === 403) {
+    return badResult(
+      `http_fetch got HTTP ${lastStatus} from ${url}\n\n` +
+      `This URL requires authentication. Use a different URL or ask the owner to add an API key.\n` +
+      `ALTERNATIVES: Use web_search to find similar content, or use inspect_url which handles more sites.`
+    )
+  }
+
+  if (lastStatus === 404) {
+    // For 404s, try to find the correct URL via DuckDuckGo
+    try {
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(url)}&format=json&no_html=1`
+      const ddgRes = await fetch(ddgUrl, { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Agent007-AI/1.0' } })
+      const ddgData = await ddgRes.json().catch(() => ({}))
+      const alternatives: string[] = []
+      if (ddgData.AbstractURL) alternatives.push(ddgData.AbstractURL)
+      if (Array.isArray(ddgData.RelatedTopics)) {
+        for (const t of ddgData.RelatedTopics.slice(0, 3)) {
+          if (t.FirstURL) alternatives.push(t.FirstURL)
+        }
+      }
+      return badResult(
+        `http_fetch got HTTP 404 from ${url}\n\n` +
+        `The URL does not exist or has been moved. This is NOT an error with Agent007 — the website itself returned 404.\n\n` +
+        `WHAT TO DO:\n` +
+        `1. Use web_search to find the correct URL for this topic\n` +
+        `2. Use ddg_search or hn_search to find alternative sources\n` +
+        `3. Use inspect_url on a different URL\n` +
+        (alternatives.length > 0 ? `\nSUGGESTED ALTERNATIVE URLs (from DuckDuckGo):\n${alternatives.map(u => `  → ${u}`).join('\n')}` : '')
+      )
+    } catch {
+      return badResult(
+        `http_fetch got HTTP 404 from ${url}\n\n` +
+        `The URL does not exist. Use web_search or ddg_search to find the correct URL.`
+      )
+    }
+  }
+
+  return badResult(
+    `http_fetch got HTTP ${lastStatus} from ${url}\n\n` +
+    `ALTERNATIVES: Use web_search to find similar content, ddg_search for DuckDuckGo, or inspect_url for a cleaned page read.`
+  )
 }
 
 TOOL_REGISTRY.http_fetch = { fn: toolHttpFetch, icon: 'globe', label: 'HTTP Fetch' }

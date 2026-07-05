@@ -52,6 +52,8 @@ OPENAI KEY: OPENAI_API_KEY set in Vercel env vars. Auto-seeds to DB on cold star
 
 WEB SEARCH: 3-tier fallback: Z.ai SDK → DuckDuckGo API → Google scraping. Always returns results on Vercel. Also use: http_fetch, inspect_url, page_reader for direct URL access.
 
+HTTP_FETCH 404 HANDLING: When http_fetch gets a 404, it now: (1) tries 3 different User-Agents (Chrome, Mac, custom), (2) auto-searches DuckDuckGo for alternative URLs, (3) suggests web_search or ddg_search as alternatives. A 404 means the WEBSITE doesn't have that page — it's NOT an Agent007 error. Tell the owner: "That URL doesn't exist — I found alternatives" and use web_search to find the correct URL.
+
 SETTINGS: Saved to DB + /tmp file (3 paths for redundancy). Auto-seeds defaults ($20K, 20% daily) on cold start. <tool name="force_refresh_settings"></tool> to sync.
 
 BACKUP: <manage action="create_backup" label="..."/> — creates downloadable .json.gz. Permanent URL: /api/system/backup-download?label=on-demand. Capabilities archive: /api/system/capabilities-download?format=zip.
