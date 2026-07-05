@@ -2445,3 +2445,73 @@ Stage Summary:
   • Request tool removal (only with owner auth) via request_tool_removal + verify_tool_removal
   • Verify deployment health via comprehensive_self_check
   • Download capabilities on-demand via /api/system/capabilities-download?format=zip
+
+---
+Task ID: backup-cold-start-fix-001
+Agent: main (parent)
+Task: User reported: "Backup file not found: agent007-backup-...json.gz, availableFiles: [], count: 0, hint: Vercel uses ephemeral /tmp storage..." — fix permanently, give all tools to Agent007 with no limitations + full access, lock all new tools, redeploy to Vercel.
+
+Work Log:
+- Diagnosed the issue: /api/system/zip-backup?download=<filename> returned 404 because Vercel's /tmp storage is EPHEMERAL — a backup created in one cold start doesn't exist in the next. This is the SAME root cause that broke capabilities-download earlier.
+
+- Created /api/system/backup-download endpoint that REGENERATES a full backup at request time using createBackup() from backup-functions.ts. No /tmp dependency. The URL is stable and bookmarkable: https://agent007-ai.vercel.app/api/system/backup-download?label=on-demand
+
+- Supports ?format=zip (gzipped JSON, default) and ?format=json. Returns proper Content-Disposition headers. Includes X-Backup-* response headers (tables, rows, upgrades, label).
+
+- Updated orchestrator create_backup case to return TWO download URLs:
+  • PERMANENT: /api/system/backup-download?label=... (always works, regenerates on-demand)
+  • Same-cold-start: /api/system/zip-backup?download=... (ephemeral, /tmp-based)
+  • Message clearly labels which URL is permanent vs ephemeral
+  • data field includes onDemandDownloadUrl + onDemandDownloadUrlFull
+
+- Updated orchestrator list_backups case to always return the on-demand URL even when /tmp is empty. Message: "No /tmp backups found (Vercel ephemeral storage). BUT you can ALWAYS generate a fresh backup on-demand: <URL>"
+
+- Updated self-fix-tools.ts → download_capabilities to also return the on-demand BACKUP URL (in addition to the capabilities URL) so the agent always has both
+
+- Updated SYSTEM_PROMPT with:
+  • New "BACKUP ACTIONS (FIXED — Vercel-safe, on-demand regeneration, no self-HTTP roundtrip)" section
+  • New "PERMANENT BACKUP DOWNLOAD URL (always works — never returns 404)" section with the stable URL
+  • Explanation of the difference between /tmp URLs (ephemeral) and the on-demand URL (permanent)
+  • List of backup contents (33 DB tables, 25+ permanent upgrades, capabilities snapshot, mission field, config metadata)
+
+- Added permanent upgrade #26 to src/lib/upgrade-manifest.ts: on_demand_backup_download
+
+VERIFIED LOCALLY
+================
+- createBackup('on-demand-test') → ok: true
+- 33 DB tables, 1551 rows, 24 source files, 26 upgrades
+- 2.43 MB JSON, 0.48 MB gzipped
+
+VERIFIED ON VERCEL (after deploy)
+================================
+✅ /api/system/backup-download?label=vercel-test (zip) → HTTP 200, application/gzip, content-disposition: attachment, X-Backup-Tables: 33, X-Backup-Rows: 16
+✅ /api/system/backup-download?label=vercel-test&format=json → HTTP 200, application/json, X-Backup-Tables: 33, X-Backup-Rows: 17, X-Backup-Upgrades: 26
+✅ Downloaded the .json.gz (10,987 bytes), decompressed, verified contents:
+   - App: Agent007 AI, Version 5.0
+   - Mission: monthlyIncomeTarget=20000, monthlyGrowthRate=20, dailyGrowthTarget=20 ✅
+   - 33 DB tables, 18 rows (Vercel cold-start DB)
+   - Capabilities: 394+ tools, 18 agents, 43 manage actions, 26 upgrades ✅
+   - 26 permanent upgrades with integrity OK ✅
+   - Runtime: vercel-serverless ✅
+✅ Capabilities: 394+ tools, 18 agents, 43 manage actions, $20,000, "20% monthly, 20% daily", 26 upgrades
+✅ Manifest: 26 upgrades, integrity OK
+✅ Latest 3 upgrades visible:
+   - [autonomy] Self-Fix Toolkit — 12 New Tools for Autonomous Repair
+   - [safety] Two-Layer Tool Lock — Removal + Execution Protection (Owner Authorization Required)
+   - [persistence] On-Demand Backup Download Endpoint (Fixes Cold-Start 404)
+
+Stage Summary:
+- Backup cold-start 404 issue FIXED permanently
+- The new /api/system/backup-download endpoint regenerates a fresh backup at every request — no /tmp dependency
+- The URL https://agent007-ai.vercel.app/api/system/backup-download?label=on-demand is stable and bookmarkable — it will ALWAYS work, even after a Vercel cold start
+- Agent007 has been told (via SYSTEM_PROMPT) about the permanent backup URL
+- All 5 user-locked metrics still hold:
+  1. Available Agents: 18 (12 built-in + 6 custom, all FULL ACCESS) ✅
+  2. Management Actions: 43 ✅
+  3. Monthly Income Target: $20,000 ✅
+  4. Growth Rate: 20% monthly, 20% daily ✅
+  5. Permanent Upgrades: 26 (+1: on_demand_backup_download) ✅
+- ALL 394+ tools remain permanently locked (no reset, no delete, no disable)
+- 21 tools on NEVER_REMOVABLE list (cannot be removed even with owner auth)
+- 2 tools on EXECUTION_PROTECTED list (trigger_redeploy, patch_source_file — require owner auth to run)
+- Owner authorization channels: cellphone +1 514 549 6297, email antonio.can2022@hotmail.com, WhatsApp, TOTP
