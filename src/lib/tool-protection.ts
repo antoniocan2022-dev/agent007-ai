@@ -145,6 +145,26 @@ export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
   'execute_inbound_command',
   'send_communication',
   'command_status',
+  // Full autonomy tools (16 tools — 8 components × 2 tools each).
+  // Covers: Creation, Execution, Monitoring, Feedback, Reporting,
+  // Continuous Learning, Continuous Improvement, Real Money Generation.
+  // These are the agent's full autonomous income-generation capability.
+  'business_model_designer',
+  'market_research_deep',
+  'payment_gateway_integrator',
+  'freelance_manager',
+  'kpi_dashboard_builder',
+  'market_feedback_collector',
+  'ab_test_runner',
+  'customer_survey_engine',
+  'financial_report_generator',
+  'actionable_insights',
+  'knowledge_base_curator',
+  'data_analysis_engine',
+  'optimization_loop',
+  'agile_iteration',
+  'revenue_stream_diversifier',
+  'risk_management_pro',
 ] as const
 
 /**

@@ -138,6 +138,24 @@ const ALL_TOOLS = [
   'execute_inbound_command',
   'send_communication',
   'command_status',
+
+  // ── Full autonomy tools (16) — 8 components × 2 tools ───────────────
+  'business_model_designer',
+  'market_research_deep',
+  'payment_gateway_integrator',
+  'freelance_manager',
+  'kpi_dashboard_builder',
+  'market_feedback_collector',
+  'ab_test_runner',
+  'customer_survey_engine',
+  'financial_report_generator',
+  'actionable_insights',
+  'knowledge_base_curator',
+  'data_analysis_engine',
+  'optimization_loop',
+  'agile_iteration',
+  'revenue_stream_diversifier',
+  'risk_management_pro',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from

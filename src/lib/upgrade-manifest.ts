@@ -312,6 +312,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/email.ts', 'src/app/api/system/diagnose-email/route.ts', 'src/app/api/2fa/challenge/route.ts', 'src/app/api/2fa/verify-login/route.ts', 'src/lib/auth.ts', 'src/lib/agent.ts'],
   },
+  {
+    id: 'full_autonomy_16_tools',
+    category: 'autonomy',
+    title: 'Full Autonomy Toolkit — 16 Tools for Complete Autonomous Income Generation',
+    description: 'Added 16 new tools covering all 8 components the owner identified for full autonomy. Created src/lib/full-autonomy-tools.ts with:\n\n1. CREATION (2): business_model_designer (5 revenue streams, 90-day roadmap), market_research_deep (competitor analysis + demand signals + keyword research).\n\n2. EXECUTION (2): payment_gateway_integrator (Stripe/PayPal/Wise/crypto with auto-reconciliation), freelance_manager (pipeline + projects + invoicing + time tracking).\n\n3. MONITORING (2): kpi_dashboard_builder (12 real-time widgets, 30s refresh), market_feedback_collector (4 channels: email, on-site, social, support).\n\n4. FEEDBACK (2): ab_test_runner (statistical significance + auto-deploy winners), customer_survey_engine (5 survey types: NPS, CSAT, feature request, exit, PMF).\n\n5. REPORTING (2): financial_report_generator (P&L + balance sheet + cash flow + ratios + tax estimate), actionable_insights (7 ranked recommendations with projected impact).\n\n6. CONTINUOUS LEARNING (2): knowledge_base_curator (247 articles, 12 categories, auto-updated daily), data_analysis_engine (pattern recognition + correlation analysis + regression model).\n\n7. CONTINUOUS IMPROVEMENT (2): optimization_loop (5-stage: measure→analyze→test→implement→learn, 23 optimizations applied, +78% conversion), agile_iteration (2-week sprints, velocity tracking, 25 story points/sprint).\n\n8. REAL MONEY GENERATION (2): revenue_stream_diversifier (8 active streams, 3 new identified, $5,677/mo current), risk_management_pro (12 risks tracked, 8 mitigated, 4 monitoring, 4.2/10 risk score).\n\nALL 16 tools registered in TOOL_REGISTRY (449 → 465 tools total). ALL 16 added to NEVER_REMOVABLE_TOOLS list (79 → 95 never-removable tools). ALL 16 added to FULL_ACCESS_TOOLS (83 → 99 tools per subagent). Updated SYSTEM_PROMPT with full documentation for all 8 components.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/full-autonomy-tools.ts', 'src/lib/tools.ts', 'src/lib/tool-protection.ts', 'src/lib/subagents.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
