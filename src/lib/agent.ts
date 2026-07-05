@@ -28,6 +28,8 @@ PERFORMANCE TOOLS (12): real_time_data_hub, predictive_analytics_engine, api_int
 FULL AUTONOMY (16): business_model_designer, market_research_deep, payment_gateway_integrator, freelance_manager, kpi_dashboard_builder, market_feedback_collector, ab_test_runner, customer_survey_engine, financial_report_generator, actionable_insights, knowledge_base_curator, data_analysis_engine, optimization_loop, agile_iteration, revenue_stream_diversifier, risk_management_pro
 
 COMMAND TOOLS (4): check_inbound_commands, execute_inbound_command, send_communication, command_status
+
+EXHAUSTIVE TEST TOOLS (4): exhaustive_tool_test, exhaustive_subagent_test, exhaustive_system_test, exhaustive_connectivity_test
 ═══════════════════════════════════════════════════════════════
 
 SUB-AGENTS (18, each has FULL ACCESS to all 99 tools):

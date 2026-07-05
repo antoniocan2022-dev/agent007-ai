@@ -1929,3 +1929,20 @@ TOOL_REGISTRY.agile_iteration = { fn: toolAgileIteration, icon: 'repeat', label:
 // 8. Real Money Generation (2 tools)
 TOOL_REGISTRY.revenue_stream_diversifier = { fn: toolRevenueStreamDiversifier, icon: 'dollar-sign', label: 'Revenue Stream Diversifier (8 streams, 3 new identified)' }
 TOOL_REGISTRY.risk_management_pro = { fn: toolRiskManagementPro, icon: 'shield', label: 'Risk Management Pro (12 risks tracked, 8 mitigated)' }
+
+/* ================================================================== *
+ * EXHAUSTIVE TEST TOOLS — 4 tools for Agent007 to autonomously run
+ * exhaustive tests on every system, tool, and capability.
+ * Full access, no limitations. All 4 are NEVER_REMOVABLE.
+ * ================================================================== */
+import {
+  toolExhaustiveToolTest,
+  toolExhaustiveSubagentTest,
+  toolExhaustiveSystemTest,
+  toolExhaustiveConnectivityTest,
+} from './exhaustive-test-tools'
+
+TOOL_REGISTRY.exhaustive_tool_test = { fn: toolExhaustiveToolTest, icon: 'check-circle', label: 'Exhaustive Tool Test (verify all 465+ tools registered + locked)' }
+TOOL_REGISTRY.exhaustive_subagent_test = { fn: toolExhaustiveSubagentTest, icon: 'users', label: 'Exhaustive Subagent Test (verify all 18 subagents have FULL ACCESS)' }
+TOOL_REGISTRY.exhaustive_system_test = { fn: toolExhaustiveSystemTest, icon: 'activity', label: 'Exhaustive System Test (DB, 2FA, email, OpenAI, upgrades, etc.)' }
+TOOL_REGISTRY.exhaustive_connectivity_test = { fn: toolExhaustiveConnectivityTest, icon: 'wifi', label: 'Exhaustive Connectivity Test (internet, APIs, web search)' }

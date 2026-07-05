@@ -165,6 +165,12 @@ export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
   'agile_iteration',
   'revenue_stream_diversifier',
   'risk_management_pro',
+  // Exhaustive test tools (4 tools — let Agent007 autonomously verify
+  // all systems, tools, subagents, connectivity).
+  'exhaustive_tool_test',
+  'exhaustive_subagent_test',
+  'exhaustive_system_test',
+  'exhaustive_connectivity_test',
 ] as const
 
 /**

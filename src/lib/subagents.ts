@@ -156,6 +156,12 @@ const ALL_TOOLS = [
   'agile_iteration',
   'revenue_stream_diversifier',
   'risk_management_pro',
+
+  // ── Exhaustive test tools (4) — autonomous testing capability ───────
+  'exhaustive_tool_test',
+  'exhaustive_subagent_test',
+  'exhaustive_system_test',
+  'exhaustive_connectivity_test',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from
