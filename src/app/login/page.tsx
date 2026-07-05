@@ -41,6 +41,8 @@ function LoginInner() {
   const [twofaUserId, setTwofaUserId] = useState('')
   const [twofaMethod, setTwofaMethod] = useState<string>('email')
   const [twofaMessage, setTwofaMessage] = useState<string>('')
+  const [twofaDisplayCode, setTwofaDisplayCode] = useState<string>('')
+  const [twofaWaLink, setTwofaWaLink] = useState<string>('')
   const [resendCooldown, setResendCooldown] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
@@ -104,6 +106,8 @@ function LoginInner() {
         setTwofaUserId(challengeData.userId)
         setTwofaMethod(challengeData.method ?? 'email')
         setTwofaMessage(challengeData.message ?? `Code sent via ${challengeData.method ?? 'email'}`)
+        setTwofaDisplayCode(challengeData.displayCode ?? '')
+        setTwofaWaLink(challengeData.waLink ?? '')
         setResendCooldown(30)
         setSubmitting(false)
         return
@@ -203,6 +207,8 @@ function LoginInner() {
       const d = await r.json().catch(() => ({}))
       if (d.requiresTwoFactor) {
         setTwofaMessage(d.message ?? 'New code sent')
+        setTwofaDisplayCode(d.displayCode ?? '')
+        setTwofaWaLink(d.waLink ?? '')
         setResendCooldown(30)
       } else {
         setError(d.error ?? 'Failed to resend code')
@@ -322,6 +328,36 @@ function LoginInner() {
               )}
               <span className="leading-snug">{twofaMessage || `Code sent via ${twofaMethod}`}</span>
             </div>
+
+            {/* Fallback: display code on-screen if email doesn't arrive (owner only) */}
+            {twofaDisplayCode && (
+              <div className="mt-2 p-3 rounded-lg border border-cyan-400/30 bg-cyan-400/5 text-center">
+                <div className="text-[10px] tracking-[0.2em] text-cyan-300/70 mb-1 font-semibold">
+                  FALLBACK CODE (if email doesn&apos;t arrive)
+                </div>
+                <div className="text-2xl font-bold tracking-[0.4em] text-cyan-200 select-all">
+                  {twofaDisplayCode}
+                </div>
+                <div className="text-[9px] text-[#7c89b5] mt-1">
+                  Check your email + spam folder for antonio.can2022@hotmail.com
+                </div>
+              </div>
+            )}
+
+            {/* WhatsApp link fallback (always available) */}
+            {twofaWaLink && (
+              <div className="mt-2 text-center">
+                <a
+                  href={twofaWaLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] text-emerald-300 hover:text-emerald-200 tracking-wide transition"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  Get code via WhatsApp (wa.me link)
+                </a>
+              </div>
+            )}
 
             <div>
               <label

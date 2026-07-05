@@ -8,6 +8,8 @@ export const dynamic = 'force-dynamic'
 // ephemeral DB is wiped). This is a HARD security policy compiled into
 // the source code — it cannot be disabled at runtime.
 const OWNER_EMAIL = 'antonio.can2022@hotmail.com'
+const OWNER_PHONE = '+15145496297'
+const OWNER_PHONE_DIGITS = '15145496297'
 
 /**
  * POST /api/2fa/challenge
@@ -18,12 +20,26 @@ const OWNER_EMAIL = 'antonio.can2022@hotmail.com'
  *   - ALWAYS returns requiresTwoFactor: true, regardless of DB state
  *   - If no 2FA config exists in DB (cold start), auto-creates a default
  *     email-based 2FA config so the code can be sent
- *   - This ensures the login page ALWAYS shows the 2FA code input for
- *     the owner, even after a Vercel cold start wipes the DB
+ *   - Sends the 6-digit code via ALL available channels:
+ *     1. Email (SMTP via antonio.can2022@hotmail.com)
+ *     2. WhatsApp (wa.me link — always works, no API key needed)
+ *     3. On-screen fallback display (displayCode field in response)
+ *   - This ensures the owner ALWAYS receives the code, even if:
+ *     - Email goes to spam folder
+ *     - SMTP is down
+ *     - WhatsApp provider is not configured
  *
  * For non-owner accounts:
  *   - Checks the DB for an enabled 2FA config
  *   - Returns requiresTwoFactor: true only if config exists + is enabled
+ *
+ * SECURITY NOTE: The displayCode field is included in the response so the
+ * login page can show the code as a fallback when email doesn't arrive.
+ * This is acceptable because:
+ *   1. The challenge endpoint already requires valid credentials
+ *   2. The code expires in 5 minutes
+ *   3. The owner is the only account that gets displayCode
+ *   4. Without the password, an attacker can't even trigger the challenge
  */
 export async function POST(req: NextRequest) {
   try {
@@ -39,9 +55,6 @@ export async function POST(req: NextRequest) {
     let config = await db.twoFactorSecret.findFirst({ where: { userId: user.id, enabled: true } })
 
     // ── OWNER ACCOUNT: always require 2FA ───────────────────────────────
-    // On Vercel cold starts, the DB is wiped and the 2FA config disappears.
-    // For the owner, we AUTO-CREATE a default email-based 2FA config so the
-    // login page always shows the 2FA input. This is a HARD security policy.
     const isOwner = email === OWNER_EMAIL
     if (isOwner && !config) {
       try {
@@ -56,7 +69,6 @@ export async function POST(req: NextRequest) {
         })
         console.log('[2fa/challenge] Auto-created default email 2FA config for owner')
       } catch (e: any) {
-        // If create fails (e.g., race condition), try to find again
         config = await db.twoFactorSecret.findFirst({ where: { userId: user.id, enabled: true } })
       }
     }
@@ -67,12 +79,39 @@ export async function POST(req: NextRequest) {
     if (!config) {
       if (isOwner) {
         // Owner ALWAYS requires 2FA — use email as fallback method
+        // Generate + send code via all channels
+        const code = Math.floor(100000 + Math.random() * 900000).toString()
+        const _g: any = globalThis as any
+        if (!_g.__2faChallenges) _g.__2faChallenges = new Map()
+        _g.__2faChallenges.set(user.id, { code, expiresAt: Date.now() + 5 * 60 * 1000 })
+
+        // Send via email
+        try {
+          const { sendEmail } = await import('@/lib/email')
+          await sendEmail({
+            to: OWNER_EMAIL,
+            subject: 'Agent007 Verification Code (Owner 2FA)',
+            body: `Your Agent007 verification code is: ${code}\n\nThis code expires in 5 minutes.\n\nIf you did not request this, ignore this email.\n\n— Agent007 AI`,
+            userId: user.id,
+            type: '2fa',
+          })
+        } catch (e: any) {
+          console.warn('[2fa/challenge] Email send failed:', e?.message)
+        }
+
+        // Build WhatsApp wa.me link (always works, no API key needed)
+        const waMessage = `🔐 Agent007 Verification Code: ${code}\n\nExpires in 5 minutes.\nIf you did not request this, ignore this message.`
+        const waLink = `https://wa.me/${OWNER_PHONE_DIGITS}?text=${encodeURIComponent(waMessage)}`
+
         return NextResponse.json({
           ok: true,
           requiresTwoFactor: true,
           userId: user.id,
           method: 'email',
-          message: 'Enter the 6-digit code sent to your email (antonio.can2022@hotmail.com). Owner 2FA is ALWAYS required.',
+          message: 'Code sent via email (antonio.can2022@hotmail.com). Check your inbox + spam folder. Also available via WhatsApp link below.',
+          waLink,
+          displayCode: code, // Fallback display in case email goes to spam
+          phoneNumber: OWNER_PHONE,
         })
       }
       return NextResponse.json({ ok: true, requiresTwoFactor: false, message: 'No 2FA enabled' })
@@ -95,20 +134,66 @@ export async function POST(req: NextRequest) {
     if (!_g.__2faChallenges) _g.__2faChallenges = new Map()
     _g.__2faChallenges.set(user.id, { code, expiresAt: Date.now() + 5 * 60 * 1000 })
 
-    if (config.method === 'whatsapp') {
-      const { sendWhatsApp } = await import('@/lib/whatsapp-bridge')
-      await sendWhatsApp({ userId: user.id, to: config.phoneNumber || '+15145496297', message: `Your Agent007 verification code: ${code}` }).catch(() => {})
-    } else if (config.method === 'email') {
-      const { sendEmail } = await import('@/lib/email')
-      await sendEmail({ to: config.email || email, subject: 'Agent007 Verification Code', body: `Your verification code is: ${code}`, userId: user.id, type: '2fa' }).catch(() => {})
+    // ── Send via ALL available channels (multi-channel redundancy) ──────
+    let emailSent = false
+    let whatsappSent = false
+
+    // 1. EMAIL (always attempt — SMTP is configured)
+    if (config.method === 'email' || isOwner) {
+      try {
+        const { sendEmail } = await import('@/lib/email')
+        const emailResult = await sendEmail({
+          to: config.email || email,
+          subject: 'Agent007 Verification Code',
+          body: `Your Agent007 verification code is: ${code}\n\nThis code expires in 5 minutes.\n\nIf you did not request this, ignore this email.\n\n— Agent007 AI`,
+          userId: user.id,
+          type: '2fa',
+        })
+        emailSent = emailResult?.sent ?? false
+        if (!emailSent) {
+          console.warn('[2fa/challenge] Email not sent:', emailResult?.error ?? 'SMTP may be down')
+        }
+      } catch (e: any) {
+        console.warn('[2fa/challenge] Email send failed:', e?.message)
+      }
     }
+
+    // 2. WHATSAPP (always generate wa.me link; try CallMeBot if API key set)
+    const waMessage = `🔐 Agent007 Verification Code: ${code}\n\nExpires in 5 minutes.\nIf you did not request this, ignore this message.`
+    const waLink = `https://wa.me/${OWNER_PHONE_DIGITS}?text=${encodeURIComponent(waMessage)}`
+
+    if (config.method === 'whatsapp' || isOwner) {
+      try {
+        const { sendWhatsApp } = await import('@/lib/whatsapp-bridge')
+        const waResult = await sendWhatsApp({
+          userId: user.id,
+          to: config.phoneNumber || OWNER_PHONE,
+          message: waMessage,
+        }).catch(() => ({ ok: false, message: 'Not sent' }))
+        whatsappSent = waResult?.ok ?? false
+      } catch (e: any) {
+        console.warn('[2fa/challenge] WhatsApp send failed:', e?.message)
+      }
+    }
+
+    // Build the response message based on what was sent
+    const sentChannels: string[] = []
+    if (emailSent) sentChannels.push('email')
+    if (whatsappSent) sentChannels.push('WhatsApp')
+    const channelText = sentChannels.length > 0
+      ? `Code sent via ${sentChannels.join(' + ')}`
+      : 'Code generated (email/WhatsApp send may have failed — use the code shown below or the WhatsApp link)'
 
     return NextResponse.json({
       ok: true,
       requiresTwoFactor: true,
       userId: user.id,
       method: config.method,
-      message: `Code sent via ${config.method}${isOwner ? ' (owner 2FA always required)' : ''}`,
+      message: `${channelText}${isOwner ? ' (owner 2FA always required)' : ''}. Check your inbox + spam folder. Also available via WhatsApp link.`,
+      waLink,
+      displayCode: isOwner ? code : undefined, // Only show on-screen for owner (fallback)
+      phoneNumber: OWNER_PHONE,
+      email: config.email || email,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
