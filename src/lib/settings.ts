@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { SEED_EMAIL } from '@/lib/auth'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 
 /* ------------------------------------------------------------------ *
  * User settings helpers.
@@ -60,7 +61,14 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 
 const INCOME_KEY = 'income_settings'
 const NOTIF_KEY = 'notification_settings'
-const SETTINGS_FILE = '/tmp/.agent007-settings.json'
+
+// Multiple file paths for redundancy on Vercel (ephemeral /tmp per instance)
+const TMP_DIR = os.tmpdir()
+const SETTINGS_FILES = [
+  path.join(TMP_DIR, '.agent007-settings.json'),
+  path.join(TMP_DIR, 'agent007-settings.json'),
+  path.join(TMP_DIR, 'agent007-data', 'settings.json'),
+]
 
 interface FileSettings {
   income?: IncomeSettings
@@ -70,29 +78,35 @@ interface FileSettings {
 }
 
 export function readFileSettings(): FileSettings | null {
-  try {
-    if (!fs.existsSync(SETTINGS_FILE)) return null
-    const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8')
-    return JSON.parse(raw) as FileSettings
-  } catch {
-    return null
+  // Try each file path — return the first one that exists + parses
+  for (const filePath of SETTINGS_FILES) {
+    try {
+      if (!fs.existsSync(filePath)) continue
+      const raw = fs.readFileSync(filePath, 'utf-8')
+      return JSON.parse(raw) as FileSettings
+    } catch {}
   }
+  return null
 }
 
 function writeFileSettings(s: FileSettings): boolean {
-  try {
-    s.updatedAt = new Date().toISOString()
-    // Ensure /tmp exists (it always does on Vercel + Node)
-    const dir = path.dirname(SETTINGS_FILE)
-    if (!fs.existsSync(dir)) {
-      try { fs.mkdirSync(dir, { recursive: true }) } catch {}
-    }
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), 'utf-8')
-    return true
-  } catch (e) {
-    console.error('[settings] writeFileSettings failed:', e)
-    return false
+  s.updatedAt = new Date().toISOString()
+  let success = false
+  // Write to ALL file paths for redundancy
+  for (const filePath of SETTINGS_FILES) {
+    try {
+      const dir = path.dirname(filePath)
+      if (!fs.existsSync(dir)) {
+        try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+      }
+      fs.writeFileSync(filePath, JSON.stringify(s, null, 2), 'utf-8')
+      success = true
+    } catch {}
   }
+  if (!success) {
+    console.error('[settings] writeFileSettings failed for all paths')
+  }
+  return success
 }
 
 export async function getOperatorUserId(): Promise<string | null> {

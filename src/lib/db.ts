@@ -100,6 +100,38 @@ async function seedData() {
           data: { userId: existing.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
         }).catch(() => {})
       }
+
+      // Ensure 2FA config exists (owner ALWAYS requires 2FA — auto-seed if missing)
+      // This fixes the "login page not asking for 2FA" issue on Vercel cold starts
+      const twoFA = await db.twoFactorSecret.findFirst({ where: { userId: existing.id, enabled: true } }).catch(() => null)
+      if (!twoFA) {
+        try {
+          await db.twoFactorSecret.create({
+            data: {
+              userId: existing.id,
+              method: 'email',
+              email: SEED_EMAIL,
+              enabled: true,
+              verifiedAt: new Date(),
+            }
+          })
+          console.log('[db] Seed: auto-created 2FA config for owner (email method)')
+        } catch {}
+      }
+
+      // Ensure income settings exist (auto-seed with correct 20% daily + $20K target)
+      // This fixes the "settings not saving" issue on Vercel cold starts
+      const incomeRow = await db.userSetting.findFirst({ where: { userId: existing.id, key: 'income_settings' } }).catch(() => null)
+      if (!incomeRow) {
+        try {
+          const defaultIncome = { monthlyGoal: 20000, dailyGrowthTarget: 20, currencySymbol: '$', displayMode: 'detailed' }
+          await db.userSetting.create({
+            data: { userId: existing.id, key: 'income_settings', value: JSON.stringify(defaultIncome) }
+          })
+          console.log('[db] Seed: auto-created income_settings (20% daily, $20K target)')
+        } catch {}
+      }
+
       return
     }
 
