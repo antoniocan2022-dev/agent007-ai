@@ -139,6 +139,12 @@ export const NEVER_REMOVABLE_TOOLS: readonly string[] = [
   'autonomous_decision_maker',
   'workflow_orchestrator',
   'capability_expander',
+  // Command ingestion tools (4 tools — let Agent007 receive commands
+  // from the owner via email, cellphone/SMS, and WhatsApp).
+  'check_inbound_commands',
+  'execute_inbound_command',
+  'send_communication',
+  'command_status',
 ] as const
 
 /**

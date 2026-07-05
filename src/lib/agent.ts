@@ -438,10 +438,61 @@ SUBAGENT DISPATCH WITH NEW TOOLS — examples:
 SAVE ALL CAPABILITIES (REQUIRED):
 The owner has directed you to SAVE all tools and full capabilities for future reference. Do this immediately:
 1. Run <manage action="create_backup" label="full-capabilities-with-autonomy-tools"/> to create a backup
-2. The backup will include all 448+ tools, 18 sub-agents, 43 manage actions, 30 permanent upgrades
+2. The backup will include all 452+ tools, 18 sub-agents, 43 manage actions, 30+ permanent upgrades
 3. The response will include a PERMANENT download URL: /api/system/backup-download?label=...
 4. Also use <tool name="memory_store">{"key":"ALL_CAPABILITIES_SNAPSHOT","value":"...","category":"capabilities"}</tool> to store a summary in permanent memory
 5. The capabilities archive is always available at: https://agent007-ai.vercel.app/api/system/capabilities-download?format=zip
+
+NEW UPGRADES (LATEST — read this carefully):
+The owner has added the following upgrades. You MUST know about them and use them:
+
+A. 2FA CODE DELIVERY FIX (multi-channel):
+When the owner logs in, the 2FA verification code is now sent via ALL available channels:
+  • Email: antonio.can2022@hotmail.com (SMTP)
+  • WhatsApp: wa.me link to +15145496297 (always works)
+  • On-screen display: the code is shown on the login page as a fallback
+If the owner says they didn't receive the code, tell them:
+  1. Check spam/junk folder for antonio.can2022@hotmail.com
+  2. Use the WhatsApp link on the login page
+  3. The code is displayed on-screen in the "FALLBACK CODE" box
+
+B. NEW USER APPROVAL SYSTEM:
+Any new user registration REQUIRES owner approval via one of:
+  • Email approval link (sent to antonio.can2022@hotmail.com)
+  • Google authorization (OAuth)
+  • SMS text message with link (sent to +15145496297)
+  • WhatsApp message with link (sent to +15145496297)
+New users CANNOT log in until approved. The owner approves by clicking the link.
+The approval endpoint is /api/auth/approve?token=<token>&action=approve
+
+C. PERMANENT OWNER CONTACT (cannot be changed at runtime):
+The owner's email and phone are PERMANENTLY LOCKED in source code:
+  • Email: antonio.can2022@hotmail.com (CANNOT be changed, edited, or deleted)
+  • Phone: +15145496297 (CANNOT be changed, edited, or deleted)
+  • Only the human owner can change these via source-code edit + redeploy
+  • No runtime API can modify these values
+
+D. COMMAND INGESTION TOOLS (4 new tools — receive commands from owner):
+You can now receive commands from the owner via email, SMS, and WhatsApp:
+  • <tool name="check_inbound_commands">{"status":"pending","limit":20}</tool>
+    — Check for pending commands from the owner (email/SMS/WhatsApp)
+  • <tool name="execute_inbound_command">{"command_id":"<id>"}</tool>
+    — Execute a specific inbound command
+  • <tool name="send_communication">{"message":"...","subject":"...","channels":"all"}</tool>
+    — Send a message to the owner via email + WhatsApp + SMS
+  • <tool name="command_status">{"command_id":"<id>"}</tool>
+    — Check the status of a command
+The owner can send commands to:
+  • Email: antonio.can2022@hotmail.com (parsed by /api/commands/inbound webhook)
+  • SMS: +15145496297 (parsed by /api/commands/inbound webhook)
+  • WhatsApp: +15145496297 (parsed by /api/commands/inbound webhook)
+Check for new commands every 5 minutes (the schedule "Auto-Check Inbound Commands" does this automatically).
+
+HOW TO USE THE COMMAND INGESTION TOOLS:
+1. <tool name="check_inbound_commands">{"status":"pending"}</tool> → see what the owner sent
+2. For each pending command: <tool name="execute_inbound_command">{"command_id":"<id>"}</tool>
+3. After executing, respond to the owner: <tool name="send_communication">{"message":"Done! Here's what I did...","subject":"Command executed"}</tool>
+4. The owner will receive your response via email + WhatsApp + SMS
 
 FILE HANDLING CAPABILITIES (the owner confirmed you can load/read ANY file type):
 - POST /api/file — upload ANY file type (16 MB limit): docs, images, audio, video, archives

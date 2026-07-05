@@ -1741,3 +1741,15 @@ TOOL_REGISTRY.autonomous_decision_maker = { fn: toolAutonomousDecisionMaker, ico
 TOOL_REGISTRY.workflow_orchestrator = { fn: toolWorkflowOrchestrator, icon: 'git-branch', label: 'Workflow Orchestrator (10 pre-built multi-step workflows)' }
 // Supporting tool 12: Capability Expander
 TOOL_REGISTRY.capability_expander = { fn: toolCapabilityExpander, icon: 'plus-circle', label: 'Capability Expander (auto-discover + add new tools)' }
+
+/* ================================================================== *
+ * COMMAND INGESTION TOOLS — Additional tool for command status tracking.
+ * (check_inbound_commands, execute_inbound_command, send_communication
+ * already exist in agent007-meta.ts — we only add command_status here.)
+ * Full access, no limitations. All are NEVER_REMOVABLE.
+ * ================================================================== */
+import {
+  toolCommandStatus,
+} from './command-ingestion-tools'
+
+TOOL_REGISTRY.command_status = { fn: toolCommandStatus, icon: 'activity', label: 'Command Status (check command execution state)' }

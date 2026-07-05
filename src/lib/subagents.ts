@@ -132,6 +132,12 @@ const ALL_TOOLS = [
   'autonomous_decision_maker',
   'workflow_orchestrator',
   'capability_expander',
+
+  // ── Command ingestion tools (4) — receive commands from owner ────────
+  'check_inbound_commands',
+  'execute_inbound_command',
+  'send_communication',
+  'command_status',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from
