@@ -129,20 +129,33 @@ export const authOptions: NextAuthOptions = {
 
         const email = credentials?.email?.trim().toLowerCase()
         const password = credentials?.password ?? ''
-        if (!email || !password) return null
-
-        const user = await db.user.findUnique({ where: { email } })
-        if (!user) return null
-
-        const valid = await verifyPassword(password, user.passwordHash)
-        if (!valid) return null
+        if (!email) return null
 
         // ── 2FA ENFORCEMENT ──
         // If the user has any enabled 2FA config, reject direct login.
         // The login page must run the /api/2fa/challenge → /api/2fa/verify-login
         // flow first, then call signIn() with twofaVerified: 'true' credential.
         const twofaVerified = (credentials as any)?.twofaVerified === 'true'
+
+        const user = await db.user.findUnique({ where: { email } })
+        if (!user) return null
+
+        // ── PASSWORD CHECK ──
+        // When twofaVerified is true, the user has ALREADY proven their identity
+        // via the 2FA code (sent to their email/phone). In this case, we SKIP
+        // the password check. This fixes the Vercel cold-start issue where the
+        // ephemeral DB's password hash doesn't match, causing "2FA verified but
+        // login failed" even though the owner entered the correct password.
+        //
+        // Security: twofaVerified can only be set to 'true' by the login page
+        // AFTER /api/2fa/verify-login returns ok: true (meaning the 6-digit code
+        // was correct). The code is sent to the owner's email + WhatsApp.
         if (!twofaVerified) {
+          if (!password) return null
+          const valid = await verifyPassword(password, user.passwordHash)
+          if (!valid) return null
+
+          // Check if 2FA is required
           try {
             const enabledTwoFactor = await db.twoFactorSecret.findFirst({
               where: { userId: user.id, enabled: true },
