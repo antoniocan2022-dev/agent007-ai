@@ -1284,48 +1284,84 @@ export async function toolHttpFetch(
     }
   }
 
-  // All attempts failed — provide a helpful error with alternatives
-  if (lastStatus === 401 || lastStatus === 403) {
-    return badResult(
-      `http_fetch got HTTP ${lastStatus} from ${url}\n\n` +
-      `This URL requires authentication. Use a different URL or ask the owner to add an API key.\n` +
-      `ALTERNATIVES: Use web_search to find similar content, or use inspect_url which handles more sites.`
-    )
-  }
+  // All attempts failed — AUTO-RECOVER via DuckDuckGo search
+  // Instead of just returning an error, try to find the content via search
+  // and return the search results so the agent has useful data to work with.
+  const urlTopic = url.replace(/^https?:\/\/[^/]+\//, '').replace(/[-_]/g, ' ').replace(/\.\w+$/, '').trim()
+  const searchQuery = urlTopic || url
 
-  if (lastStatus === 404) {
-    // For 404s, try to find the correct URL via DuckDuckGo
-    try {
-      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(url)}&format=json&no_html=1`
-      const ddgRes = await fetch(ddgUrl, { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Agent007-AI/1.0' } })
-      const ddgData = await ddgRes.json().catch(() => ({}))
-      const alternatives: string[] = []
-      if (ddgData.AbstractURL) alternatives.push(ddgData.AbstractURL)
-      if (Array.isArray(ddgData.RelatedTopics)) {
-        for (const t of ddgData.RelatedTopics.slice(0, 3)) {
-          if (t.FirstURL) alternatives.push(t.FirstURL)
+  try {
+    // Try DuckDuckGo Instant Answer API
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(searchQuery)}&format=json&no_html=1`
+    const ddgRes = await fetch(ddgUrl, { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Agent007-AI/1.0' } })
+    const ddgData = await ddgRes.json().catch(() => ({}))
+
+    const altResults: string[] = []
+    if (ddgData.AbstractText) {
+      altResults.push(`📖 ${ddgData.Heading || 'Summary'}\n   ${ddgData.AbstractText.slice(0, 500)}\n   Source: ${ddgData.AbstractURL || 'DuckDuckGo'}`)
+    }
+    if (Array.isArray(ddgData.RelatedTopics)) {
+      for (const t of ddgData.RelatedTopics.slice(0, 5)) {
+        if (t.Text && t.FirstURL) {
+          altResults.push(`🔗 ${t.Text.slice(0, 200)}\n   URL: ${t.FirstURL}`)
         }
       }
-      return badResult(
-        `http_fetch got HTTP 404 from ${url}\n\n` +
-        `The URL does not exist or has been moved. This is NOT an error with Agent007 — the website itself returned 404.\n\n` +
-        `WHAT TO DO:\n` +
-        `1. Use web_search to find the correct URL for this topic\n` +
-        `2. Use ddg_search or hn_search to find alternative sources\n` +
-        `3. Use inspect_url on a different URL\n` +
-        (alternatives.length > 0 ? `\nSUGGESTED ALTERNATIVE URLs (from DuckDuckGo):\n${alternatives.map(u => `  → ${u}`).join('\n')}` : '')
-      )
-    } catch {
-      return badResult(
-        `http_fetch got HTTP 404 from ${url}\n\n` +
-        `The URL does not exist. Use web_search or ddg_search to find the correct URL.`
+    }
+    if (ddgData.Answer) {
+      altResults.push(`💡 Answer: ${ddgData.Answer}`)
+    }
+
+    // Also try Google scraping for more results
+    try {
+      const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}&num=5`
+      const googleRes = await fetch(googleUrl, {
+        signal: AbortSignal.timeout(8000),
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+      })
+      const googleHtml = await googleRes.text().catch(() => '')
+      const titleRe = /<h3[^>]*>([^<]+)<\/h3>/g
+      const urlRe = /<a href="\/url\?q=([^&"]+)/g
+      let m: any
+      const titles: string[] = []
+      const urls: string[] = []
+      while ((m = titleRe.exec(googleHtml)) !== null) titles.push(m[1])
+      while ((m = urlRe.exec(googleHtml)) !== null) urls.push(decodeURIComponent(m[1]))
+      for (let i = 0; i < Math.min(titles.length, urls.length, 3); i++) {
+        altResults.push(`🔍 ${titles[i]}\n   URL: ${urls[i]}`)
+      }
+    } catch {}
+
+    if (altResults.length > 0) {
+      const statusMsg = lastStatus === 404 ? '404 (page not found)' : lastStatus === 0 ? 'connection failed/timeout' : `HTTP ${lastStatus}`
+      return okResult(
+        `http_fetch: ${url} returned ${statusMsg} — auto-recovered ${altResults.length} results via search`,
+        `HTTP_FETCH AUTO-RECOVERY REPORT\n${'='.repeat(60)}\n` +
+        `Original URL: ${url}\n` +
+        `Status: ${statusMsg} (the website itself returned this — NOT an Agent007 error)\n\n` +
+        `AUTO-RECOVERED RESULTS (via DuckDuckGo + Google search for "${searchQuery}"):\n\n` +
+        altResults.join('\n\n') +
+        `\n\nNOTE: The original URL doesn't work, but I found ${altResults.length} alternative sources above. ` +
+        `Use these URLs with http_fetch or inspect_url to get the actual content.`
       )
     }
-  }
+  } catch {}
 
+  // If auto-recovery also failed, return the best error we can
+  if (lastStatus === 404) {
+    return badResult(
+      `http_fetch: ${url} returned 404 and auto-recovery failed.\n` +
+      `Use web_search or ddg_search to find the correct URL manually.`
+    )
+  }
+  if (lastStatus === 0) {
+    return badResult(
+      `http_fetch: ${url} connection failed (timeout or DNS error).\n` +
+      `The site may be down or blocking requests. Use web_search or ddg_search instead.`
+    )
+  }
   return badResult(
-    `http_fetch got HTTP ${lastStatus} from ${url}\n\n` +
-    `ALTERNATIVES: Use web_search to find similar content, ddg_search for DuckDuckGo, or inspect_url for a cleaned page read.`
+    `http_fetch: ${url} returned HTTP ${lastStatus}.\n` +
+    `Use web_search or ddg_search to find alternative sources.`
   )
 }
 
