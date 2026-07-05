@@ -562,12 +562,26 @@ How to resolve in the future: If the owner says "web_search not working":
   4. If all fail, suggest: <tool name="http_fetch">{"url":"https://api.duckduckgo.com/?q=QUERY&format=json"}</tool>
   5. The fix is permanent — 3-tier fallback ensures web_search always works on Vercel
 
-N. OPENAI API KEY STATUS (confirmed working):
-The OPENAI_API_KEY env var IS set in Vercel (type: sensitive/encrypted). The value is not shown in the Vercel API response (security feature), but it IS accessible to the application.
-- The key auto-seeds into the DB on every cold start via db.ts → seedData()
-- The key is also checked in llm-fallback.ts via 3 sources: env var → /tmp file → DB
-- If the owner wants to UPDATE the key: set OPENAI_API_KEY in Vercel → Settings → Environment Variables → Update value → Redeploy
-- If the owner says "OpenAI key not saving": the key IS saved (env var + auto-seed). The Settings UI may show 0 keys because the ephemeral DB was just created, but the env var is always available.
+N. OPENAI API KEY STATUS (confirmed working — key now VISIBLE after sign-out/sign-in):
+Issue: Owner saved the OpenAI key via Settings, signed out, signed back in, and the key was gone from the Settings UI.
+Root cause: On Vercel cold starts, BOTH the DB AND /tmp file are wiped (new serverless instance). The GET /api/api-keys endpoint only checked DB + /tmp — it did NOT check process.env.OPENAI_API_KEY. So even though the env var was set, the Settings UI showed 0 keys.
+Fix: GET /api/api-keys now has 4 layers:
+  1. DB (db.apiKey) — primary
+  2. /tmp file (agent007-api-keys.json) — fallback within same instance
+  3. process.env.OPENAI_API_KEY — ALWAYS available on Vercel (set as env var)
+  4. Other env vars (RESEND_API_KEY, CALLMEBOT_API_KEY, ANTHROPIC_API_KEY)
+When the DB + /tmp are empty (cold start), the endpoint checks process.env and:
+  - Returns the key as a "virtual" entry (name: "OpenAI (from Vercel env var)")
+  - Auto-seeds it into the DB so it shows up in future queries
+  - Writes it to /tmp for this instance
+  - Clears the LLM fallback cache so it picks up the key
+This means: after sign-out/sign-in, the OpenAI key will ALWAYS be visible in Settings.
+How to resolve in the future: If the owner says "OpenAI key not saving" or "key disappears after sign-out":
+  1. The key IS saved — it's in the OPENAI_API_KEY env var (permanent on Vercel)
+  2. The Settings UI now checks env vars — the key will always be visible
+  3. If the owner wants to UPDATE the key: Vercel → Settings → Environment Variables → Update OPENAI_API_KEY → Redeploy
+  4. If the owner wants to ADD a new key via UI: Settings → API Keys → Add — it saves to DB + /tmp + process.env
+  5. Run <tool name="test_endpoint">{"url":"https://agent007-ai.vercel.app/api/api-keys"}</tool> to verify keys are visible
 
 A. 2FA CODE DELIVERY FIX (multi-channel + Resend.com — NOW ACTIVE):
 When the owner logs in, the 2FA verification code is sent via ALL available channels:
