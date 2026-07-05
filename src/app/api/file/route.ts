@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const UPLOAD_DIR = '/home/z/my-project/download/uploads'
+// Vercel-aware upload directory.
+// - On Vercel: use /tmp (the only writable directory in serverless).
+// - On local dev: use /home/z/my-project/download/uploads for parity with the
+//   rest of the project.
+const UPLOAD_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'agent007-uploads')
+  : '/home/z/my-project/download/uploads'
 const MAX_BYTES = 16 * 1024 * 1024 // 16 MB
 
 function guessMime(ext: string): string {
