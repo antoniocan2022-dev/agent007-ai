@@ -679,10 +679,10 @@ export async function toolFreeApisDirectory(
 }
 
 /* ----------------------------- helpers -------------------------------- */
-function okResult(preview: string, result: string): ToolResult {
+export function okResult(preview: string, result: string): ToolResult {
   return { ok: true, preview, result }
 }
-function badResult(result: string): ToolResult {
+export function badResult(result: string): ToolResult {
   return { ok: false, preview: result.slice(0, 120), result }
 }
 
@@ -1377,3 +1377,47 @@ import { TOOL_ENHANCEMENTS } from './phase3-enhancements'
 for (const [name, def] of Object.entries(TOOL_ENHANCEMENTS)) {
   TOOL_REGISTRY[name] = def
 }
+
+/* ================================================================== *
+ * SELF-FIX TOOLS — 12 new tools for Agent007 to repair itself.
+ * Full access, no limitations. These let the agent:
+ *   - Test any endpoint from inside the server
+ *   - Diagnose LLM providers (Z.ai + OpenAI)
+ *   - Force-refresh settings from /tmp fallback
+ *   - Verify deployment health (one-shot)
+ *   - Inspect any URL
+ *   - Reload config in-memory
+ *   - Patch source code at runtime (local dev only)
+ *   - Trigger Vercel redeploy via API
+ *   - View error logs from DB
+ *   - Run a comprehensive self-check
+ *   - Download the capabilities archive on-demand
+ *   - Clean up /tmp files to free space
+ * ================================================================== */
+import {
+  toolTestEndpoint,
+  toolDiagnoseLlm,
+  toolForceRefreshSettings,
+  toolVerifyDeployment,
+  toolInspectUrl,
+  toolReloadConfig,
+  toolPatchSourceFile,
+  toolTriggerRedeploy,
+  toolViewErrorLogs,
+  toolComprehensiveSelfCheck,
+  toolDownloadCapabilities,
+  toolCleanupTempFiles,
+} from './self-fix-tools'
+
+TOOL_REGISTRY.test_endpoint = { fn: toolTestEndpoint, icon: 'plug', label: 'Test Endpoint (HTTP test any URL from server)' }
+TOOL_REGISTRY.diagnose_llm = { fn: toolDiagnoseLlm, icon: 'cpu', label: 'Diagnose LLM (test Z.ai + OpenAI providers)' }
+TOOL_REGISTRY.force_refresh_settings = { fn: toolForceRefreshSettings, icon: 'refresh-cw', label: 'Force-Refresh Settings (sync /tmp fallback → DB)' }
+TOOL_REGISTRY.verify_deployment = { fn: toolVerifyDeployment, icon: 'shield-check', label: 'Verify Deployment (comprehensive health check)' }
+TOOL_REGISTRY.inspect_url = { fn: toolInspectUrl, icon: 'search', label: 'Inspect URL (fetch + clean any URL)' }
+TOOL_REGISTRY.reload_config = { fn: toolReloadConfig, icon: 'rotate-cw', label: 'Reload Config (refresh in-memory caches)' }
+TOOL_REGISTRY.patch_source_file = { fn: toolPatchSourceFile, icon: 'file-edit', label: 'Patch Source File (runtime code patches)' }
+TOOL_REGISTRY.trigger_redeploy = { fn: toolTriggerRedeploy, icon: 'rocket', label: 'Trigger Vercel Redeploy (via Vercel API)' }
+TOOL_REGISTRY.view_error_logs = { fn: toolViewErrorLogs, icon: 'file-warning', label: 'View Error Logs (recent audit log entries)' }
+TOOL_REGISTRY.comprehensive_self_check = { fn: toolComprehensiveSelfCheck, icon: 'activity', label: 'Comprehensive Self-Check (one-shot full verification)' }
+TOOL_REGISTRY.download_capabilities = { fn: toolDownloadCapabilities, icon: 'download', label: 'Download Capabilities (on-demand ZIP/JSON/CSV)' }
+TOOL_REGISTRY.cleanup_temp_files = { fn: toolCleanupTempFiles, icon: 'trash', label: 'Cleanup Temp Files (free /tmp space)' }

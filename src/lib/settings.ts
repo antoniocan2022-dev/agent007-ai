@@ -69,7 +69,7 @@ interface FileSettings {
   updatedAt?: string
 }
 
-function readFileSettings(): FileSettings | null {
+export function readFileSettings(): FileSettings | null {
   try {
     if (!fs.existsSync(SETTINGS_FILE)) return null
     const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8')

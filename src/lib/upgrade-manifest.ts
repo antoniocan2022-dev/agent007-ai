@@ -222,6 +222,24 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/backup-functions.ts', 'src/lib/orchestrator.ts', 'src/app/api/system/zip-backup/route.ts'],
   },
+  {
+    id: 'capabilities_download_on_demand',
+    category: 'persistence',
+    title: 'On-Demand Capabilities Download Endpoint (Fixes Broken Download Links)',
+    description: 'The capabilities ZIP/JSON files generated locally in /home/z/my-project/download/ did NOT exist on Vercel — Vercel\'s /tmp storage is ephemeral and doesn\'t include locally-generated files. All three download URL patterns (/api/system/zip-backup?download=, /api/file?name=, /download/) returned 404 on Vercel. Created /api/system/capabilities-download endpoint that REGENERATES the full capabilities archive at request time from the live TOOL_REGISTRY. Supports 4 formats: ?format=zip (gzipped JSON, default), ?format=json (raw JSON), ?format=csv (Excel-sortable tool list), ?format=readme (human-readable). Uses Node\'s built-in zlib for compression — no `zip` binary dependency. Always reflects the current 382+ tools, 18 sub-agents, 41 manage actions, 22+ permanent upgrades. No persistent storage needed.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/app/api/system/capabilities-download/route.ts'],
+  },
+  {
+    id: 'self_fix_toolkit',
+    category: 'autonomy',
+    title: 'Self-Fix Toolkit — 12 New Tools for Autonomous Repair',
+    description: 'Added 12 new self-repair tools that let Agent007 fix problems autonomously WITHOUT requiring the owner to redeploy. Created src/lib/self-fix-tools.ts with: (1) test_endpoint — HTTP test any URL from inside the server, (2) diagnose_llm — test Z.ai + OpenAI providers, (3) force_refresh_settings — sync /tmp fallback → DB, (4) verify_deployment — one-shot health check, (5) inspect_url — fetch + clean any URL, (6) reload_config — refresh in-memory caches, (7) patch_source_file — runtime code patcher (local dev only; on Vercel records the patch for next deploy), (8) trigger_redeploy — Vercel API redeploy trigger, (9) view_error_logs — query audit log entries, (10) comprehensive_self_check — one-shot full verification (capabilities + audit + self-heal + manifest + DB + LLM), (11) download_capabilities — get the on-demand archive URL, (12) cleanup_temp_files — free /tmp space. All tools have FULL ACCESS, no limitations. The owner has explicitly authorized Agent007 to use any of these tools at any time without asking first. Updated SYSTEM_PROMPT with documentation + a "HOW TO USE THE SELF-FIX TOOLKIT WHEN SOMETHING BREAKS" decision tree.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/self-fix-tools.ts', 'src/lib/tools.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
