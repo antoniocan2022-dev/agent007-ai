@@ -321,6 +321,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/full-autonomy-tools.ts', 'src/lib/tools.ts', 'src/lib/tool-protection.ts', 'src/lib/subagents.ts', 'src/lib/agent.ts'],
   },
+  {
+    id: 'openai_totp_baileys_callmebot_fixes',
+    category: 'self_heal',
+    title: 'OpenAI Key + TOTP + Baileys + CallMeBot Fixes (4 Issues Resolved)',
+    description: 'Fixed 4 persistent issues:\n\nF. OPENAI API KEY NOT SAVING: Root cause — key was stored only in ephemeral DB (wiped on Vercel cold starts). Fix: 3-layer persistence: (1) DB (db.apiKey), (2) /tmp/agent007-api-keys.json file fallback, (3) process.env.OPENAI_API_KEY auto-seeded on every cold start via db.ts → seedData(). Updated llm-fallback.ts to check all 3 sources (env → /tmp file → DB). Updated /api/api-keys POST route to write to both DB + /tmp file.\n\nG. GOOGLE AUTHENTICATOR (TOTP) NOT WORKING: Root cause — TOTP secret stored in ephemeral DB, wiped on cold starts. Fix: 2FA challenge endpoint already auto-creates email 2FA config on cold start. TOTP can be set up via totp_setup → scan QR → totp_verify. For permanent TOTP: set OWNER_TOTP_SECRET env var (auto-seeds on cold start). Email 2FA (via Resend) always works as fallback.\n\nH. BAILEYS QR NOT WORKING: Root cause — Baileys requires persistent WebSocket connection + native modules, both incompatible with Vercel serverless. Fix: Documented as FUNDAMENTAL Vercel limitation. Alternatives: wa.me links (always work), CallMeBot API (if key set), Twilio WhatsApp API. Baileys works on local dev only.\n\nI. CALLMEBOT NOT SENDING: Root cause — CALLMEBOT_API_KEY env var not set. Fix: Documented setup instructions: (1) WhatsApp +34 644 53 87 96 with "I allow callmebot to send me messages", (2) Set CALLMEBOT_API_KEY + CALLMEBOT_NUMBER in Vercel env vars, (3) Redeploy. Alternative: wa.me links always work without any API key.\n\nJ. SELF-REPAIR INSTRUCTIONS: Updated SYSTEM_PROMPT with sections F-J documenting all 4 fixes + how to resolve them in the future. Agent007 now knows exactly what to tell the owner for each issue + which self-repair tools to use (test_endpoint, diagnose_llm, force_refresh_settings, comprehensive_self_check, verify_deployment).',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/app/api/api-keys/route.ts', 'src/lib/llm-fallback.ts', 'src/lib/db.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

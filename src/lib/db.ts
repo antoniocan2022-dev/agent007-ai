@@ -132,6 +132,26 @@ async function seedData() {
         } catch {}
       }
 
+      // Ensure OpenAI API key exists in DB (auto-seed from env var)
+      // This fixes the "OpenAI key not saving" issue on Vercel cold starts
+      if (process.env.OPENAI_API_KEY) {
+        const existingKey = await db.apiKey.findFirst({ where: { userId: existing.id, service: 'openai' } }).catch(() => null)
+        if (!existingKey) {
+          try {
+            await db.apiKey.create({
+              data: {
+                userId: existing.id,
+                name: 'OpenAI (env var)',
+                service: 'openai',
+                key: process.env.OPENAI_API_KEY,
+                baseUrl: null,
+              }
+            })
+            console.log('[db] Seed: auto-created OpenAI API key from env var')
+          } catch {}
+        }
+      }
+
       return
     }
 

@@ -24,10 +24,10 @@ let _cachedDbKeyAt: number = 0
 const CACHE_TTL_MS = 60 * 1000 // 1 minute
 
 /**
- * Get the OpenAI API key from env or DB.
+ * Get the OpenAI API key from env or DB or /tmp file.
  */
 async function getOpenAIKey(): Promise<string | null> {
-  // 1. Check env var first (fastest)
+  // 1. Check env var first (fastest — set in Vercel env vars)
   if (process.env.OPENAI_API_KEY) {
     return process.env.OPENAI_API_KEY
   }
@@ -37,7 +37,25 @@ async function getOpenAIKey(): Promise<string | null> {
     return _cachedDbKey
   }
 
-  // 3. Query DB for the key
+  // 3. Check /tmp file (persists across Vercel cold starts within reuse window)
+  try {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const os = await import('node:os')
+    const apiKeysFile = path.join(os.tmpdir(), 'agent007-api-keys.json')
+    if (fs.existsSync(apiKeysFile)) {
+      const raw = fs.readFileSync(apiKeysFile, 'utf-8')
+      const keys = JSON.parse(raw) as Array<any>
+      const openaiKey = keys.find(k => k.service === 'openai')
+      if (openaiKey?.key) {
+        _cachedDbKey = openaiKey.key
+        _cachedDbKeyAt = Date.now()
+        return openaiKey.key
+      }
+    }
+  } catch {}
+
+  // 4. Query DB for the key
   try {
     const { db } = await import('./db')
     const { ensureDbReady } = await import('./db')
