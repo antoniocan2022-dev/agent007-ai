@@ -2021,16 +2021,17 @@ async function executeManageAction(
       case 'create_backup': {
         try {
           const label = (attrs.label ?? 'full-system').toString().slice(0, 40)
-          const data = await internalFetch(internalUrl("/api/system/zip-backup"), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label }),
-            signal: AbortSignal.timeout(60000),
-          })
+          // DIRECT FUNCTION CALL — no internalFetch, no self-HTTP roundtrip.
+          // The previous version used internalFetch("/api/system/zip-backup")
+          // which on Vercel returns HTML (login/error page), not JSON,
+          // causing "non-JSON response" errors. See src/lib/backup-functions.ts.
+          const { createBackup } = await import('./backup-functions')
+          const data = await createBackup(label)
           if (!data.ok) return { ok: false, message: `Backup failed: ${data.error ?? 'unknown'}` }
+          const warnLine = data.warning ? `\n\n⚠ ${data.warning}` : ''
           return {
             ok: true,
-            message: `✅ Backup created: ${data.zipFilename} (${data.zipSizeMB}MB)\n\nContents:\n- Database tables: ${data.contents.databaseTables}\n- Total rows: ${data.contents.totalRows}\n- Source files: ${data.contents.sourceFiles}\n- Permanent upgrades: ${data.contents.upgrades}\n\nDownload URL: ${data.downloadUrl}\nAbsolute path: ${data.absolutePath}`,
+            message: `✅ Backup created: ${data.zipFilename} (${data.zipSizeMB}MB)${warnLine}\n\nContents:\n- Database tables: ${data.contents.databaseTables}\n- Total rows: ${data.contents.totalRows}\n- Source files: ${data.contents.sourceFiles}\n- Permanent upgrades: ${data.contents.upgrades}\n\nDownload URL: ${data.downloadUrl}\nAbsolute path: ${data.absolutePath}`,
             data,
           }
         } catch (e: any) {
@@ -2041,14 +2042,18 @@ async function executeManageAction(
       /* --------------------------- list_backups (list all available backups) --------------------------- */
       case 'list_backups': {
         try {
-          const data = await internalFetch(internalUrl("/api/system/zip-backup"), {
-            signal: AbortSignal.timeout(10000),
-          })
+          // DIRECT FUNCTION CALL — no internalFetch.
+          const { listBackups } = await import('./backup-functions')
+          const data = await listBackups()
           const backups = data.backups ?? []
-          if (backups.length === 0) return { ok: true, message: 'No backups found. Use create_backup to create one.' }
+          if (backups.length === 0) {
+            const warnLine = data.warning ? `\n\n⚠ ${data.warning}` : ''
+            return { ok: true, message: `No backups found. Use create_backup to create one.${warnLine}` }
+          }
+          const warnLine = data.warning ? `\n\n⚠ ${data.warning}` : ''
           return {
             ok: true,
-            message: `${backups.length} backups available:\n${backups.map((b: any, i: number) => `  ${i + 1}. ${b.name} (${b.size}) — ${b.created}`).join('\n')}\n\nTo download: /api/system/zip-backup?download=<filename>`,
+            message: `${backups.length} backups available:\n${backups.map((b: any, i: number) => `  ${i + 1}. ${b.name} (${b.size}) — ${b.created}`).join('\n')}\n\nTo download: /api/system/zip-backup?download=<filename>${warnLine}`,
             data: { count: backups.length, backups },
           }
         } catch (e: any) {

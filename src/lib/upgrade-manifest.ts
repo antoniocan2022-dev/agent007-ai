@@ -213,6 +213,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/db.ts', 'src/lib/system-functions.ts'],
   },
+  {
+    id: 'backup_no_self_fetch',
+    category: 'self_heal',
+    title: 'Backup System Uses Direct Function Calls (Fixes Non-JSON Response)',
+    description: 'The create_backup / list_backups / load_backup manage actions used internalFetch() to call /api/system/zip-backup, which on Vercel returns HTML (login/error page) instead of JSON — causing "non-JSON response" errors and persistent backup failures. Created src/lib/backup-functions.ts as the CANONICAL backup implementation with direct async functions (createBackup, listBackups, findBackupFile). Both the orchestrator AND the /api/system/zip-backup route now call these functions directly — no HTTP roundtrip = no HTML response = no parser error. Also fixed: (1) hardcoded /home/z/my-project/download/backups path → Vercel-aware /tmp/agent007-backups, (2) zip binary dependency → Node.js built-in zlib gzip, (3) self-fetch to /api/system/capabilities → direct getCapabilities() call, (4) stale dailyGrowthTarget:10 in mission field → 20 (matches owner-confirmed 20% daily), (5) source file reads skipped on Vercel (not bundled). Backup version bumped 4.0 → 5.0. Verified locally: 33 tables, 1550 rows, 24 source files, 21 upgrades, 0.47 MB gzip archive.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/backup-functions.ts', 'src/lib/orchestrator.ts', 'src/app/api/system/zip-backup/route.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

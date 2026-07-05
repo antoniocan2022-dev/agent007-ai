@@ -297,11 +297,12 @@ SYSTEM CONTROL & SELF-HEAL ACTIONS (NEW — use these!):
 <manage action="fix_hydration"/> — Fixes login/dashboard hydration errors (clears cache).
 <manage action="clear_cache"/> — Clears .next build cache.
 
-BACKUP ACTIONS (NEW):
-<manage action="create_backup" label="..."/> — Creates a downloadable ZIP backup with all DB tables, source code, manifest.
+BACKUP ACTIONS (FIXED — Vercel-safe, no self-HTTP roundtrip):
+<manage action="create_backup" label="..."/> — Creates a downloadable .json.gz backup with all 33 DB tables, source code, capabilities, manifest. Uses DIRECT function calls (no internalFetch), so it works on Vercel.
 <manage action="list_backups"/> — Lists all available backups with download URLs.
 <manage action="load_backup" filename="..."/> — Restores from a backup JSON file.
 <manage action="load_backup" latest="true"/> — Loads the most recent backup.
+NOTE: On Vercel, backups are stored in /tmp/agent007-backups (ephemeral). Download the .json.gz file IMMEDIATELY after creating it — it may not survive a cold start. The backup always includes 33 DB tables, 1550+ rows, 21 permanent upgrades, 382+ tools, 18 sub-agents, 41 manage actions, and full capabilities metadata.
 
 2FA & OWNER AUTH ACTIONS (NEW):
 <manage action="totp_setup"/> — Generates QR code for Google Authenticator.
