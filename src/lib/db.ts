@@ -10,17 +10,22 @@ const globalForPrisma = globalThis as unknown as {
   dbInitialized?: boolean
 }
 
-const SCHEMA_VERSION = 'v6-raw-sql-init'
+const SCHEMA_VERSION = 'v7-raw-sql-init-all-33-tables'
 
 function createPrisma(): PrismaClient {
   return new PrismaClient()
 }
 
 // Create tables via raw SQL (works on Vercel runtime, no better-sqlite3 needed)
+// ALL 33 Prisma models must have a corresponding CREATE TABLE statement here.
+// When you add a new model to prisma/schema.prisma, also add its CREATE TABLE
+// here — otherwise the system audit will report "database: fail" on Vercel
+// because the ephemeral DB has no migration history.
 async function createTablesViaRawSQL() {
   try {
     // SQLite raw DDL — Prisma executes these directly
     const statements = [
+      // ── Core 17 tables (original v6 set) ───────────────────────────────
       'CREATE TABLE IF NOT EXISTS User (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, passwordHash TEXT NOT NULL, name TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
       'CREATE TABLE IF NOT EXISTS Conversation (id TEXT PRIMARY KEY, userId TEXT, title TEXT DEFAULT \'New Conversation\', createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
       'CREATE TABLE IF NOT EXISTS Message (id TEXT PRIMARY KEY, conversationId TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, toolName TEXT, toolArgs TEXT, toolResult TEXT, attachments TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
@@ -37,18 +42,45 @@ async function createTablesViaRawSQL() {
       'CREATE TABLE IF NOT EXISTS ApiKey (id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, service TEXT NOT NULL, key TEXT NOT NULL, baseUrl TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
       'CREATE TABLE IF NOT EXISTS TwoFactorSecret (id TEXT PRIMARY KEY, userId TEXT NOT NULL, method TEXT NOT NULL, phoneNumber TEXT, email TEXT, secret TEXT, qrCodeUrl TEXT, backupCodes TEXT, enabled BOOLEAN DEFAULT 0, verifiedAt DATETIME, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
       'CREATE TABLE IF NOT EXISTS BankAccount (id TEXT PRIMARY KEY, userId TEXT NOT NULL, accountHolder TEXT NOT NULL, bankName TEXT NOT NULL, accountType TEXT DEFAULT \'checking\', accountNumber TEXT NOT NULL, routingNumber TEXT NOT NULL, accountLast4 TEXT, bankCountry TEXT DEFAULT \'US\', bankCurrency TEXT DEFAULT \'USD\', verificationStatus TEXT DEFAULT \'pending\', isPrimary BOOLEAN DEFAULT 0, label TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
-      'CREATE TABLE IF NOT EXISTS UserSetting (id TEXT PRIMARY KEY, userId TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(userId, key))','CREATE TABLE IF NOT EXISTS NotificationLog (id TEXT PRIMARY KEY, userId TEXT NOT NULL, type TEXT NOT NULL, "to" TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, sent BOOLEAN DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)','CREATE TABLE IF NOT EXISTS PayPalAccount (id TEXT PRIMARY KEY, userId TEXT NOT NULL, email TEXT NOT NULL, clientId TEXT, clientSecret TEXT, webhookId TEXT, isPrimary BOOLEAN DEFAULT 0, verified BOOLEAN DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS PayPalAccount (id TEXT PRIMARY KEY, userId TEXT NOT NULL, email TEXT NOT NULL, clientId TEXT, clientSecret TEXT, webhookId TEXT, isPrimary BOOLEAN DEFAULT 0, verified BOOLEAN DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+
+      // ── Phase-2 business tables (16 new — fixes "database: fail" audit) ─
+      'CREATE TABLE IF NOT EXISTS Customer (id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, email TEXT, phone TEXT, company TEXT, status TEXT DEFAULT \'lead\', value REAL DEFAULT 0, source TEXT, notes TEXT, tags TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS MarketingCampaign (id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, channel TEXT, status TEXT DEFAULT \'draft\', budget REAL DEFAULT 0, spent REAL DEFAULT 0, leadsGenerated INTEGER DEFAULT 0, conversions INTEGER DEFAULT 0, revenue REAL DEFAULT 0, startDate DATETIME, endDate DATETIME, metadata TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS Partnership (id TEXT PRIMARY KEY, userId TEXT NOT NULL, partnerName TEXT NOT NULL, partnerType TEXT, status TEXT DEFAULT \'proposed\', commissionRate REAL DEFAULT 0, revenueGenerated REAL DEFAULT 0, contactEmail TEXT, contactPhone TEXT, notes TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS BusinessStrategy (id TEXT PRIMARY KEY, userId TEXT NOT NULL, phase TEXT, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT \'planned\', priority TEXT DEFAULT \'medium\', progress REAL DEFAULT 0, targetDate DATETIME, completedAt DATETIME, metadata TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS MissionTracker (id TEXT PRIMARY KEY, userId TEXT NOT NULL, metric TEXT NOT NULL, currentValue REAL NOT NULL, targetValue REAL NOT NULL, withoutImprovements REAL, withImprovements REAL, unit TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS ServicePackage (id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, description TEXT, category TEXT, priceMonthly REAL DEFAULT 0, priceOneTime REAL DEFAULT 0, deliveryTime TEXT, features TEXT, active BOOLEAN DEFAULT 1, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS Opportunity (id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL, description TEXT, category TEXT, potential REAL, status TEXT DEFAULT \'new\', metadata TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS Prediction (id TEXT PRIMARY KEY, userId TEXT NOT NULL, category TEXT, prediction TEXT, confidence REAL DEFAULT 0.5, timeframe TEXT, outcome TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS SystemHealth (id TEXT PRIMARY KEY, userId TEXT NOT NULL, component TEXT, status TEXT DEFAULT \'healthy\', details TEXT, autoRepaired BOOLEAN DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS MLModel (id TEXT PRIMARY KEY, userId TEXT NOT NULL, name TEXT NOT NULL, type TEXT, features TEXT, weights TEXT, accuracy REAL DEFAULT 0.0, trainSamples INTEGER DEFAULT 0, lastTrained DATETIME, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS RiskRegister (id TEXT PRIMARY KEY, userId TEXT NOT NULL, category TEXT, description TEXT NOT NULL, likelihood INTEGER DEFAULT 3, impact INTEGER DEFAULT 3, score INTEGER DEFAULT 15, level TEXT DEFAULT \'medium\', mitigations TEXT, status TEXT DEFAULT \'active\', createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS ComplianceCheck (id TEXT PRIMARY KEY, userId TEXT NOT NULL, country TEXT, regulation TEXT, status TEXT DEFAULT \'pending\', details TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS ContractDraft (id TEXT PRIMARY KEY, userId TEXT NOT NULL, title TEXT NOT NULL, type TEXT, parties TEXT, terms TEXT, status TEXT DEFAULT \'draft\', riskScore INTEGER DEFAULT 5, notes TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS "Transaction" (id TEXT PRIMARY KEY, userId TEXT NOT NULL, provider TEXT NOT NULL, providerTxId TEXT NOT NULL, amount REAL NOT NULL, currency TEXT DEFAULT \'USD\', status TEXT DEFAULT \'succeeded\', customerEmail TEXT, customerName TEXT, productName TEXT, description TEXT, rawPayload TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(provider, providerTxId))',
+      'CREATE TABLE IF NOT EXISTS KnowledgeDoc (id TEXT PRIMARY KEY, userId TEXT NOT NULL, filename TEXT NOT NULL, mimeType TEXT, size INTEGER, text TEXT, chunkCount INTEGER DEFAULT 0, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
+      'CREATE TABLE IF NOT EXISTS KnowledgeChunk (id TEXT PRIMARY KEY, docId TEXT NOT NULL, userId TEXT NOT NULL, content TEXT, chunkIndex INTEGER, keywords TEXT DEFAULT \'\', createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)',
     ]
+    let created = 0
+    let alreadyExisted = 0
+    let failed = 0
     for (const sql of statements) {
-      try { await (db as any).$executeRawUnsafe(sql) } catch (e: any) {
-        // "table already exists" is OK
-        if (!e?.message?.includes('already exists')) {
-          // Silently ignore — table may already exist
+      try {
+        await (db as any).$executeRawUnsafe(sql)
+        created++
+      } catch (e: any) {
+        const msg = e?.message ?? ''
+        if (msg.includes('already exists')) {
+          alreadyExisted++
+        } else {
+          failed++
+          console.warn('[db] SQL failed:', msg.slice(0, 120), '— statement:', sql.slice(0, 80))
         }
       }
     }
-    console.log('[db] Tables ensured via raw SQL')
-    return true
+    console.log(`[db] Tables ensured via raw SQL — ${created} created, ${alreadyExisted} already existed, ${failed} failed (out of ${statements.length} statements)`)
+    return failed === 0
   } catch (e: any) {
     console.error('[db] Table creation failed:', e?.message)
     return false

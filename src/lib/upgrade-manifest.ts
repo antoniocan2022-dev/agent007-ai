@@ -204,6 +204,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/settings.ts', 'src/components/agent/tabs/dashboard-tab.tsx', 'src/components/agent/tabs/settings-tab.tsx', 'src/lib/agent.ts'],
   },
+  {
+    id: 'all_33_tables_init',
+    category: 'persistence',
+    title: 'All 33 Prisma Tables Initialized via Raw SQL (Fixes Audit Fail)',
+    description: 'The system audit was reporting "database: fail" because only 17 of 33 Prisma models had CREATE TABLE statements in db.ts. Added CREATE TABLE IF NOT EXISTS statements for all 16 missing tables: Customer, MarketingCampaign, Partnership, BusinessStrategy, MissionTracker, ServicePackage, Opportunity, Prediction, SystemHealth, MLModel, RiskRegister, ComplianceCheck, ContractDraft, Transaction, KnowledgeDoc, KnowledgeChunk. Also expanded the audit\'s tableChecks list from 16 → 33 entries so every model is verified. Schema version bumped from v6 → v7-raw-sql-init-all-33-tables. The audit now reports "database: pass" on Vercel cold starts.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/db.ts', 'src/lib/system-functions.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

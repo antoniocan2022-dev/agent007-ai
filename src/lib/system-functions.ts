@@ -33,7 +33,18 @@ export async function runSystemAudit(): Promise<any> {
 
   try {
     await ensureDbReady()
-    const tableChecks = ['User','UserSetting','IncomeEntry','Schedule','Conversation','Message','Memory','CustomSubagent','TwoFactorSecret','PhoneConfig','NotificationLog','AuditLog','IncomingCommand','BankAccount','PayPalAccount','ApiKey']
+    const tableChecks = [
+      // ── Core 17 tables (original v6 set) ────────────────────────────
+      'User','UserSetting','IncomeEntry','Schedule','Conversation','Message',
+      'Memory','CustomSubagent','TwoFactorSecret','PhoneConfig','NotificationLog',
+      'AuditLog','IncomingCommand','BankAccount','PayPalAccount','ApiKey',
+      'PendingManageAction',
+      // ── Phase-2 business tables (16 new) ────────────────────────────
+      'Customer','MarketingCampaign','Partnership','BusinessStrategy',
+      'MissionTracker','ServicePackage','Opportunity','Prediction',
+      'SystemHealth','MLModel','RiskRegister','ComplianceCheck',
+      'ContractDraft','Transaction','KnowledgeDoc','KnowledgeChunk',
+    ]
     for (const t of tableChecks) {
       try {
         const modelName = t as keyof typeof db
