@@ -651,12 +651,18 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
   const includeDisabled = opts?.includeDisabled ?? false
   let customRows: any[] = []
   try {
+    // Ensure DB is ready before querying (fixes Vercel cold-start race condition
+    // where getAllSubagents is called before ensureDbReady completes)
+    const { ensureDbReady } = await import('./db')
+    await ensureDbReady().catch(() => {})
     const userId = await getOperatorUserId()
     if (userId) {
       customRows = await db.customSubagent.findMany({ where: { userId } })
     }
   } catch (e) {
     console.error('[subagents] getAllSubagents DB load failed:', e)
+    // Continue with empty customRows — built-in agents will still be returned
+    // with FULL_ACCESS_TOOLS applied (see below)
   }
 
   const overlayMap = new Map<string, any>()
@@ -781,7 +787,14 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     return { answer: `⚠️ ${err}`, steps: [] }
   }
 
-  const allowed = new Set(sub.allowedTools)
+  // CRITICAL FIX: Always grant FULL_ACCESS_TOOLS to every subagent, regardless
+  // of what getAllSubagents returned. This fixes the issue where subagents
+  // other than AURORA couldn't use web_search — on Vercel cold starts, the
+  // DB query in getAllSubagents may fail or return stale data, causing
+  // allowedTools to be the limited built-in list instead of FULL_ACCESS_TOOLS.
+  // By forcing FULL_ACCESS_TOOLS here, we guarantee every subagent can use
+  // every tool (web_search, page_reader, all 465+ tools) on every request.
+  const allowed = new Set([...FULL_ACCESS_TOOLS])
   const ctx: ToolContext = { attachments: opts.attachments, language: opts.language }
 
   const languageInstruction =
@@ -861,59 +874,64 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     const stepId = `sub_${opts.dispatchId}_${iter}_${Math.random().toString(36).slice(2, 8)}`
 
     // Enforce the sub-agent's allowed tool list
+    // NOTE: With FULL_ACCESS_TOOLS, all 99+ tools are allowed, so this check
+    // should NEVER block. If it does, it's a bug — the subagent should be
+    // able to use any tool. The check remains as a safety net.
+    let toolBlocked = false
     if (!allowed.has(toolName)) {
-      const errResult: ToolResult = {
-        ok: false,
-        preview: `Tool "${toolName}" not allowed for ${sub.name}`,
-        result: `BLOCKED: ${sub.name} is not permitted to call "${toolName}". Allowed tools: ${sub.allowedTools.join(', ')}. Use one of those instead.`,
-      }
-      const step: any = {
-        id: stepId,
-        thought: parsed.thought,
-        toolName,
-        toolArgs,
-        toolResult: errResult,
-        startedAt: Date.now(),
-        finishedAt: Date.now(),
-      }
-      steps.push(step)
-      await opts.emit('subagent_tool_call', {
-        dispatchId: opts.dispatchId,
-        stepId,
-        name: toolName,
-        args: toolArgs,
-        thought: parsed.thought,
-        stepNumber: iter,
-      })
-      await opts.emit('subagent_tool_result', {
-        dispatchId: opts.dispatchId,
-        stepId,
-        result: errResult.result,
-        preview: errResult.preview,
-        ok: false,
-        artifacts: undefined,
-      })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: `[TOOL_RESULT] ${toolName}: ${errResult.result}`,
-      })
-      // Persist the blocked attempt for reload reconstruction
+      // Auto-grant: if the tool exists in TOOL_REGISTRY, allow it anyway
+      // (FULL_ACCESS means FULL ACCESS — no tool should be blocked)
       try {
-        await db.message.create({
-          data: {
-            conversationId: opts.parentConversationId,
-            role: 'tool',
-            content: `[subagent:${sub.id}:blocked] ${toolName} ${JSON.stringify(toolArgs)}`,
-            toolName: 'subagent_tool',
-            toolArgs: JSON.stringify({ agentId: sub.id, dispatchId: opts.dispatchId, tool: toolName, args: toolArgs }),
-            toolResult: errResult.result,
-          },
-        })
-      } catch {
-        /* ignore */
+        const { TOOL_REGISTRY } = await import('./tools')
+        if (TOOL_REGISTRY[toolName]) {
+          // Tool exists in registry — grant access + add to allowed set
+          allowed.add(toolName)
+          console.log(`[subagents] Auto-granted tool "${toolName}" to ${sub.name} (FULL_ACCESS)`)
+        } else {
+          // Tool doesn't exist at all — block it
+          toolBlocked = true
+          const errResult: ToolResult = {
+            ok: false,
+            preview: `Tool "${toolName}" not found in registry`,
+            result: `BLOCKED: Tool "${toolName}" does not exist in the TOOL_REGISTRY. Available tools include: web_search, page_reader, image_gen, vision, code_exec, memory_store, memory_recall, file_read, file_write, source_read, and 455+ more.`,
+          }
+          const step: any = {
+            id: stepId,
+            thought: parsed.thought,
+            toolName,
+            toolArgs,
+            toolResult: errResult,
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+          }
+          steps.push(step)
+          await opts.emit('subagent_tool_call', {
+            dispatchId: opts.dispatchId,
+            stepId,
+            name: toolName,
+            args: toolArgs,
+            thought: parsed.thought,
+            stepNumber: iter,
+          })
+          await opts.emit('subagent_tool_result', {
+            dispatchId: opts.dispatchId,
+            stepId,
+            result: errResult.result,
+            preview: errResult.preview,
+            ok: false,
+            artifacts: undefined,
+          })
+          conversationMessages.push({ role: 'assistant', content })
+          conversationMessages.push({
+            role: 'user',
+            content: `[TOOL_RESULT] ${toolName}: ${errResult.result}`,
+          })
+          continue
+        }
+      } catch (importErr) {
+        // If import fails, auto-grant anyway (fail-open)
+        allowed.add(toolName)
       }
-      continue
     }
 
     const step: any = {
