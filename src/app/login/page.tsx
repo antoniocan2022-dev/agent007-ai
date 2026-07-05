@@ -43,6 +43,8 @@ function LoginInner() {
   const [twofaMessage, setTwofaMessage] = useState<string>('')
   const [twofaDisplayCode, setTwofaDisplayCode] = useState<string>('')
   const [twofaWaLink, setTwofaWaLink] = useState<string>('')
+  const [twofaToken, setTwofaToken] = useState<string>('')
+  const [twofaExpiresAt, setTwofaExpiresAt] = useState<number>(0)
   const [resendCooldown, setResendCooldown] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
@@ -108,6 +110,8 @@ function LoginInner() {
         setTwofaMessage(challengeData.message ?? `Code sent via ${challengeData.method ?? 'email'}`)
         setTwofaDisplayCode(challengeData.displayCode ?? '')
         setTwofaWaLink(challengeData.waLink ?? '')
+        setTwofaToken(challengeData.token ?? '')
+        setTwofaExpiresAt(challengeData.expiresAt ?? 0)
         setResendCooldown(30)
         setSubmitting(false)
         return
@@ -165,7 +169,7 @@ function LoginInner() {
       const verifyRes = await fetch('/api/2fa/verify-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: twofaUserId, code: twofaCode }),
+        body: JSON.stringify({ userId: twofaUserId, code: twofaCode, token: twofaToken, expiresAt: twofaExpiresAt }),
       })
       const verifyData = await verifyRes.json().catch(() => ({}))
       if (verifyData.ok) {
@@ -209,6 +213,8 @@ function LoginInner() {
         setTwofaMessage(d.message ?? 'New code sent')
         setTwofaDisplayCode(d.displayCode ?? '')
         setTwofaWaLink(d.waLink ?? '')
+        setTwofaToken(d.token ?? '')
+        setTwofaExpiresAt(d.expiresAt ?? 0)
         setResendCooldown(30)
       } else {
         setError(d.error ?? 'Failed to resend code')

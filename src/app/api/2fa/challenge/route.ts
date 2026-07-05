@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
+import crypto from 'node:crypto'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,17 @@ export const dynamic = 'force-dynamic'
 const OWNER_EMAIL = 'antonio.can2022@hotmail.com'
 const OWNER_PHONE = '+15145496297'
 const OWNER_PHONE_DIGITS = '15145496297'
+
+/**
+ * Create a stateless HMAC-signed token for 2FA verification.
+ * This token can be verified by ANY Vercel instance WITHOUT needing to
+ * look up the challenge in the (ephemeral, per-instance) DB.
+ */
+function createSignedToken(userId: string, code: string, expiresAt: number): string {
+  const secret = process.env.NEXTAUTH_SECRET || 'agent007-fallback-secret'
+  const payload = `${userId}:${code}:${expiresAt}`
+  return crypto.createHmac('sha256', secret).update(payload).digest('hex')
+}
 
 /**
  * POST /api/2fa/challenge
@@ -109,6 +121,9 @@ export async function POST(req: NextRequest) {
         const waMessage = `🔐 Agent007 Verification Code: ${code}\n\nExpires in 5 minutes.\nIf you did not request this, ignore this message.`
         const waLink = `https://wa.me/${OWNER_PHONE_DIGITS}?text=${encodeURIComponent(waMessage)}`
 
+        const challengeExpiresAt = challengeData.expiresAt
+        const signedToken = createSignedToken(user.id, code, challengeExpiresAt)
+
         return NextResponse.json({
           ok: true,
           requiresTwoFactor: true,
@@ -118,6 +133,8 @@ export async function POST(req: NextRequest) {
           waLink,
           displayCode: code, // Fallback display in case email goes to spam
           phoneNumber: OWNER_PHONE,
+          token: signedToken, // Stateless HMAC token — verify works across Vercel instances
+          expiresAt: challengeExpiresAt,
         })
       }
       return NextResponse.json({ ok: true, requiresTwoFactor: false, message: 'No 2FA enabled' })
@@ -204,6 +221,8 @@ export async function POST(req: NextRequest) {
       message: `${channelText}${isOwner ? ' (owner 2FA always required)' : ''}. Check your inbox + spam folder. Also available via WhatsApp link.`,
       waLink,
       displayCode: isOwner ? code : undefined, // Only show on-screen for owner (fallback)
+      token: isOwner ? createSignedToken(user.id, code, challengeData.expiresAt) : undefined,
+      expiresAt: isOwner ? challengeData.expiresAt : undefined,
       phoneNumber: OWNER_PHONE,
       email: config.email || email,
     })
