@@ -267,6 +267,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/autonomy-tools.ts', 'src/lib/tools.ts', 'src/lib/tool-protection.ts', 'src/lib/agent.ts'],
   },
+  {
+    id: 'subagent_full_access_expanded',
+    category: 'subagent',
+    title: 'All 18 Sub-Agents Now Have FULL ACCESS to All 55 Tools (Base + Self-Fix + Autonomy)',
+    description: 'Expanded FULL_ACCESS_TOOLS in src/lib/subagents.ts from 15 base tools to 55 tools (15 base + 10 self-fix + 30 autonomy). Every subagent — 12 built-in (AURORA, VERTEX, QUANTUM, SCOUT, HUNT, FORGE, QUILL, PRISM, PULSE, ECHO, LEGAL, BANKER) + 6 custom (TRADER, Cybersecurity A, Cybersecurity R, Developer, TESTFAST2, FASTTEST3) — now has FULL ACCESS to every tool, no limitations.\n\nEXCEPTION: The 2 execution-protected tools (trigger_redeploy, patch_source_file) are NOT in FULL_ACCESS_TOOLS because subagents cannot request owner authorization. Only Agent007 (super) can dispatch those, and only after the owner authorizes via request_tool_execution + verify_tool_execution.\n\nAlso enhanced the file_read tool (src/lib/tools.ts) to handle:\n  • Gzipped files (.gz, .json.gz, .tgz) — auto-decompress + display\n  • ZIP archives (.zip) — list file contents\n  • JSON files (.json) — parse + display\n  • PDFs, Office docs, audio, video — metadata + processing hints\nMade UPLOAD_DIR Vercel-aware (/tmp/agent007-uploads on Vercel, /home/z/my-project/download/uploads locally).\n\nUpdated SYSTEM_PROMPT with new sections:\n  • "SUBAGENT FULL ACCESS UPDATE" — documents that all 18 subagents have access to all 55 tools\n  • "SUBAGENT DISPATCH WITH NEW TOOLS" — 6 example dispatch commands using the new autonomy tools\n  • "SAVE ALL CAPABILITIES (REQUIRED)" — instructions for Agent007 to create a backup + store capabilities in permanent memory\n  • "FILE HANDLING CAPABILITIES" — documents that the owner confirmed Agent007 can load/read ANY file type\n\nVerified locally: all 18 subagents have 55 tools each (FULL_ACCESS), all autonomy tools are accessible to every subagent.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/subagents.ts', 'src/lib/tools.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

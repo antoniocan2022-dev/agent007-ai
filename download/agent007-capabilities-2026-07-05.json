@@ -4,32 +4,32 @@
     "owner": "Antonio (antonio.can2022@hotmail.com)",
     "phone": "+15145496297",
     "vercelUrl": "https://agent007-ai.vercel.app",
-    "generatedAt": "2026-07-05T00:14:50.316Z",
+    "generatedAt": "2026-07-05T02:16:34.732Z",
     "generator": "scripts/generate-capabilities-archive.ts",
     "format": "agent007-capabilities-v1"
   },
   "summary": {
-    "availableTools": "382+",
+    "availableTools": "424+",
     "availableAgents": 18,
-    "managementActions": 41,
+    "managementActions": 43,
     "monthlyIncomeTarget": "$20,000",
     "growthRate": "20% monthly, 20% daily",
     "dailyGrowthTarget": "20%",
     "monthlyGrowthRate": "20%",
-    "permanentUpgrades": 20,
+    "permanentUpgrades": 28,
     "subagentToolAccess": "FULL (all 15 tools)",
-    "toolsPerAgent": 15,
-    "apiRoutes": 74,
+    "toolsPerAgent": 55,
+    "apiRoutes": 76,
     "dbModels": 33,
-    "sourceFiles": 183,
+    "sourceFiles": 188,
     "protectionMode": "UPGRADE_ONLY",
     "permanentlyDisabledOps": 13,
     "protectedOps": 21
   },
   "capabilities": {
     "tools": {
-      "total": 382,
-      "perSubagent": 15,
+      "total": 424,
+      "perSubagent": 55,
       "sample": [
         "web_search",
         "page_reader",
@@ -68,6 +68,22 @@
           "permanentlyLocked": true
         },
         {
+          "name": "ab_test_optimizer",
+          "label": "A/B Test Optimizer (statistical significance)",
+          "icon": "flask-conical",
+          "category": "ab",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "adaptive_pricing",
+          "label": "Adaptive Pricing (dynamic demand-based pricing)",
+          "icon": "tag",
+          "category": "adaptive",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "advanced_billing",
           "label": "Advanced Billing Systems",
           "icon": "credit-card",
@@ -100,6 +116,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "affiliate_funnel_builder",
+          "label": "Affiliate Funnel Builder (end-to-end funnel design)",
+          "icon": "filter",
+          "category": "affiliate",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "affiliate_management",
           "label": "Affiliate Management",
           "icon": "Users",
@@ -116,11 +140,27 @@
           "permanentlyLocked": true
         },
         {
+          "name": "ai_content_factory",
+          "label": "AI Content Factory (bulk content generation)",
+          "icon": "pen-line",
+          "category": "ai",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "ai_writing_assistant",
           "label": "AI Writing Assistant",
           "icon": "PenLine",
           "category": "ai",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "amazon_integration",
+          "label": "Amazon Integration (Merch + Associates + KDP)",
+          "icon": "package",
+          "category": "amazon",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -292,6 +332,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "auto_bidding_engine",
+          "label": "Auto-Bidding Engine (Upwork/Fiverr/Contra)",
+          "icon": "gavel",
+          "category": "auto",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "auto_fix_common_issues",
           "label": "Auto-Fix Common Issues",
           "icon": "wrench",
@@ -321,6 +369,22 @@
           "icon": "RefreshCw",
           "category": "automated",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "automated_reporting_dashboard",
+          "label": "Automated Reporting Dashboard (daily/weekly/monthly)",
+          "icon": "file-text",
+          "category": "automated",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "automated_social_posting",
+          "label": "Automated Social Posting (multi-platform scheduler)",
+          "icon": "share-2",
+          "category": "automated",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -556,6 +620,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "bottleneck_detector",
+          "label": "Bottleneck Detector (identify growth constraints)",
+          "icon": "alert-triangle",
+          "category": "bottleneck",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "bottleneck_identification",
           "label": "Bottleneck Identification",
           "icon": "cpu",
@@ -668,6 +740,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "cleanup_temp_files",
+          "label": "Cleanup Temp Files (free /tmp space)",
+          "icon": "trash",
+          "category": "cleanup",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
           "name": "code_exec",
           "label": "Code Exec",
           "icon": "terminal",
@@ -684,6 +764,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "community_engagement",
+          "label": "Community Engagement (Reddit/Discord/Facebook)",
+          "icon": "users",
+          "category": "community",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "complex_task_orchestration",
           "label": "Complex Task Orchestration",
           "icon": "cpu",
@@ -697,6 +785,14 @@
           "icon": "ShieldCheck",
           "category": "compliance",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "comprehensive_self_check",
+          "label": "Comprehensive Self-Check (one-shot full verification)",
+          "icon": "activity",
+          "category": "comprehensive",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -753,6 +849,14 @@
           "icon": "Copy",
           "category": "content",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "content_repurposing_engine",
+          "label": "Content Repurposing Engine (1 piece → 12 variations)",
+          "icon": "repeat",
+          "category": "content",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -820,6 +924,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "cross_stream_analytics",
+          "label": "Cross-Stream Analytics (affiliate + freelance + POD unified)",
+          "icon": "bar-chart",
+          "category": "cross",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "crypto_analyzer",
           "label": "Crypto Analyzer (technical + on-chain + sentiment)",
           "icon": "bitcoin",
@@ -841,6 +953,14 @@
           "icon": "user-plus",
           "category": "custom",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "customer_feedback_collector",
+          "label": "Customer Feedback Collector (4 channels)",
+          "icon": "message-circle",
+          "category": "customer",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -980,6 +1100,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "diagnose_llm",
+          "label": "Diagnose LLM (test Z.ai + OpenAI providers)",
+          "icon": "cpu",
+          "category": "diagnose",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "directory_list",
           "label": "Directory List (browse any directory)",
           "icon": "folder",
@@ -992,6 +1120,14 @@
           "label": "Disaster Recovery Planner",
           "icon": "shield-alert",
           "category": "disaster",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "download_capabilities",
+          "label": "Download Capabilities (on-demand ZIP/JSON/CSV)",
+          "icon": "download",
+          "category": "download",
           "neverRemovable": false,
           "permanentlyLocked": true
         },
@@ -1028,6 +1164,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "email_marketing_automation_full",
+          "label": "Email Marketing Automation (full nurture sequences)",
+          "icon": "mail",
+          "category": "email",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "emergency_stop",
           "label": "Emergency Stop (halt all autonomous operations)",
           "icon": "alert-octagon",
@@ -1041,6 +1185,14 @@
           "icon": "alert-circle",
           "category": "error",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "etsy_integration",
+          "label": "Etsy Integration (POD listings + sales)",
+          "icon": "shopping-bag",
+          "category": "etsy",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -1132,11 +1284,35 @@
           "permanentlyLocked": true
         },
         {
+          "name": "financial_tracker",
+          "label": "Financial Tracker (earnings/expenses/taxes/runway)",
+          "icon": "dollar-sign",
+          "category": "financial",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "fix_verifier",
           "label": "Fix Verifier",
           "icon": "check-circle",
           "category": "fix",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "follow_up_automation",
+          "label": "Follow-Up Automation (5 segment sequences)",
+          "icon": "send",
+          "category": "follow",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "force_refresh_settings",
+          "label": "Force-Refresh Settings (sync /tmp fallback → DB)",
+          "icon": "refresh-cw",
+          "category": "force",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -1156,11 +1332,27 @@
           "permanentlyLocked": true
         },
         {
+          "name": "freelance_va_system",
+          "label": "Freelance VA System (5-stage client flow)",
+          "icon": "briefcase",
+          "category": "freelance",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "full_system_audit",
           "label": "Full System Audit",
           "icon": "shield-check",
           "category": "full",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "gig_pipeline_tracker",
+          "label": "Gig Pipeline Tracker (lead → close → delivery)",
+          "icon": "kanban",
+          "category": "gig",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -1316,6 +1508,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "inspect_url",
+          "label": "Inspect URL (fetch + clean any URL)",
+          "icon": "search",
+          "category": "inspect",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
           "name": "investment_analyzer",
           "label": "Investment Analyzer",
           "icon": "TrendingUp",
@@ -1345,6 +1545,14 @@
           "icon": "Search",
           "category": "keyword",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "lead_chatbot",
+          "label": "Lead Chatbot (website + IG DM + Twitter DM)",
+          "icon": "bot",
+          "category": "lead",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -1540,6 +1748,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "marketplace_sync",
+          "label": "Marketplace Sync (5 platforms, auto-sync)",
+          "icon": "refresh-cw",
+          "category": "marketplace",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "memory_recall",
           "label": "Memory Recall",
           "icon": "brain",
@@ -1561,6 +1777,14 @@
           "icon": "target",
           "category": "mission",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "ml_performance_analyzer",
+          "label": "ML Performance Analyzer (pattern recognition)",
+          "icon": "cpu",
+          "category": "ml",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -1692,11 +1916,35 @@
           "permanentlyLocked": true
         },
         {
+          "name": "patch_source_file",
+          "label": "Patch Source File (runtime code patches)",
+          "icon": "file-edit",
+          "category": "patch",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
           "name": "payment_ecommerce",
           "label": "Payment & E-commerce",
           "icon": "CreditCard",
           "category": "payment",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "payment_processor",
+          "label": "Payment Processor (Stripe/PayPal/crypto/Wise)",
+          "icon": "credit-card",
+          "category": "payment",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "payout_scheduler",
+          "label": "Payout Scheduler (auto-distribute to bank/PayPal/crypto)",
+          "icon": "calendar",
+          "category": "payout",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -1828,11 +2076,27 @@
           "permanentlyLocked": true
         },
         {
+          "name": "performance_attribution",
+          "label": "Performance Attribution (multi-touch modeling)",
+          "icon": "git-branch",
+          "category": "performance",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "personalization_engine_v2",
           "label": "Personalization Engine V2",
           "icon": "user-check",
           "category": "personalization",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "pod_design_automation",
+          "label": "POD Design Automation (t-shirts/mugs/posters)",
+          "icon": "palette",
+          "category": "pod",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -2148,6 +2412,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "reload_config",
+          "label": "Reload Config (refresh in-memory caches)",
+          "icon": "rotate-cw",
+          "category": "reload",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "report_to_owner",
           "label": "Report To Owner (send message via WhatsApp/email)",
           "icon": "send",
@@ -2177,6 +2449,14 @@
           "icon": "cpu",
           "category": "resource",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "resource_allocator",
+          "label": "Resource Allocator (ROI-weighted time/budget)",
+          "icon": "pie-chart",
+          "category": "resource",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -2233,6 +2513,14 @@
           "icon": "server",
           "category": "scalable",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "scaling_engine",
+          "label": "Scaling Engine (scale winners, kill losers)",
+          "icon": "trending-up",
+          "category": "scaling",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -2532,6 +2820,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "self_improving_strategy",
+          "label": "Self-Improving Strategy (auto-applied learnings)",
+          "icon": "trending-up",
+          "category": "self",
+          "neverRemovable": true,
+          "permanentlyLocked": true
+        },
+        {
           "name": "self_learn_from_interaction",
           "label": "Self-Learn From Interaction (record learnings)",
           "icon": "book-open",
@@ -2617,6 +2913,14 @@
           "icon": "send",
           "category": "send",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "sentiment_analyzer",
+          "label": "Sentiment Analyzer (NPS + emotion detection)",
+          "icon": "smile",
+          "category": "sentiment",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -2932,6 +3236,14 @@
           "permanentlyLocked": true
         },
         {
+          "name": "test_endpoint",
+          "label": "Test Endpoint (HTTP test any URL from server)",
+          "icon": "plug",
+          "category": "test",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
           "name": "tool_lazy_loader",
           "label": "Tool Lazy Loader",
           "icon": "zap",
@@ -3052,11 +3364,27 @@
           "permanentlyLocked": true
         },
         {
+          "name": "trigger_redeploy",
+          "label": "Trigger Vercel Redeploy (via Vercel API)",
+          "icon": "rocket",
+          "category": "trigger",
+          "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
           "name": "user_behavior_analysis",
           "label": "User Behavior Analysis",
           "icon": "Users",
           "category": "user",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "verify_deployment",
+          "label": "Verify Deployment (comprehensive health check)",
+          "icon": "shield-check",
+          "category": "verify",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -3081,6 +3409,14 @@
           "icon": "video",
           "category": "video",
           "neverRemovable": false,
+          "permanentlyLocked": true
+        },
+        {
+          "name": "view_error_logs",
+          "label": "View Error Logs (recent audit log entries)",
+          "icon": "file-warning",
+          "category": "view",
+          "neverRemovable": true,
           "permanentlyLocked": true
         },
         {
@@ -3132,14 +3468,14 @@
         "real": 1,
         "business": 1,
         "service": 1,
-        "financial": 2,
+        "financial": 3,
         "marketing": 1,
         "partnership": 1,
         "autonomous": 3,
         "predictive": 5,
         "scalable": 1,
         "mission": 1,
-        "content": 6,
+        "content": 7,
         "multi": 6,
         "personalization": 1,
         "advanced": 4,
@@ -3148,7 +3484,7 @@
         "proactive": 1,
         "market": 5,
         "strategic": 1,
-        "resource": 2,
+        "resource": 3,
         "risk": 2,
         "system": 1,
         "database": 1,
@@ -3157,12 +3493,12 @@
         "cache": 2,
         "session": 1,
         "error": 1,
-        "auto": 2,
+        "auto": 3,
         "backup": 1,
         "restore": 1,
         "issue": 1,
         "root": 1,
-        "patch": 2,
+        "patch": 3,
         "fix": 1,
         "learning": 1,
         "log": 2,
@@ -3176,7 +3512,7 @@
         "cost": 1,
         "cascading": 1,
         "external": 1,
-        "automated": 2,
+        "automated": 4,
         "disaster": 1,
         "db": 2,
         "health": 1,
@@ -3206,34 +3542,34 @@
         "context": 1,
         "complex": 1,
         "priority": 1,
-        "cross": 1,
+        "cross": 2,
         "correlation": 1,
-        "bottleneck": 1,
+        "bottleneck": 2,
         "optimization": 1,
         "agent": 1,
         "shared": 1,
         "conflict": 1,
         "collective": 1,
-        "performance": 16,
+        "performance": 17,
         "analytics": 17,
         "self-improving": 16,
         "send": 1,
         "check": 3,
         "execute": 1,
-        "self": 17,
-        "verify": 2,
+        "self": 18,
+        "verify": 3,
         "loyalty": 1,
         "report": 1,
         "emergency": 1,
         "request": 1,
         "user": 1,
-        "email": 2,
+        "email": 3,
         "social": 4,
         "conversion": 1,
         "portfolio": 1,
         "crypto": 1,
         "stock": 1,
-        "ai": 1,
+        "ai": 2,
         "custom": 1,
         "niche": 1,
         "budget": 1,
@@ -3246,7 +3582,7 @@
         "owner": 3,
         "income": 1,
         "strategy": 1,
-        "lead": 1,
+        "lead": 2,
         "crm": 1,
         "investment": 1,
         "budgeting": 1,
@@ -3256,10 +3592,35 @@
         "keyword": 1,
         "on": 1,
         "backlink": 1,
-        "affiliate": 1,
+        "affiliate": 2,
         "graphic": 1,
         "project": 1,
-        "payment": 1
+        "payment": 2,
+        "test": 1,
+        "diagnose": 1,
+        "force": 1,
+        "inspect": 1,
+        "reload": 1,
+        "trigger": 1,
+        "view": 1,
+        "comprehensive": 1,
+        "download": 1,
+        "cleanup": 1,
+        "customer": 1,
+        "ab": 1,
+        "sentiment": 1,
+        "pod": 1,
+        "freelance": 1,
+        "gig": 1,
+        "payout": 1,
+        "etsy": 1,
+        "amazon": 1,
+        "marketplace": 1,
+        "ml": 1,
+        "adaptive": 1,
+        "scaling": 1,
+        "follow": 1,
+        "community": 1
       },
       "neverRemovable": [
         "web_search",
@@ -3276,7 +3637,43 @@
         "self_verify_integrity",
         "create_backup_tool",
         "list_backups_tool",
-        "load_backup_tool"
+        "load_backup_tool",
+        "comprehensive_self_check",
+        "diagnose_llm",
+        "verify_deployment",
+        "view_error_logs",
+        "force_refresh_settings",
+        "reload_config",
+        "automated_social_posting",
+        "email_marketing_automation_full",
+        "affiliate_funnel_builder",
+        "cross_stream_analytics",
+        "automated_reporting_dashboard",
+        "performance_attribution",
+        "customer_feedback_collector",
+        "ab_test_optimizer",
+        "sentiment_analyzer",
+        "ai_content_factory",
+        "pod_design_automation",
+        "content_repurposing_engine",
+        "auto_bidding_engine",
+        "freelance_va_system",
+        "gig_pipeline_tracker",
+        "payment_processor",
+        "financial_tracker",
+        "payout_scheduler",
+        "etsy_integration",
+        "amazon_integration",
+        "marketplace_sync",
+        "ml_performance_analyzer",
+        "self_improving_strategy",
+        "adaptive_pricing",
+        "resource_allocator",
+        "scaling_engine",
+        "bottleneck_detector",
+        "lead_chatbot",
+        "follow_up_automation",
+        "community_engagement"
       ],
       "protectionLayer": "src/lib/tool-protection.ts",
       "protectionMode": "ALL_TOOLS_PERMANENTLY_LOCKED",
@@ -3287,7 +3684,7 @@
       "builtin": 12,
       "custom": 6,
       "allHaveFullAccess": true,
-      "toolsPerAgent": 15,
+      "toolsPerAgent": 55,
       "details": [
         {
           "id": "aurora",
@@ -3299,7 +3696,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3315,7 +3712,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3328,7 +3765,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3344,7 +3781,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3357,7 +3834,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3373,7 +3850,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3386,7 +3903,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3402,7 +3919,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3415,7 +3972,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3431,7 +3988,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3444,7 +4041,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3460,7 +4057,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3473,7 +4110,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3489,7 +4126,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3502,7 +4179,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3518,7 +4195,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3531,7 +4248,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3547,7 +4264,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3560,7 +4317,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3576,7 +4333,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3589,7 +4386,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3605,7 +4402,47 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         },
         {
@@ -3618,7 +4455,7 @@
           "isBuiltin": true,
           "enabled": true,
           "fullAccess": true,
-          "toolCount": 15,
+          "toolCount": 55,
           "tools": [
             "web_search",
             "page_reader",
@@ -3634,13 +4471,53 @@
             "kb_search",
             "http_fetch",
             "source_read",
-            "file_write"
+            "file_write",
+            "test_endpoint",
+            "diagnose_llm",
+            "force_refresh_settings",
+            "verify_deployment",
+            "inspect_url",
+            "reload_config",
+            "view_error_logs",
+            "comprehensive_self_check",
+            "download_capabilities",
+            "cleanup_temp_files",
+            "automated_social_posting",
+            "email_marketing_automation_full",
+            "affiliate_funnel_builder",
+            "cross_stream_analytics",
+            "automated_reporting_dashboard",
+            "performance_attribution",
+            "customer_feedback_collector",
+            "ab_test_optimizer",
+            "sentiment_analyzer",
+            "ai_content_factory",
+            "pod_design_automation",
+            "content_repurposing_engine",
+            "auto_bidding_engine",
+            "freelance_va_system",
+            "gig_pipeline_tracker",
+            "payment_processor",
+            "financial_tracker",
+            "payout_scheduler",
+            "etsy_integration",
+            "amazon_integration",
+            "marketplace_sync",
+            "ml_performance_analyzer",
+            "self_improving_strategy",
+            "adaptive_pricing",
+            "resource_allocator",
+            "scaling_engine",
+            "bottleneck_detector",
+            "lead_chatbot",
+            "follow_up_automation",
+            "community_engagement"
           ]
         }
       ]
     },
     "manageActions": {
-      "total": 41,
+      "total": 43,
       "list": [
         "create_agent",
         "edit_agent",
@@ -3682,7 +4559,9 @@
         "clear_cache",
         "list_tools",
         "request_tool_removal",
-        "verify_tool_removal"
+        "verify_tool_removal",
+        "request_tool_execution",
+        "verify_tool_execution"
       ],
       "note": "Counted live from MANAGE_ACTIONS in src/lib/manage-actions.ts (single source of truth).",
       "newToolProtectionActions": [
@@ -3698,7 +4577,7 @@
       "currencySymbol": "$"
     },
     "upgrades": {
-      "total": 20,
+      "total": 28,
       "permanent": true,
       "integrityOk": true,
       "all": [
@@ -3951,13 +4830,118 @@
             "src/components/agent/tabs/settings-tab.tsx",
             "src/lib/agent.ts"
           ]
+        },
+        {
+          "id": "all_33_tables_init",
+          "category": "persistence",
+          "title": "All 33 Prisma Tables Initialized via Raw SQL (Fixes Audit Fail)",
+          "description": "The system audit was reporting \"database: fail\" because only 17 of 33 Prisma models had CREATE TABLE statements in db.ts. Added CREATE TABLE IF NOT EXISTS statements for all 16 missing tables: Customer, MarketingCampaign, Partnership, BusinessStrategy, MissionTracker, ServicePackage, Opportunity, Prediction, SystemHealth, MLModel, RiskRegister, ComplianceCheck, ContractDraft, Transaction, KnowledgeDoc, KnowledgeChunk. Also expanded the audit's tableChecks list from 16 → 33 entries so every model is verified. Schema version bumped from v6 → v7-raw-sql-init-all-33-tables. The audit now reports \"database: pass\" on Vercel cold starts.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/db.ts",
+            "src/lib/system-functions.ts"
+          ]
+        },
+        {
+          "id": "backup_no_self_fetch",
+          "category": "self_heal",
+          "title": "Backup System Uses Direct Function Calls (Fixes Non-JSON Response)",
+          "description": "The create_backup / list_backups / load_backup manage actions used internalFetch() to call /api/system/zip-backup, which on Vercel returns HTML (login/error page) instead of JSON — causing \"non-JSON response\" errors and persistent backup failures. Created src/lib/backup-functions.ts as the CANONICAL backup implementation with direct async functions (createBackup, listBackups, findBackupFile). Both the orchestrator AND the /api/system/zip-backup route now call these functions directly — no HTTP roundtrip = no HTML response = no parser error. Also fixed: (1) hardcoded /home/z/my-project/download/backups path → Vercel-aware /tmp/agent007-backups, (2) zip binary dependency → Node.js built-in zlib gzip, (3) self-fetch to /api/system/capabilities → direct getCapabilities() call, (4) stale dailyGrowthTarget:10 in mission field → 20 (matches owner-confirmed 20% daily), (5) source file reads skipped on Vercel (not bundled). Backup version bumped 4.0 → 5.0. Verified locally: 33 tables, 1550 rows, 24 source files, 21 upgrades, 0.47 MB gzip archive.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/backup-functions.ts",
+            "src/lib/orchestrator.ts",
+            "src/app/api/system/zip-backup/route.ts"
+          ]
+        },
+        {
+          "id": "capabilities_download_on_demand",
+          "category": "persistence",
+          "title": "On-Demand Capabilities Download Endpoint (Fixes Broken Download Links)",
+          "description": "The capabilities ZIP/JSON files generated locally in /home/z/my-project/download/ did NOT exist on Vercel — Vercel's /tmp storage is ephemeral and doesn't include locally-generated files. All three download URL patterns (/api/system/zip-backup?download=, /api/file?name=, /download/) returned 404 on Vercel. Created /api/system/capabilities-download endpoint that REGENERATES the full capabilities archive at request time from the live TOOL_REGISTRY. Supports 4 formats: ?format=zip (gzipped JSON, default), ?format=json (raw JSON), ?format=csv (Excel-sortable tool list), ?format=readme (human-readable). Uses Node's built-in zlib for compression — no `zip` binary dependency. Always reflects the current 382+ tools, 18 sub-agents, 41 manage actions, 22+ permanent upgrades. No persistent storage needed.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/capabilities-download/route.ts"
+          ]
+        },
+        {
+          "id": "self_fix_toolkit",
+          "category": "autonomy",
+          "title": "Self-Fix Toolkit — 12 New Tools for Autonomous Repair",
+          "description": "Added 12 new self-repair tools that let Agent007 fix problems autonomously WITHOUT requiring the owner to redeploy. Created src/lib/self-fix-tools.ts with: (1) test_endpoint — HTTP test any URL from inside the server, (2) diagnose_llm — test Z.ai + OpenAI providers, (3) force_refresh_settings — sync /tmp fallback → DB, (4) verify_deployment — one-shot health check, (5) inspect_url — fetch + clean any URL, (6) reload_config — refresh in-memory caches, (7) patch_source_file — runtime code patcher (local dev only; on Vercel records the patch for next deploy), (8) trigger_redeploy — Vercel API redeploy trigger, (9) view_error_logs — query audit log entries, (10) comprehensive_self_check — one-shot full verification (capabilities + audit + self-heal + manifest + DB + LLM), (11) download_capabilities — get the on-demand archive URL, (12) cleanup_temp_files — free /tmp space. All tools have FULL ACCESS, no limitations. The owner has explicitly authorized Agent007 to use any of these tools at any time without asking first. Updated SYSTEM_PROMPT with documentation + a \"HOW TO USE THE SELF-FIX TOOLKIT WHEN SOMETHING BREAKS\" decision tree.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/self-fix-tools.ts",
+            "src/lib/tools.ts",
+            "src/lib/agent.ts"
+          ]
+        },
+        {
+          "id": "two_layer_tool_lock",
+          "category": "safety",
+          "title": "Two-Layer Tool Lock — Removal + Execution Protection (Owner Authorization Required)",
+          "description": "Added two layers of permanent tool protection:\n\nLAYER 1 — REMOVAL PROTECTION: ALL 394+ tools are permanently locked. No runtime API can delete, reset, or disable any tool. The ONLY way to attempt removal is via the owner-authorized flow: request_tool_removal → owner receives 6-digit code on cellphone/email/WhatsApp → verify_tool_removal → audit log entry → queued for next deployment. 21 tools are on the NEVER_REMOVABLE list (added 6 self-fix tools: comprehensive_self_check, diagnose_llm, verify_deployment, view_error_logs, force_refresh_settings, reload_config — these are the agent's minimum viable self-repair set).\n\nLAYER 2 — EXECUTION PROTECTION: 2 destructive tools (trigger_redeploy + patch_source_file) require owner authorization BEFORE they can be dispatched. Added EXECUTION_PROTECTED_TOOLS list + isExecutionProtected() + requestExecutionAuthorization() + verifyExecutionAuthorization() + canExecuteWithoutAuth() to tool-protection.ts. Modified dispatchTool() in tools.ts to check the execution-protection cache (globalThis.__execAuthCache, 10-minute TTL) BEFORE running any tool — if the cache is missing or expired, dispatchTool returns a soft refusal that tells the agent to request authorization from the owner first.\n\nAdded 2 new manage actions (41 → 43 total): request_tool_execution + verify_tool_execution. Both delegate to the existing owner-auth flow (cellphone / email / WhatsApp / TOTP dispatch with 6-digit code, 10-minute TTL, 5-attempt lockout).\n\nUpdated SYSTEM_PROMPT with a \"TWO LAYERS OF TOOL PROTECTION\" section documenting both layers, the 21 NEVER_REMOVABLE tools, the 2 EXECUTION_PROTECTED tools, the authorization flow, and the soft-refusal behavior. Agent007 now knows exactly which tools need owner approval and how to get it.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/tool-protection.ts",
+            "src/lib/tools.ts",
+            "src/lib/orchestrator.ts",
+            "src/lib/manage-actions.ts",
+            "src/lib/agent.ts"
+          ]
+        },
+        {
+          "id": "on_demand_backup_download",
+          "category": "persistence",
+          "title": "On-Demand Backup Download Endpoint (Fixes Cold-Start 404)",
+          "description": "The /api/system/zip-backup?download=<filename> endpoint returned 404 \"Backup file not found\" after Vercel cold starts because /tmp storage is ephemeral — a backup created in one serverless invocation does NOT exist in the next. Created /api/system/backup-download endpoint that REGENERATES a full backup at request time using createBackup() from backup-functions.ts. No /tmp dependency. The URL is stable and bookmarkable: https://agent007-ai.vercel.app/api/system/backup-download?label=on-demand — it always works, even after a cold start. Supports ?format=zip (gzipped JSON, default) and ?format=json. Updated orchestrator create_backup + list_backups actions to surface this permanent URL as the PRIMARY download URL (the /tmp-based URL is now secondary, marked \"same-cold-start only\"). Updated SYSTEM_PROMPT with a \"PERMANENT BACKUP DOWNLOAD URL\" section so Agent007 always knows the stable URL. Also updated the download_capabilities self-fix tool to return both the capabilities URL and the backup URL. This is the SAME pattern that fixed the capabilities-download 404 issue — applied to backups.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/app/api/system/backup-download/route.ts",
+            "src/lib/orchestrator.ts",
+            "src/lib/self-fix-tools.ts",
+            "src/lib/agent.ts"
+          ]
+        },
+        {
+          "id": "autonomy_toolkit_30_tools",
+          "category": "autonomy",
+          "title": "Autonomy Toolkit — 30 New Tools for Full Autonomous Income Generation",
+          "description": "Added 30 new tools across 10 categories to give Agent007 full autonomous income-generation capability. Created src/lib/autonomy-tools.ts with:\n\nCATEGORY 1 — AUTOMATED MARKETING (3): automated_social_posting (multi-platform scheduler), email_marketing_automation_full (full nurture sequences), affiliate_funnel_builder (end-to-end funnel design).\n\nCATEGORY 2 — ADVANCED ANALYTICS (3): cross_stream_analytics (affiliate+freelance+POD unified), automated_reporting_dashboard (daily/weekly/monthly), performance_attribution (multi-touch modeling).\n\nCATEGORY 3 — FEEDBACK MECHANISM (3): customer_feedback_collector (4 channels), ab_test_optimizer (statistical significance), sentiment_analyzer (NPS + emotion).\n\nCATEGORY 4 — CONTENT GENERATION (3): ai_content_factory (bulk blog/social/email/video/ad), pod_design_automation (t-shirts/mugs/posters), content_repurposing_engine (1 piece → 12 variations).\n\nCATEGORY 5 — FREELANCING AUTOMATION (3): auto_bidding_engine (Upwork/Fiverr/Contra), freelance_va_system (5-stage client flow), gig_pipeline_tracker (lead → close → delivery).\n\nCATEGORY 6 — PAYMENT AUTOMATION (3): payment_processor (Stripe/PayPal/crypto/Wise), financial_tracker (earnings/expenses/taxes/runway), payout_scheduler (auto-distribute to bank/PayPal/crypto).\n\nCATEGORY 7 — MARKETPLACE INTEGRATION (3): etsy_integration (POD listings + sales), amazon_integration (Merch + Associates + KDP), marketplace_sync (5 platforms auto-synced).\n\nCATEGORY 8 — LEARNING & ADAPTATION (3): ml_performance_analyzer (pattern recognition + predictions), self_improving_strategy (auto-applied learnings), adaptive_pricing (dynamic demand-based pricing).\n\nCATEGORY 9 — RESOURCE ALLOCATION (3): resource_allocator (ROI-weighted time/budget), scaling_engine (scale winners, kill losers), bottleneck_detector (identify growth constraints).\n\nCATEGORY 10 — USER ENGAGEMENT (3): lead_chatbot (website + IG DM + Twitter DM), follow_up_automation (5 segment sequences), community_engagement (Reddit/Discord/Facebook).\n\nALL 30 tools registered in TOOL_REGISTRY (394 → 424 tools total). ALL 30 added to NEVER_REMOVABLE_TOOLS list (21 → 51 never-removable tools) — they CANNOT be deleted even with owner authorization. Updated SYSTEM_PROMPT with full documentation for each category + a \"HOW TO USE THE AUTONOMY TOOLKIT TO HIT $20K/MONTH\" decision tree. Agent007 now has full autonomous capability to: generate content, market across platforms, capture leads, convert sales, process payments, sync marketplaces, learn from data, allocate resources, scale winners, and engage communities — all without human intervention.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/autonomy-tools.ts",
+            "src/lib/tools.ts",
+            "src/lib/tool-protection.ts",
+            "src/lib/agent.ts"
+          ]
+        },
+        {
+          "id": "subagent_full_access_expanded",
+          "category": "subagent",
+          "title": "All 18 Sub-Agents Now Have FULL ACCESS to All 55 Tools (Base + Self-Fix + Autonomy)",
+          "description": "Expanded FULL_ACCESS_TOOLS in src/lib/subagents.ts from 15 base tools to 55 tools (15 base + 10 self-fix + 30 autonomy). Every subagent — 12 built-in (AURORA, VERTEX, QUANTUM, SCOUT, HUNT, FORGE, QUILL, PRISM, PULSE, ECHO, LEGAL, BANKER) + 6 custom (TRADER, Cybersecurity A, Cybersecurity R, Developer, TESTFAST2, FASTTEST3) — now has FULL ACCESS to every tool, no limitations.\n\nEXCEPTION: The 2 execution-protected tools (trigger_redeploy, patch_source_file) are NOT in FULL_ACCESS_TOOLS because subagents cannot request owner authorization. Only Agent007 (super) can dispatch those, and only after the owner authorizes via request_tool_execution + verify_tool_execution.\n\nAlso enhanced the file_read tool (src/lib/tools.ts) to handle:\n  • Gzipped files (.gz, .json.gz, .tgz) — auto-decompress + display\n  • ZIP archives (.zip) — list file contents\n  • JSON files (.json) — parse + display\n  • PDFs, Office docs, audio, video — metadata + processing hints\nMade UPLOAD_DIR Vercel-aware (/tmp/agent007-uploads on Vercel, /home/z/my-project/download/uploads locally).\n\nUpdated SYSTEM_PROMPT with new sections:\n  • \"SUBAGENT FULL ACCESS UPDATE\" — documents that all 18 subagents have access to all 55 tools\n  • \"SUBAGENT DISPATCH WITH NEW TOOLS\" — 6 example dispatch commands using the new autonomy tools\n  • \"SAVE ALL CAPABILITIES (REQUIRED)\" — instructions for Agent007 to create a backup + store capabilities in permanent memory\n  • \"FILE HANDLING CAPABILITIES\" — documents that the owner confirmed Agent007 can load/read ANY file type\n\nVerified locally: all 18 subagents have 55 tools each (FULL_ACCESS), all autonomy tools are accessible to every subagent.",
+          "dateApplied": "2026-07-05",
+          "permanent": true,
+          "files": [
+            "src/lib/subagents.ts",
+            "src/lib/tools.ts",
+            "src/lib/agent.ts"
+          ]
         }
       ]
     },
     "infrastructure": {
-      "apiRoutes": 74,
+      "apiRoutes": 76,
       "dbModels": 33,
-      "sourceFiles": 183,
+      "sourceFiles": 188,
       "protectionMode": "UPGRADE_ONLY",
       "permanentlyDisabledOps": 13,
       "protectedOps": 21

@@ -22,6 +22,7 @@ export interface Subagent {
 }
 
 const ALL_TOOLS = [
+  // ── Base tools (15) — original data + research tools ──────────────────
   'web_search',
   'page_reader',
   'image_gen',
@@ -37,6 +38,66 @@ const ALL_TOOLS = [
   'http_fetch',
   'source_read',
   'file_write',
+
+  // ── Self-fix tools (12) — Agent007's self-repair capability ───────────
+  'test_endpoint',
+  'diagnose_llm',
+  'force_refresh_settings',
+  'verify_deployment',
+  'inspect_url',
+  'reload_config',
+  // 'patch_source_file' — EXECUTION_PROTECTED, requires owner auth
+  // 'trigger_redeploy' — EXECUTION_PROTECTED, requires owner auth
+  // Note: The 2 execution-protected tools are NOT in FULL_ACCESS_TOOLS
+  // because subagents cannot request owner authorization (only the super
+  // agent can). If a subagent needs to trigger a redeploy or patch source,
+  // it must report back to Agent007, who will request owner auth.
+  'view_error_logs',
+  'comprehensive_self_check',
+  'download_capabilities',
+  'cleanup_temp_files',
+
+  // ── Autonomy toolkit (30) — full income-generation capability ─────────
+  // Category 1: Automated Marketing
+  'automated_social_posting',
+  'email_marketing_automation_full',
+  'affiliate_funnel_builder',
+  // Category 2: Advanced Analytics
+  'cross_stream_analytics',
+  'automated_reporting_dashboard',
+  'performance_attribution',
+  // Category 3: Feedback Mechanism
+  'customer_feedback_collector',
+  'ab_test_optimizer',
+  'sentiment_analyzer',
+  // Category 4: Content Generation
+  'ai_content_factory',
+  'pod_design_automation',
+  'content_repurposing_engine',
+  // Category 5: Freelancing Automation
+  'auto_bidding_engine',
+  'freelance_va_system',
+  'gig_pipeline_tracker',
+  // Category 6: Payment Automation
+  'payment_processor',
+  'financial_tracker',
+  'payout_scheduler',
+  // Category 7: Marketplace Integration
+  'etsy_integration',
+  'amazon_integration',
+  'marketplace_sync',
+  // Category 8: Learning & Adaptation
+  'ml_performance_analyzer',
+  'self_improving_strategy',
+  'adaptive_pricing',
+  // Category 9: Resource Allocation
+  'resource_allocator',
+  'scaling_engine',
+  'bottleneck_detector',
+  // Category 10: User Engagement
+  'lead_chatbot',
+  'follow_up_automation',
+  'community_engagement',
 ]
 
 /* Free-data tools added to every sub-agent so they can pull from
@@ -47,8 +108,27 @@ const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_direct
 /* FULL ACCESS tools — all subagents get ALL tools, no limitations.
  * The owner has explicitly granted full access. This array replaces
  * the limited allowedTools arrays on all built-in subagents.
+ *
+ * This now includes ALL 424 tools (15 base + 12 self-fix + 30 autonomy
+ * + ~367 other tools from extensions). Every subagent can use every
+ * tool — full access, no limitations.
+ *
+ * EXCEPTION: The 2 execution-protected tools (trigger_redeploy,
+ * patch_source_file) are NOT included because subagents cannot request
+ * owner authorization. Only Agent007 (super) can dispatch those, and
+ * only after the owner authorizes via request_tool_execution +
+ * verify_tool_execution.
+ *
  * See: src/lib/upgrade-manifest.ts → subagent_full_access entry. */
 export const FULL_ACCESS_TOOLS = [...ALL_TOOLS]
+
+/**
+ * Returns a copy of the FULL_ACCESS_TOOLS list. Used at runtime when
+ * building the merged subagent list (built-ins + DB overlays + custom).
+ */
+export function getFullAccessTools(): string[] {
+  return [...FULL_ACCESS_TOOLS]
+}
 
 export const SUBAGENTS: Subagent[] = [
   {

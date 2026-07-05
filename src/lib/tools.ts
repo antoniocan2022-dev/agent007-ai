@@ -2,10 +2,16 @@ import ZAI from 'z-ai-web-dev-sdk'
 import { db } from "./db"
 import vm from 'node:vm'
 import path from 'node:path'
+import os from 'node:os'
 import { promises as fs } from 'node:fs'
 import { recallMemories, upsertMemory, type MemoryRecord } from '@/lib/memory'
 
-const UPLOAD_DIR = '/home/z/my-project/download/uploads'
+// Vercel-aware upload directory.
+// - On Vercel: use /tmp/agent007-uploads (the only writable directory).
+// - On local dev: use /home/z/my-project/download/uploads for parity.
+const UPLOAD_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'agent007-uploads')
+  : '/home/z/my-project/download/uploads'
 
 export interface AttachmentMeta {
   filename: string
@@ -437,13 +443,93 @@ export async function toolFileRead(
     try {
       await fs.access(full)
     } catch {
-      const files = await fs.readdir(UPLOAD_DIR)
-      const match = files.find((f) => f.endsWith('-' + safe) || f.endsWith(safe))
-      if (match) full = path.join(UPLOAD_DIR, match)
+      try {
+        const files = await fs.readdir(UPLOAD_DIR)
+        const match = files.find((f) => f.endsWith('-' + safe) || f.endsWith(safe))
+        if (match) full = path.join(UPLOAD_DIR, match)
+      } catch {}
     }
     const buf = await fs.readFile(full)
+
+    // ── Handle gzipped files (.gz, .json.gz, .tgz) ──────────────────────
+    if (/\.(gz|tgz)$/i.test(safe)) {
+      try {
+        const { gunzipSync } = await import('node:zlib')
+        const decompressed = gunzipSync(buf)
+        const innerName = safe.replace(/\.gz$/i, '')
+        // If it's a .json.gz, parse + display
+        if (/\.json$/i.test(innerName)) {
+          try {
+            const jsonText = decompressed.toString('utf8')
+            const parsed = JSON.parse(jsonText)
+            const preview = JSON.stringify(parsed, null, 2).slice(0, 20000)
+            return okResult(
+              `Read + decompressed ${safe} (${buf.length} → ${decompressed.length} bytes)`,
+              `GZIPPED JSON FILE: ${safe}\nInner file: ${innerName}\nCompressed size: ${buf.length} bytes\nDecompressed size: ${decompressed.length} bytes\n\n--- CONTENT (first 20000 chars) ---\n${preview}`
+            )
+          } catch {
+            // JSON parse failed — return as text
+            const text = decompressed.toString('utf8').slice(0, 20000)
+            return okResult(
+              `Read + decompressed ${safe} (${buf.length} → ${decompressed.length} bytes)`,
+              `GZIPPED TEXT FILE: ${safe}\nInner file: ${innerName}\nCompressed size: ${buf.length} bytes\nDecompressed size: ${decompressed.length} bytes\n\n--- CONTENT (first 20000 chars) ---\n${text}`
+            )
+          }
+        }
+        // Other gzipped files — return as binary info
+        return okResult(
+          `Read gzipped ${safe} (${buf.length} → ${decompressed.length} bytes)`,
+          `GZIPPED FILE: ${safe}\nInner file: ${innerName}\nCompressed size: ${buf.length} bytes\nDecompressed size: ${decompressed.length} bytes\n\nThe file was decompressed successfully. If it's text/JSON, use file_read on the decompressed version. If it's a tar archive, the agent can describe its contents.`
+        )
+      } catch (e: any) {
+        return badResult(`file_read: failed to decompress ${safe}: ${e?.message}`)
+      }
+    }
+
+    // ── Handle ZIP archives (.zip) ───────────────────────────────────────
+    if (/\.zip$/i.test(safe)) {
+      try {
+        const { execSync } = await import('node:child_process')
+        // On Vercel, `unzip` may not be available. Try, and fall back gracefully.
+        let fileList: string[] = []
+        try {
+          const output = execSync(`unzip -l "${full}"`, { encoding: 'utf-8', timeout: 5000 })
+          const lines = output.split('\n').slice(3, -2) // skip header + footer
+          fileList = lines.map(l => l.trim().split(/\s+/).slice(3).join(' ')).filter(Boolean)
+        } catch {
+          fileList = ['(could not list — unzip not available on this runtime)']
+        }
+        return okResult(
+          `Read ZIP archive ${safe} (${buf.length} bytes, ${fileList.length} files)`,
+          `ZIP ARCHIVE: ${safe}\nSize: ${buf.length} bytes\nFile count: ${fileList.length}\n\n--- FILE LIST ---\n${fileList.slice(0, 50).join('\n')}${fileList.length > 50 ? '\n... (' + (fileList.length - 50) + ' more)' : ''}\n\nTo extract + read a specific file from this ZIP, dispatch FORGE to write a script that uses node-stream-zip or unzipper.`
+        )
+      } catch (e: any) {
+        return badResult(`file_read: failed to read ZIP ${safe}: ${e?.message}`)
+      }
+    }
+
+    // ── Handle JSON files (parse + display) ──────────────────────────────
+    if (/\.json$/i.test(safe)) {
+      try {
+        const text = buf.toString('utf8')
+        const parsed = JSON.parse(text)
+        const preview = JSON.stringify(parsed, null, 2).slice(0, 20000)
+        return okResult(
+          `Read JSON ${safe} (${buf.length} bytes)`,
+          `JSON FILE: ${safe} (${buf.length} bytes)\n\n--- PARSED CONTENT (first 20000 chars) ---\n${preview}`
+        )
+      } catch {
+        // JSON parse failed — return as text
+        const text = buf.toString('utf8').slice(0, 20000)
+        return okResult(
+          `Read ${safe} (${buf.length} bytes) — invalid JSON, showing raw text`,
+          `File: ${safe} (${buf.length} bytes) — JSON parse failed, showing raw text\n\n${text}`
+        )
+      }
+    }
+
     const isText =
-      /\.(txt|md|csv|json|js|ts|tsx|jsx|html|css|xml|yaml|yml|log|py|go|rs|java|c|cpp|h)$/i.test(
+      /\.(txt|md|csv|js|ts|tsx|jsx|html|css|xml|yaml|yml|log|py|go|rs|java|c|cpp|h)$/i.test(
         safe
       )
     if (isText) {
@@ -465,9 +551,32 @@ export async function toolFileRead(
         artifacts: [{ type: 'image', data: dataUrl, label: safe }],
       }
     }
+    // ── Handle PDFs, Office docs, audio, video — return metadata ────────
+    const ext = path.extname(safe).slice(1).toLowerCase()
+    const binaryKinds: Record<string, string> = {
+      pdf: 'PDF document — use page_reader or a PDF parser to extract text',
+      doc: 'Microsoft Word (.doc) — use a doc parser or convert to .docx',
+      docx: 'Microsoft Word (.docx) — use mammoth.js to extract text',
+      xls: 'Microsoft Excel (.xls) — use xlsx library to parse',
+      xlsx: 'Microsoft Excel (.xlsx) — use xlsx library to parse',
+      ppt: 'Microsoft PowerPoint — use a ppt parser',
+      pptx: 'Microsoft PowerPoint — use a pptx parser',
+      mp3: 'MP3 audio — use ASR tool to transcribe',
+      wav: 'WAV audio — use ASR tool to transcribe',
+      mp4: 'MP4 video — use video-understand skill to analyze',
+      webm: 'WebM video — use video-understand skill to analyze',
+      tar: 'TAR archive — use tar library to extract',
+    }
+    const hint = binaryKinds[ext]
+    if (hint) {
+      return okResult(
+        `Read ${safe} (${buf.length} bytes) — ${ext.toUpperCase()} file`,
+        `File: ${safe} (${buf.length} bytes)\nType: ${ext.toUpperCase()}\nHint: ${hint}\n\nThe file has been loaded. Dispatch the appropriate sub-agent or tool to process it:\n${ext === 'pdf' ? '  - page_reader can extract text from URLs\n  - FORGE can install + use pdf-parse for local PDFs' : ext === 'mp3' || ext === 'wav' ? '  - <tool name="code_exec"> to call /api/voice/asr endpoint' : ext === 'mp4' || ext === 'webm' ? '  - use the video-understand skill' : '  - <tool name="code_exec"> to parse with the appropriate library'}`
+      )
+    }
     return okResult(
       `Read binary ${safe} (${buf.length} bytes)`,
-      `File ${safe} is binary (${buf.length} bytes). Cannot display inline; the agent can describe its purpose.`
+      `File ${safe} is binary (${buf.length} bytes, type: ${ext}). Cannot display inline; the agent can describe its purpose.`
     )
   } catch (e: any) {
     return badResult(`file_read failed: ${e?.message ?? String(e)}`)

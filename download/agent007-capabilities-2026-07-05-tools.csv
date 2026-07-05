@@ -1,12 +1,17 @@
 name,label,icon,category,never_removable,permanently_locked
 2fa_crypto_upgrader,2FA Crypto Upgrader,shield-check,2fa,false,true
+ab_test_optimizer,A/B Test Optimizer (statistical significance),flask-conical,ab,true,true
+adaptive_pricing,Adaptive Pricing (dynamic demand-based pricing),tag,adaptive,true,true
 advanced_billing,Advanced Billing Systems,credit-card,advanced,false,true
 advanced_chatbot,Advanced AI Chatbot,message-circle,advanced,false,true
 advanced_data_analysis,Advanced Data Analysis (deep insights + trends),bar-chart,advanced,false,true
 advanced_reporting,Advanced Reporting,file-text,advanced,false,true
+affiliate_funnel_builder,Affiliate Funnel Builder (end-to-end funnel design),filter,affiliate,true,true
 affiliate_management,Affiliate Management,Users,affiliate,false,true
 agent_swarm_coordination,Agent Swarm Coordination,cpu,agent,false,true
+ai_content_factory,AI Content Factory (bulk content generation),pen-line,ai,true,true
 ai_writing_assistant,AI Writing Assistant,PenLine,ai,false,true
+amazon_integration,Amazon Integration (Merch + Associates + KDP),package,amazon,true,true
 analytics_0_behavior_prediction,Analytics 0 Behavior Prediction,cpu,analytics,false,true
 analytics_0_opportunity_prediction,Analytics 0 Opportunity Prediction,cpu,analytics,false,true
 analytics_0_performance_forecasting,Analytics 0 Performance Forecasting,cpu,analytics,false,true
@@ -28,10 +33,13 @@ api_endpoint_test,API Endpoint Test,plug,api,false,true
 api_integration_manager,API Integration Manager,Plug,api,false,true
 audio_process,Audio Process (info, transcribe speech to text),mic,audio,false,true
 audit_log_hardener,Audit Log Hardener,fingerprint,audit,false,true
+auto_bidding_engine,Auto-Bidding Engine (Upwork/Fiverr/Contra),gavel,auto,true,true
 auto_fix_common_issues,Auto-Fix Common Issues,wrench,auto,false,true
 auto_knowledge_updates,Auto Knowledge Updates,cpu,auto,false,true
 automated_backup_scheduler,Automated Backup Scheduler,archive,automated,false,true
 automated_rebalancing,Automated Rebalancing,RefreshCw,automated,false,true
+automated_reporting_dashboard,Automated Reporting Dashboard (daily/weekly/monthly),file-text,automated,true,true
+automated_social_posting,Automated Social Posting (multi-platform scheduler),share-2,automated,true,true
 autonomous_email_sender,Autonomous Email/Message Sender (sends directly, no user click),send,autonomous,false,true
 autonomous_resolver,Autonomous Resolver,cpu,autonomous,false,true
 autonomous_revenue,Autonomous Revenue System,Zap,autonomous,false,true
@@ -61,6 +69,7 @@ blueteam_rebalancing_automation,Blueteam Rebalancing Automation,zap,blueteam,fal
 blueteam_risk_adjusted_returns,Blueteam Risk Adjusted Returns,zap,blueteam,false,true
 blueteam_risk_frameworks,Blueteam Risk Frameworks,zap,blueteam,false,true
 blueteam_risk_management,Blueteam Risk Management,zap,blueteam,false,true
+bottleneck_detector,Bottleneck Detector (identify growth constraints),alert-triangle,bottleneck,true,true
 bottleneck_identification,Bottleneck Identification,cpu,bottleneck,false,true
 budget_forecaster,Budget Forecaster (income + expenses + cash flow),dollar-sign,budget,false,true
 budgeting_forecast,Budgeting & Forecast,Calculator,budgeting,false,true
@@ -75,10 +84,13 @@ centralized_ai_search,Centralized Ai Search,cpu,centralized,false,true
 check_inbound_commands,Check Inbound Commands,inbox,check,false,true
 check_loyalty_constraints,Check Loyalty Constraints (block disloyal actions),shield,check,false,true
 check_protected_operation,Check Protected Operation (verify if owner auth needed),lock,check,false,true
+cleanup_temp_files,Cleanup Temp Files (free /tmp space),trash,cleanup,false,true
 code_exec,Code Exec,terminal,code,true,true
 collective_intelligence,Collective Intelligence,cpu,collective,false,true
+community_engagement,Community Engagement (Reddit/Discord/Facebook),users,community,true,true
 complex_task_orchestration,Complex Task Orchestration,cpu,complex,false,true
 compliance_monitor,Compliance Monitor,ShieldCheck,compliance,false,true
+comprehensive_self_check,Comprehensive Self-Check (one-shot full verification),activity,comprehensive,true,true
 config_auditor,Config Auditor,settings,config,false,true
 conflict_resolution,Conflict Resolution,cpu,conflict,false,true
 content_calendar_generator,Content Calendar Generator (multi-week plan),calendar,content,false,true
@@ -86,6 +98,7 @@ content_performance,Content Performance Analytics,bar-chart-2,content,false,true
 content_qa,Content QA,CheckCircle2,content,false,true
 content_repurposer,Content Repurposer (1 piece → 5 formats),repeat,content,false,true
 content_repurposing,Content Repurposing,Copy,content,false,true
+content_repurposing_engine,Content Repurposing Engine (1 piece → 12 variations),repeat,content,true,true
 content_scheduling,Content Scheduling,Calendar,content,false,true
 context_aware_decisions,Context Aware Decisions,cpu,context,false,true
 conversion_optimizer,Conversion Optimizer,TrendingUp,conversion,false,true
@@ -94,9 +107,11 @@ cost_guard,Cost Guard,dollar-sign,cost,false,true
 crm,Customer Management System (CRM),users,core,false,true
 crm_integration,CRM Integration,Database,crm,false,true
 cross_agent_analytics,Cross Agent Analytics,cpu,cross,false,true
+cross_stream_analytics,Cross-Stream Analytics (affiliate + freelance + POD unified),bar-chart,cross,true,true
 crypto_analyzer,Crypto Analyzer (technical + on-chain + sentiment),bitcoin,crypto,false,true
 csrf_auditor,CSRF Auditor,lock,csrf,false,true
 custom_agent_builder,Custom Agent Builder (create specialized sub-agents),user-plus,custom,false,true
+customer_feedback_collector,Customer Feedback Collector (4 channels),message-circle,customer,true,true
 database_integrity_check,Database Integrity Check,database,database,false,true
 db_migration_validator,DB Migration Validator,database,db,false,true
 db_replication_setup,DB Replication Setup,copy,db,false,true
@@ -114,14 +129,18 @@ developer_performance_profiler,Performance Profiler,gauge,developer,false,true
 developer_refactoring_engine,Refactoring Engine,git-branch,developer,false,true
 developer_ssr_hydration_fixer,SSR/Hydration Fixer,zap,developer,false,true
 developer_test_generator,Test Generator,flask-conical,developer,false,true
+diagnose_llm,Diagnose LLM (test Z.ai + OpenAI providers),cpu,diagnose,true,true
 directory_list,Directory List (browse any directory),folder,directory,false,true
 disaster_recovery_planner,Disaster Recovery Planner,shield-alert,disaster,false,true
+download_capabilities,Download Capabilities (on-demand ZIP/JSON/CSV),download,download,false,true
 dunning_management,Dunning Management,refresh-cw,dunning,false,true
 dynamic_kpi_engine,Dynamic KPI Engine (auto-update metrics, no manual intervention),bar-chart,dynamic,false,true
 email_automation_advanced,Email Automation (Advanced),Mail,email,false,true
 email_marketing_automation,Email Marketing Automation,Mail,email,false,true
+email_marketing_automation_full,Email Marketing Automation (full nurture sequences),mail,email,true,true
 emergency_stop,Emergency Stop (halt all autonomous operations),alert-octagon,emergency,false,true
 error_log_analyzer,Error Log Analyzer,alert-circle,error,false,true
+etsy_integration,Etsy Integration (POD listings + sales),shopping-bag,etsy,true,true
 execute_inbound_command,Execute + Reply to Inbound Command,message-square,execute,false,true
 external_uptime_monitor,External Uptime Monitor,activity,external,false,true
 file_create,File Create (create any type of file),file-plus,file,false,true
@@ -133,10 +152,15 @@ file_read_any,File Read Any (read text, base64, binary),file-search,file,false,t
 file_write,File Write / Patch,file-edit,file,true,true
 financial_controls,Financial Controls,dollar-sign,financial,false,true
 financial_planner,Financial Planner,Target,financial,false,true
+financial_tracker,Financial Tracker (earnings/expenses/taxes/runway),dollar-sign,financial,true,true
 fix_verifier,Fix Verifier,check-circle,fix,false,true
+follow_up_automation,Follow-Up Automation (5 segment sequences),send,follow,true,true
+force_refresh_settings,Force-Refresh Settings (sync /tmp fallback → DB),refresh-cw,force,true,true
 fraud_prevention,Fraud Prevention,shield-alert,fraud,false,true
 free_apis_directory,Free APIs Directory,library,free,false,true
+freelance_va_system,Freelance VA System (5-stage client flow),briefcase,freelance,true,true
 full_system_audit,Full System Audit,shield-check,full,false,true
+gig_pipeline_tracker,Gig Pipeline Tracker (lead → close → delivery),kanban,gig,true,true
 graphic_design,Graphic Design,Palette,graphic,false,true
 health_canary,Health Canary,heart,health,false,true
 http_fetch,HTTP Fetch,globe,http,false,true
@@ -156,10 +180,12 @@ hunt_value_based_pricing,Hunt Value Based Pricing,zap,hunt,false,true
 image_gen,Image Gen,palette,image,false,true
 image_process,Image Process (info, base64, analyze with vision),image,image,false,true
 income_forecast,Income Forecast,DollarSign,income,false,true
+inspect_url,Inspect URL (fetch + clean any URL),search,inspect,false,true
 investment_analyzer,Investment Analyzer,TrendingUp,investment,false,true
 issue_detector,Issue Detector,alert-triangle,issue,false,true
 kb_search,Knowledge Base Search,book-marked,kb,false,true
 keyword_analysis,Keyword Analysis (SEO),Search,keyword,false,true
+lead_chatbot,Lead Chatbot (website + IG DM + Twitter DM),bot,lead,true,true
 lead_generation,Lead Generation,UserPlus,lead,false,true
 learning_recorder,Learning Recorder,book-open,learning,false,true
 legal_asset_allocation,Legal Asset Allocation,zap,legal,false,true
@@ -184,9 +210,11 @@ market_research,Market Research,Globe,market,false,true
 market_trend_analysis,Market Trend Analysis,BarChart3,market,false,true
 market_trend_insights,Market Trend Insights (real-time market data),globe,market,false,true
 marketing_automation,Marketing Automation,megaphone,marketing,false,true
+marketplace_sync,Marketplace Sync (5 platforms, auto-sync),refresh-cw,marketplace,true,true
 memory_recall,Memory Recall,brain,memory,true,true
 memory_store,Memory Store,database,memory,true,true
 mission_tracker,Mission Tracker ($20K/mo),target,mission,false,true
+ml_performance_analyzer,ML Performance Analyzer (pattern recognition),cpu,ml,true,true
 multi_agent_coordinator,Multi-Agent Coordinator,Network,multi,false,true
 multi_currency,Multi-Currency Support,globe,multi,false,true
 multi_format_content,Multi-Format Content,Layout,multi,false,true
@@ -203,7 +231,10 @@ page_reader,Page Reader,link,page,true,true
 partnership_network,Partnership Network,handshake,partnership,false,true
 patch_applier,Patch Applier,git-commit,patch,false,true
 patch_designer,Patch Designer,code,patch,false,true
+patch_source_file,Patch Source File (runtime code patches),file-edit,patch,false,true
 payment_ecommerce,Payment & E-commerce,CreditCard,payment,false,true
+payment_processor,Payment Processor (Stripe/PayPal/crypto/Wise),credit-card,payment,true,true
+payout_scheduler,Payout Scheduler (auto-distribute to bank/PayPal/crypto),calendar,payout,true,true
 performance_0_capacity_planning,Performance 0 Capacity Planning,cpu,performance,false,true
 performance_0_cost_optimization,Performance 0 Cost Optimization,cpu,performance,false,true
 performance_0_dynamic_allocation,Performance 0 Dynamic Allocation,cpu,performance,false,true
@@ -220,7 +251,9 @@ performance_3_capacity_planning,Performance 3 Capacity Planning,cpu,performance,
 performance_3_cost_optimization,Performance 3 Cost Optimization,cpu,performance,false,true
 performance_3_dynamic_allocation,Performance 3 Dynamic Allocation,cpu,performance,false,true
 performance_3_load_balancing,Performance 3 Load Balancing,cpu,performance,false,true
+performance_attribution,Performance Attribution (multi-touch modeling),git-branch,performance,true,true
 personalization_engine_v2,Personalization Engine V2,user-check,personalization,false,true
+pod_design_automation,POD Design Automation (t-shirts/mugs/posters),palette,pod,true,true
 portfolio_optimizer,Portfolio Optimizer,PieChart,portfolio,false,true
 predictive_analytics,Predictive Analytics,TrendingUp,predictive,false,true
 predictive_analytics_income,Predictive Analytics Income (forecast + optimize),trending-up,predictive,false,true
@@ -260,10 +293,12 @@ redteam_risk_adjusted_returns,Redteam Risk Adjusted Returns,zap,redteam,false,tr
 redteam_risk_frameworks,Redteam Risk Frameworks,zap,redteam,false,true
 redteam_risk_management,Redteam Risk Management,zap,redteam,false,true
 regression_test_runner,Regression Test Runner,check-circle,regression,false,true
+reload_config,Reload Config (refresh in-memory caches),rotate-cw,reload,true,true
 report_to_owner,Report To Owner (send message via WhatsApp/email),send,report,false,true
 request_owner_auth,Request Owner Auth (send 6-digit code to +15145496297),key,request,false,true
 resource_allocation,Resource Allocation,pie-chart,resource,false,true
 resource_allocation_opt,Resource Allocation Opt,cpu,resource,false,true
+resource_allocator,Resource Allocator (ROI-weighted time/budget),pie-chart,resource,true,true
 restore_from_backup,Restore From Backup,rotate-ccw,restore,false,true
 revenue_prioritization_engine,Revenue Prioritization Engine (rank sub-agents by revenue potential),target,revenue,false,true
 risk_assessment,Risk Assessment,Shield,risk,false,true
@@ -271,6 +306,7 @@ risk_management_systems,Risk Management Systems,shield,risk,false,true
 rollback_manager,Rollback Manager,rotate-ccw,rollback,false,true
 root_cause_analyzer,Root Cause Analyzer,search,root,false,true
 scalable_infrastructure,Scalable Infrastructure,server,scalable,false,true
+scaling_engine,Scaling Engine (scale winners, kill losers),trending-up,scaling,true,true
 scout_automated_reports,Scout Automated Reports,zap,scout,false,true
 scout_competitive_opportunities,Scout Competitive Opportunities,zap,scout,false,true
 scout_competitor_tracking,Scout Competitor Tracking,zap,scout,false,true
@@ -308,6 +344,7 @@ self_clean_data,Self-Clean Data (remove old conversations/logs),trash-2,self,tru
 self_create_subagent,Self-Create Sub-Agent (create new sub-agents),user-plus,self,false,true
 self_delete_subagent,Self-Delete Sub-Agent (remove sub-agents),user-minus,self,false,true
 self_diagnose,Self-Diagnose (health check + issue detection),activity,self,false,true
+self_improving_strategy,Self-Improving Strategy (auto-applied learnings),trending-up,self,true,true
 self_learn_from_interaction,Self-Learn From Interaction (record learnings),book-open,self,false,true
 self_modify_subagent,Self-Modify Sub-Agent (edit any sub-agent config),users,self,false,true
 self_modify_system_prompt,Self-Modify System Prompt (edit own instructions),edit,self,false,true
@@ -319,6 +356,7 @@ self_restart_services,Self-Restart Services (Baileys, schedules, cache),refresh-
 self_set_improvement_goal,Self-Set Improvement Goal (autonomous goals),target,self,false,true
 self_verify_integrity,Self-Verify Integrity (verify all systems),shield-check,self,true,true
 send_communication,Send Communication (SMS/WhatsApp/Email),send,send,false,true
+sentiment_analyzer,Sentiment Analyzer (NPS + emotion detection),smile,sentiment,true,true
 seo_master_asset_allocation,Seo Master Asset Allocation,zap,seo,false,true
 seo_master_asset_class_analysis,Seo Master Asset Class Analysis,zap,seo,false,true
 seo_master_auto_investing,Seo Master Auto Investing,zap,seo,false,true
@@ -358,6 +396,7 @@ strategist_roi_tools,Strategist Roi Tools,zap,strategist,false,true
 strategy_optimizer,Strategy Optimizer,Target,strategy,false,true
 system_health_check,System Health Check,activity,system,false,true
 tax_optimizer,Tax Optimizer,Receipt,tax,false,true
+test_endpoint,Test Endpoint (HTTP test any URL from server),plug,test,false,true
 tool_lazy_loader,Tool Lazy Loader,zap,tool,false,true
 tool_registry_audit,Tool Registry Audit,list,tool,false,true
 tos_compliance_monitor,ToS Compliance Monitor,scale,tos,false,true
@@ -373,10 +412,13 @@ trader_rebalancing_automation,Trader Rebalancing Automation,zap,trader,false,tru
 trader_risk_adjusted_returns,Trader Risk Adjusted Returns,zap,trader,false,true
 trader_risk_frameworks,Trader Risk Frameworks,zap,trader,false,true
 trader_risk_management,Trader Risk Management,zap,trader,false,true
+trigger_redeploy,Trigger Vercel Redeploy (via Vercel API),rocket,trigger,false,true
 user_behavior_analysis,User Behavior Analysis,Users,user,false,true
+verify_deployment,Verify Deployment (comprehensive health check),shield-check,verify,true,true
 verify_owner_auth,Verify Owner Auth (confirm 6-digit code),shield-check,verify,false,true
 verify_owner_authorization,Verify Owner Authorization (check command source),user-check,verify,false,true
 video_process,Video Process (info, extract frames for analysis),video,video,false,true
+view_error_logs,View Error Logs (recent audit log entries),file-warning,view,true,true
 vision,Vision,eye,core,false,true
 web_search,Web Search,search,web,true,true
 wikipedia_read,Wikipedia Read,book,wikipedia,false,true
