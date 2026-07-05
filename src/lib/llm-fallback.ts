@@ -114,7 +114,7 @@ export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any>
     model: OPENAI_MODEL,
     messages,
     temperature: 0.6,
-    max_tokens: 4000,
+    max_tokens: 2000,
   }
 
   const resp = await fetch(OPENAI_BASE_URL, {
