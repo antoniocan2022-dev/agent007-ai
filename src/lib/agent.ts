@@ -255,9 +255,10 @@ export function parseAssistant(content: string): Parsed {
   if (toolMatch) {
     const name = toolMatch[1].trim()
     let args: any = {}
-    // For self-closing tags: toolMatch[2] = undefined, toolMatch[3] = undefined
-    // For closed tags: toolMatch[2] = undefined, toolMatch[3] = content
-    const raw = (toolMatch[3] ?? '').trim()
+    // Regex: /<tool\s+name=["']([^"']+)["']\s*(?:\/>|>([\s\S]*?)<\/tool>)/i
+    // Group 1 = tool name
+    // Group 2 = content between tags (for closed tags) OR undefined (for self-closing)
+    const raw = (toolMatch[2] ?? '').trim()
     if (raw) {
       try {
         args = JSON.parse(raw)
