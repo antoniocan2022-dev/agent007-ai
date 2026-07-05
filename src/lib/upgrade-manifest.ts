@@ -240,6 +240,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/self-fix-tools.ts', 'src/lib/tools.ts', 'src/lib/agent.ts'],
   },
+  {
+    id: 'two_layer_tool_lock',
+    category: 'safety',
+    title: 'Two-Layer Tool Lock — Removal + Execution Protection (Owner Authorization Required)',
+    description: 'Added two layers of permanent tool protection:\n\nLAYER 1 — REMOVAL PROTECTION: ALL 394+ tools are permanently locked. No runtime API can delete, reset, or disable any tool. The ONLY way to attempt removal is via the owner-authorized flow: request_tool_removal → owner receives 6-digit code on cellphone/email/WhatsApp → verify_tool_removal → audit log entry → queued for next deployment. 21 tools are on the NEVER_REMOVABLE list (added 6 self-fix tools: comprehensive_self_check, diagnose_llm, verify_deployment, view_error_logs, force_refresh_settings, reload_config — these are the agent\'s minimum viable self-repair set).\n\nLAYER 2 — EXECUTION PROTECTION: 2 destructive tools (trigger_redeploy + patch_source_file) require owner authorization BEFORE they can be dispatched. Added EXECUTION_PROTECTED_TOOLS list + isExecutionProtected() + requestExecutionAuthorization() + verifyExecutionAuthorization() + canExecuteWithoutAuth() to tool-protection.ts. Modified dispatchTool() in tools.ts to check the execution-protection cache (globalThis.__execAuthCache, 10-minute TTL) BEFORE running any tool — if the cache is missing or expired, dispatchTool returns a soft refusal that tells the agent to request authorization from the owner first.\n\nAdded 2 new manage actions (41 → 43 total): request_tool_execution + verify_tool_execution. Both delegate to the existing owner-auth flow (cellphone / email / WhatsApp / TOTP dispatch with 6-digit code, 10-minute TTL, 5-attempt lockout).\n\nUpdated SYSTEM_PROMPT with a "TWO LAYERS OF TOOL PROTECTION" section documenting both layers, the 21 NEVER_REMOVABLE tools, the 2 EXECUTION_PROTECTED tools, the authorization flow, and the soft-refusal behavior. Agent007 now knows exactly which tools need owner approval and how to get it.',
+    dateApplied: '2026-07-05',
+    permanent: true,
+    files: ['src/lib/tool-protection.ts', 'src/lib/tools.ts', 'src/lib/orchestrator.ts', 'src/lib/manage-actions.ts', 'src/lib/agent.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

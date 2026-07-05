@@ -2323,10 +2323,86 @@ async function executeManageAction(
         }
       }
 
+      /* --------------------------- request_tool_execution (start owner-auth flow for destructive tools) --------------------------- */
+      case 'request_tool_execution': {
+        try {
+          const toolName = (attrs.tool ?? '').toString().trim()
+          if (!toolName) return { ok: false, message: 'request_tool_execution requires "tool" attribute.' }
+          const method = (attrs.method ?? 'whatsapp').toString() as 'whatsapp' | 'sms' | 'email' | 'totp'
+          const {
+            requestExecutionAuthorization,
+            isExecutionProtected,
+          } = await import('./tool-protection')
+          if (!isExecutionProtected(toolName)) {
+            return {
+              ok: true,
+              message: `Tool "${toolName}" does NOT require execution authorization. It is safe to execute directly without owner approval. (Only trigger_redeploy and patch_source_file require authorization.)`,
+            }
+          }
+          const r = await requestExecutionAuthorization(toolName, method)
+          return {
+            ok: r.ok,
+            message: r.ok
+              ? `🔐 EXECUTION AUTHORIZATION REQUIRED for "${toolName}".\n\n${r.message}${r.waLink ? `\n\nWhatsApp link: ${r.waLink}` : ''}\n\nAfter the owner enters the code, call: <manage action="verify_tool_execution" tool="${toolName}" auth_id="${r.authId}" code="XXXXXX"/>`
+              : r.message,
+            data: { authId: r.authId, method: r.method, waLink: r.waLink, tool: toolName },
+          }
+        } catch (e: any) {
+          return { ok: false, message: `request_tool_execution threw: ${e?.message ?? e}` }
+        }
+      }
+
+      /* --------------------------- verify_tool_execution (verify owner code + record) --------------------------- */
+      case 'verify_tool_execution': {
+        try {
+          const toolName = (attrs.tool ?? '').toString().trim()
+          const authId = (attrs.auth_id ?? '').toString().trim()
+          const code = (attrs.code ?? '').toString().trim()
+          if (!toolName || !authId || !code) {
+            return { ok: false, message: 'verify_tool_execution requires "tool", "auth_id", and "code" attributes.' }
+          }
+          const { verifyExecutionAuthorization, isExecutionProtected } = await import('./tool-protection')
+          if (!isExecutionProtected(toolName)) {
+            return {
+              ok: true,
+              message: `Tool "${toolName}" does not require execution authorization — you may proceed directly.`,
+            }
+          }
+          const check = verifyExecutionAuthorization(authId, code)
+          if (!check.ok) {
+            return { ok: false, message: `Execution denied for "${toolName}": ${check.message}` }
+          }
+          // Record in audit log
+          try {
+            const userId = await getOperatorUserId()
+            await db.auditLog.create({
+              data: {
+                userId,
+                action: 'tool_execution_authorized',
+                entity: 'tool',
+                entityId: toolName,
+                description: `Owner authorized execution of tool "${toolName}" via ${check.message}. The tool may now be dispatched.`,
+                metadata: JSON.stringify({ tool: toolName, authId, timestamp: new Date().toISOString() }),
+              },
+            })
+          } catch {}
+          // Cache the authorization for 10 minutes so the next dispatchTool call passes
+          const _g: any = globalThis as any
+          if (!_g.__execAuthCache) _g.__execAuthCache = new Map<string, number>()
+          _g.__execAuthCache.set(toolName, Date.now() + 10 * 60 * 1000)
+          return {
+            ok: true,
+            message: `✅ Owner authorization verified for executing "${toolName}". You may now dispatch the tool: <tool name="${toolName}">...</tool>. Authorization valid for 10 minutes.`,
+          }
+        } catch (e: any) {
+          return { ok: false, message: `verify_tool_execution threw: ${e?.message ?? e}` }
+        }
+      }
+
       default:
         return {
           ok: false,
-          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, view_capabilities, create_backup, list_backups, load_backup, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth, fix_hydration, clear_cache, list_tools, request_tool_removal, verify_tool_removal.`,
+          message: `Unknown manage action: "${action}". Supported: create_agent, edit_agent, delete_agent, toggle_agent, set_income_goal, set_growth_target, log_income, create_schedule, delete_schedule, update_settings, dashboard_add_widget, dashboard_edit_widget, dashboard_remove_widget, dashboard_clear_widgets, login_update_branding, login_enable_2fa, login_verify_2fa, login_disable_2fa, settings_set, settings_get, settings_delete, system_refresh, system_reload, system_audit, system_test_communication, self_heal, view_manifest, view_capabilities, create_backup, list_backups, load_backup, totp_setup, totp_verify, totp_disable, verify_owner_auth, request_owner_auth, fix_hydration, clear_cache, list_tools, request_tool_removal, verify_tool_removal, request_tool_execution, verify_tool_execution.`,
         }
     }
   } catch (e: any) {

@@ -712,6 +712,45 @@ export async function dispatchTool(
   if (!entry) {
     return badResult(`Unknown tool: "${name}". Available: ${Object.keys(TOOL_REGISTRY).join(', ')}`)
   }
+
+  // ── Execution-protection guard ────────────────────────────────────────
+  // Some tools (trigger_redeploy, patch_source_file) have destructive side
+  // effects and require owner authorization BEFORE they can be dispatched.
+  // The orchestrator must call request_tool_execution + verify_tool_execution
+  // first. After successful verification, the auth is cached for 10 minutes
+  // in globalThis.__execAuthCache (keyed by tool name).
+  //
+  // If a tool is execution-protected AND no valid cached authorization
+  // exists, dispatchTool REFUSES to execute and returns a soft refusal
+  // that tells the agent to request authorization from the owner.
+  try {
+    const toolProtection = await import('./tool-protection')
+    if (toolProtection.isExecutionProtected(name)) {
+      const _g: any = globalThis as any
+      const cache: Map<string, number> = _g.__execAuthCache ?? new Map()
+      const expiry = cache.get(name)
+      const now = Date.now()
+      if (!expiry || expiry < now) {
+        return badResult(
+          `🔐 EXECUTION AUTHORIZATION REQUIRED for "${name}".\n\n` +
+          `This tool has destructive side effects and requires the owner's approval before it can run.\n\n` +
+          `To authorize:\n` +
+          `1. <manage action="request_tool_execution" tool="${name}" method="whatsapp"/>\n` +
+          `   → Sends a 6-digit code to the owner's cellphone / email / WhatsApp\n` +
+          `2. Owner receives the code on +15145496297 or antonio.can2022@hotmail.com\n` +
+          `3. <manage action="verify_tool_execution" tool="${name}" auth_id="..." code="XXXXXX"/>\n` +
+          `   → Verifies the code and caches authorization for 10 minutes\n` +
+          `4. Then re-dispatch: <tool name="${name}">...</tool>\n\n` +
+          `Authorization valid for 10 minutes after verification.`
+        )
+      }
+    }
+  } catch (e: any) {
+    // If the protection check itself fails, log but allow execution
+    // (fail-open — don't brick the agent because of a protection-layer bug)
+    console.warn(`[dispatchTool] execution-protection check failed for "${name}":`, e?.message)
+  }
+
   try {
     return await entry.fn(args ?? {}, ctx)
   } catch (e: any) {

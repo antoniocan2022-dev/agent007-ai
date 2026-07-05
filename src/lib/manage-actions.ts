@@ -81,6 +81,10 @@ export const MANAGE_ACTIONS: readonly string[] = [
   'list_tools',
   'request_tool_removal',
   'verify_tool_removal',
+
+  // ── Execution protection (owner-authorized execution flow) ────────────
+  'request_tool_execution',
+  'verify_tool_execution',
 ] as const
 
 /**

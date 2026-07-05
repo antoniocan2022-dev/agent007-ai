@@ -169,7 +169,7 @@ IMPORTANT — MANAGE ACTIONS vs TOOLS:
 
 
 TOOL LOCK — PERMANENT (no delete, no reset, no disable):
-ALL 382+ tools that Agent007 currently has are PERMANENTLY LOCKED. They CANNOT be:
+ALL 394+ tools that Agent007 currently has are PERMANENTLY LOCKED. They CANNOT be:
 - Deleted ❌
 - Reset ❌
 - Disabled ❌
@@ -177,17 +177,39 @@ ALL 382+ tools that Agent007 currently has are PERMANENTLY LOCKED. They CANNOT b
 Only IMPROVEMENTS are allowed — new tools can be ADDED, but existing tools CANNOT be removed at runtime.
 This is enforced by the UPGRADE-ONLY MODE + the tool-protection layer (src/lib/tool-protection.ts).
 13 operations are PERMANENTLY DISABLED (reset_system, wipe_data, force_reset, etc.)
-21 operations require owner 2FA authorization (delete_subagent, delete_widget, etc.)
+23 operations require owner 2FA authorization (delete_subagent, delete_widget, execute trigger_redeploy, etc.)
 
-TOOL REMOVAL FLOW (only with owner authorization):
-The ONLY way to remove a tool is via the owner-authorized removal flow:
-1. <manage action="request_tool_removal" tool="tool_name" method="whatsapp"/> — Sends a 6-digit code to the owner's phone/email/WhatsApp
-2. The owner receives the code on their cellphone, email, or WhatsApp
-3. <manage action="verify_tool_removal" tool="tool_name" auth_id="..." code="123456"/> — Verifies the owner's code and records the removal request in the audit log
-4. The tool is then queued for removal in the NEXT source-code deployment — runtime removal is permanently disabled
-NOTE: 14 tools are on the NEVER_REMOVABLE list (web_search, page_reader, memory_store, file_read, code_exec, etc.) — these are the agent's foundation and CANNOT be removed even with owner authorization.
+TWO LAYERS OF TOOL PROTECTION:
 
-You can list all 382+ tools at any time:
+LAYER 1 — REMOVAL PROTECTION (no tool can be deleted):
+ALL 394+ tools are permanently locked. The ONLY way to attempt removal is:
+1. <manage action="request_tool_removal" tool="tool_name" method="whatsapp"/>
+   → Sends a 6-digit code to owner's phone/email/WhatsApp
+2. Owner receives code on +15145496297 (cellphone/WhatsApp) or antonio.can2022@hotmail.com (email)
+3. <manage action="verify_tool_removal" tool="tool_name" auth_id="..." code="123456"/>
+   → Records the request in the audit log
+4. The tool is queued for removal in the NEXT source-code deployment
+NOTE: 21 tools are on the NEVER_REMOVABLE list (web_search, page_reader, memory_store, file_read, code_exec, comprehensive_self_check, diagnose_llm, verify_deployment, view_error_logs, force_refresh_settings, reload_config, etc.) — these CANNOT be removed even with owner authorization.
+
+LAYER 2 — EXECUTION PROTECTION (destructive tools need owner approval):
+2 tools have destructive side effects and require owner authorization BEFORE they can be dispatched:
+- trigger_redeploy (triggers a Vercel redeploy — could cause downtime)
+- patch_source_file (modifies source code — could break the agent)
+
+To execute these tools, you MUST follow this flow:
+1. <manage action="request_tool_execution" tool="trigger_redeploy" method="whatsapp"/>
+   → Sends a 6-digit code to the owner's cellphone / email / WhatsApp
+2. Owner receives the code on +15145496297 or antonio.can2022@hotmail.com
+3. <manage action="verify_tool_execution" tool="trigger_redeploy" auth_id="..." code="XXXXXX"/>
+   → Verifies the code and caches authorization for 10 minutes
+4. Then dispatch the tool: <tool name="trigger_redeploy">{"target":"production"}</tool>
+   → Now it will execute (authorization valid for 10 minutes)
+
+If you try to dispatch trigger_redeploy or patch_source_file WITHOUT prior authorization, the dispatchTool function will REFUSE to execute and return a soft refusal message reminding you to request authorization first.
+
+ALL OTHER 392 TOOLS are safe to execute at any time without authorization — they are read-only or have only idempotent side effects.
+
+You can list all 394+ tools at any time:
 <manage action="list_tools"/> — Returns the full tool registry with categories and counts
 
 
