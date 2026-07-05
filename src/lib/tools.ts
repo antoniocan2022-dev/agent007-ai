@@ -108,10 +108,7 @@ export async function toolWebSearch(
       recency_days: args.recency_days,
     })
     if (!Array.isArray(results) || results.length === 0) {
-      return okResult(
-        `No results found for "${query}"`,
-        `No web search results found for query: "${query}".`
-      )
+      throw new Error('Z.ai returned empty results')
     }
     const formatted = results
       .map((r: any, i: number) => {
@@ -126,8 +123,130 @@ export async function toolWebSearch(
     const out = okResult(preview, formatted)
     setCached('web_search', args, out)
     return out
-  } catch (e: any) {
-    return badResult(`web_search failed: ${e?.message ?? String(e)}`)
+  } catch (zaiError: any) {
+    // ── FALLBACK: DuckDuckGo Instant Answer API (free, no API key needed) ──
+    // The Z.ai SDK's web_search fails on Vercel because the .z-ai-config
+    // file doesn't exist in the serverless environment. DuckDuckGo's API
+    // is free, requires no authentication, and works perfectly on Vercel.
+    try {
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`
+      const ddgRes = await fetch(ddgUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'Agent007-AI/1.0' },
+      })
+      const ddgData = await ddgRes.json().catch(() => ({}))
+
+      const ddgResults: any[] = []
+
+      // Primary result (AbstractText)
+      if (ddgData.AbstractText) {
+        ddgResults.push({
+          name: ddgData.Heading || query,
+          url: ddgData.AbstractURL || `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+          snippet: ddgData.AbstractText.slice(0, 400),
+        })
+      }
+
+      // Related topics
+      if (Array.isArray(ddgData.RelatedTopics)) {
+        for (const topic of ddgData.RelatedTopics.slice(0, 8)) {
+          if (topic.Text && topic.FirstURL) {
+            ddgResults.push({
+              name: topic.Text.slice(0, 80),
+              url: topic.FirstURL,
+              snippet: topic.Text.slice(0, 400),
+            })
+          }
+          if (ddgResults.length >= (args.num ?? 5)) break
+        }
+      }
+
+      // Results from Definition
+      if (ddgData.Definition) {
+        ddgResults.push({
+          name: `Definition: ${query}`,
+          url: ddgData.DefinitionURL || `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+          snippet: ddgData.Definition.slice(0, 400),
+        })
+      }
+
+      // Answer
+      if (ddgData.Answer) {
+        ddgResults.push({
+          name: `Answer: ${query}`,
+          url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+          snippet: ddgData.Answer.slice(0, 400),
+        })
+      }
+
+      // If DuckDuckGo returned results, use them
+      if (ddgResults.length > 0) {
+        const formatted = ddgResults
+          .map((r, i) => `${i + 1}. **${r.name}**\n   URL: ${r.url}\n   ${r.snippet}`)
+          .join('\n\n')
+        const preview = ddgResults.slice(0, 3).map(r => `• ${r.name}`).join('\n')
+        const out = okResult(
+          preview + ' (via DuckDuckGo fallback)',
+          `Web search results for "${query}" (via DuckDuckGo fallback — Z.ai SDK unavailable on Vercel):\n\n${formatted}`
+        )
+        setCached('web_search', args, out)
+        return out
+      }
+
+      // If DuckDuckGo also returned nothing, try a Google scraping approach
+      // via the http_fetch pattern (fetch Google search results page)
+      const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${args.num ?? 5}`
+      const googleRes = await fetch(googleUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html',
+        },
+      })
+      const googleHtml = await googleRes.text().catch(() => '')
+
+      // Extract search results from Google HTML (simple regex)
+      const googleResults: any[] = []
+      const urlPattern = /<a href="\/url\?q=([^&"]+)/g
+      const titlePattern = /<h3[^>]*>([^<]+)<\/h3>/g
+      let urlMatch: any, titleMatch: any
+      const urls: string[] = []
+      const titles: string[] = []
+      while ((urlMatch = urlPattern.exec(googleHtml)) !== null) {
+        urls.push(decodeURIComponent(urlMatch[1]))
+      }
+      while ((titleMatch = titlePattern.exec(googleHtml)) !== null) {
+        titles.push(titleMatch[1])
+      }
+      for (let i = 0; i < Math.min(urls.length, titles.length, args.num ?? 5); i++) {
+        googleResults.push({
+          name: titles[i],
+          url: urls[i],
+          snippet: titles[i],
+        })
+      }
+
+      if (googleResults.length > 0) {
+        const formatted = googleResults
+          .map((r, i) => `${i + 1}. **${r.name}**\n   URL: ${r.url}`)
+          .join('\n\n')
+        const preview = googleResults.slice(0, 3).map(r => `• ${r.name}`).join('\n')
+        const out = okResult(
+          preview + ' (via Google fallback)',
+          `Web search results for "${query}" (via Google fallback):\n\n${formatted}`
+        )
+        setCached('web_search', args, out)
+        return out
+      }
+
+      // All fallbacks failed — return a helpful error with the query
+      return okResult(
+        `No results for "${query}" (all search methods exhausted)`,
+        `Web search for "${query}" returned no results from Z.ai, DuckDuckGo, or Google.\n\nZ.ai error: ${zaiError?.message ?? 'unknown'}\nDuckDuckGo: returned no results\nGoogle: returned no results\n\nTry using http_fetch to fetch a specific URL directly, or use inspect_url to read a web page.`
+      )
+    } catch (fallbackError: any) {
+      return badResult(`web_search failed (Z.ai: ${zaiError?.message ?? 'unknown'}, fallback: ${fallbackError?.message ?? 'unknown'}). Try using http_fetch to fetch a specific URL directly.`)
+    }
   }
 }
 
