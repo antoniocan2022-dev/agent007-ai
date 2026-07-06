@@ -2317,3 +2317,16 @@ TOOL_REGISTRY.strategy_feedback_integrator = { fn: toolStrategyFeedbackIntegrato
 TOOL_REGISTRY.repetitive_task_automator = { fn: toolRepetitiveTaskAutomator, icon: 'zap', label: 'Repetitive Task Automator (87 tasks automated, 42 hrs/week saved)' }
 // Enhanced Collaboration: coordinate sub-agents for multi-step tasks
 TOOL_REGISTRY.subagent_coordinator = { fn: toolSubagentCoordinator, icon: 'users', label: 'Subagent Coordinator (12 patterns, 47 workflows, 94% success)' }
+
+/* ================================================================== *
+ * SUBAGENT MAX-PERFORMANCE MONITOR — tracks per-agent metrics for the
+ * 6 enhanced agents (TRADER, Cybersec A/R, Developer, TESTFAST2, FASTTEST3).
+ * Reports on 5 dimensions: performance, speed, accuracy, self-learning,
+ * self-repair. Auto-locked via NEVER_REMOVABLE.
+ * ================================================================== */
+import {
+  toolSubagentPerformanceMonitor,
+} from './subagent-max-performance'
+
+// Subagent Performance Monitor (upgrade #39)
+TOOL_REGISTRY.subagent_performance_monitor = { fn: toolSubagentPerformanceMonitor, icon: 'activity', label: 'Subagent Performance Monitor (6 enhanced agents, 5-dimension tracking)' }
