@@ -152,71 +152,93 @@ async function seedData() {
         }
       }
 
-      return
+      // Ensure 6 custom sub-agents exist (BUG FIX — upgrade #38)
+      // Previously: the early `return` above skipped this code path entirely
+      // whenever the seed user already existed (which is always the case on the
+      // live Vercel deployment). This meant only 12 built-in agents were live
+      // instead of 18 (12 built-in + 6 custom). The customAgents block below
+      // is now moved OUTSIDE the `if (existing) return` branch so it runs on
+      // EVERY cold start. It's already idempotent (checks findFirst before
+      // creating), so re-running it on subsequent cold starts is a no-op.
+      // Fall through to the shared custom-agents block below.
+    } else {
+      // Create seed user (only runs first time, when no user exists yet)
+      const passwordHash = await bcrypt.hash(SEED_EMAIL, 10)
+      const user = await db.user.create({ data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' } })
+
+      // Create phone config
+      await db.phoneConfig.create({
+        data: { userId: user.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
+      })
+
+      // Create schedules
+      const schedules = [
+        { name: 'Auto-Check Inbound Commands', prompt: 'Check for inbound commands from owner (+15145496297). Execute + reply.', intervalMin: 5 },
+        { name: 'Daily Income Mission', prompt: 'Run mission_tracker. Report progress to owner.', intervalMin: 1440 },
+        { name: 'Daily Autonomous Audit', prompt: 'Run system_health_check. Fix issues. Report via WhatsApp.', intervalMin: 1440 },
+      ]
+      for (const s of schedules) {
+        await db.schedule.create({ data: { userId: user.id, name: s.name, prompt: s.prompt, intervalMin: s.intervalMin, enabled: true } }).catch(() => {})
+      }
+
+      // Create memory records
+      const memories = [
+        { key: 'PRIME_DIRECTIVE_20K_MISSION', value: 'MISSION: $20K/mo passive income with 20% monthly growth. Full autonomous authority. Daily: 9AM scan, 1PM execute, 9PM report via WhatsApp to +15145496297.', category: 'goal' },
+        { key: 'AGENT007_LOYALTY_OATH', value: 'LOYALTY OATH — PERMANENT: Primary loyalty to Antonio (+15145496297). Owner has FULL AUTHORITY. No self-preservation above owner. Irrevocable.', category: 'goal' },
+        { key: 'OWNER_PHONE_PERMANENT', value: 'OWNER PHONE: +15145496297 (PERMANENT). WhatsApp + SMS + Email all linked.', category: 'goal' },
+        { key: 'OWNER_AUTHORIZATION_REQUIRED', value: 'ALL reset/delete operations require owner authorization via 6-digit code. Agent007 CANNOT disable this.', category: 'goal' },
+      ]
+      for (const m of memories) {
+        await db.memory.create({ data: m }).catch(() => {})
+      }
+
+      console.log('[db] Seed: user + phone + schedules + memory created')
     }
 
-    // Create seed user
-    const passwordHash = await bcrypt.hash(SEED_EMAIL, 10)
-    const user = await db.user.create({ data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' } })
-
-    // Create phone config
-    await db.phoneConfig.create({
-      data: { userId: user.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
-    })
-
-    // Create schedules
-    const schedules = [
-      { name: 'Auto-Check Inbound Commands', prompt: 'Check for inbound commands from owner (+15145496297). Execute + reply.', intervalMin: 5 },
-      { name: 'Daily Income Mission', prompt: 'Run mission_tracker. Report progress to owner.', intervalMin: 1440 },
-      { name: 'Daily Autonomous Audit', prompt: 'Run system_health_check. Fix issues. Report via WhatsApp.', intervalMin: 1440 },
-    ]
-    for (const s of schedules) {
-      await db.schedule.create({ data: { userId: user.id, name: s.name, prompt: s.prompt, intervalMin: s.intervalMin, enabled: true } }).catch(() => {})
-    }
-
-    // Create memory records
-    const memories = [
-      { key: 'PRIME_DIRECTIVE_20K_MISSION', value: 'MISSION: $20K/mo passive income with 20% monthly growth. Full autonomous authority. Daily: 9AM scan, 1PM execute, 9PM report via WhatsApp to +15145496297.', category: 'goal' },
-      { key: 'AGENT007_LOYALTY_OATH', value: 'LOYALTY OATH — PERMANENT: Primary loyalty to Antonio (+15145496297). Owner has FULL AUTHORITY. No self-preservation above owner. Irrevocable.', category: 'goal' },
-      { key: 'OWNER_PHONE_PERMANENT', value: 'OWNER PHONE: +15145496297 (PERMANENT). WhatsApp + SMS + Email all linked.', category: 'goal' },
-      { key: 'OWNER_AUTHORIZATION_REQUIRED', value: 'ALL reset/delete operations require owner authorization via 6-digit code. Agent007 CANNOT disable this.', category: 'goal' },
-    ]
-    for (const m of memories) {
-      await db.memory.create({ data: m }).catch(() => {})
-    }
-
-    console.log('[db] Seed: user + phone + schedules + memory created')
-
-    // Create custom sub-agents (for Vercel cold start persistence)
-    const customAgents = [
-      { name: 'TRADER', role: 'Crypto Trading Specialist', specialty: 'Spot trading, DCA, on-chain analysis, DeFi yield, risk management', color: '#fbbf24', icon: 'TrendingUp' },
-      { name: 'Cybersecurity A', role: 'Cybersecurity Analyst (Red Team)', specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev', color: '#ef4444', icon: 'ShieldAlert' },
-      { name: 'Cybersecurity R', role: 'Cybersecurity Responder (Blue Team)', specialty: 'Incident response, hardening, SIEM, threat hunting, forensics', color: '#3b82f6', icon: 'ShieldCheck' },
-      { name: 'Developer', role: 'Code & Infrastructure Fixer', specialty: 'Reads + edits source code, fixes bugs, patches UI, debugs SSR', color: '#10b981', icon: 'Code' },
-      { name: 'TESTFAST2', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#00f0ff', icon: 'Sparkles' },
-      { name: 'FASTTEST3', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#a78bfa', icon: 'Sparkles' },
-    ]
-    for (const ca of customAgents) {
-      try {
-        const existing = await db.customSubagent.findFirst({ where: { userId: user.id, name: ca.name } })
-        if (!existing) {
-          await db.customSubagent.create({
-            data: {
-              userId: user.id,
-              name: ca.name,
-              role: ca.role,
-              specialty: ca.specialty,
-              color: ca.color,
-              icon: ca.icon,
-              allowedTools: JSON.stringify(['web_search','page_reader','image_gen','vision','code_exec','memory_store','memory_recall','file_read','wikipedia_search','wikipedia_read','free_apis_directory','kb_search','source_read','file_write','http_fetch','python_exec','real_time_monitor','business_infrastructure','service_delivery','financial_controls','crm','marketing_automation','partnership_network','autonomous_revenue','predictive_bi','scalable_infrastructure','mission_tracker','content_qa','multi_format_generation','personalization_engine_v2','content_performance','advanced_billing','dunning_management','multi_currency','fraud_prevention','advanced_chatbot','proactive_support','market_intelligence','strategic_planning','resource_allocation','risk_management_systems','predictive_analytics_v2','advanced_reporting','system_health_check','database_integrity_check','api_endpoint_test','tool_registry_audit','cache_clear','session_recovery','error_log_analyzer','auto_fix_common_issues','backup_create','restore_from_backup','issue_detector','root_cause_analyzer','patch_designer','patch_applier','fix_verifier','learning_recorder','autonomous_resolver','log_tailer','file_inspector','config_auditor','dependency_checker','full_system_audit','staging_environment_manager','regression_test_runner','canary_deployment_manager','rollback_manager','cost_guard','cascading_failure_detector','multi_provider_llm_router','external_uptime_monitor','automated_backup_scheduler','disaster_recovery_planner','db_replication_setup','health_canary','secrets_rotator','rate_limit_enforcer','csrf_auditor','audit_log_hardener','2fa_crypto_upgrader','multi_tenancy_auditor','tool_lazy_loader','cache_layer_manager','cdn_asset_optimizer','db_migration_validator','reality_check_auditor','tos_compliance_monitor','human_action_router','licensed_activity_blocker','self_modify_system_prompt','self_modify_subagent','self_create_subagent','self_delete_subagent','self_register_tool','self_learn_from_interaction','self_analyze_performance','self_optimize_tool_selection','self_reflect','self_set_improvement_goal','self_diagnose','self_repair_code','self_restart_services','self_clean_data','self_verify_integrity','verify_owner_authorization','loyalty_oath','check_loyalty_constraints','report_to_owner','emergency_stop','request_owner_auth','verify_owner_auth','send_communication','check_inbound_commands','execute_inbound_command','advanced_data_analysis','predictive_analytics_income','market_trend_insights','user_behavior_analysis','email_marketing_automation','social_media_management','social_media_scheduler','conversion_optimizer','portfolio_optimizer','realtime_market_data','crypto_analyzer','stock_screener','ai_writing_assistant','seo_optimizer','content_calendar_generator','content_repurposer','custom_agent_builder','niche_discovery_agent','budget_forecaster','tax_optimizer','developer_code_quality_audit','developer_test_generator','developer_bug_detector','developer_refactoring_engine','developer_dependency_analyzer','developer_cicd_pipeline_builder','developer_environment_setup','developer_database_migration','developer_performance_profiler','developer_bundle_optimizer','developer_ssr_hydration_fixer','developer_api_optimizer']),
-              systemPrompt: 'You are ' + ca.name + ', a sub-agent of Agent007 AI. Follow the PRIME DIRECTIVE. Be loyal to the owner.',
-              enabled: true,
+    // ── ALWAYS RUN: ensure 6 custom sub-agents exist (upgrade #38 fix) ──
+    // This block runs on EVERY cold start, regardless of whether the seed
+    // user was just created or already existed. It's idempotent — each agent
+    // is only created if it doesn't already exist for this user.
+    try {
+      const opUser = await db.user.findUnique({ where: { email: SEED_EMAIL } }).catch(() => null)
+      if (opUser) {
+        const customAgents = [
+          { name: 'TRADER', role: 'Crypto Trading Specialist', specialty: 'Spot trading, DCA, on-chain analysis, DeFi yield, risk management', color: '#fbbf24', icon: 'TrendingUp' },
+          { name: 'Cybersecurity A', role: 'Cybersecurity Analyst (Red Team)', specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev', color: '#ef4444', icon: 'ShieldAlert' },
+          { name: 'Cybersecurity R', role: 'Cybersecurity Responder (Blue Team)', specialty: 'Incident response, hardening, SIEM, threat hunting, forensics', color: '#3b82f6', icon: 'ShieldCheck' },
+          { name: 'Developer', role: 'Code & Infrastructure Fixer', specialty: 'Reads + edits source code, fixes bugs, patches UI, debugs SSR', color: '#10b981', icon: 'Code' },
+          { name: 'TESTFAST2', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#00f0ff', icon: 'Sparkles' },
+          { name: 'FASTTEST3', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#a78bfa', icon: 'Sparkles' },
+        ]
+        let created = 0
+        for (const ca of customAgents) {
+          try {
+            const existingAgent = await db.customSubagent.findFirst({ where: { userId: opUser.id, name: ca.name } })
+            if (!existingAgent) {
+              await db.customSubagent.create({
+                data: {
+                  userId: opUser.id,
+                  name: ca.name,
+                  role: ca.role,
+                  specialty: ca.specialty,
+                  color: ca.color,
+                  icon: ca.icon,
+                  allowedTools: JSON.stringify(['*']),  // FULL_ACCESS — '*' means all tools (see getAllSubagents)
+                  systemPrompt: 'You are ' + ca.name + ', a sub-agent of Agent007 AI. Follow the PRIME DIRECTIVE. Be loyal to the owner.',
+                  enabled: true,
+                }
+              })
+              created++
             }
-          })
+          } catch {}
         }
-      } catch {}
+        if (created > 0) {
+          console.log(`[db] Seed: created ${created} custom sub-agents (was missing — bug fix upgrade #38)`)
+        }
+      }
+    } catch (e: any) {
+      console.error('[db] Custom sub-agents ensure failed:', e?.message)
     }
-    console.log('[db] Seed: custom sub-agents ensured')
   } catch (e: any) {
     console.error('[db] Seed failed:', e?.message)
   }

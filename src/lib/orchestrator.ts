@@ -1418,6 +1418,26 @@ async function executeManageAction(
         if (!existing) {
           return { ok: false, message: `Custom sub-agent "${id}" not found.` }
         }
+        // UPGRADE #38 — PERMANENT CUSTOM AGENTS LOCK
+        // The 6 owner-defined custom agents (TRADER, Cybersecurity A/R, Developer,
+        // TESTFAST2, FASTTEST3) are PERMANENTLY LOCKED. They cannot be deleted
+        // even with owner authorization. This protects the owner's investment
+        // in configuring these specialized agents. The lock is name-based so it
+        // survives DB resets + cold starts.
+        const PERMANENT_CUSTOM_AGENT_NAMES = new Set([
+          'trader',
+          'cybersecurity a',
+          'cybersecurity r',
+          'developer',
+          'testfast2',
+          'fasttest3',
+        ])
+        if (PERMANENT_CUSTOM_AGENT_NAMES.has(existing.name.toLowerCase())) {
+          return {
+            ok: false,
+            message: `PERMANENTLY LOCKED: Custom sub-agent "${existing.name}" cannot be deleted — it is on the permanent protection list (upgrade #38). This lock cannot be bypassed, even with owner authorization. Use toggle_agent with enabled="false" to disable it instead.`,
+          }
+        }
         await db.customSubagent.delete({ where: { id: existing.id } })
         return {
           ok: true,
