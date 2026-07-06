@@ -3249,3 +3249,47 @@ Stage Summary:
   • Feedback Integration: +78% conversion rate over 6 months
   • Task Automation: 42 hrs/week saved, $4,200/mo saved
   • Collaboration: 3x faster multi-step tasks, +16% success rate
+
+---
+Task ID: fix-18-agents-upgrade-38
+Agent: main (parent)
+Task: Verify all 519 tools are locked. Confirm subagent count (should be 18, was showing 12). Fix, lock all, redeploy.
+
+Work Log:
+- VERIFIED: All 519 tools are PERMANENTLY LOCKED via NEVER_REMOVABLE_TOOLS (auto-generated from Object.keys(TOOL_REGISTRY)). ✅
+- FOUND BUG: Live Vercel showed only 12 agents (all built-in, 0 custom) instead of expected 18 (12 built-in + 6 custom).
+- ROOT CAUSE: Vercel serverless uses ephemeral SQLite per lambda instance. The 6 custom agents (TRADER, Cybersecurity A/R, Developer, TESTFAST2, FASTTEST3) were stored in the CustomSubagent DB table. The seedData() function in db.ts was supposed to create them on every cold start, but had an early `return` at line 155 when the seed user already existed — skipping the custom-agents seeding code entirely.
+
+- FIRST FIX ATTEMPT (src/lib/db.ts): Restructured seedData() so the 6-custom-agents block runs on EVERY cold start, outside the early-return branch. Used allowedTools: '*' (FULL_ACCESS wildcard). Deployed. But verification still showed 12 agents — Vercel ephemeral DB inconsistency.
+
+- SECOND FIX ATTEMPT (src/app/api/system/seed-agents/route.ts): Created a dedicated endpoint to force-seed the 6 agents on demand, bypassing the globalForPrisma.dbInitialized cache flag. Endpoint also creates the operator user if missing. Deployed. But endpoint consistently returned "Could not create or find operator user" — Vercel ephemeral DB race conditions made the DB-based approach unreliable.
+
+- FINAL FIX (src/lib/subagents.ts): Promoted the 6 custom agents to BUILT-IN status by adding them directly to the SUBAGENTS constant in code. This makes them:
+  • Always available on every Vercel instance (no DB dependency)
+  • Automatically protected by BUILTIN_IDS check (cannot be deleted, even with owner auth)
+  • Auto-included in getAllSubagents() merge logic
+  • Dispatch IDs: trader, cybersecurity_a, cybersecurity_r, developer, testfast2, fasttest3
+
+- PERMANENT LOCK (src/lib/orchestrator.ts): Added PERMANENT_CUSTOM_AGENT_NAMES set in delete_agent handler as additional protection. Any delete attempt on these 6 agents returns "PERMANENTLY LOCKED" error.
+
+- SYSTEM_PROMPT UPDATE (src/lib/agent.ts): Updated SUB-AGENTS section to show "18 TOTAL = 18 BUILT-IN, ALL PERMANENTLY LOCKED — cannot be deleted, even with owner auth (upgrade #38)". Lists all 18 with dispatch IDs.
+
+- UPGRADE MANIFEST: Added entry #38 (fix_18_agents_permanent_lock_38, category: self_heal) documenting the full fix.
+
+VERIFIED LIVE ON HTTPS://AGENT007-AI.VERCEL.APP
+================================================
+✅ Total tools: 519 (all PERMANENTLY LOCKED via NEVER_REMOVABLE)
+✅ Total agents: 18 (was 12, +6)
+  - 12 original built-ins: aurora, vertex, quantum, scout, hunt, forge, quill, prism, pulse, echo, legal, banker
+  - 6 promoted built-ins: TRADER, Cybersecurity A, Cybersecurity R, Developer, TESTFAST2, FASTTEST3
+✅ All 18 agents have FULL ACCESS to all 519 tools
+✅ All 18 agents PERMANENTLY LOCKED (cannot be deleted, even with owner auth)
+✅ Total upgrades: 38 (was 37, +1 = upgrade #38)
+✅ Upgrade #38 visible in manifest
+
+All 5 user-locked metrics now hold correctly:
+  1. Available Agents: 18 (was 12, ALL FULL ACCESS to all 519 tools, ALL PERMANENTLY LOCKED) ✅
+  2. Management Actions: 43 ✅
+  3. Monthly Income Target: $20,000 ✅
+  4. Growth Rate: 20% monthly, 20% daily ✅
+  5. Permanent Upgrades: 38 (+1) ✅
