@@ -15,7 +15,7 @@ model ApiKey {
   key       String
   baseUrl   String?
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt @default(now())
 
   @@index([service])
   @@index([userId])
@@ -54,7 +54,7 @@ model BankAccount {
   isPrimary          Boolean  @default(false)
   label              String?
   createdAt          DateTime @default(now())
-  updatedAt          DateTime
+  updatedAt          DateTime @updatedAt @default(now())
 
   @@index([userId])
 }
@@ -72,7 +72,7 @@ model BusinessStrategy {
   completedAt DateTime?
   metadata    String?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([phase])
@@ -102,7 +102,7 @@ model ContractDraft {
   riskScore Int      @default(5)
   notes     String?
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -112,7 +112,7 @@ model Conversation {
   id        String    @id @default(cuid())
   title     String    @default("New Conversation")
   createdAt DateTime  @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt @default(now())
   Message   Message[]
 }
 
@@ -129,7 +129,7 @@ model CustomSubagent {
   enabled          Boolean  @default(true)
   isBuiltinOverlay Boolean  @default(false)
   createdAt        DateTime @default(now())
-  updatedAt        DateTime
+  updatedAt        DateTime @updatedAt @default(now())
   User             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -148,7 +148,7 @@ model Customer {
   notes     String?
   tags      String?
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -217,7 +217,7 @@ model MLModel {
   trainSamples Int       @default(0)
   lastTrained  DateTime?
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime
+  updatedAt    DateTime @updatedAt @default(now())
 
   @@index([userId])
 }
@@ -237,7 +237,7 @@ model MarketingCampaign {
   endDate        DateTime?
   metadata       String?
   createdAt      DateTime  @default(now())
-  updatedAt      DateTime
+  updatedAt      DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -249,7 +249,7 @@ model Memory {
   value     String
   category  String   @default("general")
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt @default(now())
 }
 
 model Message {
@@ -276,7 +276,7 @@ model MissionTracker {
   withoutImprovements Float?
   withImprovements    Float?
   unit                String
-  updatedAt           DateTime
+  updatedAt           DateTime @updatedAt @default(now())
   createdAt           DateTime @default(now())
 
   @@index([metric])
@@ -307,7 +307,7 @@ model Opportunity {
   status      String   @default("new")
   metadata    String?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -325,7 +325,7 @@ model Partnership {
   contactPhone     String?
   notes            String?
   createdAt        DateTime @default(now())
-  updatedAt        DateTime
+  updatedAt        DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -341,7 +341,7 @@ model PayPalAccount {
   isPrimary    Boolean  @default(false)
   verified     Boolean  @default(false)
   createdAt    DateTime @default(now())
-  updatedAt    DateTime
+  updatedAt    DateTime @updatedAt @default(now())
 
   @@index([userId])
 }
@@ -354,7 +354,7 @@ model PendingManageAction {
   status    String   @default("pending")
   result    String?
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -376,7 +376,7 @@ model PhoneConfig {
   baileysLinkedNumber  String?
   baileysLinkedAt      DateTime?
   createdAt            DateTime  @default(now())
-  updatedAt            DateTime
+  updatedAt            DateTime @updatedAt @default(now())
 
   @@index([userId])
 }
@@ -407,7 +407,7 @@ model RiskRegister {
   mitigations String?
   status      String   @default("active")
   createdAt   DateTime @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt @default(now())
 
   @@index([category])
   @@index([userId])
@@ -424,7 +424,7 @@ model Schedule {
   nextRunAt   DateTime?
   lastConvId  String?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt @default(now())
   User        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -440,7 +440,7 @@ model ServicePackage {
   features     String?
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
-  updatedAt    DateTime
+  updatedAt    DateTime @updatedAt @default(now())
 
   @@index([category])
   @@index([userId])
@@ -490,7 +490,7 @@ model TwoFactorSecret {
   enabled     Boolean   @default(false)
   verifiedAt  DateTime?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt @default(now())
 
   @@index([method])
   @@index([userId])
@@ -502,7 +502,7 @@ model User {
   passwordHash    String
   name            String?
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime @updatedAt @default(now())
   CustomSubagent  CustomSubagent[]
   NotificationLog NotificationLog[]
   Schedule        Schedule[]
