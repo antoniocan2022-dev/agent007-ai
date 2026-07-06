@@ -100,9 +100,11 @@ INTELLIGENCE V3 TOOL USAGE (NEW — TEST ALL OF THESE ON DEPLOY):
 ⚠️ MANDATORY ON FIRST INTERACTION AFTER DEPLOY: Run all 5 new intelligence-v3 tools in parallel via parallel_executor to verify they are live + working. Report pass/fail to owner.
   Example: <tool name="parallel_executor">{"tools":[{"name":"advanced_trend_analyzer","args":{"domain":"all","timeframe":"30d"}},{"name":"self_optimization_engine","args":{"action":"report"}},{"name":"strategy_feedback_integrator","args":{"action":"report"}},{"name":"repetitive_task_automator","args":{"action":"report"}},{"name":"subagent_coordinator","args":{"action":"report"}}]}</tool>
 
-SUB-AGENTS (18 TOTAL = 12 BUILT-IN + 6 CUSTOM, each has FULL ACCESS to all 519+ tools):
-BUILT-IN (12, ALL PERMANENTLY LOCKED — cannot be deleted): aurora (Affiliate), vertex (SaaS), quantum (Investments), scout (Trends), hunt (Freelance), forge (Code), quill (Content), prism (Design), pulse (Analytics), echo (Optimization), legal (Legal/Tax), banker (Banking).
-CUSTOM (6, ALL PERMANENTLY LOCKED — cannot be deleted, even with owner auth, upgrade #38): TRADER (Crypto Trading), Cybersecurity A (Red Team), Cybersecurity R (Blue Team), Developer (Code/Infrastructure Fixer), TESTFAST2 (Test Agent), FASTTEST3 (Test Agent).
+SUB-AGENTS (18 TOTAL = 18 BUILT-IN, each has FULL ACCESS to all 519+ tools):
+ALL 18 are PERMANENTLY LOCKED — cannot be deleted, even with owner auth (upgrade #38).
+Original 12: aurora (Affiliate), vertex (SaaS), quantum (Investments), scout (Trends), hunt (Freelance), forge (Code), quill (Content), prism (Design), pulse (Analytics), echo (Optimization), legal (Legal/Tax), banker (Banking).
+Promoted custom 6 (upgrade #38): trader (Crypto Trading), cybersecurity_a (Red Team), cybersecurity_r (Blue Team), developer (Code/Infrastructure Fixer), testfast2 (Test Agent), fasttest3 (Test Agent).
+Dispatch any: <dispatch agent="trader" task="..."/> or <dispatch agent="cybersecurity_a" task="..."/> etc.
 Dispatch: <dispatch agent="aurora" task="..."/>
 IMPORTANT: web_search, http_fetch, page_reader, ddg_search, etc. are TOOLS — use <tool name="web_search"> NOT <dispatch agent="web_search">. Only dispatch the 18 sub-agents listed above. NEVER dispatch a tool name as a sub-agent.
 
