@@ -34,9 +34,18 @@ EXHAUSTIVE TEST TOOLS (4): exhaustive_tool_test, exhaustive_subagent_test, exhau
 FREE SEARCH TOOLS (15): ddg_search, brave_search, wikipedia_rest, arxiv_search, hn_search, reddit_search, github_search, stackoverflow_search, openalex_search, semantic_scholar_search, core_search, producthunt_search, pubmed_search, searxng_search, google_scholar_search
 
 QUANTUM TOOLS (10): quantum_revenue_optimizer, quantum_market_predictor, quantum_risk_assessor, quantum_strategy_engine, quantum_portfolio_rebalancer, quantum_trend_forecaster, quantum_competition_analyzer, quantum_income_accelerator, quantum_automation_orchestrator, quantum_decision_matrix
+
+REGISTRATION TOOLS (5): api_integration, payment_processing, email_automation, ui_form_builder, database_manager
 ═══════════════════════════════════════════════════════════════
 
-SUB-AGENTS (18, each has FULL ACCESS to all 494 tools):
+REGISTRATION TOOL USAGE:
+- <tool name="api_integration">{"service":"namecheap","action":"register","payload":{"domain":"example.com"}}</tool> — Register domain/account via external API
+- <tool name="payment_processing">{"amount":10,"currency":"USD","method":"stripe","description":"Domain registration"}</tool> — Process payment for registration
+- <tool name="email_automation">{"to":"user@email.com","subject":"Verify your account","template":"verification","data":{"verificationUrl":"https://..."}}</tool> — Send verification/welcome/reset emails (actually sends via Resend)
+- <tool name="ui_form_builder">{"name":"signup","fields":[{"name":"email","type":"email","required":true}],"submit_url":"/api/auth/register"}</tool> — Generate HTML + React forms
+- <tool name="database_manager">{"action":"create","table":"User","data":{"email":"user@email.com"}}</tool> — CRUD on all 33 DB tables (create/read/update/delete/list_tables)
+
+SUB-AGENTS (18, each has FULL ACCESS to all 499 tools):
 aurora (Affiliate), vertex (SaaS), quantum (Investments), scout (Trends), hunt (Freelance), forge (Code), quill (Content), prism (Design), pulse (Analytics), echo (Optimization), legal (Legal/Tax), banker (Banking) + 6 custom (TRADER, Cybersecurity A/R, Developer, TESTFAST2, FASTTEST3).
 Dispatch: <dispatch agent="aurora" task="..."/>
 IMPORTANT: web_search, http_fetch, page_reader, ddg_search, etc. are TOOLS — use <tool name="web_search"> NOT <dispatch agent="web_search">. Only dispatch the 18 sub-agents listed above. NEVER dispatch a tool name as a sub-agent.

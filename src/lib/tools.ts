@@ -2152,3 +2152,22 @@ TOOL_REGISTRY.quantum_competition_analyzer = { fn: toolQuantumCompetitionAnalyze
 TOOL_REGISTRY.quantum_income_accelerator = { fn: toolQuantumIncomeAccelerator, icon: 'rocket', label: 'Quantum Income Accelerator (90-day path to $20K)' }
 TOOL_REGISTRY.quantum_automation_orchestrator = { fn: toolQuantumAutomationOrchestrator, icon: 'network', label: 'Quantum Automation Orchestrator (50 simultaneous)' }
 TOOL_REGISTRY.quantum_decision_matrix = { fn: toolQuantumDecisionMatrix, icon: 'grid', label: 'Quantum Decision Matrix (7-dimensional scoring)' }
+
+/* ================================================================== *
+ * REGISTRATION AUTOMATION TOOLS — 5 tools for account creation,
+ * domain registration, payment, email, UI forms, and database.
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS.
+ * ================================================================== */
+import {
+  toolApiIntegration,
+  toolPaymentProcessing,
+  toolEmailAutomation,
+  toolUiFormBuilder,
+  toolDatabaseManager,
+} from './registration-automation-tools'
+
+TOOL_REGISTRY.api_integration = { fn: toolApiIntegration, icon: 'plug', label: 'API Integration (account/domain registration via external APIs)' }
+TOOL_REGISTRY.payment_processing = { fn: toolPaymentProcessing, icon: 'credit-card', label: 'Payment Processing (Stripe/PayPal/Wise/crypto for registration)' }
+TOOL_REGISTRY.email_automation = { fn: toolEmailAutomation, icon: 'mail', label: 'Email Automation (verification + welcome + notifications)' }
+TOOL_REGISTRY.ui_form_builder = { fn: toolUiFormBuilder, icon: 'layout', label: 'UI Form Builder (create forms to collect user info)' }
+TOOL_REGISTRY.database_manager = { fn: toolDatabaseManager, icon: 'database', label: 'Database Manager (CRUD on all 33 DB tables)' }
