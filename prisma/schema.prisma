@@ -8,7 +8,7 @@ datasource db {
 }
 
 model ApiKey {
-  id        String   @id
+  id        String   @id @default(cuid())
   userId    String
   name      String
   service   String
@@ -22,7 +22,7 @@ model ApiKey {
 }
 
 model AuditLog {
-  id          String   @id
+  id          String   @id @default(cuid())
   userId      String?
   action      String
   entity      String
@@ -40,7 +40,7 @@ model AuditLog {
 }
 
 model BankAccount {
-  id                 String   @id
+  id                 String   @id @default(cuid())
   userId             String
   accountHolder      String
   bankName           String
@@ -60,7 +60,7 @@ model BankAccount {
 }
 
 model BusinessStrategy {
-  id          String    @id
+  id          String    @id @default(cuid())
   userId      String
   phase       String
   title       String
@@ -80,7 +80,7 @@ model BusinessStrategy {
 }
 
 model ComplianceCheck {
-  id         String   @id
+  id         String   @id @default(cuid())
   userId     String
   country    String
   regulation String
@@ -92,7 +92,7 @@ model ComplianceCheck {
 }
 
 model ContractDraft {
-  id        String   @id
+  id        String   @id @default(cuid())
   userId    String
   title     String
   type      String
@@ -109,7 +109,7 @@ model ContractDraft {
 }
 
 model Conversation {
-  id        String    @id
+  id        String    @id @default(cuid())
   title     String    @default("New Conversation")
   createdAt DateTime  @default(now())
   updatedAt DateTime
@@ -117,7 +117,7 @@ model Conversation {
 }
 
 model CustomSubagent {
-  id               String   @id
+  id               String   @id @default(cuid())
   userId           String
   name             String
   role             String
@@ -136,7 +136,7 @@ model CustomSubagent {
 }
 
 model Customer {
-  id        String   @id
+  id        String   @id @default(cuid())
   userId    String
   name      String
   email     String?
@@ -155,7 +155,7 @@ model Customer {
 }
 
 model IncomeEntry {
-  id        String   @id
+  id        String   @id @default(cuid())
   amount    Float
   source    String
   notes     String?
@@ -164,7 +164,7 @@ model IncomeEntry {
 }
 
 model IncomingCommand {
-  id             String    @id
+  id             String    @id @default(cuid())
   userId         String
   source         String
   fromNumber     String?
@@ -181,7 +181,7 @@ model IncomingCommand {
 }
 
 model KnowledgeChunk {
-  id         String   @id
+  id         String   @id @default(cuid())
   docId      String
   userId     String
   content    String
@@ -194,7 +194,7 @@ model KnowledgeChunk {
 }
 
 model KnowledgeDoc {
-  id         String   @id
+  id         String   @id @default(cuid())
   userId     String
   filename   String
   mimeType   String
@@ -207,7 +207,7 @@ model KnowledgeDoc {
 }
 
 model MLModel {
-  id           String    @id
+  id           String    @id @default(cuid())
   userId       String
   name         String
   type         String
@@ -223,7 +223,7 @@ model MLModel {
 }
 
 model MarketingCampaign {
-  id             String    @id
+  id             String    @id @default(cuid())
   userId         String
   name           String
   channel        String
@@ -244,7 +244,7 @@ model MarketingCampaign {
 }
 
 model Memory {
-  id        String   @id
+  id        String   @id @default(cuid())
   key       String   @unique
   value     String
   category  String   @default("general")
@@ -253,7 +253,7 @@ model Memory {
 }
 
 model Message {
-  id             String       @id
+  id             String       @id @default(cuid())
   conversationId String
   role           String
   content        String
@@ -268,7 +268,7 @@ model Message {
 }
 
 model MissionTracker {
-  id                  String   @id
+  id                  String   @id @default(cuid())
   userId              String
   metric              String
   currentValue        Float
@@ -284,7 +284,7 @@ model MissionTracker {
 }
 
 model NotificationLog {
-  id        String   @id
+  id        String   @id @default(cuid())
   userId    String
   type      String
   to        String
@@ -298,7 +298,7 @@ model NotificationLog {
 }
 
 model Opportunity {
-  id          String   @id
+  id          String   @id @default(cuid())
   userId      String
   title       String
   description String?
@@ -314,7 +314,7 @@ model Opportunity {
 }
 
 model Partnership {
-  id               String   @id
+  id               String   @id @default(cuid())
   userId           String
   partnerName      String
   partnerType      String
@@ -332,7 +332,7 @@ model Partnership {
 }
 
 model PayPalAccount {
-  id           String   @id
+  id           String   @id @default(cuid())
   userId       String
   email        String
   clientId     String?
@@ -347,7 +347,7 @@ model PayPalAccount {
 }
 
 model PendingManageAction {
-  id        String   @id
+  id        String   @id @default(cuid())
   userId    String
   action    String
   attrs     String
@@ -361,7 +361,7 @@ model PendingManageAction {
 }
 
 model PhoneConfig {
-  id                   String    @id
+  id                   String    @id @default(cuid())
   userId               String
   phoneNumber          String?
   whatsappNumber       String?
@@ -382,7 +382,7 @@ model PhoneConfig {
 }
 
 model Prediction {
-  id         String   @id
+  id         String   @id @default(cuid())
   userId     String
   category   String
   prediction String
@@ -396,7 +396,7 @@ model Prediction {
 }
 
 model RiskRegister {
-  id          String   @id
+  id          String   @id @default(cuid())
   userId      String
   category    String
   description String
@@ -414,7 +414,7 @@ model RiskRegister {
 }
 
 model Schedule {
-  id          String    @id
+  id          String    @id @default(cuid())
   userId      String
   name        String
   prompt      String
@@ -429,7 +429,7 @@ model Schedule {
 }
 
 model ServicePackage {
-  id           String   @id
+  id           String   @id @default(cuid())
   userId       String
   name         String
   description  String
@@ -447,7 +447,7 @@ model ServicePackage {
 }
 
 model SystemHealth {
-  id           String   @id
+  id           String   @id @default(cuid())
   userId       String
   component    String
   status       String   @default("healthy")
@@ -460,7 +460,7 @@ model SystemHealth {
 }
 
 model Transaction {
-  id            String   @id
+  id            String   @id @default(cuid())
   userId        String
   provider      String
   providerTxId  String
@@ -479,7 +479,7 @@ model Transaction {
 }
 
 model TwoFactorSecret {
-  id          String    @id
+  id          String    @id @default(cuid())
   userId      String
   method      String
   phoneNumber String?
@@ -497,7 +497,7 @@ model TwoFactorSecret {
 }
 
 model User {
-  id              String            @id
+  id              String            @id @default(cuid())
   email           String            @unique
   passwordHash    String
   name            String?
@@ -510,7 +510,7 @@ model User {
 }
 
 model UserSetting {
-  id     String @id
+  id     String @id @default(cuid())
   userId String
   key    String
   value  String

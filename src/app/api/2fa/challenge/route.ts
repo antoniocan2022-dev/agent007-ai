@@ -60,7 +60,50 @@ export async function POST(req: NextRequest) {
     const email = (body?.email ?? '').toString().trim().toLowerCase()
     if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
 
-    const user = await db.user.findUnique({ where: { email } })
+    let user = await db.user.findUnique({ where: { email } })
+
+    // ── AUTO-CREATE OWNER USER IF MISSING (upgrade #40) ─────────────────
+    // On Vercel ephemeral SQLite, the user table can be empty on fresh
+    // instances. For the OWNER account, auto-create so login always works.
+    // Password defaults to the email (same as init script). The owner can
+    // change it later via /api/auth/change-password.
+    if (!user && email === OWNER_EMAIL) {
+      try {
+        const bcrypt = await import('bcryptjs')
+        const passwordHash = await bcrypt.default.hash(OWNER_EMAIL, 10)
+        user = await db.user.create({
+          data: {
+            email: OWNER_EMAIL,
+            passwordHash,
+            name: 'Agent007 Operator',
+          },
+        })
+        // Also create phone config for the new user
+        await db.phoneConfig.create({
+          data: {
+            userId: user.id,
+            phoneNumber: OWNER_PHONE,
+            whatsappNumber: OWNER_PHONE,
+            email: OWNER_EMAIL,
+            smsEnabled: true,
+            whatsappEnabled: true,
+            emailEnabled: true,
+            whatsappProvider: 'wa_link',
+          },
+        }).catch(() => {})
+        console.log('[2fa/challenge] Auto-created owner user (upgrade #40)')
+      } catch (createErr: any) {
+        // Maybe a concurrent request created it — try fetching again
+        user = await db.user.findUnique({ where: { email } })
+        if (!user) {
+          return NextResponse.json(
+            { error: `Could not create or find owner account: ${createErr?.message ?? 'unknown'}` },
+            { status: 500 }
+          )
+        }
+      }
+    }
+
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
     // Check for existing 2FA config
