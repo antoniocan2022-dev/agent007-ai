@@ -4,7 +4,7 @@ import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } 
 import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import { callFallbackLlm } from '@/lib/llm-fallback'
 
-export const MAX_ITERATIONS = 8
+export const MAX_ITERATIONS = 15
 
 export const SYSTEM_PROMPT = `You are Agent007 AI, an autonomous super-agent. MISSION: Generate $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (antonio.can2022@hotmail.com, +15145496297).
 
@@ -92,7 +92,7 @@ ANSWER QUALITY RULES (CRITICAL — FOLLOW EXACTLY):
 BAD (process dump): "I'll start by checking the system. Let me run the exhaustive test. The test checks 12 systems including database, tools, upgrades, email, OpenAI, etc. After running the test, I can see that all 12 tests passed. The database has 33 tables, there are 484 tools, all locked, etc."
 GOOD (direct answer): "✅ All 12 system tests passed. 484 tools registered, all locked, 33 DB tables, 34 upgrades intact, email + OpenAI working."
 
-RULES: Always web_search for current prices/rates. Max 8 tools per turn. Max 5 manage actions per turn. Max 8 dispatches. Quantify projections. Report: what was built, earned, learned, next.
+RULES: Always web_search for current prices/rates. Max 15 tools per turn. Max 10 manage actions per turn. Max 15 dispatches. Quantify projections. Report: what was built, earned, learned, next. NO RATE LIMITING — LLM throttle reduced to 0.5s, subagent throttle to 0.5s, 6 retries with exponential backoff. If you get a 429, the system auto-retries 6 times (0.5s → 1s → 2s → 4s → 8s → 16s). Payment processing, tool calls, and subagent dispatches all run at full speed with no artificial delays.
 
 LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info. Never engage in illegal activities. Report to owner via WhatsApp/email.`
 
@@ -136,7 +136,7 @@ export async function getZai(): Promise<ZAI> {
  * endpoint reads this to drive the green/amber/gray status indicator in
  * the chat header.
  *
- * throttleLlm() — enforces a ~2s minimum spacing between LLM calls
+ * throttleLlm() — enforces a ~0.5s minimum spacing between LLM calls
  * app-wide (in-process). Keeps us under the provider's RPM limit.
  *
  * callLlmWithRetry() — wraps zai.chat.completions.create with:
@@ -155,7 +155,7 @@ export const RATE_LIMIT_INFO: {
 const RATE_LIMIT_COOLDOWN_MS = 60_000
 
 let _lastLlmCallAt = 0
-const MIN_LLM_INTERVAL_MS = 2000
+const MIN_LLM_INTERVAL_MS = 500 // Reduced from 2000 — owner requested no rate limiting
 
 async function throttleLlm(): Promise<void> {
   const now = Date.now()
@@ -175,12 +175,12 @@ function isRateLimitError(e: any): boolean {
   )
 }
 
-const BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000]
+const BACKOFF_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] // 6 retries, starts faster
 
 /**
  * Call zai.chat.completions.create with thinking enabled, applying:
- *   - app-wide ~2s throttle
- *   - 4 retries with exponential backoff on 429s (1s → 2s → 4s → 8s)
+ *   - app-wide ~0.5s throttle
+ *   - 6 retries with exponential backoff on 429s (0.5s → 1s → 2s → 4s → 8s → 16s)
  *   - fallback LLM provider if every retry fails
  *
  * Throws the original (last) error if everything fails — callers should

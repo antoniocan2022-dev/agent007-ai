@@ -771,7 +771,7 @@ const SUBAGENT_MAX_ITERATIONS = 15
  * at least MIN_AGENT_INTERVAL_MS between its own LLM calls, on top of the
  * app-wide throttle in agent.ts. */
 const _agentLastCallAt: Record<string, number> = {}
-const MIN_AGENT_INTERVAL_MS = 1500
+const MIN_AGENT_INTERVAL_MS = 500 // Reduced from 1500 — owner requested no rate limiting
 async function throttleAgentCall(agentId: string): Promise<void> {
   const now = Date.now()
   const last = _agentLastCallAt[agentId] || 0

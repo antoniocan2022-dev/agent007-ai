@@ -43,8 +43,8 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 
 export const MAX_ITERATIONS = 15
-const MAX_DISPATCHES = 8
-const MAX_MANAGE_ACTIONS = 5
+const MAX_DISPATCHES = 15
+const MAX_MANAGE_ACTIONS = 10
 
 // Re-export the canonical action list so callers can import it from either
 // location. The single source of truth lives in ./manage-actions to avoid a
