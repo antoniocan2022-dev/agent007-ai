@@ -2171,3 +2171,20 @@ TOOL_REGISTRY.payment_processing = { fn: toolPaymentProcessing, icon: 'credit-ca
 TOOL_REGISTRY.email_automation = { fn: toolEmailAutomation, icon: 'mail', label: 'Email Automation (verification + welcome + notifications)' }
 TOOL_REGISTRY.ui_form_builder = { fn: toolUiFormBuilder, icon: 'layout', label: 'UI Form Builder (create forms to collect user info)' }
 TOOL_REGISTRY.database_manager = { fn: toolDatabaseManager, icon: 'database', label: 'Database Manager (CRUD on all 33 DB tables)' }
+
+/* ================================================================== *
+ * COURSE PLATFORM TOOLS — 4 tools for online course setup.
+ * Website builder, course creation, email marketing, payment integration.
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS.
+ * ================================================================== */
+import {
+  toolWebsiteBuilder,
+  toolCourseCreation,
+  toolEmailMarketingSetup,
+  toolPaymentIntegration,
+} from './course-platform-tools'
+
+TOOL_REGISTRY.website_builder = { fn: toolWebsiteBuilder, icon: 'layout', label: 'Website Builder (landing pages via HTML/React/WordPress)' }
+TOOL_REGISTRY.course_creation = { fn: toolCourseCreation, icon: 'graduation-cap', label: 'Course Creation (Thinkific/Teachable/self-hosted)' }
+TOOL_REGISTRY.email_marketing_setup = { fn: toolEmailMarketingSetup, icon: 'mail', label: 'Email Marketing Setup (ConvertKit/Mailchimp integration)' }
+TOOL_REGISTRY.payment_integration = { fn: toolPaymentIntegration, icon: 'credit-card', label: 'Payment Integration (Stripe checkout for courses)' }
