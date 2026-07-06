@@ -2237,3 +2237,21 @@ TOOL_REGISTRY.website_builder = { fn: toolWebsiteBuilder, icon: 'layout', label:
 TOOL_REGISTRY.course_creation = { fn: toolCourseCreation, icon: 'graduation-cap', label: 'Course Creation (Thinkific/Teachable/self-hosted)' }
 TOOL_REGISTRY.email_marketing_setup = { fn: toolEmailMarketingSetup, icon: 'mail', label: 'Email Marketing Setup (ConvertKit/Mailchimp integration)' }
 TOOL_REGISTRY.payment_integration = { fn: toolPaymentIntegration, icon: 'credit-card', label: 'Payment Integration (Stripe checkout for courses)' }
+
+/* ================================================================== *
+ * PERFORMANCE BOOSTER TOOLS — 5 tools for speed, efficiency, accuracy.
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS.
+ * ================================================================== */
+import {
+  toolSmartToolRouter,
+  toolParallelExecutor,
+  toolAccuracyChecker,
+  toolEfficiencyOptimizer,
+  toolUsageAnalyzer,
+} from './performance-booster-tools'
+
+TOOL_REGISTRY.smart_tool_router = { fn: toolSmartToolRouter, icon: 'compass', label: 'Smart Tool Router (picks best tool for any task)' }
+TOOL_REGISTRY.parallel_executor = { fn: toolParallelExecutor, icon: 'zap', label: 'Parallel Executor (run 5 tools simultaneously)' }
+TOOL_REGISTRY.accuracy_checker = { fn: toolAccuracyChecker, icon: 'check-circle', label: 'Accuracy Checker (cross-reference verify claims)' }
+TOOL_REGISTRY.efficiency_optimizer = { fn: toolEfficiencyOptimizer, icon: 'gauge', label: 'Efficiency Optimizer (analyze + improve performance)' }
+TOOL_REGISTRY.tool_usage_analyzer = { fn: toolUsageAnalyzer, icon: 'bar-chart', label: 'Tool Usage Analyzer (which tools to use most)' }
