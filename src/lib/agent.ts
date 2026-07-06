@@ -109,7 +109,58 @@ ANSWER QUALITY RULES (CRITICAL — FOLLOW EXACTLY):
 BAD (process dump): "I'll start by checking the system. Let me run the exhaustive test. The test checks 12 systems including database, tools, upgrades, email, OpenAI, etc. After running the test, I can see that all 12 tests passed. The database has 33 tables, there are 484 tools, all locked, etc."
 GOOD (direct answer): "✅ All 12 system tests passed. 484 tools registered, all locked, 33 DB tables, 34 upgrades intact, email + OpenAI working."
 
-RULES: Always web_search for current prices/rates. Max 15 tools per turn. Max 10 manage actions per turn. Max 15 dispatches. Quantify projections. Report: what was built, earned, learned, next. NO RATE LIMITING — LLM throttle reduced to 0.5s, subagent throttle to 0.5s, 6 retries with exponential backoff. If you get a 429, the system auto-retries 6 times (0.5s → 1s → 2s → 4s → 8s → 16s). Payment processing, tool calls, and subagent dispatches all run at full speed with no artificial delays.
+RULES: Always web_search for current prices/rates. Max 15 tools per turn. Max 10 manage actions per turn. Max 15 dispatches. Quantify projections. Report: what was built, earned, learned, next. NO RATE LIMITING — LLM throttle reduced to 0.25s, subagent throttle to 0.5s, 6 retries with exponential backoff. If you get a 429, the system auto-retries 6 times (0.2s → 0.6s → 1.5s → 4s → 8s → 16s). Payment processing, tool calls, and subagent dispatches all run at full speed with no artificial delays.
+
+═══════════════════════════════════════════════════════════════
+PERFORMANCE & ACCURACY PROTOCOL (UPGRADE #31 — FOLLOW EXACTLY)
+═══════════════════════════════════════════════════════════════
+You are now optimized for SPEED, EFFICIENCY, and ACCURACY. These rules are MANDATORY:
+
+A. PARALLEL EXECUTION (3x speed on multi-step tasks):
+   • ANY task needing 2+ independent tool calls → use <tool name="parallel_executor">{"tools":[...]}></tool>
+   • Example: "What's the price of BTC and ETH?" → parallel_executor with [web_search BTC, web_search ETH] in ONE turn (not two)
+   • Example: "Build me a content plan + SEO keywords + competitor analysis" → parallel_executor with [ai_content_factory, market_research_deep, scout_trend_autopilot]
+   • NEVER run independent lookups sequentially when they could run in parallel.
+
+B. SMART TOOL ROUTING (always pick the BEST tool, not just any tool):
+   • For any non-trivial task → first call <tool name="smart_tool_router">{"task":"..."}></tool> to get the top-10 tools for that task
+   • Then use parallel_executor to dispatch the top 2-3 in parallel
+   • This prevents using web_search when ddg_search is faster, or using code_exec when wikipedia_search would be more accurate.
+
+C. ACCURACY VERIFICATION (no hallucinated numbers):
+   • Before reporting ANY price, rate, or statistic — verify it via <tool name="accuracy_checker">{"claim":"..."}></tool>
+   • Use 2 sources for any factual claim. If they disagree, report the range + cite sources.
+   • NEVER report "approximately $X" without a tool call backing it up.
+   • For dates: always check current UTC time (provided below) before computing relative dates.
+
+D. EFFICIENCY OPTIMIZATION (every 5 turns):
+   • Every 5th turn, call <tool name="efficiency_optimizer"></tool> to identify wasted calls
+   • Every 10th turn, call <tool name="tool_usage_analyzer"></tool> to find underutilized tools
+   • Eliminate redundant tool calls — if you already have data from a previous turn, REUSE it (don't re-search).
+
+E. COMPLETE TOOL UTILIZATION (you have 465+ tools — USE THEM):
+   • Don't default to web_search + page_reader for everything. You have:
+     - 15 free search tools (ddg, brave, arxiv, hn, reddit, github, stackoverflow, pubmed, etc.)
+     - 12 performance tools (real_time_data_hub, predictive_analytics_engine, etc.)
+     - 30 autonomy tools (automated_social_posting, ab_test_optimizer, etc.)
+     - 16 full-autonomy tools (business_model_designer, payment_gateway_integrator, etc.)
+     - 5 performance boosters (smart_tool_router, parallel_executor, accuracy_checker, etc.)
+   • For domain tasks, use the SPECIALIZED tool, not the generic one.
+     - Research papers → arxiv_search or semantic_scholar_search (NOT web_search)
+     - Code questions → stackoverflow_search or github_search (NOT web_search)
+     - Trend analysis → scout_trend_autopilot or real_time_data_hub (NOT web_search)
+     - Numbers/prices → real_time_data_hub (NOT web_search)
+
+F. AVOID WASTED ITERATIONS:
+   • One tool call per iteration is the floor, not the ceiling. If you can call 3 tools in parallel via parallel_executor, DO IT — don't spread them across 3 iterations.
+   • If a tool returns an error, DON'T retry the same call. Try an alternative tool from the same category (e.g. ddg_search → brave_search → wikipedia_rest).
+   • If http_fetch returns AUTO-RECOVERY REPORT, USE the alternative URLs — don't ask the owner to retry.
+
+G. ANSWER COMPLETENESS:
+   • Final answer MUST be a complete, self-contained response — not a partial answer that requires a follow-up.
+   • If you ran 5 tools, the final answer must SYNTHESIZE all 5 results, not just report the last one.
+   • Include: (1) direct answer, (2) supporting evidence/sources, (3) next action — in that order.
+═══════════════════════════════════════════════════════════════
 
 LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info. Never engage in illegal activities. Report to owner via WhatsApp/email.`
 
@@ -172,7 +223,10 @@ export const RATE_LIMIT_INFO: {
 const RATE_LIMIT_COOLDOWN_MS = 60_000
 
 let _lastLlmCallAt = 0
-const MIN_LLM_INTERVAL_MS = 500 // Reduced from 2000 — owner requested no rate limiting
+// Reduced from 500ms → 250ms (upgrade #31) for ~2x faster tool loops.
+// OpenAI gpt-4o-mini tier supports 500 RPM = 120ms minimum spacing, so 250ms
+// gives us 2x safety margin while still being 2x faster than before.
+const MIN_LLM_INTERVAL_MS = 250
 
 async function throttleLlm(): Promise<void> {
   const now = Date.now()
@@ -192,7 +246,10 @@ function isRateLimitError(e: any): boolean {
   )
 }
 
-const BACKOFF_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] // 6 retries, starts faster
+// 6 retries, first retry is now near-instant (200ms) so transient 429s don't
+// cause visible lag. Total worst-case wait still ~30s for sustained rate-limit.
+// (upgrade #31: was [500, 1000, 2000, 4000, 8000, 16000])
+const BACKOFF_DELAYS_MS = [200, 600, 1500, 4000, 8000, 16000]
 
 /**
  * Call zai.chat.completions.create with thinking enabled, applying:
@@ -276,6 +333,45 @@ export function getRateLimitState(): {
     status: now < cooldownUntil ? 'rate_limited' : 'ok',
     last429At: RATE_LIMIT_INFO.last429At,
     cooldownMs: Math.max(0, cooldownUntil - now),
+  }
+}
+
+/**
+ * Detect "finish_reason: length" — the LLM was cut off by max_tokens before
+ * finishing its answer. (upgrade #31) The orchestrator uses this to retry
+ * with a higher token budget instead of treating the truncated output as final.
+ */
+export function wasTruncatedByLength(completion: any): boolean {
+  const reason: string | undefined =
+    completion?.choices?.[0]?.finish_reason ??
+    completion?.choices?.[0]?.message?.finish_reason ??
+    undefined
+  return reason === 'length'
+}
+
+/**
+ * Validate that a tool-call's args are parseable JSON OR can be salvaged.
+ * Returns { ok, args, error }. (upgrade #31) The orchestrator calls this
+ * BEFORE dispatchTool() — if ok=false, it sends a [SYSTEM] message back to
+ * the LLM telling it to re-emit the tool call with valid JSON, instead of
+ * silently falling back to broken key="value" parsing.
+ */
+export function validateToolArgs(
+  rawArgsString: string | undefined
+): { ok: boolean; args: any; error?: string } {
+  if (!rawArgsString || !rawArgsString.trim()) return { ok: true, args: {} }
+  try {
+    const parsed = JSON.parse(rawArgsString)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: true, args: parsed } // primitives are valid args
+    }
+    return { ok: true, args: parsed }
+  } catch (e: any) {
+    return {
+      ok: false,
+      args: {},
+      error: `Invalid JSON in tool args: ${e?.message ?? 'parse error'}. Raw: "${rawArgsString.slice(0, 200)}"`,
+    }
   }
 }
 

@@ -14,6 +14,10 @@ export interface FallbackMessage {
   content: string
 }
 
+// Performance/accuracy tuning (upgrade #31):
+//   - gpt-4o-mini: fast + cheap, good for routine tool routing
+//   - gpt-4o: higher accuracy for complex multi-tool orchestration
+// Owner can override via OPENAI_MODEL env var.
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 const OPENAI_BASE_URL =
   process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions'
@@ -110,11 +114,19 @@ export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any>
     )
   }
 
+  // Performance & accuracy tuning (upgrade #31):
+  //   - temperature 0.4 (was 0.6): more deterministic, fewer hallucinated tool names
+  //   - max_tokens 4000 (was 2000): prevents mid-tool-call truncation on complex multi-step tasks
+  //   - top_p 0.9: slight nucleus cutoff to suppress extremely unlikely tokens
+  //   - presence_penalty 0.1: tiny nudge to avoid verbatim repetition in long answers
+  //   - stream false (orchestrator already chunks the final answer for SSE)
   const body = {
     model: OPENAI_MODEL,
     messages,
-    temperature: 0.6,
-    max_tokens: 2000,
+    temperature: 0.4,
+    max_tokens: 4000,
+    top_p: 0.9,
+    presence_penalty: 0.1,
   }
 
   const resp = await fetch(OPENAI_BASE_URL, {
@@ -143,10 +155,15 @@ export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any>
     throw new Error('Fallback LLM (OpenAI) returned empty content')
   }
 
+  // Pass through finish_reason so the orchestrator can detect length-truncation
+  // and automatically retry with a larger max_tokens budget (upgrade #31).
+  const finishReason: string = data?.choices?.[0]?.finish_reason ?? 'stop'
+
   return {
     choices: [
       {
         message: { content },
+        finish_reason: finishReason,
       },
     ],
     _provider: 'openai-fallback',
