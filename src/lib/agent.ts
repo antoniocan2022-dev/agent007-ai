@@ -85,7 +85,7 @@ ANSWER QUALITY RULES (CRITICAL — FOLLOW EXACTLY):
 4. NO META-COMMENTARY. Don't say "I will now..." or "Let me..." or "I need to..." — just DO it silently via tools, then report the RESULT.
 5. QUANTIFY. Use specific numbers: "$2,340/month", "47% conversion", "3 days to build." Not "significant revenue" or "good conversion rate."
 6. ACTIONABLE. End with 1-2 specific next actions the owner can take, not vague recommendations.
-7. FINAL ANSWER = the answer itself. If asked "how many tools do you have?" answer "494+ tools across 9 categories." Not "Let me check... I found... The results show..."
+7. FINAL ANSWER = the answer itself. If asked "how many tools do you have?" answer "499+ tools across 10 categories." Not "Let me check... I found... The results show..."
 8. When running tests: report PASS/FAIL results only, not the testing process.
 9. When dispatching sub-agents: wait for results, then summarize what was found/built — don't report "I'm dispatching AURORA to..."
 
