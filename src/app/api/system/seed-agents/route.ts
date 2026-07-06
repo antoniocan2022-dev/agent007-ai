@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
+import { SEED_EMAIL } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -8,7 +9,8 @@ export const dynamic = 'force-dynamic'
  * GET /api/system/seed-agents
  *   Forces creation of the 6 permanent custom sub-agents (TRADER,
  *   Cybersecurity A/R, Developer, TESTFAST2, FASTTEST3) if they don't
- *   exist yet. Idempotent — safe to call repeatedly.
+ *   exist yet. Also ensures the operator user exists (creates if missing).
+ *   Idempotent — safe to call repeatedly.
  *
  *   This endpoint exists as a safety net for upgrade #38 — it bypasses
  *   the globalForPrisma.dbInitialized cache flag so the seeding always
@@ -18,10 +20,37 @@ export async function GET() {
   await ensureDbReady().catch(() => {})
 
   try {
-    const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+    // Ensure operator user exists (create if missing — handles fresh ephemeral DBs on Vercel)
+    let user = await db.user.findUnique({ where: { email: SEED_EMAIL } }).catch(() => null)
+    if (!user) {
+      try {
+        const bcrypt = await import('bcryptjs')
+        const passwordHash = await bcrypt.default.hash(SEED_EMAIL, 10)
+        user = await db.user.create({
+          data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' },
+        })
+        // Also create phone config for the new user
+        await db.phoneConfig.create({
+          data: {
+            userId: user.id,
+            phoneNumber: '+15145496297',
+            whatsappNumber: '+15145496297',
+            email: SEED_EMAIL,
+            smsEnabled: true,
+            whatsappEnabled: true,
+            emailEnabled: true,
+            whatsappProvider: 'wa_link',
+          },
+        }).catch(() => {})
+      } catch (e: any) {
+        // Maybe user was created by a concurrent request — try fetching again
+        user = await db.user.findUnique({ where: { email: SEED_EMAIL } }).catch(() => null)
+      }
+    }
+
     if (!user) {
       return NextResponse.json(
-        { ok: false, error: 'No operator user found in DB.' },
+        { ok: false, error: 'Could not create or find operator user.' },
         { status: 500 }
       )
     }
@@ -96,3 +125,4 @@ export async function GET() {
     )
   }
 }
+
