@@ -42,7 +42,7 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 // (used to detect built-in ids and reject delete on them).
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 
-export const MAX_ITERATIONS = 15
+export const MAX_ITERATIONS = 25  // was 15 — increased in upgrade #41 so complex tasks (exhaustive tests, multi-step builds) can complete without hitting the limit
 const MAX_DISPATCHES = 15
 const MAX_MANAGE_ACTIONS = 10
 
@@ -1042,6 +1042,32 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       conversationMessages.push({
         role: 'user',
         content: '[SYSTEM] You appear to be waiting. Do NOT wait — continue executing the task now. Dispatch the next sub-agent or use a tool or give your final answer.',
+      })
+      continue
+    }
+
+    // ── FIX #41: "PROMISE WITHOUT ACTION" DETECTION ──────────────────
+    // If the agent's response is a final answer (no tool/dispatch/manage)
+    // but it contains "I will" / "let me" / "hold on" / "please wait" /
+    // "I'm going to" language, it's PROMISING to do something but NOT
+    // actually doing it. This is the #1 cause of "agent gets stuck and
+    // doesn't provide answers" — the agent says "I will run tests" as a
+    // final answer, the loop breaks, and the user never gets results.
+    // FIX: detect this pattern and auto-recover by forcing the agent to
+    // either emit a tool call NOW or give a real answer.
+    const isPromiseOnly = !parsed.tool && !parsed.dispatch && !parsed.manage
+    const promisePatterns = /(i will run|i will proceed|i will test|i will check|i will execute|let me run|let me test|let me check|let me proceed|hold on|please hold|please wait|give me a moment|i'm going to run|i'm going to test|i'm going to check|one moment|just a moment|bear with me)/i
+    const fullText = (parsed.thought ?? '') + ' ' + (content.replace(THOUGHT_RE, '').trim())
+    const hasPromise = promisePatterns.test(fullText)
+    const hasNoToolCallYet = steps.length === 0  // no tools called this entire turn
+
+    if (isPromiseOnly && hasPromise && hasNoToolCallYet && iter < MAX_ITERATIONS - 1) {
+      // Auto-recovery: force the agent to actually execute NOW
+      await emit('thought', { content: `[AUTO-RECOVERY] Detected "promise without action". Forcing execution now...` })
+      conversationMessages.push({ role: 'assistant', content })
+      conversationMessages.push({
+        role: 'user',
+        content: '[SYSTEM] CRITICAL: You said "I will run/proceed/test" but you did NOT emit a tool call. Do NOT promise — EXECUTE. Emit the tool call RIGHT NOW in this response. For example, if you said "I will run exhaustive tests", then emit <tool name="exhaustive_tool_test"></tool> immediately. Never respond with just a promise to do something — either DO it (emit tool tags) or report RESULTS.',
       })
       continue
     }
