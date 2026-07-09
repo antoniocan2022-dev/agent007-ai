@@ -1,0 +1,47 @@
+# .vercelignore — exclude large/unnecessary files from Vercel deploy
+# These files are NOT needed for the production deployment and were causing
+# the "Deploying outputs..." step to time out (7 min Vercel build timeout).
+
+# Large directories not needed in production
+download/
+skills/
+audit/
+tool-results/
+examples/
+
+# Dev-only files
+dev.log
+*.log
+
+# Scripts (only needed for local dev/verification, not production)
+scripts/
+
+# Documentation (not needed at runtime)
+worklog.md
+README.md
+QUICKSTART.md
+
+# Database files (Vercel uses ephemeral SQLite, doesn't need local DB)
+db/
+*.db
+*.db-journal
+
+# Build artifacts (Vercel rebuilds these)
+.next/
+
+# Prisma generated client (regenerated during build)
+prisma/migrations/
+
+# Test files
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# Backup files
+*.bak
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db
