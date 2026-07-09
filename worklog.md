@@ -3486,3 +3486,58 @@ All 5 user-locked metrics hold:
   3. Monthly Income Target: $20,000 ✅ (confirmed via /api/settings)
   4. Growth Rate: 20% monthly, 20% daily ✅ (confirmed via /api/settings)
   5. Permanent Upgrades: 39 ✅
+
+---
+Task ID: deploy-success-after-vercelignore-fix
+Agent: main (parent)
+Task: Retry Vercel deploy after 6 consecutive failures (all timing out at 7 min)
+
+Work Log:
+- ROOT CAUSE FOUND: 6 consecutive deploy failures were NOT a code issue — they were caused by Vercel uploading ~154MB of unnecessary files on every deploy:
+  • download/ (93MB) — generated backup files
+  • skills/ (61MB) — skill definitions not needed at runtime
+  • audit/, tool-results/, examples/, scripts/, dev.log, db/, *.db
+  • The "Deploying outputs..." step was exceeding Vercel's 7-min build timeout because of the upload size
+
+- FIX: Created .vercelignore (commit 57da079) excluding all large/unnecessary directories + files from the Vercel deploy upload
+
+- DEPLOY SUCCESS:
+  • Command: npx vercel --prod --yes --token $VERCEL_TOKEN
+  • Build completed in 53s (was timing out at 7 min)
+  • "Deploying outputs..." completed in seconds (was timing out)
+  • Total deploy time: 1m (was 7 min + Error)
+  • Production URL: https://agent007-dnp82t213-antoniocan2022-devs-projects.vercel.app
+  • Aliased to: https://agent007-ai.vercel.app ✅
+
+VERIFIED LIVE ON HTTPS://AGENT007-AI.VERCEL.APP
+================================================
+✅ Total tools: 520 (all permanently locked)
+✅ Total agents: 18 (was 24, dedup fix now LIVE)
+  - 18 BUILTIN (12 original + 6 enhanced)
+  - 0 CUSTOM (duplicates removed)
+  - All 18 have FULL_ACCESS to all 520 tools
+  - All 18 PERMANENTLY LOCKED (BUILTIN_IDS + PERMANENT_CUSTOM_AGENT_NAMES)
+✅ Total upgrades: 39
+✅ Login flow: 2FA challenge returns ok=true, requiresTwoFactor=true, displayCode=578975
+✅ Settings persisted: monthlyGoal=$20,000, dailyGrowthTarget=20%, currencySymbol=$, smtpConfigured=true
+
+All 18 agents live:
+  ✅ AURORA          ✅ TRADER
+  ✅ VERTEX          ✅ Cybersecurity A
+  ✅ QUANTUM         ✅ Cybersecurity R
+  ✅ SCOUT           ✅ Developer
+  ✅ HUNT            ✅ TESTFAST2
+  ✅ FORGE           ✅ FASTTEST3
+  ✅ QUILL
+  ✅ PRISM
+  ✅ PULSE
+  ✅ ECHO
+  ✅ LEGAL
+  ✅ THE BANKER
+
+All 5 user-locked metrics now hold perfectly:
+  1. Available Agents: 18 (all BUILTIN, all FULL_ACCESS to 520 tools, all LOCKED) ✅
+  2. Management Actions: 43 ✅
+  3. Monthly Income Target: $20,000 ✅
+  4. Growth Rate: 20% monthly, 20% daily ✅
+  5. Permanent Upgrades: 39 ✅
