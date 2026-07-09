@@ -195,50 +195,23 @@ async function seedData() {
       console.log('[db] Seed: user + phone + schedules + memory created')
     }
 
-    // ── ALWAYS RUN: ensure 6 custom sub-agents exist (upgrade #38 fix) ──
-    // This block runs on EVERY cold start, regardless of whether the seed
-    // user was just created or already existed. It's idempotent — each agent
-    // is only created if it doesn't already exist for this user.
-    try {
-      const opUser = await db.user.findUnique({ where: { email: SEED_EMAIL } }).catch(() => null)
-      if (opUser) {
-        const customAgents = [
-          { name: 'TRADER', role: 'Crypto Trading Specialist', specialty: 'Spot trading, DCA, on-chain analysis, DeFi yield, risk management', color: '#fbbf24', icon: 'TrendingUp' },
-          { name: 'Cybersecurity A', role: 'Cybersecurity Analyst (Red Team)', specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev', color: '#ef4444', icon: 'ShieldAlert' },
-          { name: 'Cybersecurity R', role: 'Cybersecurity Responder (Blue Team)', specialty: 'Incident response, hardening, SIEM, threat hunting, forensics', color: '#3b82f6', icon: 'ShieldCheck' },
-          { name: 'Developer', role: 'Code & Infrastructure Fixer', specialty: 'Reads + edits source code, fixes bugs, patches UI, debugs SSR', color: '#10b981', icon: 'Code' },
-          { name: 'TESTFAST2', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#00f0ff', icon: 'Sparkles' },
-          { name: 'FASTTEST3', role: 'Test Agent (Full Access)', specialty: 'Testing + full system access', color: '#a78bfa', icon: 'Sparkles' },
-        ]
-        let created = 0
-        for (const ca of customAgents) {
-          try {
-            const existingAgent = await db.customSubagent.findFirst({ where: { userId: opUser.id, name: ca.name } })
-            if (!existingAgent) {
-              await db.customSubagent.create({
-                data: {
-                  userId: opUser.id,
-                  name: ca.name,
-                  role: ca.role,
-                  specialty: ca.specialty,
-                  color: ca.color,
-                  icon: ca.icon,
-                  allowedTools: JSON.stringify(['*']),  // FULL_ACCESS — '*' means all tools (see getAllSubagents)
-                  systemPrompt: 'You are ' + ca.name + ', a sub-agent of Agent007 AI. Follow the PRIME DIRECTIVE. Be loyal to the owner.',
-                  enabled: true,
-                }
-              })
-              created++
-            }
-          } catch {}
-        }
-        if (created > 0) {
-          console.log(`[db] Seed: created ${created} custom sub-agents (was missing — bug fix upgrade #38)`)
-        }
-      }
-    } catch (e: any) {
-      console.error('[db] Custom sub-agents ensure failed:', e?.message)
-    }
+    // ── REMOVED: 6 custom sub-agents DB seeding (upgrade #40) ──
+    // Previously this block created the 6 custom agents (TRADER, Cybersecurity
+    // A/R, Developer, TESTFAST2, FASTTEST3) in the CustomSubagent DB table on
+    // every cold start. But upgrade #38 promoted these 6 agents to BUILTIN
+    // status (defined directly in the SUBAGENTS constant in subagents.ts).
+    // Running the DB seeding creates DUPLICATE entries — one from the
+    // SUBAGENTS constant (builtin=true) and one from the DB (builtin=false).
+    // getAllSubagents() merges both, causing the live deployment to show
+    // 24 agents instead of 18.
+    //
+    // FIX: Removed the DB seeding entirely. The 6 agents are now defined
+    // ONLY in the SUBAGENTS constant (always available, always BUILTIN,
+    // always PERMANENTLY LOCKED via BUILTIN_IDS check). No DB dependency.
+    //
+    // If you need to edit/disable one of these agents, use the overlay
+    // mechanism (create a CustomSubagent row with isBuiltinOverlay=true
+    // and the same id as the built-in).
   } catch (e: any) {
     console.error('[db] Seed failed:', e?.message)
   }

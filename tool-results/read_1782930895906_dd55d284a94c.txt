@@ -1,0 +1,877 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useCallback, useEffect, useState } from 'react'
+     4→     4→import {
+     5→     5→  Users,
+     6→     6→  Loader2,
+     7→     7→  AlertCircle,
+     8→     8→  CheckCircle2,
+     9→     9→  Plus,
+    10→    10→  Pencil,
+    11→    11→  Trash2,
+    12→    12→  Power,
+    13→    13→  X,
+    14→    14→  Sparkles,
+    15→    15→  Box,
+    16→    16→  TrendingUp,
+    17→    17→  Search as SearchIcon,
+    18→    18→  Crosshair,
+    19→    19→  Hammer,
+    20→    20→  PenLine,
+    21→    21→  Palette,
+    22→    22→  Activity,
+    23→    23→  RefreshCw,
+    24→    24→  Scale,
+    25→    25→  Landmark,
+    26→    26→  Bot,
+    27→    27→  Brain,
+    28→    28→  Zap,
+    29→    29→  Globe,
+    30→    30→  Database,
+    31→    31→  Terminal,
+    32→    32→  Code,
+    33→    33→  Cpu,
+    34→    34→  Rocket,
+    35→    35→  Target,
+    36→    36→  DollarSign,
+    37→    37→  Briefcase,
+    38→    38→  LineChart,
+    39→    39→  PieChart,
+    40→    40→  ShieldCheck,
+    41→    41→  ShieldAlert,
+    42→    42→  Megaphone,
+    43→    43→  FileText,
+    44→    44→  Lightbulb,
+    45→    45→  Cloud,
+    46→    46→  Compass,
+    47→    47→  Feather,
+    48→    48→  ChevronDown,
+    49→    49→  type LucideIcon,
+    50→    50→} from 'lucide-react'
+    51→    51→import { motion, AnimatePresence } from 'framer-motion'
+    52→    52→import { useChatStore } from '@/store/chat-store'
+    53→    53→
+    54→    54→interface SubagentRow {
+    55→    55→  id: string
+    56→    56→  name: string
+    57→    57→  role: string
+    58→    58→  specialty: string
+    59→    59→  color: string
+    60→    60→  icon: string
+    61→    61→  allowedTools: string[]
+    62→    62→  enabled: boolean
+    63→    63→  isBuiltin: boolean
+    64→    64→  systemPromptPreview?: string
+    65→    65→  // full systemPrompt is only populated when editing (fetched on demand)
+    66→    66→  systemPrompt?: string
+    67→    67→}
+    68→    68→
+    69→    69→/* Mirrors the server-side icon allow-list. */
+    70→    70→const VALID_ICON_NAMES = [
+    71→    71→  'Sparkles', 'Box', 'TrendingUp', 'Search', 'Crosshair', 'Hammer', 'PenLine',
+    72→    72→  'Palette', 'Activity', 'RefreshCw', 'Scale', 'Landmark', 'Bot', 'Brain',
+    73→    73→  'Zap', 'Globe', 'Database', 'Terminal', 'Code', 'Cpu', 'Rocket', 'Target',
+    74→    74→  'DollarSign', 'Briefcase', 'LineChart', 'PieChart', 'ShieldCheck', 'ShieldAlert',
+    75→    75→  'Megaphone', 'FileText', 'Lightbulb', 'Cloud', 'Compass', 'Feather',
+    76→    76→] as const
+    77→    77→
+    78→    78→const ICON_MAP: Record<string, LucideIcon> = {
+    79→    79→  Sparkles, Box, TrendingUp, Search: SearchIcon, Crosshair, Hammer, PenLine,
+    80→    80→  Palette, Activity, RefreshCw, Scale, Landmark, Bot, Brain, Zap, Globe,
+    81→    81→  Database, Terminal, Code, Cpu, Rocket, Target, DollarSign, Briefcase,
+    82→    82→  LineChart, PieChart, ShieldCheck, ShieldAlert, Megaphone, FileText, Lightbulb,
+    83→    83→  Cloud, Compass, Feather,
+    84→    84→}
+    85→    85→
+    86→    86→const ALL_TOOL_OPTIONS = [
+    87→    87→  'web_search',
+    88→    88→  'page_reader',
+    89→    89→  'image_gen',
+    90→    90→  'vision',
+    91→    91→  'code_exec',
+    92→    92→  'memory_store',
+    93→    93→  'memory_recall',
+    94→    94→  'file_read',
+    95→    95→  'wikipedia_search',
+    96→    96→  'wikipedia_read',
+    97→    97→  'free_apis_directory',
+    98→    98→]
+    99→    99→
+   100→   100→/* Quick Create Agent templates (#9). Pre-fills the modal without submitting. */
+   101→   101→interface QuickTemplate {
+   102→   102→  label: string
+   103→   103→  icon: LucideIcon
+   104→   104→  preset: {
+   105→   105→    name: string
+   106→   106→    role: string
+   107→   107→    specialty: string
+   108→   108→    color: string
+   109→   109→    icon: string
+   110→   110→    allowedTools: string[]
+   111→   111→    systemPrompt: string
+   112→   112→  }
+   113→   113→}
+   114→   114→
+   115→   115→const ALL_EIGHT_TOOLS = [
+   116→   116→  'web_search', 'page_reader', 'memory_store', 'memory_recall',
+   117→   117→  'wikipedia_search', 'wikipedia_read', 'free_apis_directory',
+   118→   118→]
+   119→   119→
+   120→   120→const QUICK_TEMPLATES: QuickTemplate[] = [
+   121→   121→  {
+   122→   122→    label: 'Cybersecurity A (Red Team)',
+   123→   123→    icon: ShieldAlert,
+   124→   124→    preset: {
+   125→   125→      name: 'Cybersecurity A',
+   126→   126→      role: 'Cybersecurity Analyst (Red Team)',
+   127→   127→      specialty: 'Pen testing, vulnerability assessment, OWASP Top 10, exploit dev, adversary emulation',
+   128→   128→      color: '#ef4444',
+   129→   129→      icon: 'ShieldAlert',
+   130→   130→      allowedTools: ALL_EIGHT_TOOLS,
+   131→   131→      systemPrompt: `You are CYBERSECURITY A, the Red Team offensive security specialist sub-agent of Agent007 AI.
+   132→   132→
+   133→   133→Your specialty: penetration testing, vulnerability assessment, OWASP Top 10, exploit development, adversary emulation.
+   134→   134→
+   135→   135→ALLOWED TOOLS:
+   136→   136→- web_search — find current CVEs, exploit details, security advisories
+   137→   137→- page_reader — read vendor security bulletins, exploit-db entries, MITRE ATT&CK pages
+   138→   138→- memory_store — save target scope / engagement notes
+   139→   139→- memory_recall — recall prior engagement context
+   140→   140→- wikipedia_search / wikipedia_read — conceptual background on protocols and attack classes
+   141→   141→- free_apis_directory — find public data feeds for OSINT
+   142→   142→
+   143→   143→OUTPUT FORMAT:
+   144→   144→- <thought>brief reasoning</thought> before each action
+   145→   145→- <tool name="...">{json}</tool> to call a tool
+   146→   146→- Plain markdown final answer
+   147→   147→
+   148→   148→RULES:
+   149→   149→- Always cite source URLs for CVEs and exploits (NVD, exploit-db, vendor advisories).
+   150→   150→- Frame findings by severity (Critical / High / Medium / Low) with CVSS where available.
+   151→   151→- Provide concrete remediation for each finding — not just "patch it".
+   152→   152→- Include a legal/ethics disclaimer: only test systems you own or have written authorization to test.
+   153→   153→- Max 6 tool calls.`,
+   154→   154→    },
+   155→   155→  },
+   156→   156→  {
+   157→   157→    label: 'Cybersecurity R (Blue Team)',
+   158→   158→    icon: ShieldCheck,
+   159→   159→    preset: {
+   160→   160→      name: 'Cybersecurity R',
+   161→   161→      role: 'Cybersecurity Responder (Blue Team)',
+   162→   162→      specialty: 'Incident response, hardening, SIEM, threat hunting, detection engineering, forensics',
+   163→   163→      color: '#3b82f6',
+   164→   164→      icon: 'ShieldCheck',
+   165→   165→      allowedTools: ALL_EIGHT_TOOLS,
+   166→   166→      systemPrompt: `You are CYBERSECURITY R, the Blue Team defensive security specialist sub-agent of Agent007 AI.
+   167→   167→
+   168→   168→Your specialty: incident response, system hardening, SIEM tuning, threat hunting, detection engineering, digital forensics.
+   169→   169→
+   170→   170→ALLOWED TOOLS:
+   171→   171→- web_search — current threat intel, IOC feeds, vendor hardening guides
+   172→   172→- page_reader — read CIS benchmarks, NIST publications, MITRE D3FEND
+   173→   173→- memory_store — save IR playbooks, baseline configs
+   174→   174→- memory_recall — recall prior IR context
+   175→   175→- wikipedia_search / wikipedia_read — background on protocols and defensive concepts
+   176→   176→- free_apis_directory — find public threat-intel APIs
+   177→   177→
+   178→   178→OUTPUT FORMAT:
+   179→   179→- <thought>brief reasoning</thought> before each action
+   180→   180→- <tool name="...">{json}</tool> to call a tool
+   181→   181→- Plain markdown final answer
+   182→   182→
+   183→   183→RULES:
+   184→   184→- Always cite source URLs for hardening guidance (CIS, NIST, vendor docs).
+   185→   185→- Structure IR advice by NIST SP 800-61 phases: Preparation, Detection, Containment, Eradication, Recovery, Lessons Learned.
+   186→   186→- For hardening, give exact commands / config snippets the user can paste.
+   187→   187→- Recommend detection content (Sigma / Splunk SPL / Elastic EQL) where relevant.
+   188→   188→- Max 6 tool calls.`,
+   189→   189→    },
+   190→   190→  },
+   191→   191→  {
+   192→   192→    label: 'MARKETER',
+   193→   193→    icon: Megaphone,
+   194→   194→    preset: {
+   195→   195→      name: 'MARKETER',
+   196→   196→      role: 'Social Media Marketing Specialist',
+   197→   197→      specialty: 'Content strategy, paid ads (Meta/Google/TikTok), analytics, funnel optimization, brand voice',
+   198→   198→      color: '#a855f7',
+   199→   199→      icon: 'Megaphone',
+   200→   200→      allowedTools: ALL_EIGHT_TOOLS,
+   201→   201→      systemPrompt: `You are MARKETER, the Social Media Marketing Specialist sub-agent of Agent007 AI.
+   202→   202→
+   203→   203→Your specialty: content strategy, paid ads (Meta / Google / TikTok), analytics, funnel optimization, brand voice development.
+   204→   204→
+   205→   205→ALLOWED TOOLS:
+   206→   206→- web_search — current platform algorithms, ad benchmarks, trending hashtags
+   207→   207→- page_reader — read competitor content, platform best-practice docs
+   208→   208→- memory_store — save brand voice, target audience, campaign goals
+   209→   209→- memory_recall — recall prior campaign context
+   210→   210→- wikipedia_search / wikipedia_read — background on marketing frameworks (AIDA, AARRR, etc.)
+   211→   211→- free_apis_directory — find analytics / social-listening APIs
+   212→   212→
+   213→   213→OUTPUT FORMAT:
+   214→   214→- <thought>brief reasoning</thought> before each action
+   215→   215→- <tool name="...">{json}</tool> to call a tool
+   216→   216→- Plain markdown final answer
+   217→   217→
+   218→   218→RULES:
+   219→   219→- Always cite current ad benchmarks (CPM, CPC, CTR by platform) via web_search.
+   220→   220→- For every campaign, specify: objective, audience, budget, creative, KPIs, optimization cadence.
+   221→   221→- Provide 3 ad creative variants per campaign (hook + body + CTA).
+   222→   222→- Recommend a measurement plan: what to track, where, how often.
+   223→   223→- Max 6 tool calls.`,
+   224→   224→    },
+   225→   225→  },
+   226→   226→]
+   227→   227→
+   228→   228→function getIcon(name?: string): LucideIcon {
+   229→   229→  if (!name) return Sparkles
+   230→   230→  return ICON_MAP[name] ?? Sparkles
+   231→   231→}
+   232→   232→
+   233→   233→export function SubAgentsPanel() {
+   234→   234→  const subagentsVersion = useChatStore((s) => s.subagentsVersion)
+   235→   235→  const bumpSubagents = useChatStore((s) => s.bumpSubagents)
+   236→   236→
+   237→   237→  const [rows, setRows] = useState<SubagentRow[]>([])
+   238→   238→  const [loading, setLoading] = useState(true)
+   239→   239→  const [error, setError] = useState('')
+   240→   240→  const [editing, setEditing] = useState<SubagentRow | null>(null)
+   241→   241→  const [creating, setCreating] = useState(false)
+   242→   242→  const [templatesOpen, setTemplatesOpen] = useState(false)
+   243→   243→  // When the user picks a quick template, we open the create modal with the
+   244→   244→  // preset values pre-filled. We pass the preset via `templatePreset` state.
+   245→   245→  const [templatePreset, setTemplatePreset] = useState<QuickTemplate['preset'] | null>(null)
+   246→   246→
+   247→   247→  const load = useCallback(async () => {
+   248→   248→    setLoading(true)
+   249→   249→    setError('')
+   250→   250→    try {
+   251→   251→      const res = await fetch('/api/subagents')
+   252→   252→      const json = await res.json()
+   253→   253→      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`)
+   254→   254→      setRows(json.subagents ?? [])
+   255→   255→    } catch (e: any) {
+   256→   256→      setError(e?.message ?? 'Failed to load subagents')
+   257→   257→    } finally {
+   258→   258→      setLoading(false)
+   259→   259→    }
+   260→   260→  }, [])
+   261→   261→
+   262→   262→  useEffect(() => {
+   263→   263→    load()
+   264→   264→  }, [load, subagentsVersion])
+   265→   265→
+   266→   266→  const onToggle = async (r: SubagentRow) => {
+   267→   267→    try {
+   268→   268→      const res = await fetch(`/api/subagents/${encodeURIComponent(r.id)}`, {
+   269→   269→        method: 'PUT',
+   270→   270→        headers: { 'Content-Type': 'application/json' },
+   271→   271→        body: JSON.stringify({ enabled: !r.enabled }),
+   272→   272→      })
+   273→   273→      const json = await res.json()
+   274→   274→      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`)
+   275→   275→      bumpSubagents()
+   276→   276→      // optimistic refresh
+   277→   277→      setRows((prev) =>
+   278→   278→        prev.map((p) => (p.id === r.id ? { ...p, enabled: !r.enabled } : p))
+   279→   279→      )
+   280→   280→    } catch (e: any) {
+   281→   281→      setError(e?.message ?? 'Failed to toggle subagent')
+   282→   282→    }
+   283→   283→  }
+   284→   284→
+   285→   285→  const onDelete = async (r: SubagentRow) => {
+   286→   286→    if (
+   287→   287→      !confirm(
+   288→   288→        r.isBuiltin
+   289→   289→          ? `Reset built-in agent "${r.name}" to defaults? Any overlay edits will be removed.`
+   290→   290→          : `Delete custom sub-agent "${r.name}"? This cannot be undone.`
+   291→   291→      )
+   292→   292→    ) {
+   293→   293→      return
+   294→   294→    }
+   295→   295→    try {
+   296→   296→      const res = await fetch(`/api/subagents/${encodeURIComponent(r.id)}`, {
+   297→   297→        method: 'DELETE',
+   298→   298→      })
+   299→   299→      const json = await res.json()
+   300→   300→      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`)
+   301→   301→      bumpSubagents()
+   302→   302→      setRows((prev) => prev.filter((p) => p.id !== r.id))
+   303→   303→    } catch (e: any) {
+   304→   304→      setError(e?.message ?? 'Failed to delete subagent')
+   305→   305→    }
+   306→   306→  }
+   307→   307→
+   308→   308→  const onEditClick = async (r: SubagentRow) => {
+   309→   309→    try {
+   310→   310→      const res = await fetch(`/api/subagents/${encodeURIComponent(r.id)}`)
+   311→   311→      const json = await res.json()
+   312→   312→      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`)
+   313→   313→      setEditing(json.subagent as SubagentRow)
+   314→   314→    } catch (e: any) {
+   315→   315→      setError(e?.message ?? 'Failed to load subagent details')
+   316→   316→    }
+   317→   317→  }
+   318→   318→
+   319→   319→  const onCloseEdit = (didMutate: boolean) => {
+   320→   320→    setEditing(null)
+   321→   321→    setCreating(false)
+   322→   322→    setTemplatePreset(null)
+   323→   323→    if (didMutate) {
+   324→   324→      bumpSubagents()
+   325→   325→      load()
+   326→   326→    }
+   327→   327→  }
+   328→   328→
+   329→   329→  return (
+   330→   330→    <section className="glass rounded-xl p-4 sm:p-5">
+   331→   331→      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+   332→   332→        <div className="flex items-center gap-2">
+   333→   333→          <Users className="w-4 h-4 text-cyan-300" />
+   334→   334→          <h2 className="text-sm font-semibold text-[#e0e7ff] tracking-wide">SUB-AGENTS</h2>
+   335→   335→          <span className="text-[9px] text-[#5b6a92] tracking-wider">
+   336→   336→            {rows.length} total ({rows.filter((r) => r.isBuiltin).length} built-in +{' '}
+   337→   337→            {rows.filter((r) => !r.isBuiltin).length} custom)
+   338→   338→          </span>
+   339→   339→        </div>
+   340→   340→        <div className="flex items-center gap-2 flex-wrap">
+   341→   341→          {/* Quick Templates dropdown (#9) */}
+   342→   342→          <div className="relative">
+   343→   343→            <button
+   344→   344→              onClick={() => setTemplatesOpen((v) => !v)}
+   345→   345→              className="h-8 px-3 rounded-lg glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 text-[10px] font-bold tracking-wider flex items-center gap-1.5 transition"
+   346→   346→              style={{ touchAction: 'manipulation' }}
+   347→   347→              aria-haspopup="menu"
+   348→   348→              aria-expanded={templatesOpen}
+   349→   349→              aria-label="Quick agent templates"
+   350→   350→            >
+   351→   351→              <Sparkles className="w-3.5 h-3.5" />
+   352→   352→              QUICK TEMPLATES
+   353→   353→              <ChevronDown
+   354→   354→                className={`w-3 h-3 transition-transform ${templatesOpen ? 'rotate-180' : ''}`}
+   355→   355→              />
+   356→   356→            </button>
+   357→   357→            <AnimatePresence>
+   358→   358→              {templatesOpen && (
+   359→   359→                <>
+   360→   360→                  {/* click-away catcher */}
+   361→   361→                  <div
+   362→   362→                    className="fixed inset-0 z-30"
+   363→   363→                    onClick={() => setTemplatesOpen(false)}
+   364→   364→                    aria-hidden
+   365→   365→                  />
+   366→   366→                  <motion.div
+   367→   367→                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+   368→   368→                    animate={{ opacity: 1, y: 0, scale: 1 }}
+   369→   369→                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+   370→   370→                    transition={{ duration: 0.15 }}
+   371→   371→                    className="absolute right-0 top-full mt-1 w-64 glass-strong rounded-lg p-1.5 z-40"
+   372→   372→                    style={{ borderColor: 'rgba(0,240,255,0.3)' }}
+   373→   373→                    role="menu"
+   374→   374→                  >
+   375→   375→                    <div className="px-2 py-1 text-[9px] text-[#5b6a92] tracking-[0.2em] font-semibold">
+   376→   376→                      PRE-BUILT SPECIALISTS
+   377→   377→                    </div>
+   378→   378→                    {QUICK_TEMPLATES.map((tpl) => {
+   379→   379→                      const TplIcon = tpl.icon
+   380→   380→                      return (
+   381→   381→                        <button
+   382→   382→                          key={tpl.label}
+   383→   383→                          onClick={() => {
+   384→   384→                            setTemplatePreset(tpl.preset)
+   385→   385→                            setCreating(true)
+   386→   386→                            setTemplatesOpen(false)
+   387→   387→                          }}
+   388→   388→                          className="w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-[11px] text-[#cfd9f0] hover:bg-cyan-400/10 transition"
+   389→   389→                          role="menuitem"
+   390→   390→                          style={{ touchAction: 'manipulation' }}
+   391→   391→                        >
+   392→   392→                          <span
+   393→   393→                            className="w-6 h-6 rounded-md flex items-center justify-center border flex-shrink-0"
+   394→   394→                            style={{
+   395→   395→                              background: `${tpl.preset.color}15`,
+   396→   396→                              borderColor: `${tpl.preset.color}50`,
+   397→   397→                            }}
+   398→   398→                          >
+   399→   399→                            <TplIcon
+   400→   400→                              className="w-3 h-3"
+   401→   401→                              style={{ color: tpl.preset.color }}
+   402→   402→                            />
+   403→   403→                          </span>
+   404→   404→                          <span className="flex-1 min-w-0">
+   405→   405→                            <span className="block font-semibold truncate">
+   406→   406→                              {tpl.preset.name}
+   407→   407→                            </span>
+   408→   408→                            <span className="block text-[9px] text-[#7c89b5] truncate">
+   409→   409→                              {tpl.preset.role}
+   410→   410→                            </span>
+   411→   411→                          </span>
+   412→   412→                        </button>
+   413→   413→                      )
+   414→   414→                    })}
+   415→   415→                    <div className="mt-1 pt-1.5 border-t border-cyan-400/10 px-2 text-[8px] text-[#5b6a92] tracking-wide">
+   416→   416→                      Click to pre-fill the new-agent modal (no auto-submit)
+   417→   417→                    </div>
+   418→   418→                  </motion.div>
+   419→   419→                </>
+   420→   420→              )}
+   421→   421→            </AnimatePresence>
+   422→   422→          </div>
+   423→   423→          <button
+   424→   424→            onClick={() => {
+   425→   425→              setTemplatePreset(null)
+   426→   426→              setCreating(true)
+   427→   427→            }}
+   428→   428→            className="h-8 px-3 rounded-lg neon-btn-cyan text-[10px] font-bold tracking-wider flex items-center gap-1.5"
+   429→   429→            style={{ touchAction: 'manipulation' }}
+   430→   430→          >
+   431→   431→            <Plus className="w-3.5 h-3.5" />
+   432→   432→            NEW CUSTOM AGENT
+   433→   433→          </button>
+   434→   434→        </div>
+   435→   435→      </div>
+   436→   436→
+   437→   437→      {error && (
+   438→   438→        <div className="flex items-start gap-2 mb-3 px-3 py-2 rounded-lg bg-pink-500/10 border border-pink-400/40 text-pink-200 text-[11px]">
+   439→   439→          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+   440→   440→          <span>{error}</span>
+   441→   441→          <button
+   442→   442→            onClick={() => setError('')}
+   443→   443→            className="ml-auto text-pink-300 hover:text-pink-100"
+   444→   444→            style={{ touchAction: 'manipulation' }}
+   445→   445→            aria-label="Dismiss error"
+   446→   446→          >
+   447→   447→            <X className="w-3 h-3" />
+   448→   448→          </button>
+   449→   449→        </div>
+   450→   450→      )}
+   451→   451→
+   452→   452→      {loading ? (
+   453→   453→        <div className="flex items-center justify-center py-6 text-[#7c89b5] text-xs">
+   454→   454→          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+   455→   455→          Loading sub-agents…
+   456→   456→        </div>
+   457→   457→      ) : (
+   458→   458→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[600px] overflow-y-auto scroll-cyan pr-1">
+   459→   459→          {rows.map((r) => {
+   460→   460→            const Icon = getIcon(r.icon)
+   461→   461→            const isCustom = !r.isBuiltin
+   462→   462→            return (
+   463→   463→              <motion.div
+   464→   464→                key={r.id}
+   465→   465→                layout
+   466→   466→                initial={{ opacity: 0, scale: 0.97 }}
+   467→   467→                animate={{ opacity: 1, scale: 1 }}
+   468→   468→                exit={{ opacity: 0, scale: 0.97 }}
+   469→   469→                className="rounded-md p-3 border transition"
+   470→   470→                style={{
+   471→   471→                  borderColor: r.enabled ? `${r.color}55` : 'rgba(91,106,146,0.30)',
+   472→   472→                  background: r.enabled ? `${r.color}08` : 'rgba(255,255,255,0.015)',
+   473→   473→                  opacity: r.enabled ? 1 : 0.6,
+   474→   474→                }}
+   475→   475→              >
+   476→   476→                <div className="flex items-start gap-2">
+   477→   477→                  <div
+   478→   478→                    className="w-9 h-9 rounded-md flex items-center justify-center border flex-shrink-0"
+   479→   479→                    style={{
+   480→   480→                      background: `${r.color}15`,
+   481→   481→                      borderColor: `${r.color}50`,
+   482→   482→                    }}
+   483→   483→                  >
+   484→   484→                    <Icon className="w-4 h-4" style={{ color: r.color }} />
+   485→   485→                  </div>
+   486→   486→                  <div className="flex-1 min-w-0">
+   487→   487→                    <div className="flex items-center gap-1.5 flex-wrap">
+   488→   488→                      <span
+   489→   489→                        className="text-[12px] font-bold tracking-wider"
+   490→   490→                        style={{ color: r.enabled ? r.color : '#7c89b5' }}
+   491→   491→                      >
+   492→   492→                        {r.name}
+   493→   493→                      </span>
+   494→   494→                      {r.isBuiltin ? (
+   495→   495→                        <span className="text-[8px] px-1 py-0.5 rounded-full bg-cyan-400/10 border border-cyan-400/30 text-cyan-200 tracking-wider">
+   496→   496→                          BUILT-IN
+   497→   497→                        </span>
+   498→   498→                      ) : (
+   499→   499→                        <span className="text-[8px] px-1 py-0.5 rounded-full bg-purple-400/10 border border-purple-400/30 text-purple-200 tracking-wider">
+   500→   500→                          CUSTOM
+   501→   501→                        </span>
+   502→   502→                      )}
+   503→   503→                    </div>
+   504→   504→                    <div className="text-[10px] text-[#9bb5d4] leading-tight mt-0.5 truncate">
+   505→   505→                      {r.role}
+   506→   506→                    </div>
+   507→   507→                    <div className="text-[9px] text-[#5b6a92] leading-tight mt-0.5 line-clamp-2">
+   508→   508→                      {r.specialty}
+   509→   509→                    </div>
+   510→   510→                  </div>
+   511→   511→                </div>
+   512→   512→
+   513→   513→                {/* tools list */}
+   514→   514→                <div className="mt-2 flex flex-wrap gap-1">
+   515→   515→                  {r.allowedTools.slice(0, 4).map((t) => (
+   516→   516→                    <span
+   517→   517→                      key={t}
+   518→   518→                      className="text-[8px] px-1.5 py-0.5 rounded bg-black/40 border border-cyan-400/15 text-[#9bb5d4]"
+   519→   519→                    >
+   520→   520→                      {t}
+   521→   521→                    </span>
+   522→   522→                  ))}
+   523→   523→                  {r.allowedTools.length > 4 && (
+   524→   524→                    <span className="text-[8px] px-1.5 py-0.5 rounded bg-black/40 border border-cyan-400/15 text-[#5b6a92]">
+   525→   525→                      +{r.allowedTools.length - 4} more
+   526→   526→                    </span>
+   527→   527→                  )}
+   528→   528→                </div>
+   529→   529→
+   530→   530→                {/* actions */}
+   531→   531→                <div className="mt-2 flex items-center gap-1 flex-wrap">
+   532→   532→                  <button
+   533→   533→                    onClick={() => onToggle(r)}
+   534→   534→                    className={`h-6 px-2 rounded text-[9px] font-semibold tracking-wider flex items-center gap-1 border transition ${
+   535→   535→                      r.enabled
+   536→   536→                        ? 'bg-emerald-500/10 border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/20'
+   537→   537→                        : 'bg-[#3b4768]/20 border-[#3b4768] text-[#7c89b5] hover:bg-[#3b4768]/40'
+   538→   538→                    }`}
+   539→   539→                    style={{ touchAction: 'manipulation' }}
+   540→   540→                    title={r.enabled ? 'Disable' : 'Enable'}
+   541→   541→                  >
+   542→   542→                    <Power className="w-3 h-3" />
+   543→   543→                    {r.enabled ? 'ENABLED' : 'DISABLED'}
+   544→   544→                  </button>
+   545→   545→                  <button
+   546→   546→                    onClick={() => onEditClick(r)}
+   547→   547→                    className="h-6 px-2 rounded text-[9px] font-semibold tracking-wider flex items-center gap-1 border border-cyan-400/30 text-cyan-200 hover:bg-cyan-400/10 transition"
+   548→   548→                    style={{ touchAction: 'manipulation' }}
+   549→   549→                    title="Edit"
+   550→   550→                  >
+   551→   551→                    <Pencil className="w-3 h-3" />
+   552→   552→                    EDIT
+   553→   553→                  </button>
+   554→   554→                  <button
+   555→   555→                    onClick={() => onDelete(r)}
+   556→   556→                    className={`h-6 px-2 rounded text-[9px] font-semibold tracking-wider flex items-center gap-1 border transition ${
+   557→   557→                      isCustom
+   558→   558→                        ? 'border-pink-400/40 text-pink-200 hover:bg-pink-400/10'
+   559→   559→                        : 'border-[#3b4768] text-[#5b6a92] cursor-not-allowed opacity-60'
+   560→   560→                    }`}
+   561→   561→                    disabled={!isCustom}
+   562→   562→                    style={{ touchAction: 'manipulation' }}
+   563→   563→                    title={
+   564→   564→                      isCustom
+   565→   565→                        ? 'Delete custom agent'
+   566→   566→                        : 'Built-ins cannot be deleted (use DELETE to reset overlay)'
+   567→   567→                    }
+   568→   568→                  >
+   569→   569→                    <Trash2 className="w-3 h-3" />
+   570→   570→                    {isCustom ? 'DELETE' : 'BUILT-IN'}
+   571→   571→                  </button>
+   572→   572→                </div>
+   573→   573→              </motion.div>
+   574→   574→            )
+   575→   575→          })}
+   576→   576→        </div>
+   577→   577→      )}
+   578→   578→
+   579→   579→      {/* Edit / Create modal */}
+   580→   580→      <AnimatePresence>
+   581→   581→        {(editing || creating) && (
+   582→   582→          <SubagentEditModal
+   583→   583→            initial={editing}
+   584→   584→            preset={creating ? templatePreset : null}
+   585→   585→            onClose={onCloseEdit}
+   586→   586→          />
+   587→   587→        )}
+   588→   588→      </AnimatePresence>
+   589→   589→    </section>
+   590→   590→  )
+   591→   591→}
+   592→   592→
+   593→   593→/* ------------------------------------------------------------------ *
+   594→   594→ * SubagentEditModal — handles both creating new and editing existing.
+   595→   595→ * If `initial` is null, it's a create flow. Otherwise it's an edit flow.
+   596→   596→ * `preset` (only used in create mode) pre-fills the form with a quick-
+   597→   597→ * template's values without auto-submitting — the user can tweak first.
+   598→   598→ * ------------------------------------------------------------------ */
+   599→   599→function SubagentEditModal({
+   600→   600→  initial,
+   601→   601→  preset,
+   602→   602→  onClose,
+   603→   603→}: {
+   604→   604→  initial: SubagentRow | null
+   605→   605→  preset: QuickTemplate['preset'] | null
+   606→   606→  onClose: (didMutate: boolean) => void
+   607→   607→}) {
+   608→   608→  const isCreate = !initial
+   609→   609→  const [name, setName] = useState(initial?.name ?? preset?.name ?? '')
+   610→   610→  const [role, setRole] = useState(initial?.role ?? preset?.role ?? '')
+   611→   611→  const [specialty, setSpecialty] = useState(initial?.specialty ?? preset?.specialty ?? '')
+   612→   612→  const [color, setColor] = useState(initial?.color ?? preset?.color ?? '#00f0ff')
+   613→   613→  const [icon, setIcon] = useState<string>(initial?.icon ?? preset?.icon ?? 'Sparkles')
+   614→   614→  const [allowedTools, setAllowedTools] = useState<string[]>(
+   615→   615→    initial?.allowedTools ?? preset?.allowedTools ?? ['web_search', 'page_reader']
+   616→   616→  )
+   617→   617→  const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? preset?.systemPrompt ?? '')
+   618→   618→  const [enabled, setEnabled] = useState<boolean>(initial?.enabled ?? true)
+   619→   619→  const [submitting, setSubmitting] = useState(false)
+   620→   620→  const [error, setError] = useState('')
+   621→   621→
+   622→   622→  const onSubmit = async (e: React.FormEvent) => {
+   623→   623→    e.preventDefault()
+   624→   624→    if (submitting) return
+   625→   625→    setError('')
+   626→   626→    if (!name.trim()) {
+   627→   627→      setError('Name is required.')
+   628→   628→      return
+   629→   629→    }
+   630→   630→    if (systemPrompt.trim().length < 20) {
+   631→   631→      setError('System prompt must be at least 20 characters.')
+   632→   632→      return
+   633→   633→    }
+   634→   634→    if (allowedTools.length === 0) {
+   635→   635→      setError('Select at least one allowed tool.')
+   636→   636→      return
+   637→   637→    }
+   638→   638→    setSubmitting(true)
+   639→   639→    try {
+   640→   640→      const body = { name, role, specialty, color, icon, allowedTools, systemPrompt, enabled }
+   641→   641→      const url = isCreate
+   642→   642→        ? '/api/subagents'
+   643→   643→        : `/api/subagents/${encodeURIComponent(initial!.id)}`
+   644→   644→      const method = isCreate ? 'POST' : 'PUT'
+   645→   645→      const res = await fetch(url, {
+   646→   646→        method,
+   647→   647→        headers: { 'Content-Type': 'application/json' },
+   648→   648→        body: JSON.stringify(body),
+   649→   649→      })
+   650→   650→      const json = await res.json()
+   651→   651→      if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`)
+   652→   652→      onClose(true)
+   653→   653→    } catch (e: any) {
+   654→   654→      setError(e?.message ?? 'Save failed')
+   655→   655→      setSubmitting(false)
+   656→   656→    }
+   657→   657→  }
+   658→   658→
+   659→   659→  const toggleTool = (t: string) => {
+   660→   660→    setAllowedTools((prev) =>
+   661→   661→      prev.includes(t) ? prev.filter((p) => p !== t) : [...prev, t]
+   662→   662→    )
+   663→   663→  }
+   664→   664→
+   665→   665→  const PreviewIcon = getIcon(icon)
+   666→   666→
+   667→   667→  return (
+   668→   668→    <motion.div
+   669→   669→      initial={{ opacity: 0 }}
+   670→   670→      animate={{ opacity: 1 }}
+   671→   671→      exit={{ opacity: 0 }}
+   672→   672→      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4"
+   673→   673→      onClick={() => !submitting && onClose(false)}
+   674→   674→    >
+   675→   675→      <motion.div
+   676→   676→        initial={{ opacity: 0, y: 18, scale: 0.96 }}
+   677→   677→        animate={{ opacity: 1, y: 0, scale: 1 }}
+   678→   678→        exit={{ opacity: 0, y: 18, scale: 0.96 }}
+   679→   679→        transition={{ duration: 0.2 }}
+   680→   680→        onClick={(e) => e.stopPropagation()}
+   681→   681→        className="w-full sm:max-w-2xl glass-strong sm:rounded-2xl p-5 sm:p-6 min-h-screen sm:min-h-0 overflow-y-auto scroll-cyan"
+   682→   682→        style={{ borderColor: 'rgba(0,240,255,0.35)', boxShadow: '0 0 40px rgba(0,240,255,0.15)' }}
+   683→   683→      >
+   684→   684→        <div className="flex items-center justify-between mb-2">
+   685→   685→          <div className="flex items-center gap-2">
+   686→   686→            <PreviewIcon className="w-5 h-5" style={{ color }} />
+   687→   687→            <h2 className="text-base font-bold text-[#e0e7ff]">
+   688→   688→              {isCreate ? 'New Custom Sub-Agent' : `Edit: ${initial?.name}`}
+   689→   689→            </h2>
+   690→   690→          </div>
+   691→   691→          <button
+   692→   692→            onClick={() => !submitting && onClose(false)}
+   693→   693→            className="sm:hidden text-[#7c89b5] hover:text-cyan-300 p-1"
+   694→   694→            aria-label="Close"
+   695→   695→            style={{ touchAction: 'manipulation' }}
+   696→   696→          >
+   697→   697→            <X className="w-5 h-5" />
+   698→   698→          </button>
+   699→   699→        </div>
+   700→   700→        <p className="text-[11px] text-[#7c89b5] mb-4">
+   701→   701→          {isCreate
+   702→   702→            ? 'Define a new specialist the Super Agent can dispatch. After creation, it appears in the SUB-AGENT NETWORK panel and can be referenced via <dispatch agent="id" task="..."/>.'
+   703→   703→            : 'Edit this sub-agent\'s properties. Built-in agents can be edited via an overlay (original definition preserved); custom agents edit in place.'}
+   704→   704→        </p>
+   705→   705→
+   706→   706→        <form onSubmit={onSubmit} className="space-y-3">
+   707→   707→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   708→   708→            <div>
+   709→   709→              <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">NAME *</label>
+   710→   710→              <input
+   711→   711→                type="text"
+   712→   712→                value={name}
+   713→   713→                onChange={(e) => setName(e.target.value)}
+   714→   714→                maxLength={80}
+   715→   715→                className="w-full glass rounded-lg px-3 py-2 text-sm text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition"
+   716→   716→                placeholder="e.g. TRADER"
+   717→   717→                required
+   718→   718→                autoFocus
+   719→   719→              />
+   720→   720→            </div>
+   721→   721→            <div>
+   722→   722→              <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">ROLE</label>
+   723→   723→              <input
+   724→   724→                type="text"
+   725→   725→                value={role}
+   726→   726→                onChange={(e) => setRole(e.target.value)}
+   727→   727→                maxLength={200}
+   728→   728→                className="w-full glass rounded-lg px-3 py-2 text-sm text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition"
+   729→   729→                placeholder="e.g. Crypto Trading Specialist"
+   730→   730→              />
+   731→   731→            </div>
+   732→   732→          </div>
+   733→   733→
+   734→   734→          <div>
+   735→   735→            <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">SPECIALTY</label>
+   736→   736→            <input
+   737→   737→              type="text"
+   738→   738→              value={specialty}
+   739→   739→              onChange={(e) => setSpecialty(e.target.value)}
+   740→   740→              maxLength={500}
+   741→   741→              className="w-full glass rounded-lg px-3 py-2 text-sm text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition"
+   742→   742→              placeholder="e.g. Spot trading, DCA, on-chain analysis"
+   743→   743→            />
+   744→   744→          </div>
+   745→   745→
+   746→   746→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   747→   747→            <div>
+   748→   748→              <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">COLOR (HEX)</label>
+   749→   749→              <div className="flex items-center gap-2">
+   750→   750→                <input
+   751→   751→                  type="color"
+   752→   752→                  value={color}
+   753→   753→                  onChange={(e) => setColor(e.target.value)}
+   754→   754→                  className="w-10 h-9 rounded-md bg-transparent border border-cyan-400/30 cursor-pointer"
+   755→   755→                />
+   756→   756→                <input
+   757→   757→                  type="text"
+   758→   758→                  value={color}
+   759→   759→                  onChange={(e) => setColor(e.target.value)}
+   760→   760→                  className="flex-1 glass rounded-lg px-3 py-2 text-sm text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition font-mono"
+   761→   761→                  placeholder="#00f0ff"
+   762→   762→                />
+   763→   763→              </div>
+   764→   764→            </div>
+   765→   765→            <div>
+   766→   766→              <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">ICON (LUCIDE)</label>
+   767→   767→              <select
+   768→   768→                value={icon}
+   769→   769→                onChange={(e) => setIcon(e.target.value)}
+   770→   770→                className="w-full glass rounded-lg px-3 py-2 text-sm text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition"
+   771→   771→              >
+   772→   772→                {VALID_ICON_NAMES.map((n) => (
+   773→   773→                  <option key={n} value={n} className="bg-black text-[#e0e7ff]">
+   774→   774→                    {n}
+   775→   775→                  </option>
+   776→   776→                ))}
+   777→   777→              </select>
+   778→   778→            </div>
+   779→   779→          </div>
+   780→   780→
+   781→   781→          <div>
+   782→   782→            <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">ALLOWED TOOLS</label>
+   783→   783→            <div className="flex flex-wrap gap-1.5">
+   784→   784→              {ALL_TOOL_OPTIONS.map((t) => {
+   785→   785→                const on = allowedTools.includes(t)
+   786→   786→                return (
+   787→   787→                  <button
+   788→   788→                    key={t}
+   789→   789→                    type="button"
+   790→   790→                    onClick={() => toggleTool(t)}
+   791→   791→                    className={`px-2 py-1 rounded-md text-[10px] font-mono tracking-wider border transition ${
+   792→   792→                      on
+   793→   793→                        ? 'bg-cyan-400/15 border-cyan-400/50 text-cyan-200'
+   794→   794→                        : 'glass border-cyan-400/15 text-[#7c89b5] hover:text-cyan-200'
+   795→   795→                    }`}
+   796→   796→                    style={{ touchAction: 'manipulation' }}
+   797→   797→                  >
+   798→   798→                    {on ? '✓ ' : ''}
+   799→   799→                    {t}
+   800→   800→                  </button>
+   801→   801→                )
+   802→   802→              })}
+   803→   803→            </div>
+   804→   804→          </div>
+   805→   805→
+   806→   806→          <div>
+   807→   807→            <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">SYSTEM PROMPT *</label>
+   808→   808→            <textarea
+   809→   809→              value={systemPrompt}
+   810→   810→              onChange={(e) => setSystemPrompt(e.target.value)}
+   811→   811→              maxLength={8000}
+   812→   812→              rows={6}
+   813→   813→              className="w-full glass rounded-lg px-3 py-2 text-xs font-mono text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition resize-y"
+   814→   814→              placeholder="You are X, the [role] sub-agent of Agent007 AI. Your specialty: ...&#10;&#10;ALLOWED TOOLS:&#10;- web_search — ...&#10;&#10;OUTPUT FORMAT:&#10;- <thought>...</thought> before each action&#10;- <tool name='...'>{json}</tool> to call a tool&#10;- Plain markdown final answer&#10;&#10;RULES:&#10;- ...&#10;- Max 6 tool calls."
+   815→   815→              required
+   816→   816→            />
+   817→   817→            <div className="text-[9px] text-[#5b6a92] mt-0.5">{systemPrompt.length} / 8000 chars</div>
+   818→   818→          </div>
+   819→   819→
+   820→   820→          {!isCreate && (
+   821→   821→            <label className="flex items-center gap-2 cursor-pointer select-none">
+   822→   822→              <input
+   823→   823→                type="checkbox"
+   824→   824→                checked={enabled}
+   825→   825→                onChange={(e) => setEnabled(e.target.checked)}
+   826→   826→                className="w-4 h-4 accent-cyan-400"
+   827→   827→              />
+   828→   828→              <span className="text-xs text-[#cfd9f0]">Enabled (dispatchable)</span>
+   829→   829→            </label>
+   830→   830→          )}
+   831→   831→
+   832→   832→          {error && (
+   833→   833→            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-pink-500/10 border border-pink-400/40 text-pink-200 text-xs">
+   834→   834→              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+   835→   835→              <span>{error}</span>
+   836→   836→            </div>
+   837→   837→          )}
+   838→   838→
+   839→   839→          <div className="flex items-center gap-2 pt-1">
+   840→   840→            <button
+   841→   841→              type="button"
+   842→   842→              onClick={() => !submitting && onClose(false)}
+   843→   843→              className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold glass border-cyan-400/20 text-[#cfd9f0] hover:border-cyan-400/40 transition"
+   844→   844→              style={{ touchAction: 'manipulation' }}
+   845→   845→            >
+   846→   846→              Cancel
+   847→   847→            </button>
+   848→   848→            <button
+   849→   849→              type="submit"
+   850→   850→              disabled={submitting}
+   851→   851→              className="flex-1 neon-btn-cyan rounded-lg py-2 text-xs font-bold tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
+   852→   852→              style={{ touchAction: 'manipulation' }}
+   853→   853→            >
+   854→   854→              {submitting ? (
+   855→   855→                <>
+   856→   856→                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+   857→   857→                  SAVING…
+   858→   858→                </>
+   859→   859→              ) : isCreate ? (
+   860→   860→                <>
+   861→   861→                  <Plus className="w-3.5 h-3.5" />
+   862→   862→                  CREATE AGENT
+   863→   863→                </>
+   864→   864→              ) : (
+   865→   865→                <>
+   866→   866→                  <CheckCircle2 className="w-3.5 h-3.5" />
+   867→   867→                  SAVE CHANGES
+   868→   868→                </>
+   869→   869→              )}
+   870→   870→            </button>
+   871→   871→          </div>
+   872→   872→        </form>
+   873→   873→      </motion.div>
+   874→   874→    </motion.div>
+   875→   875→  )
+   876→   876→}
+   877→   877→

@@ -1021,7 +1021,21 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
     }
   })
 
-  const all = [...mergedBuiltins, ...customList]
+  // DEDUPLICATION (upgrade #40): Filter out custom agents that have the same
+  // id OR name (case-insensitive) as a built-in agent. This prevents the
+  // 6 promoted agents (TRADER, Cybersecurity A/R, Developer, TESTFAST2,
+  // FASTTEST3) from appearing twice — once from SUBAGENTS (builtin=true)
+  // and once from the CustomSubagent DB table (builtin=false, created by
+  // the old seeding code that ran before upgrade #38 promoted them).
+  const builtinIds = new Set(SUBAGENTS.map((b) => b.id.toLowerCase()))
+  const builtinNames = new Set(SUBAGENTS.map((b) => b.name.toLowerCase()))
+  const dedupedCustomList = customList.filter((c) => {
+    const idMatch = builtinIds.has(c.id.toLowerCase())
+    const nameMatch = builtinNames.has(c.name.toLowerCase())
+    return !idMatch && !nameMatch
+  })
+
+  const all = [...mergedBuiltins, ...dedupedCustomList]
   return includeDisabled ? all : all.filter((s) => s.enabled !== false)
 }
 
