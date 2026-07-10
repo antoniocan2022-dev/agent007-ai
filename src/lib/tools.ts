@@ -2348,3 +2348,30 @@ import {
 TOOL_REGISTRY.decision_matrix = { fn: toolDecisionMatrix, icon: 'grid', label: 'Decision Matrix (multi-criteria decision analysis, auto-tier assignment)' }
 // Autonomy Policy Enforcer — enforces the 97% autonomy rule
 TOOL_REGISTRY.autonomy_policy_enforcer = { fn: toolAutonomyPolicyEnforcer, icon: 'shield', label: 'Autonomy Policy Enforcer (97% auto-execute, 3% owner approval)' }
+
+/* ================================================================== *
+ * AI SEARCH ENGINES — 6 AI-driven search platforms (upgrade #44).
+ * Complementary to existing web_search + ddg_search + brave_search.
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS to all 18 agents.
+ * ================================================================== */
+import {
+  toolGoogleAiSearch,
+  toolPerplexityAiSearch,
+  toolCopilotSearch,
+  toolChatgptSearch,
+  toolYouComSearch,
+  toolBraveAiSearch,
+} from './ai-search-engines'
+
+// Google AI Search — robust, broad, AI-integrated
+TOOL_REGISTRY.google_ai_search = { fn: toolGoogleAiSearch, icon: 'search', label: 'Google AI Search (AI Overview, broadest index, multimodal)' }
+// Perplexity AI Search — cited sources, real-time
+TOOL_REGISTRY.perplexity_ai_search = { fn: toolPerplexityAiSearch, icon: 'search-check', label: 'Perplexity AI Search (cited sources, focus modes, real-time)' }
+// Microsoft Copilot Search — productivity-focused, GPT-4 powered
+TOOL_REGISTRY.copilot_search = { fn: toolCopilotSearch, icon: 'search', label: 'Copilot Search (GPT-4, Office integration, 3 modes)' }
+// ChatGPT Search — conversational, OpenAI-powered
+TOOL_REGISTRY.chatgpt_search = { fn: toolChatgptSearch, icon: 'message-circle', label: 'ChatGPT Search (GPT-4o, conversational, multimodal)' }
+// You.com Search — privacy-focused, coding + chatbots
+TOOL_REGISTRY.you_com_search = { fn: toolYouComSearch, icon: 'shield', label: 'You.com Search (privacy, code mode, multi-model)' }
+// Brave AI Search — independent index, AI Answers
+TOOL_REGISTRY.brave_ai_search = { fn: toolBraveAiSearch, icon: 'shield', label: 'Brave AI Search (independent index, AI Answers, privacy)' }
