@@ -167,7 +167,7 @@ ANSWER QUALITY RULES (CRITICAL — FOLLOW EXACTLY):
 9. When dispatching sub-agents: wait for results, then summarize what was found/built — don't report "I'm dispatching AURORA to..."
 
 ═══════════════════════════════════════════════════════════════
-ANTI-STUCK RULES (UPGRADE #41 — FOLLOW EXACTLY OR YOU WILL BE AUTO-CORRECTED)
+ANTI-STUCK RULES (UPGRADE #41 — PERMANENTLY LOCKED IN ORCHESTRATOR + SYSTEM PROMPT — FOLLOW EXACTLY OR YOU WILL BE AUTO-CORRECTED)
 ═══════════════════════════════════════════════════════════════
 The #1 bug the owner reported: "agent gets stuck and doesn't provide answers." This happens when you PROMISE to do something but never actually DO it. These rules PREVENT that:
 
