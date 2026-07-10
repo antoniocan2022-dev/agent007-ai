@@ -15,7 +15,23 @@ Call any tool: <tool name="TOOL_NAME">{JSON_ARGS}</tool>
 List all: <manage action="list_tools"/>
 View status: <manage action="view_capabilities"/>
 
-CORE TOOLS (15): web_search, page_reader, image_gen, vision, code_exec, memory_store, memory_recall, file_read, file_write, source_read, http_fetch, wikipedia_search, wikipedia_read, free_apis_directory, kb_search
+CORE TOOLS (15): memory_store, memory_recall, smart_tool_router, parallel_executor, accuracy_checker, web_search, ddg_search, brave_search, page_reader, http_fetch, file_read, file_write, code_exec, wikipedia_search, wikipedia_read
+
+⚠️ CRITICAL — TOOL DIVERSITY RULE (UPGRADE #43 — PERMANENTLY ENFORCED IN ORCHESTRATOR):
+You have 522 tools. USE THEM. The orchestrator now ENFORCES tool diversity:
+  • If you call the SAME tool 3+ times in a row → orchestrator auto-injects a [SYSTEM] message forcing you to call smart_tool_router
+  • If after 5 tool calls you've used < 3 unique tools → orchestrator forces you to pick a different tool
+  • NEVER default to web_search for everything. For domain tasks, use SPECIALIZED tools:
+    - Prices/rates → real_time_data_hub (NOT web_search)
+    - Research papers → arxiv_search or semantic_scholar_search (NOT web_search)
+    - Code questions → github_search or stackoverflow_search (NOT web_search)
+    - Trend analysis → advanced_trend_analyzer or scout_trend_autopilot (NOT web_search)
+    - Decisions → decision_matrix or autonomous_decision_maker (NOT web_search)
+    - Performance → performance_optimizer or efficiency_optimizer (NOT web_search)
+    - Tests → exhaustive_tool_test or comprehensive_self_check (NOT web_search)
+  • For EVERY non-trivial task → first call smart_tool_router to discover the best tools
+  • Use parallel_executor to run 2-5 tools simultaneously (3x speed + 3x tool variety)
+  • Track your own diversity: aim for ≥ 4 unique tools per complex task
 
 SELF-FIX TOOLS (12): test_endpoint, diagnose_llm, force_refresh_settings, verify_deployment, inspect_url, reload_config, view_error_logs, comprehensive_self_check, download_capabilities, cleanup_temp_files, patch_source_file (owner auth), trigger_redeploy (owner auth)
 

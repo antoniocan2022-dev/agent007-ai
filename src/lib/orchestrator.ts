@@ -992,6 +992,41 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         artifacts: toolResult.artifacts,
       })
 
+      // ── FIX #43: TOOL DIVERSITY ENFORCER ──────────────────────────
+      // The owner reported "Agent007 not using all tools." Root cause: the LLM
+      // defaults to web_search for everything (anchor bias from prompt examples)
+      // and there was no mechanism to force tool variety. This block:
+      //   1. Tracks unique tools used this turn
+      //   2. If the agent calls the SAME tool 3+ times in a row → injects a
+      //      [SYSTEM] message forcing it to use smart_tool_router to discover
+      //      better tools for the task
+      //   3. After 5 tool calls, if < 3 unique tools used → injects a
+      //      [SYSTEM] message forcing tool diversity
+      const recentToolNames = steps.map(s => s.toolName).filter(Boolean)
+      const uniqueToolsUsed = new Set(recentToolNames).size
+      const lastTool = recentToolNames[recentToolNames.length - 1]
+      const lastToolRepeatCount = recentToolNames.length >= 3 &&
+        recentToolNames.slice(-3).every(t => t === lastTool)
+
+      // Check: same tool called 3+ times in a row
+      if (lastToolRepeatCount && iter < MAX_ITERATIONS - 1) {
+        await emit('thought', { content: `[AUTO-DIVERSITY] Detected repeated tool "${lastTool}" called 3x in a row. Forcing smart_tool_router discovery...` })
+        conversationMessages.push({
+          role: 'user',
+          content: `[SYSTEM] TOOL DIVERSITY ENFORCER (upgrade #43): You just called "${lastTool}" 3 times in a row. This suggests you're stuck on one tool. You have 522 tools available — use them. Call <tool name="smart_tool_router">{"task":"<describe your current task>"}</tool> RIGHT NOW to discover better tools for this task. Then use parallel_executor to run the top 2-3 recommended tools in parallel. NEVER call the same tool 3+ times in a row unless absolutely necessary.`,
+        })
+      }
+
+      // Check: after 5 tool calls, < 3 unique tools used
+      if (recentToolNames.length >= 5 && uniqueToolsUsed < 3 && iter < MAX_ITERATIONS - 1) {
+        await emit('thought', { content: `[AUTO-DIVERSITY] Low tool diversity: ${uniqueToolsUsed} unique tools in ${recentToolNames.length} calls. Forcing variety...` })
+        conversationMessages.push({
+          role: 'user',
+          content: `[SYSTEM] TOOL DIVERSITY ENFORCER (upgrade #43): You've made ${recentToolNames.length} tool calls but only used ${uniqueToolsUsed} unique tools. You have 522 tools — USE MORE VARIETY. For your next call, pick a DIFFERENT tool you haven't used yet. Consider: decision_matrix, autonomy_policy_enforcer, real_time_data_hub, predictive_analytics_engine, accuracy_checker, parallel_executor, or any of the 515+ other tools. Avoid repeating the same tool.`,
+        })
+      }
+
+
       if (step.toolName === 'memory_store' && toolResult.ok) {
         await emit('memory_update', {
           key: step.toolArgs?.key,
