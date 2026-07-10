@@ -2330,3 +2330,21 @@ import {
 
 // Subagent Performance Monitor (upgrade #39)
 TOOL_REGISTRY.subagent_performance_monitor = { fn: toolSubagentPerformanceMonitor, icon: 'activity', label: 'Subagent Performance Monitor (6 enhanced agents, 5-dimension tracking)' }
+
+/* ================================================================== *
+ * FULL AUTONOMY V4 TOOLS — 2 new tools completing the owner's
+ * requested 8-tool full-autonomy toolkit (upgrade #42).
+ * The other 6 tools already exist (autonomous_decision_maker,
+ * self_improving_strategy, performance_optimizer, feedback_optimization_loop,
+ * task_automation_expander, workflow_orchestrator) + memory_store (core).
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS.
+ * ================================================================== */
+import {
+  toolDecisionMatrix,
+  toolAutonomyPolicyEnforcer,
+} from './full-autonomy-v4-tools'
+
+// Decision Matrix — evaluate options against weighted criteria
+TOOL_REGISTRY.decision_matrix = { fn: toolDecisionMatrix, icon: 'grid', label: 'Decision Matrix (multi-criteria decision analysis, auto-tier assignment)' }
+// Autonomy Policy Enforcer — enforces the 97% autonomy rule
+TOOL_REGISTRY.autonomy_policy_enforcer = { fn: toolAutonomyPolicyEnforcer, icon: 'shield', label: 'Autonomy Policy Enforcer (97% auto-execute, 3% owner approval)' }
