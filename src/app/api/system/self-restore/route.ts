@@ -149,15 +149,29 @@ export async function POST(req: NextRequest) {
 
     // The backup may have different structures depending on when it was made.
     // Try multiple known structures:
-    // 1. { data: { memories: [...], customSubagents: [...], ... } } — /api/backup format
-    // 2. { database: { memories: [...], ... } } — createBackup() direct format
-    // 3. { database: { data: { memories: [...], ... } } } — createBackup() nested format (current)
+    // 1. { data: { memories: [...], customSubagents: [...], ... } } — /api/backup format (PLURAL keys)
+    // 2. { database: { memories: [...], ... } } — createBackup() direct format (PLURAL)
+    // 3. { database: { data: { memory: [...], userSetting: [...], ... } } } — createBackup() nested (SINGULAR keys, Prisma model names)
     // 4. { memories: [...] } — direct format
     const data = backup?.data ?? backup?.database?.data ?? backup?.database ?? backup
 
+    // Helper: get an array from any of the possible key variants (plural + singular)
+    const getArray = (...keys: string[]): any[] => {
+      for (const k of keys) {
+        if (Array.isArray(data?.[k])) return data[k]
+      }
+      return []
+    }
+
+    const memoriesArr = getArray('memories', 'memory')
+    const subagentsArr = getArray('customSubagents', 'customSubagent')
+    const settingsArr = getArray('userSettings', 'userSetting')
+    const schedulesArr = getArray('schedules', 'schedule')
+    const incomeArr = getArray('incomeEntries', 'incomeEntry')
+
     // ── Memory ──────────────────────────────────────────────────────────
-    if (Array.isArray(data?.memories)) {
-      for (const m of data.memories) {
+    if (memoriesArr.length > 0) {
+      for (const m of memoriesArr) {
         try {
           if (!m.key || !m.value) continue
           await db.memory.upsert({
@@ -175,8 +189,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── CustomSubagent (overlay only) ───────────────────────────────────
-    if (Array.isArray(data?.customSubagents)) {
-      for (const s of data.customSubagents) {
+    if (subagentsArr.length > 0) {
+      for (const s of subagentsArr) {
         try {
           if (!s.id || !s.name) continue
           // Only restore overlays — built-in agents are code-defined
@@ -218,8 +232,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── UserSetting ─────────────────────────────────────────────────────
-    if (Array.isArray(data?.userSettings)) {
-      for (const us of data.userSettings) {
+    if (settingsArr.length > 0) {
+      for (const us of settingsArr) {
         try {
           if (!us.key || !us.value) continue
           await db.userSetting.upsert({
@@ -237,8 +251,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Schedule ────────────────────────────────────────────────────────
-    if (Array.isArray(data?.schedules)) {
-      for (const s of data.schedules) {
+    if (schedulesArr.length > 0) {
+      for (const s of schedulesArr) {
         try {
           if (!s.name || !s.prompt) continue
           await db.schedule.upsert({
@@ -268,8 +282,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── IncomeEntry ─────────────────────────────────────────────────────
-    if (Array.isArray(data?.incomeEntries)) {
-      for (const ie of data.incomeEntries) {
+    if (incomeArr.length > 0) {
+      for (const ie of incomeArr) {
         try {
           if (!ie.amount || !ie.source) continue
           await db.incomeEntry.create({
