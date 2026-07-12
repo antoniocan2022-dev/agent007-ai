@@ -15,13 +15,13 @@
     }
   },
   "capabilities": {
-    "totalTools": 528,
+    "totalTools": 551,
     "totalAgents": 18,
     "permanentUpgrades": 43,
-    "neverRemovableTools": 528
+    "neverRemovableTools": 551
   },
   "tools": {
-    "total": 528,
+    "total": 551,
     "allTools": [
       "2fa_crypto_upgrader",
       "ab_test_optimizer",
@@ -37,6 +37,7 @@
       "advanced_trend_analyzer",
       "affiliate_funnel_builder",
       "affiliate_management",
+      "affiliate_tracker",
       "agent_swarm_coordination",
       "agile_iteration",
       "ai_content_factory",
@@ -83,6 +84,7 @@
       "autonomy_policy_enforcer",
       "backlink_tracking",
       "backup_create",
+      "baileys_postgres_storage",
       "banker_asset_allocation",
       "banker_asset_class_analysis",
       "banker_auto_investing",
@@ -114,10 +116,12 @@
       "brave_search",
       "budget_forecaster",
       "budgeting_forecast",
+      "buffer_scheduler",
       "business_infrastructure",
       "business_model_designer",
       "cache_clear",
       "cache_layer_manager",
+      "calendar_schedule",
       "canary_deployment_manager",
       "capability_expander",
       "cascading_failure_detector",
@@ -158,6 +162,7 @@
       "cross_agent_analytics",
       "cross_stream_analytics",
       "crypto_analyzer",
+      "crypto_price_live",
       "csrf_auditor",
       "custom_agent_builder",
       "customer_feedback_collector",
@@ -165,6 +170,7 @@
       "data_analysis_engine",
       "database_integrity_check",
       "database_manager",
+      "dataforseo",
       "db_migration_validator",
       "db_replication_setup",
       "ddg_search",
@@ -229,9 +235,11 @@
       "freelance_va_system",
       "full_system_audit",
       "gig_pipeline_tracker",
+      "github_create_repo",
       "github_search",
       "google_ai_search",
       "google_scholar_search",
+      "google_trends_fetch",
       "graphic_design",
       "health_canary",
       "hn_search",
@@ -260,6 +268,7 @@
       "keyword_analysis",
       "knowledge_base_curator",
       "kpi_dashboard_builder",
+      "kraken_exchange",
       "lead_chatbot",
       "lead_generation",
       "learning_recorder",
@@ -280,6 +289,7 @@
       "log_explorer",
       "log_tailer",
       "loyalty_oath",
+      "mailchimp_list_manager",
       "market_adaptation_engine",
       "market_feedback_collector",
       "market_intelligence",
@@ -300,6 +310,7 @@
       "multi_provider_llm_router",
       "multi_tenancy_auditor",
       "niche_discovery_agent",
+      "notion_create_page",
       "on_page_optimization",
       "openalex_search",
       "optimization_loop",
@@ -319,6 +330,8 @@
       "payment_processing",
       "payment_processor",
       "payout_scheduler",
+      "paypal_api",
+      "pdf_read",
       "performance_0_capacity_planning",
       "performance_0_cost_optimization",
       "performance_0_dynamic_allocation",
@@ -385,6 +398,7 @@
       "realtime_knowledge_sharing",
       "realtime_market_data",
       "reddit_search",
+      "redis_cache",
       "redteam_asset_allocation",
       "redteam_asset_class_analysis",
       "redteam_auto_investing",
@@ -402,6 +416,7 @@
       "repetitive_task_automator",
       "report_to_owner",
       "request_owner_auth",
+      "resend_email_automation",
       "resource_allocation",
       "resource_allocation_opt",
       "resource_allocator",
@@ -468,6 +483,7 @@
       "self_verify_integrity",
       "semantic_scholar_search",
       "send_communication",
+      "send_email_resend",
       "sentiment_analyzer",
       "seo_master_asset_allocation",
       "seo_master_asset_class_analysis",
@@ -485,6 +501,7 @@
       "service_delivery",
       "session_recovery",
       "shared_context_bus",
+      "smart_tool_catalog",
       "smart_tool_router",
       "social_listening",
       "social_media_automation",
@@ -493,6 +510,7 @@
       "source_read",
       "stackoverflow_search",
       "staging_environment_manager",
+      "stock_quote_live",
       "stock_screener",
       "strategic_planning",
       "strategist_adjustment_automation",
@@ -509,6 +527,8 @@
       "strategist_roi_tools",
       "strategy_feedback_integrator",
       "strategy_optimizer",
+      "stripe_create_payment",
+      "stripe_payment_processor",
       "subagent_coordinator",
       "subagent_performance_monitor",
       "system_health_check",
@@ -536,6 +556,7 @@
       "training_session_organizer",
       "trigger_redeploy",
       "ui_form_builder",
+      "upwork_search_jobs",
       "user_behavior_analysis",
       "verify_deployment",
       "verify_owner_auth",
@@ -545,10 +566,12 @@
       "view_error_logs",
       "vision",
       "web_search",
+      "website_analytics",
       "website_builder",
       "wikipedia_read",
       "wikipedia_rest",
       "wikipedia_search",
+      "wordpress_publisher",
       "workflow_orchestrator",
       "you_com_search"
     ],
@@ -630,7 +653,7 @@
       },
       {
         "name": "real_time_monitor",
-        "label": "Real-Time Market Monitoring",
+        "label": "Real-Time Monitor (REAL: live Node.js metrics)",
         "icon": "activity"
       },
       {
@@ -735,7 +758,7 @@
       },
       {
         "name": "market_intelligence",
-        "label": "Market Intelligence",
+        "label": "Market Intelligence (REAL: HN+Reddit+GitHub)",
         "icon": "globe"
       },
       {
@@ -910,8 +933,8 @@
       },
       {
         "name": "external_uptime_monitor",
-        "label": "External Uptime Monitor",
-        "icon": "activity"
+        "label": "External Uptime Monitor (REAL: endpoint checks)",
+        "icon": "check-circle"
       },
       {
         "name": "automated_backup_scheduler",
@@ -2165,13 +2188,13 @@
       },
       {
         "name": "crypto_analyzer",
-        "label": "Crypto Analyzer (technical + on-chain + sentiment)",
+        "label": "Crypto Analyzer (REAL: CoinGecko live prices)",
         "icon": "bitcoin"
       },
       {
         "name": "stock_screener",
-        "label": "Stock Screener (fundamental + valuation)",
-        "icon": "search"
+        "label": "Stock Screener (REAL: Yahoo Finance live)",
+        "icon": "trending-up"
       },
       {
         "name": "ai_writing_assistant",
@@ -2310,8 +2333,8 @@
       },
       {
         "name": "market_trend_analysis",
-        "label": "Market Trend Analysis",
-        "icon": "BarChart3"
+        "label": "Market Trend Analysis (REAL: HN+Reddit)",
+        "icon": "bar-chart"
       },
       {
         "name": "income_forecast",
@@ -2670,7 +2693,7 @@
       },
       {
         "name": "community_engagement",
-        "label": "Community Engagement (Reddit/Discord/Facebook)",
+        "label": "Community Engagement (REAL: Reddit live)",
         "icon": "users"
       },
       {
@@ -3192,6 +3215,121 @@
         "name": "brave_ai_search",
         "label": "Brave AI Search (independent index, AI Answers, privacy)",
         "icon": "shield"
+      },
+      {
+        "name": "stripe_payment_processor",
+        "label": "Stripe Payment Processor (REAL API)",
+        "icon": "credit-card"
+      },
+      {
+        "name": "wordpress_publisher",
+        "label": "WordPress Publisher (REAL API)",
+        "icon": "edit-3"
+      },
+      {
+        "name": "buffer_scheduler",
+        "label": "Buffer Scheduler (REAL API)",
+        "icon": "share-2"
+      },
+      {
+        "name": "kraken_exchange",
+        "label": "Kraken Exchange (REAL API)",
+        "icon": "bitcoin"
+      },
+      {
+        "name": "resend_email_automation",
+        "label": "Resend Email Automation (REAL API)",
+        "icon": "mail"
+      },
+      {
+        "name": "affiliate_tracker",
+        "label": "Affiliate Tracker (click/conversion + payouts)",
+        "icon": "link"
+      },
+      {
+        "name": "dataforseo",
+        "label": "DataForSEO (REAL API — keywords, backlinks, SERP)",
+        "icon": "search"
+      },
+      {
+        "name": "paypal_api",
+        "label": "PayPal REST API (REAL — balance, orders, payouts)",
+        "icon": "credit-card"
+      },
+      {
+        "name": "website_analytics",
+        "label": "Website Analytics (REAL Plausible API)",
+        "icon": "bar-chart-2"
+      },
+      {
+        "name": "upwork_search_jobs",
+        "label": "Upwork Search Jobs (REAL RSS)",
+        "icon": "briefcase"
+      },
+      {
+        "name": "google_trends_fetch",
+        "label": "Google Trends Fetch (REAL RSS)",
+        "icon": "trending-up"
+      },
+      {
+        "name": "calendar_schedule",
+        "label": "Calendar Schedule (REAL Google Calendar API)",
+        "icon": "calendar"
+      },
+      {
+        "name": "notion_create_page",
+        "label": "Notion Create Page (REAL Notion API)",
+        "icon": "file-text"
+      },
+      {
+        "name": "github_create_repo",
+        "label": "GitHub Create Repo (REAL GitHub API)",
+        "icon": "github"
+      },
+      {
+        "name": "stripe_create_payment",
+        "label": "Stripe Create Payment (REAL API)",
+        "icon": "credit-card"
+      },
+      {
+        "name": "send_email_resend",
+        "label": "Send Email Resend (REAL API)",
+        "icon": "mail"
+      },
+      {
+        "name": "crypto_price_live",
+        "label": "Crypto Price Live (REAL CoinGecko)",
+        "icon": "bitcoin"
+      },
+      {
+        "name": "stock_quote_live",
+        "label": "Stock Quote Live (REAL Yahoo Finance)",
+        "icon": "dollar-sign"
+      },
+      {
+        "name": "pdf_read",
+        "label": "PDF Read (REAL file parser)",
+        "icon": "file"
+      },
+      {
+        "name": "baileys_postgres_storage",
+        "label": "Baileys Postgres Storage (WhatsApp auth persists)",
+        "icon": "message-circle"
+      },
+      {
+        "name": "redis_cache",
+        "label": "Redis Cache (Upstash distributed cache)",
+        "icon": "database"
+      },
+      {
+        "name": "mailchimp_list_manager",
+        "label": "Mailchimp List Manager (REAL API)",
+        "icon": "mail"
+      },
+      {
+        "name": "smart_tool_catalog",
+        "label": "Smart Tool Catalog (REAL_API/FRAMEWORK tags)",
+        "icon": "list"
       }
     ]
   },
@@ -3593,7 +3731,7 @@
     "ownerEmail": "antonio.can2022@hotmail.com"
   },
   "summary": {
-    "totalTools": 528,
+    "totalTools": 551,
     "totalAgents": 18,
     "totalUpgrades": 43,
     "allLocked": true,
