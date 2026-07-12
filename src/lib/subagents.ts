@@ -1073,18 +1073,33 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
     }
   })
 
-  // DEDUPLICATION (upgrade #40): Filter out custom agents that have the same
-  // id OR name (case-insensitive) as a built-in agent. This prevents the
+  // DEDUPLICATION (upgrade #40 + #60): Filter out custom agents that have the
+  // same id OR name (case-insensitive) as a built-in agent. This prevents the
   // 6 promoted agents (TRADER, Cybersecurity A/R, Developer, TESTFAST2,
   // FASTTEST3) from appearing twice — once from SUBAGENTS (builtin=true)
   // and once from the CustomSubagent DB table (builtin=false, created by
   // the old seeding code that ran before upgrade #38 promoted them).
+  //
+  // UPGRADE #60 FIX: The built-in agents were RENAMED in upgrade #57:
+  //   - TESTFAST2 → QA Monitor (id: testfast2)
+  //   - FASTTEST3 → External Monitor (id: fasttest3)
+  // So the old DB entries (name="TESTFAST2", name="FASTTEST3") were slipping
+  // through the name-based dedup. Now we also check against the OLD names.
+  const OLD_NAMES_TO_FILTER = new Set([
+    'testfast2',
+    'fasttest3',
+    'trader',
+    'cybersecurity a',
+    'cybersecurity r',
+    'developer',
+  ])
   const builtinIds = new Set(SUBAGENTS.map((b) => b.id.toLowerCase()))
   const builtinNames = new Set(SUBAGENTS.map((b) => b.name.toLowerCase()))
   const dedupedCustomList = customList.filter((c) => {
     const idMatch = builtinIds.has(c.id.toLowerCase())
     const nameMatch = builtinNames.has(c.name.toLowerCase())
-    return !idMatch && !nameMatch
+    const oldNameMatch = OLD_NAMES_TO_FILTER.has(c.name.toLowerCase())
+    return !idMatch && !nameMatch && !oldNameMatch
   })
 
   const all = [...mergedBuiltins, ...dedupedCustomList]
