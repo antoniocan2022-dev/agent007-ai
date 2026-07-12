@@ -9,6 +9,40 @@ export const dynamic = 'force-dynamic'
 
 const BUILTIN_IDS = new Set(SUBAGENTS.map((s) => s.id))
 
+/**
+ * PERMANENTLY-LOCKED agent IDs (Upgrade #57).
+ *
+ * These agents CANNOT be:
+ *   - Deleted (DELETE returns 403)
+ *   - Disabled (PUT {enabled:false} returns 403)
+ *   - Have their systemPrompt overwritten (PUT {systemPrompt:...} returns 403)
+ *   - Have their allowedTools reduced (PUT {allowedTools:[...]} returns 403)
+ *
+ * The owner CAN still edit non-critical fields (color, role description, specialty
+ * string) for cosmetic customization, but the core mission + schedule + tool
+ * access are PERMANENTLY locked.
+ *
+ * Currently locked:
+ *   - testfast2  → QA Monitor (internal health checks 1h/6h/12h/24h)
+ *   - fasttest3  → External Monitor (external uptime every 30 min)
+ *
+ * These run on Vercel Cron and alert the owner on failure. Disabling them
+ * would blind the owner to outages — therefore they cannot be disabled,
+ * even by the owner. To modify, edit the source code in src/lib/subagents.ts
+ * and redeploy.
+ */
+const NEVER_DISABLE_IDS = new Set(['testfast2', 'fasttest3'])
+
+/**
+ * For NEVER_DISABLE_IDS agents, the owner can only edit cosmetic fields.
+ * Critical fields (systemPrompt, allowedTools, enabled) are rejected.
+ */
+const LOCKED_FIELDS_FOR_NEVER_DISABLE = new Set([
+  'systemPrompt',
+  'allowedTools',
+  'enabled',
+])
+
 const VALID_TOOLS = new Set([
   'web_search',
   'page_reader',
@@ -162,6 +196,27 @@ export async function PUT(
 
     const isBuiltin = BUILTIN_IDS.has(id)
     if (isBuiltin) {
+      // ── UPGRADE #57 — PERMANENT LOCK ENFORCEMENT ───────────────────────
+      // testfast2 (QA Monitor) + fasttest3 (External Monitor) cannot have
+      // their systemPrompt / allowedTools / enabled modified, even by owner.
+      if (NEVER_DISABLE_IDS.has(id)) {
+        const attemptedLockedFields = Object.keys(body).filter((k) =>
+          LOCKED_FIELDS_FOR_NEVER_DISABLE.has(k)
+        )
+        if (attemptedLockedFields.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Agent "${id}" is PERMANENTLY LOCKED (Upgrade #57). The following fields cannot be modified: ${attemptedLockedFields.join(', ')}. This agent runs on Vercel Cron and alerts the owner on failure — disabling or rewriting it would blind the owner to outages. To modify, edit src/lib/subagents.ts and redeploy.`,
+              permanent: true,
+              upgradeId: 'repurpose_2_monitors_57',
+              lockedFields: Array.from(LOCKED_FIELDS_FOR_NEVER_DISABLE),
+            },
+            { status: 403 }
+          )
+        }
+        // Strip any locked fields from the update object just to be safe.
+        for (const f of LOCKED_FIELDS_FOR_NEVER_DISABLE) delete update[f]
+      }
       // Upsert an overlay row
       const existing = await db.customSubagent.findFirst({
         where: { userId, id, isBuiltinOverlay: true },
@@ -241,6 +296,21 @@ export async function DELETE(
     if (!userId) return NextResponse.json({ error: 'No operator user found' }, { status: 500 })
 
     if (BUILTIN_IDS.has(id)) {
+      // ── UPGRADE #57 — PERMANENT LOCK ENFORCEMENT ───────────────────────
+      // testfast2 (QA Monitor) + fasttest3 (External Monitor) cannot be
+      // deleted — even their overlay (which would reset to the locked
+      // builtin defaults) is protected. This prevents any path that could
+      // disable the scheduled monitors.
+      if (NEVER_DISABLE_IDS.has(id)) {
+        return NextResponse.json(
+          {
+            error: `Agent "${id}" is PERMANENTLY LOCKED (Upgrade #57) and cannot be deleted or reset. This agent runs on Vercel Cron and alerts the owner on failure. To modify, edit src/lib/subagents.ts and redeploy.`,
+            permanent: true,
+            upgradeId: 'repurpose_2_monitors_57',
+          },
+          { status: 403 }
+        )
+      }
       // Built-in — check if there's an overlay to delete (essentially "reset to default")
       const overlay = await db.customSubagent.findFirst({
         where: { userId, id, isBuiltinOverlay: true },

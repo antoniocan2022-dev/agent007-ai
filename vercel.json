@@ -5,10 +5,14 @@
   "buildCommand": "bunx prisma generate && next build",
   "functions": {
     "src/app/api/agent/route.ts": { "maxDuration": 300 },
+    "src/app/api/monitor/qa/route.ts": { "maxDuration": 60 },
+    "src/app/api/monitor/external/route.ts": { "maxDuration": 60 },
     "src/app/api/**/route.ts": { "maxDuration": 60 }
   },
   "regions": ["iad1"],
   "crons": [
-    { "path": "/api/schedules/tick", "schedule": "0 9 * * *" }
+    { "path": "/api/schedules/tick", "schedule": "0 9 * * *" },
+    { "path": "/api/monitor/qa", "schedule": "0 * * * *" },
+    { "path": "/api/monitor/external", "schedule": "0,30 * * * *" }
   ]
 }
