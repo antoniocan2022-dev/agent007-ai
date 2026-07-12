@@ -2375,3 +2375,88 @@ TOOL_REGISTRY.chatgpt_search = { fn: toolChatgptSearch, icon: 'message-circle', 
 TOOL_REGISTRY.you_com_search = { fn: toolYouComSearch, icon: 'shield', label: 'You.com Search (privacy, code mode, multi-model)' }
 // Brave AI Search — independent index, AI Answers
 TOOL_REGISTRY.brave_ai_search = { fn: toolBraveAiSearch, icon: 'shield', label: 'Brave AI Search (independent index, AI Answers, privacy)' }
+
+/* ================================================================== *
+ * REAL INTEGRATIONS — 4 tools (upgrade #54)
+ * ================================================================== */
+import {
+  toolStripePaymentProcessor,
+  toolWordPressPublisher,
+  toolBufferScheduler,
+  toolKrakenExchange,
+} from './real-integrations'
+TOOL_REGISTRY.stripe_payment_processor = { fn: toolStripePaymentProcessor, icon: 'credit-card', label: 'Stripe Payment Processor (REAL API)' }
+TOOL_REGISTRY.wordpress_publisher = { fn: toolWordPressPublisher, icon: 'edit-3', label: 'WordPress Publisher (REAL API)' }
+TOOL_REGISTRY.buffer_scheduler = { fn: toolBufferScheduler, icon: 'share-2', label: 'Buffer Scheduler (REAL API)' }
+TOOL_REGISTRY.kraken_exchange = { fn: toolKrakenExchange, icon: 'bitcoin', label: 'Kraken Exchange (REAL API)' }
+
+/* ================================================================== *
+ * REAL INTEGRATIONS V2 — 5 tools (upgrade #56)
+ * ================================================================== */
+import {
+  toolResendEmailAutomation,
+  toolAffiliateTracker,
+  toolDataForSEO,
+  toolPayPalAPI,
+  toolWebsiteAnalytics,
+} from './real-integrations-v2'
+TOOL_REGISTRY.resend_email_automation = { fn: toolResendEmailAutomation, icon: 'mail', label: 'Resend Email Automation (REAL API)' }
+TOOL_REGISTRY.affiliate_tracker = { fn: toolAffiliateTracker, icon: 'link', label: 'Affiliate Tracker (click/conversion + payouts)' }
+TOOL_REGISTRY.dataforseo = { fn: toolDataForSEO, icon: 'search', label: 'DataForSEO (REAL API — keywords, backlinks, SERP)' }
+TOOL_REGISTRY.paypal_api = { fn: toolPayPalAPI, icon: 'credit-card', label: 'PayPal REST API (REAL — balance, orders, payouts)' }
+TOOL_REGISTRY.website_analytics = { fn: toolWebsiteAnalytics, icon: 'bar-chart-2', label: 'Website Analytics (REAL Plausible API)' }
+
+/* ================================================================== *
+ * REAL API ENHANCEMENTS — 7 tools (upgrade #55)
+ * ================================================================== */
+import {
+  toolRealMarketIntelligence,
+  toolRealTrendAnalysis,
+  toolRealSystemHealth,
+  toolRealSocialEngagement,
+  toolRealCryptoAnalyzer,
+  toolRealStockScreener,
+  toolRealUptimeMonitor,
+} from './tool-real-enhancements'
+TOOL_REGISTRY.market_intelligence = { fn: toolRealMarketIntelligence, icon: 'globe', label: 'Market Intelligence (REAL: HN+Reddit+GitHub)' }
+TOOL_REGISTRY.real_time_monitor = { fn: toolRealSystemHealth, icon: 'activity', label: 'Real-Time Monitor (REAL: live Node.js metrics)' }
+TOOL_REGISTRY.external_uptime_monitor = { fn: toolRealUptimeMonitor, icon: 'check-circle', label: 'External Uptime Monitor (REAL: endpoint checks)' }
+TOOL_REGISTRY.crypto_analyzer = { fn: toolRealCryptoAnalyzer, icon: 'bitcoin', label: 'Crypto Analyzer (REAL: CoinGecko live prices)' }
+TOOL_REGISTRY.stock_screener = { fn: toolRealStockScreener, icon: 'trending-up', label: 'Stock Screener (REAL: Yahoo Finance live)' }
+TOOL_REGISTRY.community_engagement = { fn: toolRealSocialEngagement, icon: 'users', label: 'Community Engagement (REAL: Reddit live)' }
+TOOL_REGISTRY.market_trend_analysis = { fn: toolRealTrendAnalysis, icon: 'bar-chart', label: 'Market Trend Analysis (REAL: HN+Reddit)' }
+
+/* ================================================================== *
+ * TOP 10 REAL TOOLS — 5 new + 5 aliases (upgrade #57)
+ * ================================================================== */
+import {
+  toolUpworkSearchJobs,
+  toolGoogleTrendsFetch,
+  toolCalendarSchedule,
+  toolNotionCreatePage,
+  toolGithubCreateRepo,
+} from './top10-real-tools'
+TOOL_REGISTRY.upwork_search_jobs = { fn: toolUpworkSearchJobs, icon: 'briefcase', label: 'Upwork Search Jobs (REAL RSS)' }
+TOOL_REGISTRY.google_trends_fetch = { fn: toolGoogleTrendsFetch, icon: 'trending-up', label: 'Google Trends Fetch (REAL RSS)' }
+TOOL_REGISTRY.calendar_schedule = { fn: toolCalendarSchedule, icon: 'calendar', label: 'Calendar Schedule (REAL Google Calendar API)' }
+TOOL_REGISTRY.notion_create_page = { fn: toolNotionCreatePage, icon: 'file-text', label: 'Notion Create Page (REAL Notion API)' }
+TOOL_REGISTRY.github_create_repo = { fn: toolGithubCreateRepo, icon: 'github', label: 'GitHub Create Repo (REAL GitHub API)' }
+TOOL_REGISTRY.stripe_create_payment = { fn: toolStripePaymentProcessor, icon: 'credit-card', label: 'Stripe Create Payment (REAL API)' }
+TOOL_REGISTRY.send_email_resend = { fn: toolResendEmailAutomation, icon: 'mail', label: 'Send Email Resend (REAL API)' }
+TOOL_REGISTRY.crypto_price_live = { fn: toolRealCryptoAnalyzer, icon: 'bitcoin', label: 'Crypto Price Live (REAL CoinGecko)' }
+TOOL_REGISTRY.stock_quote_live = { fn: toolRealStockScreener, icon: 'dollar-sign', label: 'Stock Quote Live (REAL Yahoo Finance)' }
+TOOL_REGISTRY.pdf_read = { fn: toolFileRead, icon: 'file', label: 'PDF Read (REAL file parser)' }
+
+/* ================================================================== *
+ * ROADMAP IMPLEMENTATIONS — 4 tools (upgrade #58)
+ * ================================================================== */
+import {
+  toolBaileysPostgresStorage,
+  toolRedisCache,
+  toolMailchimpListManager,
+  toolSmartToolCatalog,
+} from './roadmap-implementations'
+TOOL_REGISTRY.baileys_postgres_storage = { fn: toolBaileysPostgresStorage, icon: 'message-circle', label: 'Baileys Postgres Storage (WhatsApp auth persists)' }
+TOOL_REGISTRY.redis_cache = { fn: toolRedisCache, icon: 'database', label: 'Redis Cache (Upstash distributed cache)' }
+TOOL_REGISTRY.mailchimp_list_manager = { fn: toolMailchimpListManager, icon: 'mail', label: 'Mailchimp List Manager (REAL API)' }
+TOOL_REGISTRY.smart_tool_catalog = { fn: toolSmartToolCatalog, icon: 'list', label: 'Smart Tool Catalog (REAL_API/FRAMEWORK tags)' }
