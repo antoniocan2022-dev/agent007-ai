@@ -26,15 +26,17 @@ import { v4 as uuidv4 } from 'uuid'
 // in prisma/schema.prisma, then redeploy. (See POSTGRES-SETUP.md.)
 ;(function ensureDefaultDatabaseUrl() {
   const current = process.env.DATABASE_URL
-  if (!current || (!current.startsWith('file:') && !current.startsWith('postgres'))) {
-    // Use a STABLE path on Vercel — /tmp/agent007.db (no deployment ID).
-    // This ensures the DB persists across warm invocations within the same
-    // serverless instance. Across cold starts it's still ephemeral, but at
-    // least within a warm instance the user data persists.
-    //
-    // PREVIOUSLY used VERCEL_DEPLOYMENT_ID in the path, which caused every
-    // cold start to get a fresh DB (deployment ID changes), making login
-    // impossible because the user never existed.
+  // ALWAYS use SQLite on Vercel — the Prisma schema is configured for SQLite
+  // (provider = "sqlite" in prisma/schema.prisma). If the owner set a
+  // DATABASE_URL pointing to Postgres, Prisma will reject it because the
+  // schema says SQLite. So we override ANY non-file: URL to the SQLite default.
+  //
+  // To use Postgres on Vercel, the owner must:
+  //   1. Change prisma/schema.prisma: provider = "postgres"
+  //   2. Set DATABASE_URL to the Postgres connection string
+  //   3. Redeploy
+  // Until then, we force SQLite.
+  if (!current || !current.startsWith('file:')) {
     const isVercel = !!(process.env.VERCEL || process.env.NOW)
     const defaultPath = isVercel
       ? 'file:/tmp/agent007.db'
