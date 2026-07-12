@@ -27,10 +27,17 @@ import { v4 as uuidv4 } from 'uuid'
 ;(function ensureDefaultDatabaseUrl() {
   const current = process.env.DATABASE_URL
   if (!current || (!current.startsWith('file:') && !current.startsWith('postgres'))) {
-    // Use /tmp on Vercel (writable but ephemeral), local path otherwise
+    // Use a STABLE path on Vercel — /tmp/agent007.db (no deployment ID).
+    // This ensures the DB persists across warm invocations within the same
+    // serverless instance. Across cold starts it's still ephemeral, but at
+    // least within a warm instance the user data persists.
+    //
+    // PREVIOUSLY used VERCEL_DEPLOYMENT_ID in the path, which caused every
+    // cold start to get a fresh DB (deployment ID changes), making login
+    // impossible because the user never existed.
     const isVercel = !!(process.env.VERCEL || process.env.NOW)
     const defaultPath = isVercel
-      ? `file:/tmp/agent007-${process.env.VERCEL_DEPLOYMENT_ID ?? 'dev'}.db`
+      ? 'file:/tmp/agent007.db'
       : 'file:/home/z/my-project/db/custom.db'
     process.env.DATABASE_URL = defaultPath
     console.log(`[db] DATABASE_URL was missing/invalid — defaulting to ${defaultPath}`)
@@ -248,7 +255,7 @@ async function seedData() {
     // mechanism (create a CustomSubagent row with isBuiltinOverlay=true
     // and the same id as the built-in).
   } catch (e: any) {
-    console.error('[db] Seed failed:', e?.message)
+    console.error('[db] Seed failed:', e?.message, e?.stack?.slice(0, 300))
   }
 }
 
