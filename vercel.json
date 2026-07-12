@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "bun install",
-  "buildCommand": "bunx prisma generate && bunx prisma db push --accept-data-loss && bun run build",
+  "buildCommand": "bunx prisma generate && (if [[ \"$DATABASE_URL\" == postgres://* || \"$DATABASE_URL\" == postgresql://* ]]; then bunx prisma db push --accept-data-loss || true; fi) && bun run build",
   "functions": {
     "src/app/api/agent/route.ts": { "maxDuration": 300 },
     "src/app/api/monitor/qa/route.ts": { "maxDuration": 60 },
