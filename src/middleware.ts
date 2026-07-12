@@ -3,15 +3,16 @@ import { withAuth } from 'next-auth/middleware'
 /**
  * Auth middleware protecting sensitive API routes.
  *
- * UPGRADE #58 (2026-07-12) — EXPANDED WHITELIST
+ * UPGRADE #59 (2026-07-12) — OWNER-ONLY BACKUP DOWNLOAD
  *
- * Previously: Vercel Cron monitors (/api/monitor/*), the subagents list, the
- * backup download, and the health endpoint were all blocked by auth → 307
- * redirect to /login. This caused:
- *   - Vercel Cron jobs to fail (no session cookie)
- *   - Owner "I can't download the JSON" complaint
- *   - External tooling to be unable to query subagent list
- *   - External Monitor to false-positive report /api/health as down
+ * Reverts the previous public access to /api/backup. The owner complained
+ * that "only the owner me can download it" — so backup downloads are now
+ * secured via a new /api/owner-backup endpoint that requires a token.
+ *
+ * NEW: /api/owner-backup?token=<OWNER_BACKUP_TOKEN>&format=json|zip
+ *   - Token-based auth (no login required, but token is required)
+ *   - Token = OWNER_BACKUP_TOKEN env var (or hardcoded fallback)
+ *   - Only the owner knows the token → only the owner can download
  *
  * EXCEPTIONS (accessible without login):
  *   - /api/auth/*                  — NextAuth routes
@@ -21,10 +22,10 @@ import { withAuth } from 'next-auth/middleware'
  *   - /api/health/*                — sub-health endpoints (e.g. /api/health/llm)
  *   - /api/init                    — initialization
  *   - /api/owner-auth/*            — owner auth flow
+ *   - /api/owner-backup            — NEW: owner-only backup download (token auth)
  *   - /api/system/manifest         — public upgrade manifest
  *   - /api/system/capabilities     — public capabilities listing
- *   - /api/system/capabilities-download — public ZIP download
- *   - /api/system/backup-download  — public on-demand backup (regenerates per request)
+ *   - /api/system/capabilities-download — public ZIP download (capabilities, NOT backup)
  *   - /api/system/audit            — public audit endpoint
  *   - /api/system/self-heal        — public self-heal trigger
  *   - /api/system/refresh          — public refresh
@@ -35,16 +36,16 @@ import { withAuth } from 'next-auth/middleware'
  *   - /api/system/diagnose-llm     — public diagnostics
  *   - /api/system/fix-hydration    — public ops
  *   - /api/system/test-communication — public ops
- *   - /api/system/zip-backup       — public ZIP backup listing
- *   - /api/system/load-backup      — public backup loader
+ *   - /api/system/zip-backup       — public ZIP backup LISTING (metadata only, no actual data)
  *   - /api/commands/inbound        — webhook from email/SMS
  *   - /api/schedules/tick          — Vercel Cron (daily 09:00 UTC)
  *   - /api/monitor/*               — Vercel Cron monitors (QA hourly + External every 30 min)
- *   - /api/subagents               — public subagent listing (read-only; mutations still need auth)
- *   - /api/backup                  — public backup endpoint (download JSON without login)
- *   - /backup/*                    — static backup files
+ *   - /api/subagents               — public subagent listing (read-only; needed by External Monitor)
  *
- * Routes that STILL require auth (correctly):
+ * Routes that REQUIRE auth (session OR token):
+ *   - /api/backup                  — REVERTED to session-required (owner-only via login)
+ *   - /api/system/backup-download  — REVERTED to session-required (use /api/owner-backup for token access)
+ *   - /api/system/load-backup      — REVERTED to session-required
  *   - /api/agent                   — dispatch the super agent (costs LLM tokens)
  *   - /api/conversations           — user's private conversations
  *   - /api/conversations/[id]      — single conversation
@@ -64,6 +65,6 @@ export default withAuth({
 
 export const config = {
   matcher: [
-    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|system/manifest|system/capabilities|system/capabilities-download|system/backup-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/test-communication|system/zip-backup|system/load-backup|commands/inbound|schedules/tick|monitor|subagents|backup).*)',
+    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/test-communication|system/zip-backup|commands/inbound|schedules/tick|monitor|subagents).*)',
   ],
 }
