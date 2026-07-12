@@ -128,3 +128,25 @@ export async function toolUsageAnalyzer(args: any, _ctx: ToolContext): Promise<T
     `TOOL USAGE ANALYZER\n${'='.repeat(60)}\n\nTotal tools: ${allTools.length}\nCategories: ${sorted.length}\n\nTOOL DISTRIBUTION BY CATEGORY:\n${sorted.map(([cat, n]) => `  ${cat}: ${n} tools (${Math.round(n/allTools.length*100)}%)`).join('\n')}\n\nMOST POWERFUL TOOLS (use these first):\n  1. smart_tool_router — picks the best tool for any task\n  2. parallel_executor — runs 5 tools simultaneously\n  3. web_search — 3-tier fallback (always works)\n  4. http_fetch — 4-tier auto-recovery (never fails)\n  5. comprehensive_self_check — full system health\n\nUNDERUTILIZED TOOLS (try these more):\n  • quantum_decision_matrix — 7-dimensional decisions\n  • quantum_income_accelerator — 90-day path to $20K\n  • accuracy_checker — verify claims before reporting\n  • efficiency_optimizer — improve performance\n  • workflow_orchestrator — automate multi-step workflows\n\nRECOMMENDATION: Use smart_tool_router at the start of each task to find the best tools. Use parallel_executor when multiple independent searches are needed.`
   )
 }
+
+/* 6. Tool Catalog — browse ALL tools by category (upgrade #48) */
+export async function toolToolCatalog(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  const category = (args?.category ?? 'all').toString().toLowerCase()
+  const allTools = Object.keys(TOOL_REGISTRY).sort()
+  const categories: Record<string, string[]> = {}
+  for (const name of allTools) {
+    const idx = name.indexOf('_')
+    const cat = idx > 0 ? name.slice(0, idx) : 'core'
+    if (!categories[cat]) categories[cat] = []
+    categories[cat].push(name)
+  }
+  if (category !== 'all') {
+    const tools = categories[category] || []
+    if (tools.length === 0) {
+      return okResult(`Category "${category}" not found. ${Object.keys(categories).length} categories available.`, `Available: ${Object.keys(categories).sort().join(', ')}`)
+    }
+    return okResult(`Category "${category}": ${tools.length} tools`, tools.map((t, i) => `${i+1}. ${t} — ${(TOOL_REGISTRY as any)[t]?.label || ''}`).join('\n'))
+  }
+  const sortedCats = Object.entries(categories).sort((a, b) => b[1].length - a[1].length)
+  return okResult(`ALL ${allTools.length} tools across ${sortedCats.length} categories`, sortedCats.map(([cat, tools]) => `${cat.toUpperCase()} (${tools.length}): ${tools.slice(0, 3).join(', ')}${tools.length > 3 ? ` +${tools.length - 3}` : ''}`).join('\n'))
+}

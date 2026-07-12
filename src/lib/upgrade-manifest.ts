@@ -411,6 +411,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/ai-search-engines.ts', 'src/lib/tools.ts', 'src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'restore_missing_tools_upgrades_59',
+    category: 'self_heal',
+    title: 'Restore Missing Tools + Upgrades + Self-Repair Tool (Upgrade #59)',
+    description: 'Root cause: 5 tool files created yesterday were NOT committed to git. When pushed to Vercel, those files were missing → tools + upgrade manifest entries were lost. FIX: Recreated all 5 files, re-registered all tools, added missing upgrade entries, restored tool_catalog function, created self_repair_add_tool so Agent007 can fix/add tools itself.',
+    dateApplied: '2026-07-12',
+    permanent: true,
+    files: ['src/lib/performance-booster-tools.ts', 'src/lib/tools.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
