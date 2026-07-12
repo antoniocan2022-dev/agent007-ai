@@ -3,7 +3,7 @@
     "app": "Agent007 AI",
     "version": "5.0",
     "date": "2026-07-12",
-    "timestamp": "2026-07-12T11:22:36.917Z",
+    "timestamp": "2026-07-12T11:39:37.095Z",
     "owner": "Antonio (antonio.can2022@hotmail.com, +15145496297)",
     "mission": {
       "monthlyIncomeTarget": 20000,
@@ -17,15 +17,15 @@
     }
   },
   "capabilities": {
-    "totalTools": 551,
+    "totalTools": 553,
     "totalAgents": 18,
     "manageActions": 101,
-    "neverRemovableTools": 551,
+    "neverRemovableTools": 553,
     "executionProtectedTools": 2,
-    "permanentUpgrades": 43
+    "permanentUpgrades": 44
   },
   "tools": {
-    "total": 551,
+    "total": 553,
     "allTools": [
       "2fa_crypto_upgrader",
       "ab_test_optimizer",
@@ -481,6 +481,7 @@
       "self_optimize_tool_selection",
       "self_reflect",
       "self_register_tool",
+      "self_repair_add_tool",
       "self_repair_code",
       "self_restart_services",
       "self_set_improvement_goal",
@@ -540,6 +541,7 @@
       "tax_optimizer",
       "test_endpoint",
       "tool_audit_scheduler",
+      "tool_catalog",
       "tool_lazy_loader",
       "tool_registry_audit",
       "tool_usage_analyzer",
@@ -611,7 +613,7 @@
       },
       {
         "category": "self",
-        "count": 19,
+        "count": 20,
         "tools": [
           "self_modify_system_prompt",
           "self_modify_subagent",
@@ -631,7 +633,8 @@
           "self_backup_create",
           "self_backup_list",
           "self_improving_strategy",
-          "self_optimization_engine"
+          "self_optimization_engine",
+          "self_repair_add_tool"
         ]
       },
       {
@@ -952,6 +955,18 @@
         ]
       },
       {
+        "category": "tool",
+        "count": 6,
+        "tools": [
+          "tool_registry_audit",
+          "tool_lazy_loader",
+          "tool_catalog",
+          "tool_usage_analyzer",
+          "tool_usage_tracker",
+          "tool_audit_scheduler"
+        ]
+      },
+      {
         "category": "autonomous",
         "count": 5,
         "tools": [
@@ -971,17 +986,6 @@
           "advanced_reporting",
           "advanced_data_analysis",
           "advanced_trend_analyzer"
-        ]
-      },
-      {
-        "category": "tool",
-        "count": 5,
-        "tools": [
-          "tool_registry_audit",
-          "tool_lazy_loader",
-          "tool_usage_analyzer",
-          "tool_usage_tracker",
-          "tool_audit_scheduler"
         ]
       },
       {
@@ -5533,8 +5537,14 @@
       },
       {
         "name": "smart_tool_router",
-        "label": "Smart Tool Router (picks best tool for any task)",
+        "label": "Smart Tool Router (scans ALL tools by keyword, picks best 10)",
         "icon": "compass",
+        "neverRemovable": true
+      },
+      {
+        "name": "tool_catalog",
+        "label": "Tool Catalog (browse ALL tools by category)",
+        "icon": "list",
         "neverRemovable": true
       },
       {
@@ -5817,6 +5827,12 @@
         "name": "smart_tool_catalog",
         "label": "Smart Tool Catalog (REAL_API/FRAMEWORK tags)",
         "icon": "list",
+        "neverRemovable": true
+      },
+      {
+        "name": "self_repair_add_tool",
+        "label": "Self-Repair Add Tool (register + verify + restore tools)",
+        "icon": "wrench",
         "neverRemovable": true
       }
     ]
@@ -6187,7 +6203,7 @@
     ]
   },
   "upgrades": {
-    "total": 43,
+    "total": 44,
     "allPermanent": true,
     "upgrades": [
       {
@@ -6762,11 +6778,24 @@
           "src/lib/agent.ts",
           "src/lib/upgrade-manifest.ts"
         ]
+      },
+      {
+        "id": "restore_missing_tools_upgrades_59",
+        "category": "self_heal",
+        "title": "Restore Missing Tools + Upgrades + Self-Repair Tool (Upgrade #59)",
+        "description": "Root cause: 5 tool files created yesterday were NOT committed to git. When pushed to Vercel, those files were missing → tools + upgrade manifest entries were lost. FIX: Recreated all 5 files, re-registered all tools, added missing upgrade entries, restored tool_catalog function, created self_repair_add_tool so Agent007 can fix/add tools itself.",
+        "dateApplied": "2026-07-12",
+        "permanent": true,
+        "files": [
+          "src/lib/performance-booster-tools.ts",
+          "src/lib/tools.ts",
+          "src/lib/upgrade-manifest.ts"
+        ]
       }
     ]
   },
   "protection": {
-    "neverRemovableCount": 551,
+    "neverRemovableCount": 553,
     "executionProtectedCount": 2,
     "executionProtectedTools": [
       "trigger_redeploy",
@@ -6854,9 +6883,9 @@
     ]
   },
   "summary": {
-    "totalTools": 551,
+    "totalTools": 553,
     "totalAgents": 18,
-    "totalUpgrades": 43,
+    "totalUpgrades": 44,
     "totalManageActions": 101,
     "allToolsLocked": true,
     "allAgentsLocked": true,
