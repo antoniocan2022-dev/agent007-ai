@@ -95,24 +95,25 @@ export interface BackupListResult {
  */
 export async function createBackup(label: string = 'full-system'): Promise<BackupResult> {
   try {
-    await ensureDbReady()
+    // UPGRADE #58 — Don't fail the whole backup if DB init fails.
+    // The owner needs to be able to download a backup even when the DB
+    // is in a degraded state. We'll skip DB tables that fail and include
+    // everything else (manifest, capabilities, source files, etc.).
+    try {
+      await ensureDbReady()
+    } catch (dbInitErr: any) {
+      console.warn('[backup] ensureDbReady failed (continuing with degraded backup):', dbInitErr?.message)
+    }
     const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
-    const userId = (await db.user.findFirst({ orderBy: { createdAt: 'asc' } }))?.id
-    if (!userId) {
-      return {
-        ok: false,
-        label: safeLabel,
-        jsonFilename: '',
-        jsonSizeMB: '0',
-        zipFilename: '',
-        zipSizeMB: '0',
-        downloadUrl: '',
-        absolutePath: '',
-        contents: { databaseTables: 0, totalRows: 0, sourceFiles: 0, upgrades: 0, capabilities: null },
-        message: 'No operator user found',
-        timestamp: new Date().toISOString(),
-        error: 'No operator user found',
-      }
+    // UPGRADE #58 — userId may be null on cold starts with ephemeral DB.
+    // Don't abort the backup — proceed with userId=null and skip user-
+    // specific data. We can still include manifest, capabilities, source
+    // files, and config metadata.
+    let userId: string | null = null
+    try {
+      userId = (await db.user.findFirst({ orderBy: { createdAt: 'asc' } }))?.id ?? null
+    } catch (userErr: any) {
+      console.warn('[backup] db.user.findFirst failed (continuing):', userErr?.message)
     }
 
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
@@ -253,7 +254,7 @@ export async function createBackup(label: string = 'full-system'): Promise<Backu
     try {
       await db.auditLog.create({
         data: {
-          userId,
+          userId: userId ?? 'system',
           action: 'zip_backup_created',
           entity: 'system',
           description: `Backup created: ${zipFilename} (${zipSizeMB}MB) — ${tableNames.length} tables, ${backup.database.totalRows} rows`,

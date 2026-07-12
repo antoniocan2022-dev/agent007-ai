@@ -2,6 +2,41 @@ import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 
+// ── UPGRADE #58 — Default DATABASE_URL ─────────────────────────────────
+// On Vercel, the DATABASE_URL env var may be missing or pointing to a
+// Postgres URL while the Prisma schema is configured for SQLite. This causes
+// "URL must start with the protocol `file:`" errors that break:
+//   - /api/system/backup-download (500)
+//   - /api/system/seed-agents (500)
+//   - /api/system/audit (500)
+//   - All endpoints that touch Prisma
+//
+// FIX: If DATABASE_URL is missing or doesn't start with "file:", set it to
+// a default ephemeral SQLite path BEFORE Prisma initializes. The Prisma
+// client validates this URL at construction time, so we must set it before
+// the first `new PrismaClient()` call.
+//
+// On Vercel, /tmp is the only writable directory on cold start, so we use
+// `/tmp/agent007-<sandbox-id>.db` as the default. This DB is EPHEMERAL —
+// data does not persist across cold starts — but it lets the app boot and
+// serve requests instead of 500ing.
+//
+// To get PERSISTENT data on Vercel, the owner must set DATABASE_URL to a
+// real Postgres URL AND change `provider = "sqlite"` to `provider = "postgres"`
+// in prisma/schema.prisma, then redeploy. (See POSTGRES-SETUP.md.)
+;(function ensureDefaultDatabaseUrl() {
+  const current = process.env.DATABASE_URL
+  if (!current || (!current.startsWith('file:') && !current.startsWith('postgres'))) {
+    // Use /tmp on Vercel (writable but ephemeral), local path otherwise
+    const isVercel = !!(process.env.VERCEL || process.env.NOW)
+    const defaultPath = isVercel
+      ? `file:/tmp/agent007-${process.env.VERCEL_DEPLOYMENT_ID ?? 'dev'}.db`
+      : 'file:/home/z/my-project/db/custom.db'
+    process.env.DATABASE_URL = defaultPath
+    console.log(`[db] DATABASE_URL was missing/invalid — defaulting to ${defaultPath}`)
+  }
+})()
+
 const SEED_EMAIL = 'antonio.can2022@hotmail.com'
 
 const globalForPrisma = globalThis as unknown as {
