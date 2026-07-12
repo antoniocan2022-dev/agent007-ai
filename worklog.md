@@ -3829,3 +3829,116 @@ All 5 user-locked metrics hold:
   3. Monthly Income Target: $20,000 ✅
   4. Growth Rate: 20% monthly, 20% daily ✅
   5. Permanent Upgrades: 43 ✅
+
+---
+Task ID: repurpose-2-monitors-upgrade-57
+Agent: main (Super Z)
+Task: Repurpose TESTFAST2 → QA Monitor (1h/6h/12h/24h internal health) + FASTTEST3 → External Monitor (every 30 min external uptime). Alert owner on failure. Lock permanently. Deploy to Vercel + verify. Full backup JSON + ZIP.
+
+Work Log:
+- AUDIT: Read existing src/lib/subagents.ts — confirmed both testfast2 (TESTFAST2) + fasttest3 (FASTTEST3) exist as BUILTIN agents with the old "rapid testing" specialty. Confirmed they were already protected by BUILTIN_IDS check in src/app/api/subagents/[id]/route.ts (DELETE returns 403).
+
+- REPURPOSED src/lib/subagents.ts:
+  • testfast2 → QA Monitor (Internal System Health)
+    - Name: "QA Monitor", role: "Internal QA & System Health Monitor (Scheduled)"
+    - Specialty: 4-tier scheduled checks every 1h/6h/12h/24h
+    - Color: #00f0ff (cyan), Icon: Activity
+    - Full new systemPrompt with TIER 1/2/3/4 protocols, alert-on-failure mandate
+    - Specialty tools: system_health_check, database_integrity_check, view_error_logs, verify_deployment, comprehensive_self_check, exhaustive_tool_test, exhaustive_subagent_test, exhaustive_system_test, accuracy_checker, parallel_executor, memory_store, memory_recall
+    - Differentiation rule: testfast2 = INTERNAL only (DB, tools, sub-agents, deployment, logs)
+
+  • fasttest3 → External Monitor (External Uptime)
+    - Name: "External Monitor", role: "External Uptime & Connectivity Monitor (Scheduled every 30 min)"
+    - Specialty: probe 10+ external endpoints every 30 min in parallel batches of 5
+    - Color: #a78bfa (purple), Icon: Globe
+    - Full new systemPrompt with monitored endpoints list, alert-on-failure mandate
+    - Monitored endpoints: production app + 3 API endpoints + Resend, CoinGecko, GitHub, HN, Reddit, WordPress APIs
+    - Specialty tools: external_uptime_monitor, exhaustive_connectivity_test, test_endpoint, http_fetch, inspect_url, parallel_executor, accuracy_checker, web_search, page_reader, memory_store, memory_recall
+    - Differentiation rule: fasttest3 = EXTERNAL only (public URLs, third-party APIs, SSL, DNS, latency)
+
+- CREATED src/lib/monitor-agents.ts (NEW FILE — monitor engine):
+  • runQaMonitor({tier}) — runs tier-appropriate tool battery via dispatchTool
+  • runExternalMonitor({endpoints}) — probes 10 endpoints in parallel batches of 5 with fetch() + AbortSignal.timeout(8000)
+  • pickQaTier(date) — UTC hour → tier mapping (09→4, 21→3, 03/15→2, else→1)
+  • alertOwner(report) — emails antonio.can2022@hotmail.com via Resend on failure with severity-tagged subject + per-failure detail
+  • persistReport(report) — upserts to Memory table (categories: qa_health_report | external_uptime_report)
+  • CheckResult + MonitorReport interfaces for structured reporting
+  • Severity escalation: database/system_health failures → CRITICAL; production app down → CRITICAL; 3+ failures → CRITICAL
+  • Latency thresholds: >3000ms = MEDIUM, >5000ms = HIGH
+
+- CREATED src/app/api/monitor/qa/route.ts (NEW FILE):
+  • GET handler — Vercel Cron entry point (cron: "0 * * * *" hourly)
+  • POST handler — manual trigger with optional tier override
+  • Auto-picks tier via pickQaTier(new Date())
+  • Returns: ok, monitor, tier, totalChecks, passed, failed, results[], alertSent
+
+- CREATED src/app/api/monitor/external/route.ts (NEW FILE):
+  • GET handler — Vercel Cron entry point (cron: "0,30 * * * *" every 30 min)
+  • POST handler — manual trigger with optional endpoints array override
+  • Returns: ok, monitor, endpointCount, totalChecks, passed, failed, results[], alertSent
+
+- PERMANENT LOCK ENFORCEMENT (src/app/api/subagents/[id]/route.ts):
+  • Added NEVER_DISABLE_IDS = new Set(['testfast2', 'fasttest3'])
+  • Added LOCKED_FIELDS_FOR_NEVER_DISABLE = new Set(['systemPrompt', 'allowedTools', 'enabled'])
+  • PUT handler: if NEVER_DISABLE_IDS.has(id) AND body contains locked fields → 403 with {permanent:true, upgradeId:'repurpose_2_monitors_57', lockedFields}
+  • DELETE handler: if NEVER_DISABLE_IDS.has(id) → 403 with {permanent:true, upgradeId:'repurpose_2_monitors_57'} (cannot delete OR reset overlay)
+  • Owner CAN still edit cosmetic fields (color, role, specialty) for customization
+
+- VERCEL CRON (vercel.json):
+  • Added {path:"/api/monitor/qa", schedule:"0 * * * *"} (hourly at minute 0 UTC)
+  • Added {path:"/api/monitor/external", schedule:"0,30 * * * *"} (every 30 min UTC)
+  • Added maxDuration:60 for both monitor routes (under functions config)
+  • Preserved existing /api/schedules/tick cron (daily at 09:00 UTC)
+
+- UPGRADE MANIFEST (src/lib/upgrade-manifest.ts):
+  • Added entry #57 (id: 'repurpose_2_monitors_57', category: 'self_heal', permanent: true)
+  • Full description covers: repurposing, schedule tiers, monitored endpoints, owner alerting, permanent locking, super agent integration, expected impact
+
+- SUPER AGENT INTEGRATION:
+  • Both monitors remain BUILTIN agents in SUBAGENTS array
+  • Both have FULL_ACCESS to all 567 tools (every tool in TOOL_REGISTRY)
+  • Super agent (Agent007) dispatches them via <dispatch_subagent id="testfast2"> or <dispatch_subagent id="fasttest3">
+  • Reports stored in Memory table are SHARED — super agent recalls via memory_recall({query:"qa_report"}) or memory_recall({query:"external_report"})
+  • Reports appear in dashboard right sidebar MEMORY BANK panel
+
+- BUILD + TYPECHECK VERIFICATION:
+  • bunx tsc --noEmit on new files → 0 errors in monitor-agents.ts, monitor/qa/route.ts, monitor/external/route.ts, subagents/[id]/route.ts, upgrade-manifest.ts ✅
+  • bun run build → ✓ Compiled successfully in 39.2s ✅
+  • Both /api/monitor/qa and /api/monitor/external routes appear in build output ✅
+
+- DEPLOY STATUS:
+  • Vercel CLI requires authentication. Previous session had VERCEL_TOKEN env var (used by yesterday's agent for upgrade #56 deploy). The token is NOT present in this session's env (verified: .env, .env.local, ~/.bashrc, ~/.profile, env vars — all empty for VERCEL_TOKEN).
+  • Attempted `vercel whoami` → "No existing credentials found"
+  • Attempted `vercel login` → requires interactive browser visit to https://vercel.com/oauth/device?user_code=XXXX-XXXX (cannot complete from CLI)
+  • All code changes committed to git (commit 8844cef) — ready to deploy once token is provided
+  • Live production still shows totalUpgrades:53 (latest = real_integrations_v3_56) — #57 NOT yet live
+
+- FULL BACKUP GENERATED:
+  • /home/z/my-project/download/agent007-upgrade57-backup.json (171.7 KB)
+  • /home/z/my-project/download/agent007-upgrade57-backup.zip (120.2 KB)
+  • JSON contains: summary, repurpose details (testfast2 + fasttest3), cronConfig, protection, superAgentIntegration, ownerAlerting, toolRegistry (567 names), subagents (18 with previews), upgradeManifest (54 entries), sourceFiles (monitor-agents.ts + qa/route.ts + external/route.ts), deployInstructions
+  • ZIP contains: JSON + 7 source files (monitor-agents.ts, qa/route.ts, external/route.ts, subagents.ts, subagents/[id]/route.ts, upgrade-manifest.ts, vercel.json) + README.md with deploy instructions
+
+Stage Summary:
+- Code: COMPLETE. All 7 files modified/created, typecheck clean, production build passes.
+- Locking: PERMANENT. NEVER_DISABLE_IDS enforces 403 on DELETE + PUT-with-locked-fields, even by owner.
+- Super agent: INTEGRATED. Both monitors are dispatchable + their reports are memory_recall-able.
+- Deploy: PENDING. Vercel CLI needs token (3 options documented in README). Code is committed (8844cef).
+- Backup: COMPLETE. JSON 171.7 KB + ZIP 120.2 KB in /home/z/my-project/download/.
+- All 5 user-locked metrics hold:
+  1. Available Agents: 18 (all BUILTIN, all FULL_ACCESS to 567 tools, all LOCKED) ✅
+  2. Management Actions: 43 ✅
+  3. Monthly Income Target: $20,000 ✅
+  4. Growth Rate: 20% monthly, 20% daily ✅
+  5. Permanent Upgrades: 54 (entry #57 added, permanent:true) ✅
+
+Deploy path for owner:
+  Option A: `vercel login` (browser) → `vercel --prod --yes` from /home/z/my-project
+  Option B: `export VERCEL_TOKEN=...` → `vercel --prod --yes --token $VERCEL_TOKEN`
+  Option C: Push commit 8844cef to a GitHub remote connected to Vercel project
+
+Verification commands (after deploy):
+  curl https://agent007-ai.vercel.app/api/system/manifest | jq .totalUpgrades  # should be 57
+  curl https://agent007-ai.vercel.app/api/subagents | jq .subagents[].name    # should include QA Monitor + External Monitor
+  curl https://agent007-ai.vercel.app/api/monitor/qa | jq .ok,.monitor,.tier  # true,"qa",1-4
+  curl https://agent007-ai.vercel.app/api/monitor/external | jq .ok,.monitor  # true,"external"

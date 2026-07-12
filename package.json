@@ -50,6 +50,7 @@
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-table": "^8.21.3",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "adm-zip": "^0.6.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "class-variance-authority": "^0.7.1",
