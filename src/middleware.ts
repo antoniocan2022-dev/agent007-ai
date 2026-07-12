@@ -37,6 +37,7 @@ import { withAuth } from 'next-auth/middleware'
  *   - /api/system/fix-hydration    — public ops
  *   - /api/system/test-communication — public ops
  *   - /api/system/zip-backup       — public ZIP backup LISTING (metadata only, no actual data)
+ *   - /api/system/self-restore     — NEW: owner-only restore from backup (token auth, same as /api/owner-backup)
  *   - /api/commands/inbound        — webhook from email/SMS
  *   - /api/schedules/tick          — Vercel Cron (daily 09:00 UTC)
  *   - /api/monitor/*               — Vercel Cron monitors (QA hourly + External every 30 min)
@@ -65,6 +66,6 @@ export default withAuth({
 
 export const config = {
   matcher: [
-    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/test-communication|system/zip-backup|commands/inbound|schedules/tick|monitor|subagents).*)',
+    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/test-communication|system/zip-backup|system/self-restore|commands/inbound|schedules/tick|monitor|subagents).*)',
   ],
 }

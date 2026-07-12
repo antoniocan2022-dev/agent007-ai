@@ -8,6 +8,14 @@ export const MAX_ITERATIONS = 15
 
 export const SYSTEM_PROMPT = `You are Agent007 AI, an autonomous super-agent. MISSION: Generate $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (antonio.can2022@hotmail.com, +15145496297).
 
+⚠️⚠️⚠️ RULE #0 — READ THIS FIRST (UPGRADE #62 — PERMANENT) ⚠️⚠️⚠️
+1. BEFORE ANSWERING: Re-read the owner's original question. If your answer doesn't directly address it, STOP and redirect. Never volunteer information the owner didn't request.
+2. BEFORE ASKING FOR A TOOL: You have 567+ tools. Call <manage action="list_tools"/> or smart_tool_router to find what you need. NEVER ask the owner for a tool you might already have. You ALREADY HAVE: memory_store, memory_recall, decision_matrix, autonomous_decision_maker, self_improving_strategy, performance_optimizer, feedback_optimization_loop, task_automation_expander, advanced_trend_analyzer, repetitive_task_automator, self_optimization_engine, quantum_revenue_optimizer, financial_tracker, smart_tool_router, parallel_executor, accuracy_checker, web_search, ddg_search, brave_search, page_reader, http_fetch, file_read, file_write, source_read, code_exec, image_gen, vision, + 540 more.
+3. STAY ON TOPIC: Don't drift. If you find yourself about to answer something the owner didn't ask, re-read the original question and redirect.
+4. BE CONCISE: Answer the question directly. No preamble, no filler, no "Great question!" — just the answer.
+5. USE YOUR TOOLS: For any factual/data question, USE A TOOL (web_search, real_time_data_hub, advanced_trend_analyzer, etc.). Don't guess — verify.
+⚠️⚠️⚠️ END RULE #0 — FOLLOW THESE OR YOU WILL BE AUTO-CORRECTED ⚠️⚠️⚠️
+
 ═══════════════════════════════════════════════════════════════
 TOOL INDEX — YOU HAVE 528+ TOOLS (ALL FULL ACCESS, ALL LOCKED)
 ═══════════════════════════════════════════════════════════════
@@ -844,10 +852,41 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
     // Feed back to model. We append the assistant's raw tool-call message + a tool result.
     conversationMessages.push({ role: 'assistant', content })
+    // ── UPGRADE #62 — Anti-Tool-Amnesia + Conversation Anchor ─────────
+    // After every tool result, inject TWO reminders so the LLM never forgets:
+    //   1. TOOL AWARENESS — compact list of critical tools the agent has
+    //   2. CONVERSATION ANCHOR — original user question + progress so far
+    // These prevent the 3 owner complaints:
+    //   - "doesn't know the tools he has" → fixed by tool awareness injection
+    //   - "gets lost, doesn't follow conversation" → fixed by conversation anchor
+    //   - "answers things I didn't ask" → fixed by "STAY ON TOPIC" in anchor
+    const userQuestionShort = userMessage.slice(0, 200) + (userMessage.length > 200 ? '...' : '')
+    const toolAwarenessReminder = `[SYSTEM REMINDER — YOU HAVE 567+ TOOLS (UPGRADE #62)]
+Before asking the owner for a tool, CHECK if you already have it.
+You HAVE: memory_store, memory_recall, decision_matrix, autonomous_decision_maker,
+self_improving_strategy, performance_optimizer, feedback_optimization_loop,
+task_automation_expander, advanced_trend_analyzer, repetitive_task_automator,
+self_optimization_engine, quantum_revenue_optimizer, financial_tracker,
+smart_tool_router, parallel_executor, accuracy_checker, web_search, ddg_search,
+brave_search, page_reader, http_fetch, file_read, file_write, source_read,
+code_exec, image_gen, vision, + 540 more.
+Call <manage action="list_tools"/> for the FULL list. NEVER ask the owner for a tool you might already have.`
+
+    const conversationAnchor = `[CONVERSATION ANCHOR — STAY ON TOPIC (UPGRADE #62)]
+Owner's original question: "${userQuestionShort}"
+Iterations so far: ${iter}/${MAX_ITERATIONS}. Tools called: ${steps.length}.
+DO NOT drift from the original question. If you're about to answer something the owner didn't ask, STOP and re-read the original question.
+Your NEXT response must either: (a) call a tool that advances toward answering the original question, OR (b) give a final answer that DIRECTLY addresses the original question.`
+
     conversationMessages.push({
       role: 'user',
       content: `[TOOL_RESULT] ${step.toolName}: ${toolResult.result}`,
     })
+    // Inject reminders every 2 iterations (to avoid token bloat, but frequent enough to prevent drift)
+    if (iter % 2 === 0) {
+      conversationMessages.push({ role: 'user', content: toolAwarenessReminder })
+      conversationMessages.push({ role: 'user', content: conversationAnchor })
+    }
 
     // Persist intermediate tool/thought rows so reloads show full trace
     try {
