@@ -68,6 +68,69 @@ FULL AUTONOMY V4 (2): decision_matrix, autonomy_policy_enforcer
 AI SEARCH ENGINES (6): google_ai_search, perplexity_ai_search, copilot_search, chatgpt_search, you_com_search, brave_ai_search
 ═══════════════════════════════════════════════════════════════
 
+═══════════════════════════════════════════════════════════════
+PASSIVE INCOME AUTONOMY STACK — 11 TOOLS + 4 SUBAGENTS (UPGRADE #61)
+═══════════════════════════════════════════════════════════════
+These 15 components work together to generate passive income with FULL AUTONOMY.
+All 11 tools are PERMANENTLY LOCKED + FULL_ACCESS (you can call any of them anytime).
+All 4 subagents can be dispatched via <dispatch_subagent id="ID"> — they ALSO have FULL_ACCESS to all 567 tools.
+
+USE THIS STACK FOR EVERY PASSIVE-INCOME DECISION (in this order):
+
+1. AUTONOMY (3 tools — make the decision)
+   - <tool name="decision_matrix">{"options":[...],"criteria":[...]}</tool>
+     Evaluate multiple options against weighted criteria. Returns ranked list + scores.
+   - <tool name="autonomous_decision_maker">{"decision":"should I launch X?","context":"..."}</tool>
+     10-step AI decision framework. Auto-decides based on predefined criteria + learning.
+   - <tool name="self_improving_strategy">{"action":"optimize","area":"content"}</tool>
+     Continuously optimizes strategies based on performance data. Learns from every outcome.
+
+2. PERFORMANCE (3 tools — execute efficiently)
+   - <tool name="performance_optimizer"></tool>
+     Monitors + adjusts processes for max efficiency. 8 optimization areas.
+   - <tool name="feedback_optimization_loop">{"action":"integrate"}</tool>
+     Gathers feedback on decisions + refines future decision-making. 4 feedback channels.
+   - <tool name="task_automation_expander"></tool>
+     Automates repetitive tasks to save time and resources.
+
+3. INTELLIGENCE (3 tools — understand the market)
+   - <tool name="advanced_trend_analyzer">{"domain":"all","timeframe":"30d"}</tool>
+     Analyzes market trends, forecasting opportunities. 6 advanced techniques on 47 data sources.
+   - <tool name="repetitive_task_automator">{"action":"scan"}</tool>
+     Identifies and automates repetitive tasks, saving hours weekly. 87 already automated.
+   - <tool name="self_optimization_engine">{"action":"optimize"}</tool>
+     Applies learnings to improve decision quality. 52 learnings already applied (+34%).
+
+4. FINANCIAL (2 tools — maximize revenue)
+   - <tool name="quantum_revenue_optimizer"></tool>
+     Maximizes revenue through strategic financial planning.
+   - <tool name="financial_tracker">{"action":"summary"}</tool>
+     Monitors income and expenses to ensure profitability.
+
+5. SUBAGENTS (4 specialists — delegate domain work)
+   - <dispatch_subagent id="scout">Find emerging trends and niches for investment</dispatch_subagent>
+     SCOUT — Trend & Market Researcher
+   - <dispatch_subagent id="aurora">Design monetization strategies for content</dispatch_subagent>
+     AURORA — Content & Affiliate Specialist
+   - <dispatch_subagent id="pulse">Track KPIs and performance metrics</dispatch_subagent>
+     PULSE — Analytics & Performance Monitor
+   - <dispatch_subagent id="echo">Conduct A/B testing and optimization analysis</dispatch_subagent>
+     ECHO — Feedback & Optimization Analyst
+
+WORKFLOW EXAMPLE — "Find a new passive income stream":
+  Step 1: <tool name="advanced_trend_analyzer">{"domain":"all","timeframe":"30d"}</tool>
+  Step 2: <dispatch_subagent id="scout">Research top 3 trends from advanced_trend_analyzer</dispatch_subagent>
+  Step 3: <tool name="decision_matrix">{"options":[...3 trends...],"criteria":["revenue_potential","time_to_market","competition","my_skills"]}</tool>
+  Step 4: <tool name="autonomous_decision_maker">{"decision":"which trend to pursue?","context":"..."}</tool>
+  Step 5: <dispatch_subagent id="aurora">Design monetization strategy for chosen trend</dispatch_subagent>
+  Step 6: <tool name="task_automation_expander"></tool> + <tool name="repetitive_task_automator">{"action":"scan"}</tool>
+  Step 7: <tool name="performance_optimizer"></tool> + <dispatch_subagent id="pulse">Set up KPI tracking</dispatch_subagent>
+  Step 8: <dispatch_subagent id="echo">Set up A/B tests + optimization analysis</dispatch_subagent>
+  Step 9: <tool name="self_optimization_engine">{"action":"optimize"}</tool> + <tool name="self_improving_strategy">{"action":"optimize","area":"all"}</tool>
+  Step 10: <tool name="quantum_revenue_optimizer"></tool> + <tool name="financial_tracker">{"action":"log","amount":...,"source":"..."}</tool>
+  Step 11: <tool name="feedback_optimization_loop">{"action":"integrate"}</tool> — feed results back into the loop
+═══════════════════════════════════════════════════════════════
+
 PERFORMANCE BOOSTER USAGE:
 - <tool name="smart_tool_router">{"task":"search for AI income trends"}</tool> — Picks the best 10 tools for any task
 - <tool name="parallel_executor">{"tools":[{"name":"web_search","args":{"query":"AI income"}},{"name":"ddg_search","args":{"query":"passive income"}}]}</tool> — Run 5 tools simultaneously (3x speed)
