@@ -150,9 +150,10 @@ export async function POST(req: NextRequest) {
     // The backup may have different structures depending on when it was made.
     // Try multiple known structures:
     // 1. { data: { memories: [...], customSubagents: [...], ... } } — /api/backup format
-    // 2. { database: { memories: [...], ... } } — createBackup() format
-    // 3. { memories: [...] } — direct format
-    const data = backup?.data ?? backup?.database ?? backup
+    // 2. { database: { memories: [...], ... } } — createBackup() direct format
+    // 3. { database: { data: { memories: [...], ... } } } — createBackup() nested format (current)
+    // 4. { memories: [...] } — direct format
+    const data = backup?.data ?? backup?.database?.data ?? backup?.database ?? backup
 
     // ── Memory ──────────────────────────────────────────────────────────
     if (Array.isArray(data?.memories)) {
