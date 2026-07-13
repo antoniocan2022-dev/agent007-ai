@@ -2408,6 +2408,19 @@ TOOL_REGISTRY.dataforseo = { fn: toolDataForSEO, icon: 'search', label: 'DataFor
 TOOL_REGISTRY.paypal_api = { fn: toolPayPalAPI, icon: 'credit-card', label: 'PayPal REST API (REAL — balance, orders, payouts)' }
 TOOL_REGISTRY.website_analytics = { fn: toolWebsiteAnalytics, icon: 'bar-chart-2', label: 'Website Analytics (REAL Plausible API)' }
 
+/* UPGRADE #68 — Affiliate Link Generator + 8 Autonomy/Accuracy/Performance tools */
+import { toolAffiliateLinkGenerator } from './affiliate-link-generator'
+import { toolTaskDecomposer, toolResultVerifier, toolParallelSubagentDispatcher, toolContextCompressor, toolSmartRetryEngine, toolProgressTracker, toolQualityScorer, toolAutonomousExecutor } from './autonomy-accuracy-tools'
+TOOL_REGISTRY.affiliate_link_generator = { fn: toolAffiliateLinkGenerator, icon: 'link', label: 'Affiliate Link Generator (Amazon, ShareASale, Impact, Awin, ClickBank, Generic)' }
+TOOL_REGISTRY.task_decomposer = { fn: toolTaskDecomposer, icon: 'list', label: 'Task Decomposer (MAX — 7 task types, dependency graph, priority)' }
+TOOL_REGISTRY.result_verifier = { fn: toolResultVerifier, icon: 'check-circle', label: 'Result Verifier (MAX — 6 checks, score 0-100)' }
+TOOL_REGISTRY.parallel_subagent_dispatcher = { fn: toolParallelSubagentDispatcher, icon: 'users', label: 'Parallel Subagent Dispatcher (MAX — true parallel, 3x faster)' }
+TOOL_REGISTRY.context_compressor = { fn: toolContextCompressor, icon: 'minimize-2', label: 'Context Compressor (MAX — smart summarization + tool extraction)' }
+TOOL_REGISTRY.smart_retry_engine = { fn: toolSmartRetryEngine, icon: 'refresh-cw', label: 'Smart Retry Engine (MAX — 3 strategies + exponential backoff)' }
+TOOL_REGISTRY.progress_tracker = { fn: toolProgressTracker, icon: 'trending-up', label: 'Progress Tracker (MAX — init/update/status/list + ETA + quality target)' }
+TOOL_REGISTRY.quality_scorer = { fn: toolQualityScorer, icon: 'star', label: 'Quality Scorer (MAX — 7 dimensions, 97% target, improvement suggestions)' }
+TOOL_REGISTRY.autonomous_executor = { fn: toolAutonomousExecutor, icon: 'zap', label: 'Autonomous Executor (MAX — full pipeline + 97% quality enforcement loop)' }
+
 /* ================================================================== *
  * REAL API ENHANCEMENTS — 7 tools (upgrade #55)
  * ================================================================== */

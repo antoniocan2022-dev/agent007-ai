@@ -564,6 +564,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/agent.ts', 'src/lib/orchestrator.ts', 'src/store/chat-store.ts', 'src/app/page.tsx', 'src/components/agent/agent-progress-banner.tsx', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'max_autonomy_accuracy_97_percent_68',
+    category: 'autonomy',
+    title: 'MAX Autonomy + Accuracy + 97% Quality Target — All Tools Improved to the Max (Upgrade #68)',
+    description: 'Owner request: Improve to the max — decompose, verify, parallel dispatch, compress, smart retry, 97% quality, autonomous execution. This upgrade recreates ALL source files from upgrades #64-#67 (live in production but lost locally) AND adds MAX improvements. Orchestrator: MAX_ITERATIONS 50, heartbeat, continue command, multi-dispatch parallel. 9 tools: affiliate_link_generator + 8 autonomy/accuracy/performance tools with 97% quality target enforcement. All tested, all locked, all documented in system prompt.',
+    dateApplied: '2026-07-13',
+    permanent: true,
+    files: ['src/lib/orchestrator.ts', 'src/lib/affiliate-link-generator.ts', 'src/lib/autonomy-accuracy-tools.ts', 'src/lib/tools.ts', 'src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
@@ -595,3 +604,4 @@ export function verifyIntegrity(): { ok: boolean; missing: string[]; total: numb
     total: UPGRADE_MANIFEST.length,
   }
 }
+

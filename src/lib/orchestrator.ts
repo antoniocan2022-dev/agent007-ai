@@ -42,7 +42,7 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 // (used to detect built-in ids and reject delete on them).
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 
-export const MAX_ITERATIONS = 25  // was 15 — increased in upgrade #41 so complex tasks (exhaustive tests, multi-step builds) can complete without hitting the limit
+export const MAX_ITERATIONS = 50  // UPGRADE #68 — was 25, raised to 50 for max autonomy
 const MAX_DISPATCHES = 15
 const MAX_MANAGE_ACTIONS = 10
 
@@ -718,11 +718,27 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   const history = await buildHistoryMessages(conversationId, userMessage, attachments)
   const ctx: ToolContext = { attachments, language }
 
+  // UPGRADE #68 — Continue command support
+  const continuePatterns = /^(continue|keep going|go ahead|go on|ok|okay|yes|proceed|finish|done\?|are you done\?|status|update|what's the status|keep working|don't stop|resume)\s*\.?\s*$/i
+  const isContinueCommand = continuePatterns.test(userMessage.trim())
+
   const steps: OrchestratorRunResult['steps'] = []
-  let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-    { role: 'system', content: systemPrompt },
-    ...history,
-  ]
+  let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  if (isContinueCommand) {
+    const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant')
+    conversationMessages = lastAssistant
+      ? [
+          { role: 'system', content: systemPrompt },
+          ...history,
+          { role: 'user', content: `[CONTINUE COMMAND] Owner typed "${userMessage}". CONTINUE your previous work. Don't start over — pick up where you left off. Your last response was:\n\n${lastAssistant.content.slice(0, 500)}\n\nNow EXECUTE the next step. Use <tool name="...">, <dispatch agent="..." task="..."/> or <dispatch_subagent id="...">task</dispatch_subagent> tags. Do not repeat yourself — advance the task.` },
+        ]
+      : [{ role: 'system', content: systemPrompt }, ...history]
+  } else {
+    conversationMessages = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+    ]
+  }
 
   let finalAnswer = ''
   let iter = 0
@@ -737,6 +753,24 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
   while (iter < MAX_ITERATIONS) {
     iter++
+
+    // UPGRADE #68 — Heartbeat emission (so dashboard shows progress)
+    const lastStep = steps.length > 0 ? steps[steps.length - 1] : null
+    try {
+      await emit('heartbeat', {
+        iteration: iter,
+        maxIterations: MAX_ITERATIONS,
+        toolsCalled: steps.length,
+        dispatchesCalled: dispatchCount,
+        manageActionsCalled: manageCount,
+        lastToolName: (lastStep as any)?.toolName ?? null,
+        lastThought: (lastStep as any)?.thought ? String((lastStep as any).thought).slice(0, 200) : null,
+        startedAt: steps.length > 0 ? (steps[0] as any).startedAt : Date.now(),
+        elapsedMs: steps.length > 0 ? Date.now() - (steps[0] as any).startedAt : 0,
+        message: `Working — step ${iter}/${MAX_ITERATIONS}, ${steps.length} tool${steps.length === 1 ? '' : 's'} called, agent is alive`,
+      })
+    } catch {}
+
     let completion: any
     try {
       completion = await callLlmWithRetry(conversationMessages)
@@ -861,6 +895,58 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
     // 1) Dispatch path
     if (parsed.dispatch) {
+      // UPGRADE #68 — Multi-dispatch: detect ALL dispatch tags + execute in parallel
+      const allDispatchRe = /<dispatch(?:_subagent)?\s+(?:id|agent)=["']([^"']+)["']\s*(?:task=["']([\s\S]*?)["']\s*)?\/?>/gi
+      const allSubagentRe = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/gi
+      const allDispatches: Array<{ agentId: string; task: string }> = []
+      let dm: RegExpExecArray | null
+      while ((dm = allDispatchRe.exec(content)) !== null) {
+        allDispatches.push({ agentId: dm[1].trim().toLowerCase(), task: (dm[2] ?? '').trim() || 'execute task' })
+      }
+      while ((dm = allSubagentRe.exec(content)) !== null) {
+        allDispatches.push({ agentId: dm[1].trim().toLowerCase(), task: dm[2].trim() })
+      }
+
+      if (allDispatches.length > 1) {
+        // Multi-dispatch: execute ALL in parallel via Promise.allSettled
+        try { await emit('thought', { content: `[MULTI-DISPATCH] Detected ${allDispatches.length} dispatches. Executing in PARALLEL for max speed.` }) } catch {}
+        const list = await getMerged()
+        const { runSubagent } = await import('./subagents')
+        const startTime = Date.now()
+        const results = await Promise.allSettled(
+          allDispatches.map(async (d) => {
+            const sub = list.find((s) => s.id === d.agentId || s.name.toLowerCase() === d.agentId.toLowerCase())
+            if (!sub || sub.enabled === false) return { id: d.agentId, name: d.agentId, error: 'not found or disabled' }
+            dispatchCount++
+            const dispatchId = `par_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+            try { await emit('subagent_dispatch', { dispatchId, agentId: sub.id, agentName: sub.name, color: sub.color, icon: sub.icon, task: d.task, stepNumber: iter }) } catch {}
+            const result = await runSubagent({
+              subagentId: sub.id, task: d.task, dispatchId,
+              attachments, language, emit,
+              parentConversationId: conversationId,
+            })
+            return { id: sub.id, name: sub.name, answer: result.answer }
+          })
+        )
+        const elapsedMs = Date.now() - startTime
+        const succeeded = results.filter((r) => r.status === 'fulfilled').length
+        // Feed ALL results back
+        for (let i = 0; i < results.length; i++) {
+          const r = results[i]
+          const d = allDispatches[i]
+          if (r.status === 'fulfilled' && r.value) {
+            try { await emit('subagent_complete', { dispatchId: `par_${i}`, answer: (r.value.answer ?? '').slice(0, 2000) }) } catch {}
+            conversationMessages.push({ role: 'assistant', content: `<dispatch_subagent id="${d.agentId}">${d.task}</dispatch_subagent>` })
+            conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${r.value.name}: ${(r.value.answer ?? '').slice(0, 4000)}` })
+          } else {
+            conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${d.agentId}: ERROR — ${r.status === 'rejected' ? r.reason?.message : 'unknown'}` })
+          }
+        }
+        try { await emit('heartbeat', { iteration: iter, maxIterations: MAX_ITERATIONS, toolsCalled: steps.length, dispatchesCalled: dispatchCount, lastToolName: 'multi_dispatch', lastThought: `${succeeded}/${results.length} subagents completed in ${elapsedMs}ms (parallel)`, startedAt: Date.now(), elapsedMs, message: `Multi-dispatch: ${succeeded}/${results.length} in ${elapsedMs}ms` }) } catch {}
+        continue
+      }
+
+      // Single dispatch (existing logic)
       const { agentId, task } = parsed.dispatch
       const list = await getMerged()
       // Match by id (case-sensitive) OR by name (case-insensitive) — this lets
