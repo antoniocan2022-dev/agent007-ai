@@ -56,6 +56,11 @@ export { MANAGE_ACTIONS, MANAGE_ACTION_COUNT, isManageAction } from './manage-ac
  * sometimes emits one or the other. Uses non-greedy [\s\S]*? for the task value. */
 const DISPATCH_RE = /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/?>/i
 
+// UPGRADE #63 — Also detect <dispatch_subagent id="...">task</dispatch_subagent> format
+// The LLM often writes this format instead of <dispatch agent="..." task="..."/>
+// Without this, dispatches are treated as text and the agent gets stuck in a loop.
+const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/i
+
 /* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
  * Captures the full tag string; attribute parsing happens in parseManageTag. */
 const MANAGE_RE = /<manage\s+[^>]*?\/>/gi
@@ -74,10 +79,12 @@ function parseOrchestrator(content: string): OrchestratorParsed {
   const thought = thoughtMatch?.[1]?.trim()
 
   const dispatchMatch = content.match(DISPATCH_RE)
+  // UPGRADE #63 — Also check <dispatch_subagent id="...">task</dispatch_subagent> format
+  const dispatchSubagentMatch = content.match(DISPATCH_SUBAGENT_RE)
   const toolMatch = content.match(TOOL_RE)
   const manageMatch = content.match(MANAGE_RE)
 
-  // Priority: dispatch > manage > tool (manage and dispatch are both "agent actions")
+  // Priority: dispatch > dispatch_subagent > manage > tool
   if (dispatchMatch) {
     const agentId = dispatchMatch[1].trim().toLowerCase()
     const task = dispatchMatch[2].trim()
@@ -85,6 +92,17 @@ function parseOrchestrator(content: string): OrchestratorParsed {
       thought,
       dispatch: { agentId, task },
       textAfter: content.slice(content.indexOf(dispatchMatch[0]) + dispatchMatch[0].length).replace(THOUGHT_RE, '').trim(),
+      raw: content,
+    }
+  }
+  // UPGRADE #63 — Handle <dispatch_subagent id="...">task</dispatch_subagent>
+  if (dispatchSubagentMatch) {
+    const agentId = dispatchSubagentMatch[1].trim().toLowerCase()
+    const task = dispatchSubagentMatch[2].trim()
+    return {
+      thought,
+      dispatch: { agentId, task },
+      textAfter: content.slice(content.indexOf(dispatchSubagentMatch[0]) + dispatchSubagentMatch[0].length).replace(THOUGHT_RE, '').trim(),
       raw: content,
     }
   }

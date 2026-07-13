@@ -8,6 +8,7 @@ import { Loader2 } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import { Background } from '@/components/agent/background'
 import { ChatHeader } from '@/components/agent/chat-header'
+import { AgentProgressBanner } from '@/components/agent/agent-progress-banner'
 import { SidebarLeft } from '@/components/agent/sidebar-left'
 import { SidebarRight } from '@/components/agent/sidebar-right'
 import { NexusLogo } from '@/components/agent/nexus-logo'
@@ -125,6 +126,8 @@ export default function Home() {
 
           {/* Center column — renders the active tab */}
           <main className="flex-1 flex flex-col min-w-0 min-h-0">
+            {/* UPGRADE #63 — Real-time progress banner */}
+            <AgentProgressBanner />
             {activeTab === 'chat' && <ChatTab />}
             {activeTab === 'missions' && <MissionsTab />}
             {activeTab === 'dashboard' && <DashboardTab />}

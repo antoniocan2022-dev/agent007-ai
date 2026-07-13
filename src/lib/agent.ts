@@ -388,7 +388,7 @@ G. ANSWER COMPLETENESS:
 LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info. Never engage in illegal activities. Report to owner via WhatsApp/email.`
 
 export interface AgentEventEmit {
-  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error', data: any): Promise<void> | void
+  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error' | 'heartbeat' | 'progress', data: any): Promise<void> | void
 }
 
 export interface AgentRunOptions {
@@ -603,6 +603,16 @@ export const THOUGHT_RE = /<thought>([\s\S]*?)<\/thought>/i
 // The LLM sometimes generates self-closing tags for tools with no args.
 export const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*(?:\/>|>([\s\S]*?)<\/tool>)/i
 
+// UPGRADE #63 — Detect <dispatch_subagent> tags that the LLM emits as TEXT
+// (instead of using the proper <tool name="dispatch_subagent"> format).
+// Without this, the agent gets stuck in a loop: it writes <dispatch_subagent>
+// as text, the parser doesn't recognize it, treats it as a final answer,
+// and the agent never actually dispatches the subagent.
+//
+// Format: <dispatch_subagent id="scout">task description</dispatch_subagent>
+// We convert this to: tool = { name: 'dispatch_subagent', args: { id, task } }
+export const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/i
+
 export interface Parsed {
   thought?: string
   tool?: { name: string; args: any }
@@ -615,25 +625,29 @@ export function parseAssistant(content: string): Parsed {
   const thoughtMatch = content.match(THOUGHT_RE)
   const thought = thoughtMatch?.[1]?.trim()
   const toolMatch = content.match(TOOL_RE)
+
+  // ── UPGRADE #63 — Also check for <dispatch_subagent> tags ──────────
+  // The LLM often writes <dispatch_subagent id="scout">task</dispatch_subagent>
+  // as text instead of using <tool name="dispatch_subagent">. We detect both
+  // formats and convert dispatch_subagent tags to proper tool calls.
+  const dispatchMatch = content.match(DISPATCH_SUBAGENT_RE)
+
+  // Prefer the proper <tool> format if present; otherwise fall back to <dispatch_subagent>
   let tool: Parsed['tool']
   let textBeforeTool = content
   let textAfterTool = ''
+
   if (toolMatch) {
     const name = (toolMatch[1] ?? '').trim()
     if (!name) {
-      // No tool name captured — shouldn't happen but guard against it
       return { thought, tool: undefined, textBeforeTool: content.replace(THOUGHT_RE, '').trim(), textAfterTool: '', raw: content }
     }
     let args: any = {}
-    // Regex: /<tool\s+name=["']([^"']+)["']\s*(?:\/>|>([\s\S]*?)<\/tool>)/i
-    // Group 1 = tool name
-    // Group 2 = content between tags (for closed tags) OR undefined (for self-closing)
     const raw = (toolMatch[2] ?? '').trim()
     if (raw) {
       try {
         args = JSON.parse(raw)
       } catch {
-        // try to salvage key="value" pairs
         const m: Record<string, string> = {}
         const re = /"([^"]+)"\s*:\s*"([^"]*)"/g
         let mm: RegExpExecArray | null
@@ -645,6 +659,16 @@ export function parseAssistant(content: string): Parsed {
     const idx = content.indexOf(toolMatch[0])
     textBeforeTool = content.slice(0, idx).replace(THOUGHT_RE, '').trim()
     textAfterTool = content.slice(idx + toolMatch[0].length).trim()
+  } else if (dispatchMatch) {
+    // ── UPGRADE #63 — Convert <dispatch_subagent> text to a real tool call ──
+    const subagentId = (dispatchMatch[1] ?? '').trim()
+    const task = (dispatchMatch[2] ?? '').trim()
+    if (subagentId) {
+      tool = { name: 'dispatch_subagent', args: { id: subagentId, task } }
+      const idx = content.indexOf(dispatchMatch[0])
+      textBeforeTool = content.slice(0, idx).replace(THOUGHT_RE, '').trim()
+      textAfterTool = content.slice(idx + dispatchMatch[0].length).trim()
+    }
   }
   return {
     thought,
@@ -768,11 +792,40 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   const history = await buildHistoryMessages(conversationId, userMessage, attachments)
   const ctx: ToolContext = { attachments, language }
 
+  // ── UPGRADE #63 — "Continue" command support ─────────────────────────
+  // When the user types "continue", "keep going", "ok", "go ahead", "finish",
+  // "yes", "proceed", or similar short prompts, the agent should RESUME the
+  // previous task instead of starting a new one. We detect these prompts and
+  // inject a context reminder telling the agent to continue where it left off.
+  const continuePatterns = /^(continue|keep going|go ahead|go on|ok|okay|yes|proceed|finish|done\?|are you done\?|status|update|what's the status|keep working|don't stop|resume)\s*\.?\s*$/i
+  const isContinueCommand = continuePatterns.test(userMessage.trim())
+  let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  if (isContinueCommand) {
+    // Find the last assistant message to get context
+    const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant')
+    if (lastAssistant) {
+      conversationMessages = [
+        { role: 'system', content: systemPrompt },
+        ...history,
+        {
+          role: 'user',
+          content: `[UPGRADE #63 — CONTINUE COMMAND] The owner typed "${userMessage}". This means: CONTINUE your previous work. Don't start over — pick up where you left off. Your last response was:\n\n${lastAssistant.content.slice(0, 500)}\n\nNow EXECUTE the next step toward completing the task. Use actual <tool name="..."> tags (not text). If you were dispatching subagents, use <dispatch agent="..." task="..."/> format. Do not repeat yourself — advance the task.`,
+        },
+      ]
+    } else {
+      conversationMessages = [
+        { role: 'system', content: systemPrompt },
+        ...history,
+      ]
+    }
+  } else {
+    conversationMessages = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+    ]
+  }
+
   const steps: AgentRunResult['steps'] = []
-  let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-    { role: 'system', content: systemPrompt },
-    ...history,
-  ]
 
   let finalAnswer = ''
   let iter = 0
@@ -816,6 +869,68 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     // Emit thought if present
     if (parsed.thought) {
       await emit('thought', { content: parsed.thought })
+    }
+
+    // ── UPGRADE #63 — Multi-dispatch detection ────────────────────────
+    // The LLM often writes MULTIPLE <dispatch_subagent> tags in one response
+    // (e.g. dispatching scout + forge + prism simultaneously). The single-match
+    // parseAssistant only catches the first one. We detect ALL dispatch tags
+    // here and execute them sequentially, so the agent doesn't get stuck
+    // re-writing the same 3 dispatch tags forever.
+    if (!parsed.tool) {
+      // Check if there are ANY dispatch_subagent tags in the content
+      const allDispatches = content.match(/<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/gi)
+      if (allDispatches && allDispatches.length > 0) {
+        // Extract each dispatch and execute them sequentially
+        const dispatchRe = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/gi
+        let dm: RegExpExecArray | null
+        const dispatches: Array<{ id: string; task: string }> = []
+        while ((dm = dispatchRe.exec(content)) !== null) {
+          dispatches.push({ id: dm[1].trim(), task: dm[2].trim() })
+        }
+        if (dispatches.length > 0) {
+          // Emit a thought explaining what we're doing
+          await emit('thought', {
+            content: `[UPGRADE #63 — Multi-dispatch] Detected ${dispatches.length} subagent dispatches. Executing them sequentially: ${dispatches.map(d => d.id).join(' → ')}`,
+          })
+          // Execute each dispatch as a separate tool call
+          for (const d of dispatches) {
+            const step: any = {
+              id: `step_${iter}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              thought: `Dispatching ${d.id}: ${d.task.slice(0, 100)}`,
+              toolName: 'dispatch_subagent',
+              toolArgs: { id: d.id, task: d.task },
+              startedAt: Date.now(),
+            }
+            steps.push(step)
+            await emit('tool_call', {
+              stepId: step.id,
+              name: step.toolName,
+              args: step.toolArgs,
+              thought: step.thought,
+              stepNumber: iter,
+            })
+            const toolResult = await dispatchTool(step.toolName!, step.toolArgs, ctx)
+            step.toolResult = toolResult
+            step.finishedAt = Date.now()
+            await emit('tool_result', {
+              stepId: step.id,
+              result: toolResult.result,
+              preview: toolResult.preview,
+              ok: toolResult.ok,
+              artifacts: toolResult.artifacts,
+            })
+            // Feed result back to model
+            conversationMessages.push({ role: 'assistant', content: `<dispatch_subagent id="${d.id}">${d.task}</dispatch_subagent>` })
+            conversationMessages.push({
+              role: 'user',
+              content: `[TOOL_RESULT] dispatch_subagent (${d.id}): ${toolResult.result}`,
+            })
+          }
+          // Continue the loop — don't break, let the LLM process the results
+          continue
+        }
+      }
     }
 
     // If no tool, this is the final answer

@@ -95,6 +95,18 @@ interface ChatState {
   // agent runtime
   status: AgentStatus
   currentTool: string | null
+  // UPGRADE #63 — heartbeat: real-time progress indicator
+  // Updated every iteration so the dashboard shows "Working — step 3/50, 2 tools called"
+  heartbeat: {
+    iteration: number
+    maxIterations: number
+    toolsCalled: number
+    lastToolName: string | null
+    lastThought: string | null
+    startedAt: number
+    elapsedMs: number
+    message: string
+  } | null
   sendMessage: (text: string) => Promise<void>
   stopStreaming: () => void
   abortFlag: { current: boolean }
@@ -180,6 +192,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   attachments: [],
   status: 'idle',
   currentTool: null,
+  heartbeat: null, // UPGRADE #63 — real-time progress indicator
   memories: [],
   activeSubagents: [],
   subagentActivity: {},
@@ -625,6 +638,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           messages: newMessages,
           status: 'idle',
           currentTool: null,
+          heartbeat: null, // UPGRADE #63 — clear heartbeat on done
           activeSubagents: [],
         }
       })
@@ -1122,6 +1136,9 @@ function applyEvent(
     // version so any mounted Sub-Agents panel re-fetches the list. Also
     // refresh memories + conversations (cheap) so the rest of the UI is fresh.
     set((s) => ({ subagentsVersion: s.subagentsVersion + 1 }))
+  } else if (event === 'heartbeat') {
+    // UPGRADE #63 — Update heartbeat state so the dashboard shows real-time progress
+    set((s) => ({ heartbeat: data }))
   } else if (event === 'error') {
     const msg: string = (data?.message ?? '').toString()
     const isRateLimit = /rate-?limiting|429|too many requests/i.test(msg)
@@ -1140,6 +1157,7 @@ function applyEvent(
       ),
       status: 'idle',
       currentTool: null,
+      heartbeat: null, // UPGRADE #63 — clear heartbeat on error
       activeSubagents: [],
       rateLimitedUntil: isRateLimit ? Date.now() + 60_000 : s.rateLimitedUntil,
     }))
