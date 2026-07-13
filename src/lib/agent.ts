@@ -4,7 +4,7 @@ import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } 
 import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import { callFallbackLlm } from '@/lib/llm-fallback'
 
-export const MAX_ITERATIONS = 15
+export const MAX_ITERATIONS = 50 // UPGRADE #63 — was 15, raised to 50 so agent doesn't stop mid-task
 
 export const SYSTEM_PROMPT = `You are Agent007 AI, an autonomous super-agent. MISSION: Generate $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (antonio.can2022@hotmail.com, +15145496297).
 
@@ -779,6 +779,23 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
   while (iter < MAX_ITERATIONS) {
     iter++
+
+    // ── UPGRADE #63 — Heartbeat + Progress events ─────────────────────
+    // Emit a heartbeat every iteration so the dashboard knows the agent is alive.
+    // This fixes the owner complaint: "In long conversation he stops, I dont know
+    // he is working or not, sometimes I write words like 'OK' or 'Finish' to know
+    // if is working or not."
+    await emit('heartbeat', {
+      iteration: iter,
+      maxIterations: MAX_ITERATIONS,
+      toolsCalled: steps.length,
+      lastToolName: steps.length > 0 ? steps[steps.length - 1].toolName : null,
+      lastThought: steps.length > 0 ? (steps[steps.length - 1].thought ?? '').slice(0, 200) : null,
+      startedAt: steps.length > 0 ? steps[0].startedAt : Date.now(),
+      elapsedMs: steps.length > 0 ? Date.now() - steps[0].startedAt : 0,
+      message: `Working — step ${iter}/${MAX_ITERATIONS}, ${steps.length} tool${steps.length === 1 ? '' : 's'} called`,
+    })
+
     let completion: any
     try {
       completion = await callLlmWithRetry(conversationMessages)
@@ -915,8 +932,12 @@ Your NEXT response must either: (a) call a tool that advances toward answering t
   }
 
   if (!finalAnswer) {
+    // UPGRADE #63 — Better "reached limit" message with summary of what was done
+    const summary = steps.length > 0
+      ? `\n\n**Progress summary:**\n${steps.map((s: any, i: number) => `${i + 1}. ${s.toolName} — ${s.thought?.slice(0, 80) ?? ''}`).join('\n')}\n\n**To continue, reply with "continue" or "keep going" — I'll pick up where I left off.**`
+      : ''
     finalAnswer =
-      "I've reached my tool-call limit for this turn. Here's what I have so far — let me know if you'd like me to continue."
+      `I've reached my tool-call limit for this turn (${MAX_ITERATIONS} iterations, ${steps.length} tool calls).${summary}`
     await emit('token', { content: finalAnswer })
   }
 
