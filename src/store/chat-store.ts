@@ -215,32 +215,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const res = await fetch('/api/conversations')
       const data = await safeJson(res)
       let convs = data.conversations ?? []
-      // If DB is empty (Vercel cold start), load from localStorage
-      if (convs.length === 0 && typeof window !== 'undefined') {
-        try {
-          const saved = localStorage.getItem('agent007_conversations')
-          if (saved) convs = JSON.parse(saved)
-        } catch {}
-      }
-      // Merge localStorage with DB (DB may have lost some)
-      if (typeof window !== 'undefined') {
-        try {
-          const saved = localStorage.getItem('agent007_conversations')
-          if (saved) {
-            const localConvs = JSON.parse(saved)
-            const dbIds = new Set(convs.map((c: any) => c.id))
-            for (const lc of localConvs) {
-              if (!dbIds.has(lc.id)) convs.unshift(lc)
-            }
-            // Save merged list back to localStorage
-            localStorage.setItem('agent007_conversations', JSON.stringify(convs))
-          }
-        } catch {}
-      }
+      // UPGRADE #70 — DB is the ONLY source of truth (was: localStorage priority)
+      // Every device now sees the SAME conversations from Postgres.
+      // localStorage is only used as a write-only offline cache — NEVER read as primary.
       set({ conversations: convs })
+      // Also update localStorage as a cache (for offline use only)
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem('agent007_conversations', JSON.stringify(convs)) } catch {}
+      }
     } catch (e) {
       console.error('loadConversations', e)
-      // Fallback: localStorage only
+      // Fallback: localStorage ONLY if API is unreachable (offline mode)
       if (typeof window !== 'undefined') {
         try {
           const saved = localStorage.getItem('agent007_conversations')
@@ -299,19 +284,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const data = await safeJson(res)
       const conv = data.conversation
       if (!conv || !conv.messages || conv.messages.length === 0) {
-        // DB empty — try localStorage
-        if (typeof window !== 'undefined') {
-          try {
-            const saved = localStorage.getItem('agent007_messages_' + conversationId)
-            if (saved) {
-              const msgs = JSON.parse(saved)
-              if (msgs.length > 0) {
-                set({ messages: msgs })
-                return
-              }
-            }
-          } catch {}
-        }
+        // UPGRADE #70 — DB is the ONLY source of truth. No localStorage fallback for messages.
+        // Every device sees the SAME messages from Postgres.
         set({ messages: [] })
         return
       }
