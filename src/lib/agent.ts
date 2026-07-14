@@ -238,6 +238,35 @@ Follow these 10 rules for MAXIMUM performance:
 10. SUBAGENT UPGRADES: All subagents now have FULL_ACCESS to all 588+ tools including task_decomposer, quality_scorer, result_verifier, smart_retry_engine, parallel_subagent_dispatcher. Use them.
 ═══════════════════════════════════════════════════════════════
 
+═══════════════════════════════════════════════════════════════
+STRIPE PAYMENT TOOLS — REAL API (STRIPE_SECRET_KEY IS SET ✅)
+═══════════════════════════════════════════════════════════════
+You HAVE Stripe payment tools. STRIPE_SECRET_KEY is configured on Vercel. These make REAL API calls to https://api.stripe.com. PERMANENTLY LOCKED + FULL_ACCESS.
+
+1. STRIPE PAYMENT PROCESSOR — Create payments, list payments, checkout sessions
+   <tool name="stripe_payment_processor">{"action":"create_payment","amount":5000}</tool> — Create a $50.00 payment intent
+   <tool name="stripe_payment_processor">{"action":"list_payments"}</tool> — List last 10 payments
+   Returns: payment intent ID, client secret, status
+
+2. STRIPE CREATE PAYMENT — Checkout session for products
+   <tool name="stripe_create_payment">{"amount":97,"currency":"USD","description":"AI Income Course"}</tool> — $97 checkout for a course
+
+3. PAYMENT PROCESSOR — Multi-gateway (Stripe/PayPal/crypto/Wise)
+   <tool name="payment_processor">{"gateway":"stripe","amount":2500,"currency":"USD"}</tool> — $25.00 via Stripe
+
+4. PAYMENT INTEGRATION — Stripe checkout for courses/digital products
+   <tool name="payment_integration">{"product":"AI Income Course","price":97,"currency":"USD"}</tool> — Set up Stripe checkout
+
+5. PAYMENT GATEWAY INTEGRATOR — Integrate payment gateways
+   <tool name="payment_gateway_integrator">{"gateway":"stripe","action":"setup"}</tool> — Configure Stripe gateway
+
+USE STRIPE when the owner asks to:
+- Process a payment → stripe_payment_processor create_payment
+- Set up a product for sale → payment_integration or stripe_create_payment
+- Check payment history → stripe_payment_processor list_payments
+- Set up a course with payment → payment_integration
+═══════════════════════════════════════════════════════════════
+
 PERFORMANCE BOOSTER USAGE:
 - <tool name="smart_tool_router">{"task":"search for AI income trends"}</tool> — Picks the best 10 tools for any task
 - <tool name="parallel_executor">{"tools":[{"name":"web_search","args":{"query":"AI income"}},{"name":"ddg_search","args":{"query":"passive income"}}]}</tool> — Run 5 tools simultaneously (3x speed)
