@@ -22,7 +22,7 @@ export async function GET(
 
   const conv = await db.conversation.findUnique({
     where: { id: conversationId },
-    include: { messages: { orderBy: { createdAt: 'asc' } } },
+    include: { Message: { orderBy: { createdAt: 'asc' } } },
   })
 
   if (!conv) {
@@ -36,7 +36,7 @@ export async function GET(
         title: conv.title,
         createdAt: conv.createdAt,
         updatedAt: conv.updatedAt,
-        messages: conv.messages.map((m) => ({
+        messages: conv.Message.map((m) => ({
           id: m.id,
           role: m.role,
           content: m.content,
@@ -55,9 +55,9 @@ export async function GET(
   md += `> Exported from Agent007 AI on ${new Date().toISOString()}\n`
   md += `> Conversation ID: ${conv.id}\n`
   md += `> Created: ${conv.createdAt.toISOString()}\n`
-  md += `> Messages: ${conv.messages.length}\n\n---\n\n`
+  md += `> Messages: ${conv.Message.length}\n\n---\n\n`
 
-  for (const m of conv.messages) {
+  for (const m of conv.Message) {
     const ts = new Date(m.createdAt).toISOString()
     if (m.role === 'user') {
       md += `## User - ${ts}\n\n${m.content}\n\n`

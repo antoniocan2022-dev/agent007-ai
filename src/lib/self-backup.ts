@@ -48,7 +48,7 @@ export async function toolSelfBackupCreate(args: { label?: string }, _ctx: ToolC
            partnerships, businessStrategies, missionTrackers, servicePackages,
            opportunities, predictions, systemHealths, mlModels, riskRegisters,
            complianceChecks, contractDrafts, pendingManageActions, incomingCommands] = await Promise.all([
-      db.conversation.findMany({ include: { messages: true } }).catch(() => []),
+      db.conversation.findMany({ include: { Message: true } }).catch(() => []),
       db.memory.findMany().catch(() => []),
       db.incomeEntry.findMany().catch(() => []),
       db.schedule.findMany().catch(() => []),

@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     const [conversations, memories, incomeEntries, schedules, customSubagents, 
            notificationLogs, userSettings, auditLogs, phoneConfigs, bankAccounts,
            payPalAccounts, apiKeys, customers, campaigns, partnerships] = await Promise.all([
-      db.conversation.findMany({ include: { messages: true } }).catch(() => []),
+      db.conversation.findMany({ include: { Message: true } }).catch(() => []),
       db.memory.findMany().catch(() => []),
       db.incomeEntry.findMany().catch(() => []),
       db.schedule.findMany().catch(() => []),

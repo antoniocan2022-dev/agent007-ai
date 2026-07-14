@@ -12,7 +12,7 @@ export async function GET(
   const { id } = await params
   const conv = await db.conversation.findUnique({
     where: { id },
-    include: { messages: { orderBy: { createdAt: 'asc' } } },
+    include: { Message: { orderBy: { createdAt: 'asc' } } },
   })
   if (!conv) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ conversation: conv })

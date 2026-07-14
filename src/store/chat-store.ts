@@ -283,14 +283,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const res = await fetch(`/api/conversations/${conversationId}`)
       const data = await safeJson(res)
       const conv = data.conversation
-      if (!conv || !conv.messages || conv.messages.length === 0) {
+      if (!conv || !conv.Message || conv.Message.length === 0) {
         // UPGRADE #70 — DB is the ONLY source of truth. No localStorage fallback for messages.
         // Every device sees the SAME messages from Postgres.
         set({ messages: [] })
         return
       }
       // Reconstruct messages from DB rows: collapse tool/thought rows under the *next* assistant message
-      const rows: any[] = conv.messages ?? []
+      const rows: any[] = conv.Message ?? []
       const messages: ChatMessage[] = []
       let pendingSteps: ToolStep[] = []
       // Track open dispatches so subsequent subagent rows can be linked.
