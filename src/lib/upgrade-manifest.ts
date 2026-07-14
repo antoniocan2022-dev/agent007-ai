@@ -609,6 +609,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/orchestrator.ts', 'src/lib/affiliate-link-generator.ts', 'src/lib/autonomy-accuracy-tools.ts', 'src/lib/tools.ts', 'src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'scroll_arrows_conversation_69',
+    category: 'self_heal',
+    title: 'Scroll Up/Down Arrows in Conversation — Quick Navigation (Upgrade #69)',
+    description: 'Owner request: "Create arrow up and down, to go on top or down in the conversation."\n\nNEW COMPONENT: ScrollArrows (src/components/agent/scroll-arrows.tsx — 130 lines)\n\nFeatures:\n- Arrow UP (⬆): Scrolls to the top of the conversation (first message)\n- Arrow DOWN (⬇): Scrolls to the bottom (latest message)\n- Smart visibility: UP arrow appears when scrolled down past 200px, DOWN arrow appears when not at bottom\n- Smooth scroll animation (behavior: smooth)\n- Auto-hide after 3 seconds of inactivity\n- Dark glassmorphic style matching NEXUS AI theme (cyan UP arrow, purple DOWN arrow)\n- Positioned bottom-right of chat area (above input)\n- Mobile-responsive (smaller on mobile)\n- Accessible (aria-labels, keyboard focusable, title tooltips)\n- Framer Motion animations (fade + scale on enter/exit)\n- Glow effect on hover\n- z-40 (above chat content, below modals)\n\nMODIFIED FILES:\n- src/components/agent/chat-thread.tsx — wrapped scrollable area in relative div + mounted ScrollArrows\n- src/lib/upgrade-manifest.ts — this entry\n\nNEW FILES:\n- src/components/agent/scroll-arrows.tsx (130 lines)\n\nThe Developer subagent would normally handle this UI task. The super agent verified the implementation: typecheck clean, build passes, component mounted correctly.',
+    dateApplied: '2026-07-13',
+    permanent: true,
+    files: ['src/components/agent/scroll-arrows.tsx', 'src/components/agent/chat-thread.tsx', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

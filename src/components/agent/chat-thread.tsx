@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useChatStore } from '@/store/chat-store'
 import { MessageBubble } from './message-bubble'
 import { EmptyState } from './empty-state'
+import { ScrollArrows } from './scroll-arrows' // UPGRADE #69 — scroll up/down arrows
 
 export function ChatThread() {
   const messages = useChatStore((s) => s.messages)
@@ -33,19 +34,23 @@ export function ChatThread() {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="flex-1 overflow-y-auto scroll-cyan"
-      role="log"
-      aria-live="polite"
-      aria-busy={status !== 'idle'}
-    >
-      <div className="max-w-[820px] mx-auto px-4 sm:px-6 py-6">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
-        <div ref={bottomRef} className="h-2" />
+    <div className="flex-1 relative min-h-0"> {/* UPGRADE #69 — relative for ScrollArrows positioning */}
+      <div
+        ref={containerRef}
+        className="h-full overflow-y-auto scroll-cyan"
+        role="log"
+        aria-live="polite"
+        aria-busy={status !== 'idle'}
+      >
+        <div className="max-w-[820px] mx-auto px-4 sm:px-6 py-6">
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} />
+          ))}
+          <div ref={bottomRef} className="h-2" />
+        </div>
       </div>
+      {/* UPGRADE #69 — Scroll arrows (up = top, down = bottom) */}
+      <ScrollArrows containerRef={containerRef} />
     </div>
   )
 }
