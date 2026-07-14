@@ -12,6 +12,8 @@
   },
   "regions": ["iad1"],
   "crons": [
-    { "path": "/api/schedules/tick", "schedule": "0 9 * * *" }
+    { "path": "/api/schedules/tick", "schedule": "0 9 * * *" },
+    { "path": "/api/monitor/qa", "schedule": "0 * * * *" },
+    { "path": "/api/monitor/external", "schedule": "0,30 * * * *" }
   ]
 }

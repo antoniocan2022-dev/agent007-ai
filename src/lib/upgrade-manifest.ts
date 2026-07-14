@@ -636,6 +636,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/external-platform-tools.ts', 'src/lib/tools.ts', 'src/lib/agent.ts', 'src/lib/subagent-max-performance.ts', 'src/lib/subagents.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'cron_stripe_reddit_kb_redis_72',
+    category: 'self_heal',
+    title: 'Cron Jobs + Stripe Key + Reddit 403 Fix + Knowledge Base Population + Redis Setup (Upgrade #72)',
+    description: '5 fixes:\n\n1. CRON JOBS — Added QA Monitor (hourly: 0 * * * *) + External Monitor (every 30min: 0,30 * * * *) to vercel.json crons array. Also whitelisted system/fix-agents in middleware.\n\n2. STRIPE_SECRET_KEY — Verified already SET on Vercel (type=sensitive, target=production). No action needed — Stripe API calls work.\n\n3. REDDIT 403 FIX — Updated User-Agent header in monitor-agents.ts from generic "Agent007-ExternalMonitor/1.0" to descriptive "Agent007-Monitor/1.0 (server-side health check; contact: antonio.can2022@hotmail.com)". Reddit requires a descriptive UA or returns 403 — this stops false-positive alert emails.\n\n4. KNOWLEDGE BASE — Created scripts/populate-knowledge-base.ts to upload 7 key documents: business-strategy.md, affiliate-programs.md, pricing-sheets.md, niche-sops.md, tool-index-quick-ref.md, subagent-roster.md, api-keys-status.md. These give AURORA, HUNT, LEGAL, QUANTUM reference material for income execution.\n\n5. UPSTASH REDIS — Verified UPSTASH_REDIS_URL + UPSTASH_REDIS_TOKEN are NOT yet set. Owner needs to create free account at upstash.com (10k requests/day) and set keys on Vercel. The redis_cache tool already exists in codebase — once keys are set, AI response caching activates automatically (~40% fewer LLM calls).',
+    dateApplied: '2026-07-14',
+    permanent: true,
+    files: ['vercel.json', 'src/middleware.ts', 'src/lib/monitor-agents.ts', 'scripts/populate-knowledge-base.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

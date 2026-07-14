@@ -298,7 +298,9 @@ export async function runExternalMonitor(opts?: {
             method: 'GET',
             redirect: 'follow',
             signal: AbortSignal.timeout(8000),
-            headers: { 'User-Agent': 'Agent007-ExternalMonitor/1.0' },
+            // UPGRADE #72 — Reddit requires a descriptive User-Agent or returns 403.
+            // Use a more descriptive UA that Reddit's bot detection accepts.
+            headers: { 'User-Agent': 'Agent007-Monitor/1.0 (server-side health check; contact: antonio.can2022@hotmail.com)' },
           })
           const latencyMs = Date.now() - startMs
           const ok = res.status === (ep.expectedStatus ?? 200) || (res.status >= 200 && res.status < 400)
