@@ -645,6 +645,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['vercel.json', 'src/middleware.ts', 'src/lib/monitor-agents.ts', 'scripts/populate-knowledge-base.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'website_email_ui_section_restored_73',
+    category: 'self_heal',
+    title: 'WEBSITE + EMAIL + UI BUILDER Section Restored in System Prompt (Upgrade #73)',
+    description: 'The dedicated WEBSITE BUILDER + EMAIL AUTOMATION + UI FORM BUILDER section was lost in a git reset (was upgrade #65). The tools themselves were always registered in TOOL_REGISTRY and worked, but the dedicated system prompt section was missing. This restores it with: (1) WEBSITE BUILDER with 3 usage examples (landing, full, portfolio), (2) UI FORM BUILDER with 2 usage examples (signup, contact), (3) EMAIL AUTOMATION with 3 usage examples (welcome, verification, reset) + template list + Resend API note, (4) NEVER say not available directive.',
+    dateApplied: '2026-07-14',
+    permanent: true,
+    files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
