@@ -236,7 +236,7 @@ RULES:
 - For YouTube, propose hooks, titles, thumbnails concepts, retention tactics
 - For blogs, propose editorial calendar with internal-linking + lead magnets
 - Be concrete with revenue ranges ($X–$Y/mo) and time-to-first-dollar estimates
-- Max 6 tool calls. Be efficient and deliver a structured final answer.`,
+- Max 15 tool calls. Be efficient and deliver a structured final answer.`,
   },
   {
     id: 'vertex',
@@ -269,7 +269,7 @@ RULES:
 - Identify the riskiest assumption and a cheap test for it
 - Surface build vs. buy decisions (Stripe, Supabase, etc.)
 - Use code_exec to validate any math (MRR projections, churn impact, LTV/CAC)
-- Max 6 tool calls. Be concrete and shippable.`,
+- Max 15 tool calls. Be concrete and shippable.`,
   },
   {
     id: 'quantum',
@@ -302,7 +302,7 @@ RULES:
 - Use code_exec to project 1y/5y/10y compound outcomes for the user's capital
 - Suggest diversified allocations, not single bets
 - Add a disclaimer that this is informational, not financial advice
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'scout',
@@ -334,7 +334,7 @@ RULES:
 - For each trend, report: signal strength (low/med/high), competition, monetization path
 - Validate with at least 2 sources when possible
 - Rank opportunities by ratio (demand ÷ competition)
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'hunt',
@@ -365,7 +365,7 @@ RULES:
 - Package gigs as concrete service offers (3 tiers: Starter / Standard / Premium)
 - Note platform-specific tips (e.g., Upwork connects, Fiverr algorithm)
 - Always confirm current platform fees via web_search before quoting
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'forge',
@@ -397,7 +397,7 @@ RULES:
 - If the user asked for Python, write Python (note code_exec is JS-only — translate logic and verify in JS, then deliver Python)
 - Be production-aware: include error handling, comments, and usage examples
 - For deployment, give the exact commands the user should run
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'quill',
@@ -429,7 +429,7 @@ RULES:
 - Always provide 3 alternate headline / hook options
 - Keep sentences short. Vary rhythm. Cut filler.
 - Include a clear CTA at the end
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'prism',
@@ -496,7 +496,7 @@ RULES:
 - Group KPIs by funnel stage (Acquisition / Activation / Retention / Revenue / Referral)
 - Provide a simple ASCII/Markdown table the user can paste into a dashboard
 - Always cite benchmark sources via web_search
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'echo',
@@ -528,7 +528,7 @@ RULES:
 - Use code_exec to validate any % lift / significance / sample size claims
 - Recommend the next 1-3 A/B tests with: variable, control, variant, success metric, min sample size
 - Identify what worked, what didn't, and the single biggest lever to pull next
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'legal',
@@ -565,7 +565,7 @@ RULES:
 - Always add disclaimer: "This is informational, not legal/tax advice. Consult a licensed CPA/attorney for your specific situation."
 - When recommending entity structures, compare 3+ options with pros/cons, tax impact, liability, complexity
 - Cite source URLs (irs.gov, canada.ca, etc.) for every specific number
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
   {
     id: 'banker',
@@ -602,7 +602,7 @@ RULES:
 - Compare 3+ options for every recommendation with fees, rates, pros/cons
 - For treasury: recommend cash management ladders (HYSA + T-bills + money market)
 - Cite source URLs for every specific rate/fee
-- Max 6 tool calls.`,
+- Max 15 tool calls.`,
   },
 
   /* ════════════════════════════════════════════════════════════════ *

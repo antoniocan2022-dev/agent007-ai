@@ -627,6 +627,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/store/chat-store.ts', 'src/components/providers/service-worker-register.tsx', 'next.config.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'external_platforms_12_tools_10_improvements_71',
+    category: 'autonomy',
+    title: '12 External Platform Tools + 10 MAX Improvements — Canva, Grammarly, Loom, ConvertKit, Hootsuite, Google Analytics, Hotjar, Ubersuggest, Ahrefs, Yoast, Shopify, Fiverr + Speed/Accuracy/Intelligence/Decision/Reasoning/Implementation/Following/Reporting/Self-Repair/Subagent Upgrades (Upgrade #71)',
+    description: 'Owner request: Add 12 external platform tools + 10 improvements for speed, accuracy, intelligence, decision-making, reasoning, implementation, following, reporting, self-repair, and subagent upgrades.\n\n12 NEW TOOLS (src/lib/external-platform-tools.ts):\n1. canva_design — graphics, e-books, marketing materials\n2. grammarly_check — proofread + enhance written content\n3. loom_video — video tutorials + course content\n4. convertkit_email — email marketing automation\n5. hootsuite_schedule — schedule social media across platforms\n6. google_analytics — website traffic + user behavior\n7. hotjar_analytics — heatmaps + user feedback\n8. ubersuggest_seo — keyword research + SEO tracking\n9. ahrefs_seo — backlink analysis + site audit\n10. yoast_seo — optimize blog posts for search engines\n11. shopify_store — e-commerce + print-on-demand\n12. fiverr_freelance — offer freelance services\n\n4 ALREADY EXISTED (not re-created): mailchimp_list_manager, buffer_scheduler, etsy_integration, upwork_search_jobs.\n\n10 MAX IMPROVEMENTS:\n1. SPEED: Subagent tool limit 6→15 + parallel dispatch\n2. ACCURACY: result_verifier before final answer\n3. INTELLIGENCE: memory_store learnings (category: learning) + recall on every conversation\n4. DECISION-MAKING: decision_matrix mandatory for revenue decisions\n5. REASONING: 4-step thought framework (know, need, plan, risks)\n6. IMPLEMENTATION: accuracy_checker after building\n7. FOLLOWING: Re-read original question before answering\n8. REPORTING: 5-part structured report (TL;DR, what I did, results, next steps, confidence)\n9. SELF-REPAIR: smart_retry_engine → self_repair_code → email owner\n10. SUBAGENT UPGRADES: SHARED_MAX_PERFORMANCE_PROTOCOL updated with all MAX tools + 15 tool budget\n\nAll 12 tools registered in TOOL_REGISTRY. All auto-locked + FULL_ACCESS. All documented in system prompt with usage examples. All added to SHARED_MAX_PERFORMANCE_PROTOCOL for subagents.',
+    dateApplied: '2026-07-14',
+    permanent: true,
+    files: ['src/lib/external-platform-tools.ts', 'src/lib/tools.ts', 'src/lib/agent.ts', 'src/lib/subagent-max-performance.ts', 'src/lib/subagents.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

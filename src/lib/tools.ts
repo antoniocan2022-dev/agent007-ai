@@ -2422,6 +2422,31 @@ TOOL_REGISTRY.quality_scorer = { fn: toolQualityScorer, icon: 'star', label: 'Qu
 TOOL_REGISTRY.autonomous_executor = { fn: toolAutonomousExecutor, icon: 'zap', label: 'Autonomous Executor (MAX — full pipeline + 97% quality enforcement loop)' }
 
 /* ================================================================== *
+ * EXTERNAL PLATFORM TOOLS — 12 tools (upgrade #71)
+ * Canva, Grammarly, Loom, ConvertKit, Hootsuite, Google Analytics,
+ * Hotjar, Ubersuggest, Ahrefs, Yoast, Shopify, Fiverr.
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS.
+ * ================================================================== */
+import {
+  toolCanvaDesign, toolGrammarlyCheck, toolLoomVideo,
+  toolConvertKitEmail, toolHootsuiteSchedule, toolGoogleAnalytics,
+  toolHotjarAnalytics, toolUbersuggestSEO, toolAhrefsSEO,
+  toolYoastSEO, toolShopifyStore, toolFiverrFreelance,
+} from './external-platform-tools'
+TOOL_REGISTRY.canva_design = { fn: toolCanvaDesign, icon: 'palette', label: 'Canva Design (graphics, e-books, marketing materials)' }
+TOOL_REGISTRY.grammarly_check = { fn: toolGrammarlyCheck, icon: 'check-circle', label: 'Grammarly Check (proofread + enhance written content)' }
+TOOL_REGISTRY.loom_video = { fn: toolLoomVideo, icon: 'video', label: 'Loom Video (video tutorials + course content)' }
+TOOL_REGISTRY.convertkit_email = { fn: toolConvertKitEmail, icon: 'mail', label: 'ConvertKit Email (email marketing automation)' }
+TOOL_REGISTRY.hootsuite_schedule = { fn: toolHootsuiteSchedule, icon: 'calendar', label: 'Hootsuite Schedule (social media across platforms)' }
+TOOL_REGISTRY.google_analytics = { fn: toolGoogleAnalytics, icon: 'bar-chart', label: 'Google Analytics (website traffic + user behavior)' }
+TOOL_REGISTRY.hotjar_analytics = { fn: toolHotjarAnalytics, icon: 'eye', label: 'Hotjar Analytics (heatmaps + user feedback)' }
+TOOL_REGISTRY.ubersuggest_seo = { fn: toolUbersuggestSEO, icon: 'search', label: 'Ubersuggest SEO (keyword research + SEO tracking)' }
+TOOL_REGISTRY.ahrefs_seo = { fn: toolAhrefsSEO, icon: 'link', label: 'Ahrefs SEO (backlink analysis + site audit)' }
+TOOL_REGISTRY.yoast_seo = { fn: toolYoastSEO, icon: 'file-text', label: 'Yoast SEO (optimize blog posts for search engines)' }
+TOOL_REGISTRY.shopify_store = { fn: toolShopifyStore, icon: 'shopping-cart', label: 'Shopify Store (e-commerce + print-on-demand)' }
+TOOL_REGISTRY.fiverr_freelance = { fn: toolFiverrFreelance, icon: 'dollar-sign', label: 'Fiverr Freelance (offer freelance services)' }
+
+/* ================================================================== *
  * REAL API ENHANCEMENTS — 7 tools (upgrade #55)
  * ================================================================== */
 import {

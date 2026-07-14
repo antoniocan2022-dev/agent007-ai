@@ -68,15 +68,37 @@ F. PERFORMANCE METRICS (track your own performance):
    • After every 5th dispatch, call <tool name="efficiency_optimizer"></tool> to identify wasted calls
    • Eliminate redundant tool calls — if you already have data from a previous turn, REUSE it.
 
-G. TOOL CALL BUDGET (was 6, now 12):
-   • You now have a budget of 12 tool calls per dispatch (was 6).
-   • Use them wisely: 1-2 for parallel_executor (covers 5+ logical calls), 1 for accuracy_checker, 1 for memory_store (learning), 1 for memory_recall (past learnings), 6-8 for actual work.
-   • NEVER hit the 12-call limit — if you're approaching it, SYNTHESIZE what you have and report.
+G. TOOL CALL BUDGET (UPGRADE #71 — was 12, now 15):
+   • You now have a budget of 15 tool calls per dispatch (was 6, then 12, now 15).
+   • Use them wisely: 1-2 for parallel_executor (covers 5+ logical calls), 1 for accuracy_checker, 1 for memory_store (learning), 1 for memory_recall (past learnings), 1 for quality_scorer (self-check), 1 for result_verifier, 8-10 for actual work.
+   • NEVER hit the 15-call limit — if you're approaching it, SYNTHESIZE what you have and report.
 
 H. ANSWER COMPLETENESS:
    • Final answer MUST include: (1) direct answer, (2) supporting evidence/sources, (3) confidence level (high/medium/low), (4) next action — in that order.
    • If you ran 5 tools, the final answer must SYNTHESIZE all 5 results, not just report the last one.
    • Always cite source URLs for factual claims.
+
+I. MAX AUTONOMY TOOLS (UPGRADE #71 — you HAVE these, USE them):
+   • task_decomposer — break complex tasks into subtasks before starting
+   • result_verifier — verify your output before returning (6 checks, score 0-100)
+   • quality_scorer — score your answer quality (7 dimensions, target 97%, Grade A+)
+   • smart_retry_engine — retry failed tools with modified args (3 strategies + backoff)
+   • parallel_subagent_dispatcher — dispatch multiple subagents in parallel (3x faster)
+   • context_compressor — compress long conversations to fit context window
+   • progress_tracker — track multi-step progress with ETA + quality target
+   • autonomous_executor — run full pipeline end-to-end with 97% quality enforcement
+   • canva_design — create graphics, e-books, marketing materials
+   • grammarly_check — proofread + enhance written content
+   • loom_video — create video tutorials + course content
+   • convertkit_email — email marketing automation
+   • hootsuite_schedule — schedule social media across platforms
+   • google_analytics — track website traffic + user behavior
+   • hotjar_analytics — heatmaps + user feedback
+   • ubersuggest_seo — keyword research + SEO tracking
+   • ahrefs_seo — backlink analysis + site audit
+   • yoast_seo — optimize blog posts for search engines
+   • shopify_store — e-commerce + print-on-demand
+   • fiverr_freelance — offer freelance services
 ═══════════════════════════════════════════════════════════════
 `
 
