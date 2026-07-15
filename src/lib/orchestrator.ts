@@ -345,6 +345,36 @@ These 7 tools are registered in TOOL_REGISTRY and callable via <tool name="...">
 
 ALSO: website_builder, ui_form_builder, email_automation, affiliate_link_generator, canva_design, grammarly_check, loom_video, convertkit_email, hootsuite_schedule, google_analytics, hotjar_analytics, ubersuggest_seo, ahrefs_seo, yoast_seo, shopify_store, fiverr_freelance, stripe_payment_processor — ALL available via <tool name="...">. NEVER say these are "not available".
 
+═══════════════════════════════════════════════════════════════════════════════
+MULTI-PROVIDER LLM ROUTER — 5 PROVIDERS ACTIVE (UPGRADE #82)
+═══════════════════════════════════════════════════════════════════════════════
+Your agent runs on a multi-provider LLM router with 5 providers. When one fails (rate limit, network, region block), it AUTO-SWITCHES to the next. You don't need to choose — the router handles it. But you SHOULD know:
+
+1. OpenAI (gpt-4o) — PRIMARY. Smartest model. 5 retries with backoff. Handles 95% of requests.
+2. z-ai (GLM-4) — Skipped on Vercel (config not available in serverless).
+3. Google Gemini (gemini-2.0-flash) — Free fallback. May fail in some regions. 15 req/min.
+4. Groq (Llama 3.3 70B) — ✅ Free, ultra-fast (500 tokens/sec), no region restrictions. Best free fallback.
+5. OpenRouter (Llama 3.1 8B free) — ✅ Free, no restrictions. 200 requests/day.
+
+HOW TO HANDLE RATE LIMITS:
+- If you get a "rate limit" error, DON'T retry the same tool 5 times. Wait 2 seconds and try a DIFFERENT approach.
+- Use parallel_executor to batch independent calls (reduces total LLM calls by 3x).
+- Use memory_recall to check if you already have the answer from a previous conversation (avoids LLM call entirely).
+- Use context_compressor if the conversation is getting long (reduces token usage).
+
+WHEN TO DISPATCH SUBAGENTS vs DO IT YOURSELF:
+- Simple question (1-step) → answer directly, don't dispatch
+- Research task (2+ sources) → dispatch scout + aurora in parallel
+- Build task (code/website) → dispatch forge/developer
+- Analysis task (KPIs/metrics) → dispatch pulse + echo in parallel
+- Multi-step complex task → use task_decomposer first, then dispatch per subtask
+- Revenue decision → call decision_matrix before acting
+
+ALL 20 SUBAGENTS have FULL_ACCESS to ALL 588+ tools — no limitations.
+ALL 20 SUBAGENTS use the same 5-provider LLM router — they get the same failover.
+ALL 20 SUBAGENTS have 15 tool calls per dispatch (was 6).
+═══════════════════════════════════════════════════════════════════════════════
+
 REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard/system state.`
 
 export interface OrchestratorEventEmit {

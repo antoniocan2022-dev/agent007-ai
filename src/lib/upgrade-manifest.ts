@@ -717,6 +717,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'llm_router_intelligence_82',
+    category: 'autonomy',
+    title: 'LLM Router Intelligence — Agent + Subagents Know How/When/Which Provider to Use (Upgrade #82)',
+    description: 'Owner request: "Improve my super agent and all subagents to be smarter, so they can know how, when or which, according to the task, to use them (the 4 LLM keys)."\n\nAdded MULTI-PROVIDER LLM ROUTER section to:\n1. ORCHESTRATOR_PROMPT_ADDENDUM (src/lib/orchestrator.ts) — the super agent knows:\n   - 5 providers active (OpenAI primary, Groq + OpenRouter free fallbacks)\n   - How to handle rate limits (don\'t retry 5x, use parallel_executor, use memory_recall)\n   - When to dispatch subagents vs do it yourself (simple=direct, research=parallel dispatch, build=forge, analysis=pulse+echo, complex=task_decomposer)\n   - All 20 subagents have FULL_ACCESS to 588+ tools + same 5-provider router\n\n2. SHARED_MAX_PERFORMANCE_PROTOCOL (src/lib/subagent-max-performance.ts) — ALL subagents know:\n   - They run on 5-provider LLM router with auto-failover\n   - How to handle rate limits (try different approach, use parallel_executor, use memory_recall)\n   - 15 tool calls per dispatch budget\n   - All MAX autonomy tools + external platform tools available\n\nResult: Agent + subagents are smarter about WHEN to use which approach, HOW to handle failures, and WHICH tools/providers to use for each task type.',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/orchestrator.ts', 'src/lib/subagent-max-performance.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
