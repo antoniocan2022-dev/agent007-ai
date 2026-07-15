@@ -690,6 +690,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'gemini_api_key_set_78',
+    category: 'self_heal',
+    title: 'GEMINI_API_KEY Set on Vercel — Free Fallback Provider Active (Upgrade #78)',
+    description: 'Owner provided GEMINI_API_KEY from https://aistudio.google.com/apikey. Set on Vercel via API (id: TAUy3ARd2iFxVvpF, type=encrypted, target=production+preview+development). Now the multi-provider LLM router has 3 active providers: 1) OpenAI (gpt-4o) PRIMARY, 2) z-ai (GLM-4) skipped on Vercel, 3) Google Gemini (gemini-1.5-flash) FREE fallback. When OpenAI hits rate limit (429) and exhausts 5 retries, the agent auto-switches to Gemini (15 req/min, 1500/day free). GROQ_API_KEY will be added when the owner gets it from https://console.groq.com/keys (site was down).',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
