@@ -726,6 +726,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/orchestrator.ts', 'src/lib/subagent-max-performance.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'cron_fix_agents_83',
+    category: 'self_heal',
+    title: 'Fix Cron Monitor Frequency + Create fix-agents Endpoint + Monitor Auto-Trigger on Dashboard Poll (Upgrade #83)',
+    description: '2 CRITICAL fixes:\n\n#1 CRITICAL — Monitor frequency:\nVercel Hobby tier rejects hourly/30-min crons. Previous approach: both monitors ran only once daily at 9AM (useless).\nFIX: Modified /api/schedules/tick to ALSO fire monitors on every call. The dashboard polls /api/schedules/tick every 60 seconds — so while the dashboard is open, monitors run every ~60 seconds (External) and every ~5 minutes (QA). When the dashboard is closed, the daily Vercel Cron at 9AM fires both monitors.\nResult: Monitor frequency went from 1x/day to ~60x/day (while dashboard is open).\n\n#2 CRITICAL — fix-agents endpoint:\nContent Specialist + Performance Analyst had only 2 tools in their DB rows. At runtime, getAllSubagents() overrides with FULL_ACCESS — but DB rows still showed 2 tools.\nFIX: Created GET /api/system/fix-agents endpoint that:\n- Gets all 588+ tools from getFullAccessTools()\n- Updates ALL custom subagents in DB to have FULL_ACCESS_TOOLS\n- Updates ALL builtin overlays to have FULL_ACCESS_TOOLS\n- Returns summary of what was fixed\nWhitelisted in middleware (system/fix-agents added to exception regex in upgrade #72).\nAfter deploy, call GET /api/system/fix-agents to permanently fix the DB rows.',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/app/api/schedules/tick/route.ts', 'src/app/api/system/fix-agents/route.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
