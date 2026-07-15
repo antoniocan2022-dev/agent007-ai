@@ -779,7 +779,7 @@ export async function callLlmWithRetry(
 /** Google Gemini (FREE — 15 req/min, 1500/day) */
 async function callGeminiLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.GEMINI_API_KEY!
-  const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
 
   // Convert messages to Gemini format
   const systemPrompt = messages.find(m => m.role === 'system')?.content ?? ''
@@ -806,6 +806,10 @@ async function callGeminiLlm(messages: Array<{ role: string; content: string }>)
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
+    // UPGRADE #80: Better error messages for common Gemini failures
+    if (resp.status === 400 && text.includes('location is not supported')) {
+      throw new Error('Gemini API not available in this region (Vercel iad1). Gemini fallback disabled — OpenAI retries will handle rate limits.')
+    }
     throw new Error(`Gemini failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
   }
 

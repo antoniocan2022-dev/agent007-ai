@@ -708,6 +708,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/monitor-agents.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'gemini_model_fix_80',
+    category: 'self_heal',
+    title: 'Fix Gemini 404 Error — Model gemini-1.5-flash → gemini-2.0-flash + Region Detection (Upgrade #80)',
+    description: 'Owner complaint: "All LLM providers failed (OpenAI, Gemini). Last error: Gemini failed: HTTP 404 — models/gemini-1.5-flash is not found for API version v1beta."\n\nROOT CAUSE (2 issues):\n1. Model name: gemini-1.5-flash was deprecated by Google. Current valid model is gemini-2.0-flash.\n2. Region block: Google Gemini API returns "User location is not supported for the API use" when called from Vercel iad1 (US East). The Gemini API key is VALID but the API is not available in this region.\n\nFIXES:\n1. Changed default model from gemini-1.5-flash → gemini-2.0-flash (current valid model name)\n2. Added region-specific error detection: if Gemini returns 400 "location is not supported", show clear message instead of raw 404 error\n\nNOTE: Gemini may still fail on Vercel iad1 due to region restrictions. The OpenAI retry with backoff (5 attempts: instant, 1s, 2s, 4s, 8s) is the primary defense against rate limits. Gemini is a bonus fallback that works when the region allows it. Groq (when key is set) will be a more reliable fallback since it doesn\'t have region restrictions.',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
