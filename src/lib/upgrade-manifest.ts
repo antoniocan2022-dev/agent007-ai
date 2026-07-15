@@ -735,6 +735,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/app/api/schedules/tick/route.ts', 'src/app/api/system/fix-agents/route.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'multi_model_fallback_84',
+    category: 'self_heal',
+    title: 'Multi-Model Fallback for Groq + OpenRouter — 5 Free Models Each (Upgrade #84)',
+    description: 'Owner complaint: "All LLM providers failed — OpenRouter: This model is unavailable for free."\n\nROOT CAUSE: OpenRouter deprecated the free Llama 3.1 8B model. Groq key returns 403 Forbidden (may be invalid or model deprecated).\n\nFIX: Both Groq and OpenRouter now try MULTIPLE free models in sequence until one works.\n\nGroq tries 4 models: llama-3.3-70b-versatile → llama-3.1-8b-instant → llama-3.1-70b-versatile → gemma2-9b-it\nOpenRouter tries 5 models: nvidia/nemotron-3-super-120b-a12b:free → tencent/hy3:free → google/gemma-4-26b-a4b-it:free → nvidia/nemotron-3-ultra-550b-a55b:free → meta-llama/llama-3.2-3b-instruct:free\n\nVERIFIED: nvidia/nemotron-3-super-120b-a12b:free returns HTTP 200 with content. tencent/hy3:free returns HTTP 200 with content.\n\nTotal LLM provider chain: OpenAI (5 retries) → z-ai (skipped) → Gemini (region blocked) → Groq (4 model attempts) → OpenRouter (5 model attempts) = 14 total attempts before failing.',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

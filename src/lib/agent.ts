@@ -826,85 +826,134 @@ async function callGeminiLlm(messages: Array<{ role: string; content: string }>)
   }
 }
 
-/** Groq (FREE — ultra-fast Llama 3.1 70B / Mixtral) */
+/** Groq (FREE — ultra-fast Llama 3 / Mixtral) */
 async function callGroqLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.GROQ_API_KEY!
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+  // UPGRADE #84: Multiple Groq model fallbacks
+  const groqModels = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'llama-3.1-70b-versatile',
+    'gemma2-9b-it',
+  ]
 
-  const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.3,
-      max_tokens: 8000,
-      top_p: 0.95,
-    }),
-    signal: AbortSignal.timeout(60000),
-  })
+  let lastError: any = null
+  for (const model of groqModels) {
+    try {
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.3,
+          max_tokens: 8000,
+          top_p: 0.95,
+        }),
+        signal: AbortSignal.timeout(60000),
+      })
 
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`Groq failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        lastError = new Error(`Groq ${model}: HTTP ${resp.status} — ${text.slice(0, 150)}`)
+        console.warn(`[LLM Router] Groq ${model} failed: HTTP ${resp.status}`)
+        continue
+      }
+
+      const data = await resp.json()
+      const content = data?.choices?.[0]?.message?.content ?? ''
+      if (!content) {
+        lastError = new Error(`Groq ${model}: empty content`)
+        continue
+      }
+
+      console.log(`[LLM Router] Groq ${model} succeeded`)
+      return {
+        choices: [{
+          message: { role: 'assistant', content },
+          finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+        }],
+        _provider: 'groq',
+        _model: model,
+      }
+    } catch (e: any) {
+      lastError = e
+      console.warn(`[LLM Router] Groq ${model} error: ${e?.message?.slice(0, 80)}`)
+      continue
+    }
   }
 
-  const data = await resp.json()
-  const content = data?.choices?.[0]?.message?.content ?? ''
-  if (!content) throw new Error('Groq returned empty content')
-
-  return {
-    choices: [{
-      message: { role: 'assistant', content },
-      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
-    }],
-    _provider: 'groq',
-  }
+  throw lastError ?? new Error('All Groq models failed')
 }
 
-/** OpenRouter (FREE models — Llama 3, Mistral, Qwen, etc.) */
+/** OpenRouter (FREE models — multiple fallbacks) */
 async function callOpenRouterLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.OPENROUTER_API_KEY!
-  // Default: free Llama 3.1 8B (fast + free). Owner can set OPENROUTER_MODEL for bigger models.
-  const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct:free'
+  // UPGRADE #84: Multiple free model fallbacks — old model was deprecated.
+  // Try each model in order until one works.
+  const freeModels = [
+    'nvidia/nemotron-3-super-120b-a12b:free',  // 120B params, best free model
+    'tencent/hy3:free',                          // Fast, reliable
+    'google/gemma-4-26b-a4b-it:free',            // Google's free model
+    'nvidia/nemotron-3-ultra-550b-a55b:free',    // 550B params, largest free
+    'meta-llama/llama-3.2-3b-instruct:free',     // Small but fast (may rate limit)
+  ]
 
-  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://agent007-ai.vercel.app',
-      'X-Title': 'Agent007 AI',
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.3,
-      max_tokens: 8000,
-      top_p: 0.95,
-    }),
-    signal: AbortSignal.timeout(60000),
-  })
+  let lastError: any = null
+  for (const model of freeModels) {
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://agent007-ai.vercel.app',
+          'X-Title': 'Agent007 AI',
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.3,
+          max_tokens: 8000,
+          top_p: 0.95,
+        }),
+        signal: AbortSignal.timeout(60000),
+      })
 
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`OpenRouter failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        lastError = new Error(`OpenRouter ${model}: HTTP ${resp.status} — ${text.slice(0, 150)}`)
+        console.warn(`[LLM Router] OpenRouter ${model} failed: HTTP ${resp.status}`)
+        continue // try next model
+      }
+
+      const data = await resp.json()
+      const content = data?.choices?.[0]?.message?.content ?? ''
+      if (!content) {
+        lastError = new Error(`OpenRouter ${model}: empty content`)
+        continue
+      }
+
+      console.log(`[LLM Router] OpenRouter ${model} succeeded`)
+      return {
+        choices: [{
+          message: { role: 'assistant', content },
+          finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+        }],
+        _provider: 'openrouter',
+        _model: model,
+      }
+    } catch (e: any) {
+      lastError = e
+      console.warn(`[LLM Router] OpenRouter ${model} error: ${e?.message?.slice(0, 80)}`)
+      continue
+    }
   }
 
-  const data = await resp.json()
-  const content = data?.choices?.[0]?.message?.content ?? ''
-  if (!content) throw new Error('OpenRouter returned empty content')
-
-  return {
-    choices: [{
-      message: { role: 'assistant', content },
-      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
-    }],
-    _provider: 'openrouter',
-  }
+  throw lastError ?? new Error('All OpenRouter free models failed')
 }
 
 /** Convenience for callers (e.g. /api/health/llm) to inspect current state. */
