@@ -643,17 +643,27 @@ export async function callLlmWithRetry(
 ): Promise<any> {
   let lastErr: any = null
 
-  // FAST PATH: If OPENAI_API_KEY is set in env, skip z-ai entirely
-  // (z-ai doesn't work on Vercel and wastes 5-10s trying to connect)
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #76 — MULTI-PROVIDER LLM ROUTER
+  // Chain: OpenAI (gpt-4o) → z-ai SDK → Google Gemini → Groq → throw
+  // When a provider hits rate limit (429) or fails, auto-switch to next.
+  // The agent can decide which provider to use via env vars.
+  // ════════════════════════════════════════════════════════════════════
+
+  // PROVIDER 1: OpenAI (gpt-4o) — PRIMARY
   if (process.env.OPENAI_API_KEY) {
     try {
       return await callFallbackLlm(messages)
-    } catch (fallbackErr) {
-      throw fallbackErr
+    } catch (openaiErr: any) {
+      lastErr = openaiErr
+      console.warn('[LLM Router] OpenAI failed, trying next provider:', openaiErr?.message?.slice(0, 100))
+
+      // If it's a rate limit (429), don't retry OpenAI — switch to next provider
+      // If it's NOT a rate limit (auth error, network), also try next provider
     }
   }
 
-  // Try primary provider (z-ai)
+  // PROVIDER 2: z-ai SDK (GLM-4) — FREE, no API key needed
   try {
     const zai = await getZai()
     const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
@@ -671,6 +681,7 @@ export async function callLlmWithRetry(
           ...(thinking ? { thinking } : {}),
         })
         RATE_LIMIT_INFO.retryingNow = false
+        console.log('[LLM Router] z-ai (GLM-4) succeeded')
         return completion
       } catch (e: any) {
         lastErr = e
@@ -678,21 +689,186 @@ export async function callLlmWithRetry(
           RATE_LIMIT_INFO.last429At = Date.now()
           continue // retry on rate limit
         }
-        // Non-rate-limit error (config not found, auth, etc.) — break and try fallback
-        break
+        break // non-rate-limit error — try next provider
       }
     }
   } catch (e: any) {
     lastErr = e
+    console.warn('[LLM Router] z-ai failed, trying next provider:', e?.message?.slice(0, 100))
   }
 
-  // Primary failed — try fallback LLM (OpenAI)
+  // PROVIDER 3: Google Gemini (FREE tier — 15 requests/min, 1500/day)
+  // Uses Google's Generative AI API. Set GEMINI_API_KEY to enable.
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const geminiResult = await callGeminiLlm(messages)
+      console.log('[LLM Router] Google Gemini succeeded')
+      return geminiResult
+    } catch (geminiErr: any) {
+      lastErr = geminiErr
+      console.warn('[LLM Router] Gemini failed, trying next provider:', geminiErr?.message?.slice(0, 100))
+    }
+  }
+
+  // PROVIDER 4: Groq (FREE — ultra-fast Llama 3 / Mixtral)
+  // Uses Groq's OpenAI-compatible API. Set GROQ_API_KEY to enable.
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const groqResult = await callGroqLlm(messages)
+      console.log('[LLM Router] Groq succeeded')
+      return groqResult
+    } catch (groqErr: any) {
+      lastErr = groqErr
+      console.warn('[LLM Router] Groq failed, trying next provider:', groqErr?.message?.slice(0, 100))
+    }
+  }
+
+  // PROVIDER 5: OpenRouter (FREE models available — Llama 3, Mistral, etc.)
+  // Uses OpenRouter's OpenAI-compatible API. Set OPENROUTER_API_KEY to enable.
+  if (process.env.OPENROUTER_API_KEY) {
+    try {
+      const openRouterResult = await callOpenRouterLlm(messages)
+      console.log('[LLM Router] OpenRouter succeeded')
+      return openRouterResult
+    } catch (orErr: any) {
+      lastErr = orErr
+      console.warn('[LLM Router] OpenRouter failed:', orErr?.message?.slice(0, 100))
+    }
+  }
+
+  // ALL PROVIDERS FAILED — throw the last error
   RATE_LIMIT_INFO.retryingNow = false
-  try {
-    return await callFallbackLlm(messages)
-  } catch (fallbackErr) {
-    // Fallback also failed — throw the fallback error (more informative)
-    throw fallbackErr
+  throw lastErr ?? new Error('All LLM providers failed (OpenAI, z-ai, Gemini, Groq, OpenRouter)')
+}
+
+/* ════════════════════════════════════════════════════════════════════ *
+ * UPGRADE #76 — MULTI-PROVIDER LLM HELPERS
+ * ════════════════════════════════════════════════════════════════════ */
+
+/** Google Gemini (FREE — 15 req/min, 1500/day) */
+async function callGeminiLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.GEMINI_API_KEY!
+  const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+
+  // Convert messages to Gemini format
+  const systemPrompt = messages.find(m => m.role === 'system')?.content ?? ''
+  const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: chatMessages,
+      systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 8000,
+        topP: 0.95,
+      },
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`Gemini failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  }
+
+  const data = await resp.json()
+  const content = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  if (!content) throw new Error('Gemini returned empty content')
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content },
+      finish_reason: data?.candidates?.[0]?.finishReason?.toLowerCase() ?? 'stop',
+    }],
+    _provider: 'gemini',
+  }
+}
+
+/** Groq (FREE — ultra-fast Llama 3.1 70B / Mixtral) */
+async function callGroqLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.GROQ_API_KEY!
+  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+
+  const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.3,
+      max_tokens: 8000,
+      top_p: 0.95,
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`Groq failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  }
+
+  const data = await resp.json()
+  const content = data?.choices?.[0]?.message?.content ?? ''
+  if (!content) throw new Error('Groq returned empty content')
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content },
+      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+    }],
+    _provider: 'groq',
+  }
+}
+
+/** OpenRouter (FREE models — Llama 3, Mistral, Qwen, etc.) */
+async function callOpenRouterLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.OPENROUTER_API_KEY!
+  // Default: free Llama 3.1 8B (fast + free). Owner can set OPENROUTER_MODEL for bigger models.
+  const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-8b-instruct:free'
+
+  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://agent007-ai.vercel.app',
+      'X-Title': 'Agent007 AI',
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.3,
+      max_tokens: 8000,
+      top_p: 0.95,
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`OpenRouter failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  }
+
+  const data = await resp.json()
+  const content = data?.choices?.[0]?.message?.content ?? ''
+  if (!content) throw new Error('OpenRouter returned empty content')
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content },
+      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+    }],
+    _provider: 'openrouter',
   }
 }
 

@@ -672,6 +672,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/llm-fallback.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'multi_provider_llm_router_76',
+    category: 'self_heal',
+    title: 'Multi-Provider LLM Router — OpenAI → z-ai → Gemini → Groq → OpenRouter (Upgrade #76)',
+    description: 'Owner request: "Add capabilities to switch to z.ai if OPENAI reached rate limit, or find other search engines like Gemini, Google AI, or other with power and free. Add capabilities he can decide when to use it."\n\nNEW: Multi-provider LLM router in callLlmWithRetry (src/lib/agent.ts).\n\n5-PROVIDER CHAIN (auto-failover on 429 or error):\n1. OpenAI (gpt-4o) — PRIMARY, requires OPENAI_API_KEY (already set)\n2. z-ai SDK (GLM-4) — FREE, no API key needed (built-in SDK)\n3. Google Gemini (gemini-1.5-flash) — FREE 15 req/min, 1500/day, requires GEMINI_API_KEY\n4. Groq (Llama 3.3 70B) — FREE ultra-fast, requires GROQ_API_KEY\n5. OpenRouter (Llama 3.1 8B free) — FREE, requires OPENROUTER_API_KEY\n\nHOW IT WORKS:\n- Try provider 1 (OpenAI). If it succeeds → return result.\n- If OpenAI fails (429 rate limit, network, auth) → log warning + try provider 2 (z-ai).\n- If z-ai fails → try provider 3 (Gemini) if GEMINI_API_KEY is set.\n- If Gemini fails → try provider 4 (Groq) if GROQ_API_KEY is set.\n- If Groq fails → try provider 5 (OpenRouter) if OPENROUTER_API_KEY is set.\n- If ALL providers fail → throw last error.\n\nEACH PROVIDER has:\n- 60s timeout (AbortSignal.timeout)\n- Same params: temperature 0.3, max_tokens 8000, top_p 0.95\n- Unified response format (choices[0].message.content + finish_reason)\n- _provider field so the agent knows which provider succeeded\n\nAGENT CAN DECIDE: The agent doesn\'t need to choose — the router auto-failovers. But the agent CAN influence which provider by setting env vars:\n- Set only OPENAI_API_KEY → uses OpenAI only, falls back to z-ai on failure\n- Set GEMINI_API_KEY → Gemini is available as fallback\n- Set GROQ_API_KEY → Groq is available as fallback (ultra-fast)\n- Set OPENROUTER_API_KEY → OpenRouter is available as fallback (free models)\n\nOWNER ACTION (to enable free fallbacks):\n1. Gemini: Go to https://aistudio.google.com/apikey → create free key → set GEMINI_API_KEY on Vercel\n2. Groq: Go to https://console.groq.com/keys → create free key → set GROQ_API_KEY on Vercel\n3. OpenRouter: Go to https://openrouter.ai/keys → create free key → set OPENROUTER_API_KEY on Vercel\n\nALL providers use the same OpenAI-compatible response format, so the orchestrator + subagents work seamlessly across providers.',
+    dateApplied: '2026-07-14',
+    permanent: true,
+    files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
