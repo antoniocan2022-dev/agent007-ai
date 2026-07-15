@@ -18,7 +18,7 @@ export interface FallbackMessage {
 //   - gpt-4o-mini: fast + cheap, good for routine tool routing
 //   - gpt-4o: higher accuracy for complex multi-tool orchestration
 // Owner can override via OPENAI_MODEL env var.
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o'
 const OPENAI_BASE_URL =
   process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions'
 
@@ -114,19 +114,20 @@ export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any>
     )
   }
 
-  // Performance & accuracy tuning (upgrade #31):
-  //   - temperature 0.4 (was 0.6): more deterministic, fewer hallucinated tool names
-  //   - max_tokens 4000 (was 2000): prevents mid-tool-call truncation on complex multi-step tasks
-  //   - top_p 0.9: slight nucleus cutoff to suppress extremely unlikely tokens
-  //   - presence_penalty 0.1: tiny nudge to avoid verbatim repetition in long answers
+  // Performance & accuracy tuning (UPGRADE #75):
+  //   - model: gpt-4o (was gpt-4o-mini — MUCH smarter, follows instructions better)
+  //   - temperature 0.3 (was 0.4): even more deterministic, fewer hallucinations
+  //   - max_tokens 8000 (was 4000): prevents truncation on complex multi-step tasks + long reports
+  //   - top_p 0.95: wider nucleus for more creative but still grounded responses
+  //   - presence_penalty 0.2: stronger nudge to avoid repetition
   //   - stream false (orchestrator already chunks the final answer for SSE)
   const body = {
     model: OPENAI_MODEL,
     messages,
-    temperature: 0.4,
-    max_tokens: 4000,
-    top_p: 0.9,
-    presence_penalty: 0.1,
+    temperature: 0.3,
+    max_tokens: 8000,
+    top_p: 0.95,
+    presence_penalty: 0.2,
   }
 
   const resp = await fetch(OPENAI_BASE_URL, {
