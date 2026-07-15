@@ -744,6 +744,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'ai_providers_24_tools_85',
+    category: 'autonomy',
+    title: '24 New AI Provider Tools — 7 LLM + 8 Search/Data + 7 Content/Image + 2 Utils (Upgrade #85)',
+    description: 'Owner request: Add all AI providers from the list. Full access, no limitations.\n\n24 NEW TOOLS (src/lib/ai-providers-integration.ts):\n\n7 LLM Providers:\n1. cerebras_llm — Cerebras (Llama 3.1 8B, 2600 tok/s, fastest inference)\n2. sambanova_llm — SambaNova (Llama 3.1 405B, most powerful free LLM)\n3. together_llm — Together AI (Llama 3.3 70B Turbo)\n4. mistral_llm — Mistral AI (Mistral Large 2)\n5. hf_llm — Hugging Face (any model on HF Hub)\n6. cloudflare_llm — Cloudflare Workers AI (Llama 3.1 8B, 10k req/day)\n7. cohere_llm — Cohere (Command R+, best for RAG)\n\n8 Search & Data Providers:\n8. tavily_search — Tavily AI Search (AI-optimized, cited results, 1000/month)\n9. serpapi — SerpAPI (Google results as structured data, 100/month)\n10. newsapi — NewsAPI (80,000+ news sources, 100 req/day)\n11. alpha_vantage — Alpha Vantage (stocks, forex, crypto, 25 req/day)\n12. fred_economic — FRED (Federal Reserve economic data, unlimited free)\n13. jina_reader — Jina AI Reader (read ANY URL as markdown, free, NO KEY NEEDED)\n14. exa_search — Exa AI (neural search, 1000/month)\n15. product_hunt — Product Hunt API (trending products)\n\n7 Content & Image Providers:\n16. hf_inference — HF Inference (summarize, translate, classify)\n17. pollinations_image — Pollinations AI (free image gen, NO KEY NEEDED)\n18. craiyon_image — Craiyon (free image gen, NO KEY NEEDED)\n19. stability_image — Stability AI (Stable Diffusion XL, 25 credits)\n20. elevenlabs_tts — ElevenLabs (AI voice, 10k chars/month)\n21. deepl_translate — DeepL (better than Google, 500k chars/month)\n22. remove_bg — Remove.bg (AI background removal, 50 images/month)\n\n2 Utils:\n23. summarize_tech — Summarize.tech (AI video summarization, free, NO KEY NEEDED)\n24. yahoo_finance — Yahoo Finance via RapidAPI (stock prices)\n\nTools that work IMMEDIATELY (no key needed): jina_reader, pollinations_image, craiyon_image, summarize_tech, fred_economic\nTools that need API keys: all others — each shows a helpful message with where to get the free key.\n\nAll 24 tools registered in TOOL_REGISTRY (612+ total). All auto-locked (NEVER_REMOVABLE) + FULL_ACCESS.',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/ai-providers-integration.ts', 'src/lib/tools.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

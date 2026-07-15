@@ -2447,6 +2447,49 @@ TOOL_REGISTRY.shopify_store = { fn: toolShopifyStore, icon: 'shopping-cart', lab
 TOOL_REGISTRY.fiverr_freelance = { fn: toolFiverrFreelance, icon: 'dollar-sign', label: 'Fiverr Freelance (offer freelance services)' }
 
 /* ================================================================== *
+ * AI PROVIDERS INTEGRATION — 24 tools (upgrade #85)
+ * 7 LLM + 8 Search/Data + 7 Content/Image + 2 Utils
+ * All auto-locked (NEVER_REMOVABLE) + auto-FULL_ACCESS.
+ * ================================================================== */
+import {
+  toolCerebrasLLM, toolSambaNovaLLM, toolTogetherLLM, toolMistralLLM,
+  toolHuggingFaceLLM, toolCloudflareLLM, toolCohereLLM,
+  toolTavilySearch, toolSerpAPI, toolNewsAPI, toolAlphaVantage,
+  toolFREDEconomic, toolJinaReader, toolExaSearch, toolProductHunt,
+  toolHFInference, toolPollinationsImage, toolCraiyonImage, toolStabilityImage,
+  toolElevenLabsTTS, toolDeepLTranslate, toolRemoveBg,
+  toolSummarizeTech, toolYahooFinance,
+} from './ai-providers-integration'
+// LLM Providers (7)
+TOOL_REGISTRY.cerebras_llm = { fn: toolCerebrasLLM, icon: 'cpu', label: 'Cerebras LLM (Llama 3.1 — fastest inference, 2600 tok/s)' }
+TOOL_REGISTRY.sambanova_llm = { fn: toolSambaNovaLLM, icon: 'cpu', label: 'SambaNova LLM (Llama 3.1 405B — most powerful free LLM)' }
+TOOL_REGISTRY.together_llm = { fn: toolTogetherLLM, icon: 'cpu', label: 'Together AI LLM (Llama 3.3 70B Turbo)' }
+TOOL_REGISTRY.mistral_llm = { fn: toolMistralLLM, icon: 'cpu', label: 'Mistral AI LLM (Mistral Large 2)' }
+TOOL_REGISTRY.hf_llm = { fn: toolHuggingFaceLLM, icon: 'cpu', label: 'Hugging Face LLM (any model on HF Hub)' }
+TOOL_REGISTRY.cloudflare_llm = { fn: toolCloudflareLLM, icon: 'cloud', label: 'Cloudflare Workers AI (Llama 3.1 8B, 10k req/day)' }
+TOOL_REGISTRY.cohere_llm = { fn: toolCohereLLM, icon: 'cpu', label: 'Cohere LLM (Command R+ — best for RAG)' }
+// Search & Data (8)
+TOOL_REGISTRY.tavily_search = { fn: toolTavilySearch, icon: 'search', label: 'Tavily AI Search (AI-optimized, cited results, 1000/month free)' }
+TOOL_REGISTRY.serpapi = { fn: toolSerpAPI, icon: 'search', label: 'SerpAPI (Google results as structured data, 100/month free)' }
+TOOL_REGISTRY.newsapi = { fn: toolNewsAPI, icon: 'newspaper', label: 'NewsAPI (80,000+ news sources, 100 req/day free)' }
+TOOL_REGISTRY.alpha_vantage = { fn: toolAlphaVantage, icon: 'trending-up', label: 'Alpha Vantage (stocks, forex, crypto data, 25 req/day free)' }
+TOOL_REGISTRY.fred_economic = { fn: toolFREDEconomic, icon: 'bar-chart', label: 'FRED Economic Data (Federal Reserve, unlimited free)' }
+TOOL_REGISTRY.jina_reader = { fn: toolJinaReader, icon: 'book-open', label: 'Jina AI Reader (read ANY URL as clean markdown, free)' }
+TOOL_REGISTRY.exa_search = { fn: toolExaSearch, icon: 'search', label: 'Exa AI (neural search, find similar content, 1000/month free)' }
+TOOL_REGISTRY.product_hunt = { fn: toolProductHunt, icon: 'rocket', label: 'Product Hunt API (trending products, votes)' }
+// Content & Image (7)
+TOOL_REGISTRY.hf_inference = { fn: toolHFInference, icon: 'brain', label: 'HF Inference (summarize, translate, classify — any HF model)' }
+TOOL_REGISTRY.pollinations_image = { fn: toolPollinationsImage, icon: 'image', label: 'Pollinations AI (free image generation, no key needed)' }
+TOOL_REGISTRY.craiyon_image = { fn: toolCraiyonImage, icon: 'image', label: 'Craiyon (free image generation, no key needed)' }
+TOOL_REGISTRY.stability_image = { fn: toolStabilityImage, icon: 'image', label: 'Stability AI (Stable Diffusion XL, 25 credits free)' }
+TOOL_REGISTRY.elevenlabs_tts = { fn: toolElevenLabsTTS, icon: 'mic', label: 'ElevenLabs TTS (AI voice generation, 10k chars/month free)' }
+TOOL_REGISTRY.deepl_translate = { fn: toolDeepLTranslate, icon: 'languages', label: 'DeepL Translate (better than Google, 500k chars/month free)' }
+TOOL_REGISTRY.remove_bg = { fn: toolRemoveBg, icon: 'scissors', label: 'Remove.bg (AI background removal, 50 images/month free)' }
+// Utils (2)
+TOOL_REGISTRY.summarize_tech = { fn: toolSummarizeTech, icon: 'video', label: 'Summarize.tech (AI video summarization, free)' }
+TOOL_REGISTRY.yahoo_finance = { fn: toolYahooFinance, icon: 'dollar-sign', label: 'Yahoo Finance via RapidAPI (stock prices, financials)' }
+
+/* ================================================================== *
  * REAL API ENHANCEMENTS — 7 tools (upgrade #55)
  * ================================================================== */
 import {
