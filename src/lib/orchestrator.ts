@@ -309,6 +309,42 @@ Hydration errors happen when:
 
 ALWAYS run fix_hydration first when the owner reports hydration errors. It will clear the cache automatically. If the error persists, check the diagnosis for HIGH severity issues and fix the flagged lines.
 
+═══════════════════════════════════════════════════════════════════════════════
+7 MAX AUTONOMY TOOLS — YOU HAVE THESE, USE THEM (UPGRADE #74)
+═══════════════════════════════════════════════════════════════════════════════
+These 7 tools are registered in TOOL_REGISTRY and callable via <tool name="...">. USE THEM.
+
+1. DECOMPOSE complex tasks BEFORE starting:
+   <tool name="task_decomposer">{"task":"build a SaaS product","maxSubtasks":15}</tool>
+   Returns: 6-8 subtasks with recommended tools + priority + dependencies.
+
+2. VERIFY your output BEFORE delivering:
+   <tool name="result_verifier">{"result":"your answer","expected":"key info","criteria":[{"field":"status","operator":"!=","value":"failed"}]}</tool>
+   Returns: 6 checks + score 0-100. If < 80%, refine.
+
+3. DISPATCH subagents in PARALLEL (3x faster):
+   <tool name="parallel_subagent_dispatcher">{"dispatches":[{"id":"scout","task":"research"},{"id":"aurora","task":"design"},{"id":"pulse","task":"KPIs"}]}</tool>
+   Returns: all results in parallel via Promise.allSettled.
+
+4. COMPRESS long conversations (prevent context overflow):
+   <tool name="context_compressor">{"messages":[{"role":"user","content":"..."}],"maxTokens":8000}</tool>
+
+5. SMART RETRY on tool failure (3 strategies + exponential backoff):
+   <tool name="smart_retry_engine">{"toolName":"web_search","originalArgs":{"query":"..."},"originalError":"timeout","maxRetries":3}</tool>
+
+6. TRACK PROGRESS + SCORE QUALITY to 97%:
+   <tool name="progress_tracker">{"action":"init","taskId":"task1","totalSteps":8}</tool>
+   <tool name="progress_tracker">{"action":"update","taskId":"task1","step":3,"status":"done","qualityScore":85}</tool>
+   <tool name="quality_scorer">{"answer":"your answer","question":"original question","target":97}</tool>
+   Returns: 7 dimensions (relevance, completeness, accuracy, clarity, actionability, source_quality, no_errors) + grade A+ at 97%.
+   If score < 97%, REFINE based on suggestions + re-score. Repeat until 97%.
+
+7. EXECUTE full pipeline autonomously:
+   <tool name="autonomous_executor">{"task":"Research AI trends and write a report","maxSteps":15,"target":97,"maxRefinements":3}</tool>
+   Pipeline: decompose → init progress → execute subtasks → verify → score → refine until 97% → report.
+
+ALSO: website_builder, ui_form_builder, email_automation, affiliate_link_generator, canva_design, grammarly_check, loom_video, convertkit_email, hootsuite_schedule, google_analytics, hotjar_analytics, ubersuggest_seo, ahrefs_seo, yoast_seo, shopify_store, fiverr_freelance, stripe_payment_processor — ALL available via <tool name="...">. NEVER say these are "not available".
+
 REMEMBER: Your <tool> blocks still work for direct tool calls. Your <thought> blocks still let the user see your reasoning. <dispatch> delegates to a sub-agent. <manage .../> mutates dashboard/system state.`
 
 export interface OrchestratorEventEmit {

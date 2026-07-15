@@ -654,6 +654,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'orchestrator_7_max_tools_addendum_74',
+    category: 'self_heal',
+    title: '7 MAX Autonomy Tools Added to Orchestrator Prompt Addendum (Upgrade #74)',
+    description: 'ROOT CAUSE: The 7 MAX tools (task_decomposer, result_verifier, parallel_subagent_dispatcher, context_compressor, smart_retry_engine, progress_tracker/quality_scorer, autonomous_executor) were registered in TOOL_REGISTRY and documented in BASE_SYSTEM_PROMPT (agent.ts), BUT the orchestrator prompt addendum (ORCHESTRATOR_PROMPT_ADDENDUM in orchestrator.ts) did NOT mention them. Since /api/agent uses runOrchestrator(), the LLM never saw the 7 tools in its working context. FIX: Added "7 MAX AUTONOMY TOOLS" section to the orchestrator addendum with all 7 tools documented + usage examples. Also listed all 17 external platform tools (website_builder, email_automation, affiliate_link_generator, canva_design, etc.) with "NEVER say not available" directive.',
+    dateApplied: '2026-07-14',
+    permanent: true,
+    files: ['src/lib/orchestrator.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */
