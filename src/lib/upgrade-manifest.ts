@@ -699,6 +699,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'reddit_403_spam_fix_79',
+    category: 'self_heal',
+    title: 'Fix Reddit 403 Email Spam — Remove Reddit JSON API, Replace with Reddit Status Page + OpenAI API Health (Upgrade #79)',
+    description: 'Owner complaint: "I receive every 10 minutes emails: [AGENT007 EXTERNAL ALERT] 1 endpoint(s) failed — Reddit returns 403."\n\nROOT CAUSE: Reddit now requires OAuth authentication for ALL server-side JSON API requests (reddit.com/r/.../top.json). Even with a descriptive User-Agent, Reddit returns 403 to all non-OAuth requests. The external monitor was probing this URL every run, getting 403 every time, and emailing the owner with a false-positive alert.\n\nFIX: Removed the Reddit JSON API endpoint from DEFAULT_EXTERNAL_ENDPOINTS. Replaced with:\n1. https://www.redditstatus.com/ (expectedStatus: 200) — Reddit\'s official status page, always 200, monitors Reddit uptime without hitting the API\n2. https://api.openai.com/v1/models (expectedStatus: 401) — OpenAI API health check. 401 = API is alive (auth required = working). This also monitors the primary LLM provider health.\n\nRESULT: No more false-positive 403 alerts from Reddit. The external monitor now checks 12 endpoints (was 11), all of which return their expected status codes. Owner will only receive emails when a REAL outage occurs.',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/monitor-agents.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

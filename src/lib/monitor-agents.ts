@@ -263,7 +263,10 @@ export const DEFAULT_EXTERNAL_ENDPOINTS: Array<{ url: string; expectedStatus?: n
   { url: 'https://api.coingecko.com/api/v3/ping', expectedStatus: 200 },
   { url: 'https://api.github.com', expectedStatus: 200 },
   { url: 'https://hn.algolia.com/api/v1/search?tags=front_page', expectedStatus: 200 },
-  { url: 'https://www.reddit.com/r/artificial/top.json?limit=1', expectedStatus: 200 },
+  // UPGRADE #79: Removed Reddit — blocks all server-side requests with 403 (requires OAuth).
+  // Replaced with Reddit status page (always 200) + OpenAI API (monitors LLM provider health).
+  { url: 'https://www.redditstatus.com/', expectedStatus: 200 },
+  { url: 'https://api.openai.com/v1/models', expectedStatus: 401 }, // 401 = API is alive (auth required = working)
   { url: 'https://public-api.wordpress.com/rest/v1.1/sites/antonioagent007.wordpress.com', expectedStatus: 200 },
 ]
 
