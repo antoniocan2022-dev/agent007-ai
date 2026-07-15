@@ -681,6 +681,15 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
     permanent: true,
     files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
   },
+  {
+    id: 'zai_config_error_fix_77',
+    category: 'self_heal',
+    title: 'Fix z-ai "Configuration file not found" Error on Vercel + OpenAI Retry with Backoff (Upgrade #77)',
+    description: 'Owner complaint: "⚠️ Error: ⚠️ Configuration file not found or invalid. Please create .z-ai-config in your project, home directory, or /etc."\n\nROOT CAUSE:\n1. OpenAI (gpt-4o) is PRIMARY → works fine normally\n2. When OpenAI hits 429 rate limit → falls back to z-ai SDK\n3. z-ai SDK calls ZAI.create() which tries to read .z-ai-config → NOT FOUND on Vercel serverless\n4. z-ai throws "Configuration file not found or invalid"\n5. No other providers configured (Gemini/Groq/OpenRouter keys not set)\n6. z-ai error reaches user as the final error\n\n3 FIXES:\n\nFIX 1 — OpenAI retry with backoff (5 attempts: instant, 1s, 2s, 4s, 8s):\nPreviously OpenAI was tried ONCE and immediately fell through to z-ai on failure.\nNow OpenAI retries 5 times with exponential backoff before falling through.\nIf the rate limit is transient (usually lasts 1-5 seconds), OpenAI will succeed on retry 2-3.\nOnly after ALL 5 retries fail does it fall through to the next provider.\nNon-rate-limit errors (auth, network) skip retries immediately.\n\nFIX 2 — Skip z-ai on Vercel:\nz-ai SDK requires a .z-ai-config file which doesn\'t exist in Vercel serverless.\nNow the code checks process.env.VERCEL and skips z-ai entirely on Vercel.\nThis prevents the "Configuration file not found" error from ever appearing.\n\nFIX 3 — User-friendly error message:\nWhen ALL providers fail, instead of showing the raw z-ai error, show:\n"Rate limit reached on all available providers (OpenAI). Please wait a moment and try again. To add free fallback providers, set GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY in Vercel env vars."\nThis tells the user WHAT happened and HOW to fix it (add free fallback providers).',
+    dateApplied: '2026-07-15',
+    permanent: true,
+    files: ['src/lib/agent.ts', 'src/lib/upgrade-manifest.ts'],
+  },
 ]
 
 /** Get all upgrade entries */

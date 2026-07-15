@@ -644,57 +644,74 @@ export async function callLlmWithRetry(
   let lastErr: any = null
 
   // ════════════════════════════════════════════════════════════════════
-  // UPGRADE #76 — MULTI-PROVIDER LLM ROUTER
-  // Chain: OpenAI (gpt-4o) → z-ai SDK → Google Gemini → Groq → throw
+  // UPGRADE #77 — MULTI-PROVIDER LLM ROUTER (FIXED)
+  // Chain: OpenAI (gpt-4o) with retries → z-ai SDK → Gemini → Groq → OpenRouter
   // When a provider hits rate limit (429) or fails, auto-switch to next.
-  // The agent can decide which provider to use via env vars.
   // ════════════════════════════════════════════════════════════════════
 
-  // PROVIDER 1: OpenAI (gpt-4o) — PRIMARY
+  // PROVIDER 1: OpenAI (gpt-4o) — PRIMARY with RETRIES
   if (process.env.OPENAI_API_KEY) {
-    try {
-      return await callFallbackLlm(messages)
-    } catch (openaiErr: any) {
-      lastErr = openaiErr
-      console.warn('[LLM Router] OpenAI failed, trying next provider:', openaiErr?.message?.slice(0, 100))
-
-      // If it's a rate limit (429), don't retry OpenAI — switch to next provider
-      // If it's NOT a rate limit (auth error, network), also try next provider
+    const openaiBackoff = [0, 1000, 2000, 4000, 8000] // 5 attempts: instant, 1s, 2s, 4s, 8s
+    for (let attempt = 0; attempt < openaiBackoff.length; attempt++) {
+      if (attempt > 0) {
+        console.log(`[LLM Router] OpenAI retry ${attempt}/${openaiBackoff.length - 1} after ${openaiBackoff[attempt]}ms...`)
+        await new Promise((r) => setTimeout(r, openaiBackoff[attempt]))
+      }
+      try {
+        const result = await callFallbackLlm(messages)
+        if (attempt > 0) console.log(`[LLM Router] OpenAI succeeded on retry ${attempt}`)
+        return result
+      } catch (openaiErr: any) {
+        lastErr = openaiErr
+        const isRateLimit = isRateLimitError(openaiErr)
+        console.warn(`[LLM Router] OpenAI attempt ${attempt + 1} failed: ${openaiErr?.message?.slice(0, 80)} (${isRateLimit ? 'rate limit' : 'other error'})`)
+        // If it's NOT a rate limit (auth error, invalid key), don't retry — try next provider
+        if (!isRateLimit) break
+        // If it IS a rate limit, retry with backoff
+        RATE_LIMIT_INFO.last429At = Date.now()
+      }
     }
+    console.warn('[LLM Router] OpenAI exhausted retries, trying next provider...')
   }
 
   // PROVIDER 2: z-ai SDK (GLM-4) — FREE, no API key needed
-  try {
-    const zai = await getZai()
-    const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+  // UPGRADE #77: Skip z-ai on Vercel (config file not available in serverless)
+  const isVercel = !!(process.env.VERCEL || process.env.NOW)
+  if (!isVercel) {
+    try {
+      const zai = await getZai()
+      const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
 
-    for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
-      if (attempt > 0) {
-        RATE_LIMIT_INFO.retryingNow = true
-        const delay = BACKOFF_DELAYS_MS[attempt - 1]
-        await new Promise((r) => setTimeout(r, delay))
-      }
-      await throttleLlm()
-      try {
-        const completion = await zai.chat.completions.create({
-          messages,
-          ...(thinking ? { thinking } : {}),
-        })
-        RATE_LIMIT_INFO.retryingNow = false
-        console.log('[LLM Router] z-ai (GLM-4) succeeded')
-        return completion
-      } catch (e: any) {
-        lastErr = e
-        if (isRateLimitError(e)) {
-          RATE_LIMIT_INFO.last429At = Date.now()
-          continue // retry on rate limit
+      for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
+        if (attempt > 0) {
+          RATE_LIMIT_INFO.retryingNow = true
+          const delay = BACKOFF_DELAYS_MS[attempt - 1]
+          await new Promise((r) => setTimeout(r, delay))
         }
-        break // non-rate-limit error — try next provider
+        await throttleLlm()
+        try {
+          const completion = await zai.chat.completions.create({
+            messages,
+            ...(thinking ? { thinking } : {}),
+          })
+          RATE_LIMIT_INFO.retryingNow = false
+          console.log('[LLM Router] z-ai (GLM-4) succeeded')
+          return completion
+        } catch (e: any) {
+          lastErr = e
+          if (isRateLimitError(e)) {
+            RATE_LIMIT_INFO.last429At = Date.now()
+            continue
+          }
+          break
+        }
       }
+    } catch (e: any) {
+      lastErr = e
+      console.warn('[LLM Router] z-ai failed:', e?.message?.slice(0, 100))
     }
-  } catch (e: any) {
-    lastErr = e
-    console.warn('[LLM Router] z-ai failed, trying next provider:', e?.message?.slice(0, 100))
+  } else {
+    console.log('[LLM Router] Skipping z-ai on Vercel (config not available in serverless)')
   }
 
   // PROVIDER 3: Google Gemini (FREE tier — 15 requests/min, 1500/day)
@@ -736,9 +753,23 @@ export async function callLlmWithRetry(
     }
   }
 
-  // ALL PROVIDERS FAILED — throw the last error
+  // ALL PROVIDERS FAILED — throw a user-friendly error
   RATE_LIMIT_INFO.retryingNow = false
-  throw lastErr ?? new Error('All LLM providers failed (OpenAI, z-ai, Gemini, Groq, OpenRouter)')
+  const providersTried = [
+    process.env.OPENAI_API_KEY ? 'OpenAI (gpt-4o)' : null,
+    !isVercel ? 'z-ai (GLM-4)' : null,
+    process.env.GEMINI_API_KEY ? 'Gemini' : null,
+    process.env.GROQ_API_KEY ? 'Groq' : null,
+    process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null,
+  ].filter(Boolean).join(', ')
+
+  // UPGRADE #77: Don't show the raw z-ai "Configuration file not found" error.
+  // Show a user-friendly message instead.
+  const friendlyMsg = isRateLimitError(lastErr)
+    ? `Rate limit reached on all available providers (${providersTried}). Please wait a moment and try again. To add free fallback providers, set GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY in Vercel env vars.`
+    : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set GEMINI_API_KEY (from https://aistudio.google.com/apikey) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars.`
+
+  throw new Error(friendlyMsg)
 }
 
 /* ════════════════════════════════════════════════════════════════════ *
