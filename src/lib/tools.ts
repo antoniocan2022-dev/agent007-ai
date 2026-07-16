@@ -2258,6 +2258,27 @@ TOOL_REGISTRY.accuracy_checker = { fn: toolAccuracyChecker, icon: 'check-circle'
 TOOL_REGISTRY.efficiency_optimizer = { fn: toolEfficiencyOptimizer, icon: 'gauge', label: 'Efficiency Optimizer (analyze + improve performance)' }
 TOOL_REGISTRY.tool_usage_analyzer = { fn: toolUsageAnalyzer, icon: 'bar-chart', label: 'Tool Usage Analyzer (which tools to use most)' }
 
+/* ═══ UPGRADE #88 — MAX AUTONOMY ENGINE (8 new tools) ═══ */
+import {
+  toolMissionMode,
+  toolAgentCollaboration,
+  toolSemanticMemory,
+  toolAnomalyDetector,
+  toolRecipeEngine,
+  toolQualityEvaluator,
+  toolExternalTrigger,
+  toolAutoDecisionEngine,
+} from './max-autonomy-engine'
+
+TOOL_REGISTRY.mission_mode = { fn: toolMissionMode, icon: 'target', label: 'Mission Mode (autonomous $20K/mo pursuit — daily auto-dispatch)' }
+TOOL_REGISTRY.agent_collaboration = { fn: toolAgentCollaboration, icon: 'users', label: 'Agent Collaboration (subagent-to-subagent help requests)' }
+TOOL_REGISTRY.semantic_memory = { fn: toolSemanticMemory, icon: 'brain', label: 'Semantic Memory (TF-IDF vector recall across conversations)' }
+TOOL_REGISTRY.anomaly_detector = { fn: toolAnomalyDetector, icon: 'alert-triangle', label: 'Anomaly Detector (income/error/spike monitoring + auto-mitigate)' }
+TOOL_REGISTRY.recipe_engine = { fn: toolRecipeEngine, icon: 'list-checks', label: 'Recipe Engine (pre-defined + custom tool chains)' }
+TOOL_REGISTRY.quality_evaluator = { fn: toolQualityEvaluator, icon: 'star', label: 'Quality Evaluator (auto-score 0-100 + retry on <80)' }
+TOOL_REGISTRY.external_trigger = { fn: toolExternalTrigger, icon: 'mail', label: 'External Trigger (email/WhatsApp/webhook ingestion)' }
+TOOL_REGISTRY.auto_decision_engine = { fn: toolAutoDecisionEngine, icon: 'check-shield', label: 'Auto-Decision Engine (threshold-based autonomous decisions)' }
+
 /* ================================================================== *
  * OPTIMIZATION TOOLS V2 — 6 new tools covering Performance,
  * Utilization, and Accuracy improvements the owner requested.
