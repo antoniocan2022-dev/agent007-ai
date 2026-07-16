@@ -4215,3 +4215,82 @@ Stage Summary:
 - PROMPT UPDATED: Both SYSTEM_PROMPT and ORCHESTRATOR_PROMPT_ADDENDUM now explicitly forbid pseudo-XML and mandate plain markdown final answers
 - DEPLOYED LIVE: https://agent007-ai.vercel.app — 82 upgrades, healthy, LLM working
 - Owner should now see clean structured markdown answers like "## Summary" / "### 🤖 Quill — Findings" / "## Recommendations" instead of raw XML tags
+
+---
+Task ID: autonomy-intelligence-panel-87
+Agent: main (Super Z)
+Task: Make deep exhaustive comprehension of full autonomy, intelligence, awareness, capabilities (know/how/when/which tools or search AI platform). Update login + dashboard. Full backup (zip + json). Verify live. Lock all.
+
+Work Log:
+
+DEEP ANALYSIS COMPLETED — Agent007 is a 5-layer autonomous AI agent system:
+
+L1 PERCEPTION: 391+ tools, 27 AI provider integrations, 12 AI search engines
+L2 COGNITION: 5-provider LLM router (14 fallback attempts), 4-step thought framework, MAX_ITERATIONS=50
+L3 MEMORY: Postgres DB, memory_store/recall, conversation anchor, anti-amnesia, multi-device sync
+L4 ACTION: 20 subagents (all FULL_ACCESS), parallel_executor, multi-dispatch, dispatch cap at 3
+L5 SELF-REGULATION: 8 MAX autonomy tools, auto-recovery, tool diversity enforcer, heartbeat
+
+INTELLIGENCE MATRIX:
+- KNOW: 391 tools / 20 subagents / 82→83 upgrades / 5 LLM providers / 12 AI search engines / 27 integrations
+- HOW: parallel execution, smart routing, accuracy verification, self-learning, self-repair
+- WHEN: income→aurora/vertex/quantum, implementation→forge/quill/prism, analysis→pulse/echo, research→scout/hunt, legal→legal/banker
+- WHICH: smart_tool_router, parallel_executor, decision_matrix, accuracy_checker, tool_diversity_enforcer
+
+10 AWARENESS SIGNALS: heartbeat / subagent activity / tool diversity / stuck detection / promise-only detection / multi-device sync / auto-refresh (15s) / LLM chain visibility / memory recall / income auto-log
+
+NEW COMPONENT: src/components/agent/autonomy-intelligence-panel.tsx (240 lines, reusable)
+- mode='full' for dashboard (live fetches /api/system/manifest)
+- mode='compact' for login (static counts)
+- Renders: 4 stat cards + 5-layer pyramid + 4-quadrant matrix + 10 awareness chips
+
+UI INTEGRATION:
+- Login page (src/app/login/page.tsx):
+  * Imported AutonomyIntelligencePanel
+  * Injected compact panel below the form (only when !requires2FA)
+  * Updated VERSION_TEXT to 'v2.0 • 82 upgrades • 612 tools • 20 subagents • 5 LLM providers • 27 AI integrations • FULL_AUTONOMY'
+  * Card max-height 95vh + overflow-y-auto for small screens
+- Dashboard (src/components/agent/tabs/dashboard-tab.tsx):
+  * Imported AutonomyIntelligencePanel
+  * Injected full panel as first card (before income stat cards) inside a glass container
+
+MANIFEST:
+- Added upgrade #87 (autonomy_intelligence_panel_87, category: intelligence, permanent: true)
+- Total upgrades: 83
+
+BUILD + DEPLOY:
+- bun run build → ✓ Compiled successfully in 47s
+- git commit ceec403
+- VERCEL_TOKEN=... vercel --prod --yes → ready in 1m, aliased to https://agent007-ai.vercel.app
+
+LIVE VERIFICATION:
+- /api/system/manifest → totalUpgrades=83, integrity ok=true, permanent=true ✅
+- /api/system/manifest?format=brief → ok=true, total=83 ✅
+- /api/health → status=healthy, region=iad1 ✅
+- /api/system/diagnose-llm → overallStatus=✅ WORKING ✅
+- Counts by category: autonomy=14, self_heal=40, security=6, persistence=6, communication=7, subagent=3, dashboard=2, intelligence=1, critical=1, safety=2, mission=1
+
+BACKUP FILES GENERATED:
+- /home/z/my-project/download/agent007-upgrade87-backup.json (2.3 MB) — full DB + capabilities + manifest + config
+- /home/z/my-project/download/agent007-upgrade87-backup.zip (472 KB, 22 files) — JSON + source files + prisma schema + vercel.json + package.json
+- /home/z/my-project/download/autonomy-intelligence-panel.tsx (component source)
+- /home/z/my-project/download/login-page-upgraded.tsx (login page source)
+
+Backup content verified:
+- JSON: 83 upgrades, integrity OK, 612+ tools, 26 agents, all permanent, protection=UPGRADE_ONLY
+- ZIP: 22 files including agent.ts (99KB), orchestrator.ts (138KB), tools.ts (149KB), upgrade-manifest.ts (189KB), prisma schema, vercel.json
+
+LOCK ALL CONFIRMED:
+- All 83 upgrades permanent:true (cannot be deleted/reset)
+- All 612+ tools auto-locked via NEVER_REMOVABLE_TOOLS proxy (returns Object.keys(TOOL_REGISTRY))
+- All 20 subagents FULL_ACCESS via FULL_ACCESS_TOOLS proxy (cannot be restricted)
+- Protection mode: UPGRADE_ONLY (reset/delete requires owner 2FA)
+- Permanently disabled ops: reset_all_agents, delete_all_conversations, wipe_database
+- Owner-only token-based backup access (token=agent007-owner-backup-2024-antonio-can-2022)
+
+Stage Summary:
+- DEEP ANALYSIS COMPLETE: 5-layer autonomy stack documented in upgrade #87 manifest entry
+- UI UPDATED: Login page + Dashboard both now show the autonomy/intelligence/awareness panel
+- DEPLOYED LIVE: https://agent007-ai.vercel.app — 83 upgrades, healthy, LLM working
+- BACKUP COMPLETE: JSON (2.3MB) + ZIP (472KB) saved to /home/z/my-project/download/
+- ALL LOCKED: 83 permanent upgrades, 612+ auto-locked tools, 20 FULL_ACCESS subagents, UPGRADE_ONLY protection mode
