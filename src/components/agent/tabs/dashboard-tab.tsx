@@ -37,6 +37,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { useChatStore } from '@/store/chat-store'
+import { AutonomyIntelligencePanel } from '@/components/agent/autonomy-intelligence-panel'
 
 /* ----------------------------- types ----------------------------- */
 interface IncomeEntry {
@@ -257,6 +258,11 @@ export function DashboardTab() {
                 ADD INCOME
               </button>
             </div>
+          </div>
+
+          {/* UPGRADE #87 — Autonomy / Intelligence / Awareness panel (live data) */}
+          <div className="glass rounded-xl p-4 border border-cyan-400/20 mb-5">
+            <AutonomyIntelligencePanel mode="full" />
           </div>
 
           {/* Custom widgets — top position */}

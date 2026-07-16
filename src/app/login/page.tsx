@@ -18,13 +18,14 @@ import {
   MessageCircle,
 } from 'lucide-react'
 import { NexusLogo } from '@/components/agent/nexus-logo'
+import { AutonomyIntelligencePanel } from '@/components/agent/autonomy-intelligence-panel'
 
 /** Import SEED_EMAIL from auth.ts (client-side-safe constant) */
 const SEED_EMAIL = 'antonio.can2022@hotmail.com'
 
 /** Static version text — extracted as a constant so it's identical on server + client.
  * Adding suppressHydrationWarning as a safety net against stale .next cache. */
-const VERSION_TEXT = 'v2.0 • powered by Z.ai SDK • multi-user • PWA • voice I/O • 2FA'
+const VERSION_TEXT = 'v2.0 • 82 upgrades • 612 tools • 20 subagents • 5 LLM providers • 27 AI integrations • FULL_AUTONOMY'
 
 function LoginInner() {
   const router = useRouter()
@@ -291,7 +292,7 @@ function LoginInner() {
         initial={{ opacity: 0, y: 24, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.55, ease: 'easeOut' }}
-        className="relative z-10 w-full max-w-md glass-strong rounded-2xl p-7 sm:p-9"
+        className="relative z-10 w-full max-w-md glass-strong rounded-2xl p-7 sm:p-9 max-h-[95vh] overflow-y-auto"
         style={{ borderColor: 'rgba(0,240,255,0.35)', boxShadow: '0 0 40px rgba(0,240,255,0.15)' }}
       >
         {/* logo + title */}
@@ -535,6 +536,18 @@ function LoginInner() {
               )}
             </button>
           </form>
+        )}
+
+        {/* UPGRADE #87 — Autonomy / Intelligence / Awareness showcase (compact mode for login) */}
+        {!requires2FA && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+            className="mt-6 pt-5 border-t border-cyan-400/15"
+          >
+            <AutonomyIntelligencePanel mode="compact" />
+          </motion.div>
         )}
 
         <div className="mt-6 text-center text-xs text-[#7c89b5]">
