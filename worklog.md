@@ -4175,3 +4175,43 @@ Stage Summary:
 - All 27 providers from owner's list now have tool implementations registered in TOOL_REGISTRY
 - Each tool returns a helpful "needKey" message with the signup URL when its env var is missing — owner can simply chat with Agent007 and the agent will tell them which key to get where
 - Remaining work for owner: get the 19 missing API keys (4 already set: OPENAI, GEMINI, GROQ just-updated, OPENROUTER) and set them on Vercel → Settings → Environment Variables
+
+---
+Task ID: weird-answer-fix-86
+Agent: main (Super Z)
+Task: Owner reported the agent's answers are "weird and not comprehensible" — transcript shows raw `<dispatch_subagent id="quill" task="..."/>` XML tags leaking to the chat, plus `<parallel_executor>` pseudo-XML and "REASONING TRACE:" sections. Fix all 4 root causes and deploy.
+
+Work Log:
+- Read orchestrator.ts to trace the dispatch_subagent parsing flow
+- Identified 4 ROOT CAUSES:
+  1. DISPATCH_SUBAGENT_RE regex only matched PAIRED `<dispatch_subagent id="x">task</dispatch_subagent>` — did NOT match self-closing `<dispatch_subagent id="x" task="..."/>` which the LLM frequently emits
+  2. finalAnswer cleanup line only stripped DISPATCH_RE (`<dispatch agent=...>`), NOT DISPATCH_SUBAGENT_RE
+  3. LLM invented pseudo-XML tags: `<parallel_executor>`, `<reasoning_trace>`, `<execution>`, `<plan>`, `<action>`, `<reflect>` — none are real tools, all leaked as raw text
+  4. No dispatch cap → agent chained 6 dispatches (Quill → Forge → Aurora → Scout → Pulse → Echo) without synthesizing, hit MAX_ITERATIONS, produced useless "I've reached my iteration limit" message
+- Fixed #1: Rewrote DISPATCH_SUBAGENT_RE to handle all 4 formats (paired, self-closing w/ task attr, self-closing w/o task, mixed). Added capture group 3 for body content fallback.
+- Fixed #2: finalAnswer now strips THOUGHT_RE + DISPATCH_RE + DISPATCH_SUBAGENT_RE + PSEUDO_XML_RE + REASONING_TRACE_BLOCK_RE + safety-net regex
+- Fixed #3: Added two new regexes (PSEUDO_XML_RE for invented pseudo-XML tags, REASONING_TRACE_BLOCK_RE for "REASONING TRACE:" text headers)
+- Fixed #4: Added DISPATCH CAP — after 3 dispatches in one turn, orchestrator injects [SYSTEM] message forcing synthesis
+- Added empty-answer retry: if finalAnswer cleanup leaves <10 chars, prompt LLM for real answer instead of showing blank
+- Improved fallback auto-synthesis: now collects BOTH tool results AND [SUBAGENT_RESULT] messages from conversationMessages (previously only tool results, missed subagent outputs entirely)
+- Updated SYSTEM_PROMPT (agent.ts) and ORCHESTRATOR_PROMPT_ADDENDUM (orchestrator.ts) with:
+  * Strict OUTPUT FORMAT rules
+  * FORBIDDEN pseudo-XML list (parallel_executor, reasoning_trace, execution, plan, action, reflect, reflection, analyze)
+  * Both valid dispatch formats shown explicitly
+  * "Maximum 3 sub-agent dispatches per turn" rule
+  * "Final answer = PLAIN MARKDOWN only" rule
+- Added upgrade #86 entry to upgrade-manifest.ts with full root cause analysis + fix description
+- bun run build → ✓ Compiled successfully in 52s
+- git commit e143f44
+- VERCEL_TOKEN=... vercel --prod --yes → ready in 1m, aliased to https://agent007-ai.vercel.app
+- Verified live:
+  * /api/system/manifest → totalUpgrades=82 (includes weird_answer_fix_86) ✅
+  * /api/health → healthy ✅
+  * /api/system/diagnose-llm → ✅ WORKING ✅
+
+Stage Summary:
+- ROOT CAUSE FOUND: The regex DISPATCH_SUBAGENT_RE only handled paired tags but the LLM was emitting self-closing `<dispatch_subagent id="x" task="..."/>` format → dispatch not parsed → raw XML leaked as the final answer
+- ALL 4 BUGS FIXED: regex now handles 4 formats, finalAnswer cleanup strips all pseudo-XML/reasoning traces, dispatch cap at 3, empty-answer retry, fallback synthesis includes subagent results
+- PROMPT UPDATED: Both SYSTEM_PROMPT and ORCHESTRATOR_PROMPT_ADDENDUM now explicitly forbid pseudo-XML and mandate plain markdown final answers
+- DEPLOYED LIVE: https://agent007-ai.vercel.app — 82 upgrades, healthy, LLM working
+- Owner should now see clean structured markdown answers like "## Summary" / "### 🤖 Quill — Findings" / "## Recommendations" instead of raw XML tags
