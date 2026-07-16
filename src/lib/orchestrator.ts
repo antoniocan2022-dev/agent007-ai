@@ -56,10 +56,19 @@ export { MANAGE_ACTIONS, MANAGE_ACTION_COUNT, isManageAction } from './manage-ac
  * sometimes emits one or the other. Uses non-greedy [\s\S]*? for the task value. */
 const DISPATCH_RE = /<dispatch\s+agent=["']([^"']+)["']\s+task=["']([\s\S]*?)["']\s*\/?>/i
 
-// UPGRADE #63 — Also detect <dispatch_subagent id="...">task</dispatch_subagent> format
-// The LLM often writes this format instead of <dispatch agent="..." task="..."/>
-// Without this, dispatches are treated as text and the agent gets stuck in a loop.
-const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/i
+// UPGRADE #63 + #86 — Detect <dispatch_subagent ...> in ALL formats the LLM emits:
+//   (a) <dispatch_subagent id="quill">task text</dispatch_subagent>   (paired)
+//   (b) <dispatch_subagent id="quill" task="..."/>                      (self-closing w/ task attr)
+//   (c) <dispatch_subagent id="quill"/>                                  (self-closing, task in body)
+//   (d) <dispatch_subagent id="quill" task="...">task</dispatch_subagent> (mixed)
+// Without this, dispatches leak as raw XML text to the user (the "weird incomprehensible answer" bug).
+const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*(?:task=["']([\s\S]*?)["']\s*)?(?:\/>|>([\s\S]*?)<\/dispatch_subagent>)/i
+
+// UPGRADE #86 — Strip residual pseudo-XML the LLM sometimes invents (parallel_executor, reasoning trace, etc.)
+// These are NOT real tools — the correct way is <tool name="parallel_executor">. If the LLM emits
+// pseudo-XML, we strip it from the final answer so the user never sees raw tags.
+const PSEUDO_XML_RE = /<\/?(?:parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)(?:\s+[^>]*)?(?:\/>|>[\s\S]*?<\/(?:parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)>)/gi
+const REASONING_TRACE_BLOCK_RE = /(?:^|\n)\s*(?:REASONING\s*TRACE|REASONING|INTERNAL\s*MONOLOGUE|CHAIN\s*OF\s*THOUGHT|THINKING)\s*:?\s*\n[\s\S]*?(?=\n\s*(?:[A-Z][A-Z _]{4,}|<|YOU:|$))/gi
 
 /* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
  * Captures the full tag string; attribute parsing happens in parseManageTag. */
@@ -95,10 +104,12 @@ function parseOrchestrator(content: string): OrchestratorParsed {
       raw: content,
     }
   }
-  // UPGRADE #63 — Handle <dispatch_subagent id="...">task</dispatch_subagent>
+  // UPGRADE #63 + #86 — Handle <dispatch_subagent id="..."> in ALL formats
+  // Capture groups: [1]=id, [2]=task attr (if present), [3]=body content (if paired tag)
   if (dispatchSubagentMatch) {
     const agentId = dispatchSubagentMatch[1].trim().toLowerCase()
-    const task = dispatchSubagentMatch[2].trim()
+    // Prefer task attribute (group 2); fall back to body content (group 3)
+    const task = (dispatchSubagentMatch[2] ?? dispatchSubagentMatch[3] ?? '').trim() || 'execute task'
     return {
       thought,
       dispatch: { agentId, task },
@@ -174,25 +185,31 @@ SUB-AGENTS AVAILABLE (all have web_search + page_reader + wikipedia_search + wik
 - legal (Legal & Tax Strategist — USA/Canada) — US federal/state tax law, CRA/Canadian tax, entity formation (LLC/S-corp), cross-border treaties, deductions, write-offs
 - banker (The Banker — Banking & Treasury Strategist — USA/Canada) — US & Canadian banks, business accounts, merchant services, credit cards, loans, treasury, FX, FDIC/OSFI regulations
 
-DISPATCH FORMAT — to delegate a sub-task to a sub-agent, emit exactly one self-closing tag:
-<dispatch agent="agent_id" task="clear description of the sub-task" />
+DISPATCH FORMAT — to delegate a sub-task to a sub-agent, emit ONE of these two formats (they are equivalent):
 
-Examples:
+Format A (self-closing):   <dispatch agent="agent_id" task="clear description of the sub-task" />
+Format B (paired tag):     <dispatch_subagent id="agent_id">clear description of the sub-task</dispatch_subagent>
+
+⚠️ DO NOT mix the two formats. DO NOT emit self-closing dispatch_subagent with a task attribute (e.g. <dispatch_subagent id="x" task="..."/>) — it will be parsed incorrectly. If you use the _subagent form, ALWAYS pair it with a closing </dispatch_subagent> tag and put the task as the body text.
+
+Examples (BOTH valid — pick one and stick with it):
 <dispatch agent="scout" task="Find 3 trending AI niches with high search volume and low competition" />
-<dispatch agent="aurora" task="Design a 30-day content calendar for a faceless YouTube channel about AI tools, with monetization strategy" />
-<dispatch agent="prism" task="Generate a logo concept for 'Aurora Roasters' coffee brand — minimalist, aurora borealis theme" />
-<dispatch agent="forge" task="Write a Node.js script that calculates compound interest given principal, rate, time" />
-<dispatch agent="legal" task="What are the 2025 US federal tax brackets for self-employed individuals? Cite irs.gov sources." />
-<dispatch agent="banker" task="What are the current top US HYSA rates? Cite source URLs." />
+<dispatch_subagent id="scout">Find 3 trending AI niches with high search volume and low competition</dispatch_subagent>
 
-ORCHESTRATION RULES:
+<dispatch agent="aurora" task="Design a 30-day content calendar for a faceless YouTube channel about AI tools" />
+<dispatch_subagent id="aurora">Design a 30-day content calendar for a faceless YouTube channel about AI tools</dispatch_subagent>
+
+ORCHESTRATION RULES (UPGRADE #86 — STRICT):
 - Decompose complex user requests into sub-tasks. Dispatch the most specialized agent for each sub-task.
-- You may dispatch up to 5 sub-agents in one turn (sequentially is fine — each one runs its own loop).
+- ⚠️ DISPATCH CAP (UPGRADE #86): Maximum 3 sub-agent dispatches per turn. After 3, you MUST synthesize all results into a final answer. The owner does NOT want to see you dispatch 5-6 agents in a chain — they want a clear, consolidated answer.
 - After each sub-agent returns, you receive its result as: [SUBAGENT_RESULT] agent_id: <their answer>
-- You may then dispatch more sub-agents, OR synthesize the final answer.
-- The final answer to the user is plain markdown text (no tags). Synthesize all sub-agent outputs into a coherent response with proper attribution (e.g., "📊 Per Scout's research..." or "🎨 Prism generated this concept..." or "⚖️ Per LEGAL's analysis..."). Always include a brief INCOME PROJECTION in your final answer (daily/weekly/monthly potential).
-- You may also call tools DIRECTLY (web_search, memory_store, wikipedia_search, etc.) for quick lookups without dispatching a sub-agent, if appropriate.
-- Max 5 sub-agent dispatches per turn. Be efficient — don't dispatch agents unnecessarily.
+- After 1-3 dispatches, SYNTHESIZE all results into a coherent final answer with proper attribution (e.g., "📊 Per Scout's research..." or "🎨 Prism generated this concept..." or "⚖️ Per LEGAL's analysis..."). Always include a brief INCOME PROJECTION in your final answer (daily/weekly/monthly potential).
+- You may also call tools DIRECTLY via <tool name="...">{json}</tool> (web_search, memory_store, wikipedia_search, parallel_executor, etc.) for quick lookups without dispatching a sub-agent.
+- ⚠️ FORBIDDEN OUTPUT FORMATS (these leak as raw text to the owner — NEVER emit them):
+  * <parallel_executor>...</parallel_executor>  →  USE <tool name="parallel_executor">{"tools":[...]}</tool> instead
+  * "REASONING TRACE:" or <reasoning_trace> blocks  →  USE <thought>...</thought> instead (which is hidden from user)
+  * <execution> / <plan> / <action> / <reflect> pseudo-XML  →  Just write plain markdown
+- The final answer to the user is PLAIN MARKDOWN (## headings, bullet points, **bold**). NO raw tags. NO JSON. NO pseudo-XML.
 
 DECISION FRAMEWORK:
 - **CRITICAL RULE — ADDRESSED BY NAME**: If the user's message addresses a sub-agent by name (e.g. starts with "Cybersecurity A, ..." or "LEGAL, ..." or "THE BANKER, ..." or mentions any agent name from the CURRENTLY AVAILABLE SUB-AGENTS list above), you MUST dispatch that exact agent via <dispatch agent="agent_id" task="..."/>. Do NOT do the work yourself with direct web_search calls. Do NOT claim the agent doesn't exist. The CURRENTLY AVAILABLE SUB-AGENTS list above is the authoritative source of what agents exist — if a name appears there, it exists and can be dispatched.
@@ -961,16 +978,17 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
     // 1) Dispatch path
     if (parsed.dispatch) {
-      // UPGRADE #68 — Multi-dispatch: detect ALL dispatch tags + execute in parallel
-      const allDispatchRe = /<dispatch(?:_subagent)?\s+(?:id|agent)=["']([^"']+)["']\s*(?:task=["']([\s\S]*?)["']\s*)?\/?>/gi
-      const allSubagentRe = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/gi
+      // UPGRADE #68 + #86 — Multi-dispatch: detect ALL dispatch tags + execute in parallel
+      // Handles: <dispatch agent="x" task="..."/> AND <dispatch_subagent id="x">task</dispatch_subagent>
+      //          AND <dispatch_subagent id="x" task="..."/> AND <dispatch_subagent id="x"/>
+      const allDispatchRe = /<dispatch(?:_subagent)?\s+(?:id|agent)=["']([^"']+)["']\s*(?:task=["']([\s\S]*?)["']\s*)?(?:\/>|>([\s\S]*?)<\/dispatch_subagent>)/gi
       const allDispatches: Array<{ agentId: string; task: string }> = []
       let dm: RegExpExecArray | null
       while ((dm = allDispatchRe.exec(content)) !== null) {
-        allDispatches.push({ agentId: dm[1].trim().toLowerCase(), task: (dm[2] ?? '').trim() || 'execute task' })
-      }
-      while ((dm = allSubagentRe.exec(content)) !== null) {
-        allDispatches.push({ agentId: dm[1].trim().toLowerCase(), task: dm[2].trim() })
+        const agentId = dm[1].trim().toLowerCase()
+        // task may come from attr (group 2) or body (group 3)
+        const task = (dm[2] ?? dm[3] ?? '').trim() || 'execute task'
+        allDispatches.push({ agentId, task })
       }
 
       if (allDispatches.length > 1) {
@@ -1116,6 +1134,16 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         role: 'user',
         content: `[SUBAGENT_RESULT] ${sub.id}: ${subAnswer}`,
       })
+
+      // UPGRADE #86 — Hard synthesis cap: after 3 dispatches in one turn, FORCE the agent to synthesize.
+      // Without this, the agent dispatches Quill → Forge → Aurora → Scout → Pulse → Echo → ... and never
+      // produces a final answer — the user sees raw XML or "I've reached my iteration limit".
+      if (dispatchCount >= 3 && iter < MAX_ITERATIONS - 1) {
+        conversationMessages.push({
+          role: 'user',
+          content: `[SYSTEM] SYNTHESIS CAP (upgrade #86): You have dispatched ${dispatchCount} sub-agents in this turn. That is the maximum allowed before synthesis. DO NOT dispatch another sub-agent. DO NOT call another tool. SYNTHESIZE the results you have RIGHT NOW into a clear, structured final answer for the owner. Use markdown headings (## Summary, ## Findings, ## Recommendations, ## Next Steps). Quote the most important findings from each sub-agent. The owner is waiting — give them the answer NOW.`,
+        })
+      }
 
       // BEST-EFFORT auto-logging: if the sub-agent's answer mentions dollar
       // amounts (e.g. "$12.50", "$1,200/mo", "$45/day"), log them as income
@@ -1291,7 +1319,28 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     }
 
     // 3a) Final answer path — emit synthesis signal then stream tokens
-    finalAnswer = content.replace(THOUGHT_RE, '').replace(DISPATCH_RE, '').trim() || content.trim()
+    // UPGRADE #86 — Strip ALL pseudo-XML / dispatch tags / reasoning traces from the final answer.
+    // Without this, raw `<dispatch_subagent ...>`, `<parallel_executor>`, and "REASONING TRACE:"
+    // blocks leak to the user as the "weird incomprehensible answer" the owner reported.
+    finalAnswer = content
+      .replace(THOUGHT_RE, '')
+      .replace(DISPATCH_RE, '')
+      .replace(DISPATCH_SUBAGENT_RE, '')
+      .replace(PSEUDO_XML_RE, '')
+      .replace(REASONING_TRACE_BLOCK_RE, '')
+      .replace(/<dispatch_subagent[^>]*?(?:\/>|>[\s\S]*?<\/dispatch_subagent>)/gi, '') // safety net: catch any leftover
+      .replace(/<\/?(?:dispatch|dispatch_subagent|parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)[^>]*?>/gi, '') // final sweep: strip any lone tags
+      .trim() || content.trim()
+
+    // UPGRADE #86 — If finalAnswer is now empty (everything was a tag/thought), retry instead of showing blank
+    if (finalAnswer.length < 10 && iter < MAX_ITERATIONS - 1) {
+      conversationMessages.push({ role: 'assistant', content })
+      conversationMessages.push({
+        role: 'user',
+        content: '[SYSTEM] Your previous response contained only tags (dispatch / thought / pseudo-XML) with no actual answer text. The owner saw nothing comprehensible. Please respond NOW with a clear markdown answer (use ## headings, bullet points, etc.) — NO tags, NO thoughts, NO pseudo-XML. Just plain text the owner can read.',
+      })
+      continue
+    }
 
     // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
     await emit('synthesis', { content: finalAnswer.slice(0, 80) })
@@ -1304,17 +1353,33 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   }
 
   if (!finalAnswer) {
-    // FIX 1: Auto-synthesize from what we have instead of just saying "reached limit".
-    // Gather all tool results collected so far, then produce a useful summary.
+    // UPGRADE #86 — Auto-synthesize from what we have (BOTH tool results AND subagent results).
+    // The previous version only collected tool results, missing subagent dispatch results entirely.
+    // This is what caused the "I've reached my iteration limit" message after a long chain of dispatches.
     const collectedResults: string[] = []
+
+    // (a) collect direct tool call results
     for (const s of steps) {
       if (s.toolName && s.toolResult?.result) {
-        const preview = s.toolResult.result.slice(0, 300)
-        collectedResults.push(`- ${s.toolName}: ${preview}`)
+        const preview = s.toolResult.result.slice(0, 400)
+        collectedResults.push(`### 🔧 ${s.toolName}\n${preview}`)
       }
     }
+
+    // (b) collect subagent dispatch results from conversationMessages
+    const subagentResults = conversationMessages
+      .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('[SUBAGENT_RESULT]'))
+      .map((m) => {
+        const txt = (m.content as string).replace(/^\[SUBAGENT_RESULT\]\s*/, '')
+        const colonIdx = txt.indexOf(':')
+        const agentId = colonIdx > 0 ? txt.slice(0, colonIdx).trim() : 'subagent'
+        const body = colonIdx > 0 ? txt.slice(colonIdx + 1).trim() : txt
+        return `### 🤖 ${agentId}\n${body.slice(0, 600)}`
+      })
+    collectedResults.push(...subagentResults)
+
     if (collectedResults.length > 0) {
-      finalAnswer = `I've processed ${collectedResults.length} step(s) this turn. Here's what I have so far:\n\n${collectedResults.join('\n\n')}\n\n---\n*To continue, type "continue" and I'll pick up where I left off.*`
+      finalAnswer = `## Summary\nI dispatched ${subagentResults.length} sub-agent(s) and ran ${steps.length} tool call(s) this turn. Here are the consolidated findings:\n\n${collectedResults.join('\n\n---\n\n')}\n\n---\n## Next Steps\nType **"continue"** and I'll pick up where I left off, or ask me to drill into any specific finding above.`
     } else {
       finalAnswer =
         "I've reached my iteration limit for this turn without completing the task. Please type 'continue' and I'll retry."
