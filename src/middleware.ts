@@ -66,6 +66,6 @@ export default withAuth({
 
 export const config = {
   matcher: [
-    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/fix-agents|system/test-communication|system/zip-backup|system/self-restore|commands/inbound|schedules/tick|monitor|subagents|mission/tick|recipes|triggers|decisions).*)',
+    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/fix-agents|system/test-communication|system/zip-backup|system/self-restore|commands/inbound|schedules/tick|monitor|subagents|mission/tick|recipes|triggers|decisions|reality-check).*)',
   ],
 }

@@ -2279,6 +2279,19 @@ TOOL_REGISTRY.quality_evaluator = { fn: toolQualityEvaluator, icon: 'star', labe
 TOOL_REGISTRY.external_trigger = { fn: toolExternalTrigger, icon: 'mail', label: 'External Trigger (email/WhatsApp/webhook ingestion)' }
 TOOL_REGISTRY.auto_decision_engine = { fn: toolAutoDecisionEngine, icon: 'check-shield', label: 'Auto-Decision Engine (threshold-based autonomous decisions)' }
 
+/* ═══ UPGRADE #89 — REALITY ACTION MODE (4 new tools) ═══ */
+import {
+  toolMissionActionTick,
+  toolScheduleActionMode,
+  toolIncomeRealityCheck,
+  toolToolsRealityCheck,
+} from './reality-action-mode'
+
+TOOL_REGISTRY.mission_action_tick = { fn: toolMissionActionTick, icon: 'zap', label: 'Mission Action Tick (REAL subagent dispatches, not simulated)' }
+TOOL_REGISTRY.schedule_action_mode = { fn: toolScheduleActionMode, icon: 'calendar-clock', label: 'Schedule Action Mode (update schedule prompts to produce output)' }
+TOOL_REGISTRY.income_reality_check = { fn: toolIncomeRealityCheck, icon: 'dollar-sign', label: 'Income Reality Check (distinguish REAL vs AUTO-PARSED income)' }
+TOOL_REGISTRY.tools_reality_check = { fn: toolToolsRealityCheck, icon: 'eye', label: 'Tools Reality Check (classify REAL vs VIRTUAL tools)' }
+
 /* ================================================================== *
  * OPTIMIZATION TOOLS V2 — 6 new tools covering Performance,
  * Utilization, and Accuracy improvements the owner requested.
