@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -15,23 +15,27 @@ interface ScrollArrowsProps {
  * UPGRADE #69 — Owner request: "Create arrow up and down, to go on top or down
  * in the conversation."
  *
+ * UPGRADE #90 — Owner complaint: "Arrows still missing."
+ * FIX: Arrows are now ALWAYS VISIBLE (no auto-hide), with visual indicators
+ * showing whether scroll is possible. Added a manual toggle button to
+ * show/hide arrows. Made arrows larger and more visible.
+ *
  * Features:
  *   - Arrow UP (⬆): Scrolls to the top of the conversation (first message)
  *   - Arrow DOWN (⬇): Scrolls to the bottom of the conversation (latest message)
- *   - Arrows appear/disappear based on scroll position:
- *     - UP arrow shows when scrolled down past 200px
- *     - DOWN arrow shows when not at the bottom (scrolled up from latest)
+ *   - ALWAYS VISIBLE (no auto-hide — was the bug)
+ *   - Disabled state when at top/bottom (grayed out, not hidden)
  *   - Smooth scroll animation
- *   - Auto-hide after 3 seconds of inactivity
  *   - Dark glassmorphic style matching the NEXUS AI theme
  *   - Positioned bottom-right of the chat area (above the input)
  *   - Mobile-responsive (smaller on mobile)
  *   - Accessible (aria-labels, keyboard focusable)
+ *   - Pulsing glow effect to draw attention
  */
 export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
   const [showUp, setShowUp] = useState(false)
   const [showDown, setShowDown] = useState(false)
-  const hideTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [alwaysVisible, setAlwaysVisible] = useState(true) // UPGRADE #90 — default ON
 
   const checkScroll = useCallback(() => {
     const container = containerRef.current
@@ -40,33 +44,32 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
     const { scrollTop, scrollHeight, clientHeight } = container
     const isAtTop = scrollTop < 200
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 200
+    const hasScrollableContent = scrollHeight > clientHeight + 100
 
-    setShowUp(!isAtTop && scrollHeight > clientHeight + 400)
-    setShowDown(!isAtBottom && scrollHeight > clientHeight + 400)
-
-    // Auto-hide after 3 seconds
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-    if (!isAtTop || !isAtBottom) {
-      hideTimerRef.current = setTimeout(() => {
-        setShowUp(false)
-        setShowDown(false)
-      }, 3000)
+    // UPGRADE #90 — Show arrows based on alwaysVisible flag OR scroll position
+    if (alwaysVisible) {
+      // Always show both arrows (disabled state if at top/bottom)
+      setShowUp(hasScrollableContent)
+      setShowDown(hasScrollableContent)
+    } else {
+      // Original behavior: only show when scrollable
+      setShowUp(!isAtTop && hasScrollableContent)
+      setShowDown(!isAtBottom && hasScrollableContent)
     }
-  }, [containerRef])
+  }, [containerRef, alwaysVisible])
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     container.addEventListener('scroll', checkScroll, { passive: true })
-    // Check on mount + when messages change (via interval as a fallback)
     checkScroll()
-    const interval = setInterval(checkScroll, 1000)
+    // UPGRADE #90 — Check more frequently (was 1000ms, now 500ms)
+    const interval = setInterval(checkScroll, 500)
 
     return () => {
       container.removeEventListener('scroll', checkScroll)
       clearInterval(interval)
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
     }
   }, [containerRef, checkScroll])
 
@@ -81,6 +84,11 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
     if (!container) return
     container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
   }, [containerRef])
+
+  // UPGRADE #90 — Determine disabled states (grayed out but still visible)
+  const container = containerRef.current
+  const isAtTop = container ? container.scrollTop < 200 : true
+  const isAtBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 200) : true
 
   const hasAnyArrow = showUp || showDown
 
@@ -104,14 +112,21 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
                 exit={{ opacity: 0, scale: 0.5 }}
                 transition={{ duration: 0.15 }}
                 onClick={scrollToTop}
+                disabled={isAtTop && alwaysVisible}
                 aria-label="Scroll to top of conversation"
                 title="Scroll to top"
-                className="group flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full glass border border-cyan-400/40 hover:border-cyan-400/70 hover:bg-cyan-400/15 transition-all shadow-lg shadow-cyan-500/10"
+                className={`group flex items-center justify-center w-12 h-12 sm:w-12 sm:h-12 rounded-full glass border shadow-lg transition-all ${
+                  isAtTop && alwaysVisible
+                    ? 'border-white/10 opacity-40 cursor-not-allowed'
+                    : 'border-cyan-400/40 hover:border-cyan-400/70 hover:bg-cyan-400/15 shadow-cyan-500/10'
+                }`}
                 style={{ touchAction: 'manipulation' }}
               >
-                <ChevronUp className="w-5 h-5 text-cyan-300 group-hover:text-cyan-200 transition-colors" strokeWidth={2.5} />
-                {/* Glow effect on hover */}
-                <span className="absolute inset-0 rounded-full bg-cyan-400/0 group-hover:bg-cyan-400/5 blur-md transition-all" />
+                <ChevronUp className={`w-6 h-6 transition-colors ${isAtTop && alwaysVisible ? 'text-white/30' : 'text-cyan-300 group-hover:text-cyan-200'}`} strokeWidth={2.5} />
+                {/* Pulsing glow effect */}
+                {!isAtTop && (
+                  <span className="absolute inset-0 rounded-full bg-cyan-400/10 animate-pulse" />
+                )}
               </motion.button>
             )}
           </AnimatePresence>
@@ -126,17 +141,42 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
                 exit={{ opacity: 0, scale: 0.5 }}
                 transition={{ duration: 0.15 }}
                 onClick={scrollToBottom}
+                disabled={isAtBottom && alwaysVisible}
                 aria-label="Scroll to bottom of conversation (latest messages)"
                 title="Scroll to latest"
-                className="group flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full glass border border-purple-400/40 hover:border-purple-400/70 hover:bg-purple-400/15 transition-all shadow-lg shadow-purple-500/10"
+                className={`group flex items-center justify-center w-12 h-12 sm:w-12 sm:h-12 rounded-full glass border shadow-lg transition-all ${
+                  isAtBottom && alwaysVisible
+                    ? 'border-white/10 opacity-40 cursor-not-allowed'
+                    : 'border-purple-400/40 hover:border-purple-400/70 hover:bg-purple-400/15 shadow-purple-500/10'
+                }`}
                 style={{ touchAction: 'manipulation' }}
               >
-                <ChevronDown className="w-5 h-5 text-purple-300 group-hover:text-purple-200 transition-colors" strokeWidth={2.5} />
-                {/* Glow effect on hover */}
-                <span className="absolute inset-0 rounded-full bg-purple-400/0 group-hover:bg-purple-400/5 blur-md transition-all" />
+                <ChevronDown className={`w-6 h-6 transition-colors ${isAtBottom && alwaysVisible ? 'text-white/30' : 'text-purple-300 group-hover:text-purple-200'}`} strokeWidth={2.5} />
+                {/* Pulsing glow effect */}
+                {!isAtBottom && (
+                  <span className="absolute inset-0 rounded-full bg-purple-400/10 animate-pulse" />
+                )}
               </motion.button>
             )}
           </AnimatePresence>
+
+          {/* UPGRADE #90 — Toggle button (eye icon) to show/hide arrows */}
+          <motion.button
+            key="toggle-arrows"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.15 }}
+            onClick={() => setAlwaysVisible((v) => !v)}
+            aria-label={alwaysVisible ? 'Auto-hide arrows' : 'Always show arrows'}
+            title={alwaysVisible ? 'Always visible (click to auto-hide)' : 'Auto-hide (click for always visible)'}
+            className="group flex items-center justify-center w-8 h-8 sm:w-8 sm:h-8 rounded-full glass border border-white/10 hover:border-white/30 transition-all opacity-60 hover:opacity-100"
+            style={{ touchAction: 'manipulation' }}
+          >
+            <span className="text-[10px] text-white/60 group-hover:text-white/90 font-mono">
+              {alwaysVisible ? 'ON' : 'OFF'}
+            </span>
+          </motion.button>
         </motion.div>
       )}
     </AnimatePresence>

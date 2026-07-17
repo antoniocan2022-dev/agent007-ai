@@ -2292,6 +2292,25 @@ TOOL_REGISTRY.schedule_action_mode = { fn: toolScheduleActionMode, icon: 'calend
 TOOL_REGISTRY.income_reality_check = { fn: toolIncomeRealityCheck, icon: 'dollar-sign', label: 'Income Reality Check (distinguish REAL vs AUTO-PARSED income)' }
 TOOL_REGISTRY.tools_reality_check = { fn: toolToolsRealityCheck, icon: 'eye', label: 'Tools Reality Check (classify REAL vs VIRTUAL tools)' }
 
+/* ═══ UPGRADE #90 — MAX AUTONOMY V2 (7 new tools) ═══ */
+import {
+  toolTaskDecomposerV2,
+  toolResultVerifierV2,
+  toolContextCompressorV2,
+  toolSmartRetryEngineV2,
+  toolQualityScorerV2,
+  toolAutonomousExecutorV2,
+  toolOfflineAutonomyEngine,
+} from './max-autonomy-v2'
+
+TOOL_REGISTRY.task_decomposer_v2 = { fn: toolTaskDecomposerV2, icon: 'list-tree', label: 'Task Decomposer V2 (20 subtasks, dependency graph, parallel groups, 99% target)' }
+TOOL_REGISTRY.result_verifier_v2 = { fn: toolResultVerifierV2, icon: 'check-square', label: 'Result Verifier V2 (12 checks: errors+completeness+accuracy+sources+plagiarism+bias)' }
+TOOL_REGISTRY.context_compressor_v2 = { fn: toolContextCompressorV2, icon: 'compress', label: 'Context Compressor V2 (multi-level: aggressive/medium/light + entity preservation)' }
+TOOL_REGISTRY.smart_retry_engine_v2 = { fn: toolSmartRetryEngineV2, icon: 'refresh-cw', label: 'Smart Retry V2 (5 strategies: simplify+error-specific+minimal+alternate-tool+fallback-provider)' }
+TOOL_REGISTRY.quality_scorer_v2 = { fn: toolQualityScorerV2, icon: 'star', label: 'Quality Scorer V2 (10 dimensions, 99% Grade A target, auto-refine)' }
+TOOL_REGISTRY.autonomous_executor_v2 = { fn: toolAutonomousExecutorV2, icon: 'zap', label: 'Autonomous Executor V2 (full pipeline: decompose→execute→verify→score→refine→report, 99%)' }
+TOOL_REGISTRY.offline_autonomy_engine = { fn: toolOfflineAutonomyEngine, icon: 'moon', label: 'Offline Autonomy Engine (continues mission when dashboard closed, via Vercel Cron)' }
+
 /* ================================================================== *
  * OPTIMIZATION TOOLS V2 — 6 new tools covering Performance,
  * Utilization, and Accuracy improvements the owner requested.

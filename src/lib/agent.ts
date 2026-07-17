@@ -532,6 +532,51 @@ KEY INSIGHT: The agent is NOT limited by tool count. http_fetch is the universal
 bridge — it can call ANY REST API. The real bottleneck is CONFIGURATION
 (which API keys are set), not tool count.
 
+MAX AUTONOMY V2 (UPGRADE #90 — MAX-OUT OF 6 IMPROVEMENT AREAS):
+6 improvements requested by owner, all maxed out to 99% quality target:
+
+1. task_decomposer_v2 — Deeper decomposition (15→20 subtasks), dependency graph,
+   parallel groups, priority + ETA per step. Use for ANY complex task.
+   <tool name="task_decomposer_v2">{"task":"your task here"}</tool>
+
+2. result_verifier_v2 — 12 checks (was 6): non_empty, contains_expected, criteria,
+   no_errors, min_length, max_length, format, completeness, factual_accuracy,
+   source_verification, plagiarism_check, bias_check.
+   <tool name="result_verifier_v2">{"result":"...","question":"..."}</tool>
+
+3. context_compressor_v2 — Multi-level compression (aggressive/medium/light) with
+   entity preservation (tools, URLs, dollar amounts, dates, decisions, key facts).
+   No more context overflow — handles ANY conversation length.
+   <tool name="context_compressor_v2">{"messages":[...],"level":"auto"}</tool>
+
+4. smart_retry_engine_v2 — 5 strategies (was 3): simplify, error-specific, minimal,
+   alternate-tool, fallback-provider. Exponential backoff (1s,2s,4s,8s,16s).
+   <tool name="smart_retry_engine_v2">{"toolName":"...","originalArgs":{},"originalError":"..."}</tool>
+
+5. quality_scorer_v2 — 10 dimensions (was 7), 99% target (was 97%):
+   relevance, completeness, accuracy, clarity, actionability, source_quality,
+   no_errors, specificity, originality, bias_balance. Auto-refine loop.
+   <tool name="quality_scorer_v2">{"answer":"...","question":"...","target":99}</tool>
+
+6. autonomous_executor_v2 — Full pipeline: decompose → execute → verify → score →
+   refine → report. 99% quality target, max 5 refinements. USE THIS FOR ANY
+   COMPLEX TASK — it handles the entire pipeline autonomously.
+   <tool name="autonomous_executor_v2">{"task":"your task here","target":99}</tool>
+
+7. offline_autonomy_engine — Continues mission when dashboard closed or computer off.
+   Uses Vercel Cron (daily 09:00 UTC) + /api/schedules/tick to execute queued tasks.
+   Owner can close dashboard — mission continues autonomously.
+   <tool name="offline_autonomy_engine">{"action":"queue_default_mission"}</tool>
+
+PROACTIVE AUTONOMY RULES V2 (UPGRADE #90):
+- For ANY complex task: use autonomous_executor_v2 (handles full pipeline to 99%)
+- Before delivering any answer: use quality_scorer_v2 (target 99% Grade A)
+- If quality < 99%: auto-refine (max 5 times) until target met
+- If context too long: use context_compressor_v2 (multi-level + entity preservation)
+- If tool fails: use smart_retry_engine_v2 (5 strategies, exponential backoff)
+- When owner closes dashboard: queue offline tasks via offline_autonomy_engine
+- For mission continuation: use mission_action_tick (REAL dispatches, not simulated)
+
 OUTPUT FORMAT (UPGRADE #86 — STRICT):
 - Use <thought>brief reasoning</thought> before actions (1-3 sentences max, hidden from user).
 - Use <tool name="...">{json}</tool> to call tools (this is the ONLY way to call a tool).

@@ -40,11 +40,37 @@ export default function Home() {
   const startAutoRefresh = useChatStore((s) => s.startAutoRefresh)
 
   // Redirect to /login when unauthenticated.
+  // UPGRADE #90 — Immediate redirect (no loading screen flash).
+  // If status is 'unauthenticated', redirect IMMEDIATELY before rendering anything.
   useEffect(() => {
     if (status === 'unauthenticated') {
-      router.replace('/login')
+      // Use window.location for instant redirect (no client-side router delay)
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login')
+      } else {
+        router.replace('/login')
+      }
     }
   }, [status, router])
+
+  // UPGRADE #90 — While checking auth status, show MINIMAL loading screen
+  // (not the full background + UI) to avoid the "dashboard flash" before redirect.
+  if (status === 'loading' || status === 'unauthenticated') {
+    return (
+      <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
+        {/* Minimal loading — no Background component to avoid heavy asset load */}
+        <div className="relative z-10 flex flex-col items-center">
+          <div className="hex-pulse mb-5">
+            <NexusLogo size={72} />
+          </div>
+          <div className="flex items-center gap-2 text-cyan-300 text-sm tracking-[0.25em] font-semibold">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {status === 'unauthenticated' ? 'REDIRECTING TO LOGIN…' : 'BOOTING AGENT007…'}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Initial load (only after we know the user is authenticated)
   useEffect(() => {
@@ -55,27 +81,7 @@ export default function Home() {
     startAutoRefresh()
   }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 
-  if (status === 'loading' || status === 'unauthenticated') {
-    return (
-      <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
-        <Background />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.85 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-          className="relative z-10 flex flex-col items-center"
-        >
-          <div className="hex-pulse mb-5">
-            <NexusLogo size={72} />
-          </div>
-          <div className="flex items-center gap-2 text-cyan-300 text-sm tracking-[0.25em] font-semibold">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            {status === 'unauthenticated' ? 'REDIRECTING…' : 'BOOTING AGENT007…'}
-          </div>
-        </motion.div>
-      </div>
-    )
-  }
+  // (Loading/unauthenticated rendering handled above — no duplicate here)
 
   // Decide whether the desktop right sidebar should be visible inline.
   // - Desktop (>=1024px): use the store flag (rightOpen), inline
