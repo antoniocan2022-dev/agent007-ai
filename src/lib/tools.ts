@@ -2733,3 +2733,24 @@ TOOL_REGISTRY.failure_learning = { fn: toolFailureLearning, icon: 'alert-octagon
 TOOL_REGISTRY.tool_selection_accuracy_test = { fn: toolSelectionAccuracyTest, icon: 'check-square', label: 'Tool Selection Accuracy Test (15 scenarios, measure correctness)' }
 TOOL_REGISTRY.auto_documentation = { fn: toolAutoDocumentation, icon: 'file-text', label: 'Auto Documentation (generate /tools-docs page)' }
 TOOL_REGISTRY.tool_capability_map = { fn: toolCapabilityMap, icon: 'share-2', label: 'Tool Capability Map (visual graph of tool relationships)' }
+
+/* ═══ UPGRADE #91 — TOOL TESTING & COORDINATION SUITE (8 tools — fix: were missing from registry) ═══ */
+import {
+  toolTestRunner,
+  toolHealthChecker,
+  toolAutoRecoveryV2,
+  toolCoordinationMatrix,
+  toolAccuracyBenchmark,
+  toolUsageAnalytics,
+  toolIntegrationTestSuite,
+  toolSelfHealingTools,
+} from './tool-testing-coordination'
+
+TOOL_REGISTRY.tool_test_runner = { fn: toolTestRunner, icon: 'play', label: 'Tool Test Runner (execute any tool with args, return real result)' }
+TOOL_REGISTRY.tool_health_checker = { fn: toolHealthChecker, icon: 'heart', label: 'Tool Health Checker (live status of all tools)' }
+TOOL_REGISTRY.auto_recovery_v2 = { fn: toolAutoRecoveryV2, icon: 'shield', label: 'Auto Recovery V2 (3 failures → switch + notify + log + retry)' }
+TOOL_REGISTRY.tool_coordination_matrix = { fn: toolCoordinationMatrix, icon: 'grid', label: 'Tool Coordination Matrix (optimal tool combos by task type)' }
+TOOL_REGISTRY.accuracy_benchmark = { fn: toolAccuracyBenchmark, icon: 'target', label: 'Accuracy Benchmark (20 questions, per-provider accuracy)' }
+TOOL_REGISTRY.tool_usage_analytics = { fn: toolUsageAnalytics, icon: 'bar-chart', label: 'Tool Usage Analytics (calls, success rates, response times)' }
+TOOL_REGISTRY.integration_test_suite = { fn: toolIntegrationTestSuite, icon: 'check-circle', label: 'Integration Test Suite (multi-tool scenarios)' }
+TOOL_REGISTRY.self_healing_tools = { fn: toolSelfHealingTools, icon: 'wrench', label: 'Self-Healing Tools (auto-detect missing keys, suggest alternates)' }
