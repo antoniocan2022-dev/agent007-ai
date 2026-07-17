@@ -2712,3 +2712,24 @@ TOOL_REGISTRY.quantum_portfolio_tracker = { fn: toolQuantumPortfolioTracker, ico
 TOOL_REGISTRY.quantum_staking_automation = { fn: toolQuantumStakingAutomation, icon: 'coins', label: 'Quantum Staking Automation (8 protocols, $282/mo)' }
 TOOL_REGISTRY.real_time_market_analyzer = { fn: toolRealTimeMarketAnalyzer, icon: 'activity', label: 'Real-Time Market Analyzer (REAL CoinGecko API)' }
 TOOL_REGISTRY.user_engagement_analyzer = { fn: toolUserEngagementAnalyzer, icon: 'users', label: 'User Engagement Analyzer (5 cohorts, NPS 72)' }
+
+/* ═══ UPGRADE #92 — TOOL INTELLIGENCE ENGINE (8 new tools) ═══ */
+import {
+  toolKnowledgeBase,
+  toolSemanticRouterV2,
+  toolPriorityGuide,
+  toolMetadataSystem,
+  toolFailureLearning,
+  toolSelectionAccuracyTest,
+  toolAutoDocumentation,
+  toolCapabilityMap,
+} from './tool-intelligence'
+
+TOOL_REGISTRY.tool_knowledge_base = { fn: toolKnowledgeBase, icon: 'book', label: 'Tool Knowledge Base (rich descriptions, args, examples for all tools)' }
+TOOL_REGISTRY.semantic_router_v2 = { fn: toolSemanticRouterV2, icon: 'brain', label: 'Semantic Router V2 (capability-based matching, not just keywords)' }
+TOOL_REGISTRY.tool_priority_guide = { fn: toolPriorityGuide, icon: 'list-ordered', label: 'Tool Priority Guide (priority order for overlapping tools)' }
+TOOL_REGISTRY.tool_metadata_system = { fn: toolMetadataSystem, icon: 'tag', label: 'Tool Metadata System (cost, latency, accuracy, dependencies)' }
+TOOL_REGISTRY.failure_learning = { fn: toolFailureLearning, icon: 'alert-octagon', label: 'Failure Learning (avoid tools that failed recently)' }
+TOOL_REGISTRY.tool_selection_accuracy_test = { fn: toolSelectionAccuracyTest, icon: 'check-square', label: 'Tool Selection Accuracy Test (15 scenarios, measure correctness)' }
+TOOL_REGISTRY.auto_documentation = { fn: toolAutoDocumentation, icon: 'file-text', label: 'Auto Documentation (generate /tools-docs page)' }
+TOOL_REGISTRY.tool_capability_map = { fn: toolCapabilityMap, icon: 'share-2', label: 'Tool Capability Map (visual graph of tool relationships)' }
