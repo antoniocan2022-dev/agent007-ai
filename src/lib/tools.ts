@@ -2779,3 +2779,18 @@ TOOL_REGISTRY.tool_consistency_checker = { fn: toolConsistencyChecker, icon: 'ch
 TOOL_REGISTRY.tool_health_monitor = { fn: toolHealthMonitor, icon: 'activity', label: 'Tool Health Monitor (continuous monitoring with auto-alerts)' }
 TOOL_REGISTRY.tool_backup_restore = { fn: toolBackupRestore, icon: 'save', label: 'Tool Backup Restore (backup current tool registry + restore on failure)' }
 TOOL_REGISTRY.tool_self_healing_loop = { fn: toolSelfHealingLoop, icon: 'refresh-cw', label: 'Tool Self-Healing Loop (autonomous: detect→diagnose→fix→verify→subagent check→fix)' }
+
+/* ═══ UPGRADE #94 — MULTI-SEARCH COMPARISON ENGINE (5 new tools) ═══ */
+import {
+  toolMultiSearchCompare,
+  toolContentVerifier,
+  toolConsensusFinder,
+  toolDiscrepancyDetector,
+  toolSourceQualityRanker,
+} from './multi-search-comparison'
+
+TOOL_REGISTRY.multi_search_compare = { fn: toolMultiSearchCompare, icon: 'search', label: 'Multi-Search Compare (search 3+ engines simultaneously, compare results)' }
+TOOL_REGISTRY.content_verifier = { fn: toolContentVerifier, icon: 'check-circle', label: 'Content Verifier (cross-verify facts across multiple sources)' }
+TOOL_REGISTRY.consensus_finder = { fn: toolConsensusFinder, icon: 'users', label: 'Consensus Finder (find agreement across search results)' }
+TOOL_REGISTRY.discrepancy_detector = { fn: toolDiscrepancyDetector, icon: 'alert-triangle', label: 'Discrepancy Detector (detect when sources disagree)' }
+TOOL_REGISTRY.source_quality_ranker = { fn: toolSourceQualityRanker, icon: 'award', label: 'Source Quality Ranker (rank sources by reliability — TIER A/B/C)' }

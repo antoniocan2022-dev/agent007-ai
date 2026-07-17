@@ -86,8 +86,8 @@ export async function toolMistralLLM(args: any): Promise<ToolResult> {
 }
 
 export async function toolHuggingFaceLLM(args: any): Promise<ToolResult> {
-  const key = process.env.HF_TOKEN
-  if (!key) return needKey('Hugging Face', 'HF_TOKEN', 'https://huggingface.co/settings/tokens')
+  const key = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY
+  if (!key) return needKey('Hugging Face', 'HUGGINGFACE_API_KEY', 'https://huggingface.co/settings/tokens')
   const { messages, model = 'meta-llama/Llama-3.3-70B-Instruct' } = args ?? {}
   if (!messages) return fail('hf_llm requires "messages" array')
   try {
@@ -104,9 +104,9 @@ export async function toolHuggingFaceLLM(args: any): Promise<ToolResult> {
 }
 
 export async function toolCloudflareLLM(args: any): Promise<ToolResult> {
-  const key = process.env.CF_API_TOKEN
-  const accountId = process.env.CF_ACCOUNT_ID
-  if (!key || !accountId) return needKey('Cloudflare Workers AI', 'CF_API_TOKEN + CF_ACCOUNT_ID', 'https://dash.cloudflare.com')
+  const key = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN
+  const accountId = process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID
+  if (!key) return needKey('Cloudflare Workers AI', 'CLOUDFLARE_API_TOKEN', 'https://dash.cloudflare.com')
   const { messages, model = '@cf/meta/llama-3.1-8b-instruct' } = args ?? {}
   if (!messages) return fail('cloudflare_llm requires "messages" array')
   try {
@@ -174,8 +174,8 @@ export async function toolSerpAPI(args: any): Promise<ToolResult> {
 }
 
 export async function toolNewsAPI(args: any): Promise<ToolResult> {
-  const key = process.env.NEWSAPI_KEY
-  if (!key) return needKey('NewsAPI', 'NEWSAPI_KEY', 'https://newsapi.org')
+  const key = process.env.NEWSAPI_KEY || process.env.NEWSAPI_API_KEY
+  if (!key) return needKey('NewsAPI', 'NEWSAPI_API_KEY', 'https://newsapi.org')
   const { query, category, language = 'en', page_size = 5 } = args ?? {}
   try {
     const params = new URLSearchParams({ apiKey: key, language, pageSize: String(page_size) })
@@ -191,8 +191,8 @@ export async function toolNewsAPI(args: any): Promise<ToolResult> {
 }
 
 export async function toolAlphaVantage(args: any): Promise<ToolResult> {
-  const key = process.env.ALPHA_VANTAGE_KEY
-  if (!key) return needKey('Alpha Vantage', 'ALPHA_VANTAGE_KEY', 'https://alphavantage.co')
+  const key = process.env.ALPHA_VANTAGE_KEY || process.env.ALPHAVANTAGE_API_KEY
+  if (!key) return needKey('Alpha Vantage', 'ALPHAVANTAGE_API_KEY', 'https://alphavantage.co')
   const { symbol, function: fn = 'GLOBAL_QUOTE' } = args ?? {}
   if (!symbol) return fail('alpha_vantage requires "symbol"')
   try {
@@ -249,8 +249,8 @@ export async function toolExaSearch(args: any): Promise<ToolResult> {
 }
 
 export async function toolProductHunt(args: any): Promise<ToolResult> {
-  const key = process.env.PH_API_KEY
-  if (!key) return needKey('Product Hunt', 'PH_API_KEY', 'https://api.producthunt.com/v2/docs')
+  const key = process.env.PH_API_KEY || process.env.PRODUCTHUNT_API_TOKEN
+  if (!key) return needKey('Product Hunt', 'PRODUCTHUNT_API_TOKEN', 'https://api.producthunt.com/v2/docs')
   const { action = 'trending' } = args ?? {}
   try {
     const res = await fetch('https://api.producthunt.com/v2/api/graphql', {
@@ -269,8 +269,8 @@ export async function toolProductHunt(args: any): Promise<ToolResult> {
 /* ═══ CONTENT & IMAGE PROVIDERS (7) ═══ */
 
 export async function toolHFInference(args: any): Promise<ToolResult> {
-  const key = process.env.HF_TOKEN
-  if (!key) return needKey('Hugging Face Inference', 'HF_TOKEN', 'https://huggingface.co/settings/tokens')
+  const key = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY
+  if (!key) return needKey('Hugging Face Inference', 'HUGGINGFACE_API_KEY', 'https://huggingface.co/settings/tokens')
   const { model = 'facebook/bart-large-cnn', inputs, parameters } = args ?? {}
   if (!inputs) return fail('hf_inference requires "inputs"')
   try {

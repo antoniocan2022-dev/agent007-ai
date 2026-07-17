@@ -857,6 +857,21 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
       'src/lib/upgrade-manifest.ts',
     ],
   },
+  {
+    id: 'multi_search_comparison_94',
+    category: 'intelligence',
+    title: 'Multi-Search Comparison Engine + Env Var Fixes (Upgrade #94)',
+    description: 'Owner request: Deep verification of all 27 API keys, add intelligence to compare content across multiple search engines (3+ sources). Lock and deploy. VERIFICATION RESULTS: 22 API keys SET, 3 FREE (Pollinations, Craiyon, Summarize.tech), 3 MISSING (Replit AI, Yahoo Finance/RapidAPI, Reddit API). ENV VAR NAME MISMATCHES FIXED (6 tools): HuggingFace, Cloudflare, NewsAPI, Alpha Vantage, Product Hunt, HF Inference now accept both old and new env var names. 5 NEW MULTI-SEARCH COMPARISON TOOLS: multi_search_compare, content_verifier, consensus_finder, discrepancy_detector, source_quality_ranker. SEARCH COMPARISON PROTOCOL added to system prompt. NEW FILE: src/lib/multi-search-comparison.ts. Total tools: 657 to 662. LOCK: All auto-locked, permanent:true.',
+    dateApplied: '2026-07-17',
+    permanent: true,
+    files: [
+      'src/lib/multi-search-comparison.ts (NEW — 300+ lines, 5 tools)',
+      'src/lib/tools.ts (5 new tool registrations: 657 to 662 tools)',
+      'src/lib/ai-providers-integration.ts (6 env var name mismatches fixed)',
+      'src/lib/agent.ts (MULTI-SEARCH COMPARISON ENGINE + SEARCH COMPARISON PROTOCOL)',
+      'src/lib/upgrade-manifest.ts',
+    ],
+  },
 ]
 
 /** Get all upgrade entries */
