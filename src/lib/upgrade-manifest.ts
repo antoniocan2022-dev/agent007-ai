@@ -841,6 +841,22 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
       'src/lib/upgrade-manifest.ts',
     ],
   },
+  {
+    id: 'tool_self_repair_engine_93',
+    category: 'self_heal',
+    title: 'Tool Self-Repair Engine — 10 New Capabilities for Testing, Verifying, Recovering, Fixing All Tools (Upgrade #93)',
+    description: 'Owner request: Add tools to test, verify, confirm, recover, fix ALL tools (agent + subagents). 10 new tools: tool_registry_auditor, tool_batch_tester, tool_fixer, tool_recovery, subagent_tool_auditor, subagent_tool_fixer, tool_consistency_checker, tool_health_monitor, tool_backup_restore, tool_self_healing_loop. Master tool: tool_self_healing_loop runs 6-phase pipeline (DETECT, DIAGNOSE, FIX, VERIFY, SUBAGENT_CHECK, SUBAGENT_FIX). New API: /api/tools/repair. New file: src/lib/tool-self-repair-engine.ts (600+ lines). Total tools: 647 to 657. LOCK: All auto-locked, permanent:true.',
+    dateApplied: '2026-07-17',
+    permanent: true,
+    files: [
+      'src/lib/tool-self-repair-engine.ts (NEW — 600+ lines, 10 tool implementations)',
+      'src/lib/tools.ts (10 new tool registrations: 647→657 tools)',
+      'src/app/api/tools/repair/route.ts (NEW — repair API endpoint)',
+      'src/lib/agent.ts (TOOL SELF-REPAIR ENGINE system prompt section + SELF-REPAIR PROTOCOL)',
+      'src/middleware.ts (tools/repair endpoint whitelisted)',
+      'src/lib/upgrade-manifest.ts',
+    ],
+  },
 ]
 
 /** Get all upgrade entries */

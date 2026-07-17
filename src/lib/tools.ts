@@ -2754,3 +2754,28 @@ TOOL_REGISTRY.accuracy_benchmark = { fn: toolAccuracyBenchmark, icon: 'target', 
 TOOL_REGISTRY.tool_usage_analytics = { fn: toolUsageAnalytics, icon: 'bar-chart', label: 'Tool Usage Analytics (calls, success rates, response times)' }
 TOOL_REGISTRY.integration_test_suite = { fn: toolIntegrationTestSuite, icon: 'check-circle', label: 'Integration Test Suite (multi-tool scenarios)' }
 TOOL_REGISTRY.self_healing_tools = { fn: toolSelfHealingTools, icon: 'wrench', label: 'Self-Healing Tools (auto-detect missing keys, suggest alternates)' }
+
+/* ═══ UPGRADE #93 — TOOL SELF-REPAIR ENGINE (10 new tools) ═══ */
+import {
+  toolRegistryAuditor,
+  toolBatchTester,
+  toolFixer,
+  toolRecovery,
+  toolSubagentToolAuditor,
+  toolSubagentToolFixer,
+  toolConsistencyChecker,
+  toolHealthMonitor,
+  toolBackupRestore,
+  toolSelfHealingLoop,
+} from './tool-self-repair-engine'
+
+TOOL_REGISTRY.tool_registry_auditor = { fn: toolRegistryAuditor, icon: 'search', label: 'Tool Registry Auditor (audit ALL 647 tools for issues)' }
+TOOL_REGISTRY.tool_batch_tester = { fn: toolBatchTester, icon: 'flask-conical', label: 'Tool Batch Tester (test ALL tools in batches, report pass/fail)' }
+TOOL_REGISTRY.tool_fixer = { fn: toolFixer, icon: 'wrench', label: 'Tool Fixer (auto-fix broken tools, re-register missing)' }
+TOOL_REGISTRY.tool_recovery = { fn: toolRecovery, icon: 'rotate-ccw', label: 'Tool Recovery (restore deleted/broken tools from backup)' }
+TOOL_REGISTRY.subagent_tool_auditor = { fn: toolSubagentToolAuditor, icon: 'users', label: 'Subagent Tool Auditor (audit which tools each subagent can access)' }
+TOOL_REGISTRY.subagent_tool_fixer = { fn: toolSubagentToolFixer, icon: 'user-check', label: 'Subagent Tool Fixer (fix subagent tool access, grant missing tools)' }
+TOOL_REGISTRY.tool_consistency_checker = { fn: toolConsistencyChecker, icon: 'check-check', label: 'Tool Consistency Checker (verify tools.ts matches TOOL_REGISTRY exports)' }
+TOOL_REGISTRY.tool_health_monitor = { fn: toolHealthMonitor, icon: 'activity', label: 'Tool Health Monitor (continuous monitoring with auto-alerts)' }
+TOOL_REGISTRY.tool_backup_restore = { fn: toolBackupRestore, icon: 'save', label: 'Tool Backup Restore (backup current tool registry + restore on failure)' }
+TOOL_REGISTRY.tool_self_healing_loop = { fn: toolSelfHealingLoop, icon: 'refresh-cw', label: 'Tool Self-Healing Loop (autonomous: detect→diagnose→fix→verify→subagent check→fix)' }
