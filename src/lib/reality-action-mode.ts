@@ -201,7 +201,7 @@ export async function toolIncomeRealityCheck(args: any): Promise<ToolResult> {
         `  • "$10,000/mo" from pulse subagent → logged as $10000 income (WRONG)\n\n` +
         `These are PROJECTIONS mentioned in text, NOT actual transactions.\n\n` +
         `FIX APPLIED:\n` +
-        `  1. Auto-logging now tags entries as source="auto_parsed:${agentName}"\n` +
+        `  1. Auto-logging now tags entries as source="auto_parsed:${'<agentName>'}"\n` +
         `  2. Real income entries must have source="stripe" or "paypal" or "affiliate"\n` +
         `  3. Dashboard now shows TWO separate totals: REAL vs PROJECTED\n` +
         `  4. mission_mode KPIs now report REAL income only\n\n` +
