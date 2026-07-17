@@ -36,15 +36,23 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
   const [showUp, setShowUp] = useState(false)
   const [showDown, setShowDown] = useState(false)
   const [alwaysVisible, setAlwaysVisible] = useState(true) // UPGRADE #90 — default ON
+  // UPGRADE #90 FIX — Track disabled states in STATE (not derived from ref during render)
+  // Accessing containerRef.current during render causes hydration mismatch + client-side exception.
+  const [isAtTop, setIsAtTop] = useState(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
 
   const checkScroll = useCallback(() => {
     const container = containerRef.current
     if (!container) return
 
     const { scrollTop, scrollHeight, clientHeight } = container
-    const isAtTop = scrollTop < 200
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 200
+    const top = scrollTop < 200
+    const bottom = scrollHeight - scrollTop - clientHeight < 200
     const hasScrollableContent = scrollHeight > clientHeight + 100
+
+    // Update disabled states
+    setIsAtTop(top)
+    setIsAtBottom(bottom)
 
     // UPGRADE #90 — Show arrows based on alwaysVisible flag OR scroll position
     if (alwaysVisible) {
@@ -53,8 +61,8 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
       setShowDown(hasScrollableContent)
     } else {
       // Original behavior: only show when scrollable
-      setShowUp(!isAtTop && hasScrollableContent)
-      setShowDown(!isAtBottom && hasScrollableContent)
+      setShowUp(!top && hasScrollableContent)
+      setShowDown(!bottom && hasScrollableContent)
     }
   }, [containerRef, alwaysVisible])
 
@@ -84,11 +92,6 @@ export function ScrollArrows({ containerRef }: ScrollArrowsProps) {
     if (!container) return
     container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
   }, [containerRef])
-
-  // UPGRADE #90 — Determine disabled states (grayed out but still visible)
-  const container = containerRef.current
-  const isAtTop = container ? container.scrollTop < 200 : true
-  const isAtBottom = container ? (container.scrollHeight - container.scrollTop - container.clientHeight < 200) : true
 
   const hasAnyArrow = showUp || showDown
 

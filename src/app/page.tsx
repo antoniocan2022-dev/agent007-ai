@@ -53,8 +53,21 @@ export default function Home() {
     }
   }, [status, router])
 
+  // Initial load (only after we know the user is authenticated)
+  // UPGRADE #90 FIX — MUST be declared BEFORE any early return to avoid
+  // "React Hook order" violation which causes client-side exception:
+  // "Application error: a client-side exception has occurred"
+  useEffect(() => {
+    if (status !== 'authenticated') return
+    loadConversations()
+    loadMemories()
+    loadSubagentCount()
+    startAutoRefresh()
+  }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
+
   // UPGRADE #90 — While checking auth status, show MINIMAL loading screen
   // (not the full background + UI) to avoid the "dashboard flash" before redirect.
+  // NOTE: All useEffect hooks above MUST be declared before this early return.
   if (status === 'loading' || status === 'unauthenticated') {
     return (
       <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
@@ -71,15 +84,6 @@ export default function Home() {
       </div>
     )
   }
-
-  // Initial load (only after we know the user is authenticated)
-  useEffect(() => {
-    if (status !== 'authenticated') return
-    loadConversations()
-    loadMemories()
-    loadSubagentCount()
-    startAutoRefresh()
-  }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 
   // (Loading/unauthenticated rendering handled above — no duplicate here)
 
