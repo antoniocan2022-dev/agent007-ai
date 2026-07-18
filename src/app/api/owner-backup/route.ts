@@ -46,8 +46,10 @@ export const maxDuration = 60
  *
  * UPGRADE #59 — PERMANENT. Owner-only access enforced by token.
  */
-const OWNER_BACKUP_TOKEN =
-  process.env.OWNER_BACKUP_TOKEN || 'agent007-owner-backup-2024-antonio-can-2022'
+// UPGRADE #96 SECURITY FIX — Removed hardcoded fallback token.
+// Token MUST be set via OWNER_BACKUP_TOKEN env var on Vercel.
+// If not set, backups are disabled (fail-closed = secure).
+const OWNER_BACKUP_TOKEN = process.env.OWNER_BACKUP_TOKEN || ''
 
 /** Validate the token using a constant-time comparison to prevent timing attacks. */
 function isValidToken(provided: string | null): boolean {

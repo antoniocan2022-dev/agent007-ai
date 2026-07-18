@@ -17,8 +17,10 @@ export async function GET(req: NextRequest) {
   // report + reset require the owner token
   if (action === 'reset') {
     const token = url.searchParams.get('token')
-    if (token !== 'agent007-owner-backup-2024-antonio-can-2022') {
-      return NextResponse.json({ ok: false, error: 'Forbidden: reset requires owner token' }, { status: 403 })
+    const expectedToken = process.env.OWNER_BACKUP_TOKEN || ''
+    // UPGRADE #96 SECURITY FIX — Use env var, no hardcoded fallback
+    if (!expectedToken || token !== expectedToken) {
+      return NextResponse.json({ ok: false, error: 'Forbidden: reset requires owner token (OWNER_BACKUP_TOKEN env var)' }, { status: 403 })
     }
   }
 

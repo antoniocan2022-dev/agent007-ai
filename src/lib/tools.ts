@@ -2794,3 +2794,18 @@ TOOL_REGISTRY.content_verifier = { fn: toolContentVerifier, icon: 'check-circle'
 TOOL_REGISTRY.consensus_finder = { fn: toolConsensusFinder, icon: 'users', label: 'Consensus Finder (find agreement across search results)' }
 TOOL_REGISTRY.discrepancy_detector = { fn: toolDiscrepancyDetector, icon: 'alert-triangle', label: 'Discrepancy Detector (detect when sources disagree)' }
 TOOL_REGISTRY.source_quality_ranker = { fn: toolSourceQualityRanker, icon: 'award', label: 'Source Quality Ranker (rank sources by reliability — TIER A/B/C)' }
+
+/* ═══ UPGRADE #96 — SECURITY SELF-HEALING (5 new tools) ═══ */
+import {
+  toolSecurityHealthChecker,
+  toolSecurityHeaderTester,
+  toolRateLimitTester,
+  toolCSPDiagnostic,
+  toolSecurityAutoFixer,
+} from './security-self-healing'
+
+TOOL_REGISTRY.security_health_checker = { fn: toolSecurityHealthChecker, icon: 'shield', label: 'Security Health Checker (audit all security settings live)' }
+TOOL_REGISTRY.security_header_tester = { fn: toolSecurityHeaderTester, icon: 'lock', label: 'Security Header Tester (test if security headers are working)' }
+TOOL_REGISTRY.rate_limit_tester = { fn: toolRateLimitTester, icon: 'gauge', label: 'Rate Limit Tester (test if rate limiting is working)' }
+TOOL_REGISTRY.csp_diagnostic = { fn: toolCSPDiagnostic, icon: 'alert-triangle', label: 'CSP Diagnostic (diagnose Content-Security-Policy issues)' }
+TOOL_REGISTRY.security_auto_fixer = { fn: toolSecurityAutoFixer, icon: 'wrench', label: 'Security Auto Fixer (auto-fix common security issues)' }

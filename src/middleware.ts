@@ -1,4 +1,26 @@
 import { withAuth } from 'next-auth/middleware'
+import { NextResponse } from 'next/server'
+import { checkRateLimit, getClientIP, isAuthenticatedRequest } from './lib/rate-limiter'
+
+// UPGRADE #96 — Rate limiting wrapper (authenticated users exempt)
+const withRateLimit = (handler: any) => {
+  return async (req: any) => {
+    const pathname = req.nextUrl?.pathname || ''
+    if (pathname.startsWith('/api/')) {
+      const ip = getClientIP(req)
+      if (!isAuthenticatedRequest(req)) {
+        const result = checkRateLimit(ip, pathname)
+        if (result.limited) {
+          return NextResponse.json(
+            { ok: false, error: 'Rate limit exceeded', retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000) },
+            { status: 429, headers: { 'Retry-After': String(Math.ceil((result.resetAt - Date.now()) / 1000)) } }
+          )
+        }
+      }
+    }
+    return handler(req)
+  }
+}
 
 /**
  * Auth middleware protecting sensitive API routes.
@@ -58,11 +80,11 @@ import { withAuth } from 'next-auth/middleware'
  *   - /api/income, /api/transactions, etc. — financial data
  *   - All other sensitive routes
  */
-export default withAuth({
+export default withRateLimit(withAuth({
   pages: {
     signIn: '/login',
   },
-})
+}))
 
 export const config = {
   matcher: [

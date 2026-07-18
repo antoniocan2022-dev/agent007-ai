@@ -52,8 +52,8 @@ export const maxDuration = 60
  *     "errors": [...]
  *   }
  */
-const OWNER_BACKUP_TOKEN =
-  process.env.OWNER_BACKUP_TOKEN || 'agent007-owner-backup-2024-antonio-can-2022'
+// UPGRADE #96 SECURITY FIX — Removed hardcoded fallback token.
+const OWNER_BACKUP_TOKEN = process.env.OWNER_BACKUP_TOKEN || ''
 
 function isValidToken(provided: string | null): boolean {
   if (!provided) return false

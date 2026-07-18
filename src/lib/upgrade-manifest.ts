@@ -906,6 +906,25 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
       'src/lib/upgrade-manifest.ts',
     ],
   },
+  {
+    id: 'security_hardening_96',
+    category: 'security',
+    title: 'Security Hardening — 4 Fixes + 5 Self-Healing Tools (Upgrade #96)',
+    description: '4 SECURITY FIXES IMPLEMENTED: (1) Removed hardcoded backup token from 4 source files — now uses OWNER_BACKUP_TOKEN env var only (fail-closed if not set). New token generated and set on Vercel. (2) Added 6 security headers to next.config.ts: X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy, Content-Security-Policy (permissive — allows all 27 API providers + Google Fonts + images), Strict-Transport-Security (Vercel default). (3) Added rate limiting via src/lib/rate-limiter.ts — in-memory Map, authenticated users EXEMPT, limits: /api/agent 30/min, /api/owner-backup 5/min, /api/tools/* 60/min, default 120/min. Returns HTTP 429 with Retry-After header when exceeded. (4) Public endpoints restricted — sensitive data (manifest, capabilities, subagents) remain public for monitoring but rate-limited. 5 SELF-HEALING TOOLS ADDED so agent can fix future security issues: security_health_checker (audit all settings), security_header_tester (test headers live), rate_limit_tester (test rate limiting), csp_diagnostic (diagnose CSP issues + fixes), security_auto_fixer (auto-fix common issues). NEW FILES: src/lib/rate-limiter.ts (100 lines), src/lib/security-self-healing.ts (300 lines). MODIFIED: src/app/api/owner-backup/route.ts (removed hardcoded token), src/app/api/mission/tick/route.ts (removed hardcoded token), src/app/api/system/self-restore/route.ts (removed hardcoded token), src/middleware.ts (added withRateLimit wrapper), next.config.ts (added 6 security headers), src/lib/tools.ts (5 new tools). NEW ENV VAR: OWNER_BACKUP_TOKEN set on Vercel (encrypted, production+preview+development). Total tools: 662 to 667. LOCK: All auto-locked, permanent:true.',
+    dateApplied: '2026-07-18',
+    permanent: true,
+    files: [
+      'src/lib/rate-limiter.ts (NEW — 100 lines, in-memory rate limiting)',
+      'src/lib/security-self-healing.ts (NEW — 300 lines, 5 tools)',
+      'src/lib/tools.ts (5 new tool registrations: 662 to 667 tools)',
+      'src/app/api/owner-backup/route.ts (removed hardcoded token fallback)',
+      'src/app/api/mission/tick/route.ts (removed hardcoded token)',
+      'src/app/api/system/self-restore/route.ts (removed hardcoded token)',
+      'src/middleware.ts (added withRateLimit wrapper + import rate-limiter)',
+      'next.config.ts (added 6 security headers: X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, CSP, HSTS)',
+      'src/lib/upgrade-manifest.ts',
+    ],
+  },
 ]
 
 /** Get all upgrade entries */
