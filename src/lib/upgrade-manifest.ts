@@ -872,6 +872,18 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
       'src/lib/upgrade-manifest.ts',
     ],
   },
+  {
+    id: 'pseudo_xml_auto_converter_95',
+    category: 'critical',
+    title: 'Pseudo-XML Auto-Converter — Fix parallel_executor Leak Permanently (Upgrade #95)',
+    description: 'Owner reported agent STILL emits <parallel_executor>{json}</parallel_executor> pseudo-XML despite Upgrade #86 fix. Root cause: #86 only STRIPPED the tags (hiding symptom) but tools NEVER RAN. User saw raw XML or empty response. FIX: Added autoConvertPseudoToolCalls() pre-processor that converts <parallel_executor>{json}</parallel_executor> to <tool name=parallel_executor>{json}</tool> BEFORE parseOrchestrator(). Now tools ACTUALLY RUN and user sees real results. Option 3 (Belt+Suspenders) implemented: auto-convert first, then strip any remaining pseudo-XML as safety net. Also handles other pseudo-XML patterns: search, fetch, analyze, summarize, translate, generate, process, execute.',
+    dateApplied: '2026-07-18',
+    permanent: true,
+    files: [
+      'src/lib/orchestrator.ts (autoConvertPseudoToolCalls function + PARALLEL_EXECUTOR_CONVERTER_RE regex + called before parseOrchestrator + finalAnswer uses convertedContent)',
+      'src/lib/upgrade-manifest.ts',
+    ],
+  },
 ]
 
 /** Get all upgrade entries */

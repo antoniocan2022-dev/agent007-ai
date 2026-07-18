@@ -70,6 +70,51 @@ const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*(?:task
 const PSEUDO_XML_RE = /<\/?(?:parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)(?:\s+[^>]*)?(?:\/>|>[\s\S]*?<\/(?:parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)>)/gi
 const REASONING_TRACE_BLOCK_RE = /(?:^|\n)\s*(?:REASONING\s*TRACE|REASONING|INTERNAL\s*MONOLOGUE|CHAIN\s*OF\s*THOUGHT|THINKING)\s*:?\s*\n[\s\S]*?(?=\n\s*(?:[A-Z][A-Z _]{4,}|<|YOU:|$))/gi
 
+// UPGRADE #95 — AUTO-CONVERTER: Convert <parallel_executor>{json}</parallel_executor>
+// to <tool name="parallel_executor">{json}</tool> BEFORE parsing.
+// This fixes the root cause: when the LLM uses the WRONG format, we auto-correct it
+// so the tools ACTUALLY RUN and the user sees real results (not raw XML).
+// Regex matches: <parallel_executor>{anything}</parallel_executor> OR <parallel_executor>{anything}/>
+const PARALLEL_EXECUTOR_CONVERTER_RE = /<parallel_executor(?:\s+[^>]*)?>\s*(\{[\s\S]*?\})\s*<\/parallel_executor>|<parallel_executor(?:\s+[^>]*)?>\s*(\{[\s\S]*?\})\s*\/>/gi
+
+/**
+ * UPGRADE #95 — Auto-convert pseudo-XML tool calls to proper <tool> format.
+ * Called BEFORE parseOrchestrator() so the tools actually execute.
+ *
+ * Handles:
+ *   <parallel_executor>{"tools":[...]}</parallel_executor>
+ *     → <tool name="parallel_executor">{"tools":[...]}</tool>
+ *
+ *   <parallel_executor>{"tools":[...]}/>
+ *     → <tool name="parallel_executor">{"tools":[...]}</tool>
+ *
+ * Also handles other common pseudo-XML tool patterns the LLM invents:
+ *   <search>{"query":"..."}</search>
+ *     → <tool name="search">{"query":"..."}</tool>
+ *   <analyze>{"data":"..."}</analyze>
+ *     → <tool name="analyze">{"data":"..."}</tool>
+ */
+function autoConvertPseudoToolCalls(content: string): string {
+  // 1. Convert <parallel_executor>{json}</parallel_executor> → <tool name="parallel_executor">{json}</tool>
+  let converted = content.replace(PARALLEL_EXECUTOR_CONVERTER_RE, (match, json1, json2) => {
+    const json = json1 || json2
+    return `<tool name="parallel_executor">${json}</tool>`
+  })
+
+  // 2. Convert other common pseudo-XML tool patterns:
+  //    <search>{json}</search> → <tool name="search">{json}</tool>
+  //    <analyze>{json}</analyze> → <tool name="analyze">{json}</analyze>
+  //    <fetch>{json}</fetch> → <tool name="fetch">{json}</fetch>
+  //    etc.
+  const otherPseudoTools = ['search', 'fetch', 'analyze', 'summarize', 'translate', 'generate', 'process', 'execute']
+  for (const toolName of otherPseudoTools) {
+    const re = new RegExp(`<${toolName}(?:\\s+[^>]*)?>\\s*(\\{[\\s\\S]*?\\})\\s*</${toolName}>`, 'gi')
+    converted = converted.replace(re, `<tool name="${toolName}">$1</tool>`)
+  }
+
+  return converted
+}
+
 /* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
  * Captures the full tag string; attribute parsing happens in parseManageTag. */
 const MANAGE_RE = /<manage\s+[^>]*?\/>/gi
@@ -869,7 +914,13 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       break
     }
 
-    const parsed = parseOrchestrator(content)
+    // UPGRADE #95 — Auto-convert pseudo-XML tool calls BEFORE parsing.
+    // This fixes the root cause: when the LLM emits <parallel_executor>{json}</parallel_executor>
+    // (wrong format), we convert it to <tool name="parallel_executor">{json}</tool> (correct format)
+    // so the tools ACTUALLY RUN and the user sees real results (not raw XML).
+    const convertedContent = autoConvertPseudoToolCalls(content)
+
+    const parsed = parseOrchestrator(convertedContent)
 
     // Emit thought
     if (parsed.thought) {
@@ -984,7 +1035,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       const allDispatchRe = /<dispatch(?:_subagent)?\s+(?:id|agent)=["']([^"']+)["']\s*(?:task=["']([\s\S]*?)["']\s*)?(?:\/>|>([\s\S]*?)<\/dispatch_subagent>)/gi
       const allDispatches: Array<{ agentId: string; task: string }> = []
       let dm: RegExpExecArray | null
-      while ((dm = allDispatchRe.exec(content)) !== null) {
+      while ((dm = allDispatchRe.exec(convertedContent)) !== null) {
         const agentId = dm[1].trim().toLowerCase()
         // task may come from attr (group 2) or body (group 3)
         const task = (dm[2] ?? dm[3] ?? '').trim() || 'execute task'
@@ -1319,10 +1370,12 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     }
 
     // 3a) Final answer path — emit synthesis signal then stream tokens
-    // UPGRADE #86 — Strip ALL pseudo-XML / dispatch tags / reasoning traces from the final answer.
+    // UPGRADE #86 + #95 — Strip ALL pseudo-XML / dispatch tags / reasoning traces from the final answer.
     // Without this, raw `<dispatch_subagent ...>`, `<parallel_executor>`, and "REASONING TRACE:"
     // blocks leak to the user as the "weird incomprehensible answer" the owner reported.
-    finalAnswer = content
+    // UPGRADE #95: Use convertedContent (already auto-converted parallel_executor → <tool> format)
+    // so any tools that were called actually ran. Leftover pseudo-XML is stripped here as safety net.
+    finalAnswer = convertedContent
       .replace(THOUGHT_RE, '')
       .replace(DISPATCH_RE, '')
       .replace(DISPATCH_SUBAGENT_RE, '')
@@ -1330,11 +1383,12 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       .replace(REASONING_TRACE_BLOCK_RE, '')
       .replace(/<dispatch_subagent[^>]*?(?:\/>|>[\s\S]*?<\/dispatch_subagent>)/gi, '') // safety net: catch any leftover
       .replace(/<\/?(?:dispatch|dispatch_subagent|parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)[^>]*?>/gi, '') // final sweep: strip any lone tags
+      .replace(/<tool\s+name=["'][^"']+["'][^>]*>[\s\S]*?<\/tool>/gi, '') // UPGRADE #95: strip any leftover <tool> tags that didn't execute
       .trim() || content.trim()
 
     // UPGRADE #86 — If finalAnswer is now empty (everything was a tag/thought), retry instead of showing blank
     if (finalAnswer.length < 10 && iter < MAX_ITERATIONS - 1) {
-      conversationMessages.push({ role: 'assistant', content })
+      conversationMessages.push({ role: 'assistant', content: convertedContent })
       conversationMessages.push({
         role: 'user',
         content: '[SYSTEM] Your previous response contained only tags (dispatch / thought / pseudo-XML) with no actual answer text. The owner saw nothing comprehensible. Please respond NOW with a clear markdown answer (use ## headings, bullet points, etc.) — NO tags, NO thoughts, NO pseudo-XML. Just plain text the owner can read.',
