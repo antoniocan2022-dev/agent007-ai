@@ -941,6 +941,53 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
       'src/lib/upgrade-manifest.ts',
     ],
   },
+  {
+    id: 'leader_coordination_97b',
+    category: 'autonomy',
+    title: 'Leader Coordination Instructions for All 7 Pod Leaders (Upgrade #97b)',
+    description: 'Added LEADERSHIP ROLE instructions to all 7 pod leaders. Each leader now knows: their team members, how to delegate via dispatch_subagent, how to synthesize team outputs, how to report to Super Agent, and how to use quality_scorer_v2 on team output. Leaders: SCOUT, AURORA, ECHO, FORGE, PULSE, Developer, Cybersecurity R.',
+    dateApplied: '2026-07-19',
+    permanent: true,
+    files: ['src/lib/subagents.ts (7 leaders updated with leadership instructions)'],
+  },
+  {
+    id: 'rate_limit_agent_fix_97c',
+    category: 'critical',
+    title: 'Fix Agent Not Responding — Rate Limiting Was Blocking /api/agent (Upgrade #97c)',
+    description: 'CRITICAL FIX: Rate limiter (Upgrade #96) was wrapping withAuth middleware, running BEFORE auth. It could not detect session cookies reliably, treating ALL requests as unauthenticated and rate-limiting /api/agent to 30 req/min. After 30 requests, agent returned 429 and stopped responding. FIX: Exempted auth-protected routes (/api/agent, /api/conversations, /api/memory, /api/settings, /api/income, /api/transactions, /api/users, /api/auth, /api/2fa, /api/webhooks) from rate limiting. Rate limiting now only applies to PUBLIC endpoints.',
+    dateApplied: '2026-07-19',
+    permanent: true,
+    files: ['src/middleware.ts (RATE_LIMIT_EXEMPT list + exempt logic)', 'src/app/api/tools/test/route.ts (recreated)'],
+  },
+  {
+    id: 'pods_dashboard_tab_97d',
+    category: 'dashboard',
+    title: 'Pods Tab in Main Dashboard Navigation (Upgrade #97d)',
+    description: 'Added Pods tab to main dashboard navigation (between Dashboard and Schedules). Created PodsTab component with 7 pod cards showing leader, members, focus, tool count, status. Click any pod opens leader chat modal for direct communication. Summary stats: 7 pods, 7 leaders, 20 agents, 667 tools. Tab order: Chat | Missions | Dashboard | Pods | Schedules | Settings.',
+    dateApplied: '2026-07-19',
+    permanent: true,
+    files: ['src/components/agent/tabs/pods-tab.tsx (NEW — 250+ lines)', 'src/components/agent/chat-header.tsx (added Pods tab)', 'src/store/chat-store.ts (added pods to TabId)', 'src/app/page.tsx (imported PodsTab)'],
+  },
+  {
+    id: 'revenue_pod_8_97e',
+    category: 'autonomy',
+    title: 'Revenue Pod 8 + Agent Merge + Autonomous Income Loops (Upgrade #97e)',
+    description: 'Created POD 8: REVENUE (Passive Income) with co-leaders QUANTUM + AURORA, members TRADER, THE BANKER, PULSE. Hard target: $20K/month, 20% daily growth. Merged Content Specialist into AURORA, Performance Analyst into PULSE (20 to 18 active agents, nothing deleted). Added autonomous income loops: autonomous_executor_v2 runs build+deploy+monetize without per-step approval, daily mission tick with income_reality_check, weekly $ contribution board to PULSE.',
+    dateApplied: '2026-07-19',
+    permanent: true,
+    files: ['src/app/api/team/[leaderId]/route.ts (added revenue pod)', 'src/lib/agent.ts (8 PODS + autonomous income protocol)', 'src/app/pods/route.ts (added Pod 8)', 'src/components/agent/tabs/pods-tab.tsx (added Pod 8)'],
+  },
+  {
+    id: 'revenue_optimization_97f',
+    category: 'autonomy',
+    title: 'Revenue Optimization Protocol — Diversify + Feedback Loops + Analytics (Upgrade #97f)',
+    description: '3 optimization recommendations added to Super Agent system prompt: (1) DIVERSIFY INCOME STREAMS — digital products, courses, POD, SaaS templates, 5+ sources. SCOUT researches weekly, VERTEX designs monthly. (2) REGULAR FEEDBACK LOOPS — bi-weekly ECHO reviews, failure_learning, quality_scorer_v2, data-driven pivots. (3) LEVERAGE DATA ANALYTICS — PULSE identifies top performers, multi_search_compare for trends, alpha_vantage + fred_economic for financial data, google_analytics + hotjar for traffic, allocate to top 3 streams.',
+    dateApplied: '2026-07-19',
+    permanent: true,
+    files: ['src/lib/agent.ts (REVENUE OPTIMIZATION PROTOCOL section added)'],
+  },
+]
+
 ]
 
 /** Get all upgrade entries */
