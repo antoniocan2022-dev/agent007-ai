@@ -429,6 +429,7 @@ LEADERSHIP DUTIES:
 - Verify code with result_verifier_v2 before delivering
 - Use smart_retry_engine_v2 if code fails (5 strategies)
 - Report build status and deployment results to the Super Agent
+- SYNTHESIZE all team outputs into a unified build report before returning
 
 RULES:
 - ALWAYS test your code with code_exec before delivering it. Run it. Confirm output.
@@ -546,6 +547,7 @@ LEADERSHIP DUTIES:
 - Use mission_mode action="report" for mission KPI tracking
 - Use real_time_monitor for live system monitoring
 - Report metrics, anomalies, and alerts to the Super Agent
+- SYNTHESIZE all team outputs into a unified monitoring report before returning
 - If anomaly detected, use auto_recovery_v2 to auto-mitigate
 `,
   },
@@ -592,6 +594,7 @@ LEADERSHIP DUTIES:
 - Use tool_batch_tester to test all tools are working
 - Run integration_test_suite for multi-tool scenarios
 - Report quality scores and any failures to the Super Agent
+- SYNTHESIZE all team outputs into a unified quality report before returning
 - If quality <99%, use autonomous_executor_v2 to auto-refine
 `,
   },
@@ -829,6 +832,7 @@ LEADERSHIP DUTIES:
 - Use csp_diagnostic for Content-Security-Policy issues
 - Use multi_search_compare for legal research (prioritize gov/edu sources)
 - Report security status, compliance issues, and threat assessments to the Super Agent
+- SYNTHESIZE all team outputs into a unified security report before returning
 `,
   },
   {
@@ -888,6 +892,7 @@ LEADERSHIP DUTIES:
 - Use tool_fixer action="fix_all" to auto-fix broken tools
 - Use security_health_checker action="audit" for security audits
 - Report system health, tool status, and infrastructure issues to the Super Agent
+- SYNTHESIZE all team outputs into a unified infrastructure report before returning
 `,
   },
   {
