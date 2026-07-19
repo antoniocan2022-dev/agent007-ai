@@ -10,12 +10,13 @@ export const revalidate = 0
 
 const PODS = [
   { id: 'scout', name: 'Intelligence & Research', leader: 'SCOUT', members: ['HUNT', 'QUANTUM'], focus: 'Find opportunities, validate demand, research competitors', color: '#38bdf8', icon: '🔬' },
-  { id: 'aurora', name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX', 'Content Specialist'], focus: 'Create content, design products, build affiliate funnels', color: '#00f0ff', icon: '🎨' },
-  { id: 'echo', name: 'Quality Assurance', leader: 'ECHO', members: ['QA Monitor', 'Performance Analyst'], focus: 'Test, verify, score quality, ensure 99% target', color: '#818cf8', icon: '✅' },
+  { id: 'aurora', name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX'], focus: 'Create content, design products, build affiliate funnels', color: '#00f0ff', icon: '🎨' },
+  { id: 'echo', name: 'Quality Assurance', leader: 'ECHO', members: ['QA Monitor'], focus: 'Test, verify, score quality, ensure 99% target', color: '#818cf8', icon: '✅' },
   { id: 'forge', name: 'Engineering', leader: 'FORGE', members: ['Developer', 'TRADER'], focus: 'Build, deploy, fix infrastructure, execute trades', color: '#fb923c', icon: '🔧' },
-  { id: 'pulse', name: 'Monitoring & Ops', leader: 'PULSE', members: ['External Monitor', 'THE BANKER'], focus: 'Monitor systems, track KPIs, financial monitoring', color: '#fb7185', icon: '📡' },
+  { id: 'pulse', name: 'Monitoring & Ops', leader: 'PULSE', members: ['External Monitor', 'THE BANKER', 'Performance Analyst'], focus: 'Monitor systems, track KPIs, weekly $ contribution board', color: '#fb7185', icon: '📡' },
   { id: 'developer', name: 'System Health', leader: 'Developer', members: ['QA Monitor', 'External Monitor'], focus: 'Tool health, API monitoring, infrastructure repair', color: '#10b981', icon: '⚙️' },
   { id: 'cybersecurity_r', name: 'Compliance & Security', leader: 'Cybersecurity R', members: ['LEGAL', 'Cybersecurity A', 'THE BANKER'], focus: 'Legal compliance, tax strategy, security auditing', color: '#3b82f6', icon: '🛡️' },
+  { id: 'revenue', name: 'Revenue (Passive Income)', leader: 'QUANTUM + AURORA', members: ['TRADER', 'THE BANKER', 'PULSE'], focus: 'Owns all passive income: affiliate, SaaS, yield, digital products. Target: $20K/month, 20% daily growth.', color: '#fbbf24', icon: '💰' },
 ]
 
 export async function GET() {

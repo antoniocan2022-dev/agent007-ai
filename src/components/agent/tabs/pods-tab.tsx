@@ -48,12 +48,13 @@ export function PodsTab() {
       // fallback to static pods
       setPods([
         { id: 'scout', name: 'Intelligence & Research', leader: 'SCOUT', members: ['HUNT', 'QUANTUM'], focus: 'Find opportunities, validate demand, research competitors', color: '#38bdf8', icon: 'scout', toolCount: 667, status: 'ready' },
-        { id: 'aurora', name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX', 'Content Specialist'], focus: 'Create content, design products, build affiliate funnels', color: '#00f0ff', icon: 'aurora', toolCount: 667, status: 'ready' },
-        { id: 'echo', name: 'Quality Assurance', leader: 'ECHO', members: ['QA Monitor', 'Performance Analyst'], focus: 'Test, verify, score quality, ensure 99% target', color: '#818cf8', icon: 'echo', toolCount: 667, status: 'ready' },
+        { id: 'aurora', name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX'], focus: 'Create content, design products, build affiliate funnels', color: '#00f0ff', icon: 'aurora', toolCount: 667, status: 'ready' },
+        { id: 'echo', name: 'Quality Assurance', leader: 'ECHO', members: ['QA Monitor'], focus: 'Test, verify, score quality, ensure 99% target', color: '#818cf8', icon: 'echo', toolCount: 667, status: 'ready' },
         { id: 'forge', name: 'Engineering', leader: 'FORGE', members: ['Developer', 'TRADER'], focus: 'Build, deploy, fix infrastructure, execute trades', color: '#fb923c', icon: 'forge', toolCount: 667, status: 'ready' },
-        { id: 'pulse', name: 'Monitoring & Ops', leader: 'PULSE', members: ['External Monitor', 'THE BANKER'], focus: 'Monitor systems, track KPIs, financial monitoring', color: '#fb7185', icon: 'pulse', toolCount: 667, status: 'ready' },
+        { id: 'pulse', name: 'Monitoring & Ops', leader: 'PULSE', members: ['External Monitor', 'THE BANKER', 'Performance Analyst'], focus: 'Monitor systems, track KPIs, weekly $ contribution board', color: '#fb7185', icon: 'pulse', toolCount: 667, status: 'ready' },
         { id: 'developer', name: 'System Health', leader: 'Developer', members: ['QA Monitor', 'External Monitor'], focus: 'Tool health, API monitoring, infrastructure repair', color: '#10b981', icon: 'developer', toolCount: 667, status: 'ready' },
         { id: 'cybersecurity_r', name: 'Compliance & Security', leader: 'Cybersecurity R', members: ['LEGAL', 'Cybersecurity A', 'THE BANKER'], focus: 'Legal compliance, tax strategy, security auditing', color: '#3b82f6', icon: 'cybersecurity_r', toolCount: 667, status: 'ready' },
+        { id: 'revenue', name: 'Revenue (Passive Income)', leader: 'QUANTUM + AURORA', members: ['TRADER', 'THE BANKER', 'PULSE'], focus: 'Owns all passive income: affiliate, SaaS, yield, digital products. Target: $20K/month, 20% daily growth.', color: '#fbbf24', icon: 'revenue', toolCount: 667, status: 'ready' },
       ])
     } finally {
       setLoading(false)

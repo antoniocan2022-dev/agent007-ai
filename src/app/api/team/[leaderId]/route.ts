@@ -15,14 +15,15 @@ import { runSubagent, getAllSubagents } from '@/lib/subagents'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-const POD_STRUCTURE: Record<string, { name: string; leader: string; members: string[]; focus: string; color: string }> = {
+const POD_STRUCTURE: Record<string, { name: string; leader: string; members: string[]; focus: string; color: string; target?: string }> = {
   scout: { name: 'Intelligence & Research', leader: 'SCOUT', members: ['HUNT', 'QUANTUM'], focus: 'Find opportunities, validate demand, research competitors', color: '#38bdf8' },
-  aurora: { name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX', 'Content Specialist'], focus: 'Create content, design products, build affiliate funnels', color: '#00f0ff' },
-  echo: { name: 'Quality Assurance & Testing', leader: 'ECHO', members: ['QA Monitor', 'Performance Analyst'], focus: 'Test, verify, score quality, ensure 99% target', color: '#818cf8' },
+  aurora: { name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX'], focus: 'Create content, design products, build affiliate funnels (Content Specialist merged into AURORA)', color: '#00f0ff' },
+  echo: { name: 'Quality Assurance & Testing', leader: 'ECHO', members: ['QA Monitor'], focus: 'Test, verify, score quality, ensure 99% target (Performance Analyst merged into PULSE)', color: '#818cf8' },
   forge: { name: 'Engineering & Implementation', leader: 'FORGE', members: ['Developer', 'TRADER'], focus: 'Build, deploy, fix infrastructure, execute trades', color: '#fb923c' },
-  pulse: { name: 'Monitoring & Operations', leader: 'PULSE', members: ['External Monitor', 'THE BANKER'], focus: 'Monitor systems, track KPIs, financial monitoring', color: '#fb7185' },
+  pulse: { name: 'Monitoring & Operations', leader: 'PULSE', members: ['External Monitor', 'THE BANKER', 'Performance Analyst'], focus: 'Monitor systems, track KPIs, financial monitoring, weekly $ contribution board', color: '#fb7185' },
   developer: { name: 'System Health & Infrastructure', leader: 'Developer', members: ['QA Monitor', 'External Monitor'], focus: 'Tool health, API monitoring, infrastructure repair', color: '#10b981' },
   cybersecurity_r: { name: 'Compliance & Security', leader: 'Cybersecurity R', members: ['LEGAL', 'Cybersecurity A', 'THE BANKER'], focus: 'Legal compliance, tax strategy, security auditing', color: '#3b82f6' },
+  revenue: { name: 'Revenue (Passive Income)', leader: 'QUANTUM + AURORA', members: ['TRADER', 'THE BANKER', 'PULSE'], focus: 'Owns all passive income streams: affiliate, SaaS, yield, digital products. Hard target: $20K/month, 20% daily growth. Tracks real vs projected income via income_reality_check.', color: '#fbbf24', target: '$20K/month' },
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ leaderId: string }> }) {
