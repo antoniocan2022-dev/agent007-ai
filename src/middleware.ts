@@ -3,18 +3,41 @@ import { NextResponse } from 'next/server'
 import { checkRateLimit, getClientIP, isAuthenticatedRequest } from './lib/rate-limiter'
 
 // UPGRADE #96 — Rate limiting wrapper (authenticated users exempt)
+// UPGRADE #97c FIX — Exempt auth-protected routes from rate limiting.
+// The rate limiter runs BEFORE withAuth, so it can't detect session cookies
+// reliably. Auth-protected routes (agent, conversations, memory, etc.) should
+// NOT be rate-limited because they require authentication anyway.
+const RATE_LIMIT_EXEMPT = [
+  '/api/agent',
+  '/api/conversations',
+  '/api/memory',
+  '/api/settings',
+  '/api/income',
+  '/api/transactions',
+  '/api/users',
+  '/api/upload',
+  '/api/file',
+  '/api/auth',
+  '/api/2fa',
+  '/api/webhooks',
+]
+
 const withRateLimit = (handler: any) => {
   return async (req: any) => {
     const pathname = req.nextUrl?.pathname || ''
     if (pathname.startsWith('/api/')) {
-      const ip = getClientIP(req)
-      if (!isAuthenticatedRequest(req)) {
-        const result = checkRateLimit(ip, pathname)
-        if (result.limited) {
-          return NextResponse.json(
-            { ok: false, error: 'Rate limit exceeded', retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000) },
-            { status: 429, headers: { 'Retry-After': String(Math.ceil((result.resetAt - Date.now()) / 1000)) } }
-          )
+      // Skip rate limiting for auth-protected routes (they have their own auth)
+      const isExempt = RATE_LIMIT_EXEMPT.some(p => pathname.startsWith(p))
+      if (!isExempt) {
+        const ip = getClientIP(req)
+        if (!isAuthenticatedRequest(req)) {
+          const result = checkRateLimit(ip, pathname)
+          if (result.limited) {
+            return NextResponse.json(
+              { ok: false, error: 'Rate limit exceeded', retryAfter: Math.ceil((result.resetAt - Date.now()) / 1000) },
+              { status: 429, headers: { 'Retry-After': String(Math.ceil((result.resetAt - Date.now()) / 1000)) } }
+            )
+          }
         }
       }
     }
