@@ -423,6 +423,18 @@ export async function callLlmWithRetry(
     }
   }
 
+  // PROVIDER 4b: Mistral AI (FREE — direct API, reliable)
+  if (process.env.MISTRAL_API_KEY) {
+    try {
+      const mistralResult = await callMistralLlm(messages)
+      console.log('[LLM Router] Mistral succeeded')
+      return mistralResult
+    } catch (mErr: any) {
+      lastErr = mErr
+      console.warn('[LLM Router] Mistral failed:', mErr?.message?.slice(0, 100))
+    }
+  }
+
   // PROVIDER 5: OpenRouter (FREE models available — Llama 3, Mistral, etc.)
   // Uses OpenRouter's OpenAI-compatible API. Set OPENROUTER_API_KEY to enable.
   if (process.env.OPENROUTER_API_KEY) {
@@ -509,6 +521,43 @@ async function callGeminiLlm(messages: Array<{ role: string; content: string }>)
   }
 }
 
+/** Mistral AI (FREE — direct API, reliable fallback) */
+async function callMistralLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.MISTRAL_API_KEY!
+  const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'mistral-large-latest',
+      messages,
+      temperature: 0.3,
+      max_tokens: 8000,
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`Mistral: HTTP ${resp.status} — ${text.slice(0, 150)}`)
+  }
+
+  const data = await resp.json()
+  const content = data?.choices?.[0]?.message?.content ?? ''
+  if (!content) throw new Error('Mistral returned empty content')
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content },
+      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+    }],
+    _provider: 'mistral',
+    _model: 'mistral-large-latest',
+  }
+}
+
 /** Groq (FREE — ultra-fast Llama 3 / Mixtral) */
 async function callGroqLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.GROQ_API_KEY!
@@ -516,7 +565,6 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>): 
   const groqModels = [
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
-    'llama-3.1-70b-versatile',
     'gemma2-9b-it',
   ]
 
@@ -578,11 +626,12 @@ async function callOpenRouterLlm(messages: Array<{ role: string; content: string
   // UPGRADE #84: Multiple free model fallbacks — old model was deprecated.
   // Try each model in order until one works.
   const freeModels = [
-    'nvidia/nemotron-3-super-120b-a12b:free',  // 120B params, best free model
-    'tencent/hy3:free',                          // Fast, reliable
-    'google/gemma-4-26b-a4b-it:free',            // Google's free model
-    'nvidia/nemotron-3-ultra-550b-a55b:free',    // 550B params, largest free
-    'meta-llama/llama-3.2-3b-instruct:free',     // Small but fast (may rate limit)
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemini-2.0-flash-exp:free',
+    'deepseek/deepseek-chat-v3-0324:free',
+    'qwen/qwen-2.5-72b-instruct:free',
+    'mistralai/mistral-7b-instruct:free',
+    'meta-llama/llama-3.1-8b-instruct:free',
   ]
 
   let lastError: any = null
