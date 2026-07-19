@@ -25,8 +25,9 @@ const POD_STRUCTURE: Record<string, { name: string; leader: string; members: str
   cybersecurity_r: { name: 'Compliance & Security', leader: 'Cybersecurity R', members: ['LEGAL', 'Cybersecurity A', 'THE BANKER'], focus: 'Legal compliance, tax strategy, security auditing', color: '#3b82f6' },
 }
 
-export async function GET(req: NextRequest, { params }: { params: { leaderId: string } }) {
-  const leaderId = params.leaderId?.toLowerCase()
+export async function GET(req: NextRequest, { params }: { params: Promise<{ leaderId: string }> }) {
+  const { leaderId: rawLeaderId } = await params
+  const leaderId = rawLeaderId?.toLowerCase()
   const action = new URL(req.url).searchParams.get('action') ?? 'status'
 
   if (!leaderId || !POD_STRUCTURE[leaderId]) {
@@ -73,8 +74,9 @@ export async function GET(req: NextRequest, { params }: { params: { leaderId: st
   return NextResponse.json({ ok: false, error: 'Unknown action' }, { status: 400 })
 }
 
-export async function POST(req: NextRequest, { params }: { params: { leaderId: string } }) {
-  const leaderId = params.leaderId?.toLowerCase()
+export async function POST(req: NextRequest, { params }: { params: Promise<{ leaderId: string }> }) {
+  const { leaderId: rawLeaderId } = await params
+  const leaderId = rawLeaderId?.toLowerCase()
 
   if (!leaderId || !POD_STRUCTURE[leaderId]) {
     return NextResponse.json({
