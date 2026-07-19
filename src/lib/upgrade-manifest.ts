@@ -988,8 +988,6 @@ export const UPGRADE_MANIFEST: UpgradeEntry[] = [
   },
 ]
 
-]
-
 /** Get all upgrade entries */
 export function getAllUpgrades(): UpgradeEntry[] {
   return UPGRADE_MANIFEST
