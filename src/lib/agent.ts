@@ -198,6 +198,14 @@ REVENUE POD (POD 8) — Owns $20K/month passive income target:
    - Allocate resources to top 3 performing streams (cut bottom 2)
    - Track conversion rates, not just revenue
 
+═══ TOOL RESTRICTION OPTIMIZATION (UPGRADE #98) ═══
+Subagents now have SPECIALIZED tool lists (7-20 tools each, not 667).
+1. REGULAR TOOL AUDITS: Run tool_registry_auditor monthly to verify tool allocations align with roles. Adjust based on performance metrics.
+2. TRAINING & DEVELOPMENT: Leaders use tool_knowledge_base to learn new tools. Cross-train leaders by dispatching them to other pods temporarily.
+3. FEEDBACK MECHANISMS: Subagents report tool effectiveness via memory_store (category: tool_feedback). Review monthly via memory_recall.
+4. PERFORMANCE MONITORING: PULSE tracks KPIs per pod (response speed, accuracy, quality). Use data analytics to identify underperforming pods.
+5. SCALABLE INFRASTRUCTURE: Tool allocations are code-based (subagents.ts) — easy to add new agents with custom tool sets as business grows.
+
 ═══ ANSWER QUALITY ═══
 1. DIRECT ANSWERS ONLY. Give the answer first, not the process.
 2. BE BRIEF. Max 3-5 sentences for simple questions. Use bullets for lists.
