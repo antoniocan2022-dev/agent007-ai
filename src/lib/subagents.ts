@@ -1280,14 +1280,14 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     return { answer: `⚠️ ${err}`, steps: [] }
   }
 
-  // CRITICAL FIX: Always grant FULL_ACCESS_TOOLS to every subagent, regardless
-  // of what getAllSubagents returned. This fixes the issue where subagents
-  // other than AURORA couldn't use web_search — on Vercel cold starts, the
-  // DB query in getAllSubagents may fail or return stale data, causing
-  // allowedTools to be the limited built-in list instead of FULL_ACCESS_TOOLS.
-  // By forcing FULL_ACCESS_TOOLS here, we guarantee every subagent can use
-  // every tool (web_search, page_reader, all 465+ tools) on every request.
-  const allowed = new Set([...FULL_ACCESS_TOOLS])
+  // UPGRADE #98 — TOOL RESTRICTION: Use the subagent's specialized allowedTools
+  // instead of forcing FULL_ACCESS_TOOLS. This creates TRUE specialization:
+  // each subagent only has access to tools relevant to their pod/role.
+  // Leaders have 15-20 tools, members have 7-12 tools.
+  // The Super Agent (orchestrator) still has all 667 tools.
+  // If a subagent needs a tool they don't have, the leader provides it or
+  // the Super Agent dispatches differently.
+  const allowed = new Set(sub.allowedTools?.length ? sub.allowedTools : [...FULL_ACCESS_TOOLS])
   const ctx: ToolContext = { attachments: opts.attachments, language: opts.language }
 
   const languageInstruction =
