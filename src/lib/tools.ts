@@ -2809,3 +2809,7 @@ TOOL_REGISTRY.security_header_tester = { fn: toolSecurityHeaderTester, icon: 'lo
 TOOL_REGISTRY.rate_limit_tester = { fn: toolRateLimitTester, icon: 'gauge', label: 'Rate Limit Tester (test if rate limiting is working)' }
 TOOL_REGISTRY.csp_diagnostic = { fn: toolCSPDiagnostic, icon: 'alert-triangle', label: 'CSP Diagnostic (diagnose Content-Security-Policy issues)' }
 TOOL_REGISTRY.security_auto_fixer = { fn: toolSecurityAutoFixer, icon: 'wrench', label: 'Security Auto Fixer (auto-fix common security issues)' }
+
+/* ═══ UPGRADE #99 — TOOL CACHE (Layer 2 Hybrid) ═══ */
+import { toolCache } from './tool-cache'
+TOOL_REGISTRY.tool_cache = { fn: toolCache, icon: 'database', label: 'Tool Cache (smart cache: task→tool mapping for instant lookup)' }
