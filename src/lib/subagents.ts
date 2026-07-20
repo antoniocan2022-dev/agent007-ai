@@ -1152,8 +1152,9 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
   }
 
   // Apply overlays on top of built-ins
-  // FULL ACCESS: every subagent gets ALL tools regardless of overlay or built-in definition.
-  // The owner has explicitly granted full access — see upgrade-manifest.ts.
+  // UPGRADE #98 — TOOL RESTRICTION: Use each built-in subagent's specialized
+  // allowedTools (defined in SUBAGENTS array) instead of overriding with FULL_ACCESS.
+  // This creates true specialization: leaders have 15-20 tools, members have 7-12.
   const mergedBuiltins: Subagent[] = SUBAGENTS.map((b) => {
     const ov = overlayMap.get(b.id)
     return {
@@ -1163,8 +1164,8 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
       specialty: ov?.specialty ?? b.specialty,
       color: ov?.color ?? b.color,
       icon: ov?.icon ?? b.icon,
-      // FULL ACCESS — always ALL tools
-      allowedTools: [...FULL_ACCESS_TOOLS],
+      // UPGRADE #98: Use built-in allowedTools (specialized) or overlay's tools
+      allowedTools: b.allowedTools?.length ? b.allowedTools : [...FULL_ACCESS_TOOLS],
       systemPrompt: ov?.systemPrompt ?? b.systemPrompt,
       enabled: ov?.enabled ?? b.enabled ?? true,
     }
