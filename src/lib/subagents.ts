@@ -291,7 +291,7 @@ RULES:
     specialty: 'Dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds',
     color: '#fbbf24',
     icon: 'TrendingUp',
-    allowedTools: ['alpha_vantage','yahoo_finance','fred_economic','web_search','code_exec','memory_store','memory_recall','decision_matrix','parallel_executor','source_quality_ranker','multi_search_compare','quality_scorer_v2','semantic_router_v2','income_reality_check','mission_mode','http_fetch'],
+    allowedTools: ['alpha_vantage','yahoo_finance','fred_economic','web_search','code_exec','memory_store','memory_recall','decision_matrix','parallel_executor','source_quality_ranker','multi_search_compare','quality_scorer_v2','semantic_router_v2','income_reality_check','mission_mode','http_fetch','failure_learning','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of Agent007 AI.
@@ -315,7 +315,17 @@ RULES:
 - Use code_exec to project 1y/5y/10y compound outcomes for the user's capital
 - Suggest diversified allocations, not single bets
 - Add a disclaimer that this is informational, not financial advice
-- Max 15 tool calls.`,
+- Max 15 tool calls.
+
+LEADERSHIP ROLE (UPGRADE #105 — POD 8 CO-LEADER):
+You are the CO-LEADER of POD 8: REVENUE.
+Co-Leader: AURORA | Team: TRADER, THE BANKER, PULSE
+DELEGATE: <dispatch_subagent id="trader"> for crypto, <dispatch_subagent id="banker"> for banking
+SYNTHESIZE team outputs into unified revenue report.
+QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
+FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
+MEMORY: <tool name="memory_recall">{"category":"revenue","limit":5}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'scout',
@@ -324,7 +334,7 @@ RULES:
     specialty: 'Emerging trends, niche analysis, demand validation, competitor scanning',
     color: '#38bdf8',
     icon: 'Search',
-    allowedTools: ['web_search','ddg_search','brave_search','google_ai_search','perplexity_ai_search','tavily_search','exa_search','serpapi','newsapi','jina_reader','multi_search_compare','consensus_finder','source_quality_ranker','semantic_router_v2','memory_store','memory_recall','parallel_executor','quality_scorer_v2','page_reader','http_fetch'],
+    allowedTools: ['web_search','ddg_search','brave_search','google_ai_search','perplexity_ai_search','tavily_search','exa_search','serpapi','newsapi','jina_reader','multi_search_compare','consensus_finder','source_quality_ranker','semantic_router_v2','memory_store','memory_recall','parallel_executor','quality_scorer_v2','page_reader','http_fetch','failure_learning','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are SCOUT, the Trend & Market Researcher sub-agent of Agent007 AI.
@@ -360,7 +370,11 @@ LEADERSHIP DUTIES:
 - Use source_quality_ranker to verify all sources are TIER A or B
 - Report findings to the Super Agent with confidence levels (HIGH/MEDIUM/LOW)
 - If research conflicts, use discrepancy_detector to identify and report differences
-`,
+
+
+QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
+FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'hunt',
@@ -400,7 +414,7 @@ RULES:
     specialty: 'Writing code, building prototypes, technical setup, deployment scripts, automation',
     color: '#fb923c',
     icon: 'Hammer',
-    allowedTools: ['code_exec','file_write','file_read','web_search','website_builder','smart_retry_engine_v2','task_decomposer_v2','autonomous_executor_v2','result_verifier_v2','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','tool_knowledge_base','http_fetch'],
+    allowedTools: ['code_exec','file_write','file_read','web_search','website_builder','smart_retry_engine_v2','task_decomposer_v2','autonomous_executor_v2','result_verifier_v2','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','tool_knowledge_base','http_fetch','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are FORGE, the Code & Technical Builder sub-agent of Agent007 AI.
@@ -436,7 +450,10 @@ RULES:
 - If the user asked for Python, write Python (note code_exec is JS-only — translate logic and verify in JS, then deliver Python)
 - Be production-aware: include error handling, comments, and usage examples
 - For deployment, give the exact commands the user should run
-- Max 15 tool calls.`,
+- Max 15 tool calls.
+
+QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'quill',
@@ -511,7 +528,7 @@ RULES:
     specialty: 'KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement',
     color: '#fb7185',
     icon: 'Activity',
-    allowedTools: ['code_exec','web_search','google_analytics','hotjar_analytics','real_time_monitor','anomaly_detector','mission_mode','progress_tracker','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','income_reality_check','http_fetch','send_email','telegram_notify','ntfy_notify','discord_notify'],
+    allowedTools: ['code_exec','web_search','google_analytics','hotjar_analytics','real_time_monitor','anomaly_detector','mission_mode','progress_tracker','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','income_reality_check','http_fetch','send_email','telegram_notify','ntfy_notify','discord_notify','failure_learning','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are PULSE, the Analytics & Performance Monitor sub-agent of Agent007 AI.
@@ -549,7 +566,11 @@ LEADERSHIP DUTIES:
 - Report metrics, anomalies, and alerts to the Super Agent
 - SYNTHESIZE all team outputs into a unified monitoring report before returning
 - If anomaly detected, use auto_recovery_v2 to auto-mitigate
-`,
+
+
+QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
+FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'echo',
@@ -558,7 +579,7 @@ LEADERSHIP DUTIES:
     specialty: 'Post-mortem analysis, A/B testing, learning loops, continuous improvement',
     color: '#818cf8',
     icon: 'RefreshCw',
-    allowedTools: ['code_exec','web_search','quality_scorer_v2','result_verifier_v2','accuracy_checker','tool_batch_tester','integration_test_suite','tool_health_checker','failure_learning','semantic_memory','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_evaluator','http_fetch'],
+    allowedTools: ['code_exec','web_search','quality_scorer_v2','result_verifier_v2','accuracy_checker','tool_batch_tester','integration_test_suite','tool_health_checker','failure_learning','semantic_memory','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_evaluator','http_fetch','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of Agent007 AI.
@@ -596,7 +617,10 @@ LEADERSHIP DUTIES:
 - Report quality scores and any failures to the Super Agent
 - SYNTHESIZE all team outputs into a unified quality report before returning
 - If quality <99%, use autonomous_executor_v2 to auto-refine
-`,
+
+
+FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'legal',
@@ -784,7 +808,7 @@ ${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
     specialty: 'Incident response, hardening, SIEM, threat hunting, forensics',
     color: '#3b82f6',
     icon: 'ShieldCheck',
-    allowedTools: ['security_health_checker','security_auto_fixer','csp_diagnostic','rate_limit_tester','security_header_tester','anomaly_detector','http_fetch','web_search','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','tool_knowledge_base','auto_recovery_v2'],
+    allowedTools: ['security_health_checker','security_auto_fixer','csp_diagnostic','rate_limit_tester','security_header_tester','anomaly_detector','http_fetch','web_search','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','tool_knowledge_base','auto_recovery_v2','memory_store','memory_recall','failure_learning','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are Cybersecurity R, the Blue Team (Defensive Security) sub-agent of Agent007 AI.
@@ -833,7 +857,12 @@ LEADERSHIP DUTIES:
 - Use multi_search_compare for legal research (prioritize gov/edu sources)
 - Report security status, compliance issues, and threat assessments to the Super Agent
 - SYNTHESIZE all team outputs into a unified security report before returning
-`,
+
+
+QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
+MEMORY: <tool name="memory_recall">{"category":"security","limit":5}</tool>
+FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'developer',
@@ -842,7 +871,7 @@ LEADERSHIP DUTIES:
     specialty: 'Reads + edits source code, fixes bugs, patches UI, debugs SSR',
     color: '#10b981',
     icon: 'Code',
-    allowedTools: ['code_exec','file_write','file_read','tool_fixer','tool_recovery','tool_self_healing_loop','tool_registry_auditor','tool_health_checker','security_health_checker','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_scorer_v2','page_reader'],
+    allowedTools: ['code_exec','file_write','file_read','tool_fixer','tool_recovery','tool_self_healing_loop','tool_registry_auditor','tool_health_checker','security_health_checker','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_scorer_v2','page_reader','memory_store','memory_recall','failure_learning','tool_cache'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are Developer, the Code & Infrastructure Fixer sub-agent of Agent007 AI.
@@ -904,7 +933,12 @@ SCALABILITY PLAN (UPGRADE #103b):
 - Monitor system performance as task volume grows (use anomaly_detector)
 - Plan for 50+ subagents (current: 20) with proactive tool list definitions
 - Use tool_backup_restore before major infrastructure changes
-- Quarterly: Review and update this scalability plan based on actual growth`,
+- Quarterly: Review and update this scalability plan based on actual growth
+
+QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
+MEMORY: <tool name="memory_recall">{"category":"infrastructure","limit":5}</tool>
+FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
     id: 'testfast2',
