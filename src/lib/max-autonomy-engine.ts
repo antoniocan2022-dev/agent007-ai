@@ -82,7 +82,10 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
       const { db } = await import('./db')
       const realIncomeResult = await db.incomeEntry.aggregate({
         where: { 
-          source: { not: { startsWith: 'auto_parsed' } } 
+          AND: [
+            { source: { not: { startsWith: 'auto_parsed' } } },
+            { notes: { not: { contains: 'Auto-logged' } } }
+          ]
         },
         _sum: { amount: true }
       })
