@@ -1072,7 +1072,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
           if (r.status === 'fulfilled' && r.value) {
             try { await emit('subagent_complete', { dispatchId: `par_${i}`, answer: (r.value.answer ?? '').slice(0, 2000) }) } catch {}
             conversationMessages.push({ role: 'assistant', content: `<dispatch_subagent id="${d.agentId}">${d.task}</dispatch_subagent>` })
-            conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${r.value.name}: ${(r.value.answer ?? '').slice(0, 4000)}` })
+            conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${r.value.name}: ${(r.value.answer ?? '').slice(0, 20000)}` })
           } else {
             conversationMessages.push({ role: 'user', content: `[SUBAGENT_RESULT] ${d.agentId}: ERROR — ${r.status === 'rejected' ? r.reason?.message : 'unknown'}` })
           }
@@ -1200,12 +1200,14 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       // amounts (e.g. "$12.50", "$1,200/mo", "$45/day"), log them as income
       // entries with source = sub-agent id. Fire-and-forget — never blocks the
       // orchestrator. We only consider amounts that look like earnings (positive
-      // dollar values, optionally followed by /day /mo /week /month).
-      try {
-        autoLogIncomeFromAnswer(sub.id, subAnswer)
-      } catch {
-        /* ignore */
-      }
+      // UPGRADE #106: Disabled auto-logging of fake income from agent text.
+      // This was creating $18K+ in fake "projected" income entries that confused the system.
+      // Real income is now tracked only via Stripe/PayPal webhooks or manual entry.
+      // try {
+      //   autoLogIncomeFromAnswer(sub.id, subAnswer)
+      // } catch {
+      //   /* ignore */
+      // }
 
       // If a memory_store happened inside the sub-agent, the sub-agent already emitted it
       // (we don't double-emit memory_update here)

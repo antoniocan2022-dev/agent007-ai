@@ -68,28 +68,34 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
     const actions: string[] = []
     const now = new Date().toISOString()
 
-    // Step 1: Scout for opportunities (simulated — in production, dispatches scout subagent)
-    const opportunity = {
-      id: `opp_${Date.now()}`,
-      source: 'auto-scout',
-      title: ['AI content niche', 'Print-on-demand trend', 'Affiliate funnel', 'SaaS micro-tool', 'Course topic'][Math.floor(Math.random() * 5)],
-      potential: `$${(Math.random() * 3000 + 500).toFixed(0)}/mo`,
-      date: now.slice(0, 10),
-    }
-    missionState.opportunities.push(opportunity)
-    actions.push(`Scout found: ${opportunity.title} (${opportunity.potential} potential)`)
+    // UPGRADE #106: Real Income Verification Loop — Removed Math.random() fake data.
+    // Mission tick now reports REAL status, not fabricated projections.
+    
+    // Step 1: Scout for opportunities (real status check)
+    actions.push('Scout: Ready to research opportunities when dispatched by CEO')
 
     // Step 2: Aurora monetization check
-    actions.push('Aurora: monetization strategy generated for top opportunity')
+    actions.push('Aurora: Ready to create monetization strategies when dispatched')
 
-    // Step 3: Pulse KPI check
-    missionState.kpis.today = Math.floor(Math.random() * 200)
-    missionState.kpis.month += missionState.kpis.today
-    missionState.kpis.progress = (missionState.kpis.month / missionState.kpis.target) * 100
-    actions.push(`Pulse: KPIs updated — today $${missionState.kpis.today}, month $${missionState.kpis.month} (${missionState.kpis.progress.toFixed(1)}%)`)
+    // Step 3: Pulse KPI check (REAL income from DB, not random)
+    try {
+      const { db } = await import('./db')
+      const realIncomeResult = await db.incomeEntry.aggregate({
+        where: { 
+          source: { not: { startsWith: 'auto_parsed' } } 
+        },
+        _sum: { amount: true }
+      })
+      missionState.kpis.today = 0 // No "today" income without date filtering in this simplified view
+      missionState.kpis.month = realIncomeResult._sum.amount || 0
+      missionState.kpis.progress = (missionState.kpis.month / missionState.kpis.target) * 100
+      actions.push(`Pulse: REAL KPIs updated — month $${missionState.kpis.month} (${missionState.kpis.progress.toFixed(1)}% of $${missionState.kpis.target} target)`)
+    } catch (e: any) {
+      actions.push(`Pulse: DB unavailable for real income check — ${e?.message?.slice(0, 80)}`)
+    }
 
     // Step 4: Echo feedback loop
-    actions.push('Echo: feedback loop checked, no pivots needed')
+    actions.push('Echo: Ready to analyze feedback when dispatched')
 
     missionState.lastRunAt = now
     missionState.totalRuns++
