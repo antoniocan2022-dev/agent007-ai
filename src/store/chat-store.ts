@@ -131,8 +131,8 @@ interface ChatState {
   setRight: (v: boolean) => void
 
   // active top-level tab
-  activeTab: 'chat' | 'dashboard' | 'pods' | 'schedules' | 'settings' | 'missions'
-  setActiveTab: (tab: 'chat' | 'dashboard' | 'pods' | 'schedules' | 'settings' | 'missions') => void
+  activeTab: 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions'
+  setActiveTab: (tab: 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions') => void
 
   // global change-password modal trigger (openable from chat-header user menu + Settings tab)
   changePasswordOpen: boolean

@@ -18,6 +18,7 @@ import { SchedulesTab } from '@/components/agent/tabs/schedules-tab'
 import { SettingsTab } from '@/components/agent/tabs/settings-tab'
 import { MissionsTab } from '@/components/agent/tabs/missions-tab'
 import { PodsTab } from '@/components/agent/tabs/pods-tab'
+import { MissionActiveTab } from '@/components/agent/tabs/mission-active-tab'
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
 
@@ -142,6 +143,7 @@ export default function Home() {
             {activeTab === 'chat' && <ChatTab />}
             {activeTab === 'missions' && <MissionsTab />}
             {activeTab === 'pods' && <PodsTab />}
+            {activeTab === 'mission-active' && <MissionActiveTab />}
             {activeTab === 'dashboard' && <DashboardTab />}
             {activeTab === 'schedules' && <SchedulesTab />}
             {activeTab === 'settings' && (

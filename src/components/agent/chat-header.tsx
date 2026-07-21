@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
   Rocket,
   Network,
+  GitBranch,
   type LucideIcon,
 } from 'lucide-react'
 import { useSession, signOut } from 'next-auth/react'
@@ -24,7 +25,7 @@ import { useChatStore } from '@/store/chat-store'
 import { NexusLogo } from './nexus-logo'
 import { ApiStatusIndicator } from './api-status-indicator'
 
-type TabId = 'chat' | 'dashboard' | 'pods' | 'schedules' | 'settings' | 'missions'
+type TabId = 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions'
 
 interface TabDef {
   id: TabId
@@ -37,6 +38,7 @@ const TABS: TabDef[] = [
   { id: 'missions', label: 'Missions', icon: Rocket },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'pods', label: 'Pods', icon: Network },
+  { id: 'mission-active', label: 'Mission Actives', icon: GitBranch },
   { id: 'schedules', label: 'Schedules', icon: CalendarClock },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
