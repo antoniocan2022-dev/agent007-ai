@@ -12,7 +12,8 @@ export async function GET() {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
-  const DEFAULT_ORDER = ['openai', 'z-ai', 'gemini', 'groq', 'mistral', 'openrouter']
+  // UPGRADE #114 — must match src/lib/agent.ts DEFAULT_ORDER
+  const DEFAULT_ORDER = ['openai', 'mistral', 'groq', 'openrouter', 'brave', 'gemini', 'z-ai']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   // Mask API keys (show only first 4 + last 4 chars)
