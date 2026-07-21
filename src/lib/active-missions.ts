@@ -126,6 +126,14 @@ let seeded = false
 function nowIso() { return new Date().toISOString() }
 function uid(prefix: string) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` }
 
+// Deterministic IDs for seeded missions — so any serverless instance
+// produces the same IDs and cross-instance fetches work.
+const SEED_MISSION_IDS = [
+  'mission_seed_affiliate_blog',
+  'mission_seed_saas_pdf_annotator',
+  'mission_seed_trading_stablecoin',
+]
+
 function buildChain(): StageHandoff[] {
   return DEFAULT_CHAIN.map(({ stage, team }) => {
     const pod = POD_LEADERS[team] || { leader: team.toUpperCase(), name: team }
@@ -193,11 +201,11 @@ function seed(): void {
     })
 
     const mission: ActiveMission = {
-      id: uid('mission'),
+      id: SEED_MISSION_IDS[idx] || uid('mission'),
       title: s.title!,
       description: s.description!,
       revenueTarget: s.revenueTarget ?? 0,
-      createdAt: nowIso(),
+      createdAt: '2026-07-21T00:00:00.000Z',
       updatedAt: nowIso(),
       currentStage,
       priority: (s.priority as any) || 'medium',
@@ -205,7 +213,7 @@ function seed(): void {
       chain,
       log: [
         {
-          timestamp: nowIso(),
+          timestamp: '2026-07-21T00:00:00.000Z',
           actor: 'SYSTEM',
           stage: 'PLANNED',
           message: `Mission created by CEO. Target: $${s.revenueTarget}/month. Category: ${s.category}.`,
