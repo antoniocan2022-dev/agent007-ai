@@ -271,16 +271,21 @@ export async function callLlmWithRetry(
   let lastErr: any = null
 
   // ════════════════════════════════════════════════════════════════════
-  // UPGRADE #77 + #112 — MULTI-PROVIDER LLM ROUTER (ORDER-AWARE)
-  // Chain (default): OpenAI → z-ai (dev only) → Gemini → Groq → Mistral → OpenRouter
+  // UPGRADE #77 + #112 + #114 — MULTI-PROVIDER LLM ROUTER (ORDER-AWARE)
   //
-  // UPGRADE #112 — LLM_PROVIDER_ORDER env var
+  // UPGRADE #114 — NEW DEFAULT ORDER (owner-requested):
+  //   OpenAI → Mistral → Groq → OpenRouter → Brave → Gemini → z.ai
+  //
+  //   - 7 providers total (was 6)
+  //   - Mistral is now #2 (was #5) — fast, reliable, works from any region
+  //   - Brave AI is NEW (#5) — OpenAI-compatible, any region
+  //   - z.ai is NEW (#7) — env-var based (ZAI_API_KEY), works on Vercel
+  //   - Gemini dropped to #6 (region-blocked on Vercel iad1)
+  //
+  // UPGRADE #112 — LLM_PROVIDER_ORDER env var (still respected)
   // ─────────────────────────────────────────────────────
-  // On Vercel iad1, OpenAI often returns 403/region-blocked and Gemini
-  // returns 400 location-not-supported. To skip the wasted retries, set:
-  //
+  // Override the default order by setting:
   //   LLM_PROVIDER_ORDER=mistral,groq,openrouter,openai
-  //
   // (comma-separated, lowercase, any subset, any order)
   // Providers not in the list are SKIPPED entirely. Providers in the list
   // but without an API key set are also skipped (with a console log).
@@ -291,10 +296,8 @@ export async function callLlmWithRetry(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
 
-  // Default order (used when LLM_PROVIDER_ORDER is not set):
-  // OpenAI first because that's the historical primary, then z-ai (dev),
-  // then Gemini, Groq, Mistral, OpenRouter.
-  const DEFAULT_ORDER = ['openai', 'z-ai', 'gemini', 'groq', 'mistral', 'openrouter']
+  // UPGRADE #114: New default order — owner requested this exact sequence.
+  const DEFAULT_ORDER = ['openai', 'mistral', 'groq', 'openrouter', 'brave', 'gemini', 'z-ai']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   const providerEnabled = (name: string): boolean => {
@@ -345,61 +348,25 @@ export async function callLlmWithRetry(
     console.warn('[LLM Router] OpenAI exhausted retries, trying next provider...')
   }
 
-  // PROVIDER: z-ai SDK (GLM-4) — FREE, no API key needed (DEV ONLY)
-  // UPGRADE #77: Skip z-ai on Vercel (config file not available in serverless)
-  // UPGRADE #112: Also skipped if not in LLM_PROVIDER_ORDER
-  if (providerEnabled('z-ai') && !isVercel) {
-    try {
-      const zai = await getZai()
-      const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #114 — NEW PROVIDER ORDER:
+  //   1. OpenAI    →  2. Mistral  →  3. Groq      →  4. OpenRouter
+  //   5. Brave AI  →  6. Gemini   →  7. z.ai (env-var direct call)
+  // ════════════════════════════════════════════════════════════════════
 
-      for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
-        if (attempt > 0) {
-          RATE_LIMIT_INFO.retryingNow = true
-          const delay = BACKOFF_DELAYS_MS[attempt - 1]
-          await new Promise((r) => setTimeout(r, delay))
-        }
-        await throttleLlm()
-        try {
-          const completion = await zai.chat.completions.create({
-            messages,
-            ...(thinking ? { thinking } : {}),
-          })
-          RATE_LIMIT_INFO.retryingNow = false
-          console.log('[LLM Router] z-ai (GLM-4) succeeded')
-          return completion
-        } catch (e: any) {
-          lastErr = e
-          if (isRateLimitError(e)) {
-            RATE_LIMIT_INFO.last429At = Date.now()
-            continue
-          }
-          break
-        }
-      }
-    } catch (e: any) {
-      lastErr = e
-      console.warn('[LLM Router] z-ai failed:', e?.message?.slice(0, 100))
-    }
-  } else {
-    console.log('[LLM Router] Skipping z-ai on Vercel (config not available in serverless)')
-  }
-
-  // PROVIDER: Google Gemini (FREE tier — 15 requests/min, 1500/day)
-  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER (often region-blocked on iad1)
-  if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
+  // PROVIDER #2: Mistral AI (reliable, works from any region)
+  if (providerEnabled('mistral') && process.env.MISTRAL_API_KEY) {
     try {
-      const geminiResult = await callGeminiLlm(messages)
-      console.log('[LLM Router] Google Gemini succeeded')
-      return geminiResult
-    } catch (geminiErr: any) {
-      lastErr = geminiErr
-      console.warn('[LLM Router] Gemini failed, trying next provider:', geminiErr?.message?.slice(0, 100))
+      const mistralResult = await callMistralLlm(messages)
+      console.log('[LLM Router] Mistral succeeded')
+      return mistralResult
+    } catch (mErr: any) {
+      lastErr = mErr
+      console.warn('[LLM Router] Mistral failed, trying next provider:', mErr?.message?.slice(0, 100))
     }
   }
 
-  // PROVIDER: Groq (FREE — ultra-fast Llama 3 / Mixtral)
-  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER
+  // PROVIDER #3: Groq (ultra-fast Llama 3 / Mixtral)
   if (providerEnabled('groq') && process.env.GROQ_API_KEY) {
     try {
       const groqResult = await callGroqLlm(messages)
@@ -411,21 +378,7 @@ export async function callLlmWithRetry(
     }
   }
 
-  // PROVIDER: Mistral AI (FREE — direct API, reliable, works from any region)
-  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER
-  if (providerEnabled('mistral') && process.env.MISTRAL_API_KEY) {
-    try {
-      const mistralResult = await callMistralLlm(messages)
-      console.log('[LLM Router] Mistral succeeded')
-      return mistralResult
-    } catch (mErr: any) {
-      lastErr = mErr
-      console.warn('[LLM Router] Mistral failed:', mErr?.message?.slice(0, 100))
-    }
-  }
-
-  // PROVIDER: OpenRouter (FREE models available — Llama 3, Mistral, etc.)
-  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER
+  // PROVIDER #4: OpenRouter (multi-model aggregator, free models available)
   if (providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY) {
     try {
       const openRouterResult = await callOpenRouterLlm(messages)
@@ -437,21 +390,103 @@ export async function callLlmWithRetry(
     }
   }
 
+  // PROVIDER #5: Brave AI (NEW — UPGRADE #113/#114)
+  // OpenAI-compatible endpoint, works from any region.
+  // Get a key from https://api.search.brave.com/register
+  if (providerEnabled('brave') && process.env.BRAVE_API_KEY) {
+    try {
+      const braveResult = await callBraveLlm(messages)
+      console.log('[LLM Router] Brave AI succeeded')
+      return braveResult
+    } catch (bErr: any) {
+      lastErr = bErr
+      console.warn('[LLM Router] Brave AI failed, trying next provider:', bErr?.message?.slice(0, 100))
+    }
+  }
+
+  // PROVIDER #6: Google Gemini (often region-blocked on Vercel iad1)
+  if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
+    try {
+      const geminiResult = await callGeminiLlm(messages)
+      console.log('[LLM Router] Google Gemini succeeded')
+      return geminiResult
+    } catch (geminiErr: any) {
+      lastErr = geminiErr
+      console.warn('[LLM Router] Gemini failed, trying next provider:', geminiErr?.message?.slice(0, 100))
+    }
+  }
+
+  // PROVIDER #7: z.ai (GLM-4) — UPGRADE #114 NEW: env-var based direct call
+  // Two modes:
+  //   (a) Dev (local): use the z-ai-web-dev-sdk with ~/.z-ai-config file (original behavior)
+  //   (b) Vercel/serverless: if ZAI_API_KEY is set, call the z.ai API directly
+  //       (bypasses the SDK's config-file requirement)
+  if (providerEnabled('z-ai')) {
+    if (!isVercel) {
+      // Mode (a): use the SDK
+      try {
+        const zai = await getZai()
+        const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+
+        for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
+          if (attempt > 0) {
+            RATE_LIMIT_INFO.retryingNow = true
+            const delay = BACKOFF_DELAYS_MS[attempt - 1]
+            await new Promise((r) => setTimeout(r, delay))
+          }
+          await throttleLlm()
+          try {
+            const completion = await zai.chat.completions.create({
+              messages,
+              ...(thinking ? { thinking } : {}),
+            })
+            RATE_LIMIT_INFO.retryingNow = false
+            console.log('[LLM Router] z-ai (GLM-4 via SDK) succeeded')
+            return completion
+          } catch (e: any) {
+            lastErr = e
+            if (isRateLimitError(e)) {
+              RATE_LIMIT_INFO.last429At = Date.now()
+              continue
+            }
+            break
+          }
+        }
+      } catch (e: any) {
+        lastErr = e
+        console.warn('[LLM Router] z-ai SDK failed:', e?.message?.slice(0, 100))
+      }
+    } else if (process.env.ZAI_API_KEY) {
+      // Mode (b): direct API call on Vercel using ZAI_API_KEY env var
+      try {
+        const zaiResult = await callZaiDirectLlm(messages)
+        console.log('[LLM Router] z.ai (direct env-var) succeeded')
+        return zaiResult
+      } catch (zErr: any) {
+        lastErr = zErr
+        console.warn('[LLM Router] z.ai direct failed:', zErr?.message?.slice(0, 100))
+      }
+    } else {
+      console.log('[LLM Router] Skipping z-ai on Vercel (no ZAI_API_KEY env var set)')
+    }
+  }
+
   // ALL PROVIDERS FAILED — throw a user-friendly error
   RATE_LIMIT_INFO.retryingNow = false
   const providersTried = [
     process.env.OPENAI_API_KEY ? 'OpenAI (gpt-4o)' : null,
-    !isVercel ? 'z-ai (GLM-4)' : null,
-    process.env.GEMINI_API_KEY ? 'Gemini' : null,
+    process.env.MISTRAL_API_KEY ? 'Mistral' : null,
     process.env.GROQ_API_KEY ? 'Groq' : null,
     process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null,
+    process.env.BRAVE_API_KEY ? 'Brave AI' : null,
+    process.env.GEMINI_API_KEY ? 'Gemini' : null,
+    !isVercel ? 'z-ai SDK (GLM-4)' : (process.env.ZAI_API_KEY ? 'z.ai direct' : null),
   ].filter(Boolean).join(', ')
 
-  // UPGRADE #77: Don't show the raw z-ai "Configuration file not found" error.
-  // Show a user-friendly message instead.
+  // UPGRADE #114: Updated provider list + new env vars in the help message.
   const friendlyMsg = isRateLimitError(lastErr)
-    ? `Rate limit reached on all available providers (${providersTried}). Please wait a moment and try again. To add free fallback providers, set GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY in Vercel env vars.`
-    : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set GEMINI_API_KEY (from https://aistudio.google.com/apikey) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars.`
+    ? `Rate limit reached on all available providers (${providersTried}). Please wait a moment and try again. To add free fallback providers, set MISTRAL_API_KEY (https://console.mistral.ai/api-keys), GROQ_API_KEY (https://console.groq.com/keys), OPENROUTER_API_KEY (https://openrouter.ai/keys), BRAVE_API_KEY (https://api.search.brave.com/register), or ZAI_API_KEY (https://z.ai/manage-apikey) in Vercel env vars.`
+    : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set MISTRAL_API_KEY (from https://console.mistral.ai/api-keys) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars. Visit /api/health/llm-providers for live diagnostics.`
 
   throw new Error(friendlyMsg)
 }
@@ -675,6 +710,126 @@ async function callOpenRouterLlm(messages: Array<{ role: string; content: string
   }
 
   throw lastError ?? new Error('All OpenRouter free models failed')
+}
+
+/* ════════════════════════════════════════════════════════════════════ *
+ * UPGRADE #113 + #114 — NEW PROVIDERS: Brave AI + z.ai direct
+ * ════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Brave AI (Leo) — OpenAI-compatible endpoint.
+ * Get a key from https://api.search.brave.com/register
+ *
+ * Env vars:
+ *   BRAVE_API_KEY     — required, your Brave API key
+ *   BRAVE_AI_BASE_URL — optional, defaults to https://api.search.brave.com/ai/v1/chat/completions
+ *   BRAVE_AI_MODEL    — optional, defaults to brave-leo-v1
+ */
+async function callBraveLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.BRAVE_API_KEY!
+  const baseUrl = process.env.BRAVE_AI_BASE_URL || 'https://api.search.brave.com/ai/v1/chat/completions'
+  const model = process.env.BRAVE_AI_MODEL || 'brave-leo-v1'
+
+  const resp = await fetch(baseUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'X-Subscription-Token': apiKey, // Brave API requires this header
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.3,
+      max_tokens: 8000,
+      top_p: 0.95,
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`Brave AI: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  }
+
+  const data = await resp.json()
+  // OpenAI-compatible response shape — `choices[0].message.content`
+  const content =
+    data?.choices?.[0]?.message?.content ??
+    data?.choices?.[0]?.text ??
+    data?.message ??
+    ''
+
+  if (!content) {
+    throw new Error(`Brave AI returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
+  }
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content },
+      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+    }],
+    _provider: 'brave',
+    _model: model,
+  }
+}
+
+/**
+ * z.ai Direct API Call (GLM-4) — UPGRADE #114 NEW
+ *
+ * Bypasses the z-ai-web-dev-sdk's requirement for a ~/.z-ai-config file
+ * so it works on Vercel serverless. Calls the same underlying API the
+ * SDK uses, but with credentials from env vars.
+ *
+ * Env vars:
+ *   ZAI_API_KEY     — required, your z.ai API key (get from https://z.ai/manage-apikey)
+ *   ZAI_BASE_URL    — optional, defaults to https://api.z.ai/api/paas/v4
+ *   ZAI_MODEL       — optional, defaults to glm-4.6
+ *
+ * The endpoint is OpenAI-compatible (returns {choices:[{message:{content}}]}).
+ */
+async function callZaiDirectLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.ZAI_API_KEY!
+  const baseUrl = process.env.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4'
+  const model = process.env.ZAI_MODEL || 'glm-4.6'
+
+  const url = `${baseUrl}/chat/completions`
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'X-Z-AI-From': 'Z', // z.ai SDK includes this header
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.3,
+      max_tokens: 8000,
+      thinking: { type: 'disabled' }, // match SDK default
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`z.ai direct: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  }
+
+  const data = await resp.json()
+  const content = data?.choices?.[0]?.message?.content ?? ''
+  if (!content) {
+    throw new Error(`z.ai direct returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
+  }
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content },
+      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+    }],
+    _provider: 'z-ai-direct',
+    _model: model,
+  }
 }
 
 /** Convenience for callers (e.g. /api/health/llm) to inspect current state. */

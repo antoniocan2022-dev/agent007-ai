@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -112,21 +112,12 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
   const subagentActivity = useChatStore((s) => s.subagentActivity)
   const [localCount, setLocalCount] = useState(12)
 
-  // Developer agent's fix: fetch on mount to get the real count.
-  // The isClient pattern was rejected by the linter, so we use a direct
-  // fetch + setState in the .then() callback (allowed by react-hooks rules).
-  useEffect(() => {
-    fetch('/api/subagents')
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data.subagents)) {
-          setLocalCount(data.subagents.length)
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  const subagentCount = localCount
+  // UPGRADE #115 — Use the shared subagentCount from chat-store instead of
+  // making a duplicate fetch. The page-level loadSubagentCount() already
+  // populates this on mount; this avoids a redundant /api/subagents roundtrip
+  // every time the sidebar mounts.
+  const storeSubagentCount = useChatStore((s) => s.subagentCount)
+  const subagentCount = storeSubagentCount || localCount
 
   const statusLabel =
     status === 'idle'

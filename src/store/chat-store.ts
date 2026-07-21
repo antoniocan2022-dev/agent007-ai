@@ -748,8 +748,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // Silent — polling failure is OK
       }
     }
-    setTimeout(poll, 3000)
-    const interval = setInterval(poll, 15000) // poll every 15s
+    // UPGRADE #115 — Initial poll after 5s (was 3s, gives page more time to stabilize).
+    // Then poll every 30s (was 15s — owner complained dashboard feels sluggish,
+    // 15s polling was contributing to the constant background network noise).
+    setTimeout(poll, 5000)
+    const interval = setInterval(poll, 30000) // poll every 30s (was 15s)
     _g.__agent007AutoRefreshInterval = interval
   },
 }))

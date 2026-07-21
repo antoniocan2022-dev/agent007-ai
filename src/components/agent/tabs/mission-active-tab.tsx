@@ -148,8 +148,10 @@ export function MissionActiveTab() {
 
   useEffect(() => {
     loadMissions()
-    // Refresh every 20s
-    const t = setInterval(loadMissions, 20_000)
+    // UPGRADE #115 — Reduced polling from 20s to 60s.
+    // The 20s poll was firing fetch on every tab even when nothing was changing,
+    // contributing to the sluggish feel. 60s is enough — user can click Refresh.
+    const t = setInterval(loadMissions, 60_000)
     return () => clearInterval(t)
   }, [loadMissions])
 

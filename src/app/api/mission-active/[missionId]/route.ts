@@ -1,10 +1,14 @@
 /**
- * /api/mission-active/[missionId] — UPGRADE #111
+ * /api/mission-active/[missionId] — UPGRADE #111 + #115
  * Per-mission detail + owner↔leader chat.
  *
  * GET  /api/mission-active/[missionId]              — get mission detail
  * POST /api/mission-active/[missionId]?action=ask   — owner asks the current stage leader a question { message }
  *                                                       The leader subagent is dispatched and the response is appended to the thread.
+ *
+ * UPGRADE #115 — Hard timeout (45s) on leader dispatch.
+ * Before: leader chat would hang silently if all LLM providers failed.
+ * After: returns a clear error message after 45s, so the UI can show feedback.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -12,7 +16,7 @@ import { getActiveMission, appendLeaderMessage, getLeaderForCurrentStage } from 
 import { runSubagent, getAllSubagents } from '@/lib/subagents'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 60
 
 export async function GET(
   req: NextRequest,
@@ -63,9 +67,14 @@ export async function POST(
   // Persist the owner's question
   appendLeaderMessage(missionId, leaderInfo.leaderId, 'OWNER', message)
 
-  // Dispatch the question to the leader subagent
+  // UPGRADE #115 — Wrap leader dispatch in a hard 45s timeout.
+  // Before: if all LLM providers were misconfigured (OpenAI region-blocked,
+  // no Mistral/Groq key, etc.), the request would hang for 60-120s with no
+  // feedback to the user. Now we abort after 45s and return a helpful error.
   let leaderResponse = ''
-  try {
+  const LEADER_TIMEOUT_MS = 45_000
+
+  const dispatchPromise = (async () => {
     const allSubs = await getAllSubagents({ includeDisabled: false })
     const sub = allSubs.find((s: any) =>
       s.id === leaderInfo.leaderId ||
@@ -74,9 +83,10 @@ export async function POST(
     )
 
     if (!sub) {
-      leaderResponse = `[${leaderInfo.leaderName} unavailable — subagent not found in registry. Stage ${leaderInfo.stage} remains in progress. Log a fallback response via the orchestrator.]`
-    } else {
-      const task = `[OWNER DIRECT QUESTION — Mission: ${mission.title}]
+      return `[${leaderInfo.leaderName} unavailable — subagent not found in registry. The mission stage is still tracked; you can dispatch via the main chat if needed.]`
+    }
+
+    const task = `[OWNER DIRECT QUESTION — Mission: ${mission.title}]
 
 Mission context:
 - Title: ${mission.title}
@@ -99,21 +109,30 @@ Respond as the LEADER currently in charge of the ${leaderInfo.stage} stage. Give
 4. Estimated time to complete this stage and hand off to the next team
 5. Anything the owner needs to decide or provide
 
-Be concise (max 300 words) and actionable.`
+Be concise (max 300 words) and actionable. Do NOT call any tools — just give a status update from your team's perspective.`
 
-      const result = await runSubagent({
-        subagentId: sub.id,
-        task,
-        dispatchId: `mission_ask_${Date.now()}`,
-        attachments: [],
-        language: 'en',
-        emit: async () => {},
-        parentConversationId: `mission_${missionId}`,
-      })
-      leaderResponse = result.answer || `[${leaderInfo.leaderName} returned no response]`
-    }
+    const result = await runSubagent({
+      subagentId: sub.id,
+      task,
+      dispatchId: `mission_ask_${Date.now()}`,
+      attachments: [],
+      language: 'en',
+      emit: async () => {},
+      parentConversationId: `mission_${missionId}`,
+    })
+    return result.answer || `[${leaderInfo.leaderName} returned no response]`
+  })()
+
+  const timeoutPromise = new Promise<string>((resolve) => {
+    setTimeout(() => {
+      resolve(`[${leaderInfo.leaderName} timed out after 45s. This usually means all LLM providers are misconfigured or rate-limited. Check /api/health/llm-providers for live status. Your message has been logged and the leader will respond on the next mission tick.]`)
+    }, LEADER_TIMEOUT_MS)
+  })
+
+  try {
+    leaderResponse = await Promise.race([dispatchPromise, timeoutPromise])
   } catch (e: any) {
-    leaderResponse = `[${leaderInfo.leaderName} dispatch failed: ${e?.message?.slice(0, 120) || 'unknown error'}]`
+    leaderResponse = `[${leaderInfo.leaderName} dispatch failed: ${e?.message?.slice(0, 200) || 'unknown error'}. Check /api/health/llm-providers to see which LLM providers are configured.]`
   }
 
   // Persist the leader's response
@@ -127,3 +146,4 @@ Be concise (max 300 words) and actionable.`
     leaderResponse,
   })
 }
+
