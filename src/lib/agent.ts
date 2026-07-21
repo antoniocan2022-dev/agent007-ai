@@ -271,14 +271,42 @@ export async function callLlmWithRetry(
   let lastErr: any = null
 
   // ════════════════════════════════════════════════════════════════════
-  // UPGRADE #77 — MULTI-PROVIDER LLM ROUTER (FIXED)
-  // Chain: OpenAI (gpt-4o) with retries → z-ai SDK → Gemini → Groq → OpenRouter
-  // When a provider hits rate limit (429) or fails, auto-switch to next.
+  // UPGRADE #77 + #112 — MULTI-PROVIDER LLM ROUTER (ORDER-AWARE)
+  // Chain (default): OpenAI → z-ai (dev only) → Gemini → Groq → Mistral → OpenRouter
+  //
+  // UPGRADE #112 — LLM_PROVIDER_ORDER env var
+  // ─────────────────────────────────────────────────────
+  // On Vercel iad1, OpenAI often returns 403/region-blocked and Gemini
+  // returns 400 location-not-supported. To skip the wasted retries, set:
+  //
+  //   LLM_PROVIDER_ORDER=mistral,groq,openrouter,openai
+  //
+  // (comma-separated, lowercase, any subset, any order)
+  // Providers not in the list are SKIPPED entirely. Providers in the list
+  // but without an API key set are also skipped (with a console log).
   // ════════════════════════════════════════════════════════════════════
+  const isVercel = !!(process.env.VERCEL || process.env.NOW)
+  const configuredOrder = (process.env.LLM_PROVIDER_ORDER || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
 
-  // PROVIDER 1: OpenAI (gpt-4o) — PRIMARY with RETRIES
-  if (process.env.OPENAI_API_KEY) {
-    const openaiBackoff = [0, 1000, 2000, 4000, 8000] // 5 attempts: instant, 1s, 2s, 4s, 8s
+  // Default order (used when LLM_PROVIDER_ORDER is not set):
+  // OpenAI first because that's the historical primary, then z-ai (dev),
+  // then Gemini, Groq, Mistral, OpenRouter.
+  const DEFAULT_ORDER = ['openai', 'z-ai', 'gemini', 'groq', 'mistral', 'openrouter']
+  const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
+
+  const providerEnabled = (name: string): boolean => {
+    if (order.length === 0) return true
+    return order.includes(name)
+  }
+
+  // PROVIDER: OpenAI (gpt-4o) — with RETRIES (reduced in UPGRADE #112)
+  // UPGRADE #112: Reduced from 5 attempts (15s wasted) to 2 attempts (1s wasted)
+  // on region-blocked / 403 / 401 errors. Real 429 rate limits still retry up to 3x.
+  if (providerEnabled('openai') && process.env.OPENAI_API_KEY) {
+    const openaiBackoff = [0, 1000] // 2 attempts max for fast-fail; rate limits escalate separately
     for (let attempt = 0; attempt < openaiBackoff.length; attempt++) {
       if (attempt > 0) {
         console.log(`[LLM Router] OpenAI retry ${attempt}/${openaiBackoff.length - 1} after ${openaiBackoff[attempt]}ms...`)
@@ -291,20 +319,36 @@ export async function callLlmWithRetry(
       } catch (openaiErr: any) {
         lastErr = openaiErr
         const isRateLimit = isRateLimitError(openaiErr)
-        console.warn(`[LLM Router] OpenAI attempt ${attempt + 1} failed: ${openaiErr?.message?.slice(0, 80)} (${isRateLimit ? 'rate limit' : 'other error'})`)
-        // If it's NOT a rate limit (auth error, invalid key), don't retry — try next provider
+        const errStr = (openaiErr?.message || '').toLowerCase()
+        // UPGRADE #112: Detect region/auth errors and FAST-FAIL (no retry)
+        const isRegionBlocked =
+          errStr.includes('region') ||
+          errStr.includes('country') ||
+          errStr.includes('location is not supported') ||
+          errStr.includes('not supported') ||
+          errStr.includes('403') ||
+          errStr.includes('401') ||
+          errStr.includes('unauthorized') ||
+          errStr.includes('invalid api key')
+        console.warn(`[LLM Router] OpenAI attempt ${attempt + 1} failed: ${openaiErr?.message?.slice(0, 80)} (${isRateLimit ? 'rate limit' : isRegionBlocked ? 'region/auth (fast-fail)' : 'other error'})`)
+        // Region/auth errors: skip immediately, try next provider
+        if (isRegionBlocked && !isRateLimit) {
+          console.warn('[LLM Router] OpenAI region/auth blocked — skipping retries, trying next provider')
+          break
+        }
+        // Non-rate-limit, non-region errors: don't retry either
         if (!isRateLimit) break
-        // If it IS a rate limit, retry with backoff
+        // Real rate limit: continue retrying
         RATE_LIMIT_INFO.last429At = Date.now()
       }
     }
     console.warn('[LLM Router] OpenAI exhausted retries, trying next provider...')
   }
 
-  // PROVIDER 2: z-ai SDK (GLM-4) — FREE, no API key needed
+  // PROVIDER: z-ai SDK (GLM-4) — FREE, no API key needed (DEV ONLY)
   // UPGRADE #77: Skip z-ai on Vercel (config file not available in serverless)
-  const isVercel = !!(process.env.VERCEL || process.env.NOW)
-  if (!isVercel) {
+  // UPGRADE #112: Also skipped if not in LLM_PROVIDER_ORDER
+  if (providerEnabled('z-ai') && !isVercel) {
     try {
       const zai = await getZai()
       const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
@@ -341,9 +385,9 @@ export async function callLlmWithRetry(
     console.log('[LLM Router] Skipping z-ai on Vercel (config not available in serverless)')
   }
 
-  // PROVIDER 3: Google Gemini (FREE tier — 15 requests/min, 1500/day)
-  // Uses Google's Generative AI API. Set GEMINI_API_KEY to enable.
-  if (process.env.GEMINI_API_KEY) {
+  // PROVIDER: Google Gemini (FREE tier — 15 requests/min, 1500/day)
+  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER (often region-blocked on iad1)
+  if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
     try {
       const geminiResult = await callGeminiLlm(messages)
       console.log('[LLM Router] Google Gemini succeeded')
@@ -354,9 +398,9 @@ export async function callLlmWithRetry(
     }
   }
 
-  // PROVIDER 4: Groq (FREE — ultra-fast Llama 3 / Mixtral)
-  // Uses Groq's OpenAI-compatible API. Set GROQ_API_KEY to enable.
-  if (process.env.GROQ_API_KEY) {
+  // PROVIDER: Groq (FREE — ultra-fast Llama 3 / Mixtral)
+  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER
+  if (providerEnabled('groq') && process.env.GROQ_API_KEY) {
     try {
       const groqResult = await callGroqLlm(messages)
       console.log('[LLM Router] Groq succeeded')
@@ -367,8 +411,9 @@ export async function callLlmWithRetry(
     }
   }
 
-  // PROVIDER 4b: Mistral AI (FREE — direct API, reliable)
-  if (process.env.MISTRAL_API_KEY) {
+  // PROVIDER: Mistral AI (FREE — direct API, reliable, works from any region)
+  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER
+  if (providerEnabled('mistral') && process.env.MISTRAL_API_KEY) {
     try {
       const mistralResult = await callMistralLlm(messages)
       console.log('[LLM Router] Mistral succeeded')
@@ -379,9 +424,9 @@ export async function callLlmWithRetry(
     }
   }
 
-  // PROVIDER 5: OpenRouter (FREE models available — Llama 3, Mistral, etc.)
-  // Uses OpenRouter's OpenAI-compatible API. Set OPENROUTER_API_KEY to enable.
-  if (process.env.OPENROUTER_API_KEY) {
+  // PROVIDER: OpenRouter (FREE models available — Llama 3, Mistral, etc.)
+  // UPGRADE #112: Skipped if not in LLM_PROVIDER_ORDER
+  if (providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY) {
     try {
       const openRouterResult = await callOpenRouterLlm(messages)
       console.log('[LLM Router] OpenRouter succeeded')
