@@ -2813,3 +2813,14 @@ TOOL_REGISTRY.security_auto_fixer = { fn: toolSecurityAutoFixer, icon: 'wrench',
 /* ═══ UPGRADE #99 — TOOL CACHE (Layer 2 Hybrid) ═══ */
 import { toolCache } from './tool-cache'
 TOOL_REGISTRY.tool_cache = { fn: toolCache, icon: 'database', label: 'Tool Cache (smart cache: task→tool mapping for instant lookup)' }
+
+/* ═══ UPGRADE #103 — COMMUNICATION TOOLS (3 free channels) ═══ */
+import {
+  toolTelegramNotify,
+  toolNtfyNotify,
+  toolDiscordNotify,
+} from './communication-tools'
+
+TOOL_REGISTRY.telegram_notify = { fn: toolTelegramNotify, icon: 'send', label: 'Telegram Notify (free push notifications via Telegram Bot API)' }
+TOOL_REGISTRY.ntfy_notify = { fn: toolNtfyNotify, icon: 'bell', label: 'ntfy.sh Notify (free push notifications, no signup needed)' }
+TOOL_REGISTRY.discord_notify = { fn: toolDiscordNotify, icon: 'message-circle', label: 'Discord Notify (free webhook notifications)' }

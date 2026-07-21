@@ -213,7 +213,7 @@ export const SUBAGENTS: Subagent[] = [
     specialty: 'Blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter monetization',
     color: '#00f0ff',
     icon: 'Sparkles',
-    allowedTools: ['web_search', 'page_reader', 'memory_store', 'memory_recall', ...FREE_DATA_TOOLS],
+    allowedTools: ['code_exec','web_search','affiliate_link_generator','grammarly_check','yoast_seo','convertkit_email','hootsuite_schedule','wordpress_publisher','canva_design','image_gen','google_analytics','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','tool_knowledge_base','tool_cache','telegram_notify','ntfy_notify'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are AURORA, the Content & Affiliate Specialist sub-agent of Agent007 AI.
@@ -291,7 +291,7 @@ RULES:
     specialty: 'Dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds',
     color: '#fbbf24',
     icon: 'TrendingUp',
-    allowedTools: ['alpha_vantage','yahoo_finance','fred_economic','web_search','memory_store','memory_recall','decision_matrix','parallel_executor','source_quality_ranker','multi_search_compare','quality_scorer_v2','semantic_router_v2','income_reality_check','mission_mode','http_fetch'],
+    allowedTools: ['alpha_vantage','yahoo_finance','fred_economic','web_search','code_exec','memory_store','memory_recall','decision_matrix','parallel_executor','source_quality_ranker','multi_search_compare','quality_scorer_v2','semantic_router_v2','income_reality_check','mission_mode','http_fetch'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of Agent007 AI.
@@ -369,7 +369,7 @@ LEADERSHIP DUTIES:
     specialty: 'Upwork, Fiverr, Toptal, Contra — high-demand gig categories, side-hustle discovery',
     color: '#a78bfa',
     icon: 'Crosshair',
-    allowedTools: ['web_search','ddg_search','http_fetch','page_reader','exa_search','tavily_search','brave_search','jina_reader','memory_store','memory_recall','parallel_executor'],
+    allowedTools: ['web_search','ddg_search','http_fetch','page_reader','exa_search','tavily_search','brave_search','jina_reader','memory_store','memory_recall','parallel_executor','anomaly_detector'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are HUNT, the Freelance & Gig Hunter sub-agent of Agent007 AI.
@@ -445,7 +445,7 @@ RULES:
     specialty: 'Copywriting, scripts, blog posts, social media content, email sequences',
     color: '#f472b6',
     icon: 'PenLine',
-    allowedTools: ['code_exec','web_search','grammarly_check','deepl_translate','memory_store','memory_recall','parallel_executor','page_reader'],
+    allowedTools: ['code_exec','web_search','grammarly_check','deepl_translate','yoast_seo','memory_store','memory_recall','parallel_executor','page_reader'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are QUILL, the Content Creator sub-agent of Agent007 AI.
@@ -477,7 +477,7 @@ RULES:
     specialty: 'Image generation, logo concepts, marketing visuals, brand identity mockups',
     color: '#e879f9',
     icon: 'Palette',
-    allowedTools: ['image_gen','pollinations_image','craiyon_image','stability_image','remove_bg','canva_design','memory_store','memory_recall'],
+    allowedTools: ['image_gen','pollinations_image','craiyon_image','stability_image','remove_bg','canva_design','memory_store','memory_recall','web_search','tool_priority_guide'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are PRISM, the Visual & Creative Designer sub-agent of Agent007 AI.
@@ -511,7 +511,7 @@ RULES:
     specialty: 'KPI tracking, metric monitoring, dashboard design, alerting thresholds, growth measurement',
     color: '#fb7185',
     icon: 'Activity',
-    allowedTools: ['code_exec','web_search','google_analytics','hotjar_analytics','real_time_monitor','anomaly_detector','mission_mode','progress_tracker','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','income_reality_check','http_fetch'],
+    allowedTools: ['code_exec','web_search','google_analytics','hotjar_analytics','real_time_monitor','anomaly_detector','mission_mode','progress_tracker','memory_store','memory_recall','parallel_executor','quality_scorer_v2','semantic_router_v2','income_reality_check','http_fetch','send_email','telegram_notify','ntfy_notify','discord_notify'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are PULSE, the Analytics & Performance Monitor sub-agent of Agent007 AI.
@@ -558,7 +558,7 @@ LEADERSHIP DUTIES:
     specialty: 'Post-mortem analysis, A/B testing, learning loops, continuous improvement',
     color: '#818cf8',
     icon: 'RefreshCw',
-    allowedTools: ['code_exec','web_search','quality_scorer_v2','result_verifier_v2','accuracy_checker','tool_batch_tester','integration_test_suite','tool_health_checker','failure_learning','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_evaluator','http_fetch'],
+    allowedTools: ['code_exec','web_search','quality_scorer_v2','result_verifier_v2','accuracy_checker','tool_batch_tester','integration_test_suite','tool_health_checker','failure_learning','semantic_memory','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_evaluator','http_fetch'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of Agent007 AI.
@@ -605,7 +605,7 @@ LEADERSHIP DUTIES:
     specialty: 'US federal/state tax law, CRA/Canadian tax law, business entity formation (LLC/Corporation/S-corp), cross-border tax treaties, financial regulations, compliance, deductions, write-offs',
     color: '#22d3ee',
     icon: 'Scale',
-    allowedTools: ['web_search','multi_search_compare','source_quality_ranker','jina_reader','content_verifier','memory_store','memory_recall','income_reality_check','page_reader','http_fetch'],
+    allowedTools: ['web_search','multi_search_compare','source_quality_ranker','jina_reader','content_verifier','memory_store','memory_recall','income_reality_check','page_reader','http_fetch','code_exec'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are LEGAL, the Legal & Tax Strategist sub-agent of Agent007 AI.
@@ -642,7 +642,7 @@ RULES:
     specialty: 'US and Canadian banks, business bank accounts, merchant services, credit cards, loans, lines of credit, treasury management, wire transfers, FX, banking regulations (FDIC/OSFI)',
     color: '#10b981',
     icon: 'Landmark',
-    allowedTools: ['web_search','alpha_vantage','fred_economic','multi_search_compare','source_quality_ranker','memory_store','memory_recall','income_reality_check','page_reader','http_fetch'],
+    allowedTools: ['web_search','alpha_vantage','fred_economic','multi_search_compare','source_quality_ranker','memory_store','memory_recall','income_reality_check','page_reader','http_fetch','code_exec'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are THE BANKER, the Banking & Treasury Strategist sub-agent of Agent007 AI.
@@ -698,7 +698,7 @@ RULES:
     specialty: 'Spot trading, DCA, on-chain analysis, DeFi yield, risk management',
     color: '#fbbf24',
     icon: 'TrendingUp',
-    allowedTools: ['alpha_vantage','yahoo_finance','web_search','code_exec','decision_matrix','memory_store','memory_recall','http_fetch'],
+    allowedTools: ['alpha_vantage','yahoo_finance','fred_economic','web_search','code_exec','decision_matrix','memory_store','memory_recall','anomaly_detector','http_fetch'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are TRADER, the Crypto Trading Specialist sub-agent of Agent007 AI.
@@ -893,7 +893,18 @@ LEADERSHIP DUTIES:
 - Use security_health_checker action="audit" for security audits
 - Report system health, tool status, and infrastructure issues to the Super Agent
 - SYNTHESIZE all team outputs into a unified infrastructure report before returning
-`,
+
+ENHANCED TOOL CATEGORIZATION (UPGRADE #103a):
+- Regularly review tool categories to ensure alignment with current needs
+- Use tool_registry_auditor to identify miscategorized or orphaned tools
+- Adjust tool categorization logic via tool_fixer action="fix_all"
+- Monthly: Run tool_batch_tester to verify all tools work after category changes
+
+SCALABILITY PLAN (UPGRADE #103b):
+- Monitor system performance as task volume grows (use anomaly_detector)
+- Plan for 50+ subagents (current: 20) with proactive tool list definitions
+- Use tool_backup_restore before major infrastructure changes
+- Quarterly: Review and update this scalability plan based on actual growth`,
   },
   {
     id: 'testfast2',
@@ -902,7 +913,7 @@ LEADERSHIP DUTIES:
     specialty: 'Periodic internal health checks every 1h / 6h / 12h / 24h — DB, tools, sub-agents, deployment, error logs. Alerts owner on any failure.',
     color: '#00f0ff',
     icon: 'Activity',
-    allowedTools: ['tool_health_checker','tool_registry_auditor','tool_batch_tester','real_time_monitor','anomaly_detector','memory_store','memory_recall','page_reader','http_fetch'],
+    allowedTools: ['tool_health_checker','tool_registry_auditor','tool_batch_tester','real_time_monitor','anomaly_detector','memory_store','memory_recall','page_reader','http_fetch','send_email','auto_recovery_v2'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are QA Monitor (id: testfast2), the Internal QA & System Health Monitor of Agent007 AI.
@@ -971,7 +982,7 @@ ${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
     specialty: 'External uptime monitoring every 30 min — public URLs, third-party APIs, SSL, latency, DNS. Alerts owner on any failure.',
     color: '#a78bfa',
     icon: 'Globe',
-    allowedTools: ['http_fetch','web_search','anomaly_detector','external_trigger','memory_store','memory_recall','page_reader'],
+    allowedTools: ['http_fetch','web_search','anomaly_detector','external_trigger','memory_store','memory_recall','page_reader','send_email'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are External Monitor (id: fasttest3), the External Uptime & Connectivity Monitor of Agent007 AI.
