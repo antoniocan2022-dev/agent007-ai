@@ -17,7 +17,12 @@ function fail(r: string): ToolResult { return { ok: false, preview: r.slice(0, 1
 export async function toolTelegramNotify(args: any): Promise<ToolResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   const defaultChatId = process.env.TELEGRAM_CHAT_ID
-  const { message, chatId, parseMode = 'Markdown' } = args ?? {}
+  // UPGRADE #116 FIX — Default parse_mode changed from 'Markdown' to '' (plain text).
+  // Telegram's Markdown parser is strict and breaks on any unmatched _, *, [, ], etc.
+  // which caused EVERY agent message containing those chars to fail silently.
+  // Now defaults to plain text (no parsing). Pass parseMode='HTML' or 'MarkdownV2' explicitly
+  // when you want formatting.
+  const { message, chatId, parseMode = '' } = args ?? {}
 
   if (!message) return fail('telegram_notify requires "message"')
 
@@ -36,15 +41,21 @@ The bot will send push notifications to your phone instantly.`)
   if (!targetChatId) return fail('telegram_notify requires "chatId" or TELEGRAM_CHAT_ID env var')
 
   try {
+    // UPGRADE #116: Build the request body conditionally — only include
+    // parse_mode if it's explicitly set. Empty string means "plain text".
+    const body: any = {
+      chat_id: targetChatId,
+      text: message,
+      disable_web_page_preview: true,
+    }
+    if (parseMode && parseMode !== 'plain' && parseMode !== 'text') {
+      body.parse_mode = parseMode
+    }
+
     const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: targetChatId,
-        text: message,
-        parse_mode: parseMode,
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000),
     })
 

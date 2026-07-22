@@ -110,7 +110,10 @@ export async function POST(req: NextRequest) {
     const botInfo = meData.result
 
     // Step 3: send the test message
-    const message = customMessage || `🤖 Agent007 Telegram Test\n\n✅ Bot is working!\nBot: @${botInfo.username}\nChat ID: ${targetChatId}\nTime: ${new Date().toISOString()}\n\nIf you received this message, your Telegram integration is fully configured.`
+    // UPGRADE #116 FIX — Send as PLAIN TEXT (no parse_mode).
+    // Telegram's Markdown parser is strict and breaks on unmatched _, *, [, ].
+    // The bot username @xxx and emoji caused "can't parse entities" errors.
+    const message = customMessage || `Agent007 Telegram Test\n\nBot is working!\nBot: @${botInfo.username}\nChat ID: ${targetChatId}\nTime: ${new Date().toISOString()}\n\nIf you received this message, your Telegram integration is fully configured.`
 
     const sendResp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
@@ -118,8 +121,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         chat_id: targetChatId,
         text: message,
-        parse_mode: 'Markdown',
         disable_web_page_preview: true,
+        // NO parse_mode — plain text. Safe for any content.
       }),
       signal: AbortSignal.timeout(15000),
     })
