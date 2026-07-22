@@ -43,7 +43,11 @@ async function ping(url: string, opts: RequestInit = {}, timeoutMs = 8000): Prom
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const deep = url.searchParams.get('deep') === 'true'
-  const baseUrl = url.origin
+  // UPGRADE #116: Always use the public production URL for endpoint checks.
+  // Calling url.origin from inside a serverless function can reuse warm
+  // instance state OR hit a different instance with empty in-memory data,
+  // producing false negatives. The public URL gives consistent fresh hits.
+  const baseUrl = 'https://agent007-ai.vercel.app'
   const checks: Check[] = []
 
   // ════════════════════════════════════════════════════════════════════
@@ -100,7 +104,7 @@ export async function GET(req: NextRequest) {
     detail: telegramChatId ? `TELEGRAM_CHAT_ID set (${mask(telegramChatId)})` : 'TELEGRAM_CHAT_ID NOT SET',
   })
 
-  // If deep test, actually verify the Telegram bot
+  // If deep test, actually verify the Telegram bot AND send a test message
   if (deep && telegramToken) {
     const tgMe = await ping(`https://api.telegram.org/bot${telegramToken}/getMe`)
     checks.push({
@@ -112,6 +116,32 @@ export async function GET(req: NextRequest) {
         ? `Bot is valid: ${tgMe.body.slice(0, 200)}`
         : `Bot verification failed: HTTP ${tgMe.status} — ${tgMe.body.slice(0, 200)}`,
     })
+
+    // Actually send a test message if chat ID is set
+    if (telegramChatId && tgMe.ok) {
+      const tgSend = await ping(
+        `https://api.telegram.org/bot${telegramToken}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: telegramChatId,
+            text: `Agent007 Full Audit Test\n\nTime: ${new Date().toISOString()}\nThis message confirms your Telegram integration is fully working.`,
+            disable_web_page_preview: true,
+          }),
+        },
+      )
+      const sendData = (() => { try { return JSON.parse(tgSend.body) } catch { return null } })()
+      checks.push({
+        id: 'comms-telegram-deliver',
+        name: 'Telegram message delivery',
+        category: 'comms',
+        status: sendData?.ok === true ? 'pass' : 'fail',
+        detail: sendData?.ok
+          ? `Message delivered to chat ${telegramChatId} (message_id: ${sendData.result?.message_id})`
+          : `Delivery failed: ${tgSend.body.slice(0, 200)}`,
+      })
+    }
   }
 
   // Discord
@@ -123,6 +153,27 @@ export async function GET(req: NextRequest) {
     status: discordWebhook ? 'pass' : 'warn',
     detail: discordWebhook ? `DISCORD_WEBHOOK_URL set (${discordWebhook.slice(0, 50)}...)` : 'DISCORD_WEBHOOK_URL NOT SET (optional)',
   })
+
+  // If deep test, actually send a Discord test message
+  if (deep && discordWebhook) {
+    const dcSend = await ping(discordWebhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `Agent007 Full Audit Test — Discord delivery confirmed. Time: ${new Date().toISOString()}`,
+      }),
+    })
+    checks.push({
+      id: 'comms-discord-deliver',
+      name: 'Discord message delivery',
+      category: 'comms',
+      // Discord returns 204 No Content on success (empty body)
+      status: (dcSend.ok && (dcSend.status === 204 || dcSend.status === 200)) ? 'pass' : 'fail',
+      detail: dcSend.status === 204
+        ? 'Message delivered to Discord channel (HTTP 204 No Content = success)'
+        : `Delivery failed: HTTP ${dcSend.status} — ${dcSend.body.slice(0, 200)}`,
+    })
+  }
 
   // ntfy
   const ntfyTopic = process.env.NTFY_TOPIC || 'agent007-antonio-notifications'
