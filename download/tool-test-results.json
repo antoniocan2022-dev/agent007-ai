@@ -1,0 +1,257 @@
+{
+  "timestamp": "2026-07-17T15:34:15Z",
+  "url": "https://agent007-ai.vercel.app",
+  "summary": {
+    "total": 29,
+    "passed": 29,
+    "failed": 0,
+    "pass_rate": "100.0%"
+  },
+  "by_group": {
+    "INFRA": {
+      "pass": 6,
+      "fail": 0,
+      "total": 6
+    },
+    "AUTONOMY": {
+      "pass": 11,
+      "fail": 0,
+      "total": 11
+    },
+    "MISSION": {
+      "pass": 2,
+      "fail": 0,
+      "total": 2
+    },
+    "TRIGGER": {
+      "pass": 1,
+      "fail": 0,
+      "total": 1
+    },
+    "SCHEDULE": {
+      "pass": 1,
+      "fail": 0,
+      "total": 1
+    },
+    "MONITOR": {
+      "pass": 2,
+      "fail": 0,
+      "total": 2
+    },
+    "SECURITY": {
+      "pass": 3,
+      "fail": 0,
+      "total": 3
+    },
+    "UI": {
+      "pass": 3,
+      "fail": 0,
+      "total": 3
+    }
+  },
+  "results": [
+    {
+      "group": "INFRA",
+      "name": "health",
+      "ok": true,
+      "elapsed": 0.29,
+      "preview": "{'ok': True, 'status': 'healthy', 'timestamp': '2026-07-17T15:33:59.107Z', 'version': 'upgrade-58', 'app': 'Agent007 AI', 'url': 'https://agent007-ai.vercel.app', 'region': 'iad1', 'uptime_seconds': 6"
+    },
+    {
+      "group": "INFRA",
+      "name": "manifest",
+      "ok": true,
+      "elapsed": 0.83,
+      "preview": "{'ok': True, 'totalUpgrades': 86, 'upgrades': [{'id': 'login_2fa_flow', 'category': 'security', 'title': 'Login 2FA Flow (Pre-flight Challenge)', 'description': 'Login page now pre-checks 2FA via /api"
+    },
+    {
+      "group": "INFRA",
+      "name": "capabilities",
+      "ok": true,
+      "elapsed": 0.46,
+      "preview": "{'ok': True, 'timestamp': '2026-07-17T15:34:00.403Z', 'tools': {'total': 631, 'baseRegistry': 11, 'perSubagent': 631, 'categories': 17, 'categoryList': ['base', 'business', 'self_repair', 'autonomous_"
+    },
+    {
+      "group": "INFRA",
+      "name": "subagents",
+      "ok": true,
+      "elapsed": 0.74,
+      "preview": "{'subagents': [{'id': 'aurora', 'name': 'AURORA', 'role': 'Content & Affiliate Specialist', 'specialty': 'Blogs, YouTube scripts, affiliate funnels, digital downloads, faceless channels, newsletter mo"
+    },
+    {
+      "group": "INFRA",
+      "name": "diagnose-llm",
+      "ok": true,
+      "elapsed": 1.29,
+      "preview": "{'timestamp': '2026-07-17T15:34:01.417Z', 'env': {'OPENAI_API_KEY': 'SET (sk-proj...)', 'OPENAI_MODEL': 'gpt-4o', 'OPENAI_BASE_URL': 'https://api.openai.com/v1 (default)', 'ZAI_API_KEY': 'NOT SET'}, '"
+    },
+    {
+      "group": "INFRA",
+      "name": "fix-agents",
+      "ok": true,
+      "elapsed": 1.37,
+      "preview": "{'ok': True, 'message': 'Fixed 8 agents to FULL_ACCESS (631 tools each)', 'totalTools': 631, 'fixed': [{'id': 'cmrhnk6ot0006ji04ijyrhli5', 'name': 'TRADER', 'before': '631 tools', 'after': '631 tools "
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "mission_mode (status)",
+      "ok": true,
+      "elapsed": 0.27,
+      "preview": "{'ok': True, 'action': 'status', 'timestamp': '2026-07-17T15:34:04.077Z', 'preview': 'Mission: 0.0% of $20000/mo', 'result': 'MISSION MODE STATUS\\n====================================================="
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "mission_action_tick",
+      "ok": true,
+      "elapsed": 0.26,
+      "preview": "{'ok': True, 'preview': 'Mission action tick \u2014 5 REAL dispatches ready', 'result': 'MISSION ACTION TICK (UPGRADE #89 \u2014 REAL DISPATCHES, NOT SIMULATED)\\n================================================"
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "recipe_engine (list)",
+      "ok": true,
+      "elapsed": 0.26,
+      "preview": "{'ok': True, 'preview': '3 recipes available', 'result': 'TOOL RECIPES\\n============================================================\\n  \ud83d\udccb Research & Publish Blog (5 steps)\\n     Find trending topic \u2192 "
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "decisions (log)",
+      "ok": true,
+      "elapsed": 0.24,
+      "preview": "{'ok': True, 'preview': '0 decisions (0 auto, 0 pending, 0 rejected)', 'result': 'DECISION LOG\\n============================================================\\nTotal: 0\\n  \u2705 Auto-approved: 0\\n  \u26a0\ufe0f Pendi"
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "triggers (pending)",
+      "ok": true,
+      "elapsed": 0.25,
+      "preview": "{'ok': True, 'preview': '0 pending triggers', 'result': 'PENDING TRIGGERS\\n============================================================\\nPending: 0\\nTotal: 0\\n\\n'}"
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "reality-check (all)",
+      "ok": true,
+      "elapsed": 0.27,
+      "preview": "{'ok': True, 'timestamp': '2026-07-17T15:34:05.351Z', 'url': 'https://agent007-ai.vercel.app', 'tools': {'ok': True, 'preview': '620 tools classified: ~60 REAL, ~560 VIRTUAL', 'result': 'TOOLS REALITY"
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "auto_decision (<$50)",
+      "ok": true,
+      "elapsed": 0.25,
+      "preview": "{'ok': True, 'preview': 'Decision AUTO-APPROVED: Test $20 spend', 'result': 'AUTO-DECISION EVALUATION\\n============================================================\\nType: spend\\nDescription: Test $20 "
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "auto_decision (>$50)",
+      "ok": true,
+      "elapsed": 0.24,
+      "preview": "{'ok': True, 'preview': 'Decision PENDING OWNER: Test $200 spend', 'result': 'AUTO-DECISION EVALUATION\\n============================================================\\nType: spend\\nDescription: Test $20"
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "income_reality_check",
+      "ok": true,
+      "elapsed": 0.25,
+      "preview": "{'ok': True, 'preview': 'Income stats: $0 REAL / $17,790 PROJECTED / $20,000 target', 'result': 'INCOME STATISTICS (UPGRADE #89)\\n============================================================\\n\\nREAL I"
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "tools_reality_check",
+      "ok": true,
+      "elapsed": 0.26,
+      "preview": "{'ok': True, 'preview': '620 tools classified: ~60 REAL, ~560 VIRTUAL', 'result': 'TOOLS REALITY CHECK (UPGRADE #89)\\n============================================================\\n\\nExternal analysis "
+    },
+    {
+      "group": "AUTONOMY",
+      "name": "schedule_action_mode",
+      "ok": true,
+      "elapsed": 0.26,
+      "preview": "{'ok': True, 'preview': '3 schedule templates available', 'result': 'SCHEDULE ACTION MODE (UPGRADE #89)\\n============================================================\\n\\nCurrent problem: Schedules have"
+    },
+    {
+      "group": "MISSION",
+      "name": "mission_tick (execute)",
+      "ok": true,
+      "elapsed": 0.25,
+      "preview": "{'ok': True, 'action': 'tick', 'timestamp': '2026-07-17T15:34:06.853Z', 'preview': 'Mission tick complete \u2014 4 actions, +$55 today', 'result': 'MISSION TICK COMPLETE\\n=================================="
+    },
+    {
+      "group": "MISSION",
+      "name": "mission_report",
+      "ok": true,
+      "elapsed": 0.26,
+      "preview": "{'ok': True, 'action': 'report', 'timestamp': '2026-07-17T15:34:07.105Z', 'preview': 'Mission report: 1 runs, $55 last 7 days', 'result': 'MISSION REPORT \u2014 2026-07-17\\n================================"
+    },
+    {
+      "group": "TRIGGER",
+      "name": "trigger_queue",
+      "ok": true,
+      "elapsed": 0.25,
+      "preview": "{'ok': True, 'preview': 'Trigger queued from test:audit@test.com', 'result': 'EXTERNAL TRIGGER QUEUED\\n============================================================\\nID: trig_1784302447360\\nSource: tes"
+    },
+    {
+      "group": "SCHEDULE",
+      "name": "schedules_tick",
+      "ok": true,
+      "elapsed": 0.33,
+      "preview": "{'ok': True, 'dispatched': ['cmrgqqh1p0003jv0415hrzsal'], 'count': 1, 'nextCheck': 60, 'monitors': 'external fired, qa fired'}"
+    },
+    {
+      "group": "MONITOR",
+      "name": "monitor_qa",
+      "ok": true,
+      "elapsed": 1.52,
+      "preview": "{'ok': True, 'tier': 2, 'monitor': 'qa', 'startedAt': '2026-07-17T15:34:07.948Z', 'finishedAt': '2026-07-17T15:34:08.993Z', 'durationMs': 1045, 'totalChecks': 5, 'passed': 5, 'failed': 0, 'warnings': "
+    },
+    {
+      "group": "MONITOR",
+      "name": "monitor_external",
+      "ok": true,
+      "elapsed": 0.77,
+      "preview": "{'ok': True, 'endpointCount': 11, 'monitor': 'external', 'startedAt': '2026-07-17T15:34:09.456Z', 'finishedAt': '2026-07-17T15:34:09.973Z', 'durationMs': 517, 'totalChecks': 12, 'passed': 12, 'failed'"
+    },
+    {
+      "group": "SECURITY",
+      "name": "backup_no_token (should 403)",
+      "ok": true,
+      "error": "HTTP Error 403: Forbidden",
+      "elapsed": 0.27
+    },
+    {
+      "group": "SECURITY",
+      "name": "backup_wrong_token (should 403)",
+      "ok": true,
+      "error": "HTTP Error 403: Forbidden",
+      "elapsed": 0.31
+    },
+    {
+      "group": "SECURITY",
+      "name": "backup_correct_token",
+      "ok": true,
+      "elapsed": 2.62,
+      "preview": "{'version': '5.0', 'app': 'Agent007 AI', 'exportedAt': '2026-07-17T15:34:11.683Z', 'label': 'owner-on-demand', 'mission': {'monthlyIncomeTarget': 20000, 'monthlyGrowthRate': 20, 'dailyGrowthTarget': 2"
+    },
+    {
+      "group": "UI",
+      "name": "page/",
+      "ok": true,
+      "error": "Expecting value: line 1 column 1 (char 0)",
+      "elapsed": 0.29
+    },
+    {
+      "group": "UI",
+      "name": "page/login",
+      "ok": true,
+      "error": "Expecting value: line 1 column 1 (char 0)",
+      "elapsed": 0.29
+    },
+    {
+      "group": "UI",
+      "name": "page/reality-check",
+      "ok": true,
+      "error": "Expecting value: line 1 column 1 (char 0)",
+      "elapsed": 1.22
+    }
+  ]
+}

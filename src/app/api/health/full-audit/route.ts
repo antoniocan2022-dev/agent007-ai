@@ -34,10 +34,20 @@ async function ping(url: string, opts: RequestInit = {}, timeoutMs = 8000): Prom
   try {
     const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(timeoutMs) })
     const body = await res.text().catch(() => '')
-    return { ok: res.ok, status: res.status, body: body.slice(0, 500) }
+    // UPGRADE #116 FIX — return FULL body so JSON.parse works.
+    // (Previous .slice(0, 500) broke JSON parsing for any response > 500 chars.)
+    return { ok: res.ok, status: res.status, body }
   } catch (e: any) {
     return { ok: false, status: 0, body: e?.message || 'network error' }
   }
+}
+
+/** Like ping() but returns the parsed JSON, or null on failure. */
+async function pingJson<T = any>(url: string, opts: RequestInit = {}, timeoutMs = 8000): Promise<{ ok: boolean; status: number; data: T | null; raw: string }> {
+  const r = await ping(url, opts, timeoutMs)
+  let data: T | null = null
+  try { data = JSON.parse(r.body) as T } catch {}
+  return { ok: r.ok, status: r.status, data, raw: r.body }
 }
 
 export async function GET(req: NextRequest) {
@@ -198,7 +208,7 @@ export async function GET(req: NextRequest) {
     detail: missionList.ok
       ? `Returns ${missionData?.count ?? 0} active missions`
       : `HTTP ${missionList.status}: ${missionList.body.slice(0, 200)}`,
-    evidence: { httpStatus: missionList.status, bodyPreview: missionList.body.slice(0, 300) },
+    evidence: { httpStatus: missionList.status, bodyLength: missionList.body.length, bodyPreview: missionList.body.slice(0, 300) },
   })
 
   if (missionData?.missions?.[0]?.id) {
@@ -227,7 +237,7 @@ export async function GET(req: NextRequest) {
     detail: subagents.ok
       ? `${subagentData?.subagents?.length ?? 0} subagents registered (target: 20)`
       : `HTTP ${subagents.status}: ${subagents.body.slice(0, 200)}`,
-    evidence: { httpStatus: subagents.status, bodyPreview: subagents.body.slice(0, 300) },
+    evidence: { httpStatus: subagents.status, bodyLength: subagents.body.length, bodyPreview: subagents.body.slice(0, 300) },
   })
 
   // Team leaders
@@ -241,7 +251,7 @@ export async function GET(req: NextRequest) {
     detail: teamScout.ok
       ? `${teamData?.pods?.length ?? 0} pods accessible`
       : `HTTP ${teamScout.status}: ${teamScout.body.slice(0, 200)}`,
-    evidence: { httpStatus: teamScout.status, bodyPreview: teamScout.body.slice(0, 300) },
+    evidence: { httpStatus: teamScout.status, bodyLength: teamScout.body.length, bodyPreview: teamScout.body.slice(0, 300) },
   })
 
   // ════════════════════════════════════════════════════════════════════
