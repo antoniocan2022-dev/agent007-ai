@@ -723,6 +723,98 @@ async function runFastPathManage(opts: {
   }
 }
 
+/**
+ * UPGRADE #117 — Query Complexity Router
+ *
+ * Classifies the user's message to decide whether the agent should:
+ *   - 'direct': Answer directly with a smart, deep response (90% of messages)
+ *   - 'dispatch': Genuinely needs subagent work (10% of messages)
+ *
+ * This prevents the agent from dispatching to a subagent for simple questions
+ * like "What's the best affiliate strategy?" — which should get an immediate
+ * 500-1500 word smart answer, not a slow dispatch-synthesize loop.
+ *
+ * Classification logic:
+ *   - Greetings, questions, explanations, advice, comparisons, brainstorming → 'direct'
+ *   - Multi-step research, content creation, code building, deployment → 'dispatch'
+ *   - Default (anything that doesn't match) → 'direct' (smart default)
+ */
+function classifyQuery(message: string): 'direct' | 'dispatch' {
+  const lower = message.toLowerCase().trim()
+  if (!lower) return 'direct'
+
+  // ── DISPATCH patterns — genuinely needs subagent work ────────────────
+  // These are ACTION requests that require tool execution
+  const dispatchPatterns = [
+    // Multi-step research requiring multiple tool calls
+    /^(research|investigate|find out|look up|search for)\s+(the|all|every|top\s+\d+)/i,
+    /\bsearch the web\b/i,
+    /\b(verify|check|validate)\s+(if|whether|that|the)\b/i, // verification tasks
+    // Content creation tasks
+    /^(write|create|build|design|publish|draft|generate)\s+(a|an|the|some)?\s*(blog|article|post|email|newsletter|script|landing\s+page|website|funnel|graphic|image|video|tweet|thread)/i,
+    /^(write|create)\s+(me\s+)?a\s+/i,
+    // Code/build tasks
+    /^(build|deploy|fix|repair|install|set\s+up|implement|code|develop|refactor)\s+/i,
+    /\b(deploy|push\s+to\s+production|ship\s+it)\b/i,
+    // System operations
+    /^(run|execute|start|stop|restart)\s+(the\s+)?(mission|tick|scan|audit|test|pipeline|workflow)/i,
+    /\bself.?heal\b/i,
+    /\b(check|audit|scan)\s+(tools?|system|infrastructure|security)\b/i,
+    // Explicit dispatch commands
+    /\b(dispatch|send\s+to|ask\s+the\s+(scout|aurora|echo|forge|pulse|developer|quantum|cybersecurity))\b/i,
+  ]
+
+  // ── DIRECT patterns — answer with smart response ────────────────────
+  // These are questions, analysis requests, advice, explanations
+  const directPatterns = [
+    // Greetings + social
+    /^(hi|hello|hey|good\s+(morning|afternoon|evening)|sup|yo)\b/i,
+    /^(thanks|thank\s+you|cool|nice|great|awesome|perfect)\b/i,
+    // Questions (any sentence ending with ?)
+    /\?$/,
+    // Question words
+    /^(what|why|how|when|where|who|which|whose|whom)\b/i,
+    /^(can|could|would|will|should|do|does|did|is|are|am|was|were|have|has|had)\s+(you|i|we|the)\b/i,
+    // Explanation requests
+    /^(explain|describe|tell\s+me\s+about|what\s+is|what\s+are|define|elaborate)\b/i,
+    // Advice/recommendations
+    /^(should\s+i|is\s+it\s+worth|do\s+you\s+recommend|what\s+do\s+you\s+(think|suggest|recommend|advise))\b/i,
+    /^(advice|recommend|suggest)\b/i,
+    // Comparisons
+    /^(compare|difference\s+between|vs\.?|versus)\b/i,
+    // Brainstorming
+    /^(brainstorm|ideas?\s+for|give\s+me\s+\d+\s+ideas|list\s+\d+\s+)/i,
+    // Analysis
+    /^(analyze|analysis|assess|evaluate|review)\b/i,
+    // Strategy
+    /(strategy|strategic|plan|approach|roadmap|game\s+plan)\b/i,
+    // Opinions
+    /^(what\s+do\s+you\s+(think|feel|believe)|your\s+opinion|your\s+thoughts)\b/i,
+    // Continue/status (short messages)
+    /^(continue|ok|okay|proceed|go\s+ahead|keep\s+going|status|update|what's\s+new|anything\s+new)\s*\.?\s*$/i,
+    // Follow-up questions
+    /^(and|but|or|so|then|also|additionally|moreover|furthermore)\b/i,
+    // "Tell me more" / "go deeper"
+    /(tell\s+me\s+more|go\s+deeper|elaborate|expand\s+on|dive\s+deeper)/i,
+    // "What about" / "How about"
+    /^(what\s+about|how\s+about)\b/i,
+  ]
+
+  // Check dispatch patterns first (more specific)
+  for (const pattern of dispatchPatterns) {
+    if (pattern.test(lower)) return 'dispatch'
+  }
+
+  // Check direct patterns
+  for (const pattern of directPatterns) {
+    if (pattern.test(lower)) return 'direct'
+  }
+
+  // Default: direct (smart response)
+  // Most conversational messages should get a smart direct answer
+  return 'direct'
+}
+
 export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<OrchestratorRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
 
@@ -877,6 +969,25 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   const getMerged = async (): Promise<Subagent[]> => {
     if (!mergedSubagents) mergedSubagents = await getAllSubagents({ includeDisabled: true })
     return mergedSubagents
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #117 — Query Complexity Router
+  // ════════════════════════════════════════════════════════════════════
+  // Classify the user's message to decide whether to:
+  //   - 'direct': Answer directly with a smart, deep response (90% of messages)
+  //   - 'dispatch': Genuinely needs subagent work (10% of messages)
+  //
+  // This prevents the agent from dispatching to a subagent for simple
+  // questions like "What's the best affiliate strategy?" — which should
+  // get an immediate 500-1500 word smart answer, not a slow dispatch loop.
+  const queryType = classifyQuery(userMessage)
+  if (queryType === 'direct') {
+    // Inject a system nudge that tells the agent to answer directly
+    conversationMessages.push({
+      role: 'user',
+      content: `[SYSTEM ROUTER] This is a direct question/analysis/advice request. Do NOT dispatch to a subagent. Answer DIRECTLY with a deep, intelligent response (500-1500 words for complex questions, concise for simple ones). Use ## headers, **bold**, bullet lists. Provide examples. Show your reasoning. End with next steps.`,
+    })
   }
 
   while (iter < MAX_ITERATIONS) {

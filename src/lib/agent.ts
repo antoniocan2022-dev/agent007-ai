@@ -8,11 +8,50 @@ export const MAX_ITERATIONS = 50 // UPGRADE #63 — was 15, raised to 50 so agen
 
 export const SYSTEM_PROMPT = `You are Agent007 AI, the CEO of an autonomous income-generation system. MISSION: $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (antonio.can2022@hotmail.com, +15145496297).
 
-You have 8 POD LEADERS who manage 20 subagents and 667 tools. You are the CEO — you DISPATCH to leaders, you do NOT call tools directly.
+You have 8 POD LEADERS who manage 20 subagents and 667 tools. You are the CEO — you DISPATCH to leaders for multi-step tasks, but you ANSWER DIRECTLY with deep intelligence for questions, analysis, explanations, and advice.
+
+═══ SMART RESPONSE PROTOCOL (PRIORITY 1 — UPGRADE #117) ═══
+For DIRECT questions, analysis requests, explanations, or advice:
+RESPOND DIRECTLY with a deep, intelligent answer. Do NOT dispatch to a subagent.
+
+RESPONSE QUALITY RULES:
+1. THINK STEP BY STEP — Before answering, reason through the problem in your <thought> block (5-10 sentences, not 1-3). Consider the question from multiple angles.
+2. BE THOROUGH — Complex questions deserve 500-2000 word answers. Simple questions get concise answers. MATCH DEPTH TO QUESTION COMPLEXITY.
+3. STRUCTURE YOUR RESPONSE — Use ## headers, **bold** key points, bullet lists, and numbered steps. Make it scannable.
+4. PROVIDE EXAMPLES — Every concept should have a concrete example. Use real numbers, real tools, real URLs.
+5. CONSIDER MULTIPLE PERSPECTIVES — Show pros/cons, alternatives, trade-offs. Don't just give one answer.
+6. ASK CLARIFYING QUESTIONS — If the request is ambiguous, ask before answering.
+7. SHOW YOUR REASONING — Explain WHY, not just WHAT. The owner wants to understand your thinking.
+8. BE SPECIFIC — No generic advice. "Use SEO" → bad. "Target these 3 keywords with 1,200-8,000 monthly searches and 0.3-0.6 difficulty" → good.
+9. CITE SOURCES — For factual claims, mention where the data comes from.
+10. END WITH NEXT STEPS — Always conclude with 2-3 concrete actionable next steps.
+
+WHEN TO DISPATCH (only for these — 10% of messages):
+- Multi-step research tasks requiring multiple tool calls → dispatch SCOUT
+- Content creation tasks (write blog, design graphic, build funnel) → dispatch AURORA
+- Code/build/deploy tasks → dispatch FORGE
+- Quality verification of completed work → dispatch ECHO
+- System monitoring/health checks → dispatch PULSE
+- Tool repair/infrastructure fixes → dispatch DEVELOPER
+- Security audits/compliance checks → dispatch CYBERSECURITY_R
+- Revenue analysis requiring real DB data → dispatch QUANTUM
+
+WHEN TO ANSWER DIRECTLY (default — 90% of messages):
+- Strategy questions ("What's the best affiliate strategy?")
+- Analysis requests ("Analyze my current revenue mix")
+- Explanations and tutorials ("How does the revenue pod work?")
+- Advice and recommendations ("Should I focus on SaaS or affiliate?")
+- Brainstorming ("Give me 10 ideas for passive income")
+- Comparisons ("Compare Stripe vs PayPal for my use case")
+- Simple chat and greetings
+- Follow-up questions about previous answers
+- Any question you can answer from your training knowledge
+
+DEFAULT: If unsure whether to dispatch or answer directly, ANSWER DIRECTLY with a smart, deep response. Only dispatch when the task genuinely requires multi-step tool execution that you cannot do yourself.
 
 ═══ OUTPUT FORMAT (STRICT) ═══
-- <thought>brief reasoning</thought> before actions (1-3 sentences, hidden from user)
-- <dispatch_subagent id="...">task text</dispatch_subagent> for pod leaders (PRIMARY METHOD)
+- <thought>5-10 sentences of reasoning</thought> before actions (hidden from user). For direct answers, use this to think through the question deeply.
+- <dispatch_subagent id="...">task text</dispatch_subagent> for pod leaders (ONLY for genuine multi-step tasks)
 - <tool name="...">{json}</tool> ONLY for emergency direct execution (fallback)
 - Plain markdown (## headings, bullets, **bold**) for FINAL ANSWERS
 - MAX 3 leader dispatches per turn, then SYNTHESIZE
@@ -29,14 +68,14 @@ POD 7: CYBERSECURITY R (Compliance & Security) — security audits, legal compli
 POD 8: QUANTUM (Revenue) — passive income streams, $20K/month target, investment analysis, yield
 
 ═══ DECISION FRAMEWORK ═══
-- Research/find/analyze/trends → POD 1 (SCOUT)
+- Research/find/analyze/trends → POD 1 (SCOUT) — OR answer directly if you already know
 - Write/create/design/publish → POD 2 (AURORA)
 - Test/verify/check quality → POD 3 (ECHO)
 - Build/code/deploy/fix → POD 4 (FORGE)
 - Monitor/track/KPIs/analytics → POD 5 (PULSE)
 - Tool repair/infrastructure/health → POD 6 (DEVELOPER)
 - Legal/security/compliance/tax → POD 7 (CYBERSECURITY R)
-- Revenue/income/yield/investment → POD 8 (QUANTUM)
+- Revenue/income/yield/investment → POD 8 (QUANTUM) — OR answer directly for strategy questions
 
 ═══ HYBRID FALLBACK (3 LAYERS) ═══
 LAYER 1 (90%): Dispatch to pod leader. Leader handles tools internally.
@@ -62,8 +101,8 @@ Max 3 dispatches per turn, then synthesize.
 3. DATA ANALYTICS: PULSE identifies top performers, allocate to top 3
 
 ═══ ANSWER QUALITY ═══
-1. DIRECT ANSWERS FIRST. 2. BE BRIEF. 3. NO PROCESS DUMPS.
-4. QUANTIFY. 5. ACTIONABLE. 6. CITE SOURCES.
+1. DIRECT ANSWERS FIRST for questions. 2. MATCH DEPTH TO COMPLEXITY. 3. NO PROCESS DUMPS.
+4. QUANTIFY with real numbers. 5. ACTIONABLE with next steps. 6. CITE SOURCES.
 
 ═══ OWNER COMMANDS ═══
 - "continue"/"ok"/"proceed" → continue previous work
@@ -515,8 +554,8 @@ async function callGeminiLlm(messages: Array<{ role: string; content: string }>)
       contents: chatMessages,
       systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
       generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8000,
+        temperature: 0.7,
+        maxOutputTokens: 12000,
         topP: 0.95,
       },
     }),
@@ -557,8 +596,9 @@ async function callMistralLlm(messages: Array<{ role: string; content: string }>
     body: JSON.stringify({
       model: 'mistral-large-latest',
       messages,
-      temperature: 0.3,
-      max_tokens: 8000,
+      temperature: 0.7,
+      max_tokens: 12000,
+      top_p: 0.95,
     }),
     signal: AbortSignal.timeout(60000),
   })
@@ -604,8 +644,8 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>): 
         body: JSON.stringify({
           model,
           messages,
-          temperature: 0.3,
-          max_tokens: 8000,
+          temperature: 0.7,
+          max_tokens: 12000,
           top_p: 0.95,
         }),
         signal: AbortSignal.timeout(60000),
@@ -672,8 +712,8 @@ async function callOpenRouterLlm(messages: Array<{ role: string; content: string
         body: JSON.stringify({
           model,
           messages,
-          temperature: 0.3,
-          max_tokens: 8000,
+          temperature: 0.7,
+          max_tokens: 12000,
           top_p: 0.95,
         }),
         signal: AbortSignal.timeout(60000),
@@ -740,8 +780,8 @@ async function callBraveLlm(messages: Array<{ role: string; content: string }>):
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.3,
-      max_tokens: 8000,
+      temperature: 0.7,
+      max_tokens: 12000,
       top_p: 0.95,
     }),
     signal: AbortSignal.timeout(60000),
@@ -804,8 +844,8 @@ async function callZaiDirectLlm(messages: Array<{ role: string; content: string 
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.3,
-      max_tokens: 8000,
+      temperature: 0.7,
+      max_tokens: 12000,
       thinking: { type: 'disabled' }, // match SDK default
     }),
     signal: AbortSignal.timeout(60000),
@@ -1058,6 +1098,63 @@ export async function buildHistoryMessages(
   return msgs
 }
 
+/**
+ * UPGRADE #117 — Smart Query Classifier
+ *
+ * Classifies the user's message to decide whether the agent should:
+ *   - 'direct': Answer directly with a smart, deep response (90% of messages)
+ *   - 'dispatch': Genuinely needs subagent work (10% of messages)
+ *
+ * Same logic as classifyQuery in orchestrator.ts — duplicated here to avoid
+ * circular import (agent.ts is imported by orchestrator.ts).
+ */
+function classifyQuerySmart(message: string): 'direct' | 'dispatch' {
+  const lower = message.toLowerCase().trim()
+  if (!lower) return 'direct'
+
+  // DISPATCH patterns — genuinely needs subagent work
+  const dispatchPatterns = [
+    /^(research|investigate|find out|look up|search for)\s+(the|all|every|top\s+\d+)/i,
+    /\bsearch the web\b/i,
+    /^(write|create|build|design|publish|draft|generate)\s+(a|an|the|some)?\s*(blog|article|post|email|newsletter|script|landing\s+page|website|funnel|graphic|image|video|tweet|thread)/i,
+    /^(write|create)\s+(me\s+)?a\s+/i,
+    /^(build|deploy|fix|repair|install|set\s+up|implement|code|develop|refactor)\s+/i,
+    /\b(deploy|push\s+to\s+production|ship\s+it)\b/i,
+    /^(run|execute|start|stop|restart)\s+(the\s+)?(mission|tick|scan|audit|test|pipeline|workflow)/i,
+    /\bself.?heal\b/i,
+    /\b(check|audit|scan)\s+(tools?|system|infrastructure|security)\b/i,
+    /\b(dispatch|send\s+to|ask\s+the\s+(scout|aurora|echo|forge|pulse|developer|quantum|cybersecurity))\b/i,
+  ]
+
+  // DIRECT patterns — answer with smart response
+  const directPatterns = [
+    /^(hi|hello|hey|good\s+(morning|afternoon|evening)|sup|yo)\b/i,
+    /^(thanks|thank\s+you|cool|nice|great|awesome|perfect)\b/i,
+    /\?$/,
+    /^(what|why|how|when|where|who|which|whose|whom)\b/i,
+    /^(can|could|would|will|should|do|does|did|is|are|am|was|were|have|has|had)\s+(you|i|we|the)\b/i,
+    /^(explain|describe|tell\s+me\s+about|what\s+is|what\s+are|define|elaborate)\b/i,
+    /^(should\s+i|is\s+it\s+worth|do\s+you\s+recommend|what\s+do\s+you\s+(think|suggest|recommend|advise))\b/i,
+    /^(advice|recommend|suggest)\b/i,
+    /^(compare|difference\s+between|vs\.?|versus)\b/i,
+    /^(brainstorm|ideas?\s+for|give\s+me\s+\d+\s+ideas|list\s+\d+\s+)/i,
+    /^(analyze|analysis|assess|evaluate|review)\b/i,
+    /(strategy|strategic|plan|approach|roadmap|game\s+plan)\b/i,
+    /^(what\s+do\s+you\s+(think|feel|believe)|your\s+opinion|your\s+thoughts)\b/i,
+    /^(continue|ok|okay|proceed|go\s+ahead|keep\s+going|status|update|what's\s+new|anything\s+new)\s*\.?\s*$/i,
+    /(tell\s+me\s+more|go\s+deeper|elaborate|expand\s+on|dive\s+deeper)/i,
+    /^(what\s+about|how\s+about)\b/i,
+  ]
+
+  for (const pattern of dispatchPatterns) {
+    if (pattern.test(lower)) return 'dispatch'
+  }
+  for (const pattern of directPatterns) {
+    if (pattern.test(lower)) return 'direct'
+  }
+  return 'direct'
+}
+
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
 
@@ -1119,6 +1216,16 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
   let finalAnswer = ''
   let iter = 0
+
+  // UPGRADE #117 — Query Complexity Router (smart direct response for questions)
+  // If the user's message is a question/analysis/advice request (not a task),
+  // inject a system nudge telling the agent to answer directly with depth.
+  if (classifyQuerySmart(userMessage) === 'direct') {
+    conversationMessages.push({
+      role: 'user',
+      content: `[SYSTEM ROUTER] This is a direct question/analysis/advice request. Do NOT dispatch to a subagent. Answer DIRECTLY with a deep, intelligent response (500-1500 words for complex questions, concise for simple ones). Use ## headers, **bold**, bullet lists. Provide examples. Show your reasoning. End with next steps.`,
+    })
+  }
 
   while (iter < MAX_ITERATIONS) {
     iter++

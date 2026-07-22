@@ -114,20 +114,19 @@ export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any>
     )
   }
 
-  // Performance & accuracy tuning (UPGRADE #75):
-  //   - model: gpt-4o (was gpt-4o-mini — MUCH smarter, follows instructions better)
-  //   - temperature 0.3 (was 0.4): even more deterministic, fewer hallucinations
-  //   - max_tokens 8000 (was 4000): prevents truncation on complex multi-step tasks + long reports
-  //   - top_p 0.95: wider nucleus for more creative but still grounded responses
-  //   - presence_penalty 0.2: stronger nudge to avoid repetition
-  //   - stream false (orchestrator already chunks the final answer for SSE)
+  // UPGRADE #117 — Smart Response Parameters:
+  //   - temperature 0.7 (was 0.3): allows creative, nuanced, varied responses.
+  //     0.3 was making the agent sound flat and robotic. 0.7 is what Claude/GLM use.
+  //   - max_tokens 12000 (was 8000): allows longer, deeper responses (1500-2000 words)
+  //   - presence_penalty 0.4 (was 0.2): reduces repetition, encourages covering new ground
+  //   - top_p 0.95: kept (good balance)
   const body = {
     model: OPENAI_MODEL,
     messages,
-    temperature: 0.3,
-    max_tokens: 8000,
+    temperature: 0.7,
+    max_tokens: 12000,
     top_p: 0.95,
-    presence_penalty: 0.2,
+    presence_penalty: 0.4,
   }
 
   const resp = await fetch(OPENAI_BASE_URL, {
