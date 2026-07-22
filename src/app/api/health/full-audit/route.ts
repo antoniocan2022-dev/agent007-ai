@@ -194,10 +194,11 @@ export async function GET(req: NextRequest) {
     id: 'mission-list',
     name: 'Mission Active list endpoint',
     category: 'mission',
-    status: missionList.ok && missionData?.ok ? 'pass' : 'fail',
+    status: missionList.ok && missionData?.ok && (missionData?.count ?? 0) > 0 ? 'pass' : 'fail',
     detail: missionList.ok
       ? `Returns ${missionData?.count ?? 0} active missions`
       : `HTTP ${missionList.status}: ${missionList.body.slice(0, 200)}`,
+    evidence: { httpStatus: missionList.status, bodyPreview: missionList.body.slice(0, 300) },
   })
 
   if (missionData?.missions?.[0]?.id) {
@@ -222,10 +223,11 @@ export async function GET(req: NextRequest) {
     id: 'agent-subagents',
     name: 'Subagent registry',
     category: 'agent',
-    status: subagents.ok && Array.isArray(subagentData?.subagents) ? 'pass' : 'fail',
+    status: subagents.ok && Array.isArray(subagentData?.subagents) && (subagentData?.subagents?.length ?? 0) >= 18 ? 'pass' : 'fail',
     detail: subagents.ok
       ? `${subagentData?.subagents?.length ?? 0} subagents registered (target: 20)`
       : `HTTP ${subagents.status}: ${subagents.body.slice(0, 200)}`,
+    evidence: { httpStatus: subagents.status, bodyPreview: subagents.body.slice(0, 300) },
   })
 
   // Team leaders
@@ -235,10 +237,11 @@ export async function GET(req: NextRequest) {
     id: 'agent-team-leaders',
     name: 'Team leader API (pods)',
     category: 'agent',
-    status: teamScout.ok && teamData?.pods?.length >= 7 ? 'pass' : 'warn',
+    status: teamScout.ok && (teamData?.pods?.length ?? 0) >= 7 ? 'pass' : 'warn',
     detail: teamScout.ok
       ? `${teamData?.pods?.length ?? 0} pods accessible`
       : `HTTP ${teamScout.status}: ${teamScout.body.slice(0, 200)}`,
+    evidence: { httpStatus: teamScout.status, bodyPreview: teamScout.body.slice(0, 300) },
   })
 
   // ════════════════════════════════════════════════════════════════════
