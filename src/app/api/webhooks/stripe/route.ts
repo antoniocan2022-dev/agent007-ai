@@ -1,53 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getSessionUserId } from '@/lib/session-user'
+import Stripe from 'stripe'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST /api/webhooks/stripe
+ * POST /api/webhooks/stripe — UPGRADE #121 (CRITICAL SECURITY FIX)
  *
- * Receives Stripe webhook events. Verifies the signature using
- * STRIPE_WEBHOOK_SECRET (if set), then creates/updates a Transaction row
- * for successful payments, refunds, etc.
+ * Receives Stripe webhook events. Verifies the signature using the
+ * Stripe SDK + STRIPE_WEBHOOK_SECRET. FAILS CLOSED if the secret is
+ * not set or the signature is invalid.
+ *
+ * SECURITY: This endpoint NO LONGER accepts unsigned payloads.
+ * Anyone who finds this URL cannot forge fake payment events.
  *
  * Setup:
  *   1. Set STRIPE_WEBHOOK_SECRET env var (from Stripe Dashboard → Developers → Webhooks)
- *   2. Configure a webhook endpoint in Stripe pointing to:
- *      https://your-domain.com/api/webhooks/stripe
- *   3. Subscribe to events: payment_intent.succeeded, charge.refunded, etc.
- *
- * If STRIPE_WEBHOOK_SECRET is NOT set, the endpoint accepts unsigned payloads
- * (DEVELOPMENT ONLY — never enable this in production).
- *
- * Each successful transaction also creates an IncomeEntry so it appears in the
- * Dashboard income tracker.
+ *   2. Set STRIPE_SECRET_KEY env var (for the SDK to initialize)
+ *   3. Configure a webhook endpoint in Stripe pointing to:
+ *      https://agent007-ai.vercel.app/api/webhooks/stripe
+ *   4. Subscribe to events: payment_intent.succeeded, charge.refunded, etc.
  */
 export async function POST(req: NextRequest) {
   const payload = await req.text()
   const sig = req.headers.get('stripe-signature') || ''
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  const secretKey = process.env.STRIPE_SECRET_KEY
 
-  let event: any
+  // ── UPGRADE #121: FAIL-CLOSED if webhook secret is not set ──
+  if (!webhookSecret) {
+    console.error('[stripe-webhook] REJECTED: STRIPE_WEBHOOK_SECRET not set. Webhook verification impossible.')
+    return NextResponse.json(
+      { error: 'Webhook secret not configured. Set STRIPE_WEBHOOK_SECRET env var.' },
+      { status: 503 }
+    )
+  }
+
+  if (!sig) {
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 })
+  }
+
+  // ── UPGRADE #121: REAL signature verification using the Stripe SDK ──
+  let event: Stripe.Event
   try {
-    if (webhookSecret) {
-      // In production, verify the signature with the Stripe SDK:
-      //   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
-      //   event = stripe.webhooks.constructEvent(payload, sig, webhookSecret)
-      // For now we do a lightweight check that the signature header exists.
-      if (!sig) {
-        return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 })
-      }
-      // Parse the payload (signature verification would happen here in prod)
-      event = JSON.parse(payload)
-    } else {
-      // Dev mode — accept unsigned payloads
-      console.warn('[stripe-webhook] STRIPE_WEBHOOK_SECRET not set — accepting unsigned payload (dev mode)')
-      event = JSON.parse(payload)
-    }
+    const stripe = new Stripe(secretKey || '', { apiVersion: '2024-12-18.acacia' as any })
+    event = stripe.webhooks.constructEvent(payload, sig, webhookSecret)
   } catch (e: any) {
-    return NextResponse.json({ error: `Invalid payload: ${e?.message}` }, { status: 400 })
+    console.error('[stripe-webhook] SIGNATURE VERIFICATION FAILED:', e?.message?.slice(0, 200))
+    return NextResponse.json(
+      { error: `Signature verification failed: ${e?.message?.slice(0, 100)}` },
+      { status: 400 }
+    )
   }
 
   // Determine the user — Stripe webhooks don't carry our session, so we

@@ -86,7 +86,22 @@ export async function resetPassword(email: string, newPassword: string): Promise
 /* --------------------------- next-auth options --------------------------- */
 
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET || "dev-only-insecure-secret-change-me",
+  // UPGRADE #121 SECURITY FIX: NO hardcoded fallback. If NEXTAUTH_SECRET is
+  // not set, the app throws at startup instead of using an insecure default.
+  // Previously: `|| "dev-only-insecure-secret-change-me"` — anyone with a
+  // preview URL could forge session tokens.
+  // NOW: fail-closed. Set NEXTAUTH_SECRET in Vercel for ALL targets
+  // (production + preview + development).
+  secret: (() => {
+    const s = process.env.NEXTAUTH_SECRET
+    if (!s) {
+      console.error('[auth] FATAL: NEXTAUTH_SECRET env var is not set. Session signing is disabled.')
+      // Return empty string — NextAuth will reject all session operations
+      // rather than using an insecure default.
+      return ''
+    }
+    return s
+  })(),
   session: {
     strategy: 'jwt',
     maxAge: 60 * 60 * 24 * 30, // 30 days

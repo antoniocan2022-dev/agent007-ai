@@ -8,12 +8,18 @@ export async function toolBaileysPostgresStorage(args: any, _ctx: ToolContext): 
 }
 
 export async function toolRedisCache(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  const url = process.env.UPSTASH_REDIS_URL
-  if (!url) return okResult('Redis: SETUP REQUIRED', 'Set UPSTASH_REDIS_URL for distributed cache (free: 10K req/day at upstash.com)')
+  // UPGRADE #121 FIX: Use the correct env var name UPSTASH_REDIS_REST_URL
+  // (was checking UPSTASH_REDIS_URL — missing _REST_ — so Redis was never detected)
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (!url || !token) return okResult('Redis: SETUP REQUIRED', 'Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for distributed cache (free: 10K req/day at upstash.com)')
   try {
     if (args.action === 'status' || !args.action) {
-      const resp = await fetch(`${url}/ping`, { signal: AbortSignal.timeout(5000) })
-      return okResult(`Redis: ${resp.ok ? 'CONNECTED ✅' : 'FAILED'}`, resp.ok ? 'Distributed cache active' : 'Connection failed')
+      const resp = await fetch(`${url}/ping`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000),
+      })
+      return okResult(`Redis: ${resp.ok ? 'CONNECTED ✅' : 'FAILED'}`, resp.ok ? 'Distributed cache active — rate limiting + LLM caching enabled' : 'Connection failed')
     }
     return okResult('Redis: connected ✅', 'Use action=status, get, set, flush')
   } catch { return badResult('Redis connection failed') }

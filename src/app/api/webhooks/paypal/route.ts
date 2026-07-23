@@ -6,27 +6,107 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST /api/webhooks/paypal
+ * POST /api/webhooks/paypal — UPGRADE #121 (CRITICAL SECURITY FIX)
  *
- * Receives PayPal webhook events. PayPal sends JSON directly (no signature
- * verification by default — for production you should verify via the
- * PayPal API's verify-webhook-signature endpoint using PAYPAL_CLIENT_ID,
- * PAYPAL_CLIENT_SECRET, and the webhook ID).
+ * Receives PayPal webhook events. Verifies the webhook signature via
+ * PayPal's verify-webhook-signature API. FAILS CLOSED if PayPal
+ * credentials are not set or the signature is invalid.
+ *
+ * SECURITY: This endpoint NO LONGER accepts unsigned payloads.
+ * Anyone who finds this URL cannot forge fake payment events.
  *
  * Setup:
- *   1. Set PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET env vars
+ *   1. Set PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET + PAYPAL_WEBHOOK_ID env vars
  *   2. Configure a webhook in PayPal Developer Dashboard → My Apps → your app
  *   3. Subscribe to: PAYMENT.CAPTURE.COMPLETED, PAYMENT.CAPTURE.REFUNDED
- *
- * Each successful transaction also creates an IncomeEntry so it appears in the
- * Dashboard income tracker.
  */
 export async function POST(req: NextRequest) {
+  const paypalClientId = process.env.PAYPAL_CLIENT_ID
+  const paypalClientSecret = process.env.PAYPAL_CLIENT_SECRET
+  const paypalWebhookId = process.env.PAYPAL_WEBHOOK_ID
+
+  // ── UPGRADE #121: FAIL-CLOSED if PayPal credentials are not set ──
+  if (!paypalClientId || !paypalClientSecret || !paypalWebhookId) {
+    console.error('[paypal-webhook] REJECTED: PayPal credentials not set (need PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID).')
+    return NextResponse.json(
+      { error: 'PayPal credentials not configured. Set PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID env vars.' },
+      { status: 503 }
+    )
+  }
+
+  const rawBody = await req.text()
   let event: any
   try {
-    event = await req.json()
+    event = JSON.parse(rawBody)
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  // ── UPGRADE #121: Verify the webhook signature via PayPal API ──
+  // PayPal sends these headers with every webhook:
+  const transmissionId = req.headers.get('paypal-transmission-id') || ''
+  const transmissionTime = req.headers.get('paypal-transmission-time') || ''
+  const certUrl = req.headers.get('paypal-cert-url') || ''
+  const authAlgo = req.headers.get('paypal-auth-algo') || ''
+  const transmissionSig = req.headers.get('paypal-transmission-sig') || ''
+
+  if (!transmissionSig || !transmissionId) {
+    console.error('[paypal-webhook] REJECTED: Missing PayPal signature headers.')
+    return NextResponse.json({ error: 'Missing PayPal signature headers' }, { status: 400 })
+  }
+
+  // Call PayPal's verify-webhook-signature API
+  try {
+    // Step 1: Get an access token from PayPal
+    const tokenResp = await fetch('https://api-m.paypal.com/v1/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Language': 'en_US',
+        'Authorization': 'Basic ' + Buffer.from(`${paypalClientId}:${paypalClientSecret}`).toString('base64'),
+      },
+      body: 'grant_type=client_credentials',
+    })
+    if (!tokenResp.ok) {
+      console.error('[paypal-webhook] PayPal token fetch failed:', tokenResp.status)
+      return NextResponse.json({ error: 'PayPal auth failed' }, { status: 502 })
+    }
+    const tokenData = await tokenResp.json()
+    const accessToken = tokenData.access_token
+
+    // Step 2: Verify the webhook signature
+    const verifyResp = await fetch('https://api-m.paypal.com/v1/notifications/verify-webhook-signature', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        auth_algo: authAlgo,
+        cert_url: certUrl,
+        transmission_id: transmissionId,
+        transmission_sig: transmissionSig,
+        transmission_time: transmissionTime,
+        webhook_id: paypalWebhookId,
+        webhook_event: event,
+      }),
+    })
+    if (!verifyResp.ok) {
+      console.error('[paypal-webhook] PayPal verify API failed:', verifyResp.status)
+      return NextResponse.json({ error: 'PayPal verification API failed' }, { status: 502 })
+    }
+    const verifyData = await verifyResp.json()
+    if (verifyData.verification_status !== 'SUCCESS') {
+      console.error('[paypal-webhook] SIGNATURE VERIFICATION FAILED:', verifyData.verification_status)
+      return NextResponse.json(
+        { error: `PayPal signature verification failed: ${verifyData.verification_status}` },
+        { status: 400 }
+      )
+    }
+    // Signature verified — proceed to process the event
+  } catch (e: any) {
+    console.error('[paypal-webhook] Verification error:', e?.message?.slice(0, 200))
+    return NextResponse.json({ error: `Verification error: ${e?.message?.slice(0, 100)}` }, { status: 500 })
   }
 
   const eventType: string = event.event_type || ''
