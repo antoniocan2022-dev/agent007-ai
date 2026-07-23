@@ -1,4 +1,11 @@
 /**
+ * ⚠️ DEPRECATED (UPGRADE #120 — Finding 3): This file is marked for consolidation.
+ * Target: merge into the non-versioned sibling file (see src/lib/consolidation-plan.ts).
+ * Do NOT add new tools here — add them to the target file instead.
+ * This file will be deleted in a future release after import migration.
+ */
+
+/**
  * full-autonomy-v4-tools.ts — 2 new tools to complete the owner's requested
  * full-autonomy toolkit (97% autonomous decisions, 3% owner approval).
  *

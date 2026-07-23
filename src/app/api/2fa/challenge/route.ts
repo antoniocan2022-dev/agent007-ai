@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import crypto from 'node:crypto'
+import { OWNER_EMAIL, OWNER_PHONE, OWNER_PHONE_DIGITS } from '@/lib/owner-config'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// The owner's email — 2FA is ALWAYS required for this account, even if
-// the DB has no 2FA config (which happens on Vercel cold starts when the
-// ephemeral DB is wiped). This is a HARD security policy compiled into
-// the source code — it cannot be disabled at runtime.
-const OWNER_EMAIL = 'antonio.can2022@hotmail.com'
-const OWNER_PHONE = '+15145496297'
-const OWNER_PHONE_DIGITS = '15145496297'
+// UPGRADE #120 — Owner PII now reads from env vars via owner-config.ts
+// (previously hardcoded in source — security risk for backups/git)
 
 /**
  * Create a stateless HMAC-signed token for 2FA verification.
@@ -172,7 +168,7 @@ export async function POST(req: NextRequest) {
           requiresTwoFactor: true,
           userId: user.id,
           method: 'email',
-          message: 'Code sent via email (antonio.can2022@hotmail.com). Check your inbox + spam folder. Also available via WhatsApp link below.',
+          message: `Code sent via email (${OWNER_EMAIL}). Check your inbox + spam folder. Also available via WhatsApp link below.`,
           waLink,
           displayCode: code, // Fallback display in case email goes to spam
           phoneNumber: OWNER_PHONE,

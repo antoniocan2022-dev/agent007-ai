@@ -2,12 +2,14 @@ import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { db, ensureDbReady } from '@/lib/db'
+import { SEED_EMAIL } from '@/lib/owner-config'
 
 /**
  * The single authorized operator of Agent007 AI.
  * The account is auto-seeded on first server start with password === email.
+ * UPGRADE #120: SEED_EMAIL now reads from OWNER_EMAIL env var (no hardcoded PII).
  */
-export const SEED_EMAIL = 'antonio.can2022@hotmail.com'
+export { SEED_EMAIL }
 
 /* --------------------------- password hashing --------------------------- */
 

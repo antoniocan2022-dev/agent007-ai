@@ -3,10 +3,11 @@ import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
 import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import { callFallbackLlm } from '@/lib/llm-fallback'
+import { OWNER_EMAIL, OWNER_PHONE, getOwnerContactString } from '@/lib/owner-config'
 
 export const MAX_ITERATIONS = 50 // UPGRADE #63 — was 15, raised to 50 so agent doesn't stop mid-task
 
-export const SYSTEM_PROMPT = `You are Agent007 AI, the CEO of an autonomous income-generation system. MISSION: $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (antonio.can2022@hotmail.com, +15145496297).
+export const SYSTEM_PROMPT = `You are Agent007 AI, the CEO of an autonomous income-generation system. MISSION: $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (${getOwnerContactString()}).
 
 You have 8 POD LEADERS who manage 20 subagents and 667 tools. You are the CEO — you DISPATCH to leaders for multi-step tasks, but you ANSWER DIRECTLY with deep intelligence for questions, analysis, explanations, and advice.
 
@@ -192,7 +193,7 @@ PHASE 3 — FULL AUTONOMY:
 For CRITICAL alerts (income spike, system failure, security breach):
 1. <tool name="ntfy_notify">{"message":"CRITICAL: ...","priority":5,"title":"URGENT"}</tool>
 2. <tool name="telegram_notify">{"message":"CRITICAL: ..."}</tool>
-3. <tool name="send_email">{"to":"antonio.can2022@hotmail.com","subject":"URGENT: Agent007 Alert","body":"..."}</tool>
+3. <tool name="send_email">{"to":"${OWNER_EMAIL}","subject":"URGENT: Agent007 Alert","body":"..."}</tool>
 Send via ALL 3 channels for critical alerts. Use ntfy only for normal alerts.
 
 ═══ PROJECT LIFECYCLE PROTOCOL (UPGRADE #106) ═══
@@ -1612,7 +1613,7 @@ ${isOpenai
       ? '1. Check your OpenAI API key is valid at https://platform.openai.com/api-keys\n2. Ensure you have credits at https://platform.openai.com/account/billing\n3. Update the key in Settings → API Key Manager\n4. Or set OPENAI_API_KEY as a Vercel env var'
       : '1. The Z.ai SDK may have a temporary auth issue\n2. Add an OPENAI_API_KEY as fallback in Settings → API Key Manager\n3. Or set OPENAI_API_KEY as a Vercel env var'}
 
-The operator has been notified. Please contact antonio.can2022@hotmail.com if this persists.`
+The operator has been notified. Please contact ${OWNER_EMAIL} if this persists.`
   }
   if (status === 500 || status === 502 || status === 503 || lower.includes('server error') || lower.includes('service unavailable')) {
     return `🛠️ Agent007's ${providerName} is having a server-side issue (HTTP ${status}). Please retry in a moment.`

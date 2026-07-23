@@ -8,6 +8,7 @@
  * guidance + direct links to the platform.
  */
 import type { ToolResult } from './tools'
+import { realityGate } from './reality-gate'
 
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function fail(result: string): ToolResult { return { ok: false, preview: result.slice(0, 120), result } }
@@ -27,10 +28,11 @@ export async function toolCanvaDesign(args: any): Promise<ToolResult> {
   }
   const desc = types[type] ?? types.social_post
   const canvaUrl = `https://www.canva.com/design/templates/${type.replace('_', '-')}`
-  return ok(
+  // UPGRADE #120 — Wrap with reality gate to make it honest about being instructional
+  return realityGate('canva_design', ok(
     `Canva design: ${desc}`,
     `Canva Design Tool — ${desc}\nTitle: ${title ?? 'Untitled'}\nDimensions: ${dimensions ?? desc.match(/\((.*?)\)/)?.[1] ?? 'default'}\n\nCanva URL: ${canvaUrl}\n\nTo create this design:\n1. Open ${canvaUrl}\n2. Search for "${title ?? type}" templates\n3. Customize with your brand colors\n4. Download as PNG/PDF\n\nNote: Set CANVA_API_KEY for automated design generation via Canva Connect API.`
-  )
+  ))
 }
 
 /* 2. GRAMMARLY — Proofread and enhance written content */
@@ -47,10 +49,11 @@ export async function toolGrammarlyCheck(args: any): Promise<ToolResult> {
   if (/[a-z]\.\s+[a-z]/.test(text)) issues.push('Check capitalization after periods')
   const wordCount = text.split(/\s+/).length
   const readability = wordCount > 500 ? 'Complex — consider simplifying' : wordCount > 200 ? 'Moderate' : 'Easy to read'
-  return ok(
+  // UPGRADE #120 — Wrap with reality gate
+  return realityGate('grammarly_check', ok(
     `${issues.length} issues found, ${wordCount} words, readability: ${readability}`,
     `Grammarly Check Results:\n  Word count: ${wordCount}\n  Readability: ${readability}\n  Issues found: ${issues.length}\n${issues.map(i => `  ⚠️ ${i}`).join('\n') || '  ✅ No obvious issues detected.'}\n\nFor advanced grammar checking (style, tone, clarity), set GRAMMARLY_API_KEY for real API integration.`
-  )
+  ))
 }
 
 /* 3. LOOM — Create video tutorials or course content */
@@ -64,10 +67,10 @@ export async function toolLoomVideo(args: any): Promise<ToolResult> {
     explainer: 'Explainer video',
   }
   const desc = types[type] ?? types.tutorial
-  return ok(
+  return realityGate('loom_video', ok(
     `Loom video plan: ${desc}`,
     `Loom Video Tool — ${desc}\nTitle: ${title ?? 'Untitled'}\nTarget duration: ${duration_target}\n\nTo create this video:\n1. Open https://www.loom.com and sign in\n2. Click "Record" → choose screen + camera\n3. Follow this script structure:\n   - Hook (0:00-0:30): What problem does this solve?\n   - Intro (0:30-1:00): Who you are + what they'll learn\n   - Main content (1:00-4:00): Step-by-step walkthrough\n   - CTA (4:00-5:00): Next steps + link in description\n4. Edit + add chapters\n5. Copy share link\n\nNote: Set LOOM_API_KEY for automated video upload + sharing via Loom API.`
-  )
+  ))
 }
 
 /* 4. CONVERTKIT — Email marketing automation */
@@ -103,10 +106,10 @@ export async function toolConvertKitEmail(args: any): Promise<ToolResult> {
 /* 5. HOOTSUITE — Schedule social media posts across platforms */
 export async function toolHootsuiteSchedule(args: any): Promise<ToolResult> {
   const { action = 'schedule', message, platforms = ['twitter', 'facebook', 'linkedin'], scheduled_time } = args ?? {}
-  return ok(
+  return realityGate('hootsuite_schedule', ok(
     `Hootsuite: ${action} on ${platforms.length} platforms`,
     `Hootsuite Social Media Scheduling — Action: ${action}\nMessage: ${(message ?? '').slice(0, 100)}\nPlatforms: ${platforms.join(', ')}\nScheduled: ${scheduled_time ?? 'now'}\n\nHootsuite URL: https://dashboard.hootsuite.com\n\nTo automate:\n1. Set HOOTSUITE_ACCESS_TOKEN env var\n2. Use Hootsuite API: POST https://platform.hootsuite.com/v2/messages\n3. Also available: buffer_scheduler (Buffer API — already configured), social_media_scheduler, automated_social_posting`
-  )
+  ))
 }
 
 /* 6. GOOGLE ANALYTICS — Track website traffic and user behavior */
@@ -114,22 +117,22 @@ export async function toolGoogleAnalytics(args: any): Promise<ToolResult> {
   const { action = 'overview', metric = 'sessions', date_range = '7d' } = args ?? {}
   const ga4Key = process.env.GA4_MEASUREMENT_ID
   if (ga4Key) {
-    return ok(`GA4 connected: ${ga4Key}`, `Google Analytics 4 — Connected (Measurement ID: ${ga4Key})\nAction: ${action}\nMetric: ${metric}\nDate range: ${date_range}\n\nFor real-time data, set GA4_API_KEY + GA4_PROPERTY_ID for the Data API.`)
+    return realityGate('google_analytics', ok(`GA4 connected: ${ga4Key}`, `Google Analytics 4 — Connected (Measurement ID: ${ga4Key})\nAction: ${action}\nMetric: ${metric}\nDate range: ${date_range}\n\nFor real-time data, set GA4_API_KEY + GA4_PROPERTY_ID for the Data API.`))
   }
-  return ok(
+  return realityGate('google_analytics', ok(
     `GA4: ${action} (${metric}, ${date_range})`,
     `Google Analytics Tool — Action: ${action}\nMetric: ${metric}\nDate range: ${date_range}\n\nTo connect Google Analytics:\n1. Create a GA4 property at https://analytics.google.com\n2. Get Measurement ID (G-XXXXXXXXXX)\n3. Set GA4_MEASUREMENT_ID env var\n4. For API access: set GA4_PROPERTY_ID + GA4_API_KEY\n5. Use website_analytics tool for Plausible Analytics (already configured)\n\nAlso available: website_analytics (Plausible), dataforseo (SERP tracking).`
-  )
+  ))
 }
 
 /* 7. HOTJAR — Heatmaps and user feedback */
 export async function toolHotjarAnalytics(args: any): Promise<ToolResult> {
   const { action = 'heatmap', url } = args ?? {}
   const hotjarId = process.env.HOTJAR_SITE_ID
-  return ok(
+  return realityGate('hotjar_analytics', ok(
     `Hotjar: ${action}`,
     `Hotjar Analytics — Action: ${action}\nURL: ${url ?? 'all pages'}\nHotjar Site ID: ${hotjarId ?? 'not set'}\n\nTo connect Hotjar:\n1. Create account at https://www.hotjar.com\n2. Get Site ID\n3. Set HOTJAR_SITE_ID env var\n4. Add Hotjar tracking script to your website\n5. View heatmaps at https://insights.hotjar.com\n\nFeatures: Heatmaps, Session Recordings, User Feedback Polls, Conversion Funnels.`
-  )
+  ))
 }
 
 /* 8. UBERSUGGEST — Keyword research and SEO tracking */

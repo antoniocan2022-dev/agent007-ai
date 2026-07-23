@@ -20,8 +20,9 @@ import {
 import { NexusLogo } from '@/components/agent/nexus-logo'
 import { AutonomyIntelligencePanel } from '@/components/agent/autonomy-intelligence-panel'
 
-/** Import SEED_EMAIL from auth.ts (client-side-safe constant) */
-const SEED_EMAIL = 'antonio.can2022@hotmail.com'
+/** UPGRADE #120 — Seed email reads from NEXT_PUBLIC_OWNER_EMAIL env var.
+ * Falls back to a safe default. No hardcoded PII in source code. */
+const SEED_EMAIL = process.env.NEXT_PUBLIC_OWNER_EMAIL || 'operator@example.com'
 
 /** Static version text — extracted as a constant so it's identical on server + client.
  * Adding suppressHydrationWarning as a safety net against stale .next cache. */

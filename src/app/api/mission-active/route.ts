@@ -1,11 +1,13 @@
 /**
- * /api/mission-active — UPGRADE #111
+ * /api/mission-active — UPGRADE #111 + #120
  * List active missions with team-chain state.
  *
- * GET  /api/mission-active                — list all active missions
- * POST /api/mission-active                — create new mission { title, description, revenueTarget, priority, category }
- * POST /api/mission-active?action=advance — advance a mission to next stage { missionId }
- * POST /api/mission-active?action=approve — owner approves mission { missionId }
+ * GET  /api/mission-active                       — list all active missions
+ * POST /api/mission-active                       — create new mission { title, description, revenueTarget, priority, category }
+ * POST /api/mission-active?action=advance        — advance a mission to next stage { missionId } (BLOCKED if artifact not verified)
+ * POST /api/mission-active?action=approve        — owner approves mission { missionId }
+ * POST /api/mission-active?action=set-artifact   — set artifact for current stage { missionId, artifactValue }
+ * POST /api/mission-active?action=verify-artifact — verify artifact for current stage { missionId }
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -13,6 +15,8 @@ import {
   listActiveMissions,
   createActiveMission,
   advanceMissionStage,
+  setStageArtifact,
+  verifyStageArtifact,
   approveMission,
 } from '@/lib/active-missions'
 
@@ -69,6 +73,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'missionId required' }, { status: 400 })
     }
     const mission = approveMission(body.missionId)
+    if (!mission) {
+      return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true, mission })
+  }
+
+  // UPGRADE #120 — Set artifact for current stage
+  if (action === 'set-artifact') {
+    if (!body.missionId || !body.artifactValue) {
+      return NextResponse.json({ ok: false, error: 'missionId and artifactValue required' }, { status: 400 })
+    }
+    const mission = setStageArtifact(body.missionId, body.artifactValue, !!body.verified)
+    if (!mission) {
+      return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true, mission })
+  }
+
+  // UPGRADE #120 — Verify artifact for current stage
+  if (action === 'verify-artifact') {
+    if (!body.missionId) {
+      return NextResponse.json({ ok: false, error: 'missionId required' }, { status: 400 })
+    }
+    const mission = await verifyStageArtifact(body.missionId)
     if (!mission) {
       return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
     }

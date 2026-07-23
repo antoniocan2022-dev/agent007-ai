@@ -16,11 +16,11 @@ export async function GET() {
   const DEFAULT_ORDER = ['openai', 'mistral', 'groq', 'openrouter', 'brave', 'gemini', 'z-ai']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
-  // Mask API keys (show only first 4 + last 4 chars)
+  // UPGRADE #120 — Security fix: Do NOT show any key fingerprint.
+  // Previously showed first 4 + last 4 chars + length, which reduced the
+  // keyspace for brute-force attacks. Now shows only whether the key is set.
   const mask = (key: string | undefined): string => {
-    if (!key) return '(not set)'
-    if (key.length <= 12) return '(set, too short to mask)'
-    return `${key.slice(0, 4)}…${key.slice(-4)} (len=${key.length})`
+    return key ? '(configured)' : '(not set)'
   }
 
   const providers = [

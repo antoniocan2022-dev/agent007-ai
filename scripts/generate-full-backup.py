@@ -289,11 +289,12 @@ def fetch_json(url, headers=None):
         return {'error': str(e)}
 
 def mask_value(val):
+    # UPGRADE #120 — Security fix: Do NOT show any key fingerprint.
+    # Previously showed first 4 + last 4 chars + length, which reduced
+    # the keyspace for brute-force attacks. Now shows only whether set.
     if not val or val.startswith('eyJ'):
-        return '(encrypted — not decryptable)'
-    if len(val) <= 12:
-        return f'(set, len={len(val)})'
-    return f'{val[:4]}…{val[-4:]} (len={len(val)})'
+        return '(encrypted)'
+    return '(set)' if val else '(not set)'
 
 env_data = fetch_json(
     f'https://api.vercel.com/v9/projects/{project_id}/env',

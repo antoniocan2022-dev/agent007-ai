@@ -1,4 +1,11 @@
 /**
+ * ⚠️ DEPRECATED (UPGRADE #120 — Finding 3): This file is marked for consolidation.
+ * Target: merge into the non-versioned sibling file (see src/lib/consolidation-plan.ts).
+ * Do NOT add new tools here — add them to the target file instead.
+ * This file will be deleted in a future release after import migration.
+ */
+
+/**
  * quantum-autonomous-v5-tools.ts — 14 tools (upgrade #46, restored #59)
  * Real API calls where possible + structured framework computation.
  */

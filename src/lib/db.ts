@@ -46,7 +46,8 @@ import { v4 as uuidv4 } from 'uuid'
   }
 })()
 
-const SEED_EMAIL = 'antonio.can2022@hotmail.com'
+// UPGRADE #120 — Import from centralized config (reads from env var, no hardcoded PII)
+import { SEED_EMAIL, OWNER_PHONE } from '@/lib/owner-config'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -145,7 +146,7 @@ async function seedData() {
       const pc = await db.phoneConfig.findFirst({ where: { userId: existing.id } }).catch(() => null)
       if (!pc) {
         await db.phoneConfig.create({
-          data: { userId: existing.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
+          data: { userId: existing.id, phoneNumber: OWNER_PHONE, whatsappNumber: OWNER_PHONE, email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
         }).catch(() => {})
       }
 
@@ -216,7 +217,7 @@ async function seedData() {
 
       // Create phone config
       await db.phoneConfig.create({
-        data: { userId: user.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
+        data: { userId: user.id, phoneNumber: OWNER_PHONE, whatsappNumber: OWNER_PHONE, email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
       })
 
       // Create schedules
