@@ -1,7 +1,7 @@
 'use client'
 
 import { useChatStore } from '@/store/chat-store'
-import { Activity, Loader2, Clock, Wrench } from 'lucide-react'
+import { Activity, Loader2, Clock, Wrench, Brain } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 /**
@@ -45,6 +45,13 @@ export function AgentProgressBanner() {
               <span className="text-xs font-bold text-cyan-200 tracking-wider">
                 AGENT WORKING
               </span>
+              {/* UPGRADE #119 — Show "Thinking…" when the agent is in reasoning mode */}
+              {status === 'thinking' && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-purple-300 bg-purple-400/10 border border-purple-400/30 px-2 py-0.5 rounded-full ml-1">
+                  <Brain className="w-3 h-3 animate-pulse" />
+                  THINKING…
+                </span>
+              )}
             </div>
 
             {/* Progress: iteration / maxIterations */}

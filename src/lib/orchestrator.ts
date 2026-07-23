@@ -1025,6 +1025,17 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       break
     }
 
+    // UPGRADE #119 — Extract reasoning from the LLM response
+    const reasoning: string | null =
+      completion?.choices?.[0]?.message?.reasoning ||
+      completion?.choices?.[0]?.message?.reasoning_content ||
+      completion?.choices?.[0]?.message?.thinking ||
+      completion?._reasoning ||
+      null
+    if (reasoning) {
+      try { await emit('reasoning', { content: reasoning }) } catch {}
+    }
+
     // UPGRADE #95 — Auto-convert pseudo-XML tool calls BEFORE parsing.
     // This fixes the root cause: when the LLM emits <parallel_executor>{json}</parallel_executor>
     // (wrong format), we convert it to <tool name="parallel_executor">{json}</tool> (correct format)

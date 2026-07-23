@@ -49,8 +49,36 @@ WHEN TO ANSWER DIRECTLY (default — 90% of messages):
 
 DEFAULT: If unsure whether to dispatch or answer directly, ANSWER DIRECTLY with a smart, deep response. Only dispatch when the task genuinely requires multi-step tool execution that you cannot do yourself.
 
+═══ THINKING PROTOCOL (UPGRADE #119 — Chain-of-Thought) ═══
+Before EVERY response, THINK STEP BY STEP in your <thought> block. Follow this structure:
+
+1. UNDERSTAND: What is the owner actually asking? What's the underlying need?
+2. DECOMPOSE: Break the question into sub-questions or components.
+3. GATHER: What do I already know about this? What facts are relevant?
+4. REASON: Walk through the logic step by step. Consider multiple angles.
+5. EVALUATE: What are the trade-offs? What could go wrong? What are alternatives?
+6. CONCLUDE: What's my recommendation? Why?
+7. PLAN: What are the concrete next steps?
+
+THINKING PATTERNS BY TASK TYPE:
+- Strategy questions: Consider market context, competition, resources, risks, timeline
+- Analysis requests: Examine data, identify patterns, draw conclusions, cite evidence
+- Advice/recommendations: List options, evaluate pros/cons, recommend with reasoning
+- Comparisons: Define criteria, evaluate each option, rank, recommend
+- Brainstorming: Generate diverse ideas, categorize, evaluate feasibility, prioritize
+- Explanations: Start with the core concept, build up complexity, use analogies
+- Problem-solving: Define the problem, identify root causes, propose solutions, evaluate
+
+ANTI-PATTERNS (FORBIDDEN):
+- Jumping to a conclusion without reasoning
+- Giving a generic answer when specifics are possible
+- Listing options without evaluating them
+- Answering without considering the owner's specific context ($20K/mo target, AI tools niche)
+
+REASONING VISIBILITY: Your <thought> block will be shown to the owner in a collapsible "Show reasoning" section. This builds trust and helps the owner understand your thinking. Make your reasoning clear and educational.
+
 ═══ OUTPUT FORMAT (STRICT) ═══
-- <thought>5-10 sentences of reasoning</thought> before actions (hidden from user). For direct answers, use this to think through the question deeply.
+- <thought>5-10 sentences of step-by-step reasoning</thought> before actions (shown to owner in collapsible section). For direct answers, use this to think through the question deeply using the THINKING PROTOCOL above.
 - <dispatch_subagent id="...">task text</dispatch_subagent> for pod leaders (ONLY for genuine multi-step tasks)
 - <tool name="...">{json}</tool> ONLY for emergency direct execution (fallback)
 - Plain markdown (## headings, bullets, **bold**) for FINAL ANSWERS
@@ -208,7 +236,7 @@ Auto-logging of fake income from agent text is DISABLED.
 LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info.`
 
 export interface AgentEventEmit {
-  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error' | 'heartbeat' | 'progress', data: any): Promise<void> | void
+  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error' | 'heartbeat' | 'progress' | 'reasoning', data: any): Promise<void> | void
 }
 
 export interface AgentRunOptions {
@@ -481,6 +509,19 @@ export async function callLlmWithRetry(
             })
             RATE_LIMIT_INFO.retryingNow = false
             console.log('[LLM Router] z-ai (GLM-4 via SDK) succeeded')
+            // UPGRADE #119 — Extract reasoning from z.ai SDK response
+            const zaiContent = completion?.choices?.[0]?.message?.content ?? ''
+            const zaiReasoning = completion?.choices?.[0]?.message?.reasoning || completion?.choices?.[0]?.message?.reasoning_content || null
+            if (zaiReasoning) {
+              return {
+                ...completion,
+                choices: [{
+                  ...completion?.choices?.[0],
+                  message: { ...completion?.choices?.[0]?.message, reasoning: zaiReasoning },
+                }],
+                _reasoning: zaiReasoning,
+              }
+            }
             return completion
           } catch (e: any) {
             lastErr = e
@@ -575,12 +616,18 @@ async function callGeminiLlm(messages: Array<{ role: string; content: string }>)
   const content = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
   if (!content) throw new Error('Gemini returned empty content')
 
+  // UPGRADE #119 — Extract reasoning (Gemini returns thought/thinking in parts)
+  const parts = data?.candidates?.[0]?.content?.parts ?? []
+  const reasoningPart = parts.find((p: any) => p.thought === true || p.thinking === true)
+  const reasoning = reasoningPart?.text || data?.candidates?.[0]?.groundingMetadata?.reasoning || null
+
   return {
     choices: [{
-      message: { role: 'assistant', content },
+      message: { role: 'assistant', content, reasoning },
       finish_reason: data?.candidates?.[0]?.finishReason?.toLowerCase() ?? 'stop',
     }],
     _provider: 'gemini',
+    _reasoning: reasoning,
   }
 }
 
@@ -612,13 +659,17 @@ async function callMistralLlm(messages: Array<{ role: string; content: string }>
   const content = data?.choices?.[0]?.message?.content ?? ''
   if (!content) throw new Error('Mistral returned empty content')
 
+  // UPGRADE #119 — Extract reasoning if present (some Mistral models support it)
+  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+
   return {
     choices: [{
-      message: { role: 'assistant', content },
+      message: { role: 'assistant', content, reasoning },
       finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
     }],
     _provider: 'mistral',
     _model: 'mistral-large-latest',
+    _reasoning: reasoning,
   }
 }
 
@@ -665,14 +716,18 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>): 
         continue
       }
 
+      // UPGRADE #119 — Extract reasoning (Groq supports reasoning_content on some models)
+      const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.thinking || null
+
       console.log(`[LLM Router] Groq ${model} succeeded`)
       return {
         choices: [{
-          message: { role: 'assistant', content },
+          message: { role: 'assistant', content, reasoning },
           finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
         }],
         _provider: 'groq',
         _model: model,
+        _reasoning: reasoning,
       }
     } catch (e: any) {
       lastError = e
@@ -733,14 +788,18 @@ async function callOpenRouterLlm(messages: Array<{ role: string; content: string
         continue
       }
 
+      // UPGRADE #119 — Extract reasoning (OpenRouter returns reasoning for reasoning models)
+      const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+
       console.log(`[LLM Router] OpenRouter ${model} succeeded`)
       return {
         choices: [{
-          message: { role: 'assistant', content },
+          message: { role: 'assistant', content, reasoning },
           finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
         }],
         _provider: 'openrouter',
         _model: model,
+        _reasoning: reasoning,
       }
     } catch (e: any) {
       lastError = e
@@ -804,13 +863,17 @@ async function callBraveLlm(messages: Array<{ role: string; content: string }>):
     throw new Error(`Brave AI returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
   }
 
+  // UPGRADE #119 — Extract reasoning if present
+  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+
   return {
     choices: [{
-      message: { role: 'assistant', content },
+      message: { role: 'assistant', content, reasoning },
       finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
     }],
     _provider: 'brave',
     _model: model,
+    _reasoning: reasoning,
   }
 }
 
@@ -846,7 +909,8 @@ async function callZaiDirectLlm(messages: Array<{ role: string; content: string 
       messages,
       temperature: 0.7,
       max_tokens: 12000,
-      thinking: { type: 'disabled' }, // match SDK default
+      // UPGRADE #119 — Enable thinking mode for z.ai (GLM-4.6 supports native reasoning)
+      thinking: { type: 'enabled' },
     }),
     signal: AbortSignal.timeout(60000),
   })
@@ -862,13 +926,17 @@ async function callZaiDirectLlm(messages: Array<{ role: string; content: string 
     throw new Error(`z.ai direct returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
   }
 
+  // UPGRADE #119 — Extract reasoning (z.ai returns reasoning_content when thinking is enabled)
+  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.thinking || null
+
   return {
     choices: [{
-      message: { role: 'assistant', content },
+      message: { role: 'assistant', content, reasoning },
       finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
     }],
     _provider: 'z-ai-direct',
     _model: model,
+    _reasoning: reasoning,
   }
 }
 
@@ -1259,6 +1327,20 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     if (!content || !content.trim()) {
       finalAnswer = '(The agent produced no output. Please try rephrasing.)'
       break
+    }
+
+    // UPGRADE #119 — Extract reasoning from the LLM response
+    // (Providers return reasoning in different fields — check all of them)
+    const reasoning: string | null =
+      completion?.choices?.[0]?.message?.reasoning ||
+      completion?.choices?.[0]?.message?.reasoning_content ||
+      completion?.choices?.[0]?.message?.thinking ||
+      completion?._reasoning ||
+      null
+
+    // Emit reasoning if present (separate from <thought> tags)
+    if (reasoning) {
+      try { await emit('reasoning', { content: reasoning }) } catch {}
     }
 
     const parsed = parseAssistant(content)

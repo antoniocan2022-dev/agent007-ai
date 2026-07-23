@@ -159,14 +159,22 @@ export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any>
   // and automatically retry with a larger max_tokens budget (upgrade #31).
   const finishReason: string = data?.choices?.[0]?.finish_reason ?? 'stop'
 
+  // UPGRADE #119 — Extract reasoning if present
+  // (OpenAI o1/o3 models return reasoning_content; gpt-4o doesn't, but we check anyway)
+  const reasoning: string | null =
+    data?.choices?.[0]?.message?.reasoning ||
+    data?.choices?.[0]?.message?.reasoning_content ||
+    null
+
   return {
     choices: [
       {
-        message: { content },
+        message: { content, reasoning },
         finish_reason: finishReason,
       },
     ],
     _provider: 'openai-fallback',
+    _reasoning: reasoning,
   }
 }
 

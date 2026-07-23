@@ -5,6 +5,7 @@ import { User, Paperclip, FileText, Image as ImageIcon } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import type { ChatMessage } from '@/store/chat-store'
 import { ReasoningTimeline } from './reasoning-timeline'
+import { ReasoningPanel } from './reasoning-panel'
 import { HexAvatar } from './nexus-logo'
 import type { AttachmentMeta } from '@/lib/tools'
 
@@ -40,7 +41,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
   }
 
   // Assistant
-  const isEmpty = !message.content && (!message.steps || message.steps.length === 0)
+  const isEmpty = !message.content && (!message.steps || message.steps.length === 0) && !message.reasoning
   const isStreaming = message.isStreaming
   const showCaret = isStreaming && !message.content
 
@@ -67,6 +68,11 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         </div>
 
         <ReasoningTimeline steps={message.steps} />
+
+        {/* UPGRADE #119 — Show LLM reasoning in a collapsible panel */}
+        {message.reasoning && (
+          <ReasoningPanel reasoning={message.reasoning} isStreaming={isStreaming} />
+        )}
 
         {isEmpty && showCaret ? (
           <div className="glass rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-[#7c89b5] italic flex items-center gap-2">

@@ -50,6 +50,8 @@ export interface ChatMessage {
   steps?: ToolStep[]
   isStreaming?: boolean
   createdAt: number
+  /** UPGRADE #119 — LLM reasoning (chain-of-thought) extracted from the response */
+  reasoning?: string
 }
 
 export interface ConversationMeta {
@@ -797,6 +799,25 @@ function applyEvent(
   get: () => ChatState,
   _track: () => void
 ) {
+  // UPGRADE #119 — Handle 'reasoning' event (LLM chain-of-thought)
+  // Store the reasoning on the assistant message so the UI can display it
+  // in a collapsible "Show reasoning" section.
+  if (event === 'reasoning') {
+    set((s) => ({
+      status: 'thinking',
+      messages: s.messages.map((m) => {
+        if (m.id !== assistantId) return m
+        // Append reasoning (there may be multiple reasoning chunks if the
+        // agent does multiple iterations — concatenate them)
+        const existingReasoning = m.reasoning || ''
+        const newReasoning = existingReasoning
+          ? `${existingReasoning}\n\n${data.content}`
+          : data.content
+        return { ...m, reasoning: newReasoning }
+      }),
+    }))
+    return
+  }
   if (event === 'thought') {
     set((s) => ({
       status: 'thinking',
