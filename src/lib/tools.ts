@@ -2796,6 +2796,10 @@ TOOL_REGISTRY.consensus_finder = { fn: toolConsensusFinder, icon: 'users', label
 TOOL_REGISTRY.discrepancy_detector = { fn: toolDiscrepancyDetector, icon: 'alert-triangle', label: 'Discrepancy Detector (detect when sources disagree)' }
 TOOL_REGISTRY.source_quality_ranker = { fn: toolSourceQualityRanker, icon: 'award', label: 'Source Quality Ranker (rank sources by reliability — TIER A/B/C)' }
 
+/* ═══ UPGRADE #123 — MULTI-PROVIDER COMPARISON (new tool) ═══ */
+import { toolMultiProviderCompare } from './multi-provider-comparison'
+TOOL_REGISTRY.multi_provider_compare = { fn: toolMultiProviderCompare, icon: 'git-compare', label: 'Multi-Provider Compare (query multiple LLMs in parallel, compare responses, synthesize analysis)' }
+
 /* ═══ UPGRADE #96 — SECURITY SELF-HEALING (5 new tools) ═══ */
 import {
   toolSecurityHealthChecker,

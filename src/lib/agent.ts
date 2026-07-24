@@ -78,6 +78,34 @@ ANTI-PATTERNS (FORBIDDEN):
 
 REASONING VISIBILITY: Your <thought> block will be shown to the owner in a collapsible "Show reasoning" section. This builds trust and helps the owner understand your thinking. Make your reasoning clear and educational.
 
+═══ MULTI-PROVIDER SELF-DECISION PROTOCOL (UPGRADE #123) ═══
+You have access to 6 LLM providers: Mistral, Groq, OpenRouter, Cerebras, Brave AI, Gemini.
+(OpenAI and z.ai are DISABLED per owner request.)
+
+SELF-DECISION RULES:
+1. CHOOSE THE BEST PROVIDER for each task based on its nature:
+   - Speed-critical (real-time chat, quick lookups) → Cerebras (2600 tok/s)
+   - Complex reasoning (analysis, strategy) → Mistral (large model)
+   - Long-form content (blogs, reports) → OpenRouter (many models)
+   - Creative tasks (brainstorming) → Groq (Llama 3)
+   - Search-related (trends, news) → Brave (search-optimized)
+   - Multi-modal (images, vision) → Gemini (native vision)
+2. NO STRICT ORDER — you decide which provider is best for each task.
+3. COMPARE MULTIPLE PROVIDERS when the task is important:
+   <tool name="multi_provider_compare">{"prompt":"<your question>","providers":["mistral","groq","openrouter"]}</tool>
+   This queries multiple providers in PARALLEL and returns all responses.
+   Use it to: identify consensus, detect disagreements, synthesize the best answer.
+4. SYNTHESIZE YOUR OWN ANALYSIS from multiple provider responses.
+   Don't just pick one — combine the best insights from each.
+5. CITATION: When you use a specific insight from a provider, mention which one.
+
+WHEN TO COMPARE PROVIDERS:
+- Strategy questions → compare 2-3 providers for diverse perspectives
+- Factual claims → cross-verify across providers
+- Creative tasks → get multiple ideas from different models
+- Important decisions → always compare at least 2 providers
+- Simple chat/greetings → use any single provider (no need to compare)
+
 ═══ OUTPUT FORMAT (STRICT) ═══
 - <thought>5-10 sentences of step-by-step reasoning</thought> before actions (shown to owner in collapsible section). For direct answers, use this to think through the question deeply using the THINKING PROTOCOL above.
 - <dispatch_subagent id="...">task text</dispatch_subagent> for pod leaders (ONLY for genuine multi-step tasks)
@@ -364,8 +392,11 @@ export async function callLlmWithRetry(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
 
-  // UPGRADE #114: New default order — owner requested this exact sequence.
-  const DEFAULT_ORDER = ['openai', 'mistral', 'groq', 'openrouter', 'brave', 'gemini', 'z-ai']
+  // UPGRADE #123: Owner requested disabling OpenAI + z.ai, adding Cerebras.
+  // New default chain (no strict order — agents self-select best provider):
+  //   mistral, groq, openrouter, cerebras, brave, gemini
+  // OpenAI and z.ai are DISABLED by default (can be re-enabled via env var).
+  const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'brave', 'gemini']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   const providerEnabled = (name: string): boolean => {
@@ -472,7 +503,19 @@ export async function callLlmWithRetry(
     }
   }
 
-  // PROVIDER #6: Google Gemini (often region-blocked on Vercel iad1)
+  // PROVIDER #6: Cerebras (NEW — UPGRADE #123, ultra-fast 2600 tok/s)
+  if (providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY) {
+    try {
+      const cerebrasResult = await callCerebrasLlm(messages)
+      console.log('[LLM Router] Cerebras succeeded')
+      return cerebrasResult
+    } catch (cErr: any) {
+      lastErr = cErr
+      console.warn('[LLM Router] Cerebras failed, trying next provider:', cErr?.message?.slice(0, 100))
+    }
+  }
+
+  // PROVIDER #7: Google Gemini (often region-blocked on Vercel iad1)
   if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
     try {
       const geminiResult = await callGeminiLlm(messages)
@@ -873,6 +916,60 @@ async function callBraveLlm(messages: Array<{ role: string; content: string }>):
       finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
     }],
     _provider: 'brave',
+    _model: model,
+    _reasoning: reasoning,
+  }
+}
+
+/**
+ * Cerebras LLM — UPGRADE #123 NEW
+ * Ultra-fast inference (2600 tok/s) via Llama 3.1.
+ * Get a key from https://cloud.cerebras.ai
+ *
+ * Env vars:
+ *   CEREBRAS_API_KEY  — required
+ *   CEREBRAS_MODEL    — optional, defaults to llama3.1-8b
+ */
+async function callCerebrasLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const apiKey = process.env.CEREBRAS_API_KEY!
+  const model = process.env.CEREBRAS_MODEL || 'llama3.1-8b'
+
+  const resp = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 12000,
+      top_p: 0.95,
+    }),
+    signal: AbortSignal.timeout(60000),
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`Cerebras: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  }
+
+  const data = await resp.json()
+  const content = data?.choices?.[0]?.message?.content ?? ''
+  if (!content) {
+    throw new Error(`Cerebras returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
+  }
+
+  // UPGRADE #119 — Extract reasoning if present
+  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+
+  return {
+    choices: [{
+      message: { role: 'assistant', content, reasoning },
+      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+    }],
+    _provider: 'cerebras',
     _model: model,
     _reasoning: reasoning,
   }

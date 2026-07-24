@@ -13,7 +13,8 @@ export async function GET() {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
   // UPGRADE #114 — must match src/lib/agent.ts DEFAULT_ORDER
-  const DEFAULT_ORDER = ['openai', 'mistral', 'groq', 'openrouter', 'brave', 'gemini', 'z-ai']
+  // UPGRADE #123: New default order — OpenAI + z.ai disabled, Cerebras added
+  const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'brave', 'gemini']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   // UPGRADE #120 — Security fix: Do NOT show any key fingerprint.
@@ -109,6 +110,18 @@ export async function GET() {
       inOrder: order.includes('brave'),
       willRun: order.includes('brave') && !!process.env.BRAVE_API_KEY,
       notes: 'NEW in UPGRADE #113. Brave Search AI reseller. Works from any region.',
+    },
+    {
+      id: 'cerebras',
+      name: 'Cerebras (Llama 3.1 — fastest inference)',
+      envVar: 'CEREBRAS_API_KEY',
+      configured: !!process.env.CEREBRAS_API_KEY,
+      keyPreview: mask(process.env.CEREBRAS_API_KEY),
+      model: process.env.CEREBRAS_MODEL || 'llama3.1-8b',
+      baseUrl: 'https://api.cerebras.ai/v1/chat/completions',
+      inOrder: order.includes('cerebras'),
+      willRun: order.includes('cerebras') && !!process.env.CEREBRAS_API_KEY,
+      notes: 'NEW in UPGRADE #123. Ultra-fast inference (2600 tok/s).',
     },
   ]
 
