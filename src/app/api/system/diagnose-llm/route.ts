@@ -31,14 +31,21 @@ export async function GET() {
     error: null,
   }
 
-  // Determine which provider will be used
-  if (process.env.OPENAI_API_KEY) {
-    diagnosis.provider = 'OpenAI (fast path — OPENAI_API_KEY is set)'
-    diagnosis.instructions = 'Agent007 will use OpenAI directly. If the key is invalid/expired, you will get auth errors.'
-  } else {
-    diagnosis.provider = 'Z.ai SDK (primary) → OpenAI (fallback)'
-    diagnosis.instructions = 'Agent007 will try Z.ai first. If Z.ai fails, it falls back to OpenAI (if key is set in DB or env).'
-  }
+  // UPGRADE #126: Don't reference OpenAI as primary — it's disabled per UPGRADE #123
+  const activeProviders: string[] = []
+  if (process.env.MISTRAL_API_KEY) activeProviders.push('Mistral')
+  if (process.env.GROQ_API_KEY) activeProviders.push('Groq')
+  if (process.env.OPENROUTER_API_KEY) activeProviders.push('OpenRouter')
+  if (process.env.CEREBRAS_API_KEY) activeProviders.push('Cerebras')
+  if (process.env.BRAVE_API_KEY) activeProviders.push('Brave AI')
+  if (process.env.GEMINI_API_KEY) activeProviders.push('Gemini')
+
+  diagnosis.provider = activeProviders.length > 0
+    ? `Multi-provider chain: ${activeProviders.join(' → ')}`
+    : 'No providers configured'
+  diagnosis.instructions = activeProviders.length > 0
+    ? `Agent007 will try these providers in order: ${activeProviders.join(', ')}. (OpenAI + z.ai are disabled per owner request.)`
+    : 'Set at least one LLM API key in Vercel env vars.'
 
   // Test the LLM call
   try {
@@ -54,7 +61,7 @@ export async function GET() {
       success: true,
       model,
       response: content.slice(0, 100),
-      provider: result?._provider ?? (process.env.OPENAI_API_KEY ? 'openai' : 'z-ai'),
+      provider: result?._provider ?? activeProviders[0] ?? 'unknown',
     }
     diagnosis.overallStatus = '✅ WORKING'
     diagnosis.message = `AI provider is working. Model: ${model}. Test response: "${content.slice(0, 50)}"`

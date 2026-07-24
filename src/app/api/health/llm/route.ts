@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET() {
   const now = Date.now()
-  const cooldownMs = 60_000
+  const cooldownMs = 30_000
   const cooldownUntil = RATE_LIMIT_INFO.last429At
     ? RATE_LIMIT_INFO.last429At + cooldownMs
     : 0

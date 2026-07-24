@@ -1184,7 +1184,7 @@ function applyEvent(
       currentTool: null,
       heartbeat: null, // UPGRADE #63 — clear heartbeat on error
       activeSubagents: [],
-      rateLimitedUntil: isRateLimit ? Date.now() + 60_000 : s.rateLimitedUntil,
+      rateLimitedUntil: isRateLimit ? Date.now() + 30_000 : s.rateLimitedUntil,
     }))
   }
   // 'done' event: nothing special; outer loop will set isStreaming=false

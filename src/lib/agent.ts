@@ -320,7 +320,7 @@ export const RATE_LIMIT_INFO: {
   retryingNow: false,
 }
 
-const RATE_LIMIT_COOLDOWN_MS = 60_000
+const RATE_LIMIT_COOLDOWN_MS = 30_000
 
 let _lastLlmCallAt = 0
 // Reduced from 500ms → 250ms (upgrade #31) for ~2x faster tool loops.
@@ -597,19 +597,22 @@ export async function callLlmWithRetry(
 
   // ALL PROVIDERS FAILED — throw a user-friendly error
   RATE_LIMIT_INFO.retryingNow = false
+  // UPGRADE #126: Only list providers that are actually in the active chain
+  // (OpenAI + z.ai are disabled per UPGRADE #123 — don't mention them in errors)
   const providersTried = [
-    process.env.OPENAI_API_KEY ? 'OpenAI (gpt-4o)' : null,
-    process.env.MISTRAL_API_KEY ? 'Mistral' : null,
-    process.env.GROQ_API_KEY ? 'Groq' : null,
-    process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null,
-    process.env.BRAVE_API_KEY ? 'Brave AI' : null,
-    process.env.GEMINI_API_KEY ? 'Gemini' : null,
-    !isVercel ? 'z-ai SDK (GLM-4)' : (process.env.ZAI_API_KEY ? 'z.ai direct' : null),
+    providerEnabled('openai') && process.env.OPENAI_API_KEY ? 'OpenAI' : null,
+    providerEnabled('mistral') && process.env.MISTRAL_API_KEY ? 'Mistral' : null,
+    providerEnabled('groq') && process.env.GROQ_API_KEY ? 'Groq' : null,
+    providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null,
+    providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY ? 'Cerebras' : null,
+    providerEnabled('brave') && process.env.BRAVE_API_KEY ? 'Brave AI' : null,
+    providerEnabled('gemini') && process.env.GEMINI_API_KEY ? 'Gemini' : null,
+    providerEnabled('z-ai') ? (!isVercel ? 'z-ai SDK' : (process.env.ZAI_API_KEY ? 'z.ai direct' : null)) : null,
   ].filter(Boolean).join(', ')
 
-  // UPGRADE #114: Updated provider list + new env vars in the help message.
+  // UPGRADE #126: Clearer error message — don't mention OpenAI if it's disabled
   const friendlyMsg = isRateLimitError(lastErr)
-    ? `Rate limit reached on all available providers (${providersTried}). Please wait a moment and try again. To add free fallback providers, set MISTRAL_API_KEY (https://console.mistral.ai/api-keys), GROQ_API_KEY (https://console.groq.com/keys), OPENROUTER_API_KEY (https://openrouter.ai/keys), BRAVE_API_KEY (https://api.search.brave.com/register), or ZAI_API_KEY (https://z.ai/manage-apikey) in Vercel env vars.`
+    ? `Rate limit reached on all active providers (${providersTried}). Please wait 30-60 seconds and try again. Active providers: Mistral, Groq, OpenRouter, Cerebras, Brave, Gemini. (OpenAI + z.ai are disabled per owner request.)`
     : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set MISTRAL_API_KEY (from https://console.mistral.ai/api-keys) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars. Visit /api/health/llm-providers for live diagnostics.`
 
   throw new Error(friendlyMsg)
