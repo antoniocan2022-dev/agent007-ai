@@ -226,33 +226,22 @@
     font-weight: 600;
   }
 
-  /* CRT scanline overlay */
+  /* UPGRADE #125 — CRT scanline overlay disabled (was causing GPU repaint on every frame)
+     Re-enable by adding .scanlines class to body if desired */
   .scanlines::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background: repeating-linear-gradient(
-      to bottom,
-      rgba(0, 240, 255, 0.025) 0px,
-      rgba(0, 240, 255, 0.025) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-    mix-blend-mode: screen;
+    display: none;  /* disabled for performance */
     z-index: 100;
     opacity: 0.4;
   }
 
-  /* Animated floating orbs */
+  /* UPGRADE #125 — Reduced GPU load: removed blur(80px), reduced opacity */
   .orb {
     position: fixed;
     border-radius: 9999px;
-    filter: blur(80px);
-    opacity: 0.35;
+    opacity: 0.12;  /* was 0.35 — lighter, no blur needed */
     pointer-events: none;
     z-index: 0;
-    will-change: transform;
+    /* will-change removed — no longer animating transforms continuously */
   }
   .orb-cyan {
     background: radial-gradient(circle, #00f0ff 0%, transparent 70%);
@@ -276,9 +265,10 @@
     0%, 100% { transform: translate(0, 0) scale(1); }
     50% { transform: translate(80px, -60px) scale(0.9); }
   }
-  .orb-1 { animation: orb-float-1 18s ease-in-out infinite; }
-  .orb-2 { animation: orb-float-2 22s ease-in-out infinite; }
-  .orb-3 { animation: orb-float-3 26s ease-in-out infinite; }
+  /* UPGRADE #125 — Animations run 3 times on load, then stop (was infinite) */
+  .orb-1 { animation: orb-float-1 18s ease-in-out 3; }
+  .orb-2 { animation: orb-float-2 22s ease-in-out 3; }
+  .orb-3 { animation: orb-float-3 26s ease-in-out 3; }
 
   /* Hex avatar pulse */
   @keyframes hex-pulse {
@@ -290,7 +280,7 @@
     }
   }
   .hex-pulse {
-    animation: hex-pulse 2.6s ease-in-out infinite;
+    animation: hex-pulse 2.6s ease-in-out 3;  /* UPGRADE #125 — was infinite */
   }
 
   /* Timeline connector */

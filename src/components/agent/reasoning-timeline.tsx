@@ -726,16 +726,32 @@ function formatJson(v: any): string {
   }
 }
 
+// UPGRADE #125 — Rec 3B: Collapse old tool steps (show last 3, expand on click)
+const MAX_VISIBLE_STEPS = 3
+
 export function ReasoningTimeline({ steps }: { steps?: ToolStep[] }) {
+  const [showAll, setShowAll] = useState(false)
   if (!steps || steps.length === 0) return null
+
+  const visibleSteps = showAll ? steps : steps.slice(-MAX_VISIBLE_STEPS)
+  const hiddenCount = steps.length - visibleSteps.length
+
   return (
     <div className="mb-3">
       <div className="flex items-center gap-2 mb-2">
         <div className="text-[10px] label-tag">REASONING TRACE</div>
         <div className="flex-1 h-px bg-gradient-to-r from-cyan-400/30 to-transparent" />
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAll(!showAll)}
+            className="text-[9px] text-cyan-300 hover:text-cyan-200 transition flex-shrink-0"
+          >
+            {showAll ? '− collapse' : `+ ${hiddenCount} earlier steps`}
+          </button>
+        )}
       </div>
       <AnimatePresence initial={false}>
-        {steps.map((s) => (
+        {visibleSteps.map((s) => (
           <ToolStepCard key={s.id} step={s} />
         ))}
       </AnimatePresence>

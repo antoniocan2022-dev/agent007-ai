@@ -1,5 +1,6 @@
 'use client'
 
+import React, { memo } from 'react'
 import { motion } from 'framer-motion'
 import { User, Paperclip, FileText, Image as ImageIcon } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -9,7 +10,9 @@ import { ReasoningPanel } from './reasoning-panel'
 import { HexAvatar } from './nexus-logo'
 import type { AttachmentMeta } from '@/lib/tools'
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+// UPGRADE #125 — Rec 1A: Memoize MessageBubble to prevent re-rendering old messages
+// during streaming. Only re-renders when the message object actually changes.
+function MessageBubbleComponent({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -93,6 +96,9 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
     </motion.div>
   )
 }
+
+// UPGRADE #125 — Export memoized version
+export const MessageBubble = memo(MessageBubbleComponent)
 
 function AttachmentChip({ att }: { att: AttachmentMeta }) {
   const isImage = att.mimeType.startsWith('image/') || att.dataUrl

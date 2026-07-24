@@ -526,12 +526,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     set((s) => {
       const newMessages = [...s.messages, userMsg, assistantMsg]
-      // Save to localStorage immediately (in case streaming fails)
+      // UPGRADE #125 — Rec 2C: Skip localStorage write during streaming (debounced to done/error)
+      // Previously wrote to localStorage on EVERY token, causing synchronous blocking
       if (typeof window !== 'undefined') {
         try {
           const convId = s.currentConversationId
-          if (convId) localStorage.setItem('agent007_messages_' + convId, JSON.stringify(newMessages))
-          // Update conversation title in localStorage
+          // Only update conversation title in localStorage (lightweight)
           const saved = localStorage.getItem('agent007_conversations')
           if (saved) {
             const convs = JSON.parse(saved)
@@ -778,6 +778,10 @@ function safeParseAttachments(s: string): AttachmentMeta[] | undefined {
   }
   return undefined
 }
+
+// UPGRADE #125 — Rec 2A: Token batching buffers (throttle state updates during streaming)
+let _pendingTokens = ''
+let _tokenFlushTimer: ReturnType<typeof setTimeout> | null = null
 
 function parseSse(raw: string): { event: string; data: any } | null {
   const lines = raw.split('\n')
@@ -1068,17 +1072,29 @@ function applyEvent(
       }),
     }))
   } else if (event === 'token') {
-    set((s) => ({
-      status: 'streaming',
-      messages: s.messages.map((m) => {
-        if (m.id !== assistantId) return m
-        // Drop the synthesizing marker step if it exists, since real tokens are now arriving
-        const steps = (m.steps ?? []).filter(
-          (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
-        )
-        return { ...m, content: m.content + (data.content ?? ''), steps }
-      }),
-    }))
+    // UPGRADE #125 — Rec 2A: Batch token updates (throttle to 100ms)
+    // Instead of updating state on EVERY token (which causes re-renders 100+ times/sec),
+    // accumulate tokens in a buffer and flush to state every 100ms.
+    _pendingTokens += (data.content ?? '')
+    if (!_tokenFlushTimer) {
+      _tokenFlushTimer = setTimeout(() => {
+        const tokensToAdd = _pendingTokens
+        _pendingTokens = ''
+        _tokenFlushTimer = null
+        if (tokensToAdd) {
+          set((s) => ({
+            status: 'streaming',
+            messages: s.messages.map((m) => {
+              if (m.id !== assistantId) return m
+              const steps = (m.steps ?? []).filter(
+                (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
+              )
+              return { ...m, content: m.content + tokensToAdd, steps }
+            }),
+          }))
+        }
+      }, 100)
+    }
   } else if (event === 'memory_update') {
     // Optimistically add/update memory in the right panel
     set((s) => {

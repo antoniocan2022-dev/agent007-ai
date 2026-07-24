@@ -19,25 +19,7 @@ export function Background() {
         style={{ width: 320, height: 320, bottom: -120, left: '30vw' }}
         aria-hidden
       />
-      {/* CRT scanlines overlay (applied to root via .scanlines on body) */}
-      <style jsx global>{`
-        body::before {
-          content: '';
-          position: fixed;
-          inset: 0;
-          pointer-events: none;
-          background: repeating-linear-gradient(
-            to bottom,
-            rgba(0, 240, 255, 0.02) 0px,
-            rgba(0, 240, 255, 0.02) 1px,
-            transparent 1px,
-            transparent 3px
-          );
-          mix-blend-mode: screen;
-          z-index: 100;
-          opacity: 0.45;
-        }
-      `}</style>
+      {/* UPGRADE #125 — CRT scanlines removed for performance (was causing GPU repaint on every frame) */}
     </>
   )
 }
