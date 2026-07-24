@@ -7,12 +7,12 @@
  */
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Check, Loader2, Download } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-export default function SuccessPage() {
+function SuccessContent() {
   const searchParams = useSearchParams()
   const sessionId = searchParams.get('session_id')
   const productId = searchParams.get('product')
@@ -105,5 +105,17 @@ export default function SuccessPage() {
         )}
       </motion.div>
     </div>
+  )
+}
+
+export default function SuccessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#050810] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 animate-spin text-cyan-400" />
+      </div>
+    }>
+      <SuccessContent />
+    </Suspense>
   )
 }
