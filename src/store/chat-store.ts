@@ -1174,24 +1174,45 @@ function applyEvent(
     // UPGRADE #63 — Update heartbeat state so the dashboard shows real-time progress
     set((s) => ({ heartbeat: data }))
   } else if (event === 'error') {
+    // UPGRADE #128: Flush any pending tokens BEFORE showing the error
+    // (UPGRADE #125 token batching could swallow content if error arrives
+    // before the 100ms flush timer fires)
+    const pendingContent = _pendingTokens
+    _pendingTokens = ''
+    if (_tokenFlushTimer) {
+      clearTimeout(_tokenFlushTimer)
+      _tokenFlushTimer = null
+    }
+
     const msg: string = (data?.message ?? '').toString()
     const isRateLimit = /rate-?limiting|429|too many requests/i.test(msg)
+    const isDBError = /database|prisma|Can't reach|connection/i.test(msg)
+
+    // UPGRADE #128: Clear, actionable error message
+    let userMessage = data.message ?? 'unknown error'
+    if (isRateLimit) {
+      userMessage = '⏳ All LLM providers are temporarily rate-limited. The system will auto-retry in 30 seconds. You can also click Retry below.'
+    } else if (isDBError) {
+      userMessage = '⚠️ The database is temporarily unreachable (Vercel cold start). Please wait 10 seconds and click Retry below.'
+    }
+
     set((s) => ({
       messages: s.messages.map((m) =>
         m.id === assistantId
           ? {
               ...m,
               content:
-                m.content +
-                (m.content ? '\n\n' : '') +
-                `⚠️ **Error:** ${data.message ?? 'unknown error'}`,
+                (m.content || '') +
+                (pendingContent ? pendingContent : '') +
+                (m.content || pendingContent ? '\n\n' : '') +
+                `⚠️ **Error:** ${userMessage}`,
               isStreaming: false,
             }
           : m
       ),
       status: 'idle',
       currentTool: null,
-      heartbeat: null, // UPGRADE #63 — clear heartbeat on error
+      heartbeat: null,
       activeSubagents: [],
       rateLimitedUntil: isRateLimit ? Date.now() + 30_000 : s.rateLimitedUntil,
     }))

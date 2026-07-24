@@ -1191,10 +1191,19 @@ export async function buildHistoryMessages(
   currentUserMessage: string,
   currentAttachments: AttachmentMeta[]
 ): Promise<Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> {
-  const priorMessages = await db.message.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: 'asc' },
-  })
+  // UPGRADE #128: Wrap DB query in try/catch — if DB is unreachable,
+  // continue with just the current message instead of crashing the entire agent
+  let priorMessages: any[] = []
+  try {
+    priorMessages = await db.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+    })
+  } catch (dbErr: any) {
+    console.warn('[buildHistoryMessages] DB query failed, continuing without history:', dbErr?.message?.slice(0, 100))
+    // Return just the current message — the agent will still respond,
+    // just without conversation history context
+  }
   const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
   for (const m of priorMessages) {
     if (m.role === 'user') {
@@ -1636,20 +1645,30 @@ Your NEXT response must either: (a) call a tool that advances toward answering t
     await emit('token', { content: finalAnswer })
   }
 
-  // Persist the final assistant message
-  const assistantRow = await db.message.create({
-    data: {
-      conversationId,
-      role: 'assistant',
-      content: finalAnswer,
-    },
-  })
+  // UPGRADE #128: Wrap DB writes in try/catch — if DB is unreachable,
+  // still return the answer to the user
+  let assistantRow: any = { id: 'temp_' + Date.now() }
+  try {
+    assistantRow = await db.message.create({
+      data: {
+        conversationId,
+        role: 'assistant',
+        content: finalAnswer,
+      },
+    })
+  } catch (dbErr: any) {
+    console.warn('[runAgent] DB write failed, continuing without persistence:', dbErr?.message?.slice(0, 100))
+  }
 
   // Update conversation title if it's still the default
-  const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-  if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-    const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-    await db.conversation.update({ where: { id: conversationId }, data: { title } })
+  try {
+    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
+    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
+      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
+      await db.conversation.update({ where: { id: conversationId }, data: { title } })
+    }
+  } catch (dbErr: any) {
+    console.warn('[runAgent] DB title update failed, continuing:', dbErr?.message?.slice(0, 80))
   }
 
   return {

@@ -707,8 +707,9 @@ async function runFastPathManage(opts: {
   }
 
   // Update conversation title
+  let conv: any = null
   try {
-    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
+    conv = await db.conversation.findUnique({ where: { id: conversationId } })
     if (conv && (conv.title === 'New Conversation' || !conv.title)) {
       const title = userMessage.slice(0, 50).trim() || 'New Conversation'
       await db.conversation.update({ where: { id: conversationId }, data: { title } })
@@ -1573,16 +1574,27 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     await emit('token', { content: finalAnswer })
   }
 
-  // Persist the final assistant message
-  const assistantRow = await db.message.create({
-    data: { conversationId, role: 'assistant', content: finalAnswer },
-  })
+  // UPGRADE #128: Wrap DB writes in try/catch — if DB is unreachable,
+  // the agent still returns the answer to the user (just doesn't persist to DB)
+  let assistantRow: any = { id: 'temp_' + Date.now() }
+  let conv: any = null
+  try {
+    assistantRow = await db.message.create({
+      data: { conversationId, role: 'assistant', content: finalAnswer },
+    })
+  } catch (dbErr: any) {
+    console.warn('[orchestrator] DB write failed (assistant message), continuing without persistence:', dbErr?.message?.slice(0, 100))
+  }
 
   // Update conversation title if it's still default
-  const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-  if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-    const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-    await db.conversation.update({ where: { id: conversationId }, data: { title } })
+  try {
+    conv = await db.conversation.findUnique({ where: { id: conversationId } })
+    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
+      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
+      await db.conversation.update({ where: { id: conversationId }, data: { title } })
+    }
+  } catch (dbErr: any) {
+    console.warn('[orchestrator] DB title update failed, continuing:', dbErr?.message?.slice(0, 80))
   }
 
   // Notification hook: if mission_complete notifications are enabled, send
