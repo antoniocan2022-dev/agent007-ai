@@ -1820,14 +1820,14 @@ TOOL_REGISTRY.owner_vault_download = { fn: toolOwnerVaultDownload, icon: 'downlo
  * investment, content, financial, critical upgrades)
  * Full access, no limitations.
  * ================================================================== */
-import { PHASE3_TOOLS as PHASE3_NEW_TOOLS } from './phase3-enhancements'
+import { PHASE3_TOOLS as PHASE3_NEW_TOOLS } from './mission-lifecycle'
 
 for (const [name, def] of Object.entries(PHASE3_NEW_TOOLS)) {
   TOOL_REGISTRY[name] = def
 }
 
 /* TOOL ENHANCEMENTS — 12 new advanced tools */
-import { TOOL_ENHANCEMENTS } from './phase3-enhancements'
+import { TOOL_ENHANCEMENTS } from './mission-lifecycle'
 for (const [name, def] of Object.entries(TOOL_ENHANCEMENTS)) {
   TOOL_REGISTRY[name] = def
 }
@@ -2292,7 +2292,8 @@ TOOL_REGISTRY.schedule_action_mode = { fn: toolScheduleActionMode, icon: 'calend
 TOOL_REGISTRY.income_reality_check = { fn: toolIncomeRealityCheck, icon: 'dollar-sign', label: 'Income Reality Check (distinguish REAL vs AUTO-PARSED income)' }
 TOOL_REGISTRY.tools_reality_check = { fn: toolToolsRealityCheck, icon: 'eye', label: 'Tools Reality Check (classify REAL vs VIRTUAL tools)' }
 
-/* ═══ UPGRADE #90 — MAX AUTONOMY V2 (7 new tools) ═══ */
+/* ═══ UPGRADE #90 — MAX AUTONOMY V2 (7 tools) ═══ */
+/* UPGRADE #122 — Consolidated: moved from max-autonomy-v2.ts to max-autonomy-engine.ts */
 import {
   toolTaskDecomposerV2,
   toolResultVerifierV2,
@@ -2301,7 +2302,7 @@ import {
   toolQualityScorerV2,
   toolAutonomousExecutorV2,
   toolOfflineAutonomyEngine,
-} from './max-autonomy-v2'
+} from './max-autonomy-engine'
 
 TOOL_REGISTRY.task_decomposer_v2 = { fn: toolTaskDecomposerV2, icon: 'list-tree', label: 'Task Decomposer V2 (20 subtasks, dependency graph, parallel groups, 99% target)' }
 TOOL_REGISTRY.result_verifier_v2 = { fn: toolResultVerifierV2, icon: 'check-square', label: 'Result Verifier V2 (12 checks: errors+completeness+accuracy+sources+plagiarism+bias)' }
@@ -2397,7 +2398,7 @@ TOOL_REGISTRY.subagent_performance_monitor = { fn: toolSubagentPerformanceMonito
 import {
   toolDecisionMatrix,
   toolAutonomyPolicyEnforcer,
-} from './full-autonomy-v4-tools'
+} from './full-autonomy-tools'
 
 // Decision Matrix — evaluate options against weighted criteria
 TOOL_REGISTRY.decision_matrix = { fn: toolDecisionMatrix, icon: 'grid', label: 'Decision Matrix (multi-criteria decision analysis, auto-tier assignment)' }
@@ -2463,7 +2464,7 @@ TOOL_REGISTRY.website_analytics = { fn: toolWebsiteAnalytics, icon: 'bar-chart-2
 
 /* UPGRADE #68 — Affiliate Link Generator + 8 Autonomy/Accuracy/Performance tools */
 import { toolAffiliateLinkGenerator } from './affiliate-link-generator'
-import { toolTaskDecomposer, toolResultVerifier, toolParallelSubagentDispatcher, toolContextCompressor, toolSmartRetryEngine, toolProgressTracker, toolQualityScorer, toolAutonomousExecutor } from './autonomy-accuracy-tools'
+import { toolTaskDecomposer, toolResultVerifier, toolParallelSubagentDispatcher, toolContextCompressor, toolSmartRetryEngine, toolProgressTracker, toolQualityScorer, toolAutonomousExecutor } from './autonomy-tools'
 TOOL_REGISTRY.affiliate_link_generator = { fn: toolAffiliateLinkGenerator, icon: 'link', label: 'Affiliate Link Generator (Amazon, ShareASale, Impact, Awin, ClickBank, Generic)' }
 TOOL_REGISTRY.task_decomposer = { fn: toolTaskDecomposer, icon: 'list', label: 'Task Decomposer (MAX — 7 task types, dependency graph, priority)' }
 TOOL_REGISTRY.result_verifier = { fn: toolResultVerifier, icon: 'check-circle', label: 'Result Verifier (MAX — 6 checks, score 0-100)' }
@@ -2696,7 +2697,7 @@ import {
   toolQuantumStakingAutomation,
   toolRealTimeMarketAnalyzer,
   toolUserEngagementAnalyzer,
-} from './quantum-autonomous-v5-tools'
+} from './quantum-autonomous-tools'
 
 TOOL_REGISTRY.compliance_legal_manager = { fn: toolComplianceLegalManager, icon: 'shield-check', label: 'Compliance Legal Manager (47-item checklist, 45 compliant)' }
 TOOL_REGISTRY.continuous_optimization_engine = { fn: toolContinuousOptimizationEngine, icon: 'zap', label: 'Continuous Optimization Engine (23 optimizations, +34%)' }
