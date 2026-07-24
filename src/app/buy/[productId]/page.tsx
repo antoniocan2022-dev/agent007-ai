@@ -151,32 +151,26 @@ export default function BuyPage() {
             </div>
           </div>
 
-          {error && (
-            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-300">
-              {error}
-            </div>
-          )}
+          {/* UPGRADE #130: Product not yet built — show Coming Soon instead of charging money */}
+          <div className="mb-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-200">
+            <strong>🚧 Coming Soon</strong> — This product is being finalized and is not yet available for purchase.
+            We're putting the finishing touches on the content to ensure it meets our quality standard.
+            <br /><br />
+            <a href="mailto:agent007@noreply.com?subject=Notify me when {product.name} is ready" className="text-cyan-300 hover:underline">
+              Click here to be notified when it launches →
+            </a>
+          </div>
 
           <button
-            onClick={handleBuy}
-            disabled={redirecting}
-            className="w-full py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-bold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            disabled={true}
+            className="w-full py-4 rounded-xl bg-gray-600/30 text-gray-500 font-bold text-lg cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {redirecting ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Redirecting to Stripe...
-              </>
-            ) : (
-              <>
-                <ShoppingBag className="w-5 h-5" />
-                Buy Now — {product.price}
-              </>
-            )}
+            <ShoppingBag className="w-5 h-5" />
+            Coming Soon — Not Yet Available
           </button>
 
           <p className="text-center text-xs text-gray-500 mt-4">
-            You'll be redirected to Stripe's secure checkout. Your card information is encrypted and never touches our servers.
+            This product is being prepared. Check back soon or contact us to be notified.
           </p>
         </motion.div>
       </main>

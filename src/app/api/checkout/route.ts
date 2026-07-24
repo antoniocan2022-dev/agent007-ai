@@ -50,6 +50,15 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const productId = body.productId || '50-ai-tools-guide'
+
+    // UPGRADE #130: Products are not yet built — block checkout to prevent
+    // charging real money for products that don't exist yet
+    return NextResponse.json(
+      { ok: false, error: 'Products are being finalized. Checkout is temporarily disabled.' },
+      { status: 503 }
+    )
+
+    // eslint-disable-next-line no-unreachable
     const product = PRODUCTS[productId]
 
     if (!product) {
@@ -59,7 +68,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: '2024-12-18.acacia' as any })
+    const stripe = new Stripe(stripeKey!, { apiVersion: '2024-12-18.acacia' as any })
 
     // Create a real Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({

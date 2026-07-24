@@ -123,6 +123,70 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true, transactionId: tx.id })
     }
 
+    // UPGRADE #130: Handle checkout.session.completed — carries product metadata
+    // This fires when a Stripe Checkout Session is completed (from /api/checkout)
+    if (eventType === 'checkout.session.completed') {
+      const amount = (data.amount_total ?? 0) / 100
+      const currency = (data.currency || 'usd').toUpperCase()
+      const providerTxId = data.id
+      const customerEmail = data.customer_details?.email
+      const customerName = data.customer_details?.name
+      const productId = data.metadata?.productId || 'unknown'
+      const productName = data.metadata?.productName || 'Unknown Product'
+      const paymentStatus = data.payment_status
+
+      if (paymentStatus !== 'paid') {
+        console.log(`[stripe-webhook] Checkout session ${providerTxId} status: ${paymentStatus} — skipping`)
+        return NextResponse.json({ received: true, skipped: true, reason: `payment_status=${paymentStatus}` })
+      }
+
+      // Try to find the user by customer email
+      let userId = fallbackUserId
+      if (customerEmail) {
+        const u = await db.user.findUnique({ where: { email: customerEmail.toLowerCase() } })
+        if (u) userId = u.id
+      }
+
+      // Create transaction with product metadata
+      const tx = await db.transaction.upsert({
+        where: { provider_providerTxId: { provider: 'stripe', providerTxId } },
+        update: {
+          status: 'succeeded',
+          amount,
+          currency,
+          customerEmail,
+          customerName,
+          description: `Product: ${productName} (ID: ${productId})`,
+          rawPayload: payload.slice(0, 10000),
+        },
+        create: {
+          userId,
+          provider: 'stripe',
+          providerTxId,
+          amount,
+          currency,
+          status: 'succeeded',
+          customerEmail,
+          customerName,
+          description: `Product: ${productName} (ID: ${productId})`,
+          rawPayload: payload.slice(0, 10000),
+        },
+      })
+
+      // Log to IncomeEntry WITH product attribution
+      await db.incomeEntry.create({
+        data: {
+          amount,
+          source: 'stripe',
+          notes: `Stripe Checkout — ${productName} (product: ${productId}, session: ${providerTxId})`,
+          date: new Date(),
+        },
+      })
+
+      console.log(`[stripe-webhook] Logged checkout ${providerTxId}: $${amount} ${currency} — ${productName}`)
+      return NextResponse.json({ received: true, transactionId: tx.id, product: productName })
+    }
+
     if (eventType === 'charge.refunded') {
       const providerTxId = data.id
       const amountRefunded = (data.amount_refunded ?? 0) / 100
