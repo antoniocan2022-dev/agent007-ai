@@ -47,21 +47,34 @@ export async function POST(req: NextRequest) {
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
 
-  // Verify the conversation exists; if not, create it
-  let conv = await db.conversation.findUnique({ where: { id: conversationId } })
-  if (!conv) {
-    conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50) } })
-  }
+  // UPGRADE #129: Wrap ALL pre-stream DB calls in try/catch
+  // If these crash (DB unreachable on Vercel cold start), the user gets NOTHING —
+  // no SSE stream, no error message, just a 500 HTML page that the client
+  // can't parse. NOW: if DB fails, we still start the SSE stream and send
+  // an error event the client can display.
+  let dbReady = true
+  try {
+    // Verify the conversation exists; if not, create it
+    let conv = await db.conversation.findUnique({ where: { id: conversationId } })
+    if (!conv) {
+      conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50) } })
+    }
 
-  // Persist user message
-  await db.message.create({
-    data: {
-      conversationId,
-      role: 'user',
-      content: message,
-      attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null,
-    },
-  })
+    // Persist user message
+    await db.message.create({
+      data: {
+        conversationId,
+        role: 'user',
+        content: message,
+        attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null,
+      },
+    })
+  } catch (dbErr: any) {
+    console.warn('[api/agent] Pre-stream DB call failed, continuing without persistence:', dbErr?.message?.slice(0, 150))
+    dbReady = false
+    // Don't return an error — we'll still try to run the agent
+    // The user will get a response, just won't have their message saved to DB
+  }
 
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({

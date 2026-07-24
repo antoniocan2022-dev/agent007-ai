@@ -577,8 +577,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }),
       })
       if (!res.ok || !res.body) {
-        const errText = await res.text()
-        throw new Error(errText || `HTTP ${res.status}`)
+        const errText = await res.text().catch(() => '')
+        // UPGRADE #129: If we got an HTML page (not JSON), it's a server crash
+        // — show a clear message instead of the raw HTML
+        if (errText.includes('<!DOCTYPE') || errText.includes('<html')) {
+          throw new Error('The server encountered an error. This is usually a temporary database connectivity issue on Vercel. Please wait 10 seconds and try again.')
+        }
+        throw new Error(errText.slice(0, 200) || `HTTP ${res.status}`)
       }
 
       const reader = res.body.getReader()
