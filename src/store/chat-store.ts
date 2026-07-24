@@ -295,6 +295,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadMessages: async (conversationId) => {
     try {
       const res = await fetch(`/api/conversations/${conversationId}`)
+      if (!res.ok) {
+        console.warn('[loadMessages] API returned', res.status)
+        set({ messages: [] })
+        return
+      }
       const data = await safeJson(res)
       const conv = data.conversation
       if (!conv || !conv.Message || conv.Message.length === 0) {
