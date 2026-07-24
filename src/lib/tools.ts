@@ -2800,6 +2800,10 @@ TOOL_REGISTRY.source_quality_ranker = { fn: toolSourceQualityRanker, icon: 'awar
 import { toolMultiProviderCompare } from './multi-provider-comparison'
 TOOL_REGISTRY.multi_provider_compare = { fn: toolMultiProviderCompare, icon: 'git-compare', label: 'Multi-Provider Compare (query multiple LLMs in parallel, compare responses, synthesize analysis)' }
 
+/* ═══ UPGRADE #127 — REAL FEEDBACK LOOP (new tool) ═══ */
+import { toolRealFeedbackLoop } from './feedback-loop'
+TOOL_REGISTRY.real_feedback_loop = { fn: toolRealFeedbackLoop, icon: 'bar-chart', label: 'Real Feedback Loop (queries real Stripe revenue + GA4 traffic + computes real conversion rate)' }
+
 /* ═══ UPGRADE #96 — SECURITY SELF-HEALING (5 new tools) ═══ */
 import {
   toolSecurityHealthChecker,

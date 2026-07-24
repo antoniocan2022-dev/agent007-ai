@@ -18,7 +18,7 @@ export const maxDuration = 60
 interface Check {
   id: string
   name: string
-  category: 'llm' | 'comms' | 'mission' | 'agent' | 'security' | 'db' | 'build'
+  category: 'llm' | 'comms' | 'mission' | 'agent' | 'security' | 'db' | 'build' | 'payments'
   status: 'pass' | 'fail' | 'warn' | 'skip'
   detail: string
   evidence?: any
@@ -315,6 +315,97 @@ export async function GET(req: NextRequest) {
     status: foundHeaders.length >= 3 ? 'pass' : foundHeaders.length > 0 ? 'warn' : 'fail',
     detail: `${foundHeaders.length}/${securityHeaders.length} security headers present: ${foundHeaders.join(', ') || 'none'}`,
   })
+
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #127 — PAYMENTS CATEGORY (Recommendation 2)
+  // ════════════════════════════════════════════════════════════════════
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+
+  checks.push({
+    id: 'payments-stripe-key',
+    name: 'Stripe secret key',
+    category: 'payments',
+    status: stripeKey ? 'pass' : 'fail',
+    detail: stripeKey ? 'STRIPE_SECRET_KEY is set' : 'STRIPE_SECRET_KEY NOT SET — cannot process payments',
+  })
+
+  checks.push({
+    id: 'payments-stripe-webhook',
+    name: 'Stripe webhook secret',
+    category: 'payments',
+    status: stripeWebhookSecret ? 'pass' : 'fail',
+    detail: stripeWebhookSecret ? 'STRIPE_WEBHOOK_SECRET is set — webhook signature verification active' : 'STRIPE_WEBHOOK_SECRET NOT SET — webhook accepts unsigned payloads',
+  })
+
+  checks.push({
+    id: 'payments-paypal',
+    name: 'PayPal credentials',
+    category: 'payments',
+    status: process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET ? 'pass' : 'warn',
+    detail: process.env.PAYPAL_CLIENT_ID ? 'PayPal credentials set' : 'PayPal NOT configured (optional — Stripe is primary)',
+  })
+
+  // Deep test: actually ping Stripe API
+  if (deep && stripeKey) {
+    try {
+      const stripeResp = await fetch('https://api.stripe.com/v1/charges?limit=1', {
+        headers: { 'Authorization': `Bearer ${stripeKey}` },
+        signal: AbortSignal.timeout(10000),
+      })
+      if (stripeResp.ok) {
+        const stripeData = await stripeResp.json()
+        const chargeCount = stripeData?.data?.length || 0
+        checks.push({
+          id: 'payments-stripe-live',
+          name: 'Stripe API live test',
+          category: 'payments',
+          status: 'pass',
+          detail: `Stripe API reachable. ${chargeCount} recent charge(s) found.`,
+        })
+      } else {
+        checks.push({
+          id: 'payments-stripe-live',
+          name: 'Stripe API live test',
+          category: 'payments',
+          status: 'fail',
+          detail: `Stripe API returned HTTP ${stripeResp.status} — key may be invalid or expired`,
+        })
+      }
+    } catch (e: any) {
+      checks.push({
+        id: 'payments-stripe-live',
+        name: 'Stripe API live test',
+        category: 'payments',
+        status: 'fail',
+        detail: `Stripe API unreachable: ${e?.message?.slice(0, 100)}`,
+      })
+    }
+  }
+
+  // Check income entries in DB
+  try {
+    const { db } = await import('@/lib/db')
+    const totalIncome = await db.incomeEntry.aggregate({ _sum: { amount: true } }).catch(() => null)
+    const incomeCount = await db.incomeEntry.count().catch(() => 0)
+    checks.push({
+      id: 'payments-income-trust',
+      name: 'Income entries trustworthiness',
+      category: 'payments',
+      status: totalIncome && (totalIncome._sum.amount ?? 0) > 0 ? 'pass' : 'warn',
+      detail: totalIncome
+        ? `${incomeCount} income entries, total: $${(totalIncome._sum.amount ?? 0).toFixed(2)} ${incomeCount > 0 ? '(verify each has a real transaction ID)' : '(no income recorded yet)'}`
+        : 'DB unavailable — cannot check income entries',
+    })
+  } catch {
+    checks.push({
+      id: 'payments-income-trust',
+      name: 'Income entries trustworthiness',
+      category: 'payments',
+      status: 'warn',
+      detail: 'Could not check income entries (DB unavailable)',
+    })
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // 7. DEEP TESTS — ping each LLM provider directly (only with ?deep=true)
