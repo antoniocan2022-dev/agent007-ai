@@ -218,11 +218,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadConversations: async () => {
     try {
       const res = await fetch('/api/conversations')
+      if (!res.ok) {
+        console.warn('[loadConversations] API returned', res.status)
+        // Try localStorage fallback
+        if (typeof window !== 'undefined') {
+          try {
+            const saved = localStorage.getItem('agent007_conversations')
+            if (saved) set({ conversations: JSON.parse(saved) })
+          } catch {}
+        }
+        return
+      }
       const data = await safeJson(res)
       let convs = data.conversations ?? []
       // UPGRADE #70 — DB is the ONLY source of truth (was: localStorage priority)
-      // Every device now sees the SAME conversations from Postgres.
-      // localStorage is only used as a write-only offline cache — NEVER read as primary.
       set({ conversations: convs })
       // Also update localStorage as a cache (for offline use only)
       if (typeof window !== 'undefined') {

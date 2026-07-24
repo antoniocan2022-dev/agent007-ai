@@ -9,13 +9,20 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params
-  const conv = await db.conversation.findUnique({
-    where: { id },
-    include: { Message: { orderBy: { createdAt: 'asc' } } },
-  })
-  if (!conv) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ conversation: conv })
+  // UPGRADE #126: Add error handling + ensureDbReady
+  try {
+    await ensureDbReady().catch(() => {})
+    const { id } = await params
+    const conv = await db.conversation.findUnique({
+      where: { id },
+      include: { Message: { orderBy: { createdAt: 'asc' } } },
+    })
+    if (!conv) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ conversation: conv })
+  } catch (e: any) {
+    console.error('[api/conversations/[id]] GET failed:', e?.message?.slice(0, 200))
+    return NextResponse.json({ error: e?.message?.slice(0, 150) }, { status: 500 })
+  }
 }
 
 // Owner authorization required for delete operations
