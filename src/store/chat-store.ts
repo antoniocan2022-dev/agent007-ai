@@ -36,6 +36,9 @@ export interface ToolStep {
   subagentAnswer?: string
   /** dispatch linkage so subagent_thought/tool_call/tool_result can be grouped */
   dispatchId?: string
+  /** UPGRADE #124 — Real Action Verification */
+  verified?: boolean  // true = real artifact produced, false = unverified, undefined = not checked
+  verificationWarning?: string  // warning message if unverified
   /** if this is a manage_action step */
   manageAction?: string
   manageAttrs?: Record<string, string>
@@ -861,6 +864,11 @@ function applyEvent(
     }))
   } else if (event === 'tool_result') {
     const stepId = data.stepId
+    // UPGRADE #124 — Verify tool action (check for real artifact)
+    const verification = data.verified !== undefined ? {
+      verified: data.verified,
+      verificationWarning: data.verificationWarning,
+    } : undefined
     set((s) => ({
       status: 'thinking',
       currentTool: null,
@@ -876,6 +884,9 @@ function applyEvent(
                 toolOk: data.ok,
                 artifacts: data.artifacts,
                 finishedAt: Date.now(),
+                // UPGRADE #124 — include verification result
+                verified: verification?.verified,
+                verificationWarning: verification?.verificationWarning,
               }
             : st
         )

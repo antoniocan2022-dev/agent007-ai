@@ -372,6 +372,19 @@ function SubagentChildCard({ step }: { step: ToolStep }) {
           </div>
         )}
 
+        {/* UPGRADE #124 — Unverified action badge */}
+        {step.verified === false && step.verificationWarning && (
+          <div className="mt-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300">
+            <span className="font-bold">⚠️ UNVERIFIED</span>
+            <span className="opacity-80">{step.verificationWarning.slice(0, 100)}</span>
+          </div>
+        )}
+        {step.verified === true && step.toolName && (
+          <div className="mt-1.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/5 border border-emerald-500/20 text-[9px] text-emerald-400/70">
+            <span>✅ Verified action</span>
+          </div>
+        )}
+
         {/* image artifacts */}
         {hasImageArtifacts && (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -612,6 +625,19 @@ export function ToolStepCard({ step }: { step: ToolStep }) {
                 {showFullResult ? 'collapse' : 'show full result'}
               </button>
             )}
+          </div>
+        )}
+
+        {/* UPGRADE #124 — Unverified action badge */}
+        {step.verified === false && step.verificationWarning && (
+          <div className="mt-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300">
+            <span className="font-bold">⚠️ UNVERIFIED</span>
+            <span className="opacity-80">{step.verificationWarning.slice(0, 100)}</span>
+          </div>
+        )}
+        {step.verified === true && step.toolName && (
+          <div className="mt-1.5 flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/5 border border-emerald-500/20 text-[9px] text-emerald-400/70">
+            <span>✅ Verified action</span>
           </div>
         )}
 

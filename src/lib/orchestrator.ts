@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { internalUrl } from "./internal-url"
 import { runSystemAudit, getCapabilities, getManifest, testCommunication, runSelfHeal } from "./system-functions"
+import { verifyToolAction } from "./tool-action-verification"
 
 // Helper: fetch internal URL with better error handling for Vercel
 async function internalFetch(url: string, options?: any): Promise<any> {
@@ -1357,12 +1358,19 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       const toolResult = await dispatchTool(step.toolName!, step.toolArgs, ctx)
       step.toolResult = toolResult
       step.finishedAt = Date.now()
+
+      // UPGRADE #124 — Verify the tool action (check for real artifact)
+      const verification = verifyToolAction(step.toolName!, toolResult)
+
       await emit('tool_result', {
         stepId: step.id,
         result: toolResult.result,
         preview: toolResult.preview,
         ok: toolResult.ok,
         artifacts: toolResult.artifacts,
+        // UPGRADE #124 — include verification result
+        verified: verification.verified,
+        verificationWarning: verification.warning,
       })
 
       // ── FIX #43: TOOL DIVERSITY ENFORCER ──────────────────────────
