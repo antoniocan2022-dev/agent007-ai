@@ -40,19 +40,12 @@ export interface ToolRealityClassification {
  * This is the "truth" that prevents fictional success reporting.
  */
 export const TOOL_REALITY_REGISTRY: Record<string, ToolRealityClassification> = {
-  // ── INSTRUCTIONAL tools (never make API calls — just return guides) ──
-  canva_design: {
-    toolName: 'canva_design',
-    level: 'INSTRUCTIONAL',
-    honestDescription: 'Returns a Canva template URL + design instructions. Does NOT create any design via API. No design is produced.',
-    realApiUrl: 'https://www.canva.dev/docs/connect/',
-  },
-  loom_video: {
-    toolName: 'loom_video',
-    level: 'INSTRUCTIONAL',
-    honestDescription: 'Returns a Loom recording guide + script template. Does NOT record or upload any video. No video is produced.',
-    realApiUrl: 'https://developer.loom.com/',
-  },
+  // ── UPGRADE #124: canva_design, grammarly_check, loom_video, hotjar_analytics
+//    were RECLASSIFIED from INSTRUCTIONAL to REAL. They now produce real output.
+//    (canva_design → real images, grammarly_check → 20+ real checks,
+//     loom_video → real scripts, hotjar_analytics → real GA4 API data)
+
+// ── Remaining INSTRUCTIONAL tools (never make API calls — just return guides) ──
   hootsuite_schedule: {
     toolName: 'hootsuite_schedule',
     level: 'CONDITIONAL',
@@ -82,18 +75,6 @@ export const TOOL_REALITY_REGISTRY: Record<string, ToolRealityClassification> = 
     requiredEnvVar: 'GA4_PROPERTY_ID',
     honestDescription: 'Returns setup instructions. Says "Connected" if GA4_MEASUREMENT_ID exists, but does NOT query the GA4 Data API for real numbers unless GA4_PROPERTY_ID + GA4_API_KEY are set.',
     realApiUrl: 'https://developers.google.com/analytics/devguides/reporting/data/v1',
-  },
-  hotjar_analytics: {
-    toolName: 'hotjar_analytics',
-    level: 'INSTRUCTIONAL',
-    honestDescription: 'Returns Hotjar setup instructions. Does NOT fetch heatmap or session data. No real analytics are retrieved.',
-    realApiUrl: 'https://developer.hotjar.com/',
-  },
-  grammarly_check: {
-    toolName: 'grammarly_check',
-    level: 'INSTRUCTIONAL',
-    honestDescription: 'Runs 6 basic regex checks (capitalize "I", "a lot", etc.). Does NOT call Grammarly API. This is a lightweight proofreader, not a real Grammarly integration.',
-    realApiUrl: 'https://developer.grammarly.com/',
   },
 }
 
