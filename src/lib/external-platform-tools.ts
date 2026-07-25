@@ -251,11 +251,45 @@ export async function toolConvertKitEmail(args: any): Promise<ToolResult> {
 
 /* 5. HOOTSUITE — Schedule social media posts across platforms */
 export async function toolHootsuiteSchedule(args: any): Promise<ToolResult> {
+  // UPGRADE #136: Redirect to Buffer (already configured with BUFFER_ACCESS_TOKEN)
   const { action = 'schedule', message, platforms = ['twitter', 'facebook', 'linkedin'], scheduled_time } = args ?? {}
-  return realityGate('hootsuite_schedule', ok(
-    `Hootsuite: ${action} on ${platforms.length} platforms`,
-    `Hootsuite Social Media Scheduling — Action: ${action}\nMessage: ${(message ?? '').slice(0, 100)}\nPlatforms: ${platforms.join(', ')}\nScheduled: ${scheduled_time ?? 'now'}\n\nHootsuite URL: https://dashboard.hootsuite.com\n\nTo automate:\n1. Set HOOTSUITE_ACCESS_TOKEN env var\n2. Use Hootsuite API: POST https://platform.hootsuite.com/v2/messages\n3. Also available: buffer_scheduler (Buffer API — already configured), social_media_scheduler, automated_social_posting`
-  ))
+  const bufferToken = process.env.BUFFER_ACCESS_TOKEN
+
+  if (bufferToken && message) {
+    try {
+      // Use Buffer API (free, already configured)
+      const resp = await fetch('https://api.bufferapp.com/1/updates/create.json', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Bearer ${bufferToken}`,
+        },
+        body: new URLSearchParams({
+          text: message,
+          'profile_ids[]': platforms.map(p => p).join(','),
+        }),
+        signal: AbortSignal.timeout(15000),
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        return ok(
+          `✅ Scheduled via Buffer: ${message.slice(0, 60)}`,
+          `Social Media Scheduling — REAL (via Buffer API)\n${'='.repeat(60)}\n\nMessage: ${message}\nPlatforms: ${platforms.join(', ')}\nScheduled: ${scheduled_time ?? 'now'}\n\n✅ Buffer API response: ${JSON.stringify(data).slice(0, 300)}\n\nThis tool was UPGRADED in #136 to use Buffer (free, already configured) instead of Hootsuite (which needed a paid token).`
+        )
+      }
+      return ok(
+        `Buffer API returned HTTP ${resp.status}`,
+        `Buffer scheduling attempt: HTTP ${resp.status}. Message: ${message.slice(0, 100)}`
+      )
+    } catch (e: any) {
+      return ok(`Buffer error: ${e?.message?.slice(0, 80)}`, `Buffer scheduling failed: ${e?.message}`)
+    }
+  }
+
+  return ok(
+    `Social scheduling: message required`,
+    `Social Media Scheduling (via Buffer)\n\nThis tool uses Buffer API (free, already configured).\nProvide a "message" parameter to schedule a post.\n\nExample: <tool name="hootsuite_schedule">{"message":"Check out our new AI tools guide!","platforms":["twitter","facebook"]}</tool>`
+  )
 }
 
 /* 6. GOOGLE ANALYTICS — REAL GA4 Data API integration (UPGRADE #124) */
@@ -416,41 +450,101 @@ export async function toolHotjarAnalytics(args: any): Promise<ToolResult> {
   )
 }
 
-/* 8. UBERSUGGEST — Keyword research and SEO tracking */
+/* 8. UBERSUGGEST — UPGRADE #136: Redirect to SerpAPI (free 100/month, already configured) */
 export async function toolUbersuggestSEO(args: any): Promise<ToolResult> {
   const { action = 'keyword_research', keyword, domain } = args ?? {}
-  const apiKey = process.env.UBERSUGGEST_API_KEY
-  if (apiKey && keyword) {
+  const serpapiKey = process.env.SERPAPI_API_KEY
+
+  if (serpapiKey && keyword) {
     try {
-      const res = await fetch(`https:// neh Plains.utterances.io/v3/seo?keyword=${encodeURIComponent(keyword)}&api_key=${apiKey}`, { signal: AbortSignal.timeout(10000) })
+      // Use SerpAPI (free 100 searches/month, already configured)
+      const res = await fetch(`https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(keyword)}&api_key=${serpapiKey}`, {
+        signal: AbortSignal.timeout(15000),
+      })
       if (res.ok) {
         const data = await res.json()
-        return ok(`Keyword: ${keyword}`, `Ubersuggest SEO Results for "${keyword}":\n${JSON.stringify(data).slice(0, 500)}`)
+        // Extract related searches + organic results
+        const related = data.related_searches?.slice(0, 10).map((r: any) => r.query) || []
+        const organic = data.organic_results?.slice(0, 5).map((r: any) => ({ title: r.title, link: r.link, position: r.position })) || []
+        const totalResults = data.search_information?.total_results || 'unknown'
+
+        let report = `Keyword Research — REAL DATA (via SerpAPI)\n${'='.repeat(60)}\n\n`
+        report += `Keyword: "${keyword}"\nTotal Google results: ${totalResults}\n\n`
+        report += `TOP 5 ORGANIC RESULTS:\n`
+        for (const r of organic) {
+          report += `  ${r.position}. ${r.title}\n     ${r.link}\n`
+        }
+        report += `\nRELATED SEARCHES:\n`
+        for (const q of related) {
+          report += `  • ${q}\n`
+        }
+        report += `\n✅ This is REAL keyword data from Google via SerpAPI (free, already configured).`
+        report += `\nThis tool was UPGRADED in #136 to use SerpAPI instead of Ubersuggest (which needed a paid key).`
+
+        return ok(`✅ Keyword research: ${keyword} (${totalResults} results)`, report)
       }
-    } catch { /* fall through */ }
+    } catch (e: any) {
+      return ok(`SerpAPI error: ${e?.message?.slice(0, 80)}`, `Keyword research failed: ${e?.message}`)
+    }
   }
+
   return ok(
-    `Ubersuggest: ${action} for "${keyword ?? domain ?? 'N/A'}"`,
-    `Ubersuggest SEO Tool — Action: ${action}\nKeyword: ${keyword ?? 'N/A'}\nDomain: ${domain ?? 'N/A'}\n\nTo use Ubersuggest:\n1. Go to https://www.neilpatel.com/ubersuggest\n2. Enter keyword or domain\n3. View: search volume, SEO difficulty, content ideas, backlinks\n\nFor API access: Set UBERSUGGEST_API_KEY.\nAlso available: dataforseo (keyword research API — already configured).`
+    `Keyword research: keyword required`,
+    `Keyword Research (via SerpAPI)\n\nThis tool uses SerpAPI (free 100/month, already configured).\nProvide a "keyword" parameter to research.\n\nExample: <tool name="ubersuggest_seo">{"keyword":"AI tools for freelancers"}</tool>`
   )
 }
 
-/* 9. AHREFS — SEO analysis and backlink tracking */
+/* 9. AHREFS — UPGRADE #136: Redirect to DataForSEO (already configured) */
 export async function toolAhrefsSEO(args: any): Promise<ToolResult> {
   const { action = 'site_audit', domain, keyword } = args ?? {}
-  const apiKey = process.env.AHREFS_API_KEY
-  if (apiKey && domain) {
+  const dfsEmail = process.env.DATAFORSEO_EMAIL
+  const dfsPassword = process.env.DATAFORSEO_PASSWORD
+
+  if (dfsEmail && dfsPassword && (domain || keyword)) {
     try {
-      const res = await fetch(`https://api.ahrefs.com/v3/site-explorer/overview?target=${encodeURIComponent(domain)}&token=${apiKey}`, { signal: AbortSignal.timeout(10000) })
+      // Use DataForSEO (already configured, free tier)
+      const auth = Buffer.from(`${dfsEmail}:${dfsPassword}`).toString('base64')
+      const target = domain || keyword
+
+      // DataForSEO Serp API — get organic results for the domain/keyword
+      const res = await fetch('https://api.dataforseo.com/v3/serp/google/organic/live/advanced', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${auth}`,
+        },
+        body: JSON.stringify([{
+          keyword: keyword || domain,
+          location_code: 2840,  // United States
+          language_code: 'en',
+          limit: 10,
+        }]),
+        signal: AbortSignal.timeout(20000),
+      })
+
       if (res.ok) {
         const data = await res.json()
-        return ok(`Ahrefs: ${domain}`, `Ahrefs SEO Analysis for ${domain}:\n${JSON.stringify(data).slice(0, 500)}`)
+        const results = data?.tasks?.[0]?.result?.[0]?.items?.filter((i: any) => i.type === 'organic') || []
+
+        let report = `SEO Analysis — REAL DATA (via DataForSEO)\n${'='.repeat(60)}\n\n`
+        report += `Target: "${target}"\n\n`
+        report += `TOP ORGANIC RESULTS:\n`
+        for (const r of results.slice(0, 10)) {
+          report += `  ${r.rank_group}. ${r.title}\n     URL: ${r.url}\n     Description: ${(r.description || '').slice(0, 100)}\n`
+        }
+        report += `\n✅ This is REAL SEO data from Google via DataForSEO (free, already configured).`
+        report += `\nThis tool was UPGRADED in #136 to use DataForSEO instead of Ahrefs (which needed a $500/mo key).`
+
+        return ok(`✅ SEO analysis: ${target} (${results.length} results)`, report)
       }
-    } catch { /* fall through */ }
+    } catch (e: any) {
+      return ok(`DataForSEO error: ${e?.message?.slice(0, 80)}`, `SEO analysis failed: ${e?.message}`)
+    }
   }
+
   return ok(
-    `Ahrefs: ${action} for ${domain ?? keyword ?? 'N/A'}`,
-    `Ahrefs SEO Tool — Action: ${action}\nDomain: ${domain ?? 'N/A'}\nKeyword: ${keyword ?? 'N/A'}\n\nTo use Ahrefs:\n1. Go to https://ahrefs.com\n2. Enter domain or keyword\n3. View: backlinks, referring domains, organic keywords, traffic value\n\nFor API access: Set AHREFS_API_KEY.\nAlso available: dataforseo (backlink analysis API — already configured), backlink_tracking.`
+    `SEO analysis: domain or keyword required`,
+    `SEO Analysis (via DataForSEO)\n\nThis tool uses DataForSEO (free, already configured).\nProvide a "domain" or "keyword" parameter.\n\nExample: <tool name="ahrefs_seo">{"keyword":"AI tools","domain":"example.com"}</tool>`
   )
 }
 

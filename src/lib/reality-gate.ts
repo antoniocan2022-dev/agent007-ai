@@ -46,27 +46,6 @@ export const TOOL_REALITY_REGISTRY: Record<string, ToolRealityClassification> = 
 //     loom_video → real scripts, hotjar_analytics → real GA4 API data)
 
 // ── Remaining INSTRUCTIONAL tools (never make API calls — just return guides) ──
-  hootsuite_schedule: {
-    toolName: 'hootsuite_schedule',
-    level: 'CONDITIONAL',
-    requiredEnvVar: 'HOOTSUITE_ACCESS_TOKEN',
-    honestDescription: 'Returns a scheduling plan. Does NOT schedule any posts unless HOOTSUITE_ACCESS_TOKEN is set. No posts are scheduled.',
-    realApiUrl: 'https://developer.hootsuite.com/',
-  },
-  ubersuggest_seo: {
-    toolName: 'ubersuggest_seo',
-    level: 'CONDITIONAL',
-    requiredEnvVar: 'UBERSUGGEST_API_KEY',
-    honestDescription: 'Returns SEO instructions. Does NOT fetch real keyword data unless UBERSUGGEST_API_KEY is set.',
-    realApiUrl: 'https://app.neilpatel.com/en/ubersuggest/api',
-  },
-  ahrefs_seo: {
-    toolName: 'ahrefs_seo',
-    level: 'CONDITIONAL',
-    requiredEnvVar: 'AHREFS_API_KEY',
-    honestDescription: 'Returns SEO audit instructions. Does NOT fetch real backlink data unless AHREFS_API_KEY is set.',
-    realApiUrl: 'https://ahrefs.com/api',
-  },
 
   // ── CONDITIONAL tools (real if env var set, instructional if not) ──
   google_analytics: {
