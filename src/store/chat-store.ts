@@ -1200,7 +1200,8 @@ function applyEvent(
     // even when the actual cause is a DB failure or network timeout.
     // NOW: only treat as rate limit if the message explicitly says "rate-limiting" (with hyphen)
     // or contains "429" or "too many requests" — NOT the generic "rate limit" phrase.
-    const isRateLimit = /rate-limiting|HTTP 429|too many requests/i.test(msg)
+    // UPGRADE #131: Only match actual 429 status — not the phrase "rate limit"
+    const isRateLimit = /HTTP 429|too many requests/i.test(msg)
     const isDBError = /database|prisma|Can't reach|connection|ECONNREFUSED|ETIMEDOUT/i.test(msg)
     const isNetworkError = /fetch failed|network|timeout|ECONNRESET|socket hang up|aborted/i.test(msg)
 

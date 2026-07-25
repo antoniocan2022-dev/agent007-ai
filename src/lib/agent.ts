@@ -339,10 +339,12 @@ function isRateLimitError(e: any): boolean {
   const status: number | undefined = e?.status ?? e?.response?.status
   if (status === 429) return true
   const lower = (e?.message ?? String(e)).toLowerCase()
+  // UPGRADE #131: Removed 'rate limit' check — was matching ANY error containing
+  // those words, causing false "rate-limited" banner. Only match actual 429 status
+  // or explicit "too many requests" text.
   return (
     lower.includes('429') ||
-    lower.includes('too many requests') ||
-    lower.includes('rate limit')
+    lower.includes('too many requests')
   )
 }
 
@@ -1700,8 +1702,8 @@ export function friendlyLlmError(e: any): string {
   const isZai = lower.includes('z-ai') || lower.includes('zai') || lower.includes('glm')
   const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'
 
-  if (status === 429 || lower.includes('429') || lower.includes('too many requests') || lower.includes('rate limit')) {
-    return `⏳ Agent007's ${providerName} returned HTTP 429 (rate limit). Please wait 30 seconds and try again.`
+  if (status === 429 || lower.includes('429') || lower.includes('too many requests')) {
+    return `⏳ Agent007's ${providerName} returned HTTP 429. Please wait 30 seconds and try again.`
   }
   if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
     // Check for region block specifically
