@@ -39,11 +39,50 @@ const DEFAULT_MISSION: MissionState = {
   history: [],
 }
 
-// In-memory state (persists per warm function instance; for true persistence, use DB)
+// UPGRADE #135: In-memory state + DB persistence (survives cold starts)
 let missionState: MissionState = { ...DEFAULT_MISSION }
+let _missionStateLoaded = false
+
+async function loadMissionStateFromDB(): Promise<void> {
+  if (_missionStateLoaded) return
+  _missionStateLoaded = true
+  try {
+    const { db } = await import('./db')
+    const owner = await db.user.findFirst({ orderBy: { createdAt: 'asc' } }).catch(() => null)
+    if (!owner) return
+    const saved = await db.userSetting.findFirst({
+      where: { userId: owner.id, key: 'mission_state' }
+    }).catch(() => null)
+    if (saved?.value) {
+      const parsed = JSON.parse(saved.value)
+      missionState = { ...DEFAULT_MISSION, ...parsed }
+      console.log('[mission] Loaded state from DB:', missionState.totalRuns, 'runs,', missionState.opportunities.length, 'opportunities')
+    }
+  } catch (e: any) {
+    console.warn('[mission] Failed to load state from DB:', e?.message?.slice(0, 80))
+  }
+}
+
+async function saveMissionStateToDB(): Promise<void> {
+  try {
+    const { db } = await import('./db')
+    const owner = await db.user.findFirst({ orderBy: { createdAt: 'asc' } }).catch(() => null)
+    if (!owner) return
+    await db.userSetting.upsert({
+      where: { userId_key: { userId: owner.id, key: 'mission_state' } },
+      update: { value: JSON.stringify(missionState) },
+      create: { userId: owner.id, key: 'mission_state', value: JSON.stringify(missionState) },
+    }).catch(() => {})
+  } catch (e: any) {
+    console.warn('[mission] Failed to save state to DB:', e?.message?.slice(0, 80))
+  }
+}
 
 export async function toolMissionMode(args: any): Promise<ToolResult> {
   const action = (args?.action ?? 'status').toString().toLowerCase()
+
+  // UPGRADE #135: Load persisted state on every call (idempotent — only loads once per instance)
+  await loadMissionStateFromDB()
 
   if (action === 'status') {
     return ok(
@@ -140,6 +179,51 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
     missionState.totalRuns++
     missionState.history.push({ date: now.slice(0, 10), actions, income: missionState.kpis.today })
 
+    // UPGRADE #135: Persist state to DB
+    await saveMissionStateToDB()
+
+    // UPGRADE #135: AUTO-STRATEGY ADJUSTMENT
+    // If 0 revenue after 7+ ticks, dispatch QUANTUM for strategy pivot
+    if (missionState.kpis.month === 0 && missionState.totalRuns >= 7) {
+      try {
+        const { runSubagent } = await import('./subagents')
+        const pivotResult = await runSubagent({
+          subagentId: 'quantum',
+          task: 'Our current strategy has generated $0 revenue after ' + missionState.totalRuns + ' mission ticks. Analyze what is wrong and propose 3 alternative strategies. Focus on what we can execute immediately with existing tools (affiliate marketing, content creation, SaaS). Consider: are we targeting the right niche? Is our content reaching the right audience? Should we pivot to a different revenue model?',
+          dispatchId: `strategy_pivot_${Date.now()}`,
+          attachments: [],
+          language: 'en',
+          emit: async () => {},
+          parentConversationId: 'mission',
+        })
+        actions.push(`🔄 STRATEGY PIVOT: QUANTUM dispatched — ${pivotResult.answer.slice(0, 200)}`)
+
+        // Notify owner via Telegram
+        try {
+          const resp = await fetch('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: process.env.TELEGRAM_CHAT_ID,
+              text: '🔄 Agent007 Strategy Pivot Triggered\n\n' + pivotResult.answer.slice(0, 1000) + '\n\nReason: $0 revenue after ' + missionState.totalRuns + ' mission ticks.',
+              disable_web_page_preview: true,
+            }),
+            signal: AbortSignal.timeout(10000),
+          })
+        } catch {}
+
+        // Save the pivot in mission state
+        missionState.history.push({
+          date: now.slice(0, 10),
+          actions: [`STRATEGY PIVOT: ${pivotResult.answer.slice(0, 500)}`],
+          income: 0,
+        })
+        await saveMissionStateToDB()
+      } catch (e: any) {
+        actions.push(`Strategy pivot failed: ${e?.message?.slice(0, 100)}`)
+      }
+    }
+
     return ok(
       `Mission tick complete — ${actions.length} actions, +$${missionState.kpis.today} today`,
       `MISSION TICK COMPLETE\n${'='.repeat(60)}\nDate: ${now}\n\nACTIONS TAKEN:\n${actions.map((a) => `  ✅ ${a}`).join('\n')}\n\nUPDATED KPIs:\n  Today: $${missionState.kpis.today}\n  This month: $${missionState.kpis.month} / $${missionState.kpis.target} (${missionState.kpis.progress.toFixed(1)}%)\n  Total runs: ${missionState.totalRuns}\n\nNext tick: call mission_mode with action="tick" again or wait for daily cron.`
@@ -157,6 +241,7 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
 
   if (action === 'reset') {
     missionState = { ...DEFAULT_MISSION }
+    await saveMissionStateToDB()
     return ok('Mission state reset', 'Mission state has been reset to defaults.')
   }
 
