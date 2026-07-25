@@ -4785,3 +4785,106 @@ Stage Summary:
 - Issue 1: NOT a deployment bug — arrows ARE deployed and DO work for any conversation >100px overflow. Recommendation: lower threshold from 100 to 30-50px, or remove hasScrollableContent gate entirely when alwaysVisible=true.
 - Issue 2: Root cause = multiple independent serverless cold starts + no DB pooler + sequential seedData. 3 ranked fixes below.
 - Issue 3: id-based match works for DEFAULT_CHAIN. CEO stage + 'revenue' pod are broken edge cases. Stale "Nova" prompts confuse LLM. Fix: remove name-fallback, clean Nova refs, add 'ceo' leader handling.
+
+---
+Task ID: upgrade-148-external-audit-3-issues
+Agent: Main (Super Z)
+Task: Apply all recommendations for 3 external audit issues (scroll arrows, page load, leader response)
+
+Work Log:
+- Investigated all 3 issues via subagent (agent-8dbf1bc3) with FULL code access
+  - Auditor was missing page.tsx/layout.tsx; we have them
+  - Confirmed: ChatTab → ChatThread → ScrollArrows IS deployed (page.tsx:182)
+  - Confirmed: 3 cold-start DB init paths fire in parallel on page mount
+  - Confirmed: leader matching uses fragile name-based fallbacks
+
+- UPGRADE #148 (Issue 3a — Strict id matching):
+  - Removed fuzzy name-based fallbacks in mission-active/[missionId]/route.ts
+  - Replaced 3-way OR (id || name || includes) with strict id-only match
+  - Added clear error listing available subagent ids when no match found
+  - Fixes: 'Cybersecurity R' matching both A and R; 'revenue' pod matching QUANTUM incorrectly
+
+- UPGRADE #148 (Issue 3b — Clean up Nova references):
+  - Removed all 5 stale "Nova" references in mission-pipeline.ts
+  - Stage 4 product_launch: "Nova's blueprint" → "Vertex's blueprint (Stage 3)"
+  - Stage 4 content_creation: "Nova's draft" → "Quill's draft (Stage 3)"
+  - generic description: "Scout → Aurora → Nova → Echo" → "Scout → Aurora → Forge → Echo"
+  - Stage 4 generic QA: "Nova's execution" → "Forge's execution (Stage 3)"
+  - Stage 5 generic Deployment: "Nova's execution" → "Forge's execution (Stage 3)"
+
+- UPGRADE #148 (Issue 3c — CEO special-case):
+  - Added early check in leader dispatch: if leaderId === 'ceo', route directly
+    to callLlmWithRetry with the CEO system prompt
+  - Before: trying to find a 'ceo' subagent always failed with "unavailable"
+  - After: CEO questions get a real CEO response from the apex LLM
+
+- UPGRADE #148 (Issue 3d — Better timeout message):
+  - Replaced generic timeout message with detailed 5-step diagnostic:
+    1. Open /api/health/llm-providers in browser
+    2. Check "activeChain" field — empty = no providers will run
+    3. Check "skippedProviders" for misconfigured ones
+    4. Add missing API keys in Vercel env vars
+    5. Lists common providers: MISTRAL_API_KEY, GROQ_API_KEY, etc.
+  - Updated isSystemNotice detection to match new message format
+  - Added isCeoError detection for CEO LLM failures
+
+- UPGRADE #148 (Issue 2a — Pooler URL detection):
+  - Added pooler detection in db.ts ensurePostgresDatabaseUrl()
+  - Checks for: pgbouncer=true, accelerate=true, -pooler. (Neon), vercel-storage.com
+  - Logs warning if no pooler detected (1-3s cold-start penalty)
+  - Logs success if pooler detected
+
+- UPGRADE #148 (Issue 2b — Parallelize seedData):
+  - Replaced 4 sequential awaits with single Promise.all
+  - Before: phoneConfig → 2FA → userSetting → apiKey = 4 round-trips (~1-2.5s)
+  - After: Promise.all([phoneConfig, 2FA, userSetting, apiKey]) = 1 round-trip
+  - All 4 lookups are independent (only depend on existing.id which we have)
+
+- UPGRADE #148 (Issue 2c — Pre-warm DB):
+  - Created src/components/providers/pre-warm-db.tsx
+  - Fires /api/health fetch on mount (fire-and-forget, 30s timeout)
+  - Wired into src/app/layout.tsx so it runs on EVERY page
+  - Hides 5-10s of cold-start DB init behind the NextAuth session check
+
+- UPGRADE #148 (Issue 2d — README pooler docs):
+  - Added "Database Setup (CRITICAL for performance)" section to README.md
+  - Documents Neon pooler (port 6543, -pooler. hostname)
+  - Documents Supabase pooler (?pgbouncer=true&connection_limit=1)
+  - Documents Vercel Postgres (auto-pooled)
+  - Explains how to verify pooler is working via Vercel logs
+  - Explains why pooler matters (TLS handshake, connection limits)
+
+- UPGRADE #148 (Issue 1a — Lower scroll threshold):
+  - Changed scroll-arrows.tsx threshold from +100 to +30
+  - Before: needed 100px overflow → arrows invisible in short convos
+  - After: 30px overflow → arrows appear in 3-4 message convos
+
+- UPGRADE #148 (Issue 1b — Toggle always visible):
+  - Moved toggle button OUTSIDE the hasAnyArrow gate
+  - Before: toggle hidden in short convos → users couldn't enable arrows
+  - After: toggle always visible at bottom-LEFT (no overlap with arrows)
+  - Restructured return as React fragment with two separate motion elements
+
+- Verification:
+  - TypeScript: 0 errors in modified files
+  - Full build: succeeded
+  - Audit script: 22/22 checks PASSED
+  - Deployed to Vercel production: https://agent007-ai.vercel.app (Ready in 43s)
+  - Health check green
+  - Page load: 569ms cold / 43ms warm
+  - /api/health: 278ms (cold-start DB init)
+  - All endpoints live (307 = auth-required, as expected)
+
+- Backup:
+  - Generated full source backup: 468 files, 5.3 MB ZIP
+  - Saved as: /home/z/my-project/download/agent007-upgrade-148-final-backup.zip
+  - Verified backup contains: PreWarmDb component, scroll threshold +30, pooler detection, Promise.all in seedData
+  - Audit report: /home/z/my-project/download/agent007-upgrade-148-audit.json
+
+Stage Summary:
+- Issue 1 (scroll arrows): FIXED — threshold lowered + toggle always visible
+- Issue 2 (page load): FIXED — pooler detection + parallel seedData + pre-warm fetch + README docs
+- Issue 3 (leader response): FIXED — strict id matching + Nova cleanup + CEO special-case + better timeout
+- All 22 audit checks pass
+- Deployment: ✅ live at https://agent007-ai.vercel.app
+- Backup: ✅ 468 files (5.3 MB ZIP) ready for download

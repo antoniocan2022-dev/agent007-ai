@@ -93,15 +93,77 @@ export async function POST(
   const LEADER_TIMEOUT_MS = 45_000
 
   const dispatchPromise = (async () => {
+    // UPGRADE #148 (Issue 3c fix) — Special-case the CEO stage.
+    // The CEO is not a subagent — it's the apex LLM that aggregates everything
+    // into an executive report. Before: trying to find a 'ceo' subagent always
+    // failed with "unavailable" because no such subagent exists. After: route
+    // CEO questions directly through callLlmWithRetry with the CEO system prompt.
+    if (leaderInfo!.leaderId === 'ceo' || leaderInfo!.leaderName.toLowerCase() === 'ceo') {
+      try {
+        const { callLlmWithRetry } = await import('@/lib/agent')
+        const ceoResponse = await callLlmWithRetry([
+          {
+            role: 'system',
+            content: `You are the CEO of Agent007 — the apex executive reporting to the human owner (Antonio).
+
+The owner has asked you a direct question about a mission in progress. Respond as the CEO:
+1. Be concise (max 300 words)
+2. Give a direct, executive-level answer
+3. If the question is about status, summarize what's done + what's pending + risks
+4. If the question is about a decision, give a clear recommendation with rationale
+5. Be honest — if something is broken or blocked, say so`
+          },
+          {
+            role: 'user',
+            content: `[OWNER DIRECT QUESTION — Mission: ${mission!.title}]
+
+Mission context:
+- Title: ${mission!.title}
+- Description: ${mission!.description}
+- Current stage: ${leaderInfo!.stage}
+- Revenue target: $${mission!.revenueTarget}/month
+
+Chain so far:
+${mission!.chain.map((c) => `  • ${c.stage} → ${c.leader} (${c.status})`).join('\n')}
+
+Owner's question:
+${message}
+
+Respond as the CEO.`
+          }
+        ], { thinking: false })
+
+        return typeof ceoResponse === 'string'
+          ? ceoResponse
+          : (ceoResponse?.content ?? ceoResponse?.message?.content ?? '[CEO produced no output]')
+      } catch (ceoErr: any) {
+        return `[CEO LLM call failed: ${ceoErr?.message?.slice(0, 200) ?? 'unknown error'}. Check /api/health/llm-providers for live provider status.]`
+      }
+    }
+
     const allSubs = await getAllSubagents({ includeDisabled: false })
-    const sub = allSubs.find((s: any) =>
-      s.id === leaderInfo!.leaderId ||
-      s.name.toLowerCase() === leaderInfo!.leaderName.toLowerCase() ||
-      s.name.toLowerCase().includes(leaderInfo!.leaderName.toLowerCase().split(' ')[0])
-    )
+
+    // UPGRADE #148 (Issue 3a fix) — Strict id-based matching only.
+    // Before: 3-way OR with fuzzy name matching:
+    //   s.id === leaderId || s.name === leaderName || s.name.includes(leaderName.split(' ')[0])
+    // The name-based fallbacks caused two real bugs:
+    //   (1) 'Cybersecurity R' leaderName matched BOTH 'Cybersecurity A' AND
+    //       'Cybersecurity R' subagents (first wins) — wrong agent dispatched.
+    //   (2) 'revenue' pod leaderName 'QUANTUM + AURORA' matched QUANTUM
+    //       (incorrect — revenue is a 2-agent pod with no single subagent).
+    // After: id-only match. If no agent has the exact id, return a clear
+    // error so the owner knows to fix POD_LEADERS rather than seeing a
+    // wrong agent respond.
+    const sub = allSubs.find((s: any) => s.id === leaderInfo!.leaderId)
 
     if (!sub) {
-      return `[${leaderInfo!.leaderName} unavailable — subagent not found in registry. The mission stage is still tracked; you can dispatch via the main chat if needed.]`
+      return `[${leaderInfo!.leaderName} unavailable — no subagent with id '${leaderInfo!.leaderId}' in the registry.
+
+This usually means POD_LEADERS (in src/lib/active-missions.ts) is out of sync with SUBAGENTS (in src/lib/subagents.ts). The leaderId must match a subagent id exactly.
+
+Available subagent ids: ${allSubs.map((s: any) => s.id).slice(0, 20).join(', ')}${allSubs.length > 20 ? ` (... +${allSubs.length - 20} more)` : ''}
+
+You can still ask the Super Agent about this mission from the main chat.]`
     }
 
     const task = `[OWNER DIRECT QUESTION — Mission: ${mission!.title}]
@@ -143,7 +205,17 @@ Be concise (max 300 words) and actionable. Do NOT call any tools — just give a
 
   const timeoutPromise = new Promise<string>((resolve) => {
     setTimeout(() => {
-      resolve(`[${leaderInfo!.leaderName} timed out after 45s. This usually means all LLM providers are misconfigured or rate-limited. Check /api/health/llm-providers for live status. Your message has been logged and the leader will respond on the next mission tick.]`)
+      resolve(`[${leaderInfo!.leaderName} timed out after 45s.
+
+This means all LLM providers failed or were rate-limited. To diagnose:
+
+1. Open /api/health/llm-providers in your browser (sign in first)
+2. Check the "activeChain" field — if it's empty, NO providers will run
+3. Check "skippedProviders" — these are misconfigured (missing API key, wrong base URL, etc.)
+4. Add the missing API keys in Vercel → Settings → Environment Variables
+5. Common providers to enable: MISTRAL_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY
+
+Your message has been logged to the audit trail. Once a provider is configured, ask again or wait for the next mission tick.]`)
     }, LEADER_TIMEOUT_MS)
   })
 
@@ -156,10 +228,12 @@ Be concise (max 300 words) and actionable. Do NOT call any tools — just give a
   // UPGRADE #146 (Warning fix) — Don't persist timeout/error responses to DB
   // as if they were real leader messages. They're system notices, not leader
   // replies. Mark them clearly so the dashboard can render them differently.
+  // UPGRADE #148 — updated detection patterns to match the new detailed messages.
   const isTimeoutResponse = leaderResponse.includes('timed out after 45s')
   const isDispatchError = leaderResponse.includes('dispatch failed')
-  const isUnavailable = leaderResponse.includes('unavailable — subagent not found')
-  const isSystemNotice = isTimeoutResponse || isDispatchError || isUnavailable
+  const isUnavailable = leaderResponse.includes('unavailable — no subagent with id')
+  const isCeoError = leaderResponse.includes('CEO LLM call failed')
+  const isSystemNotice = isTimeoutResponse || isDispatchError || isUnavailable || isCeoError
 
   // UPGRADE #143 — Persist the leader's response to DB (survives cold starts!)
   // Only persist if it's a REAL leader response, not a system timeout/error notice.

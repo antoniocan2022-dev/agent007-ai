@@ -19,6 +19,52 @@ bunx prisma generate && bunx prisma db push
 bash scripts/deploy-vercel.sh
 ```
 
+## 🗄️ Database Setup (CRITICAL for performance)
+
+Agent007 uses Postgres via Prisma. On Vercel serverless, you MUST use a
+**connection pooler** — otherwise every cold start pays 1-3 seconds of TLS
+handshake latency and risks exhausting free-tier connection limits.
+
+### Provider-specific setup
+
+**Neon** (recommended, free tier):
+1. Create a project at https://neon.tech
+2. Copy the **pooled** connection string (uses port `6543`, hostname ends in `-pooler.region.aws.neon.tech`)
+3. Set `DATABASE_URL=postgres://user:pass@ep-xxx-pooler.region.aws.neon.tech/dbname?sslmode=require`
+
+**Supabase** (free tier):
+1. Create a project at https://supabase.com
+2. Go to Settings → Database → Connection string → **Transaction mode** (pooled)
+3. Append `?pgbouncer=true&connection_limit=1` to the URL
+4. Set `DATABASE_URL=postgres://...supabase.co:6543/postgres?pgbouncer=true&connection_limit=1`
+
+**Vercel Postgres** (auto-pooled):
+1. Vercel Dashboard → Storage → Create Postgres
+2. Connect to project — `DATABASE_URL` is set automatically (already pooled)
+
+### How to verify your pooler is working
+
+After deploy, check the Vercel function logs on a cold start. You should see:
+```
+[db] DATABASE_URL is Postgres-compatible ✅
+[db] DATABASE_URL appears to use a pooler ✅
+```
+
+If you see the warning instead:
+```
+[db] WARNING: DATABASE_URL does not appear to use a connection pooler.
+```
+…then switch to the pooled connection string from your provider.
+
+### Why this matters
+
+Without a pooler, every cold serverless instance:
+- Opens a direct TCP+TLS connection to Postgres (~500ms-1s)
+- Counts against your provider's direct-connection limit (Neon free = 5, Supabase free = 20)
+- Can exhaust connections when 3+ instances cold-start simultaneously (common on dashboard load)
+
+With a pooler, connections are reused across instances — cold-start DB cost drops to ~50-150ms.
+
 ## 🧰 Tools (289+)
 
 ### Base Tools (15)

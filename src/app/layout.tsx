@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { ServiceWorkerRegister } from "@/components/providers/service-worker-register";
+import { PreWarmDb } from "@/components/providers/pre-warm-db";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -79,6 +80,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground agent007-root`}
         suppressHydrationWarning
       >
+        {/* UPGRADE #148 (Issue 2c fix) — Pre-warm the DB on every page load.
+            Fires /api/health immediately so the cold-start DB init runs in
+            parallel with the NextAuth session check, hiding ~5-10s of latency. */}
+        <PreWarmDb />
         <SessionProvider>{children}</SessionProvider>
         <Toaster />
         <ServiceWorkerRegister />

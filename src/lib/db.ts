@@ -43,6 +43,38 @@ import { v4 as uuidv4 } from 'uuid'
     )
   } else {
     console.log('[db] DATABASE_URL is Postgres-compatible ✅')
+
+    // UPGRADE #148 (Issue 2a fix) — Detect missing connection pooler.
+    // On Vercel serverless, every cold instance opens a new DB connection.
+    // Without a pooler (PgBouncer), each connection costs ~500ms-1s for the
+    // TLS handshake alone, and free-tier Postgres providers (Neon, Supabase)
+    // cap direct connections at 5-20 — easy to exhaust when 3+ cold starts
+    // fire in parallel.
+    //
+    // This is a SOFT warning — the app will still run, but page load will be
+    // 1-3s slower per cold start. To fix:
+    //   - Neon:      use port 6543 (pooler) instead of 5432 (direct)
+    //   - Supabase:  append ?pgbouncer=true&connection_limit=1
+    //   - Vercel Postgres: already pooled (no action needed)
+    //   - Prisma Accelerate: use ?accelerate=true (paid feature)
+    const hasPooler =
+      current.includes('pgbouncer=true') ||
+      current.includes('accelerate=true') ||
+      // Neon pooler hostname pattern: -pooler.region.aws.neon.tech
+      current.includes('-pooler.') ||
+      // Vercel Postgres: *.db.vercel-storage.com or *.pooler.vercel-storage.com
+      current.includes('vercel-storage.com')
+    if (!hasPooler) {
+      console.warn(
+        '[db] WARNING: DATABASE_URL does not appear to use a connection pooler. ' +
+          'On Vercel serverless, this adds ~1-3s to every cold start (TLS handshake) ' +
+          'and risks exhausting free-tier connection limits. ' +
+          'Fix: use the POOLED connection string from your DB provider ' +
+          '(Neon port 6543, Supabase ?pgbouncer=true, Vercel Postgres auto-pooled).'
+      )
+    } else {
+      console.log('[db] DATABASE_URL appears to use a pooler ✅')
+    }
   }
 })()
 
@@ -171,8 +203,22 @@ async function seedData() {
     // Check if seed user exists
     const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } }).catch(() => null)
     if (existing) {
+      // UPGRADE #148 (Issue 2b fix) — Parallelize the 4 independent lookups.
+      // Before: 4 sequential awaits (phoneConfig → 2FA → userSetting → apiKey)
+      //   = 4 DB round-trips = ~1-2.5s on every cold start.
+      // After: Promise.all runs all 4 in parallel = 1 round-trip's worth of latency.
+      // None of these depend on each other — they only depend on `existing.id`
+      // which we already have.
+      const [pc, twoFA, incomeRow, existingKey] = await Promise.all([
+        db.phoneConfig.findFirst({ where: { userId: existing.id } }).catch(() => null),
+        db.twoFactorSecret.findFirst({ where: { userId: existing.id, enabled: true } }).catch(() => null),
+        db.userSetting.findFirst({ where: { userId: existing.id, key: 'income_settings' } }).catch(() => null),
+        process.env.OPENAI_API_KEY
+          ? db.apiKey.findFirst({ where: { userId: existing.id, service: 'openai' } }).catch(() => null)
+          : Promise.resolve(null),
+      ])
+
       // Ensure phone config
-      const pc = await db.phoneConfig.findFirst({ where: { userId: existing.id } }).catch(() => null)
       if (!pc) {
         await db.phoneConfig.create({
           data: { userId: existing.id, phoneNumber: OWNER_PHONE, whatsappNumber: OWNER_PHONE, email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
@@ -181,7 +227,6 @@ async function seedData() {
 
       // Ensure 2FA config exists (owner ALWAYS requires 2FA — auto-seed if missing)
       // This fixes the "login page not asking for 2FA" issue on Vercel cold starts
-      const twoFA = await db.twoFactorSecret.findFirst({ where: { userId: existing.id, enabled: true } }).catch(() => null)
       if (!twoFA) {
         try {
           await db.twoFactorSecret.create({
@@ -199,7 +244,6 @@ async function seedData() {
 
       // Ensure income settings exist (auto-seed with correct 20% daily + $20K target)
       // This fixes the "settings not saving" issue on Vercel cold starts
-      const incomeRow = await db.userSetting.findFirst({ where: { userId: existing.id, key: 'income_settings' } }).catch(() => null)
       if (!incomeRow) {
         try {
           const defaultIncome = { monthlyGoal: 20000, dailyGrowthTarget: 20, currencySymbol: '$', displayMode: 'detailed' }
@@ -212,22 +256,19 @@ async function seedData() {
 
       // Ensure OpenAI API key exists in DB (auto-seed from env var)
       // This fixes the "OpenAI key not saving" issue on Vercel cold starts
-      if (process.env.OPENAI_API_KEY) {
-        const existingKey = await db.apiKey.findFirst({ where: { userId: existing.id, service: 'openai' } }).catch(() => null)
-        if (!existingKey) {
-          try {
-            await db.apiKey.create({
-              data: {
-                userId: existing.id,
-                name: 'OpenAI (env var)',
-                service: 'openai',
-                key: process.env.OPENAI_API_KEY,
-                baseUrl: null,
-              }
-            })
-            console.log('[db] Seed: auto-created OpenAI API key from env var')
-          } catch {}
-        }
+      if (process.env.OPENAI_API_KEY && !existingKey) {
+        try {
+          await db.apiKey.create({
+            data: {
+              userId: existing.id,
+              name: 'OpenAI (env var)',
+              service: 'openai',
+              key: process.env.OPENAI_API_KEY,
+              baseUrl: null,
+            }
+          })
+          console.log('[db] Seed: auto-created OpenAI API key from env var')
+        } catch {}
       }
 
       // Ensure 6 custom sub-agents exist (BUG FIX — upgrade #38)

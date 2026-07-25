@@ -89,7 +89,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         stage: 4, team: 'forge', leader: 'forge', name: 'Build & Deploy',
         artifactType: 'url',
         requirements: 'Live, deployed URL of the product. Must be accessible via HTTP 200. Include GitHub repo URL if applicable.',
-        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: Build & Deploy.\nBuild the MVP according to Nova's blueprint. Deploy to Vercel. Return: (1) live URL, (2) GitHub repo URL, (3) list of features implemented, (4) any features deferred to post-MVP. The URL MUST return HTTP 200.`,
+        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: Build & Deploy.\nBuild the MVP according to Vertex's blueprint (Stage 3). Deploy to Vercel. Return: (1) live URL, (2) GitHub repo URL, (3) list of features implemented, (4) any features deferred to post-MVP. The URL MUST return HTTP 200.`,
       },
       {
         stage: 5, team: 'echo', leader: 'echo', name: 'QA & Quality Audit',
@@ -140,7 +140,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         stage: 4, team: 'echo', leader: 'echo', name: 'Editorial Review',
         artifactType: 'data',
         requirements: 'Edited content + review notes. Grammar, clarity, SEO checklist, plagiarism check.',
-        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: Editorial Review.\nReview Nova's draft: (1) grammar / spelling fixes, (2) clarity improvements, (3) SEO checklist (keyword density, headers, meta), (4) plagiarism / originality check, (5) fact-check claims. Return the edited draft + a review notes section.`,
+        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: Editorial Review.\nReview Quill's draft (Stage 3): (1) grammar / spelling fixes, (2) clarity improvements, (3) SEO checklist (keyword density, headers, meta), (4) plagiarism / originality check, (5) fact-check claims. Return the edited draft + a review notes section.`,
       },
       {
         stage: 5, team: 'pulse', leader: 'pulse', name: 'Publish & Monitor',
@@ -205,7 +205,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
   generic: {
     type: 'generic',
     name: 'Generic Mission',
-    description: 'Scout → Aurora → Nova → Echo → Pulse → CEO. Default pipeline when no specific type matches.',
+    description: 'Scout → Aurora → Forge → Echo → Pulse → CEO. Default pipeline when no specific type matches.',
     requiresOwnerApproval: false,
     stages: [
       {
@@ -230,13 +230,13 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         stage: 4, team: 'echo', leader: 'echo', name: 'QA',
         artifactType: 'data',
         requirements: 'QA report: tested against requirements, bugs found, fix recommendations, go/no-go.',
-        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: QA.\nReview Nova's execution: (1) does it meet the strategy requirements? (2) bugs / issues found, (3) fix recommendations, (4) go / no-go recommendation. Be honest — Antonio trusts the QA.`,
+        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: QA.\nReview Forge's execution (Stage 3): (1) does it meet the strategy requirements? (2) bugs / issues found, (3) fix recommendations, (4) go / no-go recommendation. Be honest — Antonio trusts the QA.`,
       },
       {
         stage: 5, team: 'pulse', leader: 'pulse', name: 'Deployment',
         artifactType: 'url',
         requirements: 'Live URL or delivered artifact. Must be verifiable (HTTP 200 for URLs).',
-        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 5: Deployment.\nDeploy / deliver Nova's execution. Return: (1) live URL or delivered artifact reference, (2) monitoring setup, (3) any post-deployment tasks. The URL / artifact MUST be verifiable.`,
+        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 5: Deployment.\nDeploy / deliver Forge's execution (Stage 3). Return: (1) live URL or delivered artifact reference, (2) monitoring setup, (3) any post-deployment tasks. The URL / artifact MUST be verifiable.`,
       },
       {
         stage: 6, team: 'ceo', leader: 'ceo', name: 'CEO Final Report',

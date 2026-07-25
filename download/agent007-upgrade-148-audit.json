@@ -1,0 +1,142 @@
+{
+  "auditId": "upgrade-148-verification",
+  "generatedAt": "2026-07-25T15:35:43.070Z",
+  "allPassed": true,
+  "totalChecks": 22,
+  "passed": 22,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "3a: Strict id-based matching (no fuzzy name fallback)",
+      "file": "src/app/api/mission-active/[missionId]/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3a: Clear error message listing available subagent ids",
+      "file": "src/app/api/mission-active/[missionId]/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3b: No more Nova references in mission-pipeline.ts",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3b: References use Vertex (was Nova)",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3b: References use Quill (was Nova)",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3b: References use Forge (was Nova)",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3c: CEO stage special-cased in leader route",
+      "file": "src/app/api/mission-active/[missionId]/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3c: CEO uses callLlmWithRetry directly",
+      "file": "src/app/api/mission-active/[missionId]/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3d: Timeout message has detailed diagnostic steps",
+      "file": "src/app/api/mission-active/[missionId]/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "3d: Timeout message lists provider env vars",
+      "file": "src/app/api/mission-active/[missionId]/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2a: db.ts has pooler detection logic",
+      "file": "src/lib/db.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2a: db.ts warns when no pooler",
+      "file": "src/lib/db.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2b: seedData uses Promise.all for 4 lookups",
+      "file": "src/lib/db.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2c: PreWarmDb component exists",
+      "file": "src/components/providers/pre-warm-db.tsx",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2c: PreWarmDb fires /api/health on mount",
+      "file": "src/components/providers/pre-warm-db.tsx",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2c: PreWarmDb wired into layout.tsx",
+      "file": "src/app/layout.tsx",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2d: README has Database Setup section",
+      "file": "README.md",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2d: README documents Neon pooler",
+      "file": "README.md",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "2d: README documents Supabase pooler",
+      "file": "README.md",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "1a: Scroll threshold lowered to +30 (was +100)",
+      "file": "src/components/agent/scroll-arrows.tsx",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "1b: Toggle button is unconditional (outside hasAnyArrow gate)",
+      "file": "src/components/agent/scroll-arrows.tsx",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "1b: Toggle positioned at bottom-LEFT (no overlap)",
+      "file": "src/components/agent/scroll-arrows.tsx",
+      "pattern": {},
+      "found": true
+    }
+  ]
+}
