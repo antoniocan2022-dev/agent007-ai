@@ -34,6 +34,11 @@ export interface MissionHeartbeat {
   missionId: string
   missionTitle: string
   pipelineType: string
+  // UPGRADE #147 (Rec A — resume support) — store the objective + approval flag
+  // so the pipeline can be resumed after owner approval without the caller
+  // having to remember these values.
+  objective: string
+  requiresOwnerApproval: boolean
   status: MissionStatus
   currentStage: {
     stageId: string
@@ -201,6 +206,9 @@ export async function buildHeartbeatFromAuditLog(opts: {
   missionTitle: string
   pipelineType: string
   totalStages: number
+  // UPGRADE #147 — optional fields for resume support
+  objective?: string
+  requiresOwnerApproval?: boolean
 }): Promise<MissionHeartbeat> {
   const { missionId, missionTitle, pipelineType, totalStages } = opts
   const log = await loadApprovalLog(missionId)
@@ -297,6 +305,11 @@ export async function buildHeartbeatFromAuditLog(opts: {
     missionId,
     missionTitle,
     pipelineType,
+    // UPGRADE #147 — these may be empty when rebuilt from audit log on first poll
+    // before the pipeline has written the initial heartbeat. They get filled in
+    // by saveHeartbeat() once the pipeline starts.
+    objective: opts.objective ?? '',
+    requiresOwnerApproval: opts.requiresOwnerApproval ?? false,
     status: currentStageInfo ? (overallStatus === 'idle' ? 'working' : overallStatus) : overallStatus,
     currentStage: currentStageInfo,
     completedStages,

@@ -22,7 +22,15 @@ import { runSubagent } from './subagents'
 import { superAgentVerify, buildRetryPrompt, formatVerificationResult, type VerificationResult } from './super-agent-verifier'
 import { type MissionStageSummary } from './ceo-presenter'
 import { logApprovalEvent } from './approval-audit-log'
-import { notifyTelegram } from './mission-notifier'
+import {
+  notifyStageStarted,
+  notifyStageApproved,
+  notifyStageRejected,
+  notifyStageEscalated,
+  notifyMissionStarted,
+  notifyMissionFailed,
+  notifyOwnerApprovalRequired,
+} from './mission-notifier'
 import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
 
 // ──────────────────────────────────────────────────────────────────
@@ -285,7 +293,8 @@ async function runTeamWithVerificationLoop(opts: {
     lastRound = round
     // ── Notify: stage start (round 1 only)
     if (round === 1) {
-      await notifyTelegram(`🚀 Stage ${stage.stage}/${stage.team} STARTED\nMission: ${missionId}\nObjective: ${objective.slice(0, 100)}`)
+      // UPGRADE #147 — use specific notification function (not generic)
+      await notifyStageStarted(missionId, stage.stage, stage.team, stage.name)
       await logApprovalEvent({
         missionId,
         stageId: `stage_${stage.stage}`,
@@ -434,12 +443,14 @@ RULES:
 
     // ── Approved → done
     if (lastVerification.approved) {
-      await notifyTelegram(`✅ Stage ${stage.stage} (${stage.team}) APPROVED\nScore: ${lastVerification.score}/100, ${round} round(s)`)
+      // UPGRADE #147 — use specific notification function (not generic)
+      await notifyStageApproved(missionId, stage.stage, stage.team, lastVerification.score, round)
       break
     }
 
     // ── Notify rejection
-    await notifyTelegram(`⚠️ Stage ${stage.stage} (${stage.team}) ${lastVerification.verdict}\nScore: ${lastVerification.score}/100, round ${round}/${MAX_ROUNDS_PER_STAGE}\nCorrections: ${lastVerification.corrections.length}`)
+    // UPGRADE #147 — use specific notification function (not generic)
+    await notifyStageRejected(missionId, stage.stage, stage.team, lastVerification.score, round, MAX_ROUNDS_PER_STAGE, lastVerification.corrections.length)
 
     // ── Last round exhausted — break out, mission will escalate
     if (round === MAX_ROUNDS_PER_STAGE) {
@@ -452,7 +463,8 @@ RULES:
         action: 'escalated',
         feedback: `Stage failed after ${MAX_ROUNDS_PER_STAGE} rounds — escalating to CEO`,
       })
-      await notifyTelegram(`❌ Stage ${stage.stage} ESCALATED\nFailed after ${MAX_ROUNDS_PER_STAGE} rounds. CEO will note in final report.`)
+      // UPGRADE #147 — use specific notification function (not generic)
+      await notifyStageEscalated(missionId, stage.stage, stage.team, MAX_ROUNDS_PER_STAGE)
       break
     }
 
@@ -553,15 +565,8 @@ async function requestOwnerApproval(missionId: string, missionTitle: string): Pr
   const approveCmd = `/approve_${missionId.slice(0, 8)}`
   const rejectCmd = `/reject_${missionId.slice(0, 8)}`
 
-  await notifyTelegram(
-    `⏸️ MISSION REQUIRES OWNER APPROVAL\n\n` +
-    `Mission: ${missionTitle}\n` +
-    `ID: ${missionId}\n\n` +
-    `This is a high-stakes mission. The CEO has prepared the plan and is waiting for your approval.\n\n` +
-    `To APPROVE: ${approveCmd}\n` +
-    `To REJECT: ${rejectCmd}\n\n` +
-    `Or use the dashboard Mission Monitor widget → click mission → Approve button.`
-  )
+  // UPGRADE #147 — use specific notification function (not generic)
+  await notifyOwnerApprovalRequired(missionId, missionTitle, approveCmd, rejectCmd)
 
   // Mark the heartbeat as paused so the dashboard shows the right status
   try {
@@ -600,11 +605,14 @@ export async function runMissionPipeline(opts: {
   const pipeline = MISSION_PIPELINES[pipelineType] ?? MISSION_PIPELINES.generic
   const stages: MissionStageSummary[] = []
 
-  // UPGRADE #144 — Initialize heartbeat (real-time monitoring)
+  // UPGRADE #144 + #147 — Initialize heartbeat (real-time monitoring + resume support)
   const initialHeartbeat: MissionHeartbeat = {
     missionId,
     missionTitle: opts.missionTitle ?? missionId,
     pipelineType: pipeline.type,
+    // UPGRADE #147 — persist objective + approval flag so resume can use them
+    objective,
+    requiresOwnerApproval: !!pipeline.requiresOwnerApproval,
     status: 'working',
     currentStage: {
       stageId: `stage_1`,
@@ -629,18 +637,68 @@ export async function runMissionPipeline(opts: {
   await saveHeartbeat(initialHeartbeat).catch(() => {})
 
   // ── Rec 7: Owner approval gate for high-stakes missions
-  if (pipeline.requiresOwnerApproval && !opts.skipOwnerApproval) {
-    await notifyTelegram(`🎯 MISSION STARTED: ${opts.missionTitle ?? missionId}\nPipeline: ${pipeline.name}\nStages: ${pipeline.stages.length}\n⚠️ This mission requires your approval before final execution.`)
-  } else {
-    await notifyTelegram(`🎯 MISSION STARTED: ${opts.missionTitle ?? missionId}\nPipeline: ${pipeline.name}\nStages: ${pipeline.stages.length}`)
-  }
+  // UPGRADE #147 — use specific notification function (not generic)
+  await notifyMissionStarted(missionId, opts.missionTitle ?? missionId, pipeline.name, pipeline.stages.length)
 
   // Build mission context (grows as stages complete)
   let missionContext = `MISSION OBJECTIVE: ${objective}\n\n`
   let previousTeamOutput: string | undefined
 
   // ── Run each stage sequentially
+  // UPGRADE #147 (Rec A — Resume) — Load the audit log ONCE at the start so we
+  // can skip stages that were already completed in a prior run. This makes the
+  // pipeline idempotent: re-running it (e.g. after owner approval) picks up
+  // where it left off instead of re-doing completed stages.
+  let previouslyCompletedStages: Set<string> = new Set()
+  try {
+    const { loadApprovalLog } = await import('./approval-audit-log')
+    const priorLog = await loadApprovalLog(missionId)
+    previouslyCompletedStages = new Set(
+      priorLog
+        .filter((e) => e.action === 'approved' || e.action === 'completed')
+        .map((e) => e.stageId)
+    )
+    // Also reconstruct missionContext from prior stage outputs (stored in the
+    // 'submitted' audit entries' feedback field) so the CEO stage has the full
+    // context even when resuming.
+    if (previouslyCompletedStages.size > 0) {
+      for (const entry of priorLog) {
+        if (entry.action === 'submitted' && previouslyCompletedStages.has(entry.stageId)) {
+          missionContext += `STAGE ${entry.stageId} OUTPUT (from prior run):\n${(entry.feedback ?? '').slice(0, 3000)}\n\n---\n\n`
+        }
+      }
+    }
+  } catch {}
+
   for (const stage of pipeline.stages) {
+    // UPGRADE #147 (Rec A — Resume) — Skip stages that were already completed.
+    // This is the key to making resume work: when the pipeline is re-invoked
+    // after owner approval, all stages except the CEO (which was gated) are
+    // already in the audit log as 'approved', so they get skipped and only
+    // the CEO stage actually runs.
+    const stageId = `stage_${stage.stage}`
+    if (previouslyCompletedStages.has(stageId) && stage.team !== 'ceo') {
+      // Add a placeholder stage summary from the audit log
+      try {
+        const { loadApprovalLog } = await import('./approval-audit-log')
+        const log = await loadApprovalLog(missionId)
+        const approvedEntry = log.find((e) => e.stageId === stageId && e.action === 'approved')
+        if (approvedEntry) {
+          stages.push({
+            stage: stage.stage,
+            team: stage.team,
+            leader: stage.leader,
+            artifactValue: null,
+            artifactVerified: true,
+            finalScore: approvedEntry.score ?? 100,
+            rounds: approvedEntry.round,
+            approvedAt: approvedEntry.timestamp,
+          })
+        }
+      } catch {}
+      continue
+    }
+
     // UPGRADE #146 (Critical #1 fix) — Owner approval gate BEFORE the CEO stage.
     // Previously this gate was at the END of the loop, but the CEO stage early-returns
     // from inside the loop, so the gate was unreachable. Now we check BEFORE the CEO
@@ -711,6 +769,8 @@ export async function runMissionPipeline(opts: {
           missionTitle: opts.missionTitle ?? missionId,
           pipelineType: pipeline.type,
           totalStages: pipeline.stages.length,
+          objective,
+          requiresOwnerApproval: !!pipeline.requiresOwnerApproval,
         })
         // If this wasn't the last stage, set current stage to next one
         if (stage.stage < pipeline.stages.length) {
@@ -745,33 +805,80 @@ export async function runMissionPipeline(opts: {
 
       // If stage is the CEO (final), capture the report
       if (stage.team === 'ceo') {
-        // CEO stage output IS the report
+        // UPGRADE #147 (Rec B fix) — Compute outcome CORRECTLY.
+        // Before: `stages.every(s => s.artifactVerified || s.team === 'ceo') ? 'success' : 'partial'`
+        //   This could NEVER return 'failed' — even if every stage failed verification,
+        //   the result was 'partial'. That hid critical failures from the owner.
+        // After: properly distinguish success / partial / failed based on stage scores.
+        //
+        // Rules:
+        //   - 'failed'   = ANY stage has finalScore < 50 OR was escalated without approval
+        //   - 'success'  = ALL non-CEO stages have artifactVerified === true AND score >= 70
+        //   - 'partial'  = everything in between (some verified, some not, but none catastrophically failed)
+        const nonCeoStages = stages.filter((s) => s.team !== 'ceo')
+        const failedStages = nonCeoStages.filter((s) => s.finalScore < 50 || !s.artifactVerified && s.rounds >= 3)
+        const allVerified = nonCeoStages.every((s) => s.artifactVerified)
+        const allHighScore = nonCeoStages.every((s) => s.finalScore >= 70)
+        const outcome: 'success' | 'partial' | 'failed' =
+          failedStages.length > 0 ? 'failed'
+          : (allVerified && allHighScore) ? 'success'
+          : 'partial'
+
+        // UPGRADE #147 (Rec B fix) — Build the CeoReport with the corrected outcome.
         const ceoReport: import('./ceo-presenter').CeoReport = {
           missionId,
           missionTitle: opts.missionTitle ?? missionId,
           objective,
-          outcome: stages.every((s) => s.artifactVerified || s.team === 'ceo') ? 'success' : 'partial',
+          outcome,
           revenueImpact: 'See full report',
-          keyDeliverables: stages.filter((s) => s.artifactValue).map((s) => `Stage ${s.stage} (${s.team}): ${s.artifactValue}`),
-          risksNotes: [],
-          nextSteps: ['Review CEO report', 'Approve mission via dashboard', 'Schedule follow-up'],
+          keyDeliverables: stages.filter((s) => s.artifactValue && s.team !== 'ceo').map((s) => `Stage ${s.stage} (${s.team}): ${s.artifactValue}`),
+          risksNotes: failedStages.length > 0
+            ? [`${failedStages.length} stage(s) failed verification: ${failedStages.map((s) => `Stage ${s.stage} (${s.team}, score ${s.finalScore})`).join('; ')}`]
+            : [],
+          nextSteps: outcome === 'failed'
+            ? ['Investigate failed stages in the audit trail', 'Decide whether to retry or abandon', 'Schedule a follow-up mission with adjusted strategy']
+            : ['Review CEO report', 'Approve mission via dashboard if not yet approved', 'Schedule follow-up mission'],
           fullReport: result.output,
           generatedAt: new Date().toISOString(),
         }
 
-        // Send CEO report via Telegram (the CEO's output is already a formatted report)
-        await notifyTelegram(`🎯 MISSION COMPLETE — CEO REPORT\n\n${result.output.slice(0, 3500)}\n\n— Agent007 CEO`)
-
-        // Persist to DB
+        // UPGRADE #147 (Rec B fix) — Route through the CANONICAL ceo-presenter
+        // side-effect functions (persist + Telegram + email) instead of inline
+        // notifyTelegram. This ensures the report is delivered through every
+        // channel the CEO presenter was designed to use, and is reusable by
+        // other callers (e.g. resume flow, manual re-report).
         try {
-          const { ceoPersistReport } = await import('./ceo-presenter')
-          await ceoPersistReport(ceoReport)
+          const { ceoPersistReport, ceoSendTelegram, ceoSendEmail } = await import('./ceo-presenter')
+          await Promise.allSettled([
+            ceoPersistReport(ceoReport),
+            ceoSendTelegram(ceoReport),
+            ceoSendEmail(ceoReport),
+          ])
+        } catch {}
+
+        // UPGRADE #147 — Use the specific mission-complete notification (not generic)
+        try {
+          const { notifyMissionComplete } = await import('./mission-notifier')
+          await notifyMissionComplete(missionId, opts.missionTitle ?? missionId, ceoReport.fullReport)
+        } catch {}
+
+        // UPGRADE #147 — Mark mission completed in the audit trail
+        try {
+          await logApprovalEvent({
+            missionId,
+            stageId: 'final',
+            round: 1,
+            agentRole: 'ceo',
+            agentId: 'ceo',
+            action: 'completed',
+            feedback: `Mission completed with outcome: ${outcome}. ${failedStages.length} failed stage(s).`,
+          })
         } catch {}
 
         return {
           missionId,
           pipelineType: pipeline.type,
-          success: true,
+          success: outcome !== 'failed',
           stages,
           ceoReport,
         }
@@ -787,7 +894,8 @@ export async function runMissionPipeline(opts: {
         action: 'escalated',
         feedback: `Stage crashed: ${stageErr?.message?.slice(0, 200)}`,
       })
-      await notifyTelegram(`❌ MISSION FAILED at stage ${stage.stage} (${stage.team})\nError: ${stageErr?.message?.slice(0, 200)}`)
+      // UPGRADE #147 — use specific notification function (not generic)
+      await notifyMissionFailed(missionId, `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message?.slice(0, 200) ?? 'unknown'}`)
 
       // UPGRADE #144 — Update heartbeat to failed
       try {
@@ -796,6 +904,8 @@ export async function runMissionPipeline(opts: {
           missionTitle: opts.missionTitle ?? missionId,
           pipelineType: pipeline.type,
           totalStages: pipeline.stages.length,
+          objective,
+          requiresOwnerApproval: !!pipeline.requiresOwnerApproval,
         })
         hb.status = 'failed'
         hb.lastError = `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message?.slice(0, 200) ?? 'unknown'}`
@@ -836,3 +946,46 @@ export function listPipelineTypes(): Array<{ type: string; name: string; descrip
     stages: p.stages.length,
   }))
 }
+
+/**
+ * UPGRADE #147 (Rec A — Resume Trigger) — Resume a paused mission after owner approval.
+ *
+ * Before: When the owner clicked "Approve" in the dashboard or sent /approve_XXXXXXXX
+ *   via Telegram, the approval was recorded in the audit log, but NOTHING actually
+ *   resumed the mission. The CEO stage never ran. High-stakes missions got stuck
+ *   in 'paused_owner' state forever.
+ *
+ * After: This function rebuilds the mission context from the audit trail (so we
+ *   don't lose the prior stages' outputs) and re-invokes runMissionPipeline with
+ *   `skipOwnerApproval: true` to run only the remaining stages (typically just
+ *   the CEO stage).
+ *
+ * Called by /api/missions/[id]/approve immediately after marking the mission
+ * approved. Runs in the background (fire-and-forget) so the API response is
+ * immediate; the dashboard polls /api/missions/[id]/heartbeat for live progress.
+ */
+export async function resumeMissionPipeline(missionId: string): Promise<PipelineRunResult> {
+  // Load the heartbeat to recover pipelineType + objective
+  const { loadHeartbeat } = await import('./mission-heartbeat')
+  const hb = await loadHeartbeat(missionId)
+  if (!hb) {
+    return {
+      missionId,
+      pipelineType: 'unknown',
+      success: false,
+      stages: [],
+      error: 'Cannot resume — no heartbeat found for mission. The mission may have been created before UPGRADE #147.',
+    }
+  }
+
+  // Re-invoke the pipeline with skipOwnerApproval=true
+  // (the audit log already has the 'owner_approved' entry, so the gate will pass)
+  return runMissionPipeline({
+    missionId,
+    pipelineType: hb.pipelineType,
+    objective: hb.objective,
+    missionTitle: hb.missionTitle,
+    skipOwnerApproval: true,  // owner already approved — that's why we're resuming
+  })
+}
+

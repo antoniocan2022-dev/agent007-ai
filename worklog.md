@@ -4683,3 +4683,85 @@ Stage Summary:
 - Deployment: ✅ live at https://agent007-ai.vercel.app
 - Backup: ✅ 465 files (5.3 MB ZIP) + 44 KB JSON manifest ready for download
 - All audit checks pass: ✅ 18/18 file checks + 11/11 content checks
+
+---
+Task ID: upgrade-147-external-audit-fixes
+Agent: Main (Super Z)
+Task: Apply external auditor's 2 recommendations + fix additional weaknesses
+
+Work Log:
+- Analyzed external auditor's report — found 2 recommendations + 2 additional weaknesses:
+  - Rec A: Resume trigger missing (high-stakes missions stuck after approval)
+  - Rec B: CEO bypasses ceoPresentToOwner + outcome can never be 'failed'
+  - Weakness 1: 8 nicely-formatted notification functions exist but are never called
+  - Weakness 2: Round counter still showing wrong value (already fixed in #146 but verified)
+
+- UPGRADE #147 (Rec A — Resume Trigger):
+  - Added `objective` + `requiresOwnerApproval` fields to MissionHeartbeat interface
+  - Updated buildHeartbeatFromAuditLog to accept and persist these new fields
+  - Added `resumeMissionPipeline(missionId)` function in mission-pipeline.ts that:
+    - Loads the heartbeat to recover pipelineType + objective
+    - Re-invokes runMissionPipeline with skipOwnerApproval: true
+  - Added stage-skipping logic at the start of runMissionPipeline's for-loop:
+    - Loads the audit log
+    - Builds a set of previously-completed stage IDs
+    - Reconstructs missionContext from prior 'submitted' audit entries
+    - Skips any non-CEO stage that's already in the 'approved' set
+    - For CEO stage: still runs (because it was the gated stage)
+  - Updated /api/missions/[id]/approve to:
+    - Fire-and-forget call resumeMissionPipeline() after marking approved
+    - Increased maxDuration from 10s to 60s to allow resume kick-off
+    - Added `resumeTriggered: true` flag to response
+    - Reject flow now marks heartbeat as 'failed' (was orphaned)
+    - Logs resume failures to the audit trail
+
+- UPGRADE #147 (Rec B — CEO routing fix):
+  - Replaced inline `outcome` calculation with proper logic:
+    - 'failed'   = ANY non-CEO stage has finalScore < 50 OR escalated without approval
+    - 'success'  = ALL non-CEO stages verified AND score >= 70
+    - 'partial'  = everything in between
+  - Changed `success` field to `outcome !== 'failed'` (was hardcoded `true`)
+  - Routed CEO report through canonical ceo-presenter side-effect functions:
+    - ceoPersistReport (DB persistence)
+    - ceoSendTelegram (Telegram notification)
+    - ceoSendEmail (email to owner if OWNER_EMAIL set)
+  - Added `notifyMissionComplete` call for the dashboard
+  - Added `logApprovalEvent` with action='completed' to audit trail
+  - Added risksNotes population when stages failed
+  - Different nextSteps for failed vs success/partial outcomes
+
+- UPGRADE #147 (Weakness 1 — Wire up specific notification functions):
+  - Imported 7 specific notification functions in mission-pipeline.ts
+  - Replaced generic notifyTelegram calls with specific functions:
+    - Stage start → notifyStageStarted
+    - Stage approved → notifyStageApproved
+    - Stage rejected → notifyStageRejected
+    - Stage escalated → notifyStageEscalated
+    - Mission started → notifyMissionStarted
+    - Mission failed → notifyMissionFailed
+    - Owner approval required → notifyOwnerApprovalRequired
+    - Mission complete → notifyMissionComplete
+  - Removed unused notifyTelegram import
+
+- Verification:
+  - TypeScript: 0 errors in modified files
+  - Full build: succeeded
+  - Audit script: 22/22 checks PASSED
+  - Deployed to Vercel production: https://agent007-ai.vercel.app (Ready in 50s)
+  - All endpoints live (307 = auth required, as expected)
+  - Health check green
+  - Page load: 549ms
+
+- Backup:
+  - Generated full source backup: 466 files, 5.3 MB ZIP
+  - Saved as: /home/z/my-project/download/agent007-upgrade-147-final-backup.zip
+  - Verified backup contains resumeMissionPipeline + ceoSendEmail + failedStages logic
+  - Audit report: /home/z/my-project/download/agent007-upgrade-147-audit.json
+
+Stage Summary:
+- External auditor's Rec A (resume trigger): FIXED — high-stakes missions now complete after owner approval
+- External auditor's Rec B (CEO routing): FIXED — outcome can now be 'failed', routes through canonical presenter
+- Weakness 1 (unused notifications): FIXED — all 8 specific functions now wired up
+- All 22 audit checks pass
+- Deployment: ✅ live at https://agent007-ai.vercel.app
+- Backup: ✅ 466 files (5.3 MB ZIP) ready for download

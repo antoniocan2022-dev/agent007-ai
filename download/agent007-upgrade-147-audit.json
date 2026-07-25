@@ -1,0 +1,142 @@
+{
+  "auditId": "upgrade-147-verification",
+  "generatedAt": "2026-07-25T14:36:50.011Z",
+  "allPassed": true,
+  "totalChecks": 22,
+  "passed": 22,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "resumeMissionPipeline exported",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "approve route triggers resume",
+      "file": "src/app/api/missions/[id]/approve/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "approve route has resumeTriggered flag",
+      "file": "src/app/api/missions/[id]/approve/route.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "pipeline skips previously-completed stages",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "pipeline reconstructs missionContext from prior audit log",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "heartbeat stores objective for resume",
+      "file": "src/lib/mission-heartbeat.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "heartbeat stores requiresOwnerApproval for resume",
+      "file": "src/lib/mission-heartbeat.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "CEO outcome can be \"failed\"",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "CEO outcome uses failedStages logic",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "CEO persists via ceoPersistReport",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "CEO sends via ceoSendTelegram",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "CEO sends via ceoSendEmail",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "CEO success = outcome !== \"failed\"",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyStageStarted imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyStageApproved imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyStageRejected imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyStageEscalated imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyMissionStarted imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyMissionFailed imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyOwnerApprovalRequired imported + used",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "notifyMissionComplete called for CEO stage",
+      "file": "src/lib/mission-pipeline.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Reject flow marks heartbeat as failed",
+      "file": "src/app/api/missions/[id]/approve/route.ts",
+      "pattern": {},
+      "found": true
+    }
+  ]
+}
