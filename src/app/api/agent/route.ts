@@ -6,6 +6,13 @@ import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// UPGRADE #152 (CRITICAL FIX): Set maxDuration = 60 seconds.
+// Without this, Vercel uses the DEFAULT timeout (10s on Hobby, 15s on Pro),
+// which kills the function BEFORE the LLM can respond (LLM calls take 5-30s).
+// The vercel.json "functions" config is IGNORED for Next.js App Router routes
+// — only `export const maxDuration` in the route file itself is respected.
+// 60s is the maximum on the Hobby plan. On Pro, this can be increased to 300.
+export const maxDuration = 60
 
 function sse(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
