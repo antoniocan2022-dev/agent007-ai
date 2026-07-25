@@ -1357,6 +1357,16 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
         // Quality scorer failed — don't block the answer, just skip the gate
       }
 
+      // UPGRADE #134: VERIFY THE VERIFIER — check if leader actually included verification
+      if (dispatchCount > 1) {
+        const didVerify = /verification|verified|confirmed|accurate|no issues|no errors|previous.*output.*is/i.test(subAnswer)
+        if (!didVerify) {
+          qualityNote += '\n⚠️ CROSS-LEADER VERIFICATION SKIPPED — leader did not include a verification section for the previous leader\'s output.'
+        } else {
+          qualityNote += '\n✅ CROSS-LEADER VERIFICATION: leader verified previous output.'
+        }
+      }
+
       // Feed the sub-agent's result back to the orchestrator (with quality note)
       conversationMessages.push({ role: 'assistant', content })
       conversationMessages.push({
@@ -1583,22 +1593,64 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       continue
     }
 
-    // UPGRADE #133: DELIVERY VERIFICATION on final answer
-    // Check if the answer claims delivery (published, deployed, sent) but
-    // no corresponding tool was actually called.
+    // UPGRADE #134: DELIVERY VERIFICATION — check tool RESULT, not just CALL
     const deliveryKeywords = /(published|deployed|posted|sent|scheduled|uploaded|listed|created.*listing|live\s+now)/i
     const deliveryTools = ['wordpress_publisher', 'stripe_payment_processor', 'etsy_integration',
       'convertkit_email', 'send_email', 'telegram_notify', 'ntfy_notify', 'discord_notify',
       'buffer_scheduler', 'resend_email', 'file_write']
     const toolsCalled = steps.map((s: any) => s.toolName).filter(Boolean)
     const claimsDelivery = deliveryKeywords.test(finalAnswer)
-    const usedDeliveryTool = deliveryTools.some((t) => toolsCalled.includes(t))
 
-    if (claimsDelivery && !usedDeliveryTool) {
-      // The CEO claims delivery but no delivery tool was called — add warning
-      finalAnswer += `\n\n---\n⚠️ **DELIVERY VERIFICATION:** The answer claims delivery was completed, but no delivery tool (wordpress_publisher, send_email, stripe_payment_processor, etc.) was actually called. The action may not have occurred. Please verify manually or re-dispatch with explicit delivery instructions.`
-    } else if (claimsDelivery && usedDeliveryTool) {
-      finalAnswer += `\n\n---\n✅ **DELIVERY VERIFIED:** Delivery tool (${toolsCalled.find((t: string) => deliveryTools.includes(t))}) was called successfully.`
+    if (claimsDelivery) {
+      // Find delivery tool steps and check their ACTUAL RESULT
+      const deliverySteps = steps.filter((s: any) => deliveryTools.includes(s.toolName))
+      const successfulDeliveries = deliverySteps.filter((s: any) => {
+        // Check if the tool result indicates success
+        const result = s.toolResult
+        if (!result) return false
+        // toolResult is a ToolResult object with .ok field
+        if (typeof result === 'object' && result.ok === true) return true
+        // Or check if the result string contains success indicators
+        if (typeof result === 'object' && typeof result.result === 'string') {
+          return !/error|fail|unable|not configured|setup required/i.test(result.result)
+        }
+        return false
+      })
+      const failedDeliveries = deliverySteps.filter((s: any) => {
+        const result = s.toolResult
+        if (!result) return true  // no result = failed
+        if (typeof result === 'object' && result.ok === false) return true
+        if (typeof result === 'object' && typeof result.result === 'string') {
+          return /error|fail|unable|not configured|setup required/i.test(result.result)
+        }
+        return false
+      })
+
+      if (deliverySteps.length === 0) {
+        finalAnswer += `\n\n---\n⚠️ **DELIVERY VERIFICATION:** The answer claims delivery, but no delivery tool was called. The action did not occur.`
+      } else if (successfulDeliveries.length > 0 && failedDeliveries.length === 0) {
+        const toolName = successfulDeliveries[0].toolName
+        finalAnswer += `\n\n---\n✅ **DELIVERY VERIFIED:** ${toolName} was called and succeeded.`
+      } else if (successfulDeliveries.length > 0 && failedDeliveries.length > 0) {
+        finalAnswer += `\n\n---\n⚠️ **DELIVERY PARTIAL:** ${successfulDeliveries.length} succeeded, ${failedDeliveries.length} failed. Some deliveries may not have completed.`
+      } else {
+        finalAnswer += `\n\n---\n❌ **DELIVERY FAILED:** Delivery tool was called but returned an error. The action did not complete successfully.`
+      }
+    }
+
+    // UPGRADE #134: MANDATORY FEEDBACK LOOP after revenue/content/strategy answers
+    if (/revenue|income|sales|published|traffic|conversion|strategy|affiliate|monetiz|earn|profit|stripe|ga4/i.test(finalAnswer)) {
+      try {
+        const { dispatchTool } = await import('./tools')
+        const feedbackResult = await dispatchTool('real_feedback_loop', { action: 'report' }, { attachments: [], language: 'en' })
+        if (feedbackResult.ok) {
+          // Append real data to the answer (truncated to 800 chars)
+          const feedbackData = feedbackResult.result.slice(0, 800)
+          finalAnswer += `\n\n---\n📊 **REAL FEEDBACK DATA (from Stripe + GA4):**\n${feedbackData}`
+        }
+      } catch {
+        // Feedback loop failed — don't block the answer, just skip
+      }
     }
 
     // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
