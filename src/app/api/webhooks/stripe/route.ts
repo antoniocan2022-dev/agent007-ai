@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
 
     // UPGRADE #130: Handle checkout.session.completed — carries product metadata
     // This fires when a Stripe Checkout Session is completed (from /api/checkout)
+    // UPGRADE #150: Now also triggers product fulfillment (download URL + email)
     if (eventType === 'checkout.session.completed') {
       const amount = (data.amount_total ?? 0) / 100
       const currency = (data.currency || 'usd').toUpperCase()
@@ -183,8 +184,39 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // UPGRADE #150: Fulfill the purchase (generate download URL + email buyer + log milestone)
+      // Only fulfill if we have a customer email — without it, we can't send the download link.
+      // The /success page will still show the link (via the verify endpoint), so the customer
+      // isn't left without their purchase.
+      let fulfillmentResult: { downloadUrl?: string; emailSent?: boolean; isFirstSale?: boolean } = {}
+      if (customerEmail && productId !== 'unknown') {
+        try {
+          const { fulfillPurchase } = await import('@/lib/product-fulfillment')
+          fulfillmentResult = await fulfillPurchase({
+            customerEmail,
+            productId,
+            amount,
+            transactionId: providerTxId,
+          })
+          console.log(`[stripe-webhook] Fulfillment complete for ${providerTxId}: emailSent=${fulfillmentResult.emailSent}, isFirstSale=${fulfillmentResult.isFirstSale}`)
+        } catch (fulfillErr: any) {
+          console.error(`[stripe-webhook] Fulfillment FAILED for ${providerTxId}:`, fulfillErr?.message?.slice(0, 200))
+          // Non-fatal — the transaction is already logged. The customer can
+          // contact support for their download link if fulfillment fails.
+        }
+      } else if (!customerEmail) {
+        console.warn(`[stripe-webhook] No customer email for ${providerTxId} — skipping fulfillment email. Customer must use /success page.`)
+      }
+
       console.log(`[stripe-webhook] Logged checkout ${providerTxId}: $${amount} ${currency} — ${productName}`)
-      return NextResponse.json({ received: true, transactionId: tx.id, product: productName })
+      return NextResponse.json({
+        received: true,
+        transactionId: tx.id,
+        product: productName,
+        fulfilled: !!fulfillmentResult.downloadUrl,
+        emailSent: fulfillmentResult.emailSent ?? false,
+        isFirstSale: fulfillmentResult.isFirstSale ?? false,
+      })
     }
 
     if (eventType === 'charge.refunded') {
@@ -203,6 +235,35 @@ export async function POST(req: NextRequest) {
           date: new Date(),
         },
       })
+
+      // UPGRADE #150: Revoke download tokens for the refunded transaction.
+      // This prevents the customer from continuing to access the file after
+      // getting their money back. We look up all tokens with this transactionId
+      // and revoke them.
+      try {
+        const { db: db2 } = await import('@/lib/db')
+        const user = await db2.user.findFirst({ orderBy: { createdAt: 'asc' } })
+        if (user) {
+          const tokens = await db2.userSetting.findMany({
+            where: { userId: user.id, key: { startsWith: 'download_token_' } },
+          })
+          for (const row of tokens) {
+            try {
+              const data2 = JSON.parse(row.value)
+              if (data2.transactionId === providerTxId && !data2.revoked) {
+                data2.revoked = true
+                data2.revokedAt = new Date().toISOString()
+                data2.revokedReason = 'charge.refunded'
+                await db2.userSetting.update({ where: { id: row.id }, data: { value: JSON.stringify(data2) } })
+                console.log(`[stripe-webhook] Revoked download token ${data2.token} (refunded transaction)`)
+              }
+            } catch {}
+          }
+        }
+      } catch (e: any) {
+        console.warn('[stripe-webhook] Failed to revoke download tokens:', e?.message?.slice(0, 100))
+      }
+
       return NextResponse.json({ received: true, refunded: amountRefunded })
     }
 

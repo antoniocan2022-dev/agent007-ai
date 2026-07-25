@@ -29,6 +29,7 @@ interface Product {
   description: string
   price: string
   priceCents: number
+  available?: boolean  // UPGRADE #150: from CHECKOUT_ALLOW_LIST
 }
 
 export default function BuyPage() {
@@ -151,27 +152,59 @@ export default function BuyPage() {
             </div>
           </div>
 
-          {/* UPGRADE #130: Product not yet built — show Coming Soon instead of charging money */}
-          <div className="mb-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-200">
-            <strong>🚧 Coming Soon</strong> — This product is being finalized and is not yet available for purchase.
-            We're putting the finishing touches on the content to ensure it meets our quality standard.
-            <br /><br />
-            <a href="mailto:agent007@noreply.com?subject=Notify me when {product.name} is ready" className="text-cyan-300 hover:underline">
-              Click here to be notified when it launches →
-            </a>
-          </div>
+          {/* UPGRADE #150: Show Buy Now (available products) or Coming Soon (blocked products) */}
+          {product.available ? (
+            <>
+              {/* Launch pricing banner */}
+              <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200">
+                🎉 <strong>Launch special:</strong> First 50 customers get 30% off (automatically applied at checkout). Price returns to $27 after 50 sales.
+              </div>
 
-          <button
-            disabled={true}
-            className="w-full py-4 rounded-xl bg-gray-600/30 text-gray-500 font-bold text-lg cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            <ShoppingBag className="w-5 h-5" />
-            Coming Soon — Not Yet Available
-          </button>
+              <button
+                onClick={handleBuy}
+                disabled={redirecting}
+                className="w-full py-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-black font-bold text-lg transition flex items-center justify-center gap-2"
+              >
+                {redirecting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Redirecting to Stripe...
+                  </>
+                ) : (
+                  <>
+                    <ShoppingBag className="w-5 h-5" />
+                    Buy Now — {product.price}
+                  </>
+                )}
+              </button>
 
-          <p className="text-center text-xs text-gray-500 mt-4">
-            This product is being prepared. Check back soon or contact us to be notified.
-          </p>
+              <p className="text-center text-xs text-gray-500 mt-4">
+                Instant download after payment. 30-day money-back guarantee.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="mb-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-200">
+                <strong>🚧 Coming Soon</strong> — This product is being finalized and is not yet available for purchase.
+                <br /><br />
+                <a href={`mailto:antonio.can2022@hotmail.com?subject=Notify me when ${product.name} is ready`} className="text-cyan-300 hover:underline">
+                  Click here to be notified when it launches →
+                </a>
+              </div>
+
+              <button
+                disabled={true}
+                className="w-full py-4 rounded-xl bg-gray-600/30 text-gray-500 font-bold text-lg cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <ShoppingBag className="w-5 h-5" />
+                Coming Soon — Not Yet Available
+              </button>
+
+              <p className="text-center text-xs text-gray-500 mt-4">
+                This product is being prepared. Check back soon or contact us to be notified.
+              </p>
+            </>
+          )}
         </motion.div>
       </main>
     </div>

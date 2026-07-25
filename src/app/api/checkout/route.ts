@@ -1,5 +1,5 @@
 /**
- * /api/checkout — UPGRADE #127 (Recommendation 1)
+ * /api/checkout — UPGRADE #127 + #150 (Consultant Plan + Recommendations)
  * Creates a real Stripe Checkout Session for a digital product.
  *
  * POST /api/checkout
@@ -7,35 +7,20 @@
  *
  * Returns: { url: "https://checkout.stripe.com/c/..." }
  *
- * This is the FIRST real revenue path in the system.
- * A customer visits /buy/50-ai-tools-guide → clicks Buy Now →
- * this endpoint creates a Stripe Checkout Session → customer pays →
- * Stripe webhook verifies the payment → IncomeEntry created.
+ * UPGRADE #150: Allow-list checkout. Only `50-ai-tools-guide` proceeds to
+ * Stripe; the other 2 products return 503 "not ready yet". This prevents
+ * charging real money for products that don't have real content yet.
+ *
+ * Recommendation #3: Launch pricing via Stripe coupon `LAUNCH50` (30% off,
+ * limit 50 redemptions). Create this coupon in the Stripe Dashboard.
+ * If the coupon exists, it's automatically applied; if not, full price.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import { PRODUCTS, CHECKOUT_ALLOW_LIST } from '@/lib/product-fulfillment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-// Product catalog — defines what customers can buy
-const PRODUCTS: Record<string, { name: string; description: string; price: number; image?: string }> = {
-  '50-ai-tools-guide': {
-    name: '50 AI Tools Guide for Freelancers',
-    description: 'A comprehensive guide covering 50 AI tools that help freelancers save time, find clients, and increase income. Includes tool reviews, setup tutorials, and income-boosting strategies.',
-    price: 2700, // $27.00 in cents
-  },
-  'affiliate-blog-network-kit': {
-    name: 'Affiliate Blog Network Starter Kit',
-    description: 'Complete kit to launch a 12-article affiliate blog network targeting AI tools. Includes keyword research, article templates, affiliate link strategy, and SEO checklist.',
-    price: 4700, // $47.00
-  },
-  'saas-micro-tool-blueprint': {
-    name: 'SaaS Micro-Tool Blueprint',
-    description: 'Step-by-step blueprint for building and launching a $9/mo SaaS micro-tool. Includes tech stack recommendations, pricing strategy, Stripe integration guide, and marketing playbook.',
-    price: 6700, // $67.00
-  },
-}
 
 export async function POST(req: NextRequest) {
   const stripeKey = process.env.STRIPE_SECRET_KEY
@@ -51,24 +36,49 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const productId = body.productId || '50-ai-tools-guide'
 
-    // UPGRADE #130: Products are not yet built — block checkout to prevent
-    // charging real money for products that don't exist yet
-    return NextResponse.json(
-      { ok: false, error: 'Products are being finalized. Checkout is temporarily disabled.' },
-      { status: 503 }
-    )
+    // UPGRADE #150 (Consultant Plan Step 5): Allow-list checkout.
+    // Only products in CHECKOUT_ALLOW_LIST can proceed to Stripe.
+    // Other products return 503 "not ready yet".
+    if (!CHECKOUT_ALLOW_LIST.has(productId)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'This product is not ready yet. We are currently only selling the 50 AI Tools Guide for Freelancers. Check back soon for the other products!',
+          productId,
+          availableProducts: Array.from(CHECKOUT_ALLOW_LIST),
+        },
+        { status: 503 }
+      )
+    }
 
-    // eslint-disable-next-line no-unreachable
     const product = PRODUCTS[productId]
-
     if (!product) {
       return NextResponse.json(
-        { ok: false, error: `Unknown product: ${productId}. Available: ${Object.keys(PRODUCTS).join(', ')}` },
+        { ok: false, error: `Unknown product: ${productId}. Available: ${Array.from(CHECKOUT_ALLOW_LIST).join(', ')}` },
         { status: 400 }
       )
     }
 
     const stripe = new Stripe(stripeKey!, { apiVersion: '2024-12-18.acacia' as any })
+
+    // UPGRADE #150 (Recommendation #3): Try to apply the LAUNCH50 coupon.
+    // If the coupon doesn't exist in Stripe, we silently fall back to full price.
+    // Create the coupon in Stripe Dashboard:
+    //   - Coupon ID: LAUNCH50
+    //   - Percent off: 30 ($27 → $18.90)
+    //   - Max redemptions: 50
+    //   - Redeem by: 30 days from now
+    let discounts: any[] | undefined
+    try {
+      const coupon = await stripe.coupons.retrieve('LAUNCH50')
+      if (coupon.valid && !coupon.deleted) {
+        discounts = [{ coupon: 'LAUNCH50' }]
+        console.log('[checkout] Applying LAUNCH50 coupon (30% off, limit 50 redemptions)')
+      }
+    } catch {
+      // Coupon doesn't exist — proceed at full price
+      console.log('[checkout] LAUNCH50 coupon not found in Stripe — proceeding at full price ($27)')
+    }
 
     // Create a real Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
@@ -81,7 +91,7 @@ export async function POST(req: NextRequest) {
               name: product.name,
               description: product.description,
             },
-            unit_amount: product.price,
+            unit_amount: product.priceCents,
           },
           quantity: 1,
         },
@@ -94,6 +104,11 @@ export async function POST(req: NextRequest) {
         productName: product.name,
         source: 'agent007-ai',
       },
+      ...(discounts ? { discounts } : {}),
+      // Collect the customer's email for fulfillment (download link)
+      customer_email: body.customerEmail || undefined,
+      // Ask Stripe to collect billing details so we have a name for the receipt
+      billing_address_collection: 'auto',
     })
 
     return NextResponse.json({
@@ -102,7 +117,8 @@ export async function POST(req: NextRequest) {
       sessionId: session.id,
       productId,
       productName: product.name,
-      price: `$${(product.price / 100).toFixed(2)}`,
+      price: `$${(product.priceCents / 100).toFixed(2)}`,
+      appliedCoupon: discounts ? 'LAUNCH50' : null,
     })
   } catch (e: any) {
     console.error('[checkout] Stripe error:', e?.message?.slice(0, 200))
@@ -121,8 +137,11 @@ export async function GET() {
       id,
       name: p.name,
       description: p.description,
-      price: `$${(p.price / 100).toFixed(2)}`,
-      priceCents: p.price,
+      price: `$${(p.priceCents / 100).toFixed(2)}`,
+      priceCents: p.priceCents,
+      available: CHECKOUT_ALLOW_LIST.has(id),
     })),
+    allowList: Array.from(CHECKOUT_ALLOW_LIST),
   })
 }
+
