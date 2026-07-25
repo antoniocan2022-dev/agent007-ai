@@ -153,9 +153,23 @@ Be concise (max 300 words) and actionable. Do NOT call any tools — just give a
     leaderResponse = `[${leaderInfo!.leaderName} dispatch failed: ${e?.message?.slice(0, 200) || 'unknown error'}. Check /api/health/llm-providers to see which LLM providers are configured.]`
   }
 
+  // UPGRADE #146 (Warning fix) — Don't persist timeout/error responses to DB
+  // as if they were real leader messages. They're system notices, not leader
+  // replies. Mark them clearly so the dashboard can render them differently.
+  const isTimeoutResponse = leaderResponse.includes('timed out after 45s')
+  const isDispatchError = leaderResponse.includes('dispatch failed')
+  const isUnavailable = leaderResponse.includes('unavailable — subagent not found')
+  const isSystemNotice = isTimeoutResponse || isDispatchError || isUnavailable
+
   // UPGRADE #143 — Persist the leader's response to DB (survives cold starts!)
-  await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse).catch(() => {})
-  appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)
+  // Only persist if it's a REAL leader response, not a system timeout/error notice.
+  if (!isSystemNotice) {
+    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse).catch(() => {})
+    appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)
+  } else {
+    // Log system notices to the audit log instead of the leader thread
+    console.warn(`[mission-active/${missionId}] Leader dispatch notice: ${leaderResponse.slice(0, 150)}`)
+  }
 
   // Return the full updated mission so the UI can re-render
   const updated = await getActiveMissionDB(missionId).catch(() => null) ?? getActiveMission(missionId)
@@ -163,6 +177,7 @@ Be concise (max 300 words) and actionable. Do NOT call any tools — just give a
     ok: true,
     mission: updated,
     leaderResponse,
+    isSystemNotice,  // UPGRADE #146 — UI can render notices differently
   })
 }
 

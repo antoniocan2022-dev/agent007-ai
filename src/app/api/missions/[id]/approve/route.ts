@@ -21,7 +21,7 @@ export const maxDuration = 10
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession()
@@ -29,7 +29,7 @@ export async function POST(
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    const missionId = params.id
+    const { id: missionId } = await params
     if (!missionId) {
       return NextResponse.json({ ok: false, error: 'Mission ID required' }, { status: 400 })
     }

@@ -7,8 +7,11 @@
  *   - CEO watchdog verdict (healthy / warning / critical)
  *
  * Polled by the dashboard every 5 seconds while a mission is active.
+ *
+ * UPGRADE #146 (Critical #6 fix) — Auth required.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
 import { loadHeartbeat, buildHeartbeatFromAuditLog, computeCeoWatchdog } from '@/lib/mission-heartbeat'
 
 export const dynamic = 'force-dynamic'
@@ -16,10 +19,16 @@ export const maxDuration = 10
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const missionId = params.id
+    // UPGRADE #146 — Auth required (was public, leaked live mission state)
+    const session = await getServerSession()
+    if (!session?.user) {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { id: missionId } = await params
     if (!missionId) {
       return NextResponse.json({ ok: false, error: 'Mission ID required' }, { status: 400 })
     }
@@ -29,8 +38,6 @@ export async function GET(
 
     if (!hb) {
       // No saved heartbeat — try to rebuild from audit log
-      // (this happens on first poll after a mission starts, before any
-      //  heartbeat has been written yet)
       hb = await buildHeartbeatFromAuditLog({
         missionId,
         missionTitle: missionId,

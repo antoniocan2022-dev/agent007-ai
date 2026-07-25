@@ -1,0 +1,776 @@
+     1→/**
+     2→ * mission-pipeline.ts — UPGRADE #139 (Sequential Team Pipeline — Rec 4)
+     3→ * ===================================================================
+     4→ * Defines ORDERED pipelines per mission type and runs them with:
+     5→ *   - Super Agent verification gate between every team (Rec 1)
+     6→ *   - Iterative correction loop on rejection (Rec 2)
+     7→ *   - CEO final presenter at the end (Rec 3)
+     8→ *   - Audit trail logging at every step (Rec 5)
+     9→ *   - Telegram milestones at every stage (Rec 6)
+    10→ *   - Optional owner approval gate for high-stakes missions (Rec 7)
+    11→ *
+    12→ * USAGE:
+    13→ *   import { runMissionPipeline } from './mission-pipeline'
+    14→ *   await runMissionPipeline({
+    15→ *     missionId: 'mission_xxx',
+    16→ *     pipelineType: 'product_launch',
+    17→ *     objective: 'Launch a $9/mo PDF annotator SaaS',
+    18→ *   })
+    19→ */
+    20→
+    21→import { runSubagent } from './subagents'
+    22→import { superAgentVerify, buildRetryPrompt, formatVerificationResult, type VerificationResult } from './super-agent-verifier'
+    23→import { ceoPresentToOwner, type MissionStageSummary } from './ceo-presenter'
+    24→import { logApprovalEvent, type ApprovalEventInput } from './approval-audit-log'
+    25→import { notifyTelegram } from './mission-notifier'
+    26→import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
+    27→
+    28→// ──────────────────────────────────────────────────────────────────
+    29→// PIPELINE DEFINITIONS
+    30→// ──────────────────────────────────────────────────────────────────
+    31→
+    32→export interface PipelineStage {
+    33→  stage: number
+    34→  team: string       // pod id (e.g. 'scout', 'aurora')
+    35→  leader: string     // subagent id (e.g. 'scout', 'aurora')
+    36→  name: string       // human-readable stage name
+    37→  artifactType: 'url' | 'transaction_id' | 'message_id' | 'file_path' | 'data' | 'none'
+    38→  requirements: string  // what this stage must produce
+    39→  promptTemplate: (objective: string) => string  // builds the task for the leader
+    40→}
+    41→
+    42→export interface PipelineDef {
+    43→  type: string
+    44→  name: string
+    45→  description: string
+    46→  requiresOwnerApproval?: boolean  // Rec 7 — high-stakes missions pause for owner
+    47→  stages: PipelineStage[]
+    48→}
+    49→
+    50→/**
+    51→ * UPGRADE #139 — Built-in pipeline templates.
+    52→ * Each mission type has its own ordered sequence of teams.
+    53→ * The CEO is ALWAYS the final stage (Rec 3).
+    54→ */
+    55→export const MISSION_PIPELINES: Record<string, PipelineDef> = {
+    56→  product_launch: {
+    57→    type: 'product_launch',
+    58→    name: 'Product Launch',
+    59→    description: 'Full SaaS / product launch: research → design → build → QA → deploy → market → CEO report',
+    60→    requiresOwnerApproval: true,  // involves money + public launch
+    61→    stages: [
+    62→      {
+    63→        stage: 1, team: 'scout', leader: 'scout', name: 'Market Research',
+    64→        artifactType: 'data',
+    65→        requirements: 'Market research report with: target audience, competitor analysis, pricing benchmarks, demand signals (search volume, forum activity). At least 3 concrete data points.',
+    66→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 1: Market Research.\nFind: (1) target audience pain points, (2) top 3 competitors with pricing, (3) demand signals (search volume, Reddit/forum mentions, GitHub stars if dev tool). Return a structured research report with at least 3 cited data points.`,
+    67→      },
+    68→      {
+    69→        stage: 2, team: 'aurora', leader: 'aurora', name: 'Monetization Strategy',
+    70→        artifactType: 'data',
+    71→        requirements: 'Pricing strategy document with: 3-tier pricing, revenue projection for months 1-3, customer acquisition plan, monetization model rationale.',
+    72→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Monetization Strategy.\nBased on Scout's research, design: (1) 3-tier pricing (free / pro / business), (2) revenue projection table for months 1-3, (3) customer acquisition plan (channels + cost per acquisition), (4) rationale for the chosen monetization model. Be specific with numbers.`,
+    73→      },
+    74→      {
+    75→        stage: 3, team: 'vertex', leader: 'vertex', name: 'Product Blueprint',
+    76→        artifactType: 'data',
+    77→        requirements: 'Product blueprint: feature list (MVP + post-MVP), tech stack, data model, wireframe descriptions, deployment plan.',
+    78→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: Product Blueprint.\nDesign: (1) MVP feature list (max 5 features), (2) post-MVP features, (3) tech stack (framework, DB, hosting, payments), (4) data model (entities + relationships), (5) wireframe descriptions for each page, (6) deployment plan (Vercel + Stripe).`,
+    79→      },
+    80→      {
+    81→        stage: 4, team: 'forge', leader: 'forge', name: 'Build & Deploy',
+    82→        artifactType: 'url',
+    83→        requirements: 'Live, deployed URL of the product. Must be accessible via HTTP 200. Include GitHub repo URL if applicable.',
+    84→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: Build & Deploy.\nBuild the MVP according to Nova's blueprint. Deploy to Vercel. Return: (1) live URL, (2) GitHub repo URL, (3) list of features implemented, (4) any features deferred to post-MVP. The URL MUST return HTTP 200.`,
+    85→      },
+    86→      {
+    87→        stage: 5, team: 'echo', leader: 'echo', name: 'QA & Quality Audit',
+    88→        artifactType: 'data',
+    89→        requirements: 'QA report: test results (functional, security, performance), bug list (with severity), go/no-go recommendation.',
+    90→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 5: QA & Quality Audit.\nRun: (1) functional tests on every MVP feature, (2) security audit (XSS, CSRF, auth), (3) performance audit (Lighthouse score), (4) cross-browser check. Return a structured QA report with bug list (severity P0-P3) and a go/no-go recommendation.`,
+    91→      },
+    92→      {
+    93→        stage: 6, team: 'quantum', leader: 'quantum', name: 'Marketing Campaign',
+    94→        artifactType: 'data',
+    95→        requirements: 'Marketing plan: channel selection (Twitter, Reddit, HN, PH, etc.), launch sequence (day-by-day), content templates, KPI targets.',
+    96→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 6: Marketing Campaign.\nDesign: (1) channel selection with rationale (Twitter, Reddit, HN, Product Hunt, IndieHackers, etc.), (2) day-by-day launch sequence (7 days), (3) content templates for each channel, (4) KPI targets (signups, MRR, mentions). Be specific — owner will execute.`,
+    97→      },
+    98→      {
+    99→        stage: 7, team: 'ceo', leader: 'ceo', name: 'CEO Final Report',
+   100→        artifactType: 'none',
+   101→        requirements: 'CEO aggregates all stages into an executive report for the owner.',
+   102→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 7 (FINAL): CEO Executive Report.\nAs CEO, aggregate all previous stage outputs into a single executive summary for Antonio. Follow the CEO report format exactly.`,
+   103→      },
+   104→    ],
+   105→  },
+   106→
+   107→  content_creation: {
+   108→    type: 'content_creation',
+   109→    name: 'Content Creation',
+   110→    description: 'Research → draft → publish → promote → CEO report',
+   111→    requiresOwnerApproval: false,  // content is low-risk
+   112→    stages: [
+   113→      {
+   114→        stage: 1, team: 'scout', leader: 'scout', name: 'Topic Research',
+   115→        artifactType: 'data',
+   116→        requirements: 'Topic research: keyword volume, competition, top 10 ranking articles, content gap analysis.',
+   117→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 1: Topic Research.\nFind: (1) primary keyword + 5 secondary keywords with monthly search volume, (2) top 10 ranking articles (title + word count + main points), (3) content gap analysis (what they miss). Return a structured research report.`,
+   118→      },
+   119→      {
+   120→        stage: 2, team: 'aurora', leader: 'aurora', name: 'Content Outline',
+   121→        artifactType: 'data',
+   122→        requirements: 'Content outline: H1/H2/H3 structure, target word count, key points per section, SEO meta title + description.',
+   123→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Content Outline.\nDesign: (1) H1/H2/H3 outline (at least 8 H2 sections), (2) target word count, (3) key points per section, (4) SEO meta title (under 60 chars) + meta description (under 160 chars), (5) internal/external link suggestions.`,
+   124→      },
+   125→      {
+   126→        stage: 3, team: 'quill', leader: 'quill', name: 'Content Draft',
+   127→        artifactType: 'data',
+   128→        requirements: 'Full content draft (2000+ words), formatted in markdown, ready for publication.',
+   129→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: Content Draft.\nWrite the full article (2000+ words) in markdown based on Aurora's outline. Include: (1) engaging intro (hook + thesis), (2) all H2 sections fully written, (3) examples / data / quotes where relevant, (4) call-to-action at the end, (5) suggested images (alt text + description).`,
+   130→      },
+   131→      {
+   132→        stage: 4, team: 'echo', leader: 'echo', name: 'Editorial Review',
+   133→        artifactType: 'data',
+   134→        requirements: 'Edited content + review notes. Grammar, clarity, SEO checklist, plagiarism check.',
+   135→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: Editorial Review.\nReview Nova's draft: (1) grammar / spelling fixes, (2) clarity improvements, (3) SEO checklist (keyword density, headers, meta), (4) plagiarism / originality check, (5) fact-check claims. Return the edited draft + a review notes section.`,
+   136→      },
+   137→      {
+   138→        stage: 5, team: 'pulse', leader: 'pulse', name: 'Publish & Monitor',
+   139→        artifactType: 'url',
+   140→        requirements: 'Published URL (HTTP 200). Set up monitoring (GA4, Search Console).',
+   141→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 5: Publish & Monitor.\nPublish the edited content (use WordPress or other publisher tool). Return: (1) live URL, (2) GA4 tracking ID, (3) Search Console submission status, (4) social media auto-post schedule. The URL MUST return HTTP 200.`,
+   142→      },
+   143→      {
+   144→        stage: 6, team: 'ceo', leader: 'ceo', name: 'CEO Final Report',
+   145→        artifactType: 'none',
+   146→        requirements: 'CEO aggregates everything into an executive report.',
+   147→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 6 (FINAL): CEO Executive Report.\nAs CEO, aggregate all stage outputs into a single executive summary for Antonio.`,
+   148→      },
+   149→    ],
+   150→  },
+   151→
+   152→  affiliate_campaign: {
+   153→    type: 'affiliate_campaign',
+   154→    name: 'Affiliate Campaign',
+   155→    description: 'Niche research → affiliate signup → content → traffic → CEO report',
+   156→    requiresOwnerApproval: false,
+   157→    stages: [
+   158→      {
+   159→        stage: 1, team: 'scout', leader: 'scout', name: 'Niche & Affiliate Research',
+   160→        artifactType: 'data',
+   161→        requirements: 'Niche analysis: 5 affiliate programs with commission rates, cookie duration, EPC, top-performing content formats.',
+   162→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 1: Niche & Affiliate Research.\nFind: (1) 5 affiliate programs in the niche with commission %, cookie duration, EPC, (2) top 3 content formats that convert (review, comparison, tutorial), (3) competitor affiliate sites (top 5), (4) recommended angle / positioning. Return a structured research report.`,
+   163→      },
+   164→      {
+   165→        stage: 2, team: 'aurora', leader: 'aurora', name: 'Campaign Strategy',
+   166→        artifactType: 'data',
+   167→        requirements: 'Campaign strategy: content calendar (12 articles), keyword targets per article, internal linking plan, funnel design.',
+   168→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Campaign Strategy.\nDesign: (1) content calendar (12 articles over 90 days), (2) primary + secondary keyword targets per article, (3) internal linking plan (which articles link to which), (4) funnel design (traffic → email list → affiliate CTA), (5) projected revenue (commission × conversion rate × traffic).`,
+   169→      },
+   170→      {
+   171→        stage: 3, team: 'quill', leader: 'quill', name: 'First 3 Articles Drafted',
+   172→        artifactType: 'data',
+   173→        requirements: '3 full article drafts (1500+ words each), each with affiliate CTAs and proper disclosure.',
+   174→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: First 3 Articles.\nWrite 3 full article drafts (1500+ words each) following Aurora's content calendar. Each article: (1) engaging intro, (2) affiliate CTAs (in-content + sidebar suggestion), (3) proper affiliate disclosure, (4) comparison tables where relevant, (5) FAQ section.`,
+   175→      },
+   176→      {
+   177→        stage: 4, team: 'echo', leader: 'echo', name: 'QA & SEO Audit',
+   178→        artifactType: 'data',
+   179→        requirements: 'Edited articles + SEO audit. Grammar, affiliate disclosure compliance, SEO checklist.',
+   180→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: QA & SEO Audit.\nReview the 3 articles: (1) grammar / spelling, (2) affiliate disclosure compliance (FTC), (3) SEO checklist per article (meta, headers, keyword density, internal links), (4) affiliate link format (no-follow / sponsored), (5) plagiarism / originality. Return edited articles + audit notes.`,
+   181→      },
+   182→      {
+   183→        stage: 5, team: 'pulse', leader: 'pulse', name: 'Publish & Traffic Plan',
+   184→        artifactType: 'url',
+   185→        requirements: 'Published URLs (HTTP 200). Traffic plan with social / forum / email promotion schedule.',
+   186→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 5: Publish & Traffic Plan.\nPublish all 3 articles. Return: (1) 3 live URLs (HTTP 200), (2) traffic plan (social posts, forum mentions, email outreach, Pinterest if visual), (3) tracking setup (UTM params, GA4).`,
+   187→      },
+   188→      {
+   189→        stage: 6, team: 'ceo', leader: 'ceo', name: 'CEO Final Report',
+   190→        artifactType: 'none',
+   191→        requirements: 'CEO aggregates everything into an executive report.',
+   192→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 6 (FINAL): CEO Executive Report.\nAs CEO, aggregate all stage outputs into a single executive summary for Antonio.`,
+   193→      },
+   194→    ],
+   195→  },
+   196→
+   197→  generic: {
+   198→    type: 'generic',
+   199→    name: 'Generic Mission',
+   200→    description: 'Scout → Aurora → Nova → Echo → Pulse → CEO. Default pipeline when no specific type matches.',
+   201→    requiresOwnerApproval: false,
+   202→    stages: [
+   203→      {
+   204→        stage: 1, team: 'scout', leader: 'scout', name: 'Research',
+   205→        artifactType: 'data',
+   206→        requirements: 'Research report with at least 3 concrete data points relevant to the mission.',
+   207→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 1: Research.\nInvestigate this mission. Find: (1) what's been tried before, (2) what works / what doesn't, (3) 3+ concrete data points (numbers, URLs, quotes). Return a structured research report.`,
+   208→      },
+   209→      {
+   210→        stage: 2, team: 'aurora', leader: 'aurora', name: 'Strategy',
+   211→        artifactType: 'data',
+   212→        requirements: 'Strategy document with actionable steps, success metrics, and risk mitigation.',
+   213→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Strategy.\nBased on Scout's research, design: (1) step-by-step strategy, (2) success metrics (KPIs), (3) risk mitigation, (4) timeline. Be specific and actionable.`,
+   214→      },
+   215→      {
+   216→        stage: 3, team: 'forge', leader: 'forge', name: 'Execution',
+   217→        artifactType: 'data',
+   218→        requirements: 'Concrete execution output — the actual deliverable (content, code, plan).',
+   219→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: Execution.\nExecute Aurora's strategy. Produce the actual deliverable. Return: (1) the deliverable itself, (2) notes on what was built, (3) any deviations from the strategy and why.`,
+   220→      },
+   221→      {
+   222→        stage: 4, team: 'echo', leader: 'echo', name: 'QA',
+   223→        artifactType: 'data',
+   224→        requirements: 'QA report: tested against requirements, bugs found, fix recommendations, go/no-go.',
+   225→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 4: QA.\nReview Nova's execution: (1) does it meet the strategy requirements? (2) bugs / issues found, (3) fix recommendations, (4) go / no-go recommendation. Be honest — Antonio trusts the QA.`,
+   226→      },
+   227→      {
+   228→        stage: 5, team: 'pulse', leader: 'pulse', name: 'Deployment',
+   229→        artifactType: 'url',
+   230→        requirements: 'Live URL or delivered artifact. Must be verifiable (HTTP 200 for URLs).',
+   231→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 5: Deployment.\nDeploy / deliver Nova's execution. Return: (1) live URL or delivered artifact reference, (2) monitoring setup, (3) any post-deployment tasks. The URL / artifact MUST be verifiable.`,
+   232→      },
+   233→      {
+   234→        stage: 6, team: 'ceo', leader: 'ceo', name: 'CEO Final Report',
+   235→        artifactType: 'none',
+   236→        requirements: 'CEO aggregates everything into an executive report.',
+   237→        promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 6 (FINAL): CEO Executive Report.\nAs CEO, aggregate all stage outputs into a single executive summary for Antonio.`,
+   238→      },
+   239→    ],
+   240→  },
+   241→}
+   242→
+   243→// ──────────────────────────────────────────────────────────────────
+   244→// PIPELINE RUNNER
+   245→// ──────────────────────────────────────────────────────────────────
+   246→
+   247→export interface PipelineRunResult {
+   248→  missionId: string
+   249→  pipelineType: string
+   250→  success: boolean
+   251→  stages: MissionStageSummary[]
+   252→  ceoReport?: any  // CeoReport — typed as any to avoid import cycle
+   253→  error?: string
+   254→  requiresOwnerApproval?: boolean
+   255→  pausedForOwnerApproval?: boolean
+   256→}
+   257→
+   258→const MAX_ROUNDS_PER_STAGE = 3
+   259→
+   260→/**
+   261→ * Run a single team leader with the Super Agent verification loop.
+   262→ * Returns the final approved output + verification metadata.
+   263→ */
+   264→async function runTeamWithVerificationLoop(opts: {
+   265→  missionId: string
+   266→  stage: PipelineStage
+   267→  objective: string
+   268→  missionContext: string
+   269→  previousTeamOutput?: string
+   270→}): Promise<{
+   271→  output: string
+   272→  rounds: number
+   273→  finalScore: number
+   274→  finalVerification: VerificationResult
+   275→  artifactValue: string | null
+   276→  artifactVerified: boolean
+   277→}> {
+   278→  const { missionId, stage, objective, missionContext, previousTeamOutput } = opts
+   279→  let currentPrompt = stage.promptTemplate(objective)
+   280→  let lastVerification: VerificationResult | null = null
+   281→  let teamOutput = ''
+   282→
+   283→  for (let round = 1; round <= MAX_ROUNDS_PER_STAGE; round++) {
+   284→    // ── Notify: stage start (round 1 only)
+   285→    if (round === 1) {
+   286→      await notifyTelegram(`🚀 Stage ${stage.stage}/${stage.team} STARTED\nMission: ${missionId}\nObjective: ${objective.slice(0, 100)}`)
+   287→      await logApprovalEvent({
+   288→        missionId,
+   289→        stageId: `stage_${stage.stage}`,
+   290→        round,
+   291→        agentRole: 'team_leader',
+   292→        agentId: stage.leader,
+   293→        action: 'started',
+   294→        feedback: `Stage ${stage.stage} (${stage.name}) started by ${stage.leader}`,
+   295→      })
+   296→    } else {
+   297→      // Retry round — note in audit log
+   298→      await logApprovalEvent({
+   299→        missionId,
+   300→        stageId: `stage_${stage.stage}`,
+   301→        round,
+   302→        agentRole: 'team_leader',
+   303→        agentId: stage.leader,
+   304→        action: 'retry_submitted',
+   305→        feedback: `Round ${round}: team re-submitting after Super Agent feedback`,
+   306→      })
+   307→    }
+   308→
+   309→    // ── Run the team leader
+   310→    // Special case: CEO stage uses callLlmWithRetry directly (no 'ceo' subagent exists).
+   311→    // The CEO is the apex LLM that aggregates everything into a final executive report.
+   312→    if (stage.team === 'ceo') {
+   313→      try {
+   314→        const { callLlmWithRetry } = await import('./agent')
+   315→        const ceoResponse = await callLlmWithRetry([
+   316→          {
+   317→            role: 'system',
+   318→            content: `You are the CEO of Agent007 — the apex executive reporting to the human owner (Antonio).
+   319→
+   320→A mission has just completed all of its team stages. Your job: AGGREGATE everything the teams produced and present a CLEAR, EXECUTIVE summary to Antonio.
+   321→
+   322→Antonio is busy. He needs to understand:
+   323→1. Did the mission succeed? (success / partial / failed)
+   324→2. What was actually delivered? (URLs, files, transaction IDs — concrete artifacts, not promises)
+   325→3. What is the revenue impact? (if applicable)
+   326→4. What risks or notes should he be aware of?
+   327→5. What are the next 3 recommended actions?
+   328→
+   329→FORMAT (strict):
+   330→🎯 MISSION: [one-line description]
+   331→📊 OUTCOME: [success/partial/failed]
+   332→💰 REVENUE IMPACT: [if applicable, otherwise "N/A"]
+   333→✅ KEY DELIVERABLES:
+   334→   - [bullet list with URLs/IDs]
+   335→⚠️ RISKS/NOTES:
+   336→   - [if any, otherwise "None"]
+   337→📈 NEXT STEPS:
+   338→   1. [action]
+   339→   2. [action]
+   340→   3. [action]
+   341→
+   342→RULES:
+   343→- Keep the report under 300 words.
+   344→- Be honest — if delivery failed, say so. Antonio trusts the CEO because the CEO never lies.
+   345→- Quote real artifact values (URLs, IDs), not vague descriptions.
+   346→- If revenue is $0, say "$0 so far — see next steps for monetization plan".`
+   347→          },
+   348→          { role: 'user', content: currentPrompt },
+   349→        ], { thinking: false })
+   350→
+   351→        teamOutput = typeof ceoResponse === 'string'
+   352→          ? ceoResponse
+   353→          : (ceoResponse?.content ?? ceoResponse?.message?.content ?? '(CEO produced no output)')
+   354→      } catch (ceoErr: any) {
+   355→        teamOutput = `🎯 MISSION: ${objective.slice(0, 100)}\n📊 OUTCOME: partial (CEO LLM unavailable)\n💰 REVENUE IMPACT: See artifacts below\n✅ KEY DELIVERABLES:\n   - (See stage results in audit trail)\n⚠️ RISKS/NOTES:\n   - CEO LLM was unavailable; this is a fallback report.\n📈 NEXT STEPS:\n   1. Review the audit trail manually.\n   2. Approve mission via dashboard.\n   3. Schedule the next mission.`
+   356→      }
+   357→    } else {
+   358→      const result = await runSubagent({
+   359→        subagentId: stage.leader,
+   360→        task: currentPrompt,
+   361→        attachments: [],
+   362→        language: 'en',
+   363→        emit: async () => {},  // silent — pipeline runs in background
+   364→        parentConversationId: `mission_${missionId}`,
+   365→        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,
+   366→      })
+   367→      teamOutput = result.answer
+   368→    }
+   369→
+   370→    // ── Special case: CEO stage doesn't get verified (it IS the verifier of the whole mission)
+   371→    if (stage.team === 'ceo') {
+   372→      await logApprovalEvent({
+   373→        missionId,
+   374→        stageId: `stage_${stage.stage}`,
+   375→        round,
+   376→        agentRole: 'ceo',
+   377→        agentId: 'ceo',
+   378→        action: 'submitted',
+   379→        feedback: teamOutput.slice(0, 500),
+   380→        score: 100,
+   381→      })
+   382→      return {
+   383→        output: teamOutput,
+   384→        rounds: round,
+   385→        finalScore: 100,
+   386→        finalVerification: {
+   387→          approved: true,
+   388→          verdict: 'APPROVED',
+   389→          score: 100,
+   390→          strengths: ['CEO final report — apex of mission'],
+   391→          weaknesses: [],
+   392→          corrections: [],
+   393→          summary: 'CEO stage auto-approved',
+   394→        },
+   395→        artifactValue: null,
+   396→        artifactVerified: true,
+   397→      }
+   398→    }
+   399→
+   400→    // ── Log submission to audit trail
+   401→    await logApprovalEvent({
+   402→      missionId,
+   403→      stageId: `stage_${stage.stage}`,
+   404→      round,
+   405→      agentRole: 'team_leader',
+   406→      agentId: stage.leader,
+   407→      action: 'submitted',
+   408→      feedback: teamOutput.slice(0, 500),
+   409→    })
+   410→
+   411→    // ── Super Agent verifies
+   412→    lastVerification = await superAgentVerify({
+   413→      teamOutput,
+   414→      missionContext,
+   415→      stageRequirements: stage.requirements,
+   416→      previousTeamOutput,
+   417→      round,
+   418→      maxRounds: MAX_ROUNDS_PER_STAGE,
+   419→    })
+   420→
+   421→    // ── Log verification result to audit trail
+   422→    await logApprovalEvent({
+   423→      missionId,
+   424→      stageId: `stage_${stage.stage}`,
+   425→      round,
+   426→      agentRole: 'super_agent',
+   427→      agentId: 'super_agent',
+   428→      action: lastVerification.approved ? 'approved' : 'rejected',
+   429→      score: lastVerification.score,
+   430→      feedback: formatVerificationResult(lastVerification).slice(0, 1000),
+   431→    })
+   432→
+   433→    // ── Approved → done
+   434→    if (lastVerification.approved) {
+   435→      await notifyTelegram(`✅ Stage ${stage.stage} (${stage.team}) APPROVED\nScore: ${lastVerification.score}/100, ${round} round(s)`)
+   436→      break
+   437→    }
+   438→
+   439→    // ── Notify rejection
+   440→    await notifyTelegram(`⚠️ Stage ${stage.stage} (${stage.team}) ${lastVerification.verdict}\nScore: ${lastVerification.score}/100, round ${round}/${MAX_ROUNDS_PER_STAGE}\nCorrections: ${lastVerification.corrections.length}`)
+   441→
+   442→    // ── Last round exhausted — break out, mission will escalate
+   443→    if (round === MAX_ROUNDS_PER_STAGE) {
+   444→      await logApprovalEvent({
+   445→        missionId,
+   446→        stageId: `stage_${stage.stage}`,
+   447→        round,
+   448→        agentRole: 'super_agent',
+   449→        agentId: 'super_agent',
+   450→        action: 'escalated',
+   451→        feedback: `Stage failed after ${MAX_ROUNDS_PER_STAGE} rounds — escalating to CEO`,
+   452→      })
+   453→      await notifyTelegram(`❌ Stage ${stage.stage} ESCALATED\nFailed after ${MAX_ROUNDS_PER_STAGE} rounds. CEO will note in final report.`)
+   454→      break
+   455→    }
+   456→
+   457→    // ── Build retry prompt for next round
+   458→    currentPrompt = buildRetryPrompt(
+   459→      stage.promptTemplate(objective),
+   460→      lastVerification,
+   461→      round + 1,
+   462→      MAX_ROUNDS_PER_STAGE
+   463→    )
+   464→  }
+   465→
+   466→  // ── Extract artifact from team output (best-effort)
+   467→  const artifactValue = extractArtifact(teamOutput, stage.artifactType)
+   468→  const artifactVerified = artifactValue !== null && lastVerification?.approved === true
+   469→
+   470→  return {
+   471→    output: teamOutput,
+   472→    rounds: lastVerification ? (lastVerification.approved ? 1 : MAX_ROUNDS_PER_STAGE) : 1,
+   473→    finalScore: lastVerification?.score ?? 0,
+   474→    finalVerification: lastVerification ?? {
+   475→      approved: false,
+   476→      verdict: 'REJECTED',
+   477→      score: 0,
+   478→      strengths: [],
+   479→      weaknesses: ['No verification performed'],
+   480→      corrections: [],
+   481→      summary: 'Verification skipped',
+   482→    },
+   483→    artifactValue,
+   484→    artifactVerified,
+   485→  }
+   486→}
+   487→
+   488→/**
+   489→ * Best-effort extract an artifact (URL, transaction ID, etc.) from the team's output.
+   490→ * Looks for common patterns.
+   491→ */
+   492→function extractArtifact(output: string, type: PipelineStage['artifactType']): string | null {
+   493→  if (type === 'none') return null
+   494→  if (type === 'url') {
+   495→    // Find first http(s) URL that looks like a deliverable (not example.com)
+   496→    const urlMatch = output.match(/https?:\/\/(?!example\.com|localhost|example\.org)[^\s<>"')\]]+/i)
+   497→    return urlMatch ? urlMatch[0] : null
+   498→  }
+   499→  if (type === 'transaction_id') {
+   500→    // Stripe-style IDs (ch_, pi_, txn_, etc.)
+   501→    const txMatch = output.match(/\b(ch|pi|txn|sub|in)_[A-Za-z0-9]{10,}\b/)
+   502→    return txMatch ? txMatch[0] : null
+   503→  }
+   504→  if (type === 'message_id') {
+   505→    // Telegram / Discord-style message IDs
+   506→    const msgMatch = output.match(/\bmsg[_-]?(\d{6,})\b/i) || output.match(/\b(\d{10,})\b/)
+   507→    return msgMatch ? msgMatch[0] : null
+   508→  }
+   509→  if (type === 'file_path') {
+   510→    // Path-like strings
+   511→    const pathMatch = output.match(/(?:^|\s)(\/[\w./-]+\.\w+)/) || output.match(/([\w-]+\.(?:js|ts|tsx|jsx|py|md|json|html|css))/)
+   512→    return pathMatch ? pathMatch[1] : null
+   513→  }
+   514→  if (type === 'data') {
+   515→    // For data artifacts, return the first 500 chars as the "artifact"
+   516→    return output.slice(0, 500) || null
+   517→  }
+   518→  return null
+   519→}
+   520→
+   521→/**
+   522→ * Check if owner has approved a high-stakes mission.
+   523→ * Rec 7 — polls the approval-audit-log for an 'owner_approved' event.
+   524→ */
+   525→async function waitForOwnerApproval(missionId: string, timeoutMs: number = 24 * 60 * 60 * 1000): Promise<boolean> {
+   526→  const startTime = Date.now()
+   527→  const pollInterval = 60 * 1000  // check every minute
+   528→
+   529→  await notifyTelegram(`⏸️ MISSION REQUIRES OWNER APPROVAL\nMission: ${missionId}\n\nThis is a high-stakes mission. Reply with /approve_${missionId.slice(0, 8)} to proceed, or /reject_${missionId.slice(0, 8)} to cancel.\n\nAuto-cancel in 24 hours if no response.`)
+   530→
+   531→  while (Date.now() - startTime < timeoutMs) {
+   532→    try {
+   533→      const { hasOwnerApproval } = await import('./approval-audit-log')
+   534→      const approved = await hasOwnerApproval(missionId)
+   535→      if (approved) return true
+   536→
+   537→      // Check for explicit rejection
+   538→      const { hasOwnerRejection } = await import('./approval-audit-log')
+   539→      const rejected = await hasOwnerRejection(missionId)
+   540→      if (rejected) return false
+   541→    } catch {}
+   542→
+   543→    await new Promise((r) => setTimeout(r, pollInterval))
+   544→  }
+   545→
+   546→  await notifyTelegram(`⏰ MISSION AUTO-CANCELLED\nMission: ${missionId}\nReason: owner did not respond within 24 hours.`)
+   547→  return false
+   548→}
+   549→
+   550→/**
+   551→ * Run the full mission pipeline end-to-end.
+   552→ *
+   553→ * This is the MAIN ENTRY POINT. Called by:
+   554→ *   - The orchestrator when it detects a "mission" task
+   555→ *   - The /api/mission-active/run endpoint (manual trigger)
+   556→ *   - The scheduled tick (for autonomous missions)
+   557→ */
+   558→export async function runMissionPipeline(opts: {
+   559→  missionId: string
+   560→  pipelineType: string
+   561→  objective: string
+   562→  missionTitle?: string
+   563→  skipOwnerApproval?: boolean  // for testing only
+   564→}): Promise<PipelineRunResult> {
+   565→  const { missionId, pipelineType, objective } = opts
+   566→
+   567→  const pipeline = MISSION_PIPELINES[pipelineType] ?? MISSION_PIPELINES.generic
+   568→  const stages: MissionStageSummary[] = []
+   569→
+   570→  // UPGRADE #144 — Initialize heartbeat (real-time monitoring)
+   571→  const initialHeartbeat: MissionHeartbeat = {
+   572→    missionId,
+   573→    missionTitle: opts.missionTitle ?? missionId,
+   574→    pipelineType: pipeline.type,
+   575→    status: 'working',
+   576→    currentStage: {
+   577→      stageId: `stage_1`,
+   578→      stageNumber: 1,
+   579→      totalStages: pipeline.stages.length,
+   580→      name: pipeline.stages[0].name,
+   581→      team: pipeline.stages[0].team,
+   582→      leader: pipeline.stages[0].leader,
+   583→      startedAt: new Date().toISOString(),
+   584→      elapsedMs: 0,
+   585→      round: 1,
+   586→      maxRounds: 3,
+   587→    },
+   588→    completedStages: [],
+   589→    estimatedRemainingMs: null,
+   590→    estimatedCompletionAt: null,
+   591→    lastActivityAt: new Date().toISOString(),
+   592→    lastError: null,
+   593→    ceoWatchdog: { verdict: 'healthy', message: 'Mission started', checkedAt: new Date().toISOString() },
+   594→    updatedAt: new Date().toISOString(),
+   595→  }
+   596→  await saveHeartbeat(initialHeartbeat).catch(() => {})
+   597→
+   598→  // ── Rec 7: Owner approval gate for high-stakes missions
+   599→  if (pipeline.requiresOwnerApproval && !opts.skipOwnerApproval) {
+   600→    await notifyTelegram(`🎯 MISSION STARTED: ${opts.missionTitle ?? missionId}\nPipeline: ${pipeline.name}\nStages: ${pipeline.stages.length}\n⚠️ This mission requires your approval before final execution.`)
+   601→  } else {
+   602→    await notifyTelegram(`🎯 MISSION STARTED: ${opts.missionTitle ?? missionId}\nPipeline: ${pipeline.name}\nStages: ${pipeline.stages.length}`)
+   603→  }
+   604→
+   605→  // Build mission context (grows as stages complete)
+   606→  let missionContext = `MISSION OBJECTIVE: ${objective}\n\n`
+   607→  let previousTeamOutput: string | undefined
+   608→
+   609→  // ── Run each stage sequentially
+   610→  for (const stage of pipeline.stages) {
+   611→    try {
+   612→      const result = await runTeamWithVerificationLoop({
+   613→        missionId,
+   614→        stage,
+   615→        objective,
+   616→        missionContext,
+   617→        previousTeamOutput,
+   618→      })
+   619→
+   620→      const stageSummary: MissionStageSummary = {
+   621→        stage: stage.stage,
+   622→        team: stage.team,
+   623→        leader: stage.leader,
+   624→        artifactValue: result.artifactValue,
+   625→        artifactVerified: result.artifactVerified,
+   626→        finalScore: result.finalScore,
+   627→        rounds: result.rounds,
+   628→        approvedAt: result.finalVerification.approved ? new Date().toISOString() : null,
+   629→      }
+   630→      stages.push(stageSummary)
+   631→
+   632→      // UPGRADE #144 — Update heartbeat after each stage
+   633→      try {
+   634→        const hb = await buildHeartbeatFromAuditLog({
+   635→          missionId,
+   636→          missionTitle: opts.missionTitle ?? missionId,
+   637→          pipelineType: pipeline.type,
+   638→          totalStages: pipeline.stages.length,
+   639→        })
+   640→        // If this wasn't the last stage, set current stage to next one
+   641→        if (stage.stage < pipeline.stages.length) {
+   642→          const nextStage = pipeline.stages[stage.stage]  // 0-indexed; stage.stage is 1-indexed
+   643→          if (nextStage && !hb.currentStage) {
+   644→            hb.currentStage = {
+   645→              stageId: `stage_${nextStage.stage}`,
+   646→              stageNumber: nextStage.stage,
+   647→              totalStages: pipeline.stages.length,
+   648→              name: nextStage.name,
+   649→              team: nextStage.team,
+   650→              leader: nextStage.leader,
+   651→              startedAt: new Date().toISOString(),
+   652→              elapsedMs: 0,
+   653→              round: 1,
+   654→              maxRounds: 3,
+   655→            }
+   656→            hb.status = 'working'
+   657→          }
+   658→        } else {
+   659→          // Last stage done
+   660→          hb.status = 'completed'
+   661→          hb.currentStage = null
+   662→        }
+   663→        hb.updatedAt = new Date().toISOString()
+   664→        await saveHeartbeat(hb)
+   665→      } catch {}
+   666→
+   667→      // Update mission context with this stage's output
+   668→      missionContext += `STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:\n${result.output.slice(0, 3000)}\n\nFINAL SCORE: ${result.finalScore}/100\nVERDICT: ${result.finalVerification.verdict}\n\n---\n\n`
+   669→      previousTeamOutput = result.output
+   670→
+   671→      // If stage is the CEO (final), capture the report
+   672→      if (stage.team === 'ceo') {
+   673→        // CEO stage output IS the report
+   674→        const ceoReport: import('./ceo-presenter').CeoReport = {
+   675→          missionId,
+   676→          missionTitle: opts.missionTitle ?? missionId,
+   677→          objective,
+   678→          outcome: stages.every((s) => s.artifactVerified || s.team === 'ceo') ? 'success' : 'partial',
+   679→          revenueImpact: 'See full report',
+   680→          keyDeliverables: stages.filter((s) => s.artifactValue).map((s) => `Stage ${s.stage} (${s.team}): ${s.artifactValue}`),
+   681→          risksNotes: [],
+   682→          nextSteps: ['Review CEO report', 'Approve mission via dashboard', 'Schedule follow-up'],
+   683→          fullReport: result.output,
+   684→          generatedAt: new Date().toISOString(),
+   685→        }
+   686→
+   687→        // Send CEO report via Telegram (the CEO's output is already a formatted report)
+   688→        await notifyTelegram(`🎯 MISSION COMPLETE — CEO REPORT\n\n${result.output.slice(0, 3500)}\n\n— Agent007 CEO`)
+   689→
+   690→        // Persist to DB
+   691→        try {
+   692→          const { ceoPersistReport } = await import('./ceo-presenter')
+   693→          await ceoPersistReport(ceoReport)
+   694→        } catch {}
+   695→
+   696→        return {
+   697→          missionId,
+   698→          pipelineType: pipeline.type,
+   699→          success: true,
+   700→          stages,
+   701→          ceoReport,
+   702→        }
+   703→      }
+   704→    } catch (stageErr: any) {
+   705→      // Stage crashed — log + abort
+   706→      await logApprovalEvent({
+   707→        missionId,
+   708→        stageId: `stage_${stage.stage}`,
+   709→        round: 1,
+   710→        agentRole: 'system',
+   711→        agentId: 'system',
+   712→        action: 'escalated',
+   713→        feedback: `Stage crashed: ${stageErr?.message?.slice(0, 200)}`,
+   714→      })
+   715→      await notifyTelegram(`❌ MISSION FAILED at stage ${stage.stage} (${stage.team})\nError: ${stageErr?.message?.slice(0, 200)}`)
+   716→
+   717→      // UPGRADE #144 — Update heartbeat to failed
+   718→      try {
+   719→        const hb = await buildHeartbeatFromAuditLog({
+   720→          missionId,
+   721→          missionTitle: opts.missionTitle ?? missionId,
+   722→          pipelineType: pipeline.type,
+   723→          totalStages: pipeline.stages.length,
+   724→        })
+   725→        hb.status = 'failed'
+   726→        hb.lastError = `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message?.slice(0, 200) ?? 'unknown'}`
+   727→        hb.updatedAt = new Date().toISOString()
+   728→        await saveHeartbeat(hb)
+   729→      } catch {}
+   730→
+   731→      return {
+   732→        missionId,
+   733→        pipelineType: pipeline.type,
+   734→        success: false,
+   735→        stages,
+   736→        error: `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message ?? 'unknown'}`,
+   737→      }
+   738→    }
+   739→  }
+   740→
+   741→  // ── Rec 7: Owner approval gate (only for high-stakes missions that completed successfully)
+   742→  if (pipeline.requiresOwnerApproval && !opts.skipOwnerApproval) {
+   743→    const approved = await waitForOwnerApproval(missionId)
+   744→    if (!approved) {
+   745→      return {
+   746→        missionId,
+   747→        pipelineType: pipeline.type,
+   748→        success: false,
+   749→        stages,
+   750→        error: 'Owner did not approve the mission',
+   751→        requiresOwnerApproval: true,
+   752→        pausedForOwnerApproval: true,
+   753→      }
+   754→    }
+   755→  }
+   756→
+   757→  return {
+   758→    missionId,
+   759→    pipelineType: pipeline.type,
+   760→    success: true,
+   761→    stages,
+   762→  }
+   763→}
+   764→
+   765→/**
+   766→ * List available pipeline types (for dashboard UI).
+   767→ */
+   768→export function listPipelineTypes(): Array<{ type: string; name: string; description: string; stages: number }> {
+   769→  return Object.values(MISSION_PIPELINES).map((p) => ({
+   770→    type: p.type,
+   771→    name: p.name,
+   772→    description: p.description,
+   773→    stages: p.stages.length,
+   774→  }))
+   775→}
+   776→

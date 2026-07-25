@@ -117,41 +117,41 @@ async function createTablesViaRawSQL() {
 
     // UPGRADE #142 — BATCH CREATE TABLE STATEMENTS (Issue A fix)
     // Before: 33 sequential `await $executeRawUnsafe(sql)` calls = 33 Postgres
-    //   round-trips = ~6-8 seconds on every cold start. The owner reported
-    //   "page takes 15+ seconds to load" — this was the #1 cause.
-    // After: Group statements into a SINGLE multi-statement query. Postgres
-    //   supports multiple semicolon-separated statements in one $executeRawUnsafe
-    //   call, reducing 33 round-trips to 1.
+    //   round-trips = ~6-8 seconds on every cold start.
+    // After: Group statements into a SINGLE multi-statement query.
     //
-    // We use 4 batches of ~8 statements each to stay under Postgres's
-    // 1MB packet limit and improve error isolation (one bad statement
-    // doesn't kill the entire batch).
+    // UPGRADE #146 (Critical #4 fix) — On ANY batch failure, ALWAYS fall back to
+    // one-by-one execution. The previous code assumed that a "already exists"
+    // batch error meant ALL 8 tables existed, which silently skipped new tables
+    // that landed in the same batch as existing ones.
     const BATCH_SIZE = 8
     for (let i = 0; i < statements.length; i += BATCH_SIZE) {
       const batch = statements.slice(i, i + BATCH_SIZE)
       const combined = batch.join(';\n')
+      let batchSucceeded = false
       try {
         await (db as any).$executeRawUnsafe(combined)
         created += batch.length
+        batchSucceeded = true
       } catch (e: any) {
-        const msg = e?.message ?? ''
-        if (msg.includes('already exists')) {
-          alreadyExisted += batch.length
-        } else {
-          // Batch failed — fall back to executing one-by-one to isolate
-          // the bad statement and let the rest succeed.
-          for (const sql of batch) {
-            try {
-              await (db as any).$executeRawUnsafe(sql)
-              created++
-            } catch (e2: any) {
-              const msg2 = e2?.message ?? ''
-              if (msg2.includes('already exists')) {
-                alreadyExisted++
-              } else {
-                failed++
-                console.warn('[db] SQL failed:', msg2.slice(0, 120), '— statement:', sql.slice(0, 80))
-              }
+        // Batch failed — could be (a) one table already exists, (b) syntax error
+        // in one statement, or (c) genuine DB error. We MUST fall through to
+        // one-by-one to ensure every NEW table gets created.
+        batchSucceeded = false
+      }
+      if (!batchSucceeded) {
+        // Execute each statement individually to isolate which ones succeeded
+        for (const sql of batch) {
+          try {
+            await (db as any).$executeRawUnsafe(sql)
+            created++
+          } catch (e2: any) {
+            const msg2 = e2?.message ?? ''
+            if (msg2.includes('already exists')) {
+              alreadyExisted++
+            } else {
+              failed++
+              console.warn('[db] SQL failed:', msg2.slice(0, 120), '— statement:', sql.slice(0, 80))
             }
           }
         }

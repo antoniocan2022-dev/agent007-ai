@@ -1,6 +1,6 @@
 {
   "auditId": "upgrade-142-145-verification",
-  "generatedAt": "2026-07-25T13:33:15.055Z",
+  "generatedAt": "2026-07-25T14:07:00.623Z",
   "allFilesExist": true,
   "allContentFound": true,
   "fileChecks": [
@@ -8,7 +8,7 @@
       "name": "DB batch CREATE TABLE",
       "file": "src/lib/db.ts",
       "exists": true,
-      "size": 25342,
+      "size": 25358,
       "lines": 336
     },
     {
@@ -36,8 +36,8 @@
       "name": "Mission-Active [id] route (DB-backed)",
       "file": "src/app/api/mission-active/[missionId]/route.ts",
       "exists": true,
-      "size": 6634,
-      "lines": 169
+      "size": 7562,
+      "lines": 184
     },
     {
       "name": "Mission-Active tab (55s timeout)",
@@ -64,15 +64,15 @@
       "name": "Heartbeats list endpoint",
       "file": "src/app/api/missions/heartbeats/route.ts",
       "exists": true,
-      "size": 1072,
-      "lines": 39
+      "size": 1415,
+      "lines": 48
     },
     {
       "name": "Per-mission heartbeat endpoint",
       "file": "src/app/api/missions/[id]/heartbeat/route.ts",
       "exists": true,
-      "size": 1843,
-      "lines": 58
+      "size": 2092,
+      "lines": 65
     },
     {
       "name": "Subagents count update (20)",
@@ -85,8 +85,8 @@
       "name": "Orchestrator prompt update (20)",
       "file": "src/lib/orchestrator.ts",
       "exists": true,
-      "size": 163091,
-      "lines": 3254
+      "size": 163703,
+      "lines": 3264
     },
     {
       "name": "Layout metadata update (20)",
@@ -113,8 +113,8 @@
       "name": "Mission Pipeline",
       "file": "src/lib/mission-pipeline.ts",
       "exists": true,
-      "size": 36367,
-      "lines": 776
+      "size": 39462,
+      "lines": 839
     },
     {
       "name": "Approval Audit Log",

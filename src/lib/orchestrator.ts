@@ -939,6 +939,16 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
     const pipelineType = (missionMatch[1] || 'generic').toLowerCase()
     const objective = missionMatch[2].trim().slice(0, 1000)
     if (objective.length >= 10) {
+      // UPGRADE #146 (Critical #2 fix) — Persist the user's "start mission:" message
+      // FIRST, before running the pipeline. Previously the message was persisted AFTER
+      // the pipeline awaited (which can take 5+ minutes), so if Vercel killed the
+      // function at the 60s timeout, the user's input was lost.
+      try {
+        await db.message.create({ data: { conversationId, role: 'user', content: userMessage } })
+      } catch (dbErr: any) {
+        console.warn('[orchestrator] DB write failed (mission user message), continuing:', dbErr?.message?.slice(0, 100))
+      }
+
       try {
         const { runMissionPipeline, MISSION_PIPELINES } = await import('./mission-pipeline')
         const pipeline = MISSION_PIPELINES[pipelineType] || MISSION_PIPELINES.generic
@@ -979,10 +989,10 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
           await emit('token', { content: c })
         }
 
-        // Persist the user message + assistant response so reload works
+        // Persist the assistant response (user message was already persisted above
+        // before the pipeline ran — Critical #2 fix). Update conversation title too.
         let assistantRowId = 'temp_' + Date.now()
         try {
-          await db.message.create({ data: { conversationId, role: 'user', content: userMessage } })
           const assistantRow = await db.message.create({
             data: { conversationId, role: 'assistant', content: summaryAnswer },
           })
@@ -996,7 +1006,7 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
             })
           }
         } catch (dbErr: any) {
-          console.warn('[orchestrator] DB write failed (mission pipeline), continuing without persistence:', dbErr?.message?.slice(0, 100))
+          console.warn('[orchestrator] DB write failed (mission pipeline assistant response), continuing without persistence:', dbErr?.message?.slice(0, 100))
         }
 
         return {

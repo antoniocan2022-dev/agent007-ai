@@ -20,8 +20,8 @@
 
 import { runSubagent } from './subagents'
 import { superAgentVerify, buildRetryPrompt, formatVerificationResult, type VerificationResult } from './super-agent-verifier'
-import { ceoPresentToOwner, type MissionStageSummary } from './ceo-presenter'
-import { logApprovalEvent, type ApprovalEventInput } from './approval-audit-log'
+import { type MissionStageSummary } from './ceo-presenter'
+import { logApprovalEvent } from './approval-audit-log'
 import { notifyTelegram } from './mission-notifier'
 import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
 
@@ -279,8 +279,10 @@ async function runTeamWithVerificationLoop(opts: {
   let currentPrompt = stage.promptTemplate(objective)
   let lastVerification: VerificationResult | null = null
   let teamOutput = ''
+  let lastRound = 1  // UPGRADE #146 — hoisted out of for-loop so we can report actual rounds
 
   for (let round = 1; round <= MAX_ROUNDS_PER_STAGE; round++) {
+    lastRound = round
     // ── Notify: stage start (round 1 only)
     if (round === 1) {
       await notifyTelegram(`🚀 Stage ${stage.stage}/${stage.team} STARTED\nMission: ${missionId}\nObjective: ${objective.slice(0, 100)}`)
@@ -467,9 +469,15 @@ RULES:
   const artifactValue = extractArtifact(teamOutput, stage.artifactType)
   const artifactVerified = artifactValue !== null && lastVerification?.approved === true
 
+  // UPGRADE #146 (Warning fix) — `rounds` should report the ACTUAL round count,
+  // not "1 if approved, MAX if not". The previous logic reported 1 even when
+  // approval happened on round 2 or 3, hiding retry info from the dashboard.
+  // `lastRound` is hoisted out of the for-loop and tracks the last round that
+  // actually executed. If we exited via break on approval, `lastRound` is the
+  // approval round. If we exited via the loop condition, `lastRound` equals MAX.
   return {
     output: teamOutput,
-    rounds: lastVerification ? (lastVerification.approved ? 1 : MAX_ROUNDS_PER_STAGE) : 1,
+    rounds: lastRound,
     finalScore: lastVerification?.score ?? 0,
     finalVerification: lastVerification ?? {
       approved: false,
@@ -519,32 +527,57 @@ function extractArtifact(output: string, type: PipelineStage['artifactType']): s
 }
 
 /**
- * Check if owner has approved a high-stakes mission.
- * Rec 7 — polls the approval-audit-log for an 'owner_approved' event.
+ * UPGRADE #146 (Critical #1 + #3 fix) — Non-blocking owner approval gate.
+ *
+ * Before: `waitForOwnerApproval` polled in a `while` loop for 24 hours. On
+ * Vercel this is impossible (maxDuration is 60-300s) — the function would
+ * always time out before the owner responded.
+ *
+ * After: This function is now FIRE-AND-FORGET. It:
+ *   1. Sends a Telegram notification asking for approval
+ *   2. Persists the mission as `paused_owner` in the heartbeat
+ *   3. Returns immediately
+ *
+ * The owner approves via:
+ *   - POST /api/missions/[id]/approve { decision: 'approve' }
+ *   - Telegram /approve_XXXXXXXX command
+ *
+ * When approval arrives, a SEPARATE trigger (cron, dashboard button, or
+ * /api/missions/run with resume=true) re-invokes runMissionPipeline with
+ * `skipOwnerApproval: true` to resume the remaining stages.
+ *
+ * This is the only correct pattern on serverless — long-running polls
+ * belong in the client or in a queue worker, not in the request handler.
  */
-async function waitForOwnerApproval(missionId: string, timeoutMs: number = 24 * 60 * 60 * 1000): Promise<boolean> {
-  const startTime = Date.now()
-  const pollInterval = 60 * 1000  // check every minute
+async function requestOwnerApproval(missionId: string, missionTitle: string): Promise<void> {
+  const approveCmd = `/approve_${missionId.slice(0, 8)}`
+  const rejectCmd = `/reject_${missionId.slice(0, 8)}`
 
-  await notifyTelegram(`⏸️ MISSION REQUIRES OWNER APPROVAL\nMission: ${missionId}\n\nThis is a high-stakes mission. Reply with /approve_${missionId.slice(0, 8)} to proceed, or /reject_${missionId.slice(0, 8)} to cancel.\n\nAuto-cancel in 24 hours if no response.`)
+  await notifyTelegram(
+    `⏸️ MISSION REQUIRES OWNER APPROVAL\n\n` +
+    `Mission: ${missionTitle}\n` +
+    `ID: ${missionId}\n\n` +
+    `This is a high-stakes mission. The CEO has prepared the plan and is waiting for your approval.\n\n` +
+    `To APPROVE: ${approveCmd}\n` +
+    `To REJECT: ${rejectCmd}\n\n` +
+    `Or use the dashboard Mission Monitor widget → click mission → Approve button.`
+  )
 
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const { hasOwnerApproval } = await import('./approval-audit-log')
-      const approved = await hasOwnerApproval(missionId)
-      if (approved) return true
-
-      // Check for explicit rejection
-      const { hasOwnerRejection } = await import('./approval-audit-log')
-      const rejected = await hasOwnerRejection(missionId)
-      if (rejected) return false
-    } catch {}
-
-    await new Promise((r) => setTimeout(r, pollInterval))
-  }
-
-  await notifyTelegram(`⏰ MISSION AUTO-CANCELLED\nMission: ${missionId}\nReason: owner did not respond within 24 hours.`)
-  return false
+  // Mark the heartbeat as paused so the dashboard shows the right status
+  try {
+    const { loadHeartbeat, saveHeartbeat } = await import('./mission-heartbeat')
+    const hb = await loadHeartbeat(missionId)
+    if (hb) {
+      hb.status = 'paused_owner'
+      hb.ceoWatchdog = {
+        verdict: 'warning',
+        message: 'Paused — waiting for owner approval. Use /approve_XXXXXXXX or dashboard button.',
+        checkedAt: new Date().toISOString(),
+      }
+      hb.updatedAt = new Date().toISOString()
+      await saveHeartbeat(hb)
+    }
+  } catch {}
 }
 
 /**
@@ -608,6 +641,48 @@ export async function runMissionPipeline(opts: {
 
   // ── Run each stage sequentially
   for (const stage of pipeline.stages) {
+    // UPGRADE #146 (Critical #1 fix) — Owner approval gate BEFORE the CEO stage.
+    // Previously this gate was at the END of the loop, but the CEO stage early-returns
+    // from inside the loop, so the gate was unreachable. Now we check BEFORE the CEO
+    // stage runs: if approval is required and not yet granted, pause the mission
+    // and return immediately so the request can finish within Vercel's timeout.
+    if (stage.team === 'ceo' && pipeline.requiresOwnerApproval && !opts.skipOwnerApproval) {
+      // Check if owner already approved (e.g. mission was resumed)
+      try {
+        const { hasOwnerApproval, hasOwnerRejection } = await import('./approval-audit-log')
+        const alreadyApproved = await hasOwnerApproval(missionId)
+        const alreadyRejected = await hasOwnerRejection(missionId)
+        if (alreadyRejected) {
+          return {
+            missionId,
+            pipelineType: pipeline.type,
+            success: false,
+            stages,
+            error: 'Owner rejected the mission',
+            requiresOwnerApproval: true,
+            pausedForOwnerApproval: false,
+          }
+        }
+        if (!alreadyApproved) {
+          // Pause — send Telegram, mark heartbeat, return immediately.
+          await requestOwnerApproval(missionId, opts.missionTitle ?? missionId)
+          return {
+            missionId,
+            pipelineType: pipeline.type,
+            success: false,
+            stages,
+            error: 'Mission paused — waiting for owner approval',
+            requiresOwnerApproval: true,
+            pausedForOwnerApproval: true,
+          }
+        }
+        // Already approved → fall through and run CEO stage
+      } catch (e: any) {
+        // Approval-check failed — proceed with CEO (fail-open to avoid mission stall)
+        console.warn('[mission-pipeline] Owner approval check failed, proceeding:', e?.message?.slice(0, 100))
+      }
+    }
+
     try {
       const result = await runTeamWithVerificationLoop({
         missionId,
@@ -738,21 +813,9 @@ export async function runMissionPipeline(opts: {
     }
   }
 
-  // ── Rec 7: Owner approval gate (only for high-stakes missions that completed successfully)
-  if (pipeline.requiresOwnerApproval && !opts.skipOwnerApproval) {
-    const approved = await waitForOwnerApproval(missionId)
-    if (!approved) {
-      return {
-        missionId,
-        pipelineType: pipeline.type,
-        success: false,
-        stages,
-        error: 'Owner did not approve the mission',
-        requiresOwnerApproval: true,
-        pausedForOwnerApproval: true,
-      }
-    }
-  }
+  // ── UPGRADE #146 (Critical #1 fix) — Removed unreachable post-loop approval check.
+  // The CEO stage early-returns from inside the loop above, so this code was dead.
+  // The approval gate is now checked BEFORE the CEO stage runs (see inside the loop).
 
   return {
     missionId,

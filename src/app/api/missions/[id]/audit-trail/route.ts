@@ -15,8 +15,11 @@
  *       lastActivity: string (ISO date)
  *     }
  *   }
+ *
+ * UPGRADE #146 (Critical #6 fix) — Auth required.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
 import { loadApprovalLog } from '@/lib/approval-audit-log'
 
 export const dynamic = 'force-dynamic'
@@ -24,10 +27,16 @@ export const maxDuration = 10
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const missionId = params.id
+    // UPGRADE #146 — Auth required (was public, leaked mission details)
+    const session = await getServerSession()
+    if (!session?.user) {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { id: missionId } = await params
     if (!missionId) {
       return NextResponse.json({ ok: false, error: 'Mission ID required' }, { status: 400 })
     }
