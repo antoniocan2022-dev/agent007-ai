@@ -1283,12 +1283,36 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         })
       } catch { /* ignore */ }
 
+      // UPGRADE #133: CROSS-LEADER VERIFICATION
+      // If this is the 2nd+ dispatch, pass the previous leader's result
+      // to the new leader's task so they can VERIFY it.
+      let enhancedTask = task
+      if (dispatchCount > 1) {
+        // Find the most recent SUBAGENT_RESULT in conversation messages
+        const prevResults = conversationMessages
+          .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('[SUBAGENT_RESULT]'))
+          .map((m) => (m.content as string).replace(/^\[SUBAGENT_RESULT\]\s*/, ''))
+        if (prevResults.length > 0) {
+          const lastResult = prevResults[prevResults.length - 1].slice(0, 3000)
+          enhancedTask = `${task}
+
+PREVIOUS LEADER'S OUTPUT (for cross-verification):
+${lastResult}
+
+VERIFICATION REQUIRED: Before completing your task, verify the previous leader's output:
+1. Check for factual accuracy (claims, numbers, URLs)
+2. Check for completeness (did they miss anything critical?)
+3. Check for errors or contradictions
+4. Include a "## Verification" section in your response noting any issues found, or confirming the previous output is accurate.`
+        }
+      }
+
       // Run the sub-agent (it will emit its own subagent_thought/tool_call/tool_result events)
       let subAnswer = ''
       try {
         const result = await runSubagent({
           subagentId: sub.id,
-          task,
+          task: enhancedTask,
           attachments,
           language,
           parentConversationId: conversationId,
@@ -1557,6 +1581,24 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         content: '[SYSTEM] Your previous response contained only tags (dispatch / thought / pseudo-XML) with no actual answer text. The owner saw nothing comprehensible. Please respond NOW with a clear markdown answer (use ## headings, bullet points, etc.) — NO tags, NO thoughts, NO pseudo-XML. Just plain text the owner can read.',
       })
       continue
+    }
+
+    // UPGRADE #133: DELIVERY VERIFICATION on final answer
+    // Check if the answer claims delivery (published, deployed, sent) but
+    // no corresponding tool was actually called.
+    const deliveryKeywords = /(published|deployed|posted|sent|scheduled|uploaded|listed|created.*listing|live\s+now)/i
+    const deliveryTools = ['wordpress_publisher', 'stripe_payment_processor', 'etsy_integration',
+      'convertkit_email', 'send_email', 'telegram_notify', 'ntfy_notify', 'discord_notify',
+      'buffer_scheduler', 'resend_email', 'file_write']
+    const toolsCalled = steps.map((s: any) => s.toolName).filter(Boolean)
+    const claimsDelivery = deliveryKeywords.test(finalAnswer)
+    const usedDeliveryTool = deliveryTools.some((t) => toolsCalled.includes(t))
+
+    if (claimsDelivery && !usedDeliveryTool) {
+      // The CEO claims delivery but no delivery tool was called — add warning
+      finalAnswer += `\n\n---\n⚠️ **DELIVERY VERIFICATION:** The answer claims delivery was completed, but no delivery tool (wordpress_publisher, send_email, stripe_payment_processor, etc.) was actually called. The action may not have occurred. Please verify manually or re-dispatch with explicit delivery instructions.`
+    } else if (claimsDelivery && usedDeliveryTool) {
+      finalAnswer += `\n\n---\n✅ **DELIVERY VERIFIED:** Delivery tool (${toolsCalled.find((t: string) => deliveryTools.includes(t))}) was called successfully.`
     }
 
     // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
