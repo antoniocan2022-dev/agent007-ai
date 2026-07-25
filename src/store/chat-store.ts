@@ -668,6 +668,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().loadMemories()
     } catch (e: any) {
       console.error('sendMessage error', e)
+      // UPGRADE #131: Show clean error message instead of raw HTML or confusing text
+      let errMsg = e?.message ?? String(e)
+      if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html')) {
+        errMsg = 'The server encountered an error. This is usually a temporary database connectivity issue. Please wait 10 seconds and try again.'
+      }
       set((s) => ({
         messages: s.messages.map((m) =>
           m.id === assistantId
@@ -677,7 +682,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 content:
                   m.content +
                   (m.content ? '\n\n' : '') +
-                  `⚠️ **Error:** ${e?.message ?? String(e)}`,
+                  `⚠️ **Error:** ${errMsg.slice(0, 300)}`,
               }
             : m
         ),
@@ -1200,8 +1205,12 @@ function applyEvent(
     // even when the actual cause is a DB failure or network timeout.
     // NOW: only treat as rate limit if the message explicitly says "rate-limiting" (with hyphen)
     // or contains "429" or "too many requests" — NOT the generic "rate limit" phrase.
-    // UPGRADE #131: Only match actual 429 status — not the phrase "rate limit"
-    const isRateLimit = /HTTP 429|too many requests/i.test(msg)
+    // UPGRADE #131: Stop detecting rate limits from message text entirely.
+    // The error message from friendlyLlmError() was containing trigger words
+    // that the regex was matching — creating a circular reference where the
+    // fix caused the bug. NOW: only show the rate-limit banner if the server
+    // explicitly sends { rateLimited: true } in the error data.
+    const isRateLimit = data?.rateLimited === true
     const isDBError = /database|prisma|Can't reach|connection|ECONNREFUSED|ETIMEDOUT/i.test(msg)
     const isNetworkError = /fetch failed|network|timeout|ECONNRESET|socket hang up|aborted/i.test(msg)
 
@@ -1212,10 +1221,10 @@ function applyEvent(
     } else if (isNetworkError) {
       userMessage = '⚠️ Network error — a provider was temporarily unreachable. Please click Retry below.'
     } else if (isRateLimit) {
-      userMessage = '⏳ A provider is rate-limiting requests. Please wait 30 seconds and click Retry below.'
+      userMessage = '⏳ A provider is at capacity. Please wait 30 seconds and click Retry below.'
     } else {
-      // Generic error — don't say "rate limited" if it's not actually a rate limit
-      userMessage = `⚠️ Error: ${msg.slice(0, 200)}\n\nThis may be a temporary issue. Click Retry below to try again.`
+      // Generic error — show the actual error text
+      userMessage = `⚠️ ${msg.slice(0, 300)}\n\nThis may be a temporary issue. Click Retry below to try again.`
     }
 
     set((s) => ({

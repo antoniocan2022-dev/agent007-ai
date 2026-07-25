@@ -37,6 +37,7 @@ import {
   TOOL_RE,
   SYSTEM_PROMPT as BASE_SYSTEM_PROMPT,
   friendlyLlmError,
+  isRateLimitError,
 } from '@/lib/agent'
 import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/subagents'
 // Note: SUBAGENTS import is retained because executeManageAction references it
@@ -1017,7 +1018,9 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       completion = await callLlmWithRetry(conversationMessages)
     } catch (e: any) {
       const friendly = friendlyLlmError(e)
-      await emit('error', { message: friendly })
+      // UPGRADE #131: Send rateLimited flag explicitly — don't rely on text matching
+      const rateLimited = isRateLimitError(e)
+      await emit('error', { message: friendly, rateLimited })
       finalAnswer = friendly
       break
     }

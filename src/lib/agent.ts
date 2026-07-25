@@ -335,7 +335,7 @@ async function throttleLlm(): Promise<void> {
   _lastLlmCallAt = Date.now()
 }
 
-function isRateLimitError(e: any): boolean {
+export function isRateLimitError(e: any): boolean {
   const status: number | undefined = e?.status ?? e?.response?.status
   if (status === 429) return true
   const lower = (e?.message ?? String(e)).toLowerCase()
@@ -614,7 +614,7 @@ export async function callLlmWithRetry(
 
   // UPGRADE #126: Clearer error message — don't mention OpenAI if it's disabled
   const friendlyMsg = isRateLimitError(lastErr)
-    ? `HTTP 429 from all active providers (${providersTried}). Please wait 30 seconds and try again. Active providers: Mistral, Groq, OpenRouter, Cerebras, Brave, Gemini.`
+    ? `All active providers are temporarily at capacity (${providersTried}). Please wait 30 seconds and try again. Active providers: Mistral, Groq, OpenRouter, Cerebras, Brave, Gemini.`
     : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set MISTRAL_API_KEY (from https://console.mistral.ai/api-keys) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars. Visit /api/health/llm-providers for live diagnostics.`
 
   throw new Error(friendlyMsg)
@@ -1703,7 +1703,10 @@ export function friendlyLlmError(e: any): string {
   const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'
 
   if (status === 429 || lower.includes('429') || lower.includes('too many requests')) {
-    return `⏳ Agent007's ${providerName} returned HTTP 429. Please wait 30 seconds and try again.`
+    // UPGRADE #131: Don't include "429" or "rate limit" in the message text —
+    // the chat-store regex was matching these words and showing a false rate-limit banner.
+    // Instead, return a clean message without trigger words.
+    return `⏳ Agent007's ${providerName} is temporarily unavailable (provider capacity). Please wait 30 seconds and try again.`
   }
   if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
     // Check for region block specifically
