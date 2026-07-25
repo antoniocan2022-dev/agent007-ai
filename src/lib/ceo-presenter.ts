@@ -202,7 +202,7 @@ export async function ceoSendEmail(report: CeoReport): Promise<void> {
     await sendEmail({
       to: process.env.OWNER_EMAIL,
       subject: `🎯 Mission Complete: ${report.missionTitle}`,
-      text: report.fullReport,
+      body: report.fullReport,
     })
   } catch (e: any) {
     console.warn('[ceo-presenter] Email failed:', e?.message?.slice(0, 100))

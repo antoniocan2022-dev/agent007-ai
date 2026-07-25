@@ -71,7 +71,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Monetization Strategy.\nBased on Scout's research, design: (1) 3-tier pricing (free / pro / business), (2) revenue projection table for months 1-3, (3) customer acquisition plan (channels + cost per acquisition), (4) rationale for the chosen monetization model. Be specific with numbers.`,
       },
       {
-        stage: 3, team: 'nova', leader: 'nova', name: 'Product Blueprint',
+        stage: 3, team: 'vertex', leader: 'vertex', name: 'Product Blueprint',
         artifactType: 'data',
         requirements: 'Product blueprint: feature list (MVP + post-MVP), tech stack, data model, wireframe descriptions, deployment plan.',
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: Product Blueprint.\nDesign: (1) MVP feature list (max 5 features), (2) post-MVP features, (3) tech stack (framework, DB, hosting, payments), (4) data model (entities + relationships), (5) wireframe descriptions for each page, (6) deployment plan (Vercel + Stripe).`,
@@ -122,7 +122,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Content Outline.\nDesign: (1) H1/H2/H3 outline (at least 8 H2 sections), (2) target word count, (3) key points per section, (4) SEO meta title (under 60 chars) + meta description (under 160 chars), (5) internal/external link suggestions.`,
       },
       {
-        stage: 3, team: 'nova', leader: 'nova', name: 'Content Draft',
+        stage: 3, team: 'quill', leader: 'quill', name: 'Content Draft',
         artifactType: 'data',
         requirements: 'Full content draft (2000+ words), formatted in markdown, ready for publication.',
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: Content Draft.\nWrite the full article (2000+ words) in markdown based on Aurora's outline. Include: (1) engaging intro (hook + thesis), (2) all H2 sections fully written, (3) examples / data / quotes where relevant, (4) call-to-action at the end, (5) suggested images (alt text + description).`,
@@ -167,7 +167,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Campaign Strategy.\nDesign: (1) content calendar (12 articles over 90 days), (2) primary + secondary keyword targets per article, (3) internal linking plan (which articles link to which), (4) funnel design (traffic → email list → affiliate CTA), (5) projected revenue (commission × conversion rate × traffic).`,
       },
       {
-        stage: 3, team: 'nova', leader: 'nova', name: 'First 3 Articles Drafted',
+        stage: 3, team: 'quill', leader: 'quill', name: 'First 3 Articles Drafted',
         artifactType: 'data',
         requirements: '3 full article drafts (1500+ words each), each with affiliate CTAs and proper disclosure.',
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: First 3 Articles.\nWrite 3 full article drafts (1500+ words each) following Aurora's content calendar. Each article: (1) engaging intro, (2) affiliate CTAs (in-content + sidebar suggestion), (3) proper affiliate disclosure, (4) comparison tables where relevant, (5) FAQ section.`,
@@ -212,7 +212,7 @@ export const MISSION_PIPELINES: Record<string, PipelineDef> = {
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 2: Strategy.\nBased on Scout's research, design: (1) step-by-step strategy, (2) success metrics (KPIs), (3) risk mitigation, (4) timeline. Be specific and actionable.`,
       },
       {
-        stage: 3, team: 'nova', leader: 'nova', name: 'Execution',
+        stage: 3, team: 'forge', leader: 'forge', name: 'Execution',
         artifactType: 'data',
         requirements: 'Concrete execution output — the actual deliverable (content, code, plan).',
         promptTemplate: (obj) => `MISSION: ${obj}\n\nStage 3: Execution.\nExecute Aurora's strategy. Produce the actual deliverable. Return: (1) the deliverable itself, (2) notes on what was built, (3) any deviations from the strategy and why.`,
@@ -306,16 +306,65 @@ async function runTeamWithVerificationLoop(opts: {
     }
 
     // ── Run the team leader
-    const result = await runSubagent({
-      subagentId: stage.leader,
-      task: currentPrompt,
-      attachments: [],
-      language: 'en',
-      emit: async () => {},  // silent — pipeline runs in background
-      parentConversationId: `mission_${missionId}`,
-      dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,
-    })
-    teamOutput = result.answer
+    // Special case: CEO stage uses callLlmWithRetry directly (no 'ceo' subagent exists).
+    // The CEO is the apex LLM that aggregates everything into a final executive report.
+    if (stage.team === 'ceo') {
+      try {
+        const { callLlmWithRetry } = await import('./agent')
+        const ceoResponse = await callLlmWithRetry([
+          {
+            role: 'system',
+            content: `You are the CEO of Agent007 — the apex executive reporting to the human owner (Antonio).
+
+A mission has just completed all of its team stages. Your job: AGGREGATE everything the teams produced and present a CLEAR, EXECUTIVE summary to Antonio.
+
+Antonio is busy. He needs to understand:
+1. Did the mission succeed? (success / partial / failed)
+2. What was actually delivered? (URLs, files, transaction IDs — concrete artifacts, not promises)
+3. What is the revenue impact? (if applicable)
+4. What risks or notes should he be aware of?
+5. What are the next 3 recommended actions?
+
+FORMAT (strict):
+🎯 MISSION: [one-line description]
+📊 OUTCOME: [success/partial/failed]
+💰 REVENUE IMPACT: [if applicable, otherwise "N/A"]
+✅ KEY DELIVERABLES:
+   - [bullet list with URLs/IDs]
+⚠️ RISKS/NOTES:
+   - [if any, otherwise "None"]
+📈 NEXT STEPS:
+   1. [action]
+   2. [action]
+   3. [action]
+
+RULES:
+- Keep the report under 300 words.
+- Be honest — if delivery failed, say so. Antonio trusts the CEO because the CEO never lies.
+- Quote real artifact values (URLs, IDs), not vague descriptions.
+- If revenue is $0, say "$0 so far — see next steps for monetization plan".`
+          },
+          { role: 'user', content: currentPrompt },
+        ], { thinking: false })
+
+        teamOutput = typeof ceoResponse === 'string'
+          ? ceoResponse
+          : (ceoResponse?.content ?? ceoResponse?.message?.content ?? '(CEO produced no output)')
+      } catch (ceoErr: any) {
+        teamOutput = `🎯 MISSION: ${objective.slice(0, 100)}\n📊 OUTCOME: partial (CEO LLM unavailable)\n💰 REVENUE IMPACT: See artifacts below\n✅ KEY DELIVERABLES:\n   - (See stage results in audit trail)\n⚠️ RISKS/NOTES:\n   - CEO LLM was unavailable; this is a fallback report.\n📈 NEXT STEPS:\n   1. Review the audit trail manually.\n   2. Approve mission via dashboard.\n   3. Schedule the next mission.`
+      }
+    } else {
+      const result = await runSubagent({
+        subagentId: stage.leader,
+        task: currentPrompt,
+        attachments: [],
+        language: 'en',
+        emit: async () => {},  // silent — pipeline runs in background
+        parentConversationId: `mission_${missionId}`,
+        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,
+      })
+      teamOutput = result.answer
+    }
 
     // ── Special case: CEO stage doesn't get verified (it IS the verifier of the whole mission)
     if (stage.team === 'ceo') {
@@ -558,7 +607,7 @@ export async function runMissionPipeline(opts: {
       // If stage is the CEO (final), capture the report
       if (stage.team === 'ceo') {
         // CEO stage output IS the report
-        const ceoReport = {
+        const ceoReport: import('./ceo-presenter').CeoReport = {
           missionId,
           missionTitle: opts.missionTitle ?? missionId,
           objective,

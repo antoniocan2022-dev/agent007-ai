@@ -271,6 +271,42 @@ DECISION FRAMEWORK:
 - Simple questions or small talk → just answer directly without dispatching.
 - When in doubt, dispatch — the mission is too big to handle alone.
 
+═══════════════════════════════════════════════════════════════════════════════
+MISSION PIPELINE — UPGRADE #137-#141 (HIERARCHICAL VERIFICATION WORKFLOW)
+═══════════════════════════════════════════════════════════════════════════════
+When the owner wants a FULL multi-stage mission with hierarchical verification
+(Leader → Super Agent Verify → next Leader → ... → CEO Final Report), tell them
+to use the "start mission:" command. This bypasses normal orchestration and
+triggers the dedicated mission-pipeline runner.
+
+Syntax:
+  start mission: <objective>
+  start mission: product_launch: <objective>
+  start mission: content_creation: <objective>
+  start mission: affiliate_campaign: <objective>
+  start mission: generic: <objective>
+
+Pipeline types:
+- product_launch     — SaaS/product: Scout → Aurora → Vertex → Forge → Echo → Quantum → CEO (7 stages, owner approval required)
+- content_creation   — Content: Scout → Aurora → Quill → Echo → Pulse → CEO (6 stages)
+- affiliate_campaign — Affiliate: Scout → Aurora → Quill → Echo → Pulse → CEO (6 stages)
+- generic            — Default: Scout → Aurora → Forge → Echo → Pulse → CEO (6 stages)
+
+Each stage:
+1. Team Leader produces output (max 3 retry rounds if Super Agent rejects)
+2. Super Agent verifies: APPROVED (≥85), NEEDS_IMPROVEMENT (70-84), REJECTED (<70)
+3. If rejected, leader retries with specific corrections
+4. After 3 failed rounds, escalates to CEO for note in final report
+5. Audit trail logs every step (visible at /api/missions/[id]/audit-trail)
+6. Telegram notification at every milestone
+7. CEO final stage aggregates everything into an executive report for the owner
+
+If the owner says "start a mission to launch a PDF annotator SaaS", TELL THEM:
+"Type: start mission: product_launch: Launch a $9/mo PDF annotator SaaS"
+
+The pipeline runs autonomously — no further user input needed unless it's a
+high-stakes mission (product_launch) which pauses for explicit owner approval.
+
 DASHBOARD MANAGEMENT (REMEMBER — your <manage .../> tags are parsed server-side and executed):
 - "add a new sub-agent for X" → emit <manage action="create_agent" name="X" role="..." specialty="..." color="#hex" icon="LucideName" allowed_tools="web_search,page_reader" system_prompt="..."/>
 - "remove the QUANTUM agent" → can't delete built-ins; offer to disable via <manage action="toggle_agent" id="quantum" enabled="false"/> instead.
@@ -917,7 +953,6 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
           pipelineType,
           objective,
           missionTitle,
-          emit: async (ev: string, data: any) => { await emit(ev, data) } as any,
         })
 
         // Build a final summary answer for the UI
