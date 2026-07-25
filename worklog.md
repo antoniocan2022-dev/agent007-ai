@@ -4765,3 +4765,23 @@ Stage Summary:
 - All 22 audit checks pass
 - Deployment: ✅ live at https://agent007-ai.vercel.app
 - Backup: ✅ 466 files (5.3 MB ZIP) ready for download
+
+---
+Task ID: audit-deep-investigation
+Agent: general-purpose
+Task: Deep investigation of 3 external audit issues
+
+Work Log:
+- Investigated Issue 1 (scroll arrows): Read scroll-arrows.tsx, chat-thread.tsx, tabs/chat-tab.tsx, app/page.tsx, app/layout.tsx. Confirmed full deployed component tree.
+- Investigated Issue 2 (page load): Read api/init/route.ts, lib/db.ts (full), next.config.ts, middleware.ts, app/page.tsx, session-provider.tsx, service-worker-register.tsx, store/chat-store.ts (autoRefresh + initial loads), tabs/dashboard-tab.tsx (mount effects).
+- Investigated Issue 3 (leader response): Read api/mission-active/[missionId]/route.ts (full), lib/active-missions.ts (POD_LEADERS + DEFAULT_CHAIN), lib/active-missions-db.ts (getLeaderForCurrentStageDB), lib/subagents.ts (SUBAGENTS ids/names), lib/mission-pipeline.ts (stages 1-250 + Nova grep), api/health/llm-providers/route.ts.
+
+Key Findings:
+- Issue 1: ChatTab → ChatThread → ScrollArrows IS the deployed tree (page.tsx:182). Threshold: scrollHeight > clientHeight + 100 (scroll-arrows.tsx:51). z-40 arrows > z-30 chat input — no CSS occlusion. alwaysVisible defaults true. No logic bug in long conversations.
+- Issue 2: /api/init is NOT called on page load. Page is client component. 3 parallel API calls fire on mount (loadConversations, loadMemories, loadSubagentCount) — each hits a cold serverless instance that independently runs ensureInit() → createTablesViaRawSQL (batch-of-8 with one-by-one fallback, db.ts:127-159) + seedData (5 sequential awaits, db.ts:172-231). No pooler hint in db.ts:60-62 (just `new PrismaClient()`).
+- Issue 3: Matching logic at route.ts:97-101 uses BOTH id-based (safe) AND name-based (fragile) checks. POD_LEADERS keys (scout/aurora/echo/forge/pulse/developer/cybersecurity_r/revenue) match SUBAGENTS ids EXCEPT 'revenue'. MISSION_PIPELINES stages include 'ceo' which has NO matching subagent. Stale "Nova" references in mission-pipeline.ts at lines 92, 143, 208, 233, 239 — these confuse the LLM (no Nova agent exists).
+
+Stage Summary:
+- Issue 1: NOT a deployment bug — arrows ARE deployed and DO work for any conversation >100px overflow. Recommendation: lower threshold from 100 to 30-50px, or remove hasScrollableContent gate entirely when alwaysVisible=true.
+- Issue 2: Root cause = multiple independent serverless cold starts + no DB pooler + sequential seedData. 3 ranked fixes below.
+- Issue 3: id-based match works for DEFAULT_CHAIN. CEO stage + 'revenue' pod are broken edge cases. Stale "Nova" prompts confuse LLM. Fix: remove name-fallback, clean Nova refs, add 'ceo' leader handling.
