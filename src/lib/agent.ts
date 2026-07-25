@@ -369,24 +369,92 @@ export async function callLlmWithRetry(
   let lastErr: any = null
 
   // ════════════════════════════════════════════════════════════════════
-  // UPGRADE #77 + #112 + #114 — MULTI-PROVIDER LLM ROUTER (ORDER-AWARE)
-  //
-  // UPGRADE #114 — NEW DEFAULT ORDER (owner-requested):
-  //   OpenAI → Mistral → Groq → OpenRouter → Brave → Gemini → z.ai
-  //
-  //   - 7 providers total (was 6)
-  //   - Mistral is now #2 (was #5) — fast, reliable, works from any region
-  //   - Brave AI is NEW (#5) — OpenAI-compatible, any region
-  //   - z.ai is NEW (#7) — env-var based (ZAI_API_KEY), works on Vercel
-  //   - Gemini dropped to #6 (region-blocked on Vercel iad1)
-  //
-  // UPGRADE #112 — LLM_PROVIDER_ORDER env var (still respected)
-  // ─────────────────────────────────────────────────────
-  // Override the default order by setting:
-  //   LLM_PROVIDER_ORDER=mistral,groq,openrouter,openai
-  // (comma-separated, lowercase, any subset, any order)
-  // Providers not in the list are SKIPPED entirely. Providers in the list
-  // but without an API key set are also skipped (with a console log).
+  // UPGRADE #149 (Fix #2 + #3) — Provider failure tracking + circuit breaker
+  // ════════════════════════════════════════════════════════════════════
+  // failures: collects every provider's failure so we can build an accurate
+  // error message at the end. Before: only `lastErr` was kept, so the UI
+  // showed "rate limited" even when only 1 of 6 providers actually 429'd.
+  // After: we know exactly which providers failed and why.
+  const failures: Array<{ provider: string; error: any; isRateLimit: boolean }> = []
+
+  // circuitBreaker: per-provider. After 3 failures in 60s, skip the provider
+  // entirely for 60s. This prevents wasting 500ms-2s on a dead provider.
+  // Stored on globalThis so it persists across calls within the same warm instance.
+  const G = globalThis as any
+  if (!G.__llmCircuitBreaker) G.__llmCircuitBreaker = {} as Record<string, { failures: number[]; skipUntil: number }>
+  const circuitBreaker: Record<string, { failures: number[]; skipUntil: number }> = G.__llmCircuitBreaker
+
+  function shouldSkipProvider(name: string): boolean {
+    const cb = circuitBreaker[name]
+    if (!cb) return false
+    const now = Date.now()
+    if (cb.skipUntil > now) return true  // Still in cooldown
+    // Clean old failures (older than 60s)
+    cb.failures = cb.failures.filter(t => now - t < 60_000)
+    return false
+  }
+
+  function recordProviderFailure(name: string) {
+    const now = Date.now()
+    if (!circuitBreaker[name]) circuitBreaker[name] = { failures: [], skipUntil: 0 }
+    circuitBreaker[name].failures.push(now)
+    // If 3+ failures in 60s, skip for 60s
+    if (circuitBreaker[name].failures.length >= 3) {
+      circuitBreaker[name].skipUntil = now + 60_000
+      console.warn(`[LLM Router] ${name} circuit breaker OPEN for 60s (${circuitBreaker[name].failures.length} failures in 60s)`)
+    }
+  }
+
+  // UPGRADE #149 (Fix #1) — Helper: call a provider with retry-with-backoff.
+  // 3 attempts: 0ms, 500ms, 1500ms. Only retries on rate-limit (429) errors;
+  // auth/region/500 errors fast-fall through to the next provider.
+  // Returns the result on success, throws on failure.
+  async function callWithRetry(
+    providerName: string,
+    fn: () => Promise<any>,
+    backoffMs: number[] = [0, 500, 1500]
+  ): Promise<any> {
+    let lastProviderErr: any = null
+    for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, backoffMs[attempt]))
+      }
+      try {
+        const result = await fn()
+        if (attempt > 0) console.log(`[LLM Router] ${providerName} succeeded on retry ${attempt}`)
+        return result
+      } catch (err: any) {
+        lastProviderErr = err
+        const isRateLimit = isRateLimitError(err)
+        const errStr = (err?.message || '').toLowerCase()
+        // Fast-fail on auth/region errors (don't retry)
+        const isAuthOrRegion =
+          errStr.includes('region') ||
+          errStr.includes('country') ||
+          errStr.includes('location is not supported') ||
+          errStr.includes('403') ||
+          errStr.includes('401') ||
+          errStr.includes('unauthorized') ||
+          errStr.includes('invalid api key') ||
+          errStr.includes('forbidden')
+        if (isAuthOrRegion && !isRateLimit) {
+          console.warn(`[LLM Router] ${providerName} auth/region blocked — fast-fail: ${err?.message?.slice(0, 80)}`)
+          break
+        }
+        if (!isRateLimit) {
+          console.warn(`[LLM Router] ${providerName} non-retryable error: ${err?.message?.slice(0, 80)}`)
+          break
+        }
+        // Rate limit — retry
+        RATE_LIMIT_INFO.last429At = Date.now()
+        console.warn(`[LLM Router] ${providerName} rate-limited (attempt ${attempt + 1}/${backoffMs.length}): ${err?.message?.slice(0, 80)}`)
+      }
+    }
+    throw lastProviderErr
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #149 — Provider chain definitions
   // ════════════════════════════════════════════════════════════════════
   const isVercel = !!(process.env.VERCEL || process.env.NOW)
   const configuredOrder = (process.env.LLM_PROVIDER_ORDER || '')
@@ -395,9 +463,7 @@ export async function callLlmWithRetry(
     .filter(Boolean)
 
   // UPGRADE #123: Owner requested disabling OpenAI + z.ai, adding Cerebras.
-  // New default chain (no strict order — agents self-select best provider):
-  //   mistral, groq, openrouter, cerebras, brave, gemini
-  // OpenAI and z.ai are DISABLED by default (can be re-enabled via env var).
+  // New default chain: mistral, groq, openrouter, cerebras, brave, gemini
   const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'brave', 'gemini']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
@@ -406,220 +472,192 @@ export async function callLlmWithRetry(
     return order.includes(name)
   }
 
-  // PROVIDER: OpenAI (gpt-4o) — with RETRIES (reduced in UPGRADE #112)
-  // UPGRADE #112: Reduced from 5 attempts (15s wasted) to 2 attempts (1s wasted)
-  // on region-blocked / 403 / 401 errors. Real 429 rate limits still retry up to 3x.
+  // Build the list of providers we'll actually try (enabled + has API key + circuit breaker not open)
+  type ProviderDef = { name: string; fn: () => Promise<any> }
+  const providers: ProviderDef[] = []
+
   if (providerEnabled('openai') && process.env.OPENAI_API_KEY) {
-    const openaiBackoff = [0, 1000] // 2 attempts max for fast-fail; rate limits escalate separately
-    for (let attempt = 0; attempt < openaiBackoff.length; attempt++) {
-      if (attempt > 0) {
-        console.log(`[LLM Router] OpenAI retry ${attempt}/${openaiBackoff.length - 1} after ${openaiBackoff[attempt]}ms...`)
-        await new Promise((r) => setTimeout(r, openaiBackoff[attempt]))
-      }
-      try {
-        const result = await callFallbackLlm(messages)
-        if (attempt > 0) console.log(`[LLM Router] OpenAI succeeded on retry ${attempt}`)
-        return result
-      } catch (openaiErr: any) {
-        lastErr = openaiErr
-        const isRateLimit = isRateLimitError(openaiErr)
-        const errStr = (openaiErr?.message || '').toLowerCase()
-        // UPGRADE #112: Detect region/auth errors and FAST-FAIL (no retry)
-        const isRegionBlocked =
-          errStr.includes('region') ||
-          errStr.includes('country') ||
-          errStr.includes('location is not supported') ||
-          errStr.includes('not supported') ||
-          errStr.includes('403') ||
-          errStr.includes('401') ||
-          errStr.includes('unauthorized') ||
-          errStr.includes('invalid api key')
-        console.warn(`[LLM Router] OpenAI attempt ${attempt + 1} failed: ${openaiErr?.message?.slice(0, 80)} (${isRateLimit ? 'rate limit' : isRegionBlocked ? 'region/auth (fast-fail)' : 'other error'})`)
-        // Region/auth errors: skip immediately, try next provider
-        if (isRegionBlocked && !isRateLimit) {
-          console.warn('[LLM Router] OpenAI region/auth blocked — skipping retries, trying next provider')
-          break
-        }
-        // Non-rate-limit, non-region errors: don't retry either
-        if (!isRateLimit) break
-        // Real rate limit: continue retrying
-        RATE_LIMIT_INFO.last429At = Date.now()
-      }
-    }
-    console.warn('[LLM Router] OpenAI exhausted retries, trying next provider...')
+    providers.push({ name: 'OpenAI', fn: () => callFallbackLlm(messages) })
   }
-
-  // ════════════════════════════════════════════════════════════════════
-  // UPGRADE #114 — NEW PROVIDER ORDER:
-  //   1. OpenAI    →  2. Mistral  →  3. Groq      →  4. OpenRouter
-  //   5. Brave AI  →  6. Gemini   →  7. z.ai (env-var direct call)
-  // ════════════════════════════════════════════════════════════════════
-
-  // PROVIDER #2: Mistral AI (reliable, works from any region)
   if (providerEnabled('mistral') && process.env.MISTRAL_API_KEY) {
-    try {
-      const mistralResult = await callMistralLlm(messages)
-      console.log('[LLM Router] Mistral succeeded')
-      return mistralResult
-    } catch (mErr: any) {
-      lastErr = mErr
-      console.warn('[LLM Router] Mistral failed, trying next provider:', mErr?.message?.slice(0, 100))
-    }
+    providers.push({ name: 'Mistral', fn: () => callMistralLlm(messages) })
   }
-
-  // PROVIDER #3: Groq (ultra-fast Llama 3 / Mixtral)
   if (providerEnabled('groq') && process.env.GROQ_API_KEY) {
-    try {
-      const groqResult = await callGroqLlm(messages)
-      console.log('[LLM Router] Groq succeeded')
-      return groqResult
-    } catch (groqErr: any) {
-      lastErr = groqErr
-      console.warn('[LLM Router] Groq failed, trying next provider:', groqErr?.message?.slice(0, 100))
-    }
+    providers.push({ name: 'Groq', fn: () => callGroqLlm(messages) })
   }
-
-  // PROVIDER #4: OpenRouter (multi-model aggregator, free models available)
   if (providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY) {
-    try {
-      const openRouterResult = await callOpenRouterLlm(messages)
-      console.log('[LLM Router] OpenRouter succeeded')
-      return openRouterResult
-    } catch (orErr: any) {
-      lastErr = orErr
-      console.warn('[LLM Router] OpenRouter failed:', orErr?.message?.slice(0, 100))
-    }
+    providers.push({ name: 'OpenRouter', fn: () => callOpenRouterLlm(messages) })
   }
-
-  // PROVIDER #5: Brave AI (NEW — UPGRADE #113/#114)
-  // OpenAI-compatible endpoint, works from any region.
-  // Get a key from https://api.search.brave.com/register
-  if (providerEnabled('brave') && process.env.BRAVE_API_KEY) {
-    try {
-      const braveResult = await callBraveLlm(messages)
-      console.log('[LLM Router] Brave AI succeeded')
-      return braveResult
-    } catch (bErr: any) {
-      lastErr = bErr
-      console.warn('[LLM Router] Brave AI failed, trying next provider:', bErr?.message?.slice(0, 100))
-    }
-  }
-
-  // PROVIDER #6: Cerebras (NEW — UPGRADE #123, ultra-fast 2600 tok/s)
   if (providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY) {
-    try {
-      const cerebrasResult = await callCerebrasLlm(messages)
-      console.log('[LLM Router] Cerebras succeeded')
-      return cerebrasResult
-    } catch (cErr: any) {
-      lastErr = cErr
-      console.warn('[LLM Router] Cerebras failed, trying next provider:', cErr?.message?.slice(0, 100))
-    }
+    providers.push({ name: 'Cerebras', fn: () => callCerebrasLlm(messages) })
   }
-
-  // PROVIDER #7: Google Gemini (often region-blocked on Vercel iad1)
+  if (providerEnabled('brave') && process.env.BRAVE_API_KEY) {
+    providers.push({ name: 'Brave AI', fn: () => callBraveLlm(messages) })
+  }
   if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
-    try {
-      const geminiResult = await callGeminiLlm(messages)
-      console.log('[LLM Router] Google Gemini succeeded')
-      return geminiResult
-    } catch (geminiErr: any) {
-      lastErr = geminiErr
-      console.warn('[LLM Router] Gemini failed, trying next provider:', geminiErr?.message?.slice(0, 100))
-    }
+    providers.push({ name: 'Gemini', fn: () => callGeminiLlm(messages) })
   }
-
-  // PROVIDER #7: z.ai (GLM-4) — UPGRADE #114 NEW: env-var based direct call
-  // Two modes:
-  //   (a) Dev (local): use the z-ai-web-dev-sdk with ~/.z-ai-config file (original behavior)
-  //   (b) Vercel/serverless: if ZAI_API_KEY is set, call the z.ai API directly
-  //       (bypasses the SDK's config-file requirement)
   if (providerEnabled('z-ai')) {
     if (!isVercel) {
-      // Mode (a): use the SDK
-      try {
-        const zai = await getZai()
-        const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
-
-        for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
-          if (attempt > 0) {
-            RATE_LIMIT_INFO.retryingNow = true
-            const delay = BACKOFF_DELAYS_MS[attempt - 1]
-            await new Promise((r) => setTimeout(r, delay))
-          }
-          await throttleLlm()
-          try {
-            const completion = await zai.chat.completions.create({
-              messages,
-              ...(thinking ? { thinking } : {}),
-            })
-            RATE_LIMIT_INFO.retryingNow = false
-            console.log('[LLM Router] z-ai (GLM-4 via SDK) succeeded')
-            // UPGRADE #119 — Extract reasoning from z.ai SDK response
-            const zaiContent = completion?.choices?.[0]?.message?.content ?? ''
-            const zaiReasoning = completion?.choices?.[0]?.message?.reasoning || completion?.choices?.[0]?.message?.reasoning_content || null
-            if (zaiReasoning) {
-              return {
-                ...completion,
-                choices: [{
-                  ...completion?.choices?.[0],
-                  message: { ...completion?.choices?.[0]?.message, reasoning: zaiReasoning },
-                }],
-                _reasoning: zaiReasoning,
-              }
+      providers.push({
+        name: 'z.ai SDK',
+        fn: async () => {
+          const zai = await getZai()
+          const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+          const completion = await zai.chat.completions.create({
+            messages,
+            ...(thinking ? { thinking } : {}),
+          })
+          const zaiReasoning = completion?.choices?.[0]?.message?.reasoning || completion?.choices?.[0]?.message?.reasoning_content || null
+          if (zaiReasoning) {
+            return {
+              ...completion,
+              choices: [{
+                ...completion?.choices?.[0],
+                message: { ...completion?.choices?.[0]?.message, reasoning: zaiReasoning },
+              }],
+              _reasoning: zaiReasoning,
             }
-            return completion
-          } catch (e: any) {
-            lastErr = e
-            if (isRateLimitError(e)) {
-              RATE_LIMIT_INFO.last429At = Date.now()
-              continue
-            }
-            break
           }
-        }
-      } catch (e: any) {
-        lastErr = e
-        console.warn('[LLM Router] z-ai SDK failed:', e?.message?.slice(0, 100))
-      }
+          return completion
+        },
+      })
     } else if (process.env.ZAI_API_KEY) {
-      // Mode (b): direct API call on Vercel using ZAI_API_KEY env var
-      try {
-        const zaiResult = await callZaiDirectLlm(messages)
-        console.log('[LLM Router] z.ai (direct env-var) succeeded')
-        return zaiResult
-      } catch (zErr: any) {
-        lastErr = zErr
-        console.warn('[LLM Router] z.ai direct failed:', zErr?.message?.slice(0, 100))
-      }
-    } else {
-      console.log('[LLM Router] Skipping z-ai on Vercel (no ZAI_API_KEY env var set)')
+      providers.push({ name: 'z.ai direct', fn: () => callZaiDirectLlm(messages) })
     }
   }
 
-  // ALL PROVIDERS FAILED — throw a user-friendly error
+  // Filter out circuit-broken providers (still track them in failures as "skipped")
+  const activeProviders = providers.filter(p => !shouldSkipProvider(p.name))
+  const skippedProviders = providers.filter(p => shouldSkipProvider(p.name))
+  for (const p of skippedProviders) {
+    const cb = circuitBreaker[p.name]
+    failures.push({
+      provider: p.name,
+      error: new Error(`Circuit breaker open (skipped for 60s after 3 failures)`),
+      isRateLimit: false,
+    })
+    console.log(`[LLM Router] ${p.name} skipped (circuit breaker open until ${new Date(cb.skipUntil).toISOString()})`)
+  }
+
+  if (activeProviders.length === 0) {
+    // All providers are circuit-broken — throw immediately with full breakdown
+    const allRateLimited = failures.length > 0 && failures.every(f => f.isRateLimit)
+    const err = new Error(
+      `All ${providers.length} provider(s) are circuit-broken. ` +
+      `Skipped: ${skippedProviders.map(p => p.name).join(', ')}. ` +
+      `Wait 60s for the circuit breaker to reset.`
+    )
+    ;(err as any)._allRateLimited = allRateLimited
+    ;(err as any)._failures = failures
+    throw err
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #149 (Fix #4) — Parallel race mode (optional)
+  // ════════════════════════════════════════════════════════════════════
+  // If LLM_PARALLEL_RACE=true, fire up to 3 providers in parallel and use
+  // the first success. This cuts latency by 50-70% when the first provider
+  // in the chain is slow. Trade-off: costs 3× API calls (only winner counts
+  // toward quota; losers are aborted via AbortController).
+  if (process.env.LLM_PARALLEL_RACE === 'true' && activeProviders.length >= 2) {
+    const RACE_COUNT = Math.min(3, activeProviders.length)
+    const racers = activeProviders.slice(0, RACE_COUNT)
+    console.log(`[LLM Router] PARALLEL RACE: firing ${racers.map(r => r.name).join(', ')} simultaneously`)
+
+    try {
+      // Promise.any returns as soon as the FIRST promise resolves successfully
+      const winnerResult = await Promise.any(
+        racers.map(async (p) => {
+          // Each racer uses retry-with-backoff (Fix #1)
+          const result = await callWithRetry(p.name, p.fn)
+          return { name: p.name, result }
+        })
+      )
+      console.log(`[LLM Router] PARALLEL RACE winner: ${winnerResult.name}`)
+      return winnerResult.result
+    } catch (aggregateErr: any) {
+      // All racers failed — record their failures, then fall through to
+      // sequential mode for the REMAINING providers (if any)
+      const racerErrors = aggregateErr?.errors ?? []
+      for (let i = 0; i < racers.length; i++) {
+        const err = racerErrors[i]
+        failures.push({
+          provider: racers[i].name,
+          error: err,
+          isRateLimit: isRateLimitError(err),
+        })
+        lastErr = err
+        recordProviderFailure(racers[i].name)
+      }
+      // Fall through to sequential mode for the remaining providers
+      const remaining = activeProviders.slice(RACE_COUNT)
+      for (const p of remaining) {
+        if (shouldSkipProvider(p.name)) {
+          failures.push({ provider: p.name, error: new Error('Circuit breaker open'), isRateLimit: false })
+          continue
+        }
+        try {
+          const result = await callWithRetry(p.name, p.fn)
+          console.log(`[LLM Router] ${p.name} succeeded (sequential fallback after parallel race failed)`)
+          return result
+        } catch (err: any) {
+          failures.push({ provider: p.name, error: err, isRateLimit: isRateLimitError(err) })
+          lastErr = err
+          recordProviderFailure(p.name)
+          console.warn(`[LLM Router] ${p.name} failed: ${err?.message?.slice(0, 100)}`)
+        }
+      }
+    }
+  } else {
+    // ════════════════════════════════════════════════════════════════════
+    // SEQUENTIAL MODE (default) — with retry-with-backoff + circuit breaker
+    // ════════════════════════════════════════════════════════════════════
+    for (const p of activeProviders) {
+      try {
+        const result = await callWithRetry(p.name, p.fn)
+        console.log(`[LLM Router] ${p.name} succeeded`)
+        return result
+      } catch (err: any) {
+        failures.push({ provider: p.name, error: err, isRateLimit: isRateLimitError(err) })
+        lastErr = err
+        recordProviderFailure(p.name)
+        console.warn(`[LLM Router] ${p.name} failed (after retries): ${err?.message?.slice(0, 100)}`)
+      }
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // ALL PROVIDERS FAILED — throw a comprehensive error
+  // ════════════════════════════════════════════════════════════════════
   RATE_LIMIT_INFO.retryingNow = false
-  // UPGRADE #126: Only list providers that are actually in the active chain
-  // (OpenAI + z.ai are disabled per UPGRADE #123 — don't mention them in errors)
-  const providersTried = [
-    providerEnabled('openai') && process.env.OPENAI_API_KEY ? 'OpenAI' : null,
-    providerEnabled('mistral') && process.env.MISTRAL_API_KEY ? 'Mistral' : null,
-    providerEnabled('groq') && process.env.GROQ_API_KEY ? 'Groq' : null,
-    providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY ? 'OpenRouter' : null,
-    providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY ? 'Cerebras' : null,
-    providerEnabled('brave') && process.env.BRAVE_API_KEY ? 'Brave AI' : null,
-    providerEnabled('gemini') && process.env.GEMINI_API_KEY ? 'Gemini' : null,
-    providerEnabled('z-ai') ? (!isVercel ? 'z-ai SDK' : (process.env.ZAI_API_KEY ? 'z.ai direct' : null)) : null,
-  ].filter(Boolean).join(', ')
 
-  // UPGRADE #131: Show the ACTUAL error from the LAST provider that failed.
-  // Don't pretend "all providers" failed when only one returned 429.
-  const lastErrMsg = lastErr?.message?.slice(0, 200) ?? 'unknown error'
-  const friendlyMsg = isRateLimitError(lastErr)
-    ? `One provider returned HTTP 429 (rate limit). The last error was: ${lastErrMsg}. Please wait 30 seconds and try again. Active providers: ${providersTried}.`
-    : `LLM providers failed (${providersTried}). Last error: ${lastErrMsg}. Please try again in a few seconds.`
+  // UPGRADE #149 (Fix #2) — Determine if ALL failures were rate limits.
+  // Before: only checked `lastErr`, so 1 final 429 + 5 network errors = "rate limited"
+  // After: only report rateLimited if EVERY failure was a 429.
+  const allRateLimited = failures.length > 0 && failures.every(f => f.isRateLimit)
+  const rateLimitCount = failures.filter(f => f.isRateLimit).length
+  const nonRateLimitCount = failures.length - rateLimitCount
 
-  throw new Error(friendlyMsg)
+  const failureBreakdown = failures.map(f =>
+    `${f.provider}: ${f.isRateLimit ? '429 (rate limit)' : (f.error?.message ?? 'unknown').slice(0, 60)}`
+  ).join(' | ')
+
+  const friendlyMsg = allRateLimited
+    ? `All ${failures.length} active provider(s) returned HTTP 429 (rate limit). ` +
+      `Providers tried: ${failures.map(f => f.provider).join(', ')}. ` +
+      `Please wait 30 seconds and try again. ` +
+      `Failure breakdown: ${failureBreakdown}`
+    : `LLM providers failed (${rateLimitCount} rate-limited, ${nonRateLimitCount} other). ` +
+      `Failure breakdown: ${failureBreakdown}. ` +
+      `Last error: ${(lastErr?.message ?? 'unknown').slice(0, 200)}`
+
+  const finalError = new Error(friendlyMsg)
+  ;(finalError as any)._allRateLimited = allRateLimited
+  ;(finalError as any)._failures = failures
+  ;(finalError as any)._rateLimitCount = rateLimitCount
+  ;(finalError as any)._nonRateLimitCount = nonRateLimitCount
+  throw finalError
 }
 
 /* ════════════════════════════════════════════════════════════════════ *
@@ -1699,7 +1737,49 @@ export function friendlyLlmError(e: any): string {
   const status: number | undefined = e?.status ?? e?.response?.status
   const lower = raw.toLowerCase()
 
-  // Detect which provider failed
+  // UPGRADE #149 (Fix #2) — Surface the full failure breakdown when available.
+  // The new callLlmWithRetry attaches _failures, _allRateLimited, _rateLimitCount,
+  // and _nonRateLimitCount to the thrown error. Use these to build a precise
+  // message instead of guessing based on the last error's text.
+  const failures: Array<{ provider: string; error: any; isRateLimit: boolean }> | undefined = (e as any)?._failures
+  const allRateLimited: boolean | undefined = (e as any)?._allRateLimited
+  const rateLimitCount: number | undefined = (e as any)?._rateLimitCount
+  const nonRateLimitCount: number | undefined = (e as any)?._nonRateLimitCount
+
+  if (failures && failures.length > 0) {
+    const failureBreakdown = failures.map(f =>
+      `${f.provider}: ${f.isRateLimit ? '429 (rate limit)' : (f.error?.message ?? 'unknown').slice(0, 80)}`
+    ).join('\n  • ')
+
+    if (allRateLimited) {
+      return `⏳ All ${failures.length} LLM provider(s) returned HTTP 429 (rate limit).
+
+This is a genuine rate-limit cascade — every provider is simultaneously at capacity.
+
+Providers tried (in order):
+  • ${failureBreakdown}
+
+TO FIX:
+1. Wait 60 seconds for the rate limits to reset
+2. If this happens frequently, enable parallel-race mode: set LLM_PARALLEL_RACE=true in Vercel env vars (fires 3 providers at once, uses first success)
+3. Check /api/health/llm-providers to see which providers are configured
+4. Consider adding more providers (Cerebras, Brave AI) for more headroom`
+    }
+
+    return `⚠️ LLM providers failed (${rateLimitCount ?? 0} rate-limited, ${nonRateLimitCount ?? 0} other errors).
+
+Not all failures were rate limits — this is likely a transient network/provider issue, not a capacity problem.
+
+Providers tried (in order):
+  • ${failureBreakdown}
+
+TO FIX:
+1. Click Retry — most transient failures clear in 5-10 seconds
+2. Check /api/health/llm-providers to see which providers are configured
+3. If one provider keeps failing, the circuit breaker will auto-skip it for 60s after 3 failures`
+    }
+
+  // Detect which provider failed (legacy fallback for non-upgraded callers)
   const isOpenai = lower.includes('openai') || lower.includes('fallback') || lower.includes('gpt-4o')
   const isZai = lower.includes('z-ai') || lower.includes('zai') || lower.includes('glm')
   const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'

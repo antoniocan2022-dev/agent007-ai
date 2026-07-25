@@ -1151,8 +1151,13 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       completion = await callLlmWithRetry(conversationMessages)
     } catch (e: any) {
       const friendly = friendlyLlmError(e)
-      // UPGRADE #131: Send rateLimited flag explicitly — don't rely on text matching
-      const rateLimited = isRateLimitError(e)
+      // UPGRADE #149 (Fix #2) — Use the new _allRateLimited flag instead of
+      // isRateLimitError(lastErr). Before: if the LAST provider returned 429,
+      // the UI showed "rate limited" even if 5 other providers failed with
+      // network/auth errors. After: only show "rate limited" if EVERY provider
+      // in the chain failed with 429. Otherwise show a generic error with the
+      // full failure breakdown.
+      const rateLimited = (e as any)?._allRateLimited === true
       await emit('error', { message: friendly, rateLimited })
       finalAnswer = friendly
       break

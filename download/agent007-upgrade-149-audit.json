@@ -1,0 +1,148 @@
+{
+  "auditId": "upgrade-149-verification",
+  "generatedAt": "2026-07-25T20:31:29.845Z",
+  "allPassed": false,
+  "totalChecks": 23,
+  "passed": 22,
+  "failed": 1,
+  "checks": [
+    {
+      "name": "Fix #1: callWithRetry helper exists",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #1: Default backoff is [0, 500, 1500] (3 attempts)",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #1: Auth/region errors fast-fail (no retry)",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #1: Only retries on rate-limit (429)",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #1: All 6 providers use callWithRetry (no more single-attempt)",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: failures array tracks every provider",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: _allRateLimited flag attached to error",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: _failures array attached to error",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: allRateLimited = every failure is 429",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: Orchestrator uses _allRateLimited (not isRateLimitError)",
+      "file": "src/lib/orchestrator.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: friendlyLlmError surfaces failure breakdown",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #2: chat-store preserves server message (no override)",
+      "file": "src/store/chat-store.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #3: circuitBreaker stored on globalThis",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #3: shouldSkipProvider function exists",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #3: recordProviderFailure function exists",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #3: 3 failures in 60s triggers 60s skip",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #3: Skipped providers tracked in failures",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #4: LLM_PARALLEL_RACE env var check",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #4: Promise.any for parallel race",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #4: Race count limited to 3",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Fix #4: Falls through to sequential on race failure",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Error: All-rate-limited message includes fix suggestions",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": true
+    },
+    {
+      "name": "Error: Mixed-failure message distinguishes rate-limit vs other",
+      "file": "src/lib/agent.ts",
+      "pattern": {},
+      "found": false
+    }
+  ]
+}

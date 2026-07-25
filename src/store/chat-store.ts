@@ -1214,18 +1214,25 @@ function applyEvent(
     const isDBError = /database|prisma|Can't reach|connection|ECONNREFUSED|ETIMEDOUT/i.test(msg)
     const isNetworkError = /fetch failed|network|timeout|ECONNRESET|socket hang up|aborted/i.test(msg)
 
-    // UPGRADE #128: Clear, actionable error message
+    // UPGRADE #149 — Use the friendly message from friendlyLlmError() directly.
+    // Before: the chat-store OVERWROTE the detailed server message with a generic
+    // "A provider is at capacity" banner. This hid the failure breakdown that
+    // the new callLlmWithRetry produces (which provider 429'd, which had a
+    // network error, etc.). After: if the server sent a message, show it
+    // verbatim — it already contains the actionable diagnostic info.
     let userMessage = data.message ?? 'unknown error'
-    if (isDBError) {
+    if (isDBError && !data.message) {
       userMessage = '⚠️ The database is temporarily unreachable (Vercel cold start). Please wait 10 seconds and click Retry below.'
-    } else if (isNetworkError) {
+    } else if (isNetworkError && !data.message) {
       userMessage = '⚠️ Network error — a provider was temporarily unreachable. Please click Retry below.'
-    } else if (isRateLimit) {
+    } else if (isRateLimit && !data.message) {
+      // Only use the generic message if the server didn't send one
       userMessage = '⏳ A provider is at capacity. Please wait 30 seconds and click Retry below.'
-    } else {
+    } else if (!data.message) {
       // Generic error — show the actual error text
       userMessage = `⚠️ ${msg.slice(0, 300)}\n\nThis may be a temporary issue. Click Retry below to try again.`
     }
+    // If data.message exists, we keep it as-is (it has the full breakdown)
 
     set((s) => ({
       messages: s.messages.map((m) =>
