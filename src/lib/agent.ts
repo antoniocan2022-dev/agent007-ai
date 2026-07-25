@@ -612,10 +612,12 @@ export async function callLlmWithRetry(
     providerEnabled('z-ai') ? (!isVercel ? 'z-ai SDK' : (process.env.ZAI_API_KEY ? 'z.ai direct' : null)) : null,
   ].filter(Boolean).join(', ')
 
-  // UPGRADE #126: Clearer error message — don't mention OpenAI if it's disabled
+  // UPGRADE #131: Show the ACTUAL error from the LAST provider that failed.
+  // Don't pretend "all providers" failed when only one returned 429.
+  const lastErrMsg = lastErr?.message?.slice(0, 200) ?? 'unknown error'
   const friendlyMsg = isRateLimitError(lastErr)
-    ? `All active providers are temporarily at capacity (${providersTried}). Please wait 30 seconds and try again. Active providers: Mistral, Groq, OpenRouter, Cerebras, Brave, Gemini.`
-    : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set MISTRAL_API_KEY (from https://console.mistral.ai/api-keys) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars. Visit /api/health/llm-providers for live diagnostics.`
+    ? `One provider returned HTTP 429 (rate limit). The last error was: ${lastErrMsg}. Please wait 30 seconds and try again. Active providers: ${providersTried}.`
+    : `LLM providers failed (${providersTried}). Last error: ${lastErrMsg}. Please try again in a few seconds.`
 
   throw new Error(friendlyMsg)
 }
@@ -1703,10 +1705,7 @@ export function friendlyLlmError(e: any): string {
   const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'
 
   if (status === 429 || lower.includes('429') || lower.includes('too many requests')) {
-    // UPGRADE #131: Don't include "429" or "rate limit" in the message text —
-    // the chat-store regex was matching these words and showing a false rate-limit banner.
-    // Instead, return a clean message without trigger words.
-    return `⏳ Agent007's ${providerName} is temporarily unavailable (provider capacity). Please wait 30 seconds and try again.`
+    return `⏳ Agent007's ${providerName} is temporarily at capacity. Please wait 30 seconds and try again.`
   }
   if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
     // Check for region block specifically
