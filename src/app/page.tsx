@@ -75,22 +75,53 @@ export default function Home() {
     startAutoRefresh()
   }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 
-  // UPGRADE #90 — While checking auth status, show MINIMAL loading screen
-  // (not the full background + UI) to avoid the "dashboard flash" before redirect.
-  // NOTE: All useEffect hooks above MUST be declared before this early return.
+  // UPGRADE #132 — Loading screen with progress indicator
+  // Shows what's happening during cold starts instead of a blank page
   if (status === 'loading' || status === 'unauthenticated') {
     return (
       <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
-        {/* Minimal loading — no Background component to avoid heavy asset load */}
         <div className="relative z-10 flex flex-col items-center">
           <div className="hex-pulse mb-5">
             <NexusLogo size={72} />
           </div>
-          <div className="flex items-center gap-2 text-cyan-300 text-sm tracking-[0.25em] font-semibold">
+          <div className="flex items-center gap-2 text-cyan-300 text-sm tracking-[0.25em] font-semibold mb-4">
             <Loader2 className="w-4 h-4 animate-spin" />
             {status === 'unauthenticated' ? 'REDIRECTING TO LOGIN…' : 'BOOTING AGENT007…'}
           </div>
+          {/* UPGRADE #132: Progress steps so user knows what's happening */}
+          <div className="flex flex-col gap-1.5 text-[10px] text-[#5b6a92] tracking-wider">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span>Initializing system…</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" />
+              <span>Loading 6 LLM providers…</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" />
+              <span>Connecting 20 subagents…</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" />
+              <span>Preparing dashboard…</span>
+            </div>
+          </div>
+          {/* Animated progress bar */}
+          <div className="mt-5 w-48 h-1 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 rounded-full"
+              style={{ animation: 'loadingBar 2s ease-in-out infinite' }}
+            />
+          </div>
         </div>
+        <style jsx>{`
+          @keyframes loadingBar {
+            0% { width: 0%; transform: translateX(-100%); }
+            50% { width: 60%; }
+            100% { width: 100%; transform: translateX(100%); }
+          }
+        `}</style>
       </div>
     )
   }

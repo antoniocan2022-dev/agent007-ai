@@ -273,8 +273,19 @@ function ensureInit(): Promise<void> {
   if (globalForPrisma.dbInitialized) return Promise.resolve()
   if (!initPromise) {
     initPromise = (async () => {
-      await createTablesViaRawSQL()
-      await seedData()
+      // UPGRADE #132: On Vercel production, skip CREATE TABLE — prisma db push
+      // already created them during build. Only run on first-ever deploy or dev.
+      // This saves 5-10 seconds on every cold start.
+      const isVercelProd = !!(process.env.VERCEL && process.env.NODE_ENV === 'production')
+      if (isVercelProd) {
+        // Production: tables already exist from build step — just seed
+        // (seedData is idempotent and fast — only creates if missing)
+        await seedData().catch(() => {})
+      } else {
+        // Dev/preview: run full table creation + seed
+        await createTablesViaRawSQL()
+        await seedData()
+      }
       globalForPrisma.dbInitialized = true
     })()
   }
