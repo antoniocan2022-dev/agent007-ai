@@ -1195,15 +1195,26 @@ function applyEvent(
     }
 
     const msg: string = (data?.message ?? '').toString()
-    const isRateLimit = /rate-?limiting|429|too many requests/i.test(msg)
-    const isDBError = /database|prisma|Can't reach|connection/i.test(msg)
+    // UPGRADE #131: Fixed regex — was matching "rate limit" in ALL error messages
+    // because the error text from agent.ts says "Rate limit reached on all active providers"
+    // even when the actual cause is a DB failure or network timeout.
+    // NOW: only treat as rate limit if the message explicitly says "rate-limiting" (with hyphen)
+    // or contains "429" or "too many requests" — NOT the generic "rate limit" phrase.
+    const isRateLimit = /rate-limiting|HTTP 429|too many requests/i.test(msg)
+    const isDBError = /database|prisma|Can't reach|connection|ECONNREFUSED|ETIMEDOUT/i.test(msg)
+    const isNetworkError = /fetch failed|network|timeout|ECONNRESET|socket hang up|aborted/i.test(msg)
 
     // UPGRADE #128: Clear, actionable error message
     let userMessage = data.message ?? 'unknown error'
-    if (isRateLimit) {
-      userMessage = '⏳ All LLM providers are temporarily rate-limited. The system will auto-retry in 30 seconds. You can also click Retry below.'
-    } else if (isDBError) {
+    if (isDBError) {
       userMessage = '⚠️ The database is temporarily unreachable (Vercel cold start). Please wait 10 seconds and click Retry below.'
+    } else if (isNetworkError) {
+      userMessage = '⚠️ Network error — a provider was temporarily unreachable. Please click Retry below.'
+    } else if (isRateLimit) {
+      userMessage = '⏳ A provider is rate-limiting requests. Please wait 30 seconds and click Retry below.'
+    } else {
+      // Generic error — don't say "rate limited" if it's not actually a rate limit
+      userMessage = `⚠️ Error: ${msg.slice(0, 200)}\n\nThis may be a temporary issue. Click Retry below to try again.`
     }
 
     set((s) => ({

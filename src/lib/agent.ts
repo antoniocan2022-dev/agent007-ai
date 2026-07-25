@@ -612,7 +612,7 @@ export async function callLlmWithRetry(
 
   // UPGRADE #126: Clearer error message — don't mention OpenAI if it's disabled
   const friendlyMsg = isRateLimitError(lastErr)
-    ? `Rate limit reached on all active providers (${providersTried}). Please wait 30-60 seconds and try again. Active providers: Mistral, Groq, OpenRouter, Cerebras, Brave, Gemini. (OpenAI + z.ai are disabled per owner request.)`
+    ? `HTTP 429 from all active providers (${providersTried}). Please wait 30 seconds and try again. Active providers: Mistral, Groq, OpenRouter, Cerebras, Brave, Gemini.`
     : `All LLM providers failed (${providersTried}). Last error: ${lastErr?.message?.slice(0, 150) ?? 'unknown'}. To add free fallback providers, set MISTRAL_API_KEY (from https://console.mistral.ai/api-keys) or GROQ_API_KEY (from https://console.groq.com/keys) in Vercel env vars. Visit /api/health/llm-providers for live diagnostics.`
 
   throw new Error(friendlyMsg)
@@ -1701,7 +1701,7 @@ export function friendlyLlmError(e: any): string {
   const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'
 
   if (status === 429 || lower.includes('429') || lower.includes('too many requests') || lower.includes('rate limit')) {
-    return `⏳ Agent007's ${providerName} is rate-limiting requests. Please wait 60 seconds and try again.`
+    return `⏳ Agent007's ${providerName} returned HTTP 429 (rate limit). Please wait 30 seconds and try again.`
   }
   if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
     // Check for region block specifically
