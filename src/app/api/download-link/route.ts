@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
           const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') || 'https://agent007-ai.vercel.app'
           return NextResponse.json({
             ok: true,
-            url: `${baseUrl}/api/download?token=${data.token}`,
+            url: `${baseUrl}/api/file-download?token=${data.token}`,
             expiresAt: data.expiresAt,
           })
         }

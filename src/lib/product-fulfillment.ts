@@ -131,7 +131,7 @@ export async function generateDownloadUrl(opts: {
   // the token + serves the file. This works regardless of where the file is
   // actually stored (Vercel Blob or /public).
   const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') || 'https://agent007-ai.vercel.app'
-  const url = `${baseUrl}/api/download?token=${token}`
+  const url = `${baseUrl}/api/file-download?token=${token}`
 
   return {
     url,

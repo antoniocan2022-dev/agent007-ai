@@ -1,5 +1,5 @@
 /**
- * GET /api/download?token=XXX — UPGRADE #150
+ * GET /api/file-download?token=XXX — UPGRADE #150
  * Serves a digital product file after validating the download token.
  *
  * Flow:
@@ -102,3 +102,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`/products/${product.fileName}`, 302)
   }
 }
+// Cache bust: Sat Jul 25 22:51:54 UTC 2026
