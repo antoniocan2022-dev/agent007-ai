@@ -92,15 +92,22 @@ export const authOptions: NextAuthOptions = {
   // preview URL could forge session tokens.
   // NOW: fail-closed. Set NEXTAUTH_SECRET in Vercel for ALL targets
   // (production + preview + development).
+  //
+  // UPGRADE #151 (EMERGENCY FIX): If NEXTAUTH_SECRET is not set, generate a
+  // RANDOM secret per instance. This is INSECURE (sessions don't survive cold
+  // starts) but at least the login page works instead of showing "Server error".
+  // The owner MUST set NEXTAUTH_SECRET in Vercel env vars for proper security.
+  // Once set, this fallback is never used.
   secret: (() => {
     const s = process.env.NEXTAUTH_SECRET
-    if (!s) {
-      console.error('[auth] FATAL: NEXTAUTH_SECRET env var is not set. Session signing is disabled.')
-      // Return empty string — NextAuth will reject all session operations
-      // rather than using an insecure default.
-      return ''
-    }
-    return s
+    if (s) return s
+    // EMERGENCY FALLBACK — generate a random secret so the app doesn't 500.
+    // This means sessions won't survive cold starts (each instance has a
+    // different secret), but at least the owner can LOG IN to set the env var.
+    const crypto = require('crypto')
+    const fallback = crypto.randomBytes(32).toString('base64')
+    console.error('[auth] ⚠️  NEXTAUTH_SECRET not set — using RANDOM fallback (INSECURE). Sessions will not survive cold starts. Set NEXTAUTH_SECRET in Vercel env vars ASAP.')
+    return fallback
   })(),
   session: {
     strategy: 'jwt',
