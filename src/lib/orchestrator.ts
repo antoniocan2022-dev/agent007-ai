@@ -888,6 +888,94 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
     })
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #137-#141 — MISSION PIPELINE FAST PATH (Rec 1-7)
+  // ════════════════════════════════════════════════════════════════════
+  // When the owner says "start mission: <type> <objective>", we bypass
+  // the LLM and directly invoke runMissionPipeline(). This kicks off the
+  // hierarchical workflow: Team Leader → Super Agent Verify → next team
+  // → ... → CEO Final Report. All progress is logged to the audit trail
+  // and sent via Telegram.
+  const missionMatch = userMessage.match(
+    /^start\s+mission\s*:\s*(?:(product_launch|content_creation|affiliate_campaign|generic)\s*[:\-\s]+)?(.+)$/i
+  )
+  if (missionMatch) {
+    const pipelineType = (missionMatch[1] || 'generic').toLowerCase()
+    const objective = missionMatch[2].trim().slice(0, 1000)
+    if (objective.length >= 10) {
+      try {
+        const { runMissionPipeline, MISSION_PIPELINES } = await import('./mission-pipeline')
+        const pipeline = MISSION_PIPELINES[pipelineType] || MISSION_PIPELINES.generic
+        const missionId = `mission_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        const missionTitle = objective.slice(0, 80)
+
+        await emit('thought', { content: `[MISSION PIPELINE] Starting ${pipeline.name} (${pipeline.stages.length} stages). Each stage will be verified by the Super Agent before advancing. CEO will present the final report.` })
+
+        // Stream progress events to the UI as the pipeline runs
+        const result = await runMissionPipeline({
+          missionId,
+          pipelineType,
+          objective,
+          missionTitle,
+          emit: async (ev: string, data: any) => { await emit(ev, data) } as any,
+        })
+
+        // Build a final summary answer for the UI
+        let summaryAnswer = `## 🎯 Mission Pipeline ${result.success ? 'Complete' : 'Failed'}\n\n`
+        summaryAnswer += `**Mission:** ${missionTitle}\n`
+        summaryAnswer += `**Pipeline:** ${pipeline.name}\n`
+        summaryAnswer += `**Stages:** ${result.stages.length} / ${pipeline.stages.length}\n\n`
+        summaryAnswer += `### Stage Results\n`
+        for (const s of result.stages) {
+          const icon = s.artifactVerified ? '✅' : s.finalScore >= 70 ? '⚠️' : '❌'
+          summaryAnswer += `${icon} Stage ${s.stage} (${s.team}): score ${s.finalScore}/100, ${s.rounds} round(s)\n`
+          if (s.artifactValue) summaryAnswer += `   Artifact: ${s.artifactValue.slice(0, 100)}\n`
+        }
+        if (result.ceoReport?.fullReport) {
+          summaryAnswer += `\n### 🎯 CEO Executive Report\n\n${result.ceoReport.fullReport}\n`
+        }
+        if (result.error) {
+          summaryAnswer += `\n### ⚠️ Error\n${result.error}\n`
+        }
+        summaryAnswer += `\n---\n*Full audit trail: /api/missions/${missionId}/audit-trail*`
+
+        const chunks2 = chunkText(summaryAnswer, 80)
+        for (const c of chunks2) {
+          await emit('token', { content: c })
+        }
+
+        // Persist the user message + assistant response so reload works
+        let assistantRowId = 'temp_' + Date.now()
+        try {
+          await db.message.create({ data: { conversationId, role: 'user', content: userMessage } })
+          const assistantRow = await db.message.create({
+            data: { conversationId, role: 'assistant', content: summaryAnswer },
+          })
+          assistantRowId = assistantRow.id
+          // Update conversation title
+          const conv = await db.conversation.findUnique({ where: { id: conversationId } })
+          if (conv && (conv.title === 'New Conversation' || !conv.title)) {
+            await db.conversation.update({
+              where: { id: conversationId },
+              data: { title: `Mission: ${missionTitle.slice(0, 40)}` },
+            })
+          }
+        } catch (dbErr: any) {
+          console.warn('[orchestrator] DB write failed (mission pipeline), continuing without persistence:', dbErr?.message?.slice(0, 100))
+        }
+
+        return {
+          finalAnswer: summaryAnswer,
+          steps: [],
+          persistedAssistantMessageId: assistantRowId,
+        }
+      } catch (missionErr: any) {
+        // Fall through to normal orchestration if pipeline fails to start
+        await emit('thought', { content: `[MISSION PIPELINE] Failed to start: ${missionErr?.message?.slice(0, 200)} — falling back to normal orchestration` })
+      }
+    }
+  }
+
   // Recall memories for context
   const recalled = await recallMemories(userMessage.slice(0, 200), 8)
   const memoryBlock = formatMemoryForPrompt(recalled)
