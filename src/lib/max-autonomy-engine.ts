@@ -71,11 +71,47 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
     // UPGRADE #106: Real Income Verification Loop — Removed Math.random() fake data.
     // Mission tick now reports REAL status, not fabricated projections.
     
-    // Step 1: Scout for opportunities (real status check)
-    actions.push('Scout: Ready to research opportunities when dispatched by CEO')
+    // Step 1: ACTUALLY dispatch Scout to find opportunities (UPGRADE #133)
+    try {
+      const { runSubagent } = await import('./subagents')
+      const scoutResult = await runSubagent({
+        subagentId: 'scout',
+        task: 'Find 3 trending AI niches with high search volume and low competition for affiliate marketing. Return the top 3 with search volume estimates.',
+        dispatchId: `mission_tick_scout_${Date.now()}`,
+        attachments: [],
+        language: 'en',
+        emit: async () => {},
+        parentConversationId: 'mission',
+      })
+      actions.push(`Scout: DISPATCHED — found opportunities: ${scoutResult.answer.slice(0, 200)}`)
+      // Store the opportunity in mission state
+      missionState.opportunities.push({
+        id: `opp_${Date.now()}`,
+        source: 'scout',
+        title: 'AI niche research from mission tick',
+        potential: scoutResult.answer.slice(0, 500),
+        date: now.slice(0, 10),
+      })
+    } catch (e: any) {
+      actions.push(`Scout: Dispatch failed — ${e?.message?.slice(0, 100)}`)
+    }
 
-    // Step 2: Aurora monetization check
-    actions.push('Aurora: Ready to create monetization strategies when dispatched')
+    // Step 2: ACTUALLY dispatch Aurora to create monetization strategy (UPGRADE #133)
+    try {
+      const { runSubagent } = await import('./subagents')
+      const auroraResult = await runSubagent({
+        subagentId: 'aurora',
+        task: 'Create a monetization strategy for the top AI niche opportunity. Include: content plan, affiliate programs to join, and estimated monthly revenue.',
+        dispatchId: `mission_tick_aurora_${Date.now()}`,
+        attachments: [],
+        language: 'en',
+        emit: async () => {},
+        parentConversationId: 'mission',
+      })
+      actions.push(`Aurora: DISPATCHED — created monetization strategy: ${auroraResult.answer.slice(0, 200)}`)
+    } catch (e: any) {
+      actions.push(`Aurora: Dispatch failed — ${e?.message?.slice(0, 100)}`)
+    }
 
     // Step 3: Pulse KPI check (REAL income from DB, not random)
     try {
@@ -1446,6 +1482,7 @@ interface OfflineTask {
   status: 'queued' | 'running' | 'completed' | 'failed'
   result?: string
   createdAt: string
+  subagentId?: string  // UPGRADE #133: which subagent to dispatch
 }
 
 // In-memory queue (persists per warm function instance)
@@ -1532,10 +1569,31 @@ export async function toolOfflineAutonomyEngine(args: any): Promise<ToolResult> 
     for (const task of queued) {
       task.status = 'running'
       try {
-        // Simulate processing (in production, dispatch real subagents)
-        task.result = `Processed: ${task.description}`
+        // UPGRADE #133: REAL dispatch — no more simulation
+        const { runSubagent } = await import('./subagents')
+        // Map task type to subagent ID
+        const subagentMap: Record<string, string> = {
+          mission_tick: 'quantum',
+          publish_content: 'aurora',
+          send_email: 'pulse',
+          monitor: 'pulse',
+          research: 'scout',
+          build: 'forge',
+          default: 'scout',
+        }
+        const subagentId = subagentMap[task.type] || task.subagentId || 'scout'
+        const result = await runSubagent({
+          subagentId,
+          task: task.description,
+          dispatchId: `offline_${task.id}`,
+          attachments: [],
+          language: 'en',
+          emit: async () => {},
+          parentConversationId: 'offline',
+        })
+        task.result = result.answer.slice(0, 2000)
         task.status = 'completed'
-        results.push(`  ✅ ${task.id}: ${task.type} — ${task.description.slice(0, 60)}`)
+        results.push(`  ✅ ${task.id}: ${task.type} → ${subagentId} — ${task.result.slice(0, 100)}`)
       } catch (e: any) {
         task.status = 'failed'
         task.result = e?.message ?? 'unknown error'
@@ -1543,8 +1601,8 @@ export async function toolOfflineAutonomyEngine(args: any): Promise<ToolResult> 
       }
     }
     return ok(
-      `Processed ${queued.length} tasks`,
-      `OFFLINE PROCESS RESULTS\n${'='.repeat(60)}\nProcessed: ${queued.length} tasks\n\n${results.join('\n')}`
+      `Processed ${queued.length} tasks (REAL dispatches)`,
+      `OFFLINE PROCESS RESULTS (REAL)\n${'='.repeat(60)}\nProcessed: ${queued.length} tasks\n\n${results.join('\n')}`
     )
   }
 

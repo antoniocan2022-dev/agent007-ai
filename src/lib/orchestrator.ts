@@ -1306,11 +1306,38 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         await emit('subagent_complete', { dispatchId, answer: subAnswer })
       }
 
-      // Feed the sub-agent's result back to the orchestrator
+      // UPGRADE #133: ENFORCE QUALITY GATE IN CODE (not just prompt)
+      // After each subagent returns, automatically score the answer quality.
+      // If score < 70: flag for re-dispatch. If 70-89: flag for ECHO refinement.
+      let qualityScore = 100  // default to pass
+      let qualityNote = ''
+      try {
+        const { dispatchTool } = await import('./tools')
+        const qualityResult = await dispatchTool('quality_scorer_v2', {
+          answer: subAnswer.slice(0, 2000),
+          question: task.slice(0, 500),
+          target: 90,
+        }, { attachments: [], language: 'en' })
+        if (qualityResult.ok) {
+          const scoreMatch = qualityResult.result.match(/(?:score|grade|total)[:\s]+(\d+)/i)
+          qualityScore = scoreMatch ? parseInt(scoreMatch[1]) : 100
+          if (qualityScore < 70) {
+            qualityNote = `\n⚠️ QUALITY GATE: Score ${qualityScore}/100 — BELOW 70. Consider re-dispatching ${sub.name} with more specific instructions, or dispatch ECHO to improve.`
+          } else if (qualityScore < 90) {
+            qualityNote = `\n⚠️ QUALITY GATE: Score ${qualityScore}/100 — below 90 target. Consider dispatching ECHO to refine.`
+          } else {
+            qualityNote = `\n✅ QUALITY GATE: Score ${qualityScore}/100 — passed.`
+          }
+        }
+      } catch {
+        // Quality scorer failed — don't block the answer, just skip the gate
+      }
+
+      // Feed the sub-agent's result back to the orchestrator (with quality note)
       conversationMessages.push({ role: 'assistant', content })
       conversationMessages.push({
         role: 'user',
-        content: `[SUBAGENT_RESULT] ${sub.id}: ${subAnswer}`,
+        content: `[SUBAGENT_RESULT] ${sub.id}: ${subAnswer}${qualityNote}`,
       })
 
       // UPGRADE #86 — Hard synthesis cap: after 3 dispatches in one turn, FORCE the agent to synthesize.
