@@ -4,7 +4,8 @@ import { parseAssistant, callLlmWithRetry, THOUGHT_RE, friendlyLlmError } from '
 import { SHARED_MAX_PERFORMANCE_PROTOCOL } from '@/lib/subagent-max-performance'
 
 /* ------------------------------------------------------------------ *
- * Sub-agent registry — 12 specialists orchestrated by Agent007 (Super)
+ * Sub-agent registry — 20 specialists (12 built-in + 8 custom) orchestrated by Agent007 (Super)
+ * UPGRADE #145 — Updated count to reflect actual subagent count.
  * ------------------------------------------------------------------ */
 
 export interface Subagent {

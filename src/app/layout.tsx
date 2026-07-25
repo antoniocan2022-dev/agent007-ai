@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Agent007 AI — Super Agent Console",
   description:
-    "Agent007 AI — autonomous income-operator super-agent. 12+ sub-agents, voice I/O, multi-user, Stripe/PayPal income tracking, RAG knowledge base. Build, execute, monitor, present outcomes.",
+    "Agent007 AI — autonomous income-operator super-agent. 20 sub-agents (12 built-in + 8 custom), voice I/O, multi-user, Stripe/PayPal income tracking, RAG knowledge base. Build, execute, monitor, present outcomes.",
   keywords: [
     "Agent007 AI",
     "AI agent",
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Agent007 AI — Super Agent Console",
-    description: "Autonomous income-operator super-agent with 12+ sub-agents, voice I/O, multi-user, and RAG.",
+    description: "Autonomous income-operator super-agent with 20 sub-agents (12 built-in + 8 custom), voice I/O, multi-user, and RAG.",
     type: "website",
   },
 };

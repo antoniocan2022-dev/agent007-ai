@@ -38,6 +38,7 @@ import {
 } from 'recharts'
 import { useChatStore } from '@/store/chat-store'
 import { AutonomyIntelligencePanel } from '@/components/agent/autonomy-intelligence-panel'
+import { MissionMonitor } from '@/components/agent/mission-monitor'
 
 /* ----------------------------- types ----------------------------- */
 interface IncomeEntry {
@@ -150,23 +151,34 @@ export function DashboardTab() {
   }, [loadIncome, loadSettings, loadCustomWidgets])
 
   // Initial load + seed if empty
+  // UPGRADE #142 — Parallelize initial fetches (Issue A fix)
+  // Before: 4 SEQUENTIAL awaits on cold start = 4× DB cold-start tax (~10s each)
+  // After: 1 seed POST (non-blocking) + 3 parallel GETs = ~10s total instead of ~40s
   useEffect(() => {
+    let cancelled = false
     ;(async () => {
-      // Try to seed if empty so the dashboard isn't blank
+      // Fire the seed POST in the background (don't await — it's idempotent
+      // and the GETs below will return whatever data exists).
+      fetch('/api/income', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seedIfEmpty: true }),
+      }).catch(() => {/* ignore */})
+
+      // Parallelize the 3 GETs — they all hit `ensureDbReady()` and the
+      // first cold-start DB init will satisfy all 3 simultaneously.
       try {
-        await fetch('/api/income', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seedIfEmpty: true }),
-        })
+        await Promise.all([
+          loadIncome(),
+          loadSettings(),
+          loadCustomWidgets(),
+        ])
       } catch {
-        /* ignore */
+        /* ignore — individual loaders have their own error handling */
       }
-      await loadIncome()
-      await loadSettings()
-      await loadCustomWidgets()
-      setLastRefreshedAt(new Date())
+      if (!cancelled) setLastRefreshedAt(new Date())
     })()
+    return () => { cancelled = true }
   }, [loadIncome, loadSettings, loadCustomWidgets])
 
   // Re-fetch when Agent007 emits a refresh signal
@@ -292,6 +304,11 @@ export function DashboardTab() {
           ) : (
             <>
               {/* Top KPI cards */}
+              {/* UPGRADE #144 — Live Mission Monitor (real-time pipeline progress) */}
+              <div className="mb-4">
+                <MissionMonitor />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
                 <KpiCard
                   label="TODAY'S INCOME"

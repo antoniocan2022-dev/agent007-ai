@@ -166,10 +166,14 @@ export function MissionActiveTab() {
     setChatSending(true)
     setChatError('')
     try {
+      // UPGRADE #143 — Add 55s client-side timeout (server maxDuration is 60s).
+      // Before: no timeout — UI showed "SCOUT is responding..." forever if server hung.
+      // After: clean error message after 55s, leader message still saved to DB.
       const res = await fetch(`/api/mission-active/${selectedMission.id}?action=ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: chatInput }),
+        signal: AbortSignal.timeout(55_000),
       })
       const data = await res.json()
       if (data.ok) {
@@ -180,7 +184,12 @@ export function MissionActiveTab() {
         setChatError(data.error || 'Failed to send')
       }
     } catch (e: any) {
-      setChatError(e?.message || 'Network error')
+      // Distinguish timeout from network error for clearer UX
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+        setChatError('Leader took too long to respond (>55s). Your message was saved — refresh in 30s to see the leader\'s reply.')
+      } else {
+        setChatError(e?.message || 'Network error')
+      }
     } finally {
       setChatSending(false)
     }

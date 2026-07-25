@@ -23,6 +23,7 @@ import { superAgentVerify, buildRetryPrompt, formatVerificationResult, type Veri
 import { ceoPresentToOwner, type MissionStageSummary } from './ceo-presenter'
 import { logApprovalEvent, type ApprovalEventInput } from './approval-audit-log'
 import { notifyTelegram } from './mission-notifier'
+import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
 
 // ──────────────────────────────────────────────────────────────────
 // PIPELINE DEFINITIONS
@@ -566,6 +567,34 @@ export async function runMissionPipeline(opts: {
   const pipeline = MISSION_PIPELINES[pipelineType] ?? MISSION_PIPELINES.generic
   const stages: MissionStageSummary[] = []
 
+  // UPGRADE #144 — Initialize heartbeat (real-time monitoring)
+  const initialHeartbeat: MissionHeartbeat = {
+    missionId,
+    missionTitle: opts.missionTitle ?? missionId,
+    pipelineType: pipeline.type,
+    status: 'working',
+    currentStage: {
+      stageId: `stage_1`,
+      stageNumber: 1,
+      totalStages: pipeline.stages.length,
+      name: pipeline.stages[0].name,
+      team: pipeline.stages[0].team,
+      leader: pipeline.stages[0].leader,
+      startedAt: new Date().toISOString(),
+      elapsedMs: 0,
+      round: 1,
+      maxRounds: 3,
+    },
+    completedStages: [],
+    estimatedRemainingMs: null,
+    estimatedCompletionAt: null,
+    lastActivityAt: new Date().toISOString(),
+    lastError: null,
+    ceoWatchdog: { verdict: 'healthy', message: 'Mission started', checkedAt: new Date().toISOString() },
+    updatedAt: new Date().toISOString(),
+  }
+  await saveHeartbeat(initialHeartbeat).catch(() => {})
+
   // ── Rec 7: Owner approval gate for high-stakes missions
   if (pipeline.requiresOwnerApproval && !opts.skipOwnerApproval) {
     await notifyTelegram(`🎯 MISSION STARTED: ${opts.missionTitle ?? missionId}\nPipeline: ${pipeline.name}\nStages: ${pipeline.stages.length}\n⚠️ This mission requires your approval before final execution.`)
@@ -599,6 +628,41 @@ export async function runMissionPipeline(opts: {
         approvedAt: result.finalVerification.approved ? new Date().toISOString() : null,
       }
       stages.push(stageSummary)
+
+      // UPGRADE #144 — Update heartbeat after each stage
+      try {
+        const hb = await buildHeartbeatFromAuditLog({
+          missionId,
+          missionTitle: opts.missionTitle ?? missionId,
+          pipelineType: pipeline.type,
+          totalStages: pipeline.stages.length,
+        })
+        // If this wasn't the last stage, set current stage to next one
+        if (stage.stage < pipeline.stages.length) {
+          const nextStage = pipeline.stages[stage.stage]  // 0-indexed; stage.stage is 1-indexed
+          if (nextStage && !hb.currentStage) {
+            hb.currentStage = {
+              stageId: `stage_${nextStage.stage}`,
+              stageNumber: nextStage.stage,
+              totalStages: pipeline.stages.length,
+              name: nextStage.name,
+              team: nextStage.team,
+              leader: nextStage.leader,
+              startedAt: new Date().toISOString(),
+              elapsedMs: 0,
+              round: 1,
+              maxRounds: 3,
+            }
+            hb.status = 'working'
+          }
+        } else {
+          // Last stage done
+          hb.status = 'completed'
+          hb.currentStage = null
+        }
+        hb.updatedAt = new Date().toISOString()
+        await saveHeartbeat(hb)
+      } catch {}
 
       // Update mission context with this stage's output
       missionContext += `STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:\n${result.output.slice(0, 3000)}\n\nFINAL SCORE: ${result.finalScore}/100\nVERDICT: ${result.finalVerification.verdict}\n\n---\n\n`
@@ -649,6 +713,20 @@ export async function runMissionPipeline(opts: {
         feedback: `Stage crashed: ${stageErr?.message?.slice(0, 200)}`,
       })
       await notifyTelegram(`❌ MISSION FAILED at stage ${stage.stage} (${stage.team})\nError: ${stageErr?.message?.slice(0, 200)}`)
+
+      // UPGRADE #144 — Update heartbeat to failed
+      try {
+        const hb = await buildHeartbeatFromAuditLog({
+          missionId,
+          missionTitle: opts.missionTitle ?? missionId,
+          pipelineType: pipeline.type,
+          totalStages: pipeline.stages.length,
+        })
+        hb.status = 'failed'
+        hb.lastError = `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message?.slice(0, 200) ?? 'unknown'}`
+        hb.updatedAt = new Date().toISOString()
+        await saveHeartbeat(hb)
+      } catch {}
 
       return {
         missionId,
