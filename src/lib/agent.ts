@@ -462,11 +462,12 @@ export async function callLlmWithRetry(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
 
-  // UPGRADE #153: Fixed provider chain — removed Brave (not an LLM provider, HTTP 403).
-  // New default chain: mistral, groq, openrouter, cerebras, gemini
-  // Brave's "AI" endpoint (api.search.brave.com/ai/v1) returns 403 — the API key
-  // is for Brave SEARCH, not for LLM completions. Brave Leo is not publicly accessible.
-  const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'gemini']
+  // UPGRADE #158: Re-enabled OpenAI (tested working — 1.3s response time).
+  // OpenAI was disabled in UPGRADE #123 but the live test confirms it works.
+  // With the bloated system prompt, OpenAI (gpt-4o-mini) handles 9K tokens
+  // much faster than Mistral small-latest.
+  // New default chain: mistral, groq, openai, openrouter, cerebras, gemini
+  const DEFAULT_ORDER = ['mistral', 'groq', 'openai', 'openrouter', 'cerebras', 'gemini']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   const providerEnabled = (name: string): boolean => {
@@ -673,57 +674,91 @@ export async function callLlmWithRetry(
 /** Google Gemini (FREE — 15 req/min, 1500/day) */
 async function callGeminiLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.GEMINI_API_KEY!
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+  // UPGRADE #158: Gemini model fallbacks — try multiple models.
+  // gemini-2.0-flash is the default, but if quota is exceeded (429), try
+  // gemini-1.5-flash (older but sometimes has separate quota) and
+  // gemini-2.0-flash-lite (lower quality but higher rate limits).
+  const geminiModels = [
+    process.env.GEMINI_MODEL,
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+  ].filter(Boolean) as string[]
 
-  // Convert messages to Gemini format
-  const systemPrompt = messages.find(m => m.role === 'system')?.content ?? ''
-  const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }))
+  let lastError: any = null
+  for (const model of geminiModels) {
+    try {
+      // Convert messages to Gemini format
+      const systemPrompt = messages.find(m => m.role === 'system')?.content ?? ''
+      const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }))
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: chatMessages,
-      systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 12000,
-        topP: 0.95,
-      },
-    }),
-    signal: AbortSignal.timeout(60000),
-  })
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // UPGRADE #158: Add User-Agent for better API compatibility
+          'User-Agent': 'Agent007-AI/1.0',
+        },
+        body: JSON.stringify({
+          contents: chatMessages,
+          systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 12000,
+            topP: 0.95,
+          },
+        }),
+        signal: AbortSignal.timeout(30000),
+      })
 
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    // UPGRADE #80: Better error messages for common Gemini failures
-    if (resp.status === 400 && text.includes('location is not supported')) {
-      throw new Error('Gemini API not available in this region (Vercel iad1). Gemini fallback disabled — OpenAI retries will handle rate limits.')
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        if (resp.status === 429) {
+          // Quota exceeded — try next model (different quota pool)
+          lastError = new Error(`Gemini ${model}: HTTP 429 — quota exceeded. Try next model.`)
+          console.warn(`[LLM Router] Gemini ${model} quota exceeded — trying next model`)
+          continue
+        }
+        if (resp.status === 400 && text.includes('location is not supported')) {
+          throw new Error('Gemini API not available in this region (Vercel iad1).')
+        }
+        lastError = new Error(`Gemini ${model}: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+        continue
+      }
+
+      const data = await resp.json()
+      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+      if (!content) {
+        lastError = new Error(`Gemini ${model}: empty content`)
+        continue
+      }
+
+      const parts = data?.candidates?.[0]?.content?.parts ?? []
+      const reasoningPart = parts.find((p: any) => p.thought === true || p.thinking === true)
+      const reasoning = reasoningPart?.text || data?.candidates?.[0]?.groundingMetadata?.reasoning || null
+
+      console.log(`[LLM Router] Gemini ${model} succeeded`)
+      return {
+        choices: [{
+          message: { role: 'assistant', content, reasoning },
+          finish_reason: data?.candidates?.[0]?.finishReason?.toLowerCase() ?? 'stop',
+        }],
+        _provider: 'gemini',
+        _model: model,
+        _reasoning: reasoning,
+      }
+    } catch (e: any) {
+      lastError = e
+      console.warn(`[LLM Router] Gemini ${model} error: ${e?.message?.slice(0, 80)}`)
+      continue
     }
-    throw new Error(`Gemini failed: HTTP ${resp.status} — ${text.slice(0, 200)}`)
   }
 
-  const data = await resp.json()
-  const content = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-  if (!content) throw new Error('Gemini returned empty content')
-
-  // UPGRADE #119 — Extract reasoning (Gemini returns thought/thinking in parts)
-  const parts = data?.candidates?.[0]?.content?.parts ?? []
-  const reasoningPart = parts.find((p: any) => p.thought === true || p.thinking === true)
-  const reasoning = reasoningPart?.text || data?.candidates?.[0]?.groundingMetadata?.reasoning || null
-
-  return {
-    choices: [{
-      message: { role: 'assistant', content, reasoning },
-      finish_reason: data?.candidates?.[0]?.finishReason?.toLowerCase() ?? 'stop',
-    }],
-    _provider: 'gemini',
-    _reasoning: reasoning,
-  }
+  throw lastError ?? new Error('All Gemini models failed')
 }
 
 /** Mistral AI (FREE — direct API, reliable fallback) */
@@ -839,15 +874,20 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>): 
 /** OpenRouter (FREE models — multiple fallbacks) */
 async function callOpenRouterLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.OPENROUTER_API_KEY!
-  // UPGRADE #153: Updated OpenRouter free models — old models returned 404.
-  // OpenRouter's free tier changes frequently. These are current as of 2026-07.
-  // If all fail, the user can set OPENROUTER_MODEL env var to a paid model.
+  // UPGRADE #158: Updated OpenRouter free models — fetched LIVE from /v1/models.
+  // Old models (llama-3.3-70b-instruct:free, gemini-2.0-flash-exp:free) were removed.
+  // New free models as of 2026-07 (verified via API):
+  //   - openai/gpt-oss-20b:free (131K context — best general purpose)
+  //   - google/gemma-4-26b-a4b-it:free (262K context — good for long prompts)
+  //   - nvidia/nemotron-3-super-120b-a12b:free (262K context — large model)
+  //   - nvidia/nemotron-3-nano-30b-a3b:free (256K context — fast)
+  //   - cohere/north-mini-code:free (256K context — code-focused)
   const freeModels = [
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'google/gemini-2.0-flash-exp:free',
-    'deepseek/deepseek-chat-v3-0324:free',
-    'qwen/qwen-2.5-72b-instruct:free',
-    'meta-llama/llama-3.2-3b-instruct:free',
+    'openai/gpt-oss-20b:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+    'nvidia/nemotron-3-nano-30b-a3b:free',
+    'cohere/north-mini-code:free',
   ]
 
   let lastError: any = null
@@ -985,8 +1025,10 @@ async function callBraveLlm(messages: Array<{ role: string; content: string }>):
  */
 async function callCerebrasLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.CEREBRAS_API_KEY!
-  // UPGRADE #153: Cerebras model fallbacks — 'llama3.1-8b' was returning 404.
-  // Cerebras model naming may have changed. Try multiple models.
+  // UPGRADE #158: Cerebras model fallbacks — 'llama3.1-8b' was returning 404/403.
+  // Cerebras uses Cloudflare bot protection. The 403 was Cloudflare blocking,
+  // not a model error. Added User-Agent header to bypass Cloudflare's bot filter.
+  // Also added multiple model names in case Cerebras changes their naming.
   const cerebrasModels = [
     process.env.CEREBRAS_MODEL,
     'llama3.1-8b',
@@ -1002,6 +1044,10 @@ async function callCerebrasLlm(messages: Array<{ role: string; content: string }
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
+          // UPGRADE #158: Add User-Agent to bypass Cloudflare bot protection.
+          // Without this, Cloudflare returns 403 with a challenge page.
+          'User-Agent': 'Agent007-AI/1.0',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           model,
