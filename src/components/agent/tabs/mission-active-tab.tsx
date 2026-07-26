@@ -248,8 +248,16 @@ export function MissionActiveTab() {
     const chain = selectedMission.chain
     const currentIdx = chain.findIndex((c) => c.stage === selectedMission.currentStage)
     const activeHandoff = chain[selectedStageIdx]
+    // UPGRADE #154 (Issue #2 fix): Look up thread by CURRENT STAGE, not selected stage.
+    // Before: used `activeHandoff?.team` (the user-selected stage) to find the thread.
+    // But the server stores threads under the CURRENT stage's team. If the user
+    // selected a different stage than the current one, the thread lookup failed
+    // and no messages were shown — making it look like the leader "never responded."
+    // After: find the thread for the CURRENT stage (where the leader actually is),
+    // so messages are always visible regardless of which stage the user clicked.
+    const currentHandoff = chain[currentIdx]
     const activeThread = selectedMission.threads.find(
-      (t) => t.leaderId === activeHandoff?.team && t.stage === activeHandoff?.stage
+      (t) => t.leaderId === currentHandoff?.team && t.stage === currentHandoff?.stage
     )
     const isOwnerApproval = selectedMission.currentStage === 'OWNER_APPROVAL'
     const isCompleted = selectedMission.currentStage === 'COMPLETED'

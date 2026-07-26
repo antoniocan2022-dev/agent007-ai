@@ -1266,5 +1266,29 @@ function applyEvent(
       rateLimitedUntil: isRateLimit ? Date.now() + 30_000 : s.rateLimitedUntil,
     }))
   }
-  // 'done' event: nothing special; outer loop will set isStreaming=false
+  // UPGRADE #154: 'done' event — flush any pending tokens IMMEDIATELY.
+  // Before: the 'done' handler did nothing, relying on the outer loop to
+  // flush tokens. But if the 'done' event and stream close arrived in the
+  // same chunk, the 100ms token flush timer might not fire before the UI
+  // stopped rendering — causing incomplete responses.
+  // After: flush ALL pending tokens synchronously when 'done' arrives.
+  else if (event === 'done') {
+    const pendingContent = _pendingTokens
+    _pendingTokens = ''
+    if (_tokenFlushTimer) {
+      clearTimeout(_tokenFlushTimer)
+      _tokenFlushTimer = null
+    }
+    if (pendingContent) {
+      set((s) => ({
+        messages: s.messages.map((m) => {
+          if (m.id !== assistantId) return m
+          const steps = (m.steps ?? []).filter(
+            (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
+          )
+          return { ...m, content: m.content + pendingContent, steps }
+        }),
+      }))
+    }
+  }
 }
