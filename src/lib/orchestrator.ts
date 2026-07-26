@@ -1150,7 +1150,47 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     try {
       completion = await callLlmWithRetry(conversationMessages)
     } catch (e: any) {
-      const friendly = friendlyLlmError(e)
+      // UPGRADE #157: Check if ALL providers failed with auth errors (401/403).
+      // If so, the API keys are invalid/expired — give a clear actionable message.
+      const failures = (e as any)?._failures ?? []
+      const allAuthErrors = failures.length > 0 && failures.every((f: any) => {
+        const errStr = (f.error?.message ?? '').toLowerCase()
+        return errStr.includes('401') || errStr.includes('403') || errStr.includes('unauthorized') || errStr.includes('forbidden')
+      })
+
+      let friendly: string
+      if (allAuthErrors) {
+        // All providers returned auth errors — keys are invalid
+        const failureBreakdown = failures.map((f: any) =>
+          `${f.provider}: ${(f.error?.message ?? 'unknown').slice(0, 80)}`
+        ).join('\n  • ')
+        friendly = `🔐 ALL LLM provider API keys are INVALID or EXPIRED.
+
+Every provider returned HTTP 401 (Unauthorized) or 403 (Forbidden). This means the API keys set in Vercel are no longer valid.
+
+FAILURE BREAKDOWN:
+  • ${failureBreakdown}
+
+TO FIX:
+1. Go to https://agent007-ai.vercel.app/api/health/llm-test to see which providers fail
+2. Log into each provider's dashboard and generate a NEW API key:
+   - Mistral: https://console.mistral.ai
+   - Groq: https://console.groq.com
+   - OpenRouter: https://openrouter.ai
+   - Cerebras: https://cloud.cerebras.ai
+   - Gemini: https://aistudio.google.com
+3. Update the keys in Vercel → Settings → Environment Variables
+4. Redeploy (or wait 10s for the env vars to take effect)
+5. Test again at /api/health/llm-test
+
+The system is working correctly — the keys just need to be refreshed.`
+        const rateLimited = false
+        await emit('error', { message: friendly, rateLimited })
+        finalAnswer = friendly
+        break
+      }
+
+      friendly = friendlyLlmError(e)
       // UPGRADE #149 (Fix #2) — Use the new _allRateLimited flag instead of
       // isRateLimitError(lastErr). Before: if the LAST provider returned 429,
       // the UI showed "rate limited" even if 5 other providers failed with
