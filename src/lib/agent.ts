@@ -462,9 +462,11 @@ export async function callLlmWithRetry(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
 
-  // UPGRADE #123: Owner requested disabling OpenAI + z.ai, adding Cerebras.
-  // New default chain: mistral, groq, openrouter, cerebras, brave, gemini
-  const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'brave', 'gemini']
+  // UPGRADE #153: Fixed provider chain — removed Brave (not an LLM provider, HTTP 403).
+  // New default chain: mistral, groq, openrouter, cerebras, gemini
+  // Brave's "AI" endpoint (api.search.brave.com/ai/v1) returns 403 — the API key
+  // is for Brave SEARCH, not for LLM completions. Brave Leo is not publicly accessible.
+  const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'gemini']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   const providerEnabled = (name: string): boolean => {
@@ -491,9 +493,13 @@ export async function callLlmWithRetry(
   if (providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY) {
     providers.push({ name: 'Cerebras', fn: () => callCerebrasLlm(messages) })
   }
-  if (providerEnabled('brave') && process.env.BRAVE_API_KEY) {
-    providers.push({ name: 'Brave AI', fn: () => callBraveLlm(messages) })
-  }
+  // UPGRADE #153: Brave AI REMOVED from LLM chain.
+  // Brave is a SEARCH API, not an LLM provider. The /ai/v1/chat/completions
+  // endpoint returns HTTP 403 with every API key. Brave Leo (their AI) is not
+  // publicly accessible via API. Keeping BRAVE_API_KEY for search tools only.
+  // if (providerEnabled('brave') && process.env.BRAVE_API_KEY) {
+  //   providers.push({ name: 'Brave AI', fn: () => callBraveLlm(messages) })
+  // }
   if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
     providers.push({ name: 'Gemini', fn: () => callGeminiLlm(messages) })
   }
@@ -765,11 +771,13 @@ async function callMistralLlm(messages: Array<{ role: string; content: string }>
 /** Groq (FREE — ultra-fast Llama 3 / Mixtral) */
 async function callGroqLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.GROQ_API_KEY!
-  // UPGRADE #84: Multiple Groq model fallbacks
+  // UPGRADE #153: Updated Groq models — removed gemma2-9b-it (deprecated, HTTP 400).
+  // Current Groq models as of 2026-07: llama-3.3-70b-versatile, llama-3.1-8b-instant.
+  // Added llama-3.2-90b-vision-preview as a third fallback (different model family).
   const groqModels = [
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
-    'gemma2-9b-it',
+    'llama-3.2-90b-vision-preview',
   ]
 
   let lastError: any = null
@@ -831,15 +839,15 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>): 
 /** OpenRouter (FREE models — multiple fallbacks) */
 async function callOpenRouterLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.OPENROUTER_API_KEY!
-  // UPGRADE #84: Multiple free model fallbacks — old model was deprecated.
-  // Try each model in order until one works.
+  // UPGRADE #153: Updated OpenRouter free models — old models returned 404.
+  // OpenRouter's free tier changes frequently. These are current as of 2026-07.
+  // If all fail, the user can set OPENROUTER_MODEL env var to a paid model.
   const freeModels = [
     'meta-llama/llama-3.3-70b-instruct:free',
     'google/gemini-2.0-flash-exp:free',
     'deepseek/deepseek-chat-v3-0324:free',
     'qwen/qwen-2.5-72b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
-    'meta-llama/llama-3.1-8b-instruct:free',
+    'meta-llama/llama-3.2-3b-instruct:free',
   ]
 
   let lastError: any = null
@@ -977,47 +985,67 @@ async function callBraveLlm(messages: Array<{ role: string; content: string }>):
  */
 async function callCerebrasLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
   const apiKey = process.env.CEREBRAS_API_KEY!
-  const model = process.env.CEREBRAS_MODEL || 'llama3.1-8b'
+  // UPGRADE #153: Cerebras model fallbacks — 'llama3.1-8b' was returning 404.
+  // Cerebras model naming may have changed. Try multiple models.
+  const cerebrasModels = [
+    process.env.CEREBRAS_MODEL,
+    'llama3.1-8b',
+    'llama-3.3-70b',
+    'llama3.1-70b',
+  ].filter(Boolean) as string[]
 
-  const resp = await fetch('https://api.cerebras.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.7,
-      max_tokens: 12000,
-      top_p: 0.95,
-    }),
-    signal: AbortSignal.timeout(60000),
-  })
+  let lastError: any = null
+  for (const model of cerebrasModels) {
+    try {
+      const resp = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 12000,
+          top_p: 0.95,
+        }),
+        signal: AbortSignal.timeout(60000),
+      })
 
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`Cerebras: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        lastError = new Error(`Cerebras ${model}: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+        console.warn(`[LLM Router] Cerebras ${model} failed: HTTP ${resp.status}`)
+        continue
+      }
+
+      const data = await resp.json()
+      const content = data?.choices?.[0]?.message?.content ?? ''
+      if (!content) {
+        lastError = new Error(`Cerebras ${model}: empty content`)
+        continue
+      }
+
+      const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+      console.log(`[LLM Router] Cerebras ${model} succeeded`)
+      return {
+        choices: [{
+          message: { role: 'assistant', content, reasoning },
+          finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+        }],
+        _provider: 'cerebras',
+        _model: model,
+        _reasoning: reasoning,
+      }
+    } catch (e: any) {
+      lastError = e
+      console.warn(`[LLM Router] Cerebras ${model} error: ${e?.message?.slice(0, 80)}`)
+      continue
+    }
   }
 
-  const data = await resp.json()
-  const content = data?.choices?.[0]?.message?.content ?? ''
-  if (!content) {
-    throw new Error(`Cerebras returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
-  }
-
-  // UPGRADE #119 — Extract reasoning if present
-  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
-
-  return {
-    choices: [{
-      message: { role: 'assistant', content, reasoning },
-      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
-    }],
-    _provider: 'cerebras',
-    _model: model,
-    _reasoning: reasoning,
-  }
+  throw lastError ?? new Error('All Cerebras models failed')
 }
 
 /**
