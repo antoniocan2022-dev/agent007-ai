@@ -1058,11 +1058,24 @@ display name (e.g., "Cybersecurity A", "TRADER"). Do NOT do the work yourself wi
 web_search calls. Do NOT tell the user the agent doesn't exist if it appears in the list
 above. The list above is authoritative.`
 
+  // UPGRADE #159: Add provider metadata + tool discovery prompt to system prompt.
+  let providerMetadata = ''
+  let toolDiscoveryPrompt = ''
+  try {
+    const { getProviderMetadataSummary, getToolDiscoveryPrompt } = await import('./provider-intelligence')
+    providerMetadata = getProviderMetadataSummary()
+    toolDiscoveryPrompt = getToolDiscoveryPrompt()
+  } catch {}
+
   const systemPrompt = `${BASE_SYSTEM_PROMPT}
 
 ${ORCHESTRATOR_PROMPT_ADDENDUM}
 
 ${dynamicAgentSection}
+
+${providerMetadata}
+
+${toolDiscoveryPrompt}
 
 ${languageInstruction}
 

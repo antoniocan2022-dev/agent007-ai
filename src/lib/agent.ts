@@ -405,10 +405,23 @@ export async function callLlmWithRetry(
     }
   }
 
-  // UPGRADE #149 (Fix #1) — Helper: call a provider with retry-with-backoff.
-  // 3 attempts: 0ms, 500ms, 1500ms. Only retries on rate-limit (429) errors;
-  // auth/region/500 errors fast-fall through to the next provider.
-  // Returns the result on success, throws on failure.
+  // ════════════════════════════════════════════════════════════════════
+  // UPGRADE #159 — Provider Intelligence Integration
+  // ════════════════════════════════════════════════════════════════════
+  const {
+    initProviderIntelligence,
+    isCircuitOpen,
+    recordSuccess,
+    recordFailure,
+    getDiscoveredModel,
+    getHealthScore,
+    getBestProvider,
+  } = await import('./provider-intelligence')
+
+  // Initialize provider auto-discovery (runs once per warm instance)
+  await initProviderIntelligence().catch(() => {})
+
+  // UPGRADE #149 (Fix #1) — Helper: call a provider with retry-with-backoff + health tracking.
   async function callWithRetry(
     providerName: string,
     fn: () => Promise<any>,
@@ -419,9 +432,13 @@ export async function callLlmWithRetry(
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, backoffMs[attempt]))
       }
+      const callStart = Date.now()
       try {
         const result = await fn()
-        if (attempt > 0) console.log(`[LLM Router] ${providerName} succeeded on retry ${attempt}`)
+        const callMs = Date.now() - callStart
+        // UPGRADE #159: Record success for health scoring
+        recordSuccess(providerName, callMs)
+        if (attempt > 0) console.log(`[LLM Router] ${providerName} succeeded on retry ${attempt} (${callMs}ms)`)
         return result
       } catch (err: any) {
         lastProviderErr = err
@@ -448,8 +465,12 @@ export async function callLlmWithRetry(
         // Rate limit — retry
         RATE_LIMIT_INFO.last429At = Date.now()
         console.warn(`[LLM Router] ${providerName} rate-limited (attempt ${attempt + 1}/${backoffMs.length}): ${err?.message?.slice(0, 80)}`)
+        // UPGRADE #159: Record failure for health scoring + circuit breaker
+        recordFailure(providerName)
       }
     }
+    // UPGRADE #159: Record final failure if all retries exhausted
+    recordFailure(providerName)
     throw lastProviderErr
   }
 
@@ -483,16 +504,22 @@ export async function callLlmWithRetry(
     providers.push({ name: 'OpenAI', fn: () => callFallbackLlm(messages) })
   }
   if (providerEnabled('mistral') && process.env.MISTRAL_API_KEY) {
-    providers.push({ name: 'Mistral', fn: () => callMistralLlm(messages) })
+    // UPGRADE #159: Use auto-discovered model
+    const model = getDiscoveredModel('Mistral') || 'mistral-small-latest'
+    providers.push({ name: 'Mistral', fn: () => callMistralLlm(messages, model) })
   }
   if (providerEnabled('groq') && process.env.GROQ_API_KEY) {
-    providers.push({ name: 'Groq', fn: () => callGroqLlm(messages) })
+    // UPGRADE #159: Use auto-discovered model
+    const model = getDiscoveredModel('Groq') || 'llama-3.3-70b-versatile'
+    providers.push({ name: 'Groq', fn: () => callGroqLlm(messages, model) })
   }
   if (providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY) {
     providers.push({ name: 'OpenRouter', fn: () => callOpenRouterLlm(messages) })
   }
   if (providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY) {
-    providers.push({ name: 'Cerebras', fn: () => callCerebrasLlm(messages) })
+    // UPGRADE #159: Use auto-discovered model
+    const model = getDiscoveredModel('Cerebras') || 'llama3.1-8b'
+    providers.push({ name: 'Cerebras', fn: () => callCerebrasLlm(messages, model) })
   }
   // UPGRADE #153: Brave AI REMOVED from LLM chain.
   // Brave is a SEARCH API, not an LLM provider. The /ai/v1/chat/completions
@@ -762,7 +789,7 @@ async function callGeminiLlm(messages: Array<{ role: string; content: string }>)
 }
 
 /** Mistral AI (FREE — direct API, reliable fallback) */
-async function callMistralLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+async function callMistralLlm(messages: Array<{ role: string; content: string }>, model: string = "mistral-small-latest"): Promise<any> {
   const apiKey = process.env.MISTRAL_API_KEY!
   const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
@@ -771,7 +798,7 @@ async function callMistralLlm(messages: Array<{ role: string; content: string }>
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'mistral-large-latest',
+      model,  // UPGRADE #159: use auto-discovered model (was hardcoded 'mistral-large-latest')
       messages,
       temperature: 0.7,
       max_tokens: 12000,
@@ -804,16 +831,15 @@ async function callMistralLlm(messages: Array<{ role: string; content: string }>
 }
 
 /** Groq (FREE — ultra-fast Llama 3 / Mixtral) */
-async function callGroqLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+async function callGroqLlm(messages: Array<{ role: string; content: string }>, preferredModel?: string): Promise<any> {
   const apiKey = process.env.GROQ_API_KEY!
-  // UPGRADE #153: Updated Groq models — removed gemma2-9b-it (deprecated, HTTP 400).
-  // Current Groq models as of 2026-07: llama-3.3-70b-versatile, llama-3.1-8b-instant.
-  // Added llama-3.2-90b-vision-preview as a third fallback (different model family).
+  // UPGRADE #159: Use auto-discovered model first, then fallbacks.
   const groqModels = [
+    preferredModel,
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
     'llama-3.2-90b-vision-preview',
-  ]
+  ].filter(Boolean) as string[]
 
   let lastError: any = null
   for (const model of groqModels) {
@@ -1023,13 +1049,13 @@ async function callBraveLlm(messages: Array<{ role: string; content: string }>):
  *   CEREBRAS_API_KEY  — required
  *   CEREBRAS_MODEL    — optional, defaults to llama3.1-8b
  */
-async function callCerebrasLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+async function callCerebrasLlm(messages: Array<{ role: string; content: string }>, preferredModel?: string): Promise<any> {
   const apiKey = process.env.CEREBRAS_API_KEY!
   // UPGRADE #158: Cerebras model fallbacks — 'llama3.1-8b' was returning 404/403.
   // Cerebras uses Cloudflare bot protection. The 403 was Cloudflare blocking,
   // not a model error. Added User-Agent header to bypass Cloudflare's bot filter.
   // Also added multiple model names in case Cerebras changes their naming.
-  const cerebrasModels = [
+  const cerebrasModels = [preferredModel, 
     process.env.CEREBRAS_MODEL,
     'llama3.1-8b',
     'llama-3.3-70b',
