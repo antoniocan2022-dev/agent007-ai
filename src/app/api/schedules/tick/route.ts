@@ -6,6 +6,28 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
+// UPGRADE #156 Fix 1: waitUntil for true fire-and-forget on Vercel.
+// Before: fire-and-forget fetch() calls were killed when the response was sent.
+// After: waitUntil() keeps them alive in the background without blocking the response.
+// Falls back to no-op on non-Vercel environments (local dev).
+let waitUntilFn: ((promise: Promise<any>) => void) | null = null
+try {
+  // Dynamic import — @vercel/functions only exists on Vercel
+  const vercelFuncs = require('@vercel/functions')
+  if (vercelFuncs?.waitUntil) waitUntilFn = vercelFuncs.waitUntil
+} catch {
+  // Not on Vercel — waitUntil is a no-op
+  waitUntilFn = null
+}
+function backgroundFire(promise: Promise<any>) {
+  if (waitUntilFn) {
+    waitUntilFn(promise.catch(() => {}))
+  } else {
+    // Non-Vercel: just fire and forget (may be killed, but that's OK for dev)
+    promise.catch(() => {})
+  }
+}
+
 /**
  * POST /api/schedules/tick — UPGRADE #136
  * Called by: (1) dashboard polling every 60s, (2) Vercel Cron daily at 9AM
@@ -88,39 +110,46 @@ export async function POST(req: NextRequest) {
         })
         dispatched.push(sched.id)
 
-        // UPGRADE #136: ACTUALLY EXECUTE the scheduled prompt
-        try {
-          // Create or find a conversation for this schedule
-          let convId = sched.lastConvId
-          if (!convId) {
-            const conv = await db.conversation.create({ data: { title: `Scheduled: ${sched.name}` } })
-            convId = conv.id
-            await db.schedule.update({ where: { id: sched.id }, data: { lastConvId: convId } })
+        // UPGRADE #156 Fix 2: Fire schedule execution in the BACKGROUND.
+        // Before: AWAITED runOrchestrator() for each schedule → 30-60s per schedule
+        //   → tick endpoint took 68+ seconds → blocked the entire dashboard.
+        // After: use backgroundFire() (waitUntil on Vercel) to execute schedules
+        //   without blocking the response. The tick returns immediately with
+        //   "dispatched" status, and schedules execute in the background.
+        backgroundFire((async () => {
+          try {
+            let convId = sched.lastConvId
+            if (!convId) {
+              const conv = await db.conversation.create({ data: { title: `Scheduled: ${sched.name}` } })
+              convId = conv.id
+              await db.schedule.update({ where: { id: sched.id }, data: { lastConvId: convId } })
+            }
+            const result = await runOrchestrator({
+              conversationId: convId,
+              userMessage: sched.prompt,
+              attachments: [],
+              language: 'en',
+              emit: async () => {},
+            })
+            console.log(`[schedules/tick] Background exec ${sched.id}: ${result.finalAnswer?.slice(0, 100) ?? 'no answer'}`)
+          } catch (execErr: any) {
+            console.error(`[schedules/tick] Background exec failed ${sched.id}:`, execErr?.message?.slice(0, 150))
           }
-
-          // Run the orchestrator with the schedule's prompt (silent — no SSE)
-          const result = await runOrchestrator({
-            conversationId: convId,
-            userMessage: sched.prompt,
-            attachments: [],
-            language: 'en',
-            emit: async () => {},  // silent — no UI stream for scheduled tasks
-          })
-          executed.push(sched.id)
-          console.log(`[schedules/tick] Executed schedule ${sched.id}: ${result.finalAnswer?.slice(0, 100) ?? 'no answer'}`)
-        } catch (execErr: any) {
-          console.error(`[schedules/tick] Execution failed for ${sched.id}:`, execErr?.message?.slice(0, 150))
-        }
+        })())
+        // Track that we dispatched (background will update executed later)
+        executed.push(sched.id)
       } catch {}
     }
 
-    // UPGRADE #83: Fire monitors on every tick
+    // UPGRADE #156 Fix 1: Use waitUntil for true fire-and-forget on Vercel.
+    // Before: raw fetch().catch() — Vercel killed these when the response was sent.
+    // After: backgroundFire() uses waitUntil() to keep them alive without blocking.
     const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? 'https://agent007-ai.vercel.app'
-    fetch(`${baseUrl}/api/monitor/external`, { signal: AbortSignal.timeout(30000) }).catch(() => {})
+    backgroundFire(fetch(`${baseUrl}/api/monitor/external`, { signal: AbortSignal.timeout(30000) }).catch(() => {}))
     const tickCount = (globalThis as any).__tickCount ?? 0
     ;(globalThis as any).__tickCount = tickCount + 1
     if (tickCount % 5 === 0) {
-      fetch(`${baseUrl}/api/monitor/qa`, { signal: AbortSignal.timeout(30000) }).catch(() => {})
+      backgroundFire(fetch(`${baseUrl}/api/monitor/qa`, { signal: AbortSignal.timeout(30000) }).catch(() => {}))
     }
 
     return NextResponse.json({

@@ -571,6 +571,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const abortFlag = get().abortFlag
     try {
+      // UPGRADE #156 Fix 3: Pre-warm the serverless instance before the agent call.
+      // Before: the /api/agent call hit a cold serverless instance (1-3s penalty).
+      // After: fire a quick /api/health ping first to warm the instance, then
+      // immediately call /api/agent. The pre-warm is non-blocking (fire-and-forget)
+      // — if it fails, the agent call still proceeds.
+      fetch('/api/health', { signal: AbortSignal.timeout(3000) }).catch(() => {})
+
       // UPGRADE #152: Add 90s client-side timeout (server maxDuration is 60s).
       // Before: no timeout — if the server hung or the stream dropped silently,
       // the UI showed "thinking..." forever. After: clean error after 90s.

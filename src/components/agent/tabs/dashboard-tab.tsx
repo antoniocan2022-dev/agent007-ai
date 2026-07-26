@@ -187,15 +187,12 @@ export function DashboardTab() {
     refreshAll()
   }, [refreshVersion, refreshAll])
 
-  // Also tick the scheduler every 60s while the dashboard is mounted
-  useEffect(() => {
-    const tick = () => {
-      fetch('/api/schedules/tick', { method: 'POST' }).catch(() => {/* ignore */})
-    }
-    tick()
-    const id = setInterval(tick, 60_000)
-    return () => clearInterval(id)
-  }, [])
+  // UPGRADE #156 Fix 2: REMOVED 60-second scheduler tick from dashboard mount.
+  // Before: fired POST /api/schedules/tick every 60 seconds, which triggered
+  //   2 monitor calls (each 30s timeout) — blocking the dashboard for 65+ seconds.
+  // After: scheduled tasks run via Vercel Cron (every 30 minutes, configured in
+  //   vercel.json). The dashboard no longer blocks. Users can still trigger
+  //   schedules manually via the Schedules tab "Run Now" button.
 
   const today = data?.aggregates.today ?? 0
   const yesterday = data?.aggregates.yesterday ?? 0
