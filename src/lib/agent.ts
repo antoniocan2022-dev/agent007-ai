@@ -377,32 +377,27 @@ export async function callLlmWithRetry(
   // After: we know exactly which providers failed and why.
   const failures: Array<{ provider: string; error: any; isRateLimit: boolean }> = []
 
-  // circuitBreaker: per-provider. After 3 failures in 60s, skip the provider
-  // entirely for 60s. This prevents wasting 500ms-2s on a dead provider.
-  // Stored on globalThis so it persists across calls within the same warm instance.
-  const G = globalThis as any
-  if (!G.__llmCircuitBreaker) G.__llmCircuitBreaker = {} as Record<string, { failures: number[]; skipUntil: number }>
-  const circuitBreaker: Record<string, { failures: number[]; skipUntil: number }> = G.__llmCircuitBreaker
-
-  function shouldSkipProvider(name: string): boolean {
-    const cb = circuitBreaker[name]
-    if (!cb) return false
-    const now = Date.now()
-    if (cb.skipUntil > now) return true  // Still in cooldown
-    // Clean old failures (older than 60s)
-    cb.failures = cb.failures.filter(t => now - t < 60_000)
-    return false
+  // UPGRADE #160: REMOVED the old circuit breaker (was from UPGRADE #149).
+  // The old circuit breaker opened after 3 failures in 60s, blocking the
+  // provider for 60s. When ALL providers failed (e.g., due to the bloated
+  // system prompt causing timeouts), ALL circuits opened simultaneously,
+  // leaving ZERO providers available — the agent completely stopped responding.
+  //
+  // The new provider-intelligence.ts (UPGRADE #159) has its OWN circuit breaker
+  // that is smarter (tracks health score, not just failure count). The old one
+  // is now DISABLED — shouldSkipProvider always returns false.
+  //
+  // Instead of blocking providers for 60s, we now:
+  //   1. Try ALL providers on EVERY call (no skipping)
+  //   2. Use health scoring to PREFER healthy providers (future: sort by score)
+  //   3. If a provider fails, it fails fast (auth/region errors don't retry)
+  function shouldSkipProvider(_name: string): boolean {
+    return false  // UPGRADE #160: Never skip — try every provider every time
   }
 
-  function recordProviderFailure(name: string) {
-    const now = Date.now()
-    if (!circuitBreaker[name]) circuitBreaker[name] = { failures: [], skipUntil: 0 }
-    circuitBreaker[name].failures.push(now)
-    // If 3+ failures in 60s, skip for 60s
-    if (circuitBreaker[name].failures.length >= 3) {
-      circuitBreaker[name].skipUntil = now + 60_000
-      console.warn(`[LLM Router] ${name} circuit breaker OPEN for 60s (${circuitBreaker[name].failures.length} failures in 60s)`)
-    }
+  function recordProviderFailure(_name: string) {
+    // UPGRADE #160: No-op — the new provider-intelligence.ts handles this
+    // via recordFailure() which tracks health scores + its own circuit breaker.
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -561,30 +556,29 @@ export async function callLlmWithRetry(
     }
   }
 
-  // Filter out circuit-broken providers (still track them in failures as "skipped")
+  // Filter out circuit-broken providers
+  // UPGRADE #160: shouldSkipProvider now ALWAYS returns false — no provider
+  // is ever skipped. This ensures the agent ALWAYS has providers to try.
   const activeProviders = providers.filter(p => !shouldSkipProvider(p.name))
   const skippedProviders = providers.filter(p => shouldSkipProvider(p.name))
   for (const p of skippedProviders) {
-    const cb = circuitBreaker[p.name]
     failures.push({
       provider: p.name,
       error: new Error(`Circuit breaker open (skipped for 60s after 3 failures)`),
       isRateLimit: false,
     })
-    console.log(`[LLM Router] ${p.name} skipped (circuit breaker open until ${new Date(cb.skipUntil).toISOString()})`)
+    console.log(`[LLM Router] ${p.name} skipped (circuit breaker open)`)
   }
 
+  // UPGRADE #160: This block should NEVER fire now (shouldSkipProvider always
+  // returns false). But if it somehow does, reset ALL circuits and try again
+  // instead of throwing an error that leaves the user with no response.
   if (activeProviders.length === 0) {
-    // All providers are circuit-broken — throw immediately with full breakdown
-    const allRateLimited = failures.length > 0 && failures.every(f => f.isRateLimit)
-    const err = new Error(
-      `All ${providers.length} provider(s) are circuit-broken. ` +
-      `Skipped: ${skippedProviders.map(p => p.name).join(', ')}. ` +
-      `Wait 60s for the circuit breaker to reset.`
-    )
-    ;(err as any)._allRateLimited = allRateLimited
-    ;(err as any)._failures = failures
-    throw err
+    console.warn('[LLM Router] ALL providers circuit-broken — resetting all circuits and retrying')
+    // Reset by using ALL providers (ignore circuit breaker)
+    activeProviders.push(...providers)
+    // Clear the failures from skipped providers (they'll be retried)
+    failures.length = 0
   }
 
   // ════════════════════════════════════════════════════════════════════
