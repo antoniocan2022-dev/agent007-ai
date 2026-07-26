@@ -8,11 +8,23 @@ export async function toolBaileysPostgresStorage(args: any, _ctx: ToolContext): 
 }
 
 export async function toolRedisCache(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  // UPGRADE #121 FIX: Use the correct env var name UPSTASH_REDIS_REST_URL
-  // (was checking UPSTASH_REDIS_URL — missing _REST_ — so Redis was never detected)
+  // UPGRADE #155: Improved Redis cache tool — clearer status + graceful fallback.
+  // Before: returned "SETUP REQUIRED" which looked like an error to the agent.
+  // After: returns a clear "not configured" status that the agent can understand
+  // and gracefully skip (the system works fine without Redis — it's optional).
   const url = process.env.UPSTASH_REDIS_REST_URL
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
-  if (!url || !token) return okResult('Redis: SETUP REQUIRED', 'Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for distributed cache (free: 10K req/day at upstash.com)')
+  if (!url || !token) {
+    return okResult(
+      'Redis: NOT CONFIGURED (optional — system works without it)',
+      'Redis cache is optional. The system works fine without it (uses in-memory caching).\n\n' +
+      'To enable distributed caching + durable rate limiting:\n' +
+      '1. Create a free Redis database at https://upstash.com (10K req/day free)\n' +
+      '2. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Vercel env vars\n' +
+      '3. Redis will auto-activate for: rate limiting, LLM response caching, session sharing\n\n' +
+      'Current status: Using in-memory cache (per-instance, resets on cold start).'
+    )
+  }
   try {
     if (args.action === 'status' || !args.action) {
       const resp = await fetch(`${url}/ping`, {

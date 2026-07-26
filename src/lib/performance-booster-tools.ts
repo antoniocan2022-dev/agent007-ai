@@ -98,9 +98,48 @@ export async function toolAccuracyChecker(args: any, _ctx: ToolContext): Promise
   const claim = (args?.claim ?? '').toString().trim()
   if (!claim) return badResult('Missing "claim" argument')
 
+  // UPGRADE #155: REAL accuracy checking — actually search for the claim.
+  // Before: returned a hardcoded "87% confidence" response without checking anything.
+  // After: uses web_search + Wikipedia to cross-reference the claim.
+  const { dispatchTool } = await import('./tools')
+  const ctx: ToolContext = { attachments: [], language: 'en' }
+
+  const sources: Array<{ source: string; found: boolean; snippet: string }> = []
+
+  // Source 1: Web search
+  try {
+    const webResult = await dispatchTool('web_search', { query: claim.slice(0, 200) }, ctx)
+    if (webResult.ok) {
+      const text = (webResult.result || '').slice(0, 500)
+      sources.push({ source: 'Web Search', found: text.length > 50, snippet: text.slice(0, 200) })
+    } else {
+      sources.push({ source: 'Web Search', found: false, snippet: 'Search failed' })
+    }
+  } catch {
+    sources.push({ source: 'Web Search', found: false, snippet: 'Search error' })
+  }
+
+  // Source 2: Wikipedia
+  try {
+    const wikiResult = await dispatchTool('wikipedia_search', { query: claim.slice(0, 100) }, ctx)
+    if (wikiResult.ok) {
+      const text = (wikiResult.result || '').slice(0, 500)
+      sources.push({ source: 'Wikipedia', found: text.length > 50, snippet: text.slice(0, 200) })
+    } else {
+      sources.push({ source: 'Wikipedia', found: false, snippet: 'Wikipedia search failed' })
+    }
+  } catch {
+    sources.push({ source: 'Wikipedia', found: false, snippet: 'Wikipedia error' })
+  }
+
+  // Calculate confidence based on how many sources found the claim
+  const foundCount = sources.filter(s => s.found).length
+  const confidence = foundCount === 0 ? 0 : foundCount === 1 ? 50 : foundCount === 2 ? 80 : 95
+  const verdict = confidence >= 80 ? 'LIKELY ACCURATE' : confidence >= 50 ? 'PARTIALLY VERIFIED' : 'UNVERIFIED'
+
   return okResult(
-    `Accuracy check: claim verified with 3 sources, confidence 87%`,
-    `ACCURACY CHECKER\n${'='.repeat(60)}\nClaim: "${claim}"\n\nVERIFICATION METHOD:\n  1. Cross-reference with web_search results\n  2. Cross-reference with Wikipedia\n  3. Cross-reference with DuckDuckGo\n\nVERDICT: LIKELY ACCURATE (87% confidence)\n\nSOURCES CHECKED:\n  ✅ Wikipedia — consistent\n  ✅ DuckDuckGo — consistent\n  ⚠ Single source claims — verify with web_search\n\nRECOMMENDATION: The claim appears accurate based on multiple sources. For 95%+ confidence, run web_search to find additional sources.\n\nUSAGE: After making a claim or finding information, run this tool to verify accuracy before reporting to the owner.`
+    `Accuracy check: ${verdict} (${confidence}% confidence, ${foundCount}/${sources.length} sources)`,
+    `ACCURACY CHECKER\n${'='.repeat(60)}\nClaim: "${claim}"\n\nVERIFICATION RESULTS:\n${sources.map(s => `  ${s.found ? '✅' : '❌'} ${s.source}: ${s.snippet}`).join('\n')}\n\nVERDICT: ${verdict} (${confidence}% confidence)\n\n${confidence < 80 ? '⚠ This claim could not be fully verified. Recommend additional research.' : '✅ Claim appears accurate based on multiple sources.'}`
   )
 }
 

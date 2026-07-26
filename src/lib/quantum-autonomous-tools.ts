@@ -442,8 +442,21 @@ export async function toolPredictiveMarketAnalytics(args: any, _ctx: ToolContext
   const horizon = (args?.horizon ?? '7d').toString()
   try {
     // REAL API call to CoinGecko for live price data
+    // UPGRADE #155: Added API key header + rate-limit handling
     const coinId = asset === 'btc' ? 'bitcoin' : asset === 'eth' ? 'ethereum' : asset === 'sol' ? 'solana' : 'bitcoin'
-    const data = await fetchJSON(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`)
+    const cgUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`
+    const cgHeaders: Record<string, string> = {}
+    if (process.env.COINGECKO_API_KEY) {
+      cgHeaders['x-cg-demo-api-key'] = process.env.COINGECKO_API_KEY
+    }
+    const cgResp = await fetch(cgUrl, { headers: cgHeaders, signal: AbortSignal.timeout(10000) })
+    if (!cgResp.ok) {
+      if (cgResp.status === 429) {
+        return badResult('CoinGecko API rate limited (429). Free tier: 30 calls/min. Wait 30s or set COINGECKO_API_KEY for higher limits.')
+      }
+      return badResult(`CoinGecko API error: HTTP ${cgResp.status}`)
+    }
+    const data = await cgResp.json()
     const p = data[coinId]
     if (p) {
       const price = p.usd; const change = p.usd_24h_change?.toFixed(2)
