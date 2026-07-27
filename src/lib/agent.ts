@@ -478,12 +478,21 @@ export async function callLlmWithRetry(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
 
-  // UPGRADE #158: Re-enabled OpenAI (tested working — 1.3s response time).
-  // OpenAI was disabled in UPGRADE #123 but the live test confirms it works.
-  // With the bloated system prompt, OpenAI (gpt-4o-mini) handles 9K tokens
-  // much faster than Mistral small-latest.
-  // New default chain: mistral, groq, openai, openrouter, cerebras, gemini
-  const DEFAULT_ORDER = ['mistral', 'groq', 'openai', 'openrouter', 'cerebras', 'gemini']
+  // UPGRADE #161: Optimized provider chain for Vercel Pro + paid OpenAI.
+  // Owner chose to pay for ONE provider: OpenAI gpt-4o-mini ($9/month).
+  //
+  // Chain order (fastest + most reliable first):
+  //   1. Groq     — FREE, 1-3s, 30 req/min (fastest provider)
+  //   2. OpenAI   — PAID, 2-5s, $0.003/msg (best XML tag parsing for orchestrator)
+  //   3. Z.ai     — FREE, 5-15s, unlimited (reliable fallback, works from any region)
+  //   4. Mistral  — FREE, 10-25s, rate-limited (last resort, slow but works)
+  //
+  // DISABLED (broken):
+  //   - OpenRouter: free models removed (404), paid models not configured
+  //   - Cerebras: model names return 404, API unstable
+  //   - Gemini: free quota exhausted (429), not upgrading to paid
+  //   - Brave: not an LLM provider (HTTP 403)
+  const DEFAULT_ORDER = ['groq', 'openai', 'z-ai', 'mistral']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   const providerEnabled = (name: string): boolean => {

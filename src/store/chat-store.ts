@@ -571,18 +571,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const abortFlag = get().abortFlag
     try {
-      // UPGRADE #156 Fix 3: Pre-warm the serverless instance before the agent call.
-      // Before: the /api/agent call hit a cold serverless instance (1-3s penalty).
-      // After: fire a quick /api/health ping first to warm the instance, then
-      // immediately call /api/agent. The pre-warm is non-blocking (fire-and-forget)
-      // — if it fails, the agent call still proceeds.
-      fetch('/api/health', { signal: AbortSignal.timeout(3000) }).catch(() => {})
-
-      // UPGRADE #152: Add 90s client-side timeout (server maxDuration is 60s).
-      // Before: no timeout — if the server hung or the stream dropped silently,
-      // the UI showed "thinking..." forever. After: clean error after 90s.
-      // The 90s is deliberately LONGER than the server's 60s maxDuration so the
-      // server timeout fires first and sends a proper error event via SSE.
+      // UPGRADE #161: Increased to 180s (server maxDuration is now 300s on Vercel Pro).
+      // Before: 90s timeout (server was 60s). After: 180s gives the agent
+      // enough time to complete complex missions with subagent dispatches.
       const res = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -592,7 +583,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           attachments: userMsg.attachments ?? [],
           language: state.language,
         }),
-        signal: AbortSignal.timeout(90_000),
+        signal: AbortSignal.timeout(180_000),
       })
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => '')
@@ -684,12 +675,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // UPGRADE #152: Distinguish timeout from network errors for clearer UX
       let errMsg = e?.message ?? String(e)
       if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
-        errMsg = 'The request timed out after 90 seconds. This usually means the LLM providers are slow or unresponsive. Click Retry to try again.'
+        errMsg = 'The request timed out after 180 seconds. This usually means the LLM providers are slow or the mission is very complex. Click Retry to try again.'
       } else if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html')) {
         errMsg = 'The server encountered an error. This is usually a temporary database connectivity issue. Please wait 10 seconds and try again.'
       } else if (/fetch failed|ECONNRESET|socket hang up|aborted/i.test(errMsg)) {
-        // UPGRADE #152: The SSE stream dropped — most likely a Vercel timeout
-        errMsg = 'The connection to the server was interrupted. This usually means the response took too long (Vercel 60-second limit). Click Retry to try again — the agent may respond faster on the next attempt.'
+        errMsg = 'The connection to the server was interrupted. This usually means the response took too long (Vercel 300-second limit). Click Retry to try again — the agent may respond faster on the next attempt.'
       }
       set((s) => ({
         messages: s.messages.map((m) =>
