@@ -98,47 +98,101 @@ export async function toolAccuracyChecker(args: any, _ctx: ToolContext): Promise
   const claim = (args?.claim ?? '').toString().trim()
   if (!claim) return badResult('Missing "claim" argument')
 
-  // UPGRADE #155: REAL accuracy checking — actually search for the claim.
-  // Before: returned a hardcoded "87% confidence" response without checking anything.
-  // After: uses web_search + Wikipedia to cross-reference the claim.
-  const { dispatchTool } = await import('./tools')
-  const ctx: ToolContext = { attachments: [], language: 'en' }
-
+  // UPGRADE #162: Fixed accuracy_checker for Vercel.
+  // PROBLEM: web_search calls getZai() → ZAI.create() → z-ai SDK's
+  // function calling API. On Vercel, ZAI.create() fails because the SDK
+  // needs a config file (~/.z-ai-config) that doesn't exist on serverless.
+  // Result: web_search ALWAYS fails on Vercel → accuracy_checker ALWAYS
+  // returns "UNVERIFIED (0% confidence)" even for true claims.
+  //
+  // FIX: Use search providers that work on Vercel:
+  //   1. Wikipedia API — direct HTTP call to en.wikipedia.org (no SDK needed)
+  //   2. DuckDuckGo API — direct HTTP call to api.duckduckgo.com (no SDK needed)
+  //   3. Brave Search API — direct HTTP call to api.search.brave.com (BRAVE_API_KEY)
+  // These all work on Vercel without any SDK dependencies.
   const sources: Array<{ source: string; found: boolean; snippet: string }> = []
 
-  // Source 1: Web search
+  // Source 1: Wikipedia (direct API — always works, no SDK needed)
   try {
-    const webResult = await dispatchTool('web_search', { query: claim.slice(0, 200) }, ctx)
-    if (webResult.ok) {
-      const text = (webResult.result || '').slice(0, 500)
-      sources.push({ source: 'Web Search', found: text.length > 50, snippet: text.slice(0, 200) })
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(claim.slice(0, 100))}&srlimit=3&format=json`
+    const wikiResp = await fetch(wikiUrl, {
+      headers: { 'User-Agent': 'Agent007-AI/1.0 (accuracy checker)' },
+      signal: AbortSignal.timeout(10000),
+    })
+    if (wikiResp.ok) {
+      const wikiData = await wikiResp.json()
+      const wikiItems = wikiData?.query?.search ?? []
+      if (wikiItems.length > 0) {
+        const snippet = wikiItems[0]?.snippet ?? ''
+        sources.push({ source: 'Wikipedia', found: true, snippet: snippet.slice(0, 200) })
+      } else {
+        sources.push({ source: 'Wikipedia', found: false, snippet: 'No Wikipedia results' })
+      }
     } else {
-      sources.push({ source: 'Web Search', found: false, snippet: 'Search failed' })
+      sources.push({ source: 'Wikipedia', found: false, snippet: `HTTP ${wikiResp.status}` })
     }
-  } catch {
-    sources.push({ source: 'Web Search', found: false, snippet: 'Search error' })
+  } catch (e: any) {
+    sources.push({ source: 'Wikipedia', found: false, snippet: `Error: ${e?.message?.slice(0, 80) ?? 'unknown'}` })
   }
 
-  // Source 2: Wikipedia
+  // Source 2: DuckDuckGo (direct API — always works, no SDK needed)
   try {
-    const wikiResult = await dispatchTool('wikipedia_search', { query: claim.slice(0, 100) }, ctx)
-    if (wikiResult.ok) {
-      const text = (wikiResult.result || '').slice(0, 500)
-      sources.push({ source: 'Wikipedia', found: text.length > 50, snippet: text.slice(0, 200) })
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(claim.slice(0, 200))}&format=json&no_html=1&skip_disambig=1`
+    const ddgResp = await fetch(ddgUrl, {
+      headers: { 'User-Agent': 'Agent007-AI/1.0 (accuracy checker)' },
+      signal: AbortSignal.timeout(10000),
+    })
+    if (ddgResp.ok) {
+      const ddgData = await ddgResp.json()
+      const abstract = ddgData?.Abstract ?? ddgData?.Answer ?? ''
+      const related = ddgData?.RelatedTopics ?? []
+      if (abstract.length > 20 || related.length > 0) {
+        sources.push({ source: 'DuckDuckGo', found: true, snippet: (abstract || JSON.stringify(related[0] || {}).slice(0, 200)) })
+      } else {
+        sources.push({ source: 'DuckDuckGo', found: false, snippet: 'No DDG results' })
+      }
     } else {
-      sources.push({ source: 'Wikipedia', found: false, snippet: 'Wikipedia search failed' })
+      sources.push({ source: 'DuckDuckGo', found: false, snippet: `HTTP ${ddgResp.status}` })
     }
-  } catch {
-    sources.push({ source: 'Wikipedia', found: false, snippet: 'Wikipedia error' })
+  } catch (e: any) {
+    sources.push({ source: 'DuckDuckGo', found: false, snippet: `Error: ${e?.message?.slice(0, 80) ?? 'unknown'}` })
+  }
+
+  // Source 3: Brave Search (if API key is set — works on Vercel)
+  if (process.env.BRAVE_API_KEY) {
+    try {
+      const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(claim.slice(0, 200))}&count=3`
+      const braveResp = await fetch(braveUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'X-Subscription-Token': process.env.BRAVE_API_KEY,
+        },
+        signal: AbortSignal.timeout(10000),
+      })
+      if (braveResp.ok) {
+        const braveData = await braveResp.json()
+        const results = braveData?.web?.results ?? []
+        if (results.length > 0) {
+          sources.push({ source: 'Brave Search', found: true, snippet: (results[0]?.description ?? results[0]?.title ?? '').slice(0, 200) })
+        } else {
+          sources.push({ source: 'Brave Search', found: false, snippet: 'No Brave results' })
+        }
+      } else {
+        sources.push({ source: 'Brave Search', found: false, snippet: `HTTP ${braveResp.status}` })
+      }
+    } catch (e: any) {
+      sources.push({ source: 'Brave Search', found: false, snippet: `Error: ${e?.message?.slice(0, 80) ?? 'unknown'}` })
+    }
   }
 
   // Calculate confidence based on how many sources found the claim
   const foundCount = sources.filter(s => s.found).length
+  const totalSources = sources.length
   const confidence = foundCount === 0 ? 0 : foundCount === 1 ? 50 : foundCount === 2 ? 80 : 95
   const verdict = confidence >= 80 ? 'LIKELY ACCURATE' : confidence >= 50 ? 'PARTIALLY VERIFIED' : 'UNVERIFIED'
 
   return okResult(
-    `Accuracy check: ${verdict} (${confidence}% confidence, ${foundCount}/${sources.length} sources)`,
+    `Accuracy check: ${verdict} (${confidence}% confidence, ${foundCount}/${totalSources} sources)`,
     `ACCURACY CHECKER\n${'='.repeat(60)}\nClaim: "${claim}"\n\nVERIFICATION RESULTS:\n${sources.map(s => `  ${s.found ? '✅' : '❌'} ${s.source}: ${s.snippet}`).join('\n')}\n\nVERDICT: ${verdict} (${confidence}% confidence)\n\n${confidence < 80 ? '⚠ This claim could not be fully verified. Recommend additional research.' : '✅ Claim appears accurate based on multiple sources.'}`
   )
 }
