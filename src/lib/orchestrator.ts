@@ -1558,6 +1558,38 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
         }
       }
 
+      // UPGRADE #167 Step 5: REAL-TIME tool_boundary_audit in the quality gate.
+      // After every subagent completes, check if they used any tools OUTSIDE
+      // their allowedTools. If violations are found, add a penalty to the
+      // quality note. This enforces focus at the QUALITY GATE level —
+      // even if a subagent somehow bypassed the per-tool block (e.g., via
+      // a tool that calls another tool internally), the audit catches it.
+      try {
+        const toolsUsedInThisDispatch = steps
+          .filter((s: any) => s.toolName && s.finishedAt)
+          .map((s: any) => s.toolName)
+        if (toolsUsedInThisDispatch.length > 0) {
+          const auditResult = await dispatchTool('tool_boundary_audit', {
+            agentId: sub.id,
+            toolsUsed: toolsUsedInThisDispatch,
+          }, { attachments: [], language: 'en' })
+          if (auditResult.ok && auditResult.result.includes('VIOLATION')) {
+            // Extract violation count from the audit result
+            const violationMatch = auditResult.result.match(/(\d+)\s+VIOLATION/i)
+            const violationCount = violationMatch ? parseInt(violationMatch[1]) : 1
+            qualityNote += `\n🚫 TOOL BOUNDARY AUDIT: ${violationCount} violation(s) detected — ${sub.name} used tools outside its allowedTools. Score penalized by ${violationCount * 5} points.`
+            // Penalize the quality score
+            if (qualityScore > 0) {
+              qualityScore = Math.max(0, qualityScore - (violationCount * 5))
+            }
+          } else if (auditResult.ok) {
+            qualityNote += '\n✅ TOOL BOUNDARY AUDIT: All tools within allowedTools — no violations.'
+          }
+        }
+      } catch {
+        // Non-fatal — audit is best-effort
+      }
+
       // Feed the sub-agent's result back to the orchestrator (with quality note)
       conversationMessages.push({ role: 'assistant', content })
       conversationMessages.push({

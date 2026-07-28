@@ -1548,6 +1548,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
   const steps: RunSubagentResult['steps'] = []
   let finalAnswer = ''
   let iter = 0
+  let stuckCounter = 0  // UPGRADE #167 Step 4: track consecutive stuck iterations
 
   while (iter < SUBAGENT_MAX_ITERATIONS) {
     iter++
@@ -1649,6 +1650,37 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
       const isStuck = isThoughtOnly && stuckPatterns.test(parsed.thought ?? "")
 
       if ((isStuck || isThoughtOnly) && iter < SUBAGENT_MAX_ITERATIONS - 1) {
+        // UPGRADE #167 Step 4: Auto-request help for stuck specialists.
+        // Before: if a specialist got stuck (thought-only, waiting), the
+        // system just prompted them to continue. If they kept getting
+        // stuck, they'd waste all 15 iterations without making progress.
+        // After: track consecutive stuck iterations. After 3 consecutive
+        // stuck iterations, auto-call request_help on the specialist's
+        // behalf. This stores a help request in persistent-memory that
+        // the leader (and Super Agent) can see on their next recall.
+        stuckCounter = (stuckCounter || 0) + 1
+        if (stuckCounter >= 3) {
+          try {
+            const { storePersistentMemory } = await import('./persistent-memory')
+            await storePersistentMemory(
+              `auto_help_${sub.id}_${Date.now()}`,
+              `AUTO HELP REQUEST (specialist stuck 3x)\nAgent: ${sub.name}\nTask: ${opts.task.slice(0, 200)}\nIssue: Produced only thoughts for 3 consecutive iterations — likely stuck.\nTimestamp: ${new Date().toISOString()}\nStatus: PENDING — leader should address.`,
+              'help_request',
+              40
+            ).catch(() => {})
+            await opts.emit('subagent_thought', {
+              dispatchId: opts.dispatchId,
+              content: `[AUTO-HELP] Specialist ${sub.name} stuck 3x — help request auto-filed.`,
+            })
+          } catch {}
+          // Give the specialist one more chance with explicit instructions
+          conversationMessages.push({ role: 'assistant', content })
+          conversationMessages.push({
+            role: 'user',
+            content: '[SYSTEM] You have been stuck for 3 iterations. A help request has been filed to your leader. EITHER: (1) call a tool NOW, (2) dispatch a specialist who can help, or (3) give your best answer with what you know. Do NOT produce another thought-only response.',
+          })
+          continue
+        }
         await opts.emit('subagent_thought', {
           dispatchId: opts.dispatchId,
           content: `[AUTO-RECOVERY] Thought-only response. Prompting to continue...`,
@@ -1820,7 +1852,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
   // This gives the agent REAL self-learning — it remembers what worked
   // and what didn't, with quality-weighted recall on future runs.
   try {
-    const { storePersistentMemory, recallPersistentMemory } = await import('./persistent-memory')
+    const { storePersistentMemory, recallPersistentMemory, updateMemoryScore } = await import('./persistent-memory')
     const learningKey = `learning_${sub.id}_${opts.task.slice(0, 50).replace(/\s+/g, '_')}`
     const succeeded = !finalAnswer.startsWith('⚠️') && !finalAnswer.includes('error')
     const score = succeeded ? 75 : 25  // 75 for success, 25 for failure
@@ -1830,6 +1862,23 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
       'self_learning',
       score
     ).catch(() => {})
+    // UPGRADE #167 Step 3: Update EXISTING learnings for this task type.
+    // Before: only stored NEW learnings (always overwrote with score 75/25).
+    // After: if a learning already exists for this task type, update its
+    // score incrementally (+10 for success, -10 for failure). This creates
+    // a REAL confidence trend — a task that succeeded 5 times has score ~95,
+    // while one that failed 3 times has score ~15. The recall system
+    // prioritizes high-scored learnings, so the agent gradually learns
+    // which approaches work best.
+    try {
+      // Check if this learning already exists — if so, update its score
+      const allMemories = await recallPersistentMemory(opts.task.slice(0, 50), 5).catch(() => [])
+      const existingLearning = allMemories.find(m => m.key === learningKey)
+      if (existingLearning) {
+        // Update the score: success moves toward 100, failure toward 0
+        await updateMemoryScore(learningKey, succeeded).catch(() => {})
+      }
+    } catch {}
   } catch {
     /* non-fatal — learning is best-effort */
   }
