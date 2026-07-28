@@ -12,9 +12,12 @@ export async function GET() {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
-  // UPGRADE #114 — must match src/lib/agent.ts DEFAULT_ORDER
-  // UPGRADE #123: New default order — OpenAI + z.ai disabled, Cerebras added
-  const DEFAULT_ORDER = ['mistral', 'groq', 'openrouter', 'cerebras', 'brave', 'gemini']
+  // UPGRADE #164: MUST match src/lib/agent.ts DEFAULT_ORDER exactly.
+  // Before: had an OLD hardcoded list (mistral, groq, openrouter, cerebras, brave, gemini)
+  //   that didn't match the ACTUAL agent.ts order → health check was LYING.
+  // After: synchronized with agent.ts UPGRADE #161 order.
+  // Chain: Groq → OpenAI → Z.ai → Mistral (Brave, OpenRouter, Cerebras, Gemini disabled)
+  const DEFAULT_ORDER = ['groq', 'openai', 'z-ai', 'mistral']
   const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
 
   // UPGRADE #120 — Security fix: Do NOT show any key fingerprint.
