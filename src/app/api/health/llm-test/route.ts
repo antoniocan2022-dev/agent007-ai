@@ -158,6 +158,35 @@ export async function GET() {
         return `OK (${ms}ms) — response: "${content.slice(0, 30)}"`
       },
     },
+    {
+      name: 'Z.ai',
+      envVar: 'ZAI_API_KEY',
+      test: async () => {
+        const key = process.env.ZAI_API_KEY!
+        const start = Date.now()
+        const resp = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: 'glm-4-flash',
+            messages: [{ role: 'user', content: 'say hi' }],
+            max_tokens: 5,
+          }),
+          signal: AbortSignal.timeout(15000),
+        })
+        const ms = Date.now() - start
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => '')
+          throw new Error(`HTTP ${resp.status} (${ms}ms) — ${text.slice(0, 100)}`)
+        }
+        const data = await resp.json()
+        const content = data?.choices?.[0]?.message?.content ?? ''
+        return `OK (${ms}ms) — response: "${content.slice(0, 30)}"`
+      },
+    },
   ]
 
   // Test each provider in parallel
