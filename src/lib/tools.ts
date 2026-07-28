@@ -2830,6 +2830,26 @@ import {
   toolDiscordNotify,
 } from './communication-tools'
 
+// UPGRADE #166: REAL intelligence tools (replacing fake ones)
+import {
+  toolSelfImprovingStrategy as toolSelfImprovingStrategyReal,
+  toolDecisionMatrix as toolDecisionMatrixReal,
+  toolRequestHelp,
+  toolReportProgress,
+  toolVerifyWork,
+  toolToolBoundaryAudit,
+} from './real-intelligence-tools'
+
+// UPGRADE #166: Replace FAKE tools with REAL ones
+TOOL_REGISTRY.self_improving_strategy = { fn: toolSelfImprovingStrategyReal, icon: 'trending-up', label: 'Self-Improving Strategy (REAL: queries persistent-memory learnings)' }
+TOOL_REGISTRY.decision_matrix = { fn: toolDecisionMatrixReal, icon: 'grid', label: 'Decision Matrix (REAL: weighted scoring, no Math.random)' }
+
+// UPGRADE #166: NEW coordination + leadership tools
+TOOL_REGISTRY.request_help = { fn: toolRequestHelp, icon: 'help-circle', label: 'Request Help (specialist → leader: ask for guidance)' }
+TOOL_REGISTRY.report_progress = { fn: toolReportProgress, icon: 'activity', label: 'Report Progress (specialist → leader: status update)' }
+TOOL_REGISTRY.verify_work = { fn: toolVerifyWork, icon: 'check-circle', label: 'Verify Work (specialist → accuracy_checker or quality_scorer)' }
+TOOL_REGISTRY.tool_boundary_audit = { fn: toolToolBoundaryAudit, icon: 'shield', label: 'Tool Boundary Audit (check allowedTools violations)' }
+
 TOOL_REGISTRY.telegram_notify = { fn: toolTelegramNotify, icon: 'send', label: 'Telegram Notify (free push notifications via Telegram Bot API)' }
 TOOL_REGISTRY.ntfy_notify = { fn: toolNtfyNotify, icon: 'bell', label: 'ntfy.sh Notify (free push notifications, no signup needed)' }
 TOOL_REGISTRY.discord_notify = { fn: toolDiscordNotify, icon: 'message-circle', label: 'Discord Notify (free webhook notifications)' }
