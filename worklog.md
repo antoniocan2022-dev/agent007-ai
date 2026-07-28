@@ -5059,3 +5059,269 @@ WHAT THE OWNER MUST DO BEFORE FLIPPING CHECKOUT LIVE:
 5. Configure Stripe webhook endpoint to point to https://agent007-ai.vercel.app/api/webhooks/stripe
 6. Build the distribution list (3 subreddits + 5 newsletters + 10 Twitter + 2 Discords)
 7. Run through the 14-box Definition of Done checklist
+
+---
+
+## Task ID: deep-intelligence-audit
+**Agent:** deep-audit subagent (read-only)
+**Scope:** Learning, Intelligence, Leadership, Coordination, Self-Health, Helping Subordinates, Comprehension of Focus
+**Method:** Static source audit (no code changes — read-only per instruction)
+
+### Executive Summary
+The Agent007 codebase exhibits a strong **prompt-layer intelligence** (Smart Response Protocol, Thinking Protocol, MISSION REMINDER, hierarchical prompts) and a **genuine pipeline-layer intelligence** (Super Agent verification loop, CEO aggregator, watchdog, circuit breaker, quality_scorer_v2). However, the **tool-layer "self-learning" / "self-optimization" / "autonomous decision" tools are mostly static placeholder text** that return fabricated metrics (e.g. "67 learnings", "+34% decision quality", "$4,820/month") regardless of input. The **leader → specialist delegation advertised in subagent system prompts is structurally broken** — subagents cannot actually dispatch to other subagents, so the "8 POD LEADERS managing 20 subagents" hierarchy is flat at runtime. Despite these gaps, the **mission pipeline + Super Agent verifier + CEO presenter + heartbeat watchdog chain is real, working, and persisted to DB**.
+
+### Findings by Dimension
+
+---
+
+#### 1. LEARNING + SELF-LEARNING — **MIXED (real storage, fake intelligence)**
+
+**What EXISTS (real):**
+- `src/lib/memory.ts:28-57` — `upsertMemory` + `recallMemories` (Prisma-backed). Keyword LIKE matching across key/value/category. No score, no decay. Used by the production agent loop.
+- `src/lib/tools.ts:558-594` — `toolMemoryStore` + `toolMemoryRecall` wrap `upsertMemory`/`recallMemories`. Registered as `memory_store` / `memory_recall` (lines 973-974). These are **real, working tools**.
+- `src/lib/agent.ts:1485-1486` — `runAgent` recalls 8 memories before every turn and injects them as `RECALLED MEMORIES` context. Same pattern in `orchestrator.ts:1025-1026`.
+- `src/lib/subagent-max-performance.ts:30-160` — `SHARED_MAX_PERFORMANCE_PROTOCOL` (appended to 5 custom agent prompts at subagents.ts:891, 935, 978, 1066, 1187, 1274). Section D (lines 51-55) explicitly instructs agents to `memory_store` learnings after every dispatch + `memory_recall` them at start.
+- `src/lib/persistent-memory.ts:59-171` — REAL triple-store (`/tmp` file + DB + optional Redis) with **score 0-100**, **90-day decay**, and `updateMemoryScore()` for success/fail feedback. The code is real and would persist across cold starts.
+
+**What's MISSING / BROKEN:**
+- **`persistent-memory.ts` is never wired in.** Grep across `src/lib` shows `storePersistentMemory`, `recallPersistentMemory`, `updateMemoryScore` are only referenced inside `persistent-memory.ts` itself + `upgrade-manifest.ts` documentation. **The production agent loop uses `memory.ts` (no scoring, no decay), not `persistent-memory.ts`.**
+- `src/lib/autonomy-tools.ts:1167-1209` — `toolSelfImprovingStrategy` returns **hardcoded text** ("23 learnings applied", "LEARNING 1: Add 'AI' to title → +32% CTR", etc.). The number "23" does not change between calls. It's a static report, not a learning engine.
+- `src/lib/intelligence-tools-v3.ts:98-158` — `toolSelfOptimizationEngine` returns **hardcoded fake metrics** ("Total actions analyzed: 47,318", "67 learnings extracted", "Decision quality improvement: +34%", "Top learned policy: Always parallel_executor for 2+ independent lookups"). Same output regardless of `action` or `area` argument.
+- `src/lib/performance-enhancement-tools.ts:234+` — `toolFeedbackOptimizationLoop` similarly static.
+- No code reads outcome data and feeds it back into a model that influences the next decision. The "learnings" are written by `memory_store` and read by `memory_recall` — but the LLM has to choose to act on them. There is no automatic policy update.
+
+**Quality assessment:**
+- Storage layer: **REAL** (Prisma + `/tmp`).
+- Retrieval layer: **REAL but primitive** (LIKE-based keyword match, no embeddings, no score weighting in production).
+- Self-learning intelligence layer: **PLACEHOLDER** — the "self_optimization_engine", "self_improving_strategy", "feedback_optimization_loop" tools are static templates dressed up as intelligence.
+
+---
+
+#### 2. INTELLIGENCE — **MOSTLY REAL at the prompt+verifier layer, PLACEHOLDER at the autonomous-tool layer**
+
+**What EXISTS (real):**
+- `src/lib/agent.ts:14-79` — **Smart Response Protocol** + **Thinking Protocol (Chain-of-Thought)** in SYSTEM_PROMPT. 10 quality rules, 7-step thinking structure (UNDERSTAND → DECOMPOSE → GATHER → REASON → EVALUATE → CONCLUDE → PLAN), 6 thinking patterns by task type, anti-patterns list.
+- `src/lib/subagents.ts:241-261, 343-363, 717-737, ...` — Smart Response Protocol + Thinking Protocol blocks appended to every built-in specialist prompt (AURORA, VERTEX, QUANTUM, ECHO, etc.).
+- `src/lib/multi-provider-comparison.ts:92-184` — `toolMultiProviderCompare` is **REAL** — it actually calls Mistral / Groq / OpenRouter / Cerebras / Brave / Gemini in parallel via `callProvider()`, filters to configured providers, returns real responses + timing + consensus analysis.
+- `src/lib/performance-booster-tools.ts:97-194` — `toolAccuracyChecker` is **REAL** — calls Wikipedia API + DuckDuckGo API + Brave Search API in parallel, returns confidence score (0/50/80/95) based on how many sources found the claim.
+- `src/lib/max-autonomy-engine.ts:1395-1460+` — `toolQualityScorerV2` is **REAL** — 10 regex-based dimensions (relevance, completeness, accuracy, clarity, actionability, source_quality, no_errors, specificity, originality, ...). Returns 0-100 score. Wired into orchestrator quality gate (`orchestrator.ts:1531`).
+- `src/lib/performance-booster-tools.ts:12-55` — `toolSmartToolRouter` is **REAL but primitive** — keyword-based mapping (task "search" → web_search/ddg_search/...); falls back to label-string matching. Not semantic.
+- `src/lib/performance-booster-tools.ts:58-92` — `toolParallelExecutor` is **REAL** — `Promise.allSettled` of up to 5 tools via `dispatchTool`.
+
+**What's MISSING / PLACEHOLDER:**
+- `src/lib/full-autonomy-tools.ts:787-848` — `toolDecisionMatrix` uses `Math.random()` for scoring when caller doesn't provide scores (line 815: `50 + Math.floor(Math.random() * 50)`). The "MCDA framework" is a template; the actual numbers are random unless caller provides them.
+- `src/lib/performance-enhancement-tools.ts:730-807` — `toolAutonomousDecisionMaker` returns **hardcoded fake analysis** ("Current revenue: $4,820/month (24% of $20K target)", "Top stream: Affiliate ($2,340, ROI 4.2x)", "OPTION A: weighted score 7.85"). Same output regardless of `decision` argument.
+- No real "decision_matrix" that pulls live data and scores against criteria — the LLM is expected to fill in the scores itself.
+
+**Quality assessment:**
+- Multi-provider comparison: **REAL**.
+- Accuracy checker: **REAL** (3 live sources).
+- Quality scorer v2: **REAL** (regex heuristics, used in production quality gate).
+- Smart tool router / parallel executor: **REAL but simple**.
+- Decision matrix / autonomous decision maker: **PARTIAL/PLACEHOLDER** — random or hardcoded.
+
+---
+
+#### 3. LEADERSHIP (CEO + Team Leaders) — **REAL at the pipeline layer, FICTIONAL at the subagent-to-specialist layer**
+
+**What EXISTS (real):**
+- `src/lib/agent.ts:10-12, 117-135` — SYSTEM_PROMPT declares CEO role + 8 POD LEADERS (SCOUT/AURORA/ECHO/FORGE/PULSE/DEVELOPER/CYBERSECURITY R/QUANTUM) with explicit pod responsibilities + decision framework.
+- `src/lib/orchestrator.ts:216-273` — `ORCHESTRATOR_PROMPT_ADDENDUM` lists 12 built-in subagents, dispatch format, decision framework. **Line 219: "MISSION REMINDER: Every dispatch must serve the $20K/month passive income with 20% monthly growth mission."** (the explicit $20K/month anchor).
+- `src/lib/ceo-presenter.ts:43-71` — Real `CEO_SYSTEM_PROMPT` ("You are the CEO of Agent007... APEX executive reporting to Antonio"). Strict 6-section format (MISSION/OUTCOME/REVENUE IMPACT/KEY DELIVERABLES/RISKS/NEXT STEPS), under 300 words, "Antonio trusts the CEO because the CEO never lies."
+- `src/lib/super-agent-verifier.ts:43-71` — Real `VERIFIER_SYSTEM_PROMPT` ("SUPER AGENT — apex quality authority above all team leaders"). 5-point checklist (COMPLETENESS/ACCURACY/QUALITY/DELIVERY/ALIGNMENT), each 0-20, total 0-100. Verdict rules: ≥85 APPROVED, 70-84 NEEDS_IMPROVEMENT, <70 REJECTED.
+- `src/lib/active-missions.ts:114-123` — `POD_LEADERS` map (scout/aurora/echo/forge/pulse/developer/cybersecurity_r/revenue) — exported as `POD_LEADER_MAP` at line 461.
+- `src/lib/subagents.ts:263-275, 365-373, 432-434, 528-529, ...` — Each specialist's `systemPrompt` declares a "LEADERSHIP ROLE" (e.g., AURORA = "LEADER of POD 2: CREATION & DESIGN", QUANTUM = "Co-LEADER of POD 8: REVENUE") with delegation instructions: "Use `<dispatch_subagent id='quill'>` for copywriting tasks".
+
+**What's MISSING / BROKEN (CRITICAL):**
+- **Subagent → Specialist delegation is structurally broken.** The `runSubagent` loop (`subagents.ts:1483-1743`) only parses `<tool name="...">` and `<thought>` tags via `parseAssistant`. While `parseAssistant` (agent.ts:1273-1316) does convert `<dispatch_subagent id="x">task</dispatch_subagent>` into `tool = { name: 'dispatch_subagent', ... }`, the subsequent `dispatchTool('dispatch_subagent', ...)` call FAILS because **`dispatch_subagent` is not in `TOOL_REGISTRY`** (verified: only the orchestrator handles dispatch via its own custom `parseOrchestrator` + `DISPATCH_RE`/`DISPATCH_SUBAGENT_RE` at orchestrator.ts:59, 137-164, 1349-1400).
+- Net effect: when AURORA (declared "POD 2 LEADER") emits `<dispatch_subagent id="quill">write this</dispatch_subagent>`, the subagent loop returns `BLOCKED: Tool "dispatch_subagent" does not exist in the TOOL_REGISTRY` (subagents.ts:1608-1613). The "leader → specialist" hierarchy is **prompt-only fiction**. The actual hierarchy at runtime is **FLAT: CEO → Subagent (no nesting)**.
+- `subagents.ts:745` — ECHO's prompt references `<dispatch_subagent id="cmri2zn1i000kl604e9yljtdz">` for "Performance Analyst" — a CUID that almost certainly does not exist in production DB. Even if subagent dispatch worked, this would fail.
+
+**Quality assessment:**
+- CEO prompt (agent.ts): **REAL, well-structured, $20K/month anchored**.
+- Super Agent verifier (super-agent-verifier.ts): **REAL, 5-point checklist, deterministic at temp 0.2**.
+- CEO presenter (ceo-presenter.ts): **REAL, persists to DB + Telegram + email**.
+- POD_LEADERS map (active-missions.ts): **REAL but used only for UI labels**.
+- Per-subagent "LEADERSHIP ROLE" delegation prompts: **FICTIONAL — runtime cannot honor them**.
+
+---
+
+#### 4. COORDINATION (CEO ↔ Leader ↔ Specialist) — **REAL for CEO→Leader, BROKEN for Leader→Specialist**
+
+**What EXISTS (real) — the mission pipeline chain:**
+- `src/lib/mission-pipeline.ts:63-249` — 4 pipeline templates (`product_launch`, `content_creation`, `affiliate_campaign`, `generic`) with ordered stages. Each stage declares `team`, `leader`, `name`, `artifactType`, `requirements`, `promptTemplate`. CEO is always the final stage.
+- `src/lib/mission-pipeline.ts:272-506` — `runTeamWithVerificationLoop()` — for each stage:
+  1. Notify `notifyStageStarted` + `logApprovalEvent(action:'started')` (round 1) or `action:'retry_submitted'` (rounds 2-3).
+  2. Run the team leader via `runSubagent()` (or `callLlmWithRetry` for CEO stage).
+  3. `superAgentVerify()` with `teamOutput`, `missionContext`, `stageRequirements`, `previousTeamOutput`, `round`, `maxRounds`.
+  4. `logApprovalEvent(action: 'approved' | 'rejected', score, feedback)`.
+  5. If approved → break; else `buildRetryPrompt()` for next round (max 3).
+- `src/lib/mission-pipeline.ts:803-804` — **`missionContext += STAGE ${n} OUTPUT:\n${result.output.slice(0, 3000)}\n\nFINAL SCORE: ... VERDICT: ...\n\n---\n\n` + `previousTeamOutput = result.output`** — real context propagation between stages.
+- `src/lib/super-agent-verifier.ts:127` — Super Agent receives `previousTeamOutput` for cross-team verification ("If a previousTeamOutput is provided, also verify that the new team's output is consistent with / builds correctly on the previous team's work.").
+- `src/lib/orchestrator.ts:1477-1499` — **CROSS-LEADER VERIFICATION (UPGRADE #133)** — when orchestrator dispatches 2nd+ subagent, it injects "PREVIOUS LEADER'S OUTPUT (for cross-verification): ... VERIFICATION REQUIRED: 1. Check factual accuracy, 2. Completeness, 3. Errors, 4. Include a '## Verification' section...".
+- `src/lib/orchestrator.ts:1524-1558` — **QUALITY GATE (UPGRADE #133)** — after each subagent returns, `dispatchTool('quality_scorer_v2', { answer, question, target: 90 })` is called automatically. If score <70: flag for re-dispatch; 70-89: flag for ECHO refinement; ≥90: passed. Plus "VERIFY THE VERIFIER" check (line 1551-1558): if dispatchCount>1 and answer doesn't include verification language, flag "CROSS-LEADER VERIFICATION SKIPPED".
+- `src/lib/orchestrator.ts:1568-1576` — **SYNTHESIS CAP (UPGRADE #86)** — after 3 dispatches, force synthesize.
+
+**The full chain that WORKS:**
+1. CEO (orchestrator) emits `<dispatch_subagent id="X">task</dispatch_subagent>` → orchestrator parses via `DISPATCH_SUBAGENT_RE` → calls `runSubagent`.
+2. Subagent runs, returns answer.
+3. `quality_scorer_v2` auto-scores.
+4. If dispatchCount>1: previous leader's output is injected into next dispatch's task.
+5. (In mission pipeline mode) Super Agent verifies → approves/rejects → retry loop (max 3) → next stage → CEO final report → DB + Telegram + email.
+
+**What's BROKEN:**
+- Leader → Specialist delegation (AURORA → QUILL, ECHO → TESTFAST2) is structurally impossible — see dimension 3. The "team" concept inside the orchestrator's mission pipeline is single-agent per stage (`stage.leader` is one subagent id, no team dispatch).
+- `active-missions.ts:143` — `let store: ActiveMission[] = []` is **in-memory only** ("persists per warm function instance"). Lost on cold start. Comment at line 140-141 admits "For production persistence, swap to a Prisma model". So `active-missions.ts` is **demo-only**; real missions use `mission-pipeline.ts` + `approval-audit-log.ts` (DB-backed).
+
+**Quality assessment:**
+- Pipeline + Super Agent + CEO chain: **REAL, DB-persisted, idempotent resume (UPGRADE #147)**.
+- Cross-leader verification: **REAL** (orchestrator-level injection).
+- Quality gate after every subagent: **REAL** (regex score, may mis-score but runs every time).
+- Leader → Specialist delegation: **DOES NOT EXIST AT RUNTIME**.
+
+---
+
+#### 5. SELF-HEALTH + ISSUE RESOLUTION — **REAL across multiple layers**
+
+**What EXISTS (real):**
+- `src/lib/self-repair.ts:1-831` — 10 real diagnostic tools: `toolSystemHealthCheck` (DB counts + 9 API endpoint pings + tool registry audit + memory check + schedule check), `toolDatabaseIntegrityCheck`, `toolApiEndpointTest`, `toolRegistryAudit`, `toolCacheClear`, `toolSessionRecovery`, `toolErrorLogAnalyzer`, `toolAutoFixCommonIssues`, `toolBackupCreate`, `toolRestoreFromBackup`.
+- `src/lib/tool-self-repair-engine.ts:1-656` — 10 more tools: `toolRegistryAuditor` (audits all 647 tools for missing_fn/label/icon/duplicates, verifies V2 tools registered), `toolBatchTester`, `toolFixer`, `toolRecovery`, `toolSubagentToolAuditor`, `toolSubagentToolFixer`, `toolConsistencyChecker`, `toolHealthMonitor`, `toolBackupRestore`, `toolSelfHealingLoop` (6-phase pipeline: DETECT → DIAGNOSE → FIX → VERIFY → SUBAGENT_CHECK → SUBAGENT_FIX).
+- `src/lib/orchestrator.ts:1702-1758` — **AUTO-RECOVERY (stuck detection)** — 3 patterns:
+  1. Stuck-waiting detection (line 1707): regex `/(wait|waiting|haven't provided|...)/i` on thought-only responses → inject `[SYSTEM] You appear to be waiting. Do NOT wait — continue executing...`
+  2. Promise-without-action detection (line 1730-1745): regex `/(i will run|i will proceed|let me run|hold on|please wait|...)/i` → inject `[SYSTEM] CRITICAL: ... EXECUTE. Emit the tool call RIGHT NOW...`
+  3. Thought-only-with-no-answer (line 1749-1758): textAfterThought < 20 chars → inject `[SYSTEM] You produced only a thought. Please either dispatch/call tool/give final answer.`
+- `src/lib/orchestrator.ts:1649-1664` — **TOOL DIVERSITY ENFORCER (FIX #43)** — if same tool called 3× in a row OR <3 unique tools after 5 calls, inject `[SYSTEM] ... use smart_tool_router ... use parallel_executor`.
+- `src/lib/mission-heartbeat.ts:138-198` — **`computeCeoWatchdog()`** — verdict `healthy` / `warning` / `critical` based on:
+  - errored/failed → critical
+  - completed → healthy
+  - paused_owner → warning
+  - stage running > 15 min → critical ("likely stuck. CEO should investigate.")
+  - round >= maxRounds → critical ("about to escalate")
+  - no activity > 5 min → critical ("team may be stuck")
+  - stage > 5 min OR round > 1 → warning
+  - else healthy
+- `src/app/api/missions/[id]/heartbeat/route.ts:53` — `hb.ceoWatchdog = computeCeoWatchdog(hb)` — wired into the live dashboard polling endpoint.
+- `src/lib/provider-intelligence.ts:191-283` — **CIRCUIT BREAKER + HEALTH SCORING** — per-provider `ProviderHealth` (totalCalls, successCount, failCount, avgResponseMs, recentFailures[]). `recordFailure()` opens circuit if 3+ failures in 60s → 60s cooldown (`circuitOpenUntil`). `getHealthScore()` = successRate×0.7 + recency×0.2 + speed×0.1. `isCircuitOpen()` checks + auto-resets. In-memory only (per warm instance).
+- `src/app/api/system-health/route.ts` — SystemHealth table CRUD endpoint (DB-backed).
+- `src/lib/orchestrator.ts:362-370` — `manage action="self_heal"` with heal_actions: `diagnose`, `repair_dashboard`, `repair_login`, `repair_communication`, `restore_upgrades`, `verify_integrity`, `full_repair` (delegated to `src/lib/self-repair.ts`).
+
+**What's MISSING:**
+- Provider intelligence (circuit breaker + health scoring) is **in-memory only** — stats reset on every Vercel cold start (per warm instance). No persistence layer.
+- No automatic trigger of `tool_self_healing_loop` — it must be invoked by an agent (DEVELOPER or CEO) deciding to call it. Not scheduled.
+- `active-missions.ts` `store` is in-memory only (line 143).
+
+**Quality assessment:**
+- Self-repair toolkit: **REAL, comprehensive** (20+ diagnostic/repair tools).
+- Stuck/promise detection in orchestrator: **REAL, regex-based, fires on every iteration**.
+- CEO watchdog: **REAL, DB-persisted heartbeat, 6 verdict rules, polled by dashboard**.
+- Circuit breaker + health scoring: **REAL but in-memory only**.
+- Auto-trigger of self-healing: **MISSING** (requires manual dispatch).
+
+---
+
+#### 6. HELPING SUBORDINATES (Specialists) — **REAL at the Super Agent → Leader layer, IMPOSSIBLE at the Leader → Specialist layer**
+
+**What EXISTS (real):**
+- `src/lib/super-agent-verifier.ts:236-273` — **`buildRetryPrompt()`** — formats a structured retry prompt for failing leaders:
+  ```
+  ROUND ${round} OF ${maxRounds} — REVISION REQUIRED
+  Your previous output was ${verdict} (score: ${score}/100).
+  ...
+  CORRECTIONS YOU MUST ADDRESS:
+  ${correctionsBlock}
+  WEAKNESSES TO FIX:
+  ${weaknessesBlock}
+  REFERENCE — SUPER AGENT'S CORRECTED VERSION (use as guide):
+  ${correctedOutput.slice(0, 3000)}
+  INSTRUCTIONS:
+  1. Redo the work addressing ALL corrections above.
+  2. Do NOT just patch — produce a complete, polished, ready-to-ship output.
+  ...
+  ```
+- `src/lib/mission-pipeline.ts:266, 292, 472` — **`MAX_ROUNDS_PER_STAGE = 3`** + retry loop: `currentPrompt = buildRetryPrompt(stage.promptTemplate(objective), lastVerification, round+1, MAX_ROUNDS_PER_STAGE)`. So a struggling leader gets up to 3 attempts with specific corrections each round.
+- `src/lib/mission-pipeline.ts:382-409` — Special case: CEO stage auto-approves (CEO is the apex, not subject to verification).
+- `src/lib/subagents.ts:18, 190-207` — `allowedTools` per subagent + `FULL_ACCESS_TOOLS` proxy. Each specialist's prompt declares its allowed tools (e.g., AURORA gets 21 tools, VERTEX gets 10, QUANTUM gets 19).
+- `src/lib/orchestrator.ts:1571-1576` — After 3 dispatches, force synthesis (prevents endless retry chains).
+
+**What's BROKEN:**
+- `src/lib/subagents.ts:1597-1604` — **`allowedTools` is informational only**. The code explicitly AUTO-GRANTS any tool that exists in TOOL_REGISTRY:
+  ```ts
+  if (!allowed.has(toolName)) {
+    try {
+      const { TOOL_REGISTRY } = await import('./tools')
+      if (TOOL_REGISTRY[toolName]) {
+        allowed.add(toolName)  // ← auto-grant
+        console.log(`[subagents] Auto-granted tool "${toolName}" to ${sub.name} (FULL_ACCESS)`)
+      } else {
+        toolBlocked = true  // only blocks tools that don't exist at all
+      }
+    }
+  }
+  ```
+  So AURORA's "specialization" to 21 tools is a prompt suggestion, not an enforced boundary. AURORA can call any of 667 tools. Specialization = **advisory, not enforced**.
+- The retry loop sends corrections back to the LEADER (e.g., AURORA) but the leader cannot delegate corrections to specialists (QUILL/PRISM/VERTEX) because subagent → subagent dispatch is broken (see dimension 3). The leader must redo the work itself.
+
+**Quality assessment:**
+- Super Agent → Leader correction loop: **REAL, structured, max 3 rounds, with reference corrected version**.
+- Specialist tool restriction: **FICTIONAL** — auto-grant bypass.
+- Leader → Specialist help: **IMPOSSIBLE** — dispatch broken.
+
+---
+
+#### 7. COMPLETE COMPREHENSION OF FOCUS — **STRONG in prompts, weak in enforcement**
+
+**What EXISTS (real):**
+- `src/lib/subagents.ts:220-275` — AURORA's `systemPrompt` includes: role ("Content & Affiliate Specialist"), specialty ("Blogs, YouTube scripts, affiliate funnels..."), ALLOWED TOOLS list (web_search, page_reader, memory_store...), OUTPUT FORMAT rules, RULES (always angle for monetization, SEO-aware, etc.), THINKING PROTOCOL (7-step), SMART RESPONSE PROTOCOL (depth matching), LEADERSHIP ROLE (POD 2 LEADER, team QUILL/PRISM/VERTEX).
+- `src/lib/subagents.ts:287-308` — VERTEX: role "SaaS & Product Architect", specialty "Micro-SaaS blueprints...", rules ("Always scope a runnable MVP in ≤2 weeks", "Define pricing tiers (Free/Pro/Team) with concrete $").
+- `src/lib/subagents.ts:320-373` — QUANTUM: rules include "NEVER quote a yield/price/APY without web_search verification first", "Present risk-adjusted", "Add a disclaimer".
+- `src/lib/subagents.ts:768-793` — LEGAL: geographic focus (US + Canada), specific knowledge expectations (federal brackets, self-employment tax 15.3%, QBI Section 199A, S-corp vs LLC, Section 179, Solo 401k, SEP-IRA; Canada: CPP/EI, small business deduction, RRSP/TFSA, GST/HST; cross-border: US-Canada treaty, FBAR, Form 5471), mandatory disclaimer, citation requirements.
+- `src/lib/subagents.ts:696-756` — ECHO: "Hypothesis → What we observed → What it means → Next test", "Recommend the next 1-3 A/B tests with: variable, control, variant, success metric, min sample size".
+- `src/lib/subagents.ts:1199-1247` — FASTTEST3 (External Monitor): monitoring schedule (every 30 min), 10 specific endpoints listed (production app, API health, manifest, subagents, Resend, CoinGecko, GitHub, HN Algolia, Reddit, WordPress), severity levels (CRITICAL/HIGH/MEDIUM/LOW), differentiation from internal QA monitor.
+- `src/lib/agent.ts:10-12` — SYSTEM_PROMPT top: "MISSION: $20,000/month passive income with 20% monthly + 20% daily growth. Owner: Antonio (...)".
+- `src/lib/agent.ts:117-125` — 8 POD LEADERS with explicit responsibilities.
+- `src/lib/agent.ts:148-153` — AUTONOMOUS INCOME PROTOCOL: "Revenue Pod (POD 8) owns $20K/month target", daily/weekly/bi-weekly cadence.
+- `src/lib/orchestrator.ts:219` — **"MISSION REMINDER: Every dispatch must serve the $20K/month passive income with 20% monthly growth mission. Choose sub-agents that maximize owner earnings per unit time."**
+- `src/lib/agent.ts:201-217` — AUTONOMOUS EXECUTION ROADMAP: PHASE 1 daily / PHASE 2 weekly self-improvement / PHASE 3 full autonomy ("Target: $5K/month real income (baseline for 20% growth to $20K)").
+- `src/lib/subagent-max-performance.ts:30-160` — `SHARED_MAX_PERFORMANCE_PROTOCOL` appended to 5 custom agents — 16 sections (A-P): parallel execution, smart tool routing, accuracy verification, self-learning, self-repair, performance metrics, tool budget (15), answer completeness, max autonomy tools, multi-provider router, V2 autonomy tools, tool intelligence, multi-search comparison, self-repair tools, security tools, output format.
+
+**What's MISSING / WEAK:**
+- Specialization enforcement: as noted, `allowedTools` is auto-granted — a specialist told "your tools are X,Y,Z" can actually use any of 667 tools. The boundary is in the prompt only.
+- Subagent dispatch capability: prompts tell leaders they can dispatch to specialists — runtime doesn't honor this.
+- The mission pipeline stages reference team ids (`scout`, `aurora`, `echo`, etc.) that map to single subagents — there is no actual "team" with multiple specialists working under a leader.
+- `$20K/month" anchor appears in agent.ts (lines 10, 77, 125, 149, 209), orchestrator.ts (line 219), and 12+ subagent prompts via the SHARED_MAX_PERFORMANCE_PROTOCOL, but the agent's actual decision-making rarely references it in code — the LLM is expected to internalize the prompt.
+
+**Quality assessment:**
+- Role/specialty definition per subagent: **REAL, detailed, expert-level**.
+- Tool awareness per subagent: **REAL in prompt, NOT enforced in code**.
+- Success criteria per subagent: **REAL** (e.g., "URL MUST return HTTP 200", "≥3 cited data points", "Max 15 tool calls", "≥99% quality target").
+- $20K/month mission context: **REAL, repeated across multiple layers** (CEO prompt, orchestrator prompt, SHARED protocol).
+- Boundary enforcement: **MISSING** (auto-grant + broken dispatch).
+
+---
+
+### Summary Scorecard
+
+| Dimension | Prompt Layer | Code Layer | Verdict |
+|-----------|--------------|------------|---------|
+| 1. Learning | Strong (memory_store/recall protocol) | Storage REAL / intelligence PLACEHOLDER | **MIXED** |
+| 2. Intelligence | Strong (Smart Response + Thinking Protocol) | multi_provider_compare, accuracy_checker, quality_scorer_v2 REAL; decision_matrix/autonomous_decision_maker PLACEHOLDER | **MOSTLY REAL** |
+| 3. Leadership | Strong (CEO + 8 POD LEADERS + Super Agent + CEO presenter) | Verifier/Presenter REAL; subagent-leader delegation BROKEN | **MIXED** |
+| 4. Coordination | Strong (mission pipeline templates) | Pipeline + cross-leader verification + quality gate REAL; leader→specialist BROKEN | **MOSTLY REAL** |
+| 5. Self-Health | Strong (self_heal manage action + 20+ repair tools) | All REAL except auto-trigger + circuit-breaker persistence | **REAL** |
+| 6. Helping Subordinates | Strong (buildRetryPrompt + 3-round loop) | Super Agent→Leader REAL; Leader→Specialist IMPOSSIBLE; allowedTools NOT enforced | **MIXED** |
+| 7. Comprehension of Focus | Strong (per-subagent specialty + $20K anchor + MISSION REMINDER) | Specialization in prompt only, not enforced | **STRONG prompt / WEAK code** |
+
+### Top 3 Critical Gaps (would require code changes — NOT made in this audit, per instruction)
+1. **Subagent → Subagent dispatch is impossible.** `dispatch_subagent` is not in `TOOL_REGISTRY`, so when a "leader" subagent emits `<dispatch_subagent id="quill">...</dispatch_subagent>`, `dispatchTool` returns "Unknown tool". Either (a) register a `dispatch_subagent` tool that recursively calls `runSubagent`, or (b) remove the LEADERSHIP ROLE / DELEGATE blocks from subagent prompts to stop misleading the LLM.
+2. **`persistent-memory.ts` is unused.** The 90-day decay + score + `updateMemoryScore()` learning loop is real code but never wired into `runAgent` / `runSubagent`. Production uses `memory.ts` (no score, no decay).
+3. **`allowedTools` is bypassed by auto-grant** (subagents.ts:1598-1604). If specialization matters, the auto-grant should be removed. If it doesn't matter (FULL_ACCESS is the intent), the per-agent `allowedTools` arrays + prompt sections should be removed to reduce prompt size.
+
+### Top 3 Real Strengths
+1. **Mission pipeline + Super Agent verification loop + CEO presenter** (mission-pipeline.ts + super-agent-verifier.ts + ceo-presenter.ts + mission-heartbeat.ts + approval-audit-log.ts) — this is a genuine hierarchical verification workflow with DB persistence, retry loops, audit trail, Telegram/email notification, and resume-on-owner-approval. **The strongest subsystem in the codebase.**
+2. **Multi-provider comparison + accuracy_checker** — real live calls to Wikipedia + DuckDuckGo + Brave + Mistral/Groq/OpenRouter/Cerebras/Gemini in parallel, returning real responses with consensus analysis.
+3. **CEO watchdog + orchestrator auto-recovery** — 3 regex-based stuck/promise/thought-only detectors fire every iteration, plus 6-rule watchdog verdict on heartbeats, plus tool diversity enforcer. These actively prevent the most common "agent gets stuck" failure modes.
+
+### Files Audited
+- `src/lib/agent.ts` (1933 lines), `src/lib/orchestrator.ts` (3324), `src/lib/mission-pipeline.ts` (991), `src/lib/subagents.ts` (1758), `src/lib/super-agent-verifier.ts` (273), `src/lib/active-missions.ts` (579), `src/lib/ceo-presenter.ts` (250), `src/lib/persistent-memory.ts` (178), `src/lib/self-repair.ts` (830), `src/lib/tool-self-repair-engine.ts` (656), `src/lib/mission-heartbeat.ts` (327), `src/lib/provider-intelligence.ts` (370), `src/lib/tools.ts` (2835), `src/lib/multi-provider-comparison.ts` (267), `src/lib/performance-booster-tools.ts` (245), `src/lib/subagent-max-performance.ts` (320), `src/lib/intelligence-tools-v3.ts` (374), `src/lib/autonomy-tools.ts` (1999), `src/lib/full-autonomy-tools.ts` (950), `src/lib/max-autonomy-engine.ts` (1734), `src/lib/performance-enhancement-tools.ts` (974), `src/lib/tool-intelligence.ts` (734), `src/lib/memory.ts` (69), `src/app/api/system-health/route.ts`, `src/app/api/missions/[id]/heartbeat/route.ts`.
+
+No code was modified. This is a read-only audit per the task instruction.
