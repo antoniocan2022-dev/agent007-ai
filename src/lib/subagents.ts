@@ -1526,8 +1526,22 @@ CURRENT UTC TIME: ${new Date().toUTCString()}
 
 You are operating autonomously inside Agent007's multi-agent network. The Super Agent has given you a specific task. Execute it end-to-end using only your allowed tools. Then return a clear, structured final answer.`
 
+  // UPGRADE #165 Gap #3: Recall past learnings before starting the task.
+  // This gives the agent REAL self-learning — it remembers what worked
+  // and what didn't from previous runs of similar tasks.
+  let pastLearnings = ''
+  try {
+    const { recallPersistentMemory } = await import('./persistent-memory')
+    const memories = await recallPersistentMemory(opts.task.slice(0, 100), 3).catch(() => [])
+    if (memories.length > 0) {
+      pastLearnings = `\n\nPAST LEARNINGS (from previous runs, sorted by success score):\n${memories.map(m => `  - [score: ${m.score}/100] ${m.value.slice(0, 200)}`).join('\n')}\n\nUse these learnings to improve your approach. Higher-scored learnings worked well in the past.`
+    }
+  } catch {
+    /* non-fatal */
+  }
+
   let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: systemPrompt + pastLearnings },
     { role: 'user', content: opts.task },
   ]
 
@@ -1555,6 +1569,73 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
 
     if (parsed.thought) {
       await opts.emit('subagent_thought', { dispatchId: opts.dispatchId, content: parsed.thought })
+    }
+
+    // UPGRADE #165 Gap #1: Handle dispatch_subagent INSIDE subagents.
+    // Before: subagents only checked parsed.tool — if the LLM emitted
+    // <dispatch_subagent id="quill">write the article</dispatch_subagent>,
+    // parsed.tool was null → subagent treated it as a final answer →
+    // the dispatch was ignored. Leaders could NOT delegate to specialists.
+    // After: subagents check parsed.dispatch (same as the main orchestrator).
+    // If a leader dispatches a specialist, the subagent runs that specialist
+    // recursively via runSubagent, then feeds the result back.
+    if (parsed.dispatch && !parsed.tool) {
+      const dispatchAgentId = parsed.dispatch.agentId
+      const dispatchTask = parsed.dispatch.task
+      try {
+        // Find the specialist subagent
+        const allSubs = await getAllSubagents({ includeDisabled: false })
+        const specialist = allSubs.find(
+          (s) => s.id === dispatchAgentId || s.name.toLowerCase() === dispatchAgentId.toLowerCase()
+        )
+        if (!specialist) {
+          // Unknown specialist — feed error back to the leader
+          conversationMessages.push({ role: 'assistant', content })
+          conversationMessages.push({
+            role: 'user',
+            content: `[SUBAGENT_DISPATCH] Unknown specialist: "${dispatchAgentId}". Available: ${allSubs.map(s => `${s.id} (${s.name})`).slice(0, 10).join(', ')}. Either dispatch a valid specialist or do the work yourself.`,
+          })
+          continue
+        }
+        // Dispatch the specialist (recursive call)
+        await opts.emit('subagent_tool_call', {
+          dispatchId: opts.dispatchId,
+          stepId: `sub_dispatch_${Date.now()}`,
+          thought: `Dispatching to specialist: ${specialist.name}`,
+          toolName: 'dispatch_subagent',
+          toolArgs: { agentId: dispatchAgentId, task: dispatchTask },
+          stepNumber: iter,
+        })
+        const specialistResult = await runSubagent({
+          subagentId: specialist.id,
+          task: dispatchTask,
+          dispatchId: `sub_${opts.dispatchId}_${Date.now()}`,
+          attachments: [],
+          language: opts.language,
+          emit: opts.emit,
+          parentConversationId: opts.parentConversationId,
+        })
+        // Feed the specialist's result back to the leader
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({
+          role: 'user',
+          content: `[SUBAGENT_RESULT] ${specialist.name}: ${specialistResult.answer.slice(0, 10000)}`,
+        })
+        await opts.emit('subagent_tool_result', {
+          dispatchId: opts.dispatchId,
+          stepId: `sub_dispatch_${Date.now()}`,
+          result: specialistResult.answer.slice(0, 2000),
+          ok: true,
+        })
+        continue
+      } catch (dispatchErr: any) {
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({
+          role: 'user',
+          content: `[SUBAGENT_DISPATCH] Failed to dispatch to "${dispatchAgentId}": ${dispatchErr?.message?.slice(0, 150)}. Do the work yourself instead.`,
+        })
+        continue
+      }
     }
 
     if (!parsed.tool) {
@@ -1589,24 +1670,19 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     const toolArgs = parsed.tool.args
     const stepId = `sub_${opts.dispatchId}_${iter}_${Math.random().toString(36).slice(2, 8)}`
 
-    // Enforce the sub-agent's allowed tool list
-    // NOTE: With FULL_ACCESS_TOOLS, all 99+ tools are allowed, so this check
-    // should NEVER block. If it does, it's a bug — the subagent should be
-    // able to use any tool. The check remains as a safety net.
+    // UPGRADE #165 Gap #2: Enforce allowedTools — NO auto-grant.
+    // Before: if a tool wasn't in the subagent's allowedTools, the code
+    // auto-granted it from TOOL_REGISTRY. This meant ALL 452 tools were
+    // available to EVERY subagent — specialization was advisory only.
+    // After: if a tool isn't in allowedTools, it's BLOCKED. The subagent
+    // must either use an allowed tool or give a final answer. This makes
+    // specialization REAL — a Scout agent can only use research tools,
+    // a Forge agent can only use code tools, etc.
     let toolBlocked = false
     if (!allowed.has(toolName)) {
-      // Auto-grant: if the tool exists in TOOL_REGISTRY, allow it anyway
-      // (FULL_ACCESS means FULL ACCESS — no tool should be blocked)
-      try {
-        const { TOOL_REGISTRY } = await import('./tools')
-        if (TOOL_REGISTRY[toolName]) {
-          // Tool exists in registry — grant access + add to allowed set
-          allowed.add(toolName)
-          console.log(`[subagents] Auto-granted tool "${toolName}" to ${sub.name} (FULL_ACCESS)`)
-        } else {
-          // Tool doesn't exist at all — block it
-          toolBlocked = true
-          const errResult: ToolResult = {
+      // Tool is NOT in the subagent's allowed list — block it
+      toolBlocked = true
+      const errResult: ToolResult = {
             ok: false,
             preview: `Tool "${toolName}" not found in registry`,
             result: `BLOCKED: Tool "${toolName}" does not exist in the TOOL_REGISTRY. Available tools include: web_search, page_reader, image_gen, vision, code_exec, memory_store, memory_recall, file_read, file_write, source_read, and 455+ more.`,
@@ -1643,11 +1719,6 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
             content: `[TOOL_RESULT] ${toolName}: ${errResult.result}`,
           })
           continue
-        }
-      } catch (importErr) {
-        // If import fails, auto-grant anyway (fail-open)
-        allowed.add(toolName)
-      }
     }
 
     const step: any = {
@@ -1737,6 +1808,30 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     })
   } catch {
     /* ignore */
+  }
+
+  // UPGRADE #165 Gap #3: Wire persistent-memory.ts into runSubagent.
+  // Before: persistent-memory.ts (with 0-100 scores, 90-day decay,
+  // feedback weighting) existed but was NEVER called. The agent could
+  // store facts via memory_store but couldn't LEARN FROM EXPERIENCE.
+  // After: after each subagent run, we:
+  //   1. Store a learning with a score based on whether the task succeeded
+  //   2. If the task failed, update the score of the last learning for this task type
+  // This gives the agent REAL self-learning — it remembers what worked
+  // and what didn't, with quality-weighted recall on future runs.
+  try {
+    const { storePersistentMemory, recallPersistentMemory } = await import('./persistent-memory')
+    const learningKey = `learning_${sub.id}_${opts.task.slice(0, 50).replace(/\s+/g, '_')}`
+    const succeeded = !finalAnswer.startsWith('⚠️') && !finalAnswer.includes('error')
+    const score = succeeded ? 75 : 25  // 75 for success, 25 for failure
+    await storePersistentMemory(
+      learningKey,
+      `Task: ${opts.task.slice(0, 200)}\nResult: ${finalAnswer.slice(0, 500)}\nSuccess: ${succeeded}`,
+      'self_learning',
+      score
+    ).catch(() => {})
+  } catch {
+    /* non-fatal — learning is best-effort */
   }
 
   return { answer: finalAnswer, steps }
