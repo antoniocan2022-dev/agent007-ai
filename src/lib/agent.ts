@@ -377,6 +377,24 @@ export async function callLlmWithRetry(
     }
   }
 
+  // UPGRADE #168: Sort providers by DEFAULT_ORDER so the push order above
+  // (which was historically OpenAI→Mistral→Groq→z.ai) is reconciled with the
+  // intended priority declared in DEFAULT_ORDER = ['groq', 'openai', 'z-ai', 'mistral'].
+  // Without this sort, OpenAI gpt-4o was being called first on every request —
+  // slow + expensive — and Mistral Small was the first fallback, making the
+  // agent feel "less smart". Now Groq (fast + smart 70B) is tried first, then
+  // OpenAI (smart + reliable), then z.ai (smartest, last resort), then Mistral.
+  const normalize = (s: string) => s.toLowerCase().replace(/[\s._-]/g, '')
+  const orderIndex = (name: string): number => {
+    const norm = normalize(name)
+    const i = order.findIndex(o => {
+      const oNorm = normalize(o)
+      return norm === oNorm || norm.includes(oNorm) || oNorm.includes(norm)
+    })
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i
+  }
+  providers.sort((a, b) => orderIndex(a.name) - orderIndex(b.name))
+
   // Filter out circuit-broken providers
   // UPGRADE #160: shouldSkipProvider now ALWAYS returns false — no provider
   // is ever skipped. This ensures the agent ALWAYS has providers to try.
