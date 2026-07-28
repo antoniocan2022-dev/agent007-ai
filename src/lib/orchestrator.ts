@@ -1829,20 +1829,23 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       }
     }
 
-    // UPGRADE #134: MANDATORY FEEDBACK LOOP after revenue/content/strategy answers
-    if (/revenue|income|sales|published|traffic|conversion|strategy|affiliate|monetiz|earn|profit|stripe|ga4/i.test(finalAnswer)) {
-      try {
-        const { dispatchTool } = await import('./tools')
-        const feedbackResult = await dispatchTool('real_feedback_loop', { action: 'report' }, { attachments: [], language: 'en' })
-        if (feedbackResult.ok) {
-          // Append real data to the answer (truncated to 800 chars)
-          const feedbackData = feedbackResult.result.slice(0, 800)
-          finalAnswer += `\n\n---\n📊 **REAL FEEDBACK DATA (from Stripe + GA4):**\n${feedbackData}`
-        }
-      } catch {
-        // Feedback loop failed — don't block the answer, just skip
-      }
-    }
+    // UPGRADE #163: REMOVED the mandatory feedback loop that appended
+    // Stripe + GA4 data to EVERY response containing words like "revenue",
+    // "income", "strategy", "traffic", "profit" etc.
+    //
+    // PROBLEM: The regex /revenue|income|sales|published|traffic|conversion|
+    //   strategy|affiliate|monetiz|earn|profit|stripe|ga4/i matched almost
+    //   EVERY response (these words appear naturally in most AI agent answers).
+    //   This caused:
+    //   1. 4-10 seconds added to every response (Stripe API + GA4 API calls)
+    //   2. A wall of raw data appended to the end of every answer
+    //   3. User saw: "response... then 500 chars of Stripe/GA4 dump"
+    //   4. Made responses feel incomplete (the real answer was above the dump)
+    //
+    // FIX: The feedback loop is now ON-DEMAND only. The agent can still
+    // call it via <tool name="real_feedback_loop">{"action":"report"}</tool>
+    // when the user EXPLICITLY asks for revenue/traffic data. But it no
+    // longer auto-appends to every response.
 
     // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
     await emit('synthesis', { content: finalAnswer.slice(0, 80) })

@@ -618,6 +618,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
             currentStepId = evt.data?.stepId ?? currentStepId
           })
           if (evt.event === 'done' || evt.event === 'error') {
+            // UPGRADE #163: Flush ANY remaining pending tokens before breaking.
+            // The applyEvent('done') handler flushes, but the outer loop also
+            // needs to flush in case the 'done' event and the stream close
+            // arrive in the same chunk (the applyEvent flush might not have
+            // fired yet because React batches state updates).
+            if (_pendingTokens) {
+              const remaining = _pendingTokens
+              _pendingTokens = ''
+              if (_tokenFlushTimer) {
+                clearTimeout(_tokenFlushTimer)
+                _tokenFlushTimer = null
+              }
+              set((s) => ({
+                messages: s.messages.map((m) => {
+                  if (m.id !== assistantId) return m
+                  return { ...m, content: m.content + remaining }
+                }),
+              }))
+            }
             // finish
           }
         }
