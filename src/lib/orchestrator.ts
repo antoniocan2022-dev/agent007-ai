@@ -1258,6 +1258,8 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
 
       // Run the sub-agent (it will emit its own subagent_thought/tool_call/tool_result events)
       let subAnswer = ''
+      // UPGRADE #169 C3: Capture the subagent's own steps for boundary audit.
+      let subagentSteps: Array<{ id: string; thought?: string; toolName?: string; toolArgs?: any; toolResult?: any; startedAt: number; finishedAt?: number }> = []
       try {
         const result = await runSubagent({
           subagentId: sub.id,
@@ -1274,6 +1276,16 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
           },
         })
         subAnswer = result.answer
+        // UPGRADE #169 C3: Capture the subagent's OWN steps so the
+        // tool_boundary_audit below audits the subagent's tools, not the
+        // super-agent's steps. Before this fix, the audit used `steps`
+        // (the orchestrator's super-agent step array) which had nothing to
+        // do with what the subagent actually did → false positives (caught
+        // super-agent tools the subagent was allowed to use) and missed
+        // real violations (when the subagent used forbidden tools). Now we
+        // pass `result.steps` so the audit sees the actual subagent tool
+        // calls and compares them against `sub.allowedTools`.
+        subagentSteps = result.steps ?? []
       } catch (e: any) {
         subAnswer = friendlyLlmError(e)
         await emit('subagent_complete', { dispatchId, answer: subAnswer })
@@ -1323,7 +1335,13 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       // even if a subagent somehow bypassed the per-tool block (e.g., via
       // a tool that calls another tool internally), the audit catches it.
       try {
-        const toolsUsedInThisDispatch = steps
+        // UPGRADE #169 C3: Use subagentSteps (the subagent's OWN tool calls)
+        // instead of `steps` (the orchestrator's super-agent step array).
+        // Before: compared super-agent tool calls against subagent
+        // allowedTools → false positives + missed real violations.
+        // After: compares the subagent's actual tool calls against its
+        // own allowedTools → accurate boundary audit.
+        const toolsUsedInThisDispatch = subagentSteps
           .filter((s: any) => s.toolName && s.finishedAt)
           .map((s: any) => s.toolName)
         if (toolsUsedInThisDispatch.length > 0) {

@@ -1572,15 +1572,21 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
       await opts.emit('subagent_thought', { dispatchId: opts.dispatchId, content: parsed.thought })
     }
 
-    // UPGRADE #165 Gap #1: Handle dispatch_subagent INSIDE subagents.
-    // Before: subagents only checked parsed.tool — if the LLM emitted
+    // UPGRADE #165 Gap #1 + UPGRADE #169 C2: Handle dispatch_subagent INSIDE subagents.
+    // Before (#165): subagents only checked parsed.tool — if the LLM emitted
     // <dispatch_subagent id="quill">write the article</dispatch_subagent>,
     // parsed.tool was null → subagent treated it as a final answer →
     // the dispatch was ignored. Leaders could NOT delegate to specialists.
-    // After: subagents check parsed.dispatch (same as the main orchestrator).
-    // If a leader dispatches a specialist, the subagent runs that specialist
-    // recursively via runSubagent, then feeds the result back.
-    if (parsed.dispatch && !parsed.tool) {
+    // After (#165): subagents check parsed.dispatch. But #169 found that
+    // Parsed interface never had a `dispatch` field → parsed.dispatch was
+    // always undefined → the recursive delegation block never ran. We now
+    // populate parsed.dispatch in parseAssistant (agent.ts:1149-1156, 1163-
+    // 1165). Also: parseAssistant sets BOTH parsed.tool AND parsed.dispatch
+    // for the same dispatch_subagent call (tool for routing + dispatch for
+    // the subagent's own recursive handler). So the check is now
+    // `parsed.dispatch` alone (drop the `&& !parsed.tool` — that was the
+    // workaround for the missing field).
+    if (parsed.dispatch) {
       const dispatchAgentId = parsed.dispatch.agentId
       const dispatchTask = parsed.dispatch.task
       try {
@@ -1852,33 +1858,48 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
   // This gives the agent REAL self-learning — it remembers what worked
   // and what didn't, with quality-weighted recall on future runs.
   try {
-    const { storePersistentMemory, recallPersistentMemory, updateMemoryScore } = await import('./persistent-memory')
+    const { storePersistentMemory, recallPersistentMemory, updateMemoryScore, getAllPersistentMemory } = await import('./persistent-memory')
     const learningKey = `learning_${sub.id}_${opts.task.slice(0, 50).replace(/\s+/g, '_')}`
     const succeeded = !finalAnswer.startsWith('⚠️') && !finalAnswer.includes('error')
     const score = succeeded ? 75 : 25  // 75 for success, 25 for failure
-    await storePersistentMemory(
-      learningKey,
-      `Task: ${opts.task.slice(0, 200)}\nResult: ${finalAnswer.slice(0, 500)}\nSuccess: ${succeeded}`,
-      'self_learning',
-      score
-    ).catch(() => {})
-    // UPGRADE #167 Step 3: Update EXISTING learnings for this task type.
-    // Before: only stored NEW learnings (always overwrote with score 75/25).
-    // After: if a learning already exists for this task type, update its
-    // score incrementally (+10 for success, -10 for failure). This creates
-    // a REAL confidence trend — a task that succeeded 5 times has score ~95,
-    // while one that failed 3 times has score ~15. The recall system
-    // prioritizes high-scored learnings, so the agent gradually learns
-    // which approaches work best.
+    // UPGRADE #169 C4: Self-learning score accumulation was broken.
+    // Before (#167 Step 3): storePersistentMemory was called FIRST (which
+    // overwrote the entry's score to 75|25), then updateMemoryScore was
+    // called (which moved score ±10). Net effect: success → 75→85, failure →
+    // 25→15, oscillates forever. A task that succeeded 5 times NEVER
+    // reached score ~95 — the comment lied.
+    // After (#169 C4): We check whether the learning already exists FIRST.
+    // If it does, we ONLY call updateMemoryScore (no overwrite). If it's a
+    // NEW learning, we call storePersistentMemory once with the initial
+    // score. This gives a real confidence trend: success → 75 → 85 → 95 →
+    // 100 (capped); failure → 25 → 15 → 5 → 0 (capped).
+    let learningExists = false
     try {
-      // Check if this learning already exists — if so, update its score
-      const allMemories = await recallPersistentMemory(opts.task.slice(0, 50), 5).catch(() => [])
-      const existingLearning = allMemories.find(m => m.key === learningKey)
-      if (existingLearning) {
-        // Update the score: success moves toward 100, failure toward 0
-        await updateMemoryScore(learningKey, succeeded).catch(() => {})
-      }
-    } catch {}
+      const allMemories = await getAllPersistentMemory().catch(() => [])
+      learningExists = !!allMemories.find(m => m.key === learningKey)
+    } catch {
+      // If getAllPersistentMemory fails, fall back to keyword search
+      try {
+        const allMemories = await recallPersistentMemory(opts.task.slice(0, 50), 10).catch(() => [])
+        learningExists = !!allMemories.find(m => m.key === learningKey)
+      } catch {}
+    }
+
+    if (!learningExists) {
+      // New learning — store with initial score (75 for success, 25 for failure)
+      await storePersistentMemory(
+        learningKey,
+        `Task: ${opts.task.slice(0, 200)}\nResult: ${finalAnswer.slice(0, 500)}\nSuccess: ${succeeded}`,
+        'self_learning',
+        score
+      ).catch(() => {})
+    } else {
+      // Existing learning — only update the score, don't overwrite the value
+      // UPGRADE #167 Step 3 + #169 C4: Update score incrementally (+10 for
+      // success, -10 for failure). The value stays the same — we keep the
+      // original learning note. Future enhancement: append new outcomes.
+      await updateMemoryScore(learningKey, succeeded).catch(() => {})
+    }
   } catch {
     /* non-fatal — learning is best-effort */
   }

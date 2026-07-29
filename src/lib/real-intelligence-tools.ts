@@ -253,6 +253,230 @@ export async function toolVerifyWork(args: any, _ctx: ToolContext): Promise<Tool
 // ════════════════════════════════════════════════════════════════════
 // 5. FOCUS ENFORCEMENT: REAL tool registry audit
 // ════════════════════════════════════════════════════════════════════
+// UPGRADE #169 C5: 5 more REAL implementations for the previously fake tools.
+// Before #169, the audit found that UPGRADE #166 only replaced 2 of 7 fake
+// tools. The other 5 — toolSelfOptimizationEngine, toolFeedbackOptimizationLoop,
+// toolAutonomousDecisionMaker, toolEfficiencyOptimizer, toolToolUsageAnalyzer —
+// still returned hardcoded fake metrics. We now provide REAL implementations
+// that query the actual system state.
+// ════════════════════════════════════════════════════════════════════
+
+// 5a. REAL Self-Optimization Engine — counts ACTUAL learnings in memory
+export async function toolSelfOptimizationEngine(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  const action = (args?.action ?? 'optimize').toString()
+  const area = args?.area ? (args.area as string) : null
+  try {
+    const { getAllPersistentMemory } = await import('./persistent-memory')
+    const all = await getAllPersistentMemory().catch(() => [])
+    const selfLearning = all.filter(m => m.category === 'self_learning')
+    const successCount = selfLearning.filter(m => m.score >= 60).length
+    const failCount = selfLearning.filter(m => m.score < 40).length
+    const avgScore = selfLearning.length > 0
+      ? Math.round(selfLearning.reduce((s, m) => s + m.score, 0) / selfLearning.length)
+      : 0
+
+    return okResult(
+      `Self-optimization: ${selfLearning.length} real learnings analyzed`,
+      `SELF-OPTIMIZATION ENGINE — REAL LEARNING STATE\n${'='.repeat(60)}\n\n` +
+      `REQUESTED: ${action}${area ? ` | AREA: ${area}` : ' | SCOPE: all areas'}\n\n` +
+      `ACTUAL LEARNING STATE (as of ${new Date().toISOString()}):\n` +
+      `  • Total self-learning memories recorded: ${selfLearning.length}\n` +
+      `  • Successful outcomes: ${successCount} (score >= 60)\n` +
+      `  • Failed outcomes: ${failCount} (score < 40)\n` +
+      `  • Average learning score: ${avgScore}/100\n` +
+      `  • All other memories: ${all.length - selfLearning.length} (other categories)\n\n` +
+      `LEARNINGS APPLIED:\n` +
+      `  • Recall system uses these automatically on each new task\n` +
+      `  • 90-day decay applied — older learnings weighted less\n` +
+      `  • Top-scoring learnings are preferred over lower-scoring ones\n\n` +
+      `${selfLearning.length === 0
+        ? `STATUS: No self-learning recorded yet. Run a few missions — the system will start recording real learnings (success/failure outcomes + scores).`
+        : `STATUS: ${successCount} known-good approaches available for recall. Use memory_recall to surface them on similar tasks.`}`
+    )
+  } catch (e: any) {
+    return badResult(`Self-optimization analysis failed: ${e?.message?.slice(0, 100)}`)
+  }
+}
+
+// 5b. REAL Feedback Optimization Loop — reports ACTUAL tool usage + learning rate
+export async function toolFeedbackOptimizationLoop(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const { getAllPersistentMemory } = await import('./persistent-memory')
+    const all = await getAllPersistentMemory().catch(() => [])
+    const feedback = all.filter(m => m.category === 'feedback' || m.category === 'self_learning')
+    const progress = all.filter(m => m.category === 'progress_report')
+    const helpRequests = all.filter(m => m.category === 'help_request')
+
+    return okResult(
+      `Feedback loop: ${feedback.length} feedback entries + ${progress.length} progress reports + ${helpRequests.length} help requests`,
+      `FEEDBACK OPTIMIZATION LOOP — REAL FEEDBACK CHANNELS\n${'='.repeat(60)}\n\n` +
+      `FEEDBACK CHANNELS (real, from persistent memory):\n\n` +
+      `  1. SELF-LEARNING (${feedback.length} entries)\n` +
+      `     • Each completed subagent records success/failure + score\n` +
+      `     • 90-day decay applied on recall\n` +
+      `     • Top-scoring approaches surfaced on similar tasks\n\n` +
+      `  2. PROGRESS REPORTS (${progress.length} entries)\n` +
+      `     • Specialists report % completion to leaders via toolReportProgress\n` +
+      `     • Leaders can see where each specialist is in real time\n\n` +
+      `  3. HELP REQUESTS (${helpRequests.length} entries)\n` +
+      `     • Specialists request help from leaders via toolRequestHelp\n` +
+      `     • Pings stored in memory — surfaced on next leader recall\n\n` +
+      `  4. TOOL BOUNDARY AUDITS (per-mission)\n` +
+      `     • Each subagent's tool usage audited against its allowedTools\n` +
+      `     • Violations penalize the quality score (-5 per violation)\n\n` +
+      `CURRENT STATE:\n` +
+      `  • Total feedback entries: ${feedback.length + progress.length + helpRequests.length}\n` +
+      `  • Self-learning entries: ${feedback.length}\n` +
+      `  • Progress reports: ${progress.length}\n` +
+      `  • Help requests: ${helpRequests.length}\n\n` +
+      `${feedback.length === 0
+        ? `STATUS: No feedback recorded yet. Run a few missions to populate the loop.`
+        : `STATUS: Feedback loop is active. Run more missions to strengthen the signal.`}`
+    )
+  } catch (e: any) {
+    return badResult(`Feedback analysis failed: ${e?.message?.slice(0, 100)}`)
+  }
+}
+
+// 5c. REAL Autonomous Decision Maker — uses the LLM (no hardcoded "OPTION A")
+export async function toolAutonomousDecisionMaker(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  const decision = (args?.decision ?? 'what to focus on this week').toString()
+  const options = args?.options as string[] | undefined
+
+  try {
+    // Pull real data from persistent memory to inform the decision
+    const { getAllPersistentMemory } = await import('./persistent-memory')
+    const all = await getAllPersistentMemory().catch(() => [])
+    const learnings = all.filter(m => m.category === 'self_learning')
+    const successCount = learnings.filter(m => m.score >= 60).length
+    const failCount = learnings.filter(m => m.score < 40).length
+
+    // Recall relevant learnings for this decision
+    const { recallPersistentMemory } = await import('./persistent-memory')
+    const relevant = await recallPersistentMemory(decision.slice(0, 100), 3).catch(() => [])
+
+    let llmDecision = ''
+    try {
+      const { callLlmWithRetry } = await import('./agent')
+      const optionsList = options && Array.isArray(options) && options.length > 0
+        ? `\nOPTIONS:\n${options.map((o, i) => `  ${String.fromCharCode(65 + i)}. ${o}`).join('\n')}`
+        : ''
+      const learningContext = relevant.length > 0
+        ? `\nRELEVANT LEARNINGS (from past runs):\n${relevant.map(m => `  - [score: ${m.score}/100] ${m.value.slice(0, 200)}`).join('\n')}`
+        : ''
+      const systemPrompt = `You are a strategic decision maker. Given a decision and context, analyze and recommend the best option. Be concise (max 300 words). Use real data, not placeholder numbers.`
+      const userPrompt = `DECISION: ${decision}${optionsList}${learningContext}\n\nBased on ${successCount} successful past outcomes and ${failCount} failures, recommend the best path forward. Output:\nRECOMMENDATION: <option name>\nRATIONALE: <2-3 sentences>\nRISKS: <1-2 sentences>`
+
+      const result = await callLlmWithRetry([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ])
+      llmDecision = result?.choices?.[0]?.message?.content ?? ''
+    } catch (e: any) {
+      llmDecision = `LLM unavailable: ${e?.message?.slice(0, 100) || 'unknown error'} — falling back to learning-based recommendation only.`
+    }
+
+    return okResult(
+      `Decision: analyzed "${decision.slice(0, 50)}" with ${relevant.length} relevant learnings`,
+      `AUTONOMOUS DECISION MAKER — LLM-DRIVEN\n${'='.repeat(60)}\n\n` +
+      `DECISION: "${decision}"\n\n` +
+      `REAL CONTEXT:\n` +
+      `  • Self-learning history: ${learnings.length} entries\n` +
+      `  • Successful past outcomes: ${successCount}\n` +
+      `  • Failed past outcomes: ${failCount}\n` +
+      `  • Relevant learnings for this decision: ${relevant.length}\n\n` +
+      `LLM ANALYSIS:\n${llmDecision || '(LLM did not return content)'}\n\n` +
+      `EXECUTION: This decision was made using ACTUAL data, not hardcoded metrics.`
+    )
+  } catch (e: any) {
+    return badResult(`Decision analysis failed: ${e?.message?.slice(0, 100)}`)
+  }
+}
+
+// 5d. REAL Efficiency Optimizer — recommends based on ACTUAL config, no fake %
+export async function toolEfficiencyOptimizer(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  // Read ACTUAL config values from env (no fake "+40% speed")
+  const maxIterations = Number(process.env.AGENT_MAX_ITERATIONS ?? 15)
+  const maxDispatches = Number(process.env.AGENT_MAX_DISPATCHES ?? 15)
+  const throttleMs = Number(process.env.LLM_THROTTLE_MS ?? 250)
+
+  try {
+    const { getAllPersistentMemory } = await import('./persistent-memory')
+    const all = await getAllPersistentMemory().catch(() => [])
+    const learningCount = all.filter(m => m.category === 'self_learning').length
+
+    return okResult(
+      `Efficiency analysis: real config (iterations=${maxIterations}, dispatches=${maxDispatches}, throttle=${throttleMs}ms)`,
+      `EFFICIENCY OPTIMIZER — REAL CONFIG + REAL RECOMMENDATIONS\n${'='.repeat(60)}\n\n` +
+      `CURRENT PERFORMANCE (from real env config):\n` +
+      `  • LLM throttle: ${throttleMs}ms (configurable via LLM_THROTTLE_MS)\n` +
+      `  • Max iterations per turn: ${maxIterations} (AGENT_MAX_ITERATIONS)\n` +
+      `  • Max dispatches per turn: ${maxDispatches} (AGENT_MAX_DISPATCHES)\n` +
+      `  • Self-learnings recorded: ${learningCount}\n\n` +
+      `REAL OPTIMIZATION RECOMMENDATIONS:\n` +
+      `  1. Use parallel_executor for independent tasks (saves sequential latency)\n` +
+      `     Example: search + fetch + analyze simultaneously\n\n` +
+      `  2. Use smart_tool_router to pick the right tool first time\n` +
+      `     Prevents wasted iterations on wrong tools\n\n` +
+      `  3. Use accuracy_checker before reporting to owner\n` +
+      `     Prevents rework from inaccurate information\n\n` +
+      `  4. Cache results: web_search + page_reader already cache for 1 hour\n` +
+      `     Avoids re-fetching the same URL across turns\n\n` +
+      `  5. Batch manage actions: combine settings_set + dashboard_add_widget\n` +
+      `     in one turn instead of multiple turns\n\n` +
+      `ADJUSTMENT (set via env vars):\n` +
+      `  • LLM_THROTTLE_MS=200 → faster (but risk rate limits)\n` +
+      `  • AGENT_MAX_ITERATIONS=20 → allow longer reasoning chains\n` +
+      `  • AGENT_MAX_DISPATCHES=20 → allow more parallel missions\n\n` +
+      `NOTE: This tool no longer reports fake "+40% speed" or "+25% accuracy"\n` +
+      `projections. Those were Math.random in the old version. The new tool\n` +
+      `reports REAL config + actionable REAL recommendations.`
+    )
+  } catch (e: any) {
+    return badResult(`Efficiency analysis failed: ${e?.message?.slice(0, 100)}`)
+  }
+}
+
+// 5e. REAL Tool Usage Analyzer — counts ACTUAL tools in TOOL_REGISTRY
+export async function toolToolUsageAnalyzer(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  // Import TOOL_REGISTRY to count actual tools
+  const { TOOL_REGISTRY } = await import('./tools')
+  const allTools = Object.keys(TOOL_REGISTRY)
+  const total = allTools.length
+
+  // Group by prefix (e.g., "memory_" → memory, "web_" → web)
+  const categories: Record<string, string[]> = {}
+  for (const name of allTools) {
+    const cat = name.includes('_') ? name.slice(0, name.indexOf('_')) : 'core'
+    if (!categories[cat]) categories[cat] = []
+    categories[cat].push(name)
+  }
+
+  const sorted = Object.entries(categories)
+    .map(([cat, tools]) => ({ cat, count: tools.length, sample: tools.slice(0, 3) }))
+    .sort((a, b) => b.count - a.count)
+
+  const top10 = sorted.slice(0, 10)
+
+  return okResult(
+    `Tool usage analysis: ${total} real tools in TOOL_REGISTRY across ${sorted.length} categories`,
+    `TOOL USAGE ANALYZER — REAL TOOL_REGISTRY COUNTS\n${'='.repeat(60)}\n\n` +
+    `TOTAL TOOLS: ${total}\n` +
+    `TOTAL CATEGORIES: ${sorted.length}\n\n` +
+    `TOP 10 CATEGORIES BY SIZE:\n${top10.map(c =>
+      `  ${c.cat}: ${c.count} tools (e.g., ${c.sample.join(', ')})`
+    ).join('\n')}\n\n` +
+    `HOW TO USE THIS:\n` +
+    `  • If a category has 0 useful tools for your task, dispatch a specialist with that capability\n` +
+    `  • If a category has 50+ tools, use smart_tool_router to find the right one\n` +
+    `  • Most tools support the JSON args format: <tool name="X">{"key":"value"}</tool>\n\n` +
+    `NOTE: This tool no longer reports fake "$890/mo projected" or "+78% conversion"\n` +
+    `metrics. The old version returned Math.random data. This version reports\n` +
+    `REAL tool counts from the actual TOOL_REGISTRY.`
+  )
+}
+
+// 5f. FOCUS ENFORCEMENT: REAL tool registry audit (original #166 tool)
 
 export async function toolToolBoundaryAudit(args: any, _ctx: ToolContext): Promise<ToolResult> {
   // UPGRADE #166: REAL tool — checks which tools a subagent ACTUALLY used

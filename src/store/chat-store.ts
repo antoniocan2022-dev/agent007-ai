@@ -583,7 +583,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           attachments: userMsg.attachments ?? [],
           language: state.language,
         }),
-        signal: AbortSignal.timeout(180_000),
+        // UPGRADE #169 H2: Bumped from 180_000 → 290_000 to match Vercel Pro
+        // maxDuration=300. The old 180s timeout was shorter than the server's
+        // 300s budget — long missions (200-280s) would abort on the client
+        // while the server was still working. 290s gives 10s buffer for the
+        // final response stream to flush.
+        signal: AbortSignal.timeout(290_000),
       })
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => '')

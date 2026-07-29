@@ -1,43 +1,58 @@
 'use client'
 
 /**
- * PreWarmDb.tsx — UPGRADE #148 (Issue 2c fix)
+ * PreWarmDb.tsx — UPGRADE #148 (Issue 2c fix) + UPGRADE #169 H3
  * ===================================================================
- * Fires a lightweight `/api/health` fetch as early as possible on page
- * load — BEFORE useSession() resolves and BEFORE the dashboard's parallel
+ * Fires 3 lightweight parallel fetches as early as possible on page
+ * load — BEFORE useSession() resolves and BEFORE the dashboard's own
  * fetches fire.
  *
  * Why this helps:
- *   - On Vercel cold starts, the FIRST request to a serverless function
- *     pays the full DB init cost (~6-12s for createTables + seedData).
- *   - Subsequent requests to the SAME warm instance are fast (~50ms).
- *   - By firing /api/health immediately, we start the cold-start DB init
- *     in parallel with the NextAuth session check, hiding ~5-10s of
- *     latency behind the auth redirect.
+ *   - On Vercel cold starts, EACH serverless function has its own
+ *     cold-start DB init cost (~5-10s).
+ *   - The 3 endpoints the dashboard actually loads are: /api/conversations,
+ *     /api/memory, /api/subagents — NOT /api/health (which was a NO-OP
+ *     that didn't touch the DB).
+ *   - By firing all 3 in parallel immediately, we warm each function's
+ *     Lambda + Prisma cache in parallel with the NextAuth session check,
+ *     hiding ~5-10s of latency behind the auth redirect.
+ *
+ * UPGRADE #169 H3: Replaced the no-op /api/health call with the 3 real
+ * DB-touching endpoints. /api/health returns a static JSON without
+ * touching the database, so warming it did nothing useful. The new
+ * approach warms the SAME endpoints the dashboard will load, so the
+ * dashboard's actual fetches hit warm Lambdas.
  *
  * This component renders nothing visible — it's a side-effect-only
  * mount hook. It's placed in layout.tsx so it runs on every page.
  *
- * Note: /api/health is chosen because:
- *   1. It's public (no auth required) — won't 307 redirect
- *   2. It calls ensureDbReady() implicitly via db.user.findFirst
- *   3. It returns a small JSON payload (no heavy work)
- *   4. It's already deployed and known to work
+ * Note: All 3 endpoints are auth-protected — they'll 401 on first hit
+ * (no session yet), but the Lambda + Prisma connection will still be
+ * warmed. The 401 response is silent.
  */
 
 import { useEffect } from 'react'
 
 export function PreWarmDb() {
   useEffect(() => {
-    // Fire-and-forget — we don't care about the response, we just want
-    // to trigger the cold-start DB init ASAP.
-    fetch('/api/health', {
-      method: 'GET',
-      // Don't block page unload if user navigates away
-      signal: AbortSignal.timeout(30_000),
-    }).catch(() => {
+    // UPGRADE #169 H3: Fire the 3 real DB-touching endpoints in parallel
+    // instead of /api/health (which was a NO-OP). Even though they 401
+    // (no session yet), the Lambda + Prisma connection is warmed.
+    const controller = new AbortController()
+    const endpoints = ['/api/conversations?limit=1', '/api/memory?limit=1', '/api/subagents']
+    Promise.allSettled(
+      endpoints.map((path) =>
+        fetch(path, {
+          method: 'GET',
+          signal: AbortSignal.timeout(15_000),
+        }).catch(() => {
+          // Silent — 401 or any error is fine, we just want to warm the Lambda
+        })
+      )
+    ).catch(() => {
       // Silent — this is a best-effort optimization, not critical
     })
+    return () => controller.abort()
   }, [])
 
   return null  // Renders nothing

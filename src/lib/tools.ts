@@ -2830,19 +2830,39 @@ import {
   toolDiscordNotify,
 } from './communication-tools'
 
-// UPGRADE #166: REAL intelligence tools (replacing fake ones)
+// UPGRADE #166 + #169 C5: REAL intelligence tools (replacing ALL 7 fake ones)
 import {
   toolSelfImprovingStrategy as toolSelfImprovingStrategyReal,
   toolDecisionMatrix as toolDecisionMatrixReal,
+  toolSelfOptimizationEngine as toolSelfOptimizationEngineReal,
+  toolFeedbackOptimizationLoop as toolFeedbackOptimizationLoopReal,
+  toolAutonomousDecisionMaker as toolAutonomousDecisionMakerReal,
+  toolEfficiencyOptimizer as toolEfficiencyOptimizerReal,
+  toolToolUsageAnalyzer as toolToolUsageAnalyzerReal,
   toolRequestHelp,
   toolReportProgress,
   toolVerifyWork,
   toolToolBoundaryAudit,
 } from './real-intelligence-tools'
 
-// UPGRADE #166: Replace FAKE tools with REAL ones
+// UPGRADE #166: Replace 2 of 7 FAKE tools with REAL ones
 TOOL_REGISTRY.self_improving_strategy = { fn: toolSelfImprovingStrategyReal, icon: 'trending-up', label: 'Self-Improving Strategy (REAL: queries persistent-memory learnings)' }
 TOOL_REGISTRY.decision_matrix = { fn: toolDecisionMatrixReal, icon: 'grid', label: 'Decision Matrix (REAL: weighted scoring, no Math.random)' }
+
+// UPGRADE #169 C5: Replace the remaining 5 FAKE tools with REAL ones.
+// Before: toolSelfOptimizationEngine returned "+34% decision quality"
+//         (hardcoded), toolFeedbackOptimizationLoop returned "47 learnings"
+//         (Math.random), toolAutonomousDecisionMaker returned "OPTION A"
+//         (always), toolEfficiencyOptimizer returned "+40% speed"
+//         (hardcoded), toolToolUsageAnalyzer returned "$890/mo projected"
+//         (Math.random). The agent was feeding users hallucinated metrics.
+// After: each tool queries REAL data (persistent memory, TOOL_REGISTRY,
+//         env config) or returns an honest "needs more data" message.
+TOOL_REGISTRY.self_optimization_engine = { fn: toolSelfOptimizationEngineReal, icon: 'cpu', label: 'Self-Optimization Engine (REAL: counts actual learnings in memory)' }
+TOOL_REGISTRY.feedback_optimization_loop = { fn: toolFeedbackOptimizationLoopReal, icon: 'refresh-cw', label: 'Feedback Optimization Loop (REAL: real feedback counts from memory)' }
+TOOL_REGISTRY.autonomous_decision_maker = { fn: toolAutonomousDecisionMakerReal, icon: 'cpu', label: 'Autonomous Decision Maker (REAL: LLM-driven, no hardcoded OPTION A)' }
+TOOL_REGISTRY.efficiency_optimizer = { fn: toolEfficiencyOptimizerReal, icon: 'gauge', label: 'Efficiency Optimizer (REAL: real config from env, no fake +40% speed)' }
+TOOL_REGISTRY.tool_usage_analyzer = { fn: toolToolUsageAnalyzerReal, icon: 'bar-chart', label: 'Tool Usage Analyzer (REAL: actual TOOL_REGISTRY counts, no fake $890/mo)' }
 
 // UPGRADE #166: NEW coordination + leadership tools
 TOOL_REGISTRY.request_help = { fn: toolRequestHelp, icon: 'help-circle', label: 'Request Help (specialist → leader: ask for guidance)' }

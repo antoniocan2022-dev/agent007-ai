@@ -41,21 +41,25 @@ async function callProvider(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
 ): Promise<ProviderResponse> {
   const start = Date.now()
+  // UPGRADE #169 H1: Restore LLM_PROVIDER_ORDER in finally, not in try.
+  // Before: if callLlmWithRetry threw (rate limit, network, auth), the restore
+  // at the end of the try block never ran → the env var stayed mutated for
+  // the lifetime of the Vercel warm Lambda → ALL subsequent LLM calls across
+  // ALL concurrent requests used ONLY that one provider (single-provider
+  // bottleneck under load).
+  // After: try/finally guarantees the env is restored even on throw.
+  const originalOrder = process.env.LLM_PROVIDER_ORDER
   try {
     // Dynamically import to avoid circular dependencies
     const { callLlmWithRetry } = await import('./agent')
 
     // Temporarily set LLM_PROVIDER_ORDER to only use this provider
-    const originalOrder = process.env.LLM_PROVIDER_ORDER
     process.env.LLM_PROVIDER_ORDER = provider
 
     const result = await callLlmWithRetry(messages)
     const content = result?.choices?.[0]?.message?.content ?? ''
     const reasoning = result?._reasoning || result?.choices?.[0]?.message?.reasoning || null
     const model = result?._model || provider
-
-    // Restore original order
-    process.env.LLM_PROVIDER_ORDER = originalOrder
 
     return {
       provider,
@@ -74,6 +78,9 @@ async function callProvider(
       error: e?.message?.slice(0, 200) || 'Unknown error',
       elapsedMs: Date.now() - start,
     }
+  } finally {
+    // UPGRADE #169 H1: Always restore the env var, even on throw.
+    process.env.LLM_PROVIDER_ORDER = originalOrder
   }
 }
 

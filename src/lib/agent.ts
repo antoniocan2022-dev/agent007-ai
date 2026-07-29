@@ -1090,6 +1090,12 @@ export const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*
 export interface Parsed {
   thought?: string
   tool?: { name: string; args: any }
+  // UPGRADE #169 C2: `dispatch` was missing — subagents.ts read parsed.dispatch
+  // but Parsed never had a dispatch field. The 3-tier hierarchy (CEO → Leader →
+  // Specialist) was therefore broken: Leaders could not delegate to Specialists
+  // because the dispatch was never propagated. We now populate it from both
+  // <dispatch_subagent> tags AND <tool name="dispatch_subagent"> tool calls.
+  dispatch?: { agentId: string; task: string }
   textAfterTool: string
   textBeforeTool: string
   raw: string
@@ -1106,6 +1112,12 @@ export function parseAssistant(content: string): Parsed {
   // formats and convert dispatch_subagent tags to proper tool calls.
   const dispatchMatch = content.match(DISPATCH_SUBAGENT_RE)
 
+  // UPGRADE #169 C2: Also extract a `dispatch` field for subagents.ts to use
+  // when delegating to specialists. We populate it from either format:
+  //   - <dispatch_subagent id="quill">task</dispatch_subagent>
+  //   - <tool name="dispatch_subagent">{"id":"quill","task":"..."}</tool>
+  let dispatch: Parsed['dispatch']
+
   // Prefer the proper <tool> format if present; otherwise fall back to <dispatch_subagent>
   let tool: Parsed['tool']
   let textBeforeTool = content
@@ -1114,7 +1126,7 @@ export function parseAssistant(content: string): Parsed {
   if (toolMatch) {
     const name = (toolMatch[1] ?? '').trim()
     if (!name) {
-      return { thought, tool: undefined, textBeforeTool: content.replace(THOUGHT_RE, '').trim(), textAfterTool: '', raw: content }
+      return { thought, tool: undefined, dispatch: undefined, textBeforeTool: content.replace(THOUGHT_RE, '').trim(), textAfterTool: '', raw: content }
     }
     let args: any = {}
     const raw = (toolMatch[2] ?? '').trim()
@@ -1133,12 +1145,24 @@ export function parseAssistant(content: string): Parsed {
     const idx = content.indexOf(toolMatch[0])
     textBeforeTool = content.slice(0, idx).replace(THOUGHT_RE, '').trim()
     textAfterTool = content.slice(idx + toolMatch[0].length).trim()
+
+    // UPGRADE #169 C2: Populate dispatch from <tool name="dispatch_subagent"> format
+    if (name === 'dispatch_subagent') {
+      const agentId = (args?.id ?? args?.agentId ?? '').toString().trim()
+      const task = (args?.task ?? args?.goal ?? '').toString().trim()
+      if (agentId) {
+        dispatch = { agentId, task }
+      }
+    }
   } else if (dispatchMatch) {
     // ── UPGRADE #63 — Convert <dispatch_subagent> text to a real tool call ──
     const subagentId = (dispatchMatch[1] ?? '').trim()
     const task = (dispatchMatch[2] ?? '').trim()
     if (subagentId) {
       tool = { name: 'dispatch_subagent', args: { id: subagentId, task } }
+      // UPGRADE #169 C2: Also populate the dispatch field so subagents.ts:1583
+      // can detect the delegation request.
+      dispatch = { agentId: subagentId, task }
       const idx = content.indexOf(dispatchMatch[0])
       textBeforeTool = content.slice(0, idx).replace(THOUGHT_RE, '').trim()
       textAfterTool = content.slice(idx + dispatchMatch[0].length).trim()
@@ -1147,6 +1171,7 @@ export function parseAssistant(content: string): Parsed {
   return {
     thought,
     tool,
+    dispatch,
     textBeforeTool,
     textAfterTool,
     raw: content,
