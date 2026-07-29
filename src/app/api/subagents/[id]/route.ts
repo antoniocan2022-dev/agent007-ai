@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db } from '@/lib/db'
 import { getOperatorUserId } from '@/lib/settings'
+import { getSessionUser } from '@/lib/session-user'
 import { SUBAGENTS } from '@/lib/subagents'
 
 export const runtime = 'nodejs'
@@ -93,12 +94,47 @@ const VALID_ICONS = new Set([
 ])
 
 /** GET /api/subagents/[id] — fetch a single subagent (built-in or custom),
- *  including the FULL systemPrompt (used by the edit modal). */
+ *  including the FULL systemPrompt (used by the edit modal).
+ *
+ * UPGRADE #170 fix #4 (HIGH security): Before #170, this endpoint used
+ * `getOperatorUserId()` which returns the SEED operator's user ID without
+ * requiring an authenticated session — that's how the auth flow worked for
+ * built-in overlay fetches. But it ALSO meant any unauthenticated user
+ * could `curl /api/subagents/scout` and get the FULL systemPrompt of
+ * every built-in subagent (verified live in TEST-DEEP). The systemPrompt
+ * reveals the Pod leadership structure, allowed tools, thinking protocol
+ * — useful intel for an attacker.
+ *
+ * After #170: we explicitly call `verifyOwnerAuthorization(req)` which
+ * checks the NextAuth session. Unauthenticated users get a 401, OR a
+ * SANITIZED response (no systemPrompt) so the public UI can still show
+ * the agent name + role but not the secret sauce.
+ *
+ * Decision: 401 unauthenticated requests entirely. The public agent list
+ * endpoint `/api/subagents` (without [id]) already provides name+role+icon
+ * without auth — that's enough for the public-facing UI. The full prompt
+ * requires login.
+ */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // UPGRADE #170 fix #4: Require an actual NextAuth session to read the
+    // full systemPrompt. Before #170, this endpoint only checked
+    // `getOperatorUserId()` which returns the SEED operator's id WITHOUT
+    // verifying a session — so any unauthenticated user could curl the
+    // endpoint and read every built-in subagent's systemPrompt (which
+    // reveals Pod structure, allowed tools, thinking protocol). After
+    // #170: we explicitly check `getSessionUser()` which uses NextAuth's
+    // getServerSession(authOptions). Unauthenticated requests get 401.
+    const sessionUser = await getSessionUser()
+    if (!sessionUser) {
+      return NextResponse.json(
+        { error: 'Authentication required to view subagent details.' },
+        { status: 401 }
+      )
+    }
     const { id } = await params
     // Built-in?
     const builtin = SUBAGENTS.find((s) => s.id === id)

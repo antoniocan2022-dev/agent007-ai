@@ -31,21 +31,44 @@ export async function GET() {
     error: null,
   }
 
-  // UPGRADE #126: Don't reference OpenAI as primary — it's disabled per UPGRADE #123
-  const activeProviders: string[] = []
-  if (process.env.MISTRAL_API_KEY) activeProviders.push('Mistral')
-  if (process.env.GROQ_API_KEY) activeProviders.push('Groq')
-  if (process.env.OPENROUTER_API_KEY) activeProviders.push('OpenRouter')
-  if (process.env.CEREBRAS_API_KEY) activeProviders.push('Cerebras')
-  if (process.env.BRAVE_API_KEY) activeProviders.push('Brave AI')
-  if (process.env.GEMINI_API_KEY) activeProviders.push('Gemini')
+  // UPGRADE #170 fix #7: BEFORE — this endpoint hardcoded the chain text as
+  // "Mistral → Groq → OpenRouter → Cerebras → Brave AI → Gemini" and claimed
+  // "OpenAI + z.ai are disabled per owner request". That text was wrong:
+  //   - The actual DEFAULT_ORDER (agent.ts:307) is ['groq', 'openai', 'z-ai', 'mistral']
+  //   - OpenAI is NOT disabled (env var OPENAI_API_KEY is set on production)
+  //   - z.ai is NOT disabled (env var ZAI_API_KEY is set)
+  //   - Mistral was listed first when actually it's the LAST resort
+  // The misleading text was visible to any user visiting /api/system/diagnose-llm.
+  // AFTER — we dynamically build the chain text from the actual env vars +
+  // DEFAULT_ORDER. Display matches reality.
+  const DEFAULT_ORDER = ['groq', 'openai', 'z-ai', 'mistral']
+  const providerHasEnv: Record<string, boolean> = {
+    groq: !!process.env.GROQ_API_KEY,
+    openai: !!process.env.OPENAI_API_KEY,
+    'z-ai': !!(process.env.ZAI_API_KEY || process.env.ZAI_API_TOKEN),
+    mistral: !!process.env.MISTRAL_API_KEY,
+  }
+  // Also check the deprecated/extra providers for backward visibility
+  const extraProviders: string[] = []
+  if (process.env.OPENROUTER_API_KEY) extraProviders.push('OpenRouter')
+  if (process.env.CEREBRAS_API_KEY) extraProviders.push('Cerebras')
+  if (process.env.BRAVE_API_KEY) extraProviders.push('Brave AI')
+  if (process.env.GEMINI_API_KEY) extraProviders.push('Gemini')
 
-  diagnosis.provider = activeProviders.length > 0
-    ? `Multi-provider chain: ${activeProviders.join(' → ')}`
+  // Build the active chain sorted by DEFAULT_ORDER (Groq → OpenAI → z.ai → Mistral)
+  const activeOrdered = DEFAULT_ORDER
+    .filter((p) => providerHasEnv[p])
+    .map((p) => p === 'z-ai' ? 'z.ai' : p.charAt(0).toUpperCase() + p.slice(1))
+
+  const allConfigured = [...activeOrdered, ...extraProviders]
+
+  diagnosis.provider = allConfigured.length > 0
+    ? `Active chain (priority order): ${activeOrdered.join(' → ')}` +
+      (extraProviders.length > 0 ? ` | Also configured but lower priority: ${extraProviders.join(', ')}` : '')
     : 'No providers configured'
-  diagnosis.instructions = activeProviders.length > 0
-    ? `Agent007 will try these providers in order: ${activeProviders.join(', ')}. (OpenAI + z.ai are disabled per owner request.)`
-    : 'Set at least one LLM API key in Vercel env vars.'
+  diagnosis.instructions = allConfigured.length > 0
+    ? `Agent007 tries providers in this order: ${activeOrdered.join(' → ')}. (Fallback chain: ${extraProviders.join(', ') || 'none'}.)`
+    : 'Set at least one LLM API key in Vercel env vars (GROQ_API_KEY, OPENAI_API_KEY, ZAI_API_KEY, or MISTRAL_API_KEY).'
 
   // Test the LLM call
   try {
@@ -61,7 +84,7 @@ export async function GET() {
       success: true,
       model,
       response: content.slice(0, 100),
-      provider: result?._provider ?? activeProviders[0] ?? 'unknown',
+      provider: result?._provider ?? allConfigured[0] ?? 'unknown',
     }
     diagnosis.overallStatus = '✅ WORKING'
     diagnosis.message = `AI provider is working. Model: ${model}. Test response: "${content.slice(0, 50)}"`

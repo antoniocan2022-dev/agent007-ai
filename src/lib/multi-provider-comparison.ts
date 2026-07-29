@@ -79,8 +79,16 @@ async function callProvider(
       elapsedMs: Date.now() - start,
     }
   } finally {
-    // UPGRADE #169 H1: Always restore the env var, even on throw.
-    process.env.LLM_PROVIDER_ORDER = originalOrder
+    // UPGRADE #169 H1 + #170 fix: If originalOrder was undefined (env not set),
+    // we must DELETE the env var — assigning undefined coerces to the literal
+    // string "undefined" (Node.js quirk), which would then be parsed by
+    // callLlmWithRetry as order=['undefined'], zero providers available,
+    // ALL subsequent LLM calls fail. This was a regression introduced by #169 H1.
+    if (originalOrder === undefined) {
+      delete process.env.LLM_PROVIDER_ORDER
+    } else {
+      process.env.LLM_PROVIDER_ORDER = originalOrder
+    }
   }
 }
 

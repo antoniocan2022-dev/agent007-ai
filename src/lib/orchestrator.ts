@@ -191,6 +191,28 @@ function parseOrchestrator(content: string): OrchestratorParsed {
         args = m
       }
     }
+    // UPGRADE #170 fix #3: Mirror the C2 fix from parseAssistant (agent.ts).
+    // Before #170, the orchestrator's parseOrchestrator did NOT populate
+    // dispatch when the SUPER AGENT wrote `<tool name="dispatch_subagent">
+    // {"id":"quill","task":"..."}</tool>`. The SUPER AGENT could only
+    // dispatch via `<dispatch_subagent id="x">` or `<dispatch agent="x"
+    // task="..."/>` formats — using the <tool> format fell through to
+    // dispatchTool('dispatch_subagent', ...) which returns "tool not
+    // found" (dispatch_subagent is NOT in TOOL_REGISTRY). After: we
+    // populate dispatch for the tool format too, matching parseAssistant.
+    if (name === 'dispatch_subagent') {
+      const agentId = (args?.id ?? args?.agentId ?? '').toString().trim().toLowerCase()
+      const task = (args?.task ?? args?.goal ?? '').toString().trim()
+      if (agentId) {
+        return {
+          thought,
+          tool: { name, args },
+          dispatch: { agentId, task },
+          textAfter: '',
+          raw: content,
+        }
+      }
+    }
     return { thought, tool: { name, args }, textAfter: '', raw: content }
   }
   return { thought, textAfter: content.replace(THOUGHT_RE, '').trim(), raw: content }

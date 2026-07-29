@@ -699,7 +699,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // UPGRADE #152: Distinguish timeout from network errors for clearer UX
       let errMsg = e?.message ?? String(e)
       if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
-        errMsg = 'The request timed out after 180 seconds. This usually means the LLM providers are slow or the mission is very complex. Click Retry to try again.'
+        // UPGRADE #170 fix: H2 bumped client timeout 180→290s — keep the
+        // error message in sync.
+        errMsg = 'The request timed out after 290 seconds. This usually means the LLM providers are slow or the mission is very complex. Click Retry to try again.'
       } else if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html')) {
         errMsg = 'The server encountered an error. This is usually a temporary database connectivity issue. Please wait 10 seconds and try again.'
       } else if (/fetch failed|ECONNRESET|socket hang up|aborted/i.test(errMsg)) {

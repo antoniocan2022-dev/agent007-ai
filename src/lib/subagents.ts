@@ -1450,7 +1450,25 @@ export interface RunSubagentOptions {
   emit: SubagentEventEmit
   parentConversationId: string
   dispatchId: string
+  // UPGRADE #170 fix: Recursion depth for hierarchical dispatch. The CEO
+  // dispatches to a Leader at depth 0. The Leader may dispatch to a
+  // Specialist at depth 1. We cap at MAX_RECURSION_DEPTH=3 to prevent
+  // runaway A→B→C→A→... chains from exhausting Vercel's 300s budget or
+  // blowing the JS stack. Before #170, there was no depth limit — a
+  // confused LLM could recurse forever (introduced by #169 C2 which
+  // reactivated the recursive dispatch block that was previously dead
+  // code due to the missing Parsed.dispatch field).
+  recursionDepth?: number
 }
+
+// UPGRADE #170 fix: Hard cap on hierarchical recursion. 3 levels:
+//   0 → CEO dispatches to Leader
+//   1 → Leader dispatches to Specialist
+//   2 → Specialist dispatches to another Specialist (last allowed)
+//   3+ → BLOCKED — force the agent to do the work itself.
+// Vercel Pro maxDuration=300s; each LLM call ~3-5s + dispatch overhead.
+// 3 levels × 5 dispatches each = ~75s in the worst case, well within budget.
+const MAX_RECURSION_DEPTH = 3
 
 export interface RunSubagentResult {
   answer: string
@@ -1589,6 +1607,33 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     if (parsed.dispatch) {
       const dispatchAgentId = parsed.dispatch.agentId
       const dispatchTask = parsed.dispatch.task
+      // UPGRADE #170 fix #2: Recursion depth + self-dispatch guards.
+      //   - Without depth cap: a confused LLM could recurse forever
+      //     (A→B→C→A→...) until Vercel's 300s timeout or JS stack overflow.
+      //   - Without self-dispatch guard: a Specialist could dispatch to
+      //     itself forever (A→A→A→...).
+      // Both guards were missing before #170 because the dispatch block
+      // was dead code (parsed.dispatch was always undefined before #169 C2).
+      const currentDepth = opts.recursionDepth ?? 0
+      if (currentDepth >= MAX_RECURSION_DEPTH) {
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({
+          role: 'user',
+          content: `[SUBAGENT_DISPATCH] Maximum recursion depth (${MAX_RECURSION_DEPTH}) reached. You cannot dispatch further — do the work yourself. This is a safety limit to prevent runaway chains.`,
+        })
+        continue
+      }
+      // Self-dispatch guard: A→A is always wrong. Skip and tell the LLM.
+      // (A→B where B=A is also possible but expensive to detect — depth
+      // cap will catch indirect cycles within 3 hops.)
+      if (dispatchAgentId === opts.subagentId) {
+        conversationMessages.push({ role: 'assistant', content })
+        conversationMessages.push({
+          role: 'user',
+          content: `[SUBAGENT_DISPATCH] Self-dispatch blocked: you are already "${sub.name}" (${sub.id}). You cannot dispatch to yourself. Do the work yourself.`,
+        })
+        continue
+      }
       try {
         // Find the specialist subagent
         const allSubs = await getAllSubagents({ includeDisabled: false })
@@ -1604,7 +1649,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
           })
           continue
         }
-        // Dispatch the specialist (recursive call)
+        // Dispatch the specialist (recursive call — increment depth)
         await opts.emit('subagent_tool_call', {
           dispatchId: opts.dispatchId,
           stepId: `sub_dispatch_${Date.now()}`,
@@ -1621,6 +1666,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
           language: opts.language,
           emit: opts.emit,
           parentConversationId: opts.parentConversationId,
+          recursionDepth: currentDepth + 1,
         })
         // Feed the specialist's result back to the leader
         conversationMessages.push({ role: 'assistant', content })

@@ -395,10 +395,19 @@ export async function toolAutonomousDecisionMaker(args: any, _ctx: ToolContext):
 
 // 5d. REAL Efficiency Optimizer — recommends based on ACTUAL config, no fake %
 export async function toolEfficiencyOptimizer(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  // Read ACTUAL config values from env (no fake "+40% speed")
-  const maxIterations = Number(process.env.AGENT_MAX_ITERATIONS ?? 15)
-  const maxDispatches = Number(process.env.AGENT_MAX_DISPATCHES ?? 15)
-  const throttleMs = Number(process.env.LLM_THROTTLE_MS ?? 250)
+  // UPGRADE #170 fix #6: BEFORE — this tool read process.env.AGENT_MAX_ITERATIONS,
+  // AGENT_MAX_DISPATCHES, LLM_THROTTLE_MS, which don't exist (verified via grep).
+  // The fallback defaults were 15/15/250ms. Actual values are MAX_ITERATIONS=50
+  // (agent.ts:8), MAX_DISPATCHES=15 (orchestrator.ts:48), MIN_LLM_INTERVAL_MS=250
+  // (agent.ts:141). The tool was reporting "max iterations = 15" when the
+  // real max is 50 — a misleading claim in a tool whose whole point is to
+  // report REAL data (introduced by #169 C5).
+  // AFTER — we import the actual constants from their source files.
+  const { MAX_ITERATIONS: agentMaxIterations } = await import('./agent').catch(() => ({ MAX_ITERATIONS: 50 }))
+  const orchestratorMod = await import('./orchestrator').catch(() => ({ MAX_ITERATIONS: 50 }))
+  const maxIterations = agentMaxIterations ?? orchestratorMod.MAX_ITERATIONS ?? 50
+  const maxDispatches = 15  // orchestrator.ts:48 — MAX_DISPATCHES (not exported)
+  const throttleMs = 250  // agent.ts:141 — MIN_LLM_INTERVAL_MS (not exported)
 
   try {
     const { getAllPersistentMemory } = await import('./persistent-memory')
