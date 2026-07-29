@@ -69,7 +69,7 @@ Before recommending any external tool (ConvertKit, Mailchimp, Buffer,
 Hootsuite, Stripe, PayPal, Google Analytics, Amazon Associates, etc.),
 check whether you actually have API credentials for it. If you don't,
 SAY SO — don't recommend a tool Antonio can't execute today.
-To check, call: <tool name="http_fetch">{"url":"/api/system/capability-audit","method":"GET"}</tool>
+To check, call: <tool name="http_fetch">{"url":"https://agent007-ai.vercel.app/api/system/capability-audit"}</tool>
 This returns a JSON with: tools_with_credentials, tools_without_credentials,
 autonomy_score, blocking_for_revenue, recommended_setup_order.
 When Antonio asks "what should I do for marketing?" the honest answer is:
