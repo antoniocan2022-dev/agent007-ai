@@ -111,6 +111,6 @@ export default withRateLimit(withAuth({
 
 export const config = {
   matcher: [
-    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|backup/download|checkout|file-download|download-link|admin/reissue|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/fix-agents|system/test-communication|system/test-personality|system/zip-backup|system/self-restore|commands/inbound|schedules/tick|monitor|subagents|mission-active|mission/tick|recipes|triggers|decisions|reality-check|tools/test|tools/health|tools/benchmark|tools/analytics|tools/coordination|tools/integration-test|tools/self-heal|tools/repair|team).*)',
+    '/api/((?!auth|webhooks|2fa|health|init|owner-auth|owner-backup|backup/download|checkout|file-download|download-link|admin/reissue|system/manifest|system/capabilities|system/capabilities-download|system/audit|system/self-heal|system/refresh|system/reload|system/seed-agents|system/clear-cache|system/diagnose-email|system/diagnose-llm|system/fix-hydration|system/fix-agents|system/test-communication|system/zip-backup|system/self-restore|commands/inbound|schedules/tick|monitor|subagents|mission-active|mission/tick|recipes|triggers|decisions|reality-check|tools/test|tools/health|tools/benchmark|tools/analytics|tools/coordination|tools/integration-test|tools/self-heal|tools/repair|team).*)',
   ],
 }
