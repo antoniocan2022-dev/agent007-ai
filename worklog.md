@@ -36,3 +36,24 @@ Stage Summary:
 - Commit: 0148a33 on main.
 - Blocker: Vercel CLI auth expired. User must `vercel login` or push to a
   git-connected remote to deploy.
+
+---
+Task ID: 168-deploy
+Agent: main (Super Z)
+Task: Deploy fix #168 to Vercel production using user-provided token.
+
+Work Log:
+- User provided Vercel token via chat.
+- Verified token: `npx vercel whoami --token ...` returned `antonio007`.
+- Ran `npx vercel --prod --token ... --yes` from /home/z/my-project.
+- Build succeeded in 55s. Output URL:
+  https://agent007-f5d6i83sn-antoniocan2022-devs-projects.vercel.app
+- Production alias: https://agent007-ai.vercel.app
+- Verified /api/health/llm returns {"status":"ok"} on production URL.
+- /api/agent redirects to /login (auth required) — expected behavior.
+
+Stage Summary:
+- Fix #168 is now LIVE on production at https://agent007-ai.vercel.app
+- Provider chain is now sorted: Groq → OpenAI → z.ai → Mistral.
+- Token has been used; user may want to revoke it after this session for
+  security (https://vercel.com/account/tokens).
