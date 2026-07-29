@@ -42,6 +42,14 @@ const REAL_EXECUTABLE_TOOLS = new Set([
   'smart_tool_router','tool_catalog','tool_knowledge_base','semantic_router_v2',
   'tool_priority_guide','tool_metadata_system','failure_learning','tool_selection_accuracy_test',
   'auto_documentation','tool_capability_map',
+  // UPGRADE #169 C5: 5 newly REAL tools that were previously fake (Math.random).
+  // These now query real data (persistent memory, TOOL_REGISTRY, env config,
+  // LLM-driven decisions) instead of returning hardcoded fake metrics.
+  'self_improving_strategy','self_optimization_engine','feedback_optimization_loop',
+  'autonomous_decision_maker','decision_matrix',
+  // UPGRADE #166: REAL coordination + leadership tools (already REAL before #169
+  // but not in this whitelist — fix here so they show as REAL not VIRTUAL).
+  'request_help','report_progress','verify_work','tool_boundary_audit',
 ])
 
 export async function toolTestRunner(args: any, ctx?: any): Promise<ToolResult> {
