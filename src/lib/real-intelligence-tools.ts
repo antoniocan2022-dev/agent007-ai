@@ -45,7 +45,7 @@ export async function toolSelfImprovingStrategy(args: any, _ctx: ToolContext): P
     if (learnings.length === 0) {
       return okResult(
         'Self-learning: 0 learnings recorded yet',
-        `SELF-IMPROVING STRATEGY ENGINE\n${'='.repeat(60)}\n\nSTATUS: No learnings recorded yet.\n\nThe system is ready to learn. Each time a subagent completes a task, it automatically:\n  1. Records what worked (score: 75) and what didn't (score: 25)\n  2. Stores the learning with a 90-day decay\n  3. Recalls top learnings on future similar tasks\n\nAfter running a few missions, this tool will show REAL insights from actual task outcomes.`
+        `SELF-IMPROVING STRATEGY ENGINE\n${'='.repeat(60)}\n\nSTATUS: No learnings recorded yet.\n\nThe system is ready to learn. Each time a subagent completes a task, it automatically:\n  1. Records what worked (score: 75) and what didn't (score: 25)\n  2. Stores the learning FOREVER (UPGRADE #171: no expiration)\n  3. Recalls top learnings on future similar tasks\n\nAntonio can update any learning's score anytime via updateMemoryScore.\nAfter running a few missions, this tool will show REAL insights from actual task outcomes.`
       )
     }
 
@@ -75,7 +75,7 @@ export async function toolSelfImprovingStrategy(args: any, _ctx: ToolContext): P
       `TOP LEARNINGS (by score × recency):\n\n${topLearnings}\n\n` +
       `FEEDBACK LOOP:\n` +
       `  1. Each subagent run → records learning (score 75 for success, 25 for failure)\n` +
-      `  2. Future runs recall top learnings (90-day decay)\n` +
+      `  2. Future runs recall top learnings (FOREVER — no expiration)\n` +
       `  3. Higher-scored learnings are preferred\n\n` +
       `NEXT STEPS:\n` +
       `  • Run more missions to build learning history\n` +
@@ -287,7 +287,7 @@ export async function toolSelfOptimizationEngine(args: any, _ctx: ToolContext): 
       `  • All other memories: ${all.length - selfLearning.length} (other categories)\n\n` +
       `LEARNINGS APPLIED:\n` +
       `  • Recall system uses these automatically on each new task\n` +
-      `  • 90-day decay applied — older learnings weighted less\n` +
+      `  • Memory persists FOREVER (no decay — UPGRADE #171)\n` +
       `  • Top-scoring learnings are preferred over lower-scoring ones\n\n` +
       `${selfLearning.length === 0
         ? `STATUS: No self-learning recorded yet. Run a few missions — the system will start recording real learnings (success/failure outcomes + scores).`
@@ -313,7 +313,7 @@ export async function toolFeedbackOptimizationLoop(args: any, _ctx: ToolContext)
       `FEEDBACK CHANNELS (real, from persistent memory):\n\n` +
       `  1. SELF-LEARNING (${feedback.length} entries)\n` +
       `     • Each completed subagent records success/failure + score\n` +
-      `     • 90-day decay applied on recall\n` +
+      `     • Memory persists FOREVER (no decay — UPGRADE #171)\n` +
       `     • Top-scoring approaches surfaced on similar tasks\n\n` +
       `  2. PROGRESS REPORTS (${progress.length} entries)\n` +
       `     • Specialists report % completion to leaders via toolReportProgress\n` +

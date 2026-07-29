@@ -11,7 +11,14 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 const MEMORY_FILE = path.join(os.tmpdir(), 'agent007-persistent-memory.json')
-const MEMORY_TTL_MS = 90 * 24 * 60 * 60 * 1000  // 90 days
+// UPGRADE #171: Memory now persists FOREVER — owner requested no expiration.
+// Antonio can still UPDATE a learning's score (via updateMemoryScore), which
+// adjusts the entry's score ±10 per outcome. The score still has a 0-100
+// range; only the EXPIRATION is removed. Old memories keep their score and
+// remain recallable forever.
+// (Before #171: MEMORY_TTL_MS was 90 days. recallPersistentMemory filtered out
+// anything older. Now: Infinity — never expired.)
+const MEMORY_TTL_MS = Infinity
 
 interface MemoryEntry {
   key: string
@@ -127,7 +134,11 @@ export async function recallPersistentMemory(
   // Score by relevance + quality
   const scored = Array.from(merged.values())
     .filter(e => {
-      // Filter out expired memories (90-day decay)
+      // UPGRADE #171: MEMORY_TTL_MS is now Infinity — no expiration.
+      // (Before: `if (Date.now() - e.createdAt > MEMORY_TTL_MS) return false`
+      // would filter out anything older than 90 days. The check is kept
+      // here so the behavior is explicit: Infinity is never greater than
+      // the age, so the check always passes.)
       if (Date.now() - e.createdAt > MEMORY_TTL_MS) return false
       // Keyword match
       const text = `${e.key} ${e.value} ${e.category}`.toLowerCase()
@@ -140,9 +151,15 @@ export async function recallPersistentMemory(
         if (e.value.toLowerCase().includes(w)) relevance += 2
         if (e.category.toLowerCase().includes(w)) relevance += 1
       }
-      // Decay: older memories get lower score
-      const ageDays = (Date.now() - e.createdAt) / (24 * 60 * 60 * 1000)
-      const decayFactor = Math.max(0.5, 1 - ageDays / 90)  // min 50% after 90 days
+      // UPGRADE #171: No age decay — memory is forever, so old
+      // high-scoring memories are just as valuable as recent ones. The
+      // score itself (0-100) is what matters, not age. Antonio can update
+      // scores via updateMemoryScore to nudge them up or down based on
+      // fresh outcomes.
+      // (Before: decayFactor = max(0.5, 1 - ageDays / 90) — older memories
+      // had their score multiplied by 0.5 at 90 days. Now: decayFactor = 1
+      // always, score is preserved at full value.)
+      const decayFactor = 1
       return { ...e, relevance, finalScore: e.score * decayFactor + relevance * 10 }
     })
     .sort((a, b) => b.finalScore - a.finalScore)
