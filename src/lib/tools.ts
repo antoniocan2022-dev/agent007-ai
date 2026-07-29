@@ -27,6 +27,10 @@ export interface AttachmentMeta {
 export interface ToolContext {
   attachments: AttachmentMeta[]
   language: 'en' | 'zh'
+  // UPGRADE #173 fix #7: optional conversationId — used by tools that
+  // need to log per-conversation context (e.g. multi-search-comparison).
+  // Was passed before by some callers but not declared in the interface.
+  conversationId?: string
 }
 
 export interface ToolResult {
@@ -2012,6 +2016,13 @@ import {
   toolRealTimeDataHub,
   toolPredictiveAnalyticsEngine,
   toolApiIntegrationOrchestrator,
+  // UPGRADE #173 fix #6: toolFeedbackOptimizationLoop + toolAutonomousDecisionMaker
+  // imports kept (referenced by other tools in this file via the bundled module)
+  // but their TOOL_REGISTRY assignments were removed at lines 2033+2045 because
+  // the REAL versions in real-intelligence-tools.ts override them at line ~2862+2863.
+  // We keep the imports because the bundle includes them anyway, and other
+  // tools in this file (e.g. toolWorkflowOrchestrator) may reference the same
+  // module exports. Removing them would require careful refactor.
   toolFeedbackOptimizationLoop,
   toolAutoResourceAllocator,
   toolAutonomousLearningEngine,
@@ -2030,7 +2041,10 @@ TOOL_REGISTRY.predictive_analytics_engine = { fn: toolPredictiveAnalyticsEngine,
 // Factor 3: Broader API Integration
 TOOL_REGISTRY.api_integration_orchestrator = { fn: toolApiIntegrationOrchestrator, icon: 'plug', label: 'API Integration Orchestrator (25 platform integrations)' }
 // Factor 4: Improved Feedback Mechanisms
-TOOL_REGISTRY.feedback_optimization_loop = { fn: toolFeedbackOptimizationLoop, icon: 'refresh-cw', label: 'Feedback Optimization Loop (4 channels + 20 A/B tests + auto-learn)' }
+// UPGRADE #173 fix #6: This dead TOOL_REGISTRY assignment was overridden at
+// line ~2862 by the REAL implementation from real-intelligence-tools.ts
+// (UPGRADE #169 C5). Removed to stop loading the fake Math.random version.
+// TOOL_REGISTRY.feedback_optimization_loop = { fn: toolFeedbackOptimizationLoop, ... }
 // Factor 5: Resource Allocation Optimization
 TOOL_REGISTRY.auto_resource_allocator = { fn: toolAutoResourceAllocator, icon: 'pie-chart', label: 'Auto Resource Allocator (ROI-weighted time/budget/sub-agent)' }
 // Factor 6: Autonomous Learning
@@ -2042,7 +2056,8 @@ TOOL_REGISTRY.continuous_audit_system = { fn: toolContinuousAuditSystem, icon: '
 // Supporting tool 9: Performance Optimizer
 TOOL_REGISTRY.performance_optimizer = { fn: toolPerformanceOptimizer, icon: 'gauge', label: 'Performance Optimizer (8 optimizations, +42% faster)' }
 // Supporting tool 10: Autonomous Decision Maker
-TOOL_REGISTRY.autonomous_decision_maker = { fn: toolAutonomousDecisionMaker, icon: 'cpu', label: 'Autonomous Decision Maker (10-step framework, AI-driven)' }
+// UPGRADE #173 fix #6: Dead — overridden at line ~2863 by REAL implementation.
+// TOOL_REGISTRY.autonomous_decision_maker = { fn: toolAutonomousDecisionMaker, ... }
 // Supporting tool 11: Workflow Orchestrator
 TOOL_REGISTRY.workflow_orchestrator = { fn: toolWorkflowOrchestrator, icon: 'git-branch', label: 'Workflow Orchestrator (10 pre-built multi-step workflows)' }
 // Supporting tool 12: Capability Expander
@@ -2255,8 +2270,11 @@ TOOL_REGISTRY.smart_tool_router = { fn: toolSmartToolRouter, icon: 'compass', la
 TOOL_REGISTRY.tool_catalog = { fn: toolToolCatalog, icon: 'list', label: 'Tool Catalog (browse ALL tools by category)' }
 TOOL_REGISTRY.parallel_executor = { fn: toolParallelExecutor, icon: 'zap', label: 'Parallel Executor (run 5 tools simultaneously)' }
 TOOL_REGISTRY.accuracy_checker = { fn: toolAccuracyChecker, icon: 'check-circle', label: 'Accuracy Checker (cross-reference verify claims)' }
-TOOL_REGISTRY.efficiency_optimizer = { fn: toolEfficiencyOptimizer, icon: 'gauge', label: 'Efficiency Optimizer (analyze + improve performance)' }
-TOOL_REGISTRY.tool_usage_analyzer = { fn: toolUsageAnalyzer, icon: 'bar-chart', label: 'Tool Usage Analyzer (which tools to use most)' }
+// UPGRADE #173 fix #6: efficiency_optimizer + tool_usage_analyzer dead
+// assignments removed — overridden at line ~2864-2865 by REAL implementations
+// from real-intelligence-tools.ts (UPGRADE #169 C5).
+// TOOL_REGISTRY.efficiency_optimizer = { fn: toolEfficiencyOptimizer, ... }
+// TOOL_REGISTRY.tool_usage_analyzer = { fn: toolUsageAnalyzer, ... }
 
 /* ═══ UPGRADE #88 — MAX AUTONOMY ENGINE (8 new tools) ═══ */
 import {
@@ -2366,7 +2384,8 @@ import {
 // Data Analysis: advanced analytics for trends + opportunities
 TOOL_REGISTRY.advanced_trend_analyzer = { fn: toolAdvancedTrendAnalyzer, icon: 'trending-up', label: 'Advanced Trend Analyzer (6 techniques, 47 sources, 23 trends)' }
 // Self-Optimization: continuously learn from past actions
-TOOL_REGISTRY.self_optimization_engine = { fn: toolSelfOptimizationEngine, icon: 'cpu', label: 'Self-Optimization Engine (67 learnings, +34% decision quality)' }
+// UPGRADE #173 fix #6: Dead — overridden at line ~2861 by REAL implementation.
+// TOOL_REGISTRY.self_optimization_engine = { fn: toolSelfOptimizationEngine, ... }
 // Integration of Feedback: refine strategies based on metrics
 TOOL_REGISTRY.strategy_feedback_integrator = { fn: toolStrategyFeedbackIntegrator, icon: 'refresh-cw', label: 'Strategy Feedback Integrator (4 loops, 23 refinements, +78% conv)' }
 // Task Automation: automate repetitive tasks

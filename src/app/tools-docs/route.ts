@@ -8,9 +8,13 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-async function fetchJson(url: string) {
+// UPGRADE #173 fix #7: fetchJson now accepts optional RequestInit for POST
+// requests with bodies. The original signature took only (url) but lines
+// 29-32 pass 2 args — that triggered 4 TS2554 errors. The original `as any`
+// casts on the callsites masked the runtime usage but not the type error.
+async function fetchJson(url: string, init?: RequestInit) {
   try {
-    const r = await fetch(url, { cache: 'no-store' })
+    const r = await fetch(url, { cache: 'no-store', ...init })
     if (!r.ok) return { ok: false, error: `HTTP ${r.status}` }
     return await r.json()
   } catch (e: any) {

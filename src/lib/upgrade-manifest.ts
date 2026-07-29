@@ -15,7 +15,10 @@
 
 export interface UpgradeEntry {
   id: string
-  category: 'security' | 'dashboard' | 'subagent' | 'communication' | 'autonomy' | 'persistence' | 'self_heal' | 'safety' | 'mission'
+  // UPGRADE #173 fix #7: added 'critical' + 'intelligence' — these were
+  // already used by entries at lines 758, 767, 800, 832, 862, 899, 955 but
+  // not declared in the union type. Result: 7 TS2322 errors.
+  category: 'security' | 'dashboard' | 'subagent' | 'communication' | 'autonomy' | 'persistence' | 'self_heal' | 'safety' | 'mission' | 'critical' | 'intelligence'
   title: string
   description: string
   dateApplied: string

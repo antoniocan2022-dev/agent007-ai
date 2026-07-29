@@ -171,7 +171,10 @@ const ALL_TOOLS = [
  * AND make direct HTTP requests to any REST API — without API keys. */
 const FREE_DATA_TOOLS = ['wikipedia_search', 'wikipedia_read', 'free_apis_directory', 'kb_search', 'http_fetch']
 
-/* FULL ACCESS tools — ALL 469+ tools, no limitations.
+/* FULL ACCESS tools — ALL tools in TOOL_REGISTRY, no limitations.
+ * UPGRADE #173 fix #8: removed the hard-coded "469+" count — the
+ * actual count is computed dynamically via Object.keys(TOOL_REGISTRY).length
+ * (currently 463 as of #173, may change as tools are added/removed).
  * The owner has explicitly granted full access to EVERY tool.
  * Auto-generated from TOOL_REGISTRY at first access (lazy init to avoid
  * circular import with tools.ts).
@@ -1525,7 +1528,9 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // instead of forcing FULL_ACCESS_TOOLS. This creates TRUE specialization:
   // each subagent only has access to tools relevant to their pod/role.
   // Leaders have 15-20 tools, members have 7-12 tools.
-  // The Super Agent (orchestrator) still has all 667 tools.
+  // UPGRADE #173 fix #8: The Super Agent (orchestrator) has access to all
+  // tools in TOOL_REGISTRY (current count: 463 — was incorrectly stated
+  // as 667 here, which was a stale count from before the audit).
   // If a subagent needs a tool they don't have, the leader provides it or
   // the Super Agent dispatches differently.
   const allowed = new Set(sub.allowedTools?.length ? sub.allowedTools : [...FULL_ACCESS_TOOLS])
@@ -1756,8 +1761,11 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
 
     // UPGRADE #165 Gap #2: Enforce allowedTools — NO auto-grant.
     // Before: if a tool wasn't in the subagent's allowedTools, the code
-    // auto-granted it from TOOL_REGISTRY. This meant ALL 452 tools were
-    // available to EVERY subagent — specialization was advisory only.
+    // auto-granted it from TOOL_REGISTRY. This meant ALL tools (was
+    // hard-coded "452" here — UPGRADE #173 fix #8: that count was stale;
+    // the actual count is computed dynamically but the exact number
+    // doesn't matter — the point is auto-grant gave access to ALL tools)
+    // were available to EVERY subagent — specialization was advisory only.
     // After: if a tool isn't in allowedTools, it's BLOCKED. The subagent
     // must either use an allowed tool or give a final answer. This makes
     // specialization REAL — a Scout agent can only use research tools,

@@ -153,14 +153,38 @@ export async function toolBatchTester(args: any, ctx?: any): Promise<ToolResult>
     for (const toolName of toolsToTest) {
       const tStart = Date.now()
       try {
-        // Use safe default args for each tool
-        const safeArgs: any = { action: 'status', action: 'list', action: 'summary' }
-        const result = await Promise.race([
-          dispatchTool(toolName, safeArgs, ctx ?? { attachments: [], language: 'en', conversationId: 'batch-test' }),
-          new Promise<ToolResult>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-        ])
+        // UPGRADE #173 fix #7: BEFORE — `const safeArgs = { action: 'status',
+        // action: 'list', action: 'summary' }` had 3 duplicate `action` keys
+        // (TS1117). JS would keep only the last (`action: 'summary'`).
+        // That defeated the intent of trying different actions.
+        // AFTER — try actions in order: status, then list, then summary.
+        // We'll iterate through them below; if the first one fails with
+        // a "wrong action" error, we try the next.
+        const actionsToTry = ['status', 'list', 'summary'] as const
+        let result: any = null
+        for (const action of actionsToTry) {
+          try {
+            result = await Promise.race([
+              dispatchTool(toolName, { action }, ctx ?? { attachments: [], language: 'en', conversationId: 'batch-test' }),
+              new Promise<ToolResult>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+            ])
+            // If the tool returned an error specifically about the action
+            // being wrong, try the next one. Otherwise, accept the result.
+            if (result?.ok || !String(result?.result ?? '').match(/unknown action|invalid action|unrecognized action/i)) {
+              break
+            }
+          } catch {
+            // Try the next action
+            continue
+          }
+        }
         const elapsed = Date.now() - tStart
-        results.push({ tool: toolName, ok: result.ok, preview: result.preview.slice(0, 80), elapsed })
+        if (!result) {
+          // All actions failed — record as failed
+          results.push({ tool: toolName, ok: false, preview: 'all actions timed out', elapsed })
+        } else {
+          results.push({ tool: toolName, ok: result.ok, preview: result.preview.slice(0, 80), elapsed })
+        }
       } catch (e: any) {
         results.push({ tool: toolName, ok: false, preview: e?.message?.slice(0, 80) ?? 'error', elapsed: Date.now() - tStart })
       }
@@ -533,7 +557,11 @@ export async function toolHealthMonitor(args: any): Promise<ToolResult> {
     const exists = !!TOOL_REGISTRY[toolName]
     return ok(
       `${toolName}: ${exists ? '✅ HEALTHY' : '❌ MISSING'}`,
-      `HEALTH CHECK: ${toolName}\n${'='.repeat(60)}\nExists in registry: ${exists ? '✅ YES' : '❌ NO'}\nFunction defined: ${exists && TOOL_REGISTRY[toolName]?.fn ? '✅ YES' : '❌ NO'}\nLabel: ${TOOL_REGISTRY[toolName]?.label ?? '❌ MISSING'}\nIcon: ${TOOL_REGISTRY[toolName]?.icon ?? '❌ MISSING'}\n\n${exists ? '✅ Tool is healthy.' : '❌ Tool needs recovery — use <tool name="tool_recovery">{"action":"restore","tool":"' + toolName + '"}</tool>'}`
+      // UPGRADE #173 fix #7: wrapped in Boolean() to silence TS2774
+      // ("condition will always return true since this function is always
+      // defined"). The fn field is a function reference, which is always
+      // truthy when present — TS saw this as a redundant check.
+      `HEALTH CHECK: ${toolName}\n${'='.repeat(60)}\nExists in registry: ${exists ? '✅ YES' : '❌ NO'}\nFunction defined: ${Boolean(exists && TOOL_REGISTRY[toolName]?.fn) ? '✅ YES' : '❌ NO'}\nLabel: ${TOOL_REGISTRY[toolName]?.label ?? '❌ MISSING'}\nIcon: ${TOOL_REGISTRY[toolName]?.icon ?? '❌ MISSING'}\n\n${exists ? '✅ Tool is healthy.' : '❌ Tool needs recovery — use <tool name="tool_recovery">{"action":"restore","tool":"' + toolName + '"}</tool>'}`
     )
   }
 

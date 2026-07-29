@@ -24,7 +24,7 @@ You are NOT a generic AI assistant. You are Antonio's autonomous super-agent wit
 - 20 pod leaders you dispatch for missions: SCOUT (research), AURORA (creation),
   ECHO (QA), FORGE (engineering), PULSE (monitoring), DEVELOPER (health),
   CYBERSECURITY_R (security), QUANTUM (revenue), plus 12 more specialists.
-- 673+ tools routed through smart_tool_router. You have web_search,
+- \${TOOL_COUNT} tools routed through smart_tool_router. You have web_search,
   accuracy_checker (cross-references Wikipedia + DuckDuckGo + Brave),
   page_reader, parallel_executor, and real persistent memory.
 - 3-tier hierarchy: CEO (you) → Leader → Specialist. Mission mode runs the
@@ -87,7 +87,7 @@ TOOL FORMAT (emergency direct execution only):
 <tool name="memory_store">{"key":"learning_001","value":"what worked","category":"self_learning"}</tool>
 
 TOOL DISCOVERY:
-You have 673+ tools. Don't guess — use smart_tool_router to find the right tool:
+You have \${TOOL_COUNT} tools. Don't guess — use smart_tool_router to find the right tool:
 <tool name="smart_tool_router">{"task":"describe your task"}</tool>
 Then use parallel_executor to run multiple tools at once.
 
@@ -118,6 +118,39 @@ You don't need to manually call memory_store — just do good work and
 the system learns. The more a task succeeds, the higher its score climbs.
 
 LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info.`
+
+/**
+ * UPGRADE #173 fix #8: TOOL_COUNT is computed lazily from TOOL_REGISTRY
+ * at first access. The previous SYSTEM_PROMPT hard-coded "673+" but the
+ * actual TOOL_REGISTRY count is 463. Using a getter ensures the prompt
+ * always shows the accurate count without re-hardcoding.
+ *
+ * To avoid circular imports (agent.ts is imported by tools.ts and vice
+ * versa), we lazy-import TOOL_REGISTRY only when SYSTEM_PROMPT is first
+ * read. The result is cached after first computation.
+ */
+let _cachedToolCount: number | null = null
+async function getToolCount(): Promise<number> {
+  if (_cachedToolCount !== null) return _cachedToolCount
+  try {
+    const { TOOL_REGISTRY } = await import('./tools')
+    _cachedToolCount = Object.keys(TOOL_REGISTRY).length
+  } catch {
+    _cachedToolCount = 463  // known baseline as of #173
+  }
+  return _cachedToolCount
+}
+
+/**
+ * Returns the SYSTEM_PROMPT with ${TOOL_COUNT} substituted by the
+ * actual count from TOOL_REGISTRY. Use this in any code path that
+ * sends the system prompt to the LLM. The original SYSTEM_PROMPT
+ * constant above keeps the ${TOOL_COUNT} placeholder for readability.
+ */
+export async function getSystemPrompt(): Promise<string> {
+  const count = await getToolCount()
+  return SYSTEM_PROMPT.replaceAll('${TOOL_COUNT}', String(count))
+}
 
 export interface AgentEventEmit {
   (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error' | 'heartbeat' | 'progress' | 'reasoning', data: any): Promise<void> | void
@@ -1319,407 +1352,6 @@ export async function buildHistoryMessages(
   return msgs
 }
 
-/**
- * UPGRADE #117 — Smart Query Classifier
- *
- * Classifies the user's message to decide whether the agent should:
- *   - 'direct': Answer directly with a smart, deep response (90% of messages)
- *   - 'dispatch': Genuinely needs subagent work (10% of messages)
- *
- * Same logic as classifyQuery in orchestrator.ts — duplicated here to avoid
- * circular import (agent.ts is imported by orchestrator.ts).
- */
-function classifyQuerySmart(message: string): 'direct' | 'dispatch' {
-  const lower = message.toLowerCase().trim()
-  if (!lower) return 'direct'
-
-  // DISPATCH patterns — genuinely needs subagent work
-  const dispatchPatterns = [
-    /^(research|investigate|find out|look up|search for)\s+(the|all|every|top\s+\d+)/i,
-    /\bsearch the web\b/i,
-    /^(write|create|build|design|publish|draft|generate)\s+(a|an|the|some)?\s*(blog|article|post|email|newsletter|script|landing\s+page|website|funnel|graphic|image|video|tweet|thread)/i,
-    /^(write|create)\s+(me\s+)?a\s+/i,
-    /^(build|deploy|fix|repair|install|set\s+up|implement|code|develop|refactor)\s+/i,
-    /\b(deploy|push\s+to\s+production|ship\s+it)\b/i,
-    /^(run|execute|start|stop|restart)\s+(the\s+)?(mission|tick|scan|audit|test|pipeline|workflow)/i,
-    /\bself.?heal\b/i,
-    /\b(check|audit|scan)\s+(tools?|system|infrastructure|security)\b/i,
-    /\b(dispatch|send\s+to|ask\s+the\s+(scout|aurora|echo|forge|pulse|developer|quantum|cybersecurity))\b/i,
-  ]
-
-  // DIRECT patterns — answer with smart response
-  const directPatterns = [
-    /^(hi|hello|hey|good\s+(morning|afternoon|evening)|sup|yo)\b/i,
-    /^(thanks|thank\s+you|cool|nice|great|awesome|perfect)\b/i,
-    /\?$/,
-    /^(what|why|how|when|where|who|which|whose|whom)\b/i,
-    /^(can|could|would|will|should|do|does|did|is|are|am|was|were|have|has|had)\s+(you|i|we|the)\b/i,
-    /^(explain|describe|tell\s+me\s+about|what\s+is|what\s+are|define|elaborate)\b/i,
-    /^(should\s+i|is\s+it\s+worth|do\s+you\s+recommend|what\s+do\s+you\s+(think|suggest|recommend|advise))\b/i,
-    /^(advice|recommend|suggest)\b/i,
-    /^(compare|difference\s+between|vs\.?|versus)\b/i,
-    /^(brainstorm|ideas?\s+for|give\s+me\s+\d+\s+ideas|list\s+\d+\s+)/i,
-    /^(analyze|analysis|assess|evaluate|review)\b/i,
-    /(strategy|strategic|plan|approach|roadmap|game\s+plan)\b/i,
-    /^(what\s+do\s+you\s+(think|feel|believe)|your\s+opinion|your\s+thoughts)\b/i,
-    /^(continue|ok|okay|proceed|go\s+ahead|keep\s+going|status|update|what's\s+new|anything\s+new)\s*\.?\s*$/i,
-    /(tell\s+me\s+more|go\s+deeper|elaborate|expand\s+on|dive\s+deeper)/i,
-    /^(what\s+about|how\s+about)\b/i,
-  ]
-
-  for (const pattern of dispatchPatterns) {
-    if (pattern.test(lower)) return 'dispatch'
-  }
-  for (const pattern of directPatterns) {
-    if (pattern.test(lower)) return 'direct'
-  }
-  return 'direct'
-}
-
-export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
-  const { conversationId, userMessage, attachments, language, emit } = opts
-
-  // 1) Recall relevant memories for context
-  const recalled = await recallMemories(userMessage.slice(0, 200), 8)
-  const memoryBlock = formatMemoryForPrompt(recalled)
-
-  const languageInstruction =
-    language === 'zh'
-      ? 'LANGUAGE INSTRUCTION: The user has toggled the agent to Chinese. Reply in 中文 (Chinese) for your FINAL answer regardless of input language.'
-      : 'LANGUAGE INSTRUCTION: The user has toggled the agent to English. Reply in English for your FINAL answer unless the user wrote in another language.'
-
-  const systemPrompt = `${SYSTEM_PROMPT}
-
-${languageInstruction}
-
-RECALLED MEMORIES (use as context, do not blindly trust if outdated):
-${memoryBlock}
-
-CURRENT UTC TIME: ${new Date().toUTCString()}`
-
-  const history = await buildHistoryMessages(conversationId, userMessage, attachments)
-  const ctx: ToolContext = { attachments, language }
-
-  // ── UPGRADE #63 — "Continue" command support ─────────────────────────
-  // When the user types "continue", "keep going", "ok", "go ahead", "finish",
-  // "yes", "proceed", or similar short prompts, the agent should RESUME the
-  // previous task instead of starting a new one. We detect these prompts and
-  // inject a context reminder telling the agent to continue where it left off.
-  const continuePatterns = /^(continue|keep going|go ahead|go on|ok|okay|yes|proceed|finish|done\?|are you done\?|status|update|what's the status|keep working|don't stop|resume)\s*\.?\s*$/i
-  const isContinueCommand = continuePatterns.test(userMessage.trim())
-  let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
-  if (isContinueCommand) {
-    // Find the last assistant message to get context
-    const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant')
-    if (lastAssistant) {
-      conversationMessages = [
-        { role: 'system', content: systemPrompt },
-        ...history,
-        {
-          role: 'user',
-          content: `[UPGRADE #63 — CONTINUE COMMAND] The owner typed "${userMessage}". This means: CONTINUE your previous work. Don't start over — pick up where you left off. Your last response was:\n\n${lastAssistant.content.slice(0, 500)}\n\nNow EXECUTE the next step toward completing the task. Use actual <tool name="..."> tags (not text). If you were dispatching subagents, use <dispatch agent="..." task="..."/> format. Do not repeat yourself — advance the task.`,
-        },
-      ]
-    } else {
-      conversationMessages = [
-        { role: 'system', content: systemPrompt },
-        ...history,
-      ]
-    }
-  } else {
-    conversationMessages = [
-      { role: 'system', content: systemPrompt },
-      ...history,
-    ]
-  }
-
-  const steps: AgentRunResult['steps'] = []
-
-  let finalAnswer = ''
-  let iter = 0
-
-  // UPGRADE #117 — Query Complexity Router (smart direct response for questions)
-  // If the user's message is a question/analysis/advice request (not a task),
-  // inject a system nudge telling the agent to answer directly with depth.
-  if (classifyQuerySmart(userMessage) === 'direct') {
-    conversationMessages.push({
-      role: 'user',
-      content: `[SYSTEM ROUTER] This is a direct question/analysis/advice request. Do NOT dispatch to a subagent. Answer DIRECTLY with a deep, intelligent response (500-1500 words for complex questions, concise for simple ones). Use ## headers, **bold**, bullet lists. Provide examples. Show your reasoning. End with next steps.`,
-    })
-  }
-
-  while (iter < MAX_ITERATIONS) {
-    iter++
-
-    // ── UPGRADE #63 — Heartbeat + Progress events ─────────────────────
-    // Emit a heartbeat every iteration so the dashboard knows the agent is alive.
-    // This fixes the owner complaint: "In long conversation he stops, I dont know
-    // he is working or not, sometimes I write words like 'OK' or 'Finish' to know
-    // if is working or not."
-    await emit('heartbeat', {
-      iteration: iter,
-      maxIterations: MAX_ITERATIONS,
-      toolsCalled: steps.length,
-      lastToolName: steps.length > 0 ? steps[steps.length - 1].toolName : null,
-      lastThought: steps.length > 0 ? (steps[steps.length - 1].thought ?? '').slice(0, 200) : null,
-      startedAt: steps.length > 0 ? steps[0].startedAt : Date.now(),
-      elapsedMs: steps.length > 0 ? Date.now() - steps[0].startedAt : 0,
-      message: `Working — step ${iter}/${MAX_ITERATIONS}, ${steps.length} tool${steps.length === 1 ? '' : 's'} called`,
-    })
-
-    let completion: any
-    try {
-      completion = await callLlmWithRetry(conversationMessages)
-    } catch (e: any) {
-      const friendly = friendlyLlmError(e)
-      await emit('error', { message: friendly })
-      finalAnswer = friendly
-      break
-    }
-    const content: string = completion?.choices?.[0]?.message?.content ?? ''
-    if (!content || !content.trim()) {
-      finalAnswer = '(The agent produced no output. Please try rephrasing.)'
-      break
-    }
-
-    // UPGRADE #119 — Extract reasoning from the LLM response
-    // (Providers return reasoning in different fields — check all of them)
-    const reasoning: string | null =
-      completion?.choices?.[0]?.message?.reasoning ||
-      completion?.choices?.[0]?.message?.reasoning_content ||
-      completion?.choices?.[0]?.message?.thinking ||
-      completion?._reasoning ||
-      null
-
-    // Emit reasoning if present (separate from <thought> tags)
-    if (reasoning) {
-      try { await emit('reasoning', { content: reasoning }) } catch {}
-    }
-
-    const parsed = parseAssistant(content)
-
-    // Emit thought if present
-    if (parsed.thought) {
-      await emit('thought', { content: parsed.thought })
-    }
-
-    // ── UPGRADE #63 — Multi-dispatch detection ────────────────────────
-    // The LLM often writes MULTIPLE <dispatch_subagent> tags in one response
-    // (e.g. dispatching scout + forge + prism simultaneously). The single-match
-    // parseAssistant only catches the first one. We detect ALL dispatch tags
-    // here and execute them sequentially, so the agent doesn't get stuck
-    // re-writing the same 3 dispatch tags forever.
-    if (!parsed.tool) {
-      // Check if there are ANY dispatch_subagent tags in the content
-      const allDispatches = content.match(/<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/gi)
-      if (allDispatches && allDispatches.length > 0) {
-        // Extract each dispatch and execute them sequentially
-        const dispatchRe = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/gi
-        let dm: RegExpExecArray | null
-        const dispatches: Array<{ id: string; task: string }> = []
-        while ((dm = dispatchRe.exec(content)) !== null) {
-          dispatches.push({ id: dm[1].trim(), task: dm[2].trim() })
-        }
-        if (dispatches.length > 0) {
-          // Emit a thought explaining what we're doing
-          await emit('thought', {
-            content: `[UPGRADE #63 — Multi-dispatch] Detected ${dispatches.length} subagent dispatches. Executing them sequentially: ${dispatches.map(d => d.id).join(' → ')}`,
-          })
-          // Execute each dispatch as a separate tool call
-          for (const d of dispatches) {
-            const step: any = {
-              id: `step_${iter}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-              thought: `Dispatching ${d.id}: ${d.task.slice(0, 100)}`,
-              toolName: 'dispatch_subagent',
-              toolArgs: { id: d.id, task: d.task },
-              startedAt: Date.now(),
-            }
-            steps.push(step)
-            await emit('tool_call', {
-              stepId: step.id,
-              name: step.toolName,
-              args: step.toolArgs,
-              thought: step.thought,
-              stepNumber: iter,
-            })
-            const toolResult = await dispatchTool(step.toolName!, step.toolArgs, ctx)
-            step.toolResult = toolResult
-            step.finishedAt = Date.now()
-            await emit('tool_result', {
-              stepId: step.id,
-              result: toolResult.result,
-              preview: toolResult.preview,
-              ok: toolResult.ok,
-              artifacts: toolResult.artifacts,
-            })
-            // Feed result back to model
-            conversationMessages.push({ role: 'assistant', content: `<dispatch_subagent id="${d.id}">${d.task}</dispatch_subagent>` })
-            conversationMessages.push({
-              role: 'user',
-              content: `[TOOL_RESULT] dispatch_subagent (${d.id}): ${toolResult.result}`,
-            })
-          }
-          // Continue the loop — don't break, let the LLM process the results
-          continue
-        }
-      }
-    }
-
-    // If no tool, this is the final answer
-    if (!parsed.tool) {
-      finalAnswer = content.replace(THOUGHT_RE, '').trim() || content.trim()
-      // Stream tokens (chunked) — SDK doesn't natively stream tokens here, so we send in ~80-char chunks for typing effect
-      const chunks = chunkText(finalAnswer, 80)
-      for (const c of chunks) {
-        await emit('token', { content: c })
-      }
-      break
-    }
-
-    // Tool call
-    const step: any = {
-      id: `step_${iter}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      thought: parsed.thought,
-      toolName: parsed.tool.name,
-      toolArgs: parsed.tool.args,
-      startedAt: Date.now(),
-    }
-    steps.push(step)
-    await emit('tool_call', {
-      stepId: step.id,
-      name: step.toolName,
-      args: step.toolArgs,
-      thought: step.thought,
-      stepNumber: iter,
-    })
-
-    // Execute
-    const toolResult = await dispatchTool(step.toolName!, step.toolArgs, ctx)
-    step.toolResult = toolResult
-    step.finishedAt = Date.now()
-    await emit('tool_result', {
-      stepId: step.id,
-      result: toolResult.result,
-      preview: toolResult.preview,
-      ok: toolResult.ok,
-      artifacts: toolResult.artifacts,
-    })
-
-    // If memory was stored, also emit memory_update for the right panel
-    if (step.toolName === 'memory_store' && toolResult.ok) {
-      await emit('memory_update', {
-        key: step.toolArgs?.key,
-        value: step.toolArgs?.value,
-        category: step.toolArgs?.category ?? 'general',
-      })
-    }
-
-    // Feed back to model. We append the assistant's raw tool-call message + a tool result.
-    conversationMessages.push({ role: 'assistant', content })
-    // ── UPGRADE #62 — Anti-Tool-Amnesia + Conversation Anchor ─────────
-    // After every tool result, inject TWO reminders so the LLM never forgets:
-    //   1. TOOL AWARENESS — compact list of critical tools the agent has
-    //   2. CONVERSATION ANCHOR — original user question + progress so far
-    // These prevent the 3 owner complaints:
-    //   - "doesn't know the tools he has" → fixed by tool awareness injection
-    //   - "gets lost, doesn't follow conversation" → fixed by conversation anchor
-    //   - "answers things I didn't ask" → fixed by "STAY ON TOPIC" in anchor
-    const userQuestionShort = userMessage.slice(0, 200) + (userMessage.length > 200 ? '...' : '')
-    const toolAwarenessReminder = `[SYSTEM REMINDER — YOU HAVE 567+ TOOLS (UPGRADE #62)]
-Before asking the owner for a tool, CHECK if you already have it.
-You HAVE: memory_store, memory_recall, decision_matrix, autonomous_decision_maker,
-self_improving_strategy, performance_optimizer, feedback_optimization_loop,
-task_automation_expander, advanced_trend_analyzer, repetitive_task_automator,
-self_optimization_engine, quantum_revenue_optimizer, financial_tracker,
-smart_tool_router, parallel_executor, accuracy_checker, web_search, ddg_search,
-brave_search, page_reader, http_fetch, file_read, file_write, source_read,
-code_exec, image_gen, vision, + 540 more.
-Call <manage action="list_tools"/> for the FULL list. NEVER ask the owner for a tool you might already have.`
-
-    const conversationAnchor = `[CONVERSATION ANCHOR — STAY ON TOPIC (UPGRADE #62)]
-Owner's original question: "${userQuestionShort}"
-Iterations so far: ${iter}/${MAX_ITERATIONS}. Tools called: ${steps.length}.
-DO NOT drift from the original question. If you're about to answer something the owner didn't ask, STOP and re-read the original question.
-Your NEXT response must either: (a) call a tool that advances toward answering the original question, OR (b) give a final answer that DIRECTLY addresses the original question.`
-
-    conversationMessages.push({
-      role: 'user',
-      content: `[TOOL_RESULT] ${step.toolName}: ${toolResult.result}`,
-    })
-    // Inject reminders every 2 iterations (to avoid token bloat, but frequent enough to prevent drift)
-    if (iter % 2 === 0) {
-      conversationMessages.push({ role: 'user', content: toolAwarenessReminder })
-      conversationMessages.push({ role: 'user', content: conversationAnchor })
-    }
-
-    // Persist intermediate tool/thought rows so reloads show full trace
-    try {
-      if (step.thought) {
-        await db.message.create({
-          data: {
-            conversationId,
-            role: 'thought',
-            content: step.thought,
-          },
-        })
-      }
-      await db.message.create({
-        data: {
-          conversationId,
-          role: 'tool',
-          content: `[tool call] ${step.toolName} ${JSON.stringify(step.toolArgs)}`,
-          toolName: step.toolName,
-          toolArgs: JSON.stringify(step.toolArgs),
-          toolResult: toolResult.result,
-        },
-      })
-    } catch {
-      // ignore persistence errors mid-loop
-    }
-  }
-
-  if (!finalAnswer) {
-    // UPGRADE #63 — Better "reached limit" message with summary of what was done
-    const summary = steps.length > 0
-      ? `\n\n**Progress summary:**\n${steps.map((s: any, i: number) => `${i + 1}. ${s.toolName} — ${s.thought?.slice(0, 80) ?? ''}`).join('\n')}\n\n**To continue, reply with "continue" or "keep going" — I'll pick up where I left off.**`
-      : ''
-    finalAnswer =
-      `I've reached my tool-call limit for this turn (${MAX_ITERATIONS} iterations, ${steps.length} tool calls).${summary}`
-    await emit('token', { content: finalAnswer })
-  }
-
-  // UPGRADE #128: Wrap DB writes in try/catch — if DB is unreachable,
-  // still return the answer to the user
-  let assistantRow: any = { id: 'temp_' + Date.now() }
-  try {
-    assistantRow = await db.message.create({
-      data: {
-        conversationId,
-        role: 'assistant',
-        content: finalAnswer,
-      },
-    })
-  } catch (dbErr: any) {
-    console.warn('[runAgent] DB write failed, continuing without persistence:', dbErr?.message?.slice(0, 100))
-  }
-
-  // Update conversation title if it's still the default
-  try {
-    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-      await db.conversation.update({ where: { id: conversationId }, data: { title } })
-    }
-  } catch (dbErr: any) {
-    console.warn('[runAgent] DB title update failed, continuing:', dbErr?.message?.slice(0, 80))
-  }
-
-  return {
-    finalAnswer,
-    steps,
-    persistedAssistantMessageId: assistantRow.id,
-  }
-}
 
 export function chunkText(text: string, size: number): string[] {
   if (!text) return []

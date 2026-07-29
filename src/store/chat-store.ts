@@ -153,6 +153,11 @@ interface ChatState {
   // or "429", we set rateLimitedUntil = now + 60s. The chat-input banner shows a
   // countdown and a "Retry Now" button. When the countdown hits 0, auto-retry.
   rateLimitedUntil: number | null
+  // UPGRADE #173 fix #7: serverErrorUntil — used by ProviderErrorBanner
+  // (src/components/agent/provider-error-banner.tsx:29) but missing from
+  // ChatState. Set to Date.now()+30_000 on 5xx server errors. Same UX
+  // as rateLimitedUntil (countdown + retry button) but red instead of amber.
+  serverErrorUntil: number | null
   /** Re-send the last user message (used by the rate-limit banner's Retry button). */
   retryLastMessage: () => Promise<void>
 
@@ -209,6 +214,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   changePasswordOpen: false,
   subagentsVersion: 0,
   rateLimitedUntil: null,
+  // UPGRADE #173 fix #7: initialize the new serverErrorUntil field.
+  serverErrorUntil: null,
   refreshVersion: 0,
   lastRefreshTs: null,
   autoRefreshEnabled: true,

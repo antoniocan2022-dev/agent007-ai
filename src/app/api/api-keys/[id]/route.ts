@@ -48,10 +48,18 @@ export async function GET(
     const row = await db.apiKey.findFirst({ where: { id, userId } })
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // Dynamic import deobf from the parent route
-    const { deobf } = await import('../route')
-
-    const fullKey = row.key ? deobf(row.key) : ''
+    // UPGRADE #173 fix #1 (revised): The original code did
+    // `await import('../route').deobf` to "deobfuscate" the key, but:
+    //   1. The parent route (api-keys/route.ts) doesn't export `deobf` —
+    //      it's actually in payment-accounts/route.ts. So the import
+    //      would throw `TypeError: deobf is not a function`.
+    //   2. More fundamentally, api-keys/route.ts:175 stores keys as
+    //      PLAINTEXT (`key: keyStr` — no obf() call). The deobf was
+    //      never needed for apiKeys, only for payment-accounts which
+    //      uses obf() in its create handler.
+    // AFTER — return the plaintext key directly. No deobfuscation
+    // needed for apiKeys.
+    const fullKey = row.key || ''
     const masked = fullKey ? '••••••••' + fullKey.slice(-4) : ''
 
     return NextResponse.json({

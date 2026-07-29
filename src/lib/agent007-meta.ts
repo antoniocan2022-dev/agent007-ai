@@ -417,7 +417,10 @@ export async function toolSelfCleanData(args: { older_than_days?: number; clean_
       try {
         const oldConvs = await db.conversation.findMany({ where: { createdAt: { lt: since } } })
         if (oldConvs.length > 0) {
-          await db.message.deleteMany({ where: { conversation: { createdAt: { lt: since } } } })
+          // UPGRADE #173 fix #7: was `conversation` (lowercase) — invalid
+          // relation name. Use `Conversation` (capitalized, the actual
+          // relation name in schema).
+          await db.message.deleteMany({ where: { Conversation: { createdAt: { lt: since } } } })
           await db.conversation.deleteMany({ where: { createdAt: { lt: since } } })
           results.push(`Deleted ${oldConvs.length} old conversations (>${days}d)`)
         }

@@ -15,7 +15,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const user = await db.user.findUnique({ where: { id } })
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     if (user.email === 'antonio.can2022@hotmail.com') return NextResponse.json({ error: 'Cannot delete primary operator' }, { status: 403 })
-    await db.message.deleteMany({ where: { conversation: { userId: id } } }).catch(() => {})
+    // UPGRADE #173 fix #7: BEFORE used `conversation` (lowercase — invalid
+    // field; Prisma expects the relation name `Conversation` capitalized).
+    // AFTER — use the proper relation name with a valid where clause on
+    // the related Conversation model.
+    await db.message.deleteMany({ where: { Conversation: { userId: id } } }).catch(() => {})
     await db.conversation.deleteMany({ where: { userId: id } }).catch(() => {})
     await db.schedule.deleteMany({ where: { userId: id } }).catch(() => {})
     // Note: Memory table has no userId column (it's global key-value); skip.

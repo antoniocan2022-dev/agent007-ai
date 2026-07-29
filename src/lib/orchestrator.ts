@@ -847,7 +847,16 @@ above. The list above is authoritative.`
     toolDiscoveryPrompt = getToolDiscoveryPrompt()
   } catch {}
 
-  const systemPrompt = `${BASE_SYSTEM_PROMPT}
+  // UPGRADE #173 fix #8: Use getSystemPrompt() to substitute ${TOOL_COUNT}
+  // with the actual count from TOOL_REGISTRY (was hard-coded "673+" but
+  // real count is 463). Lazy-imported to avoid circular deps with tools.ts.
+  let basePrompt = BASE_SYSTEM_PROMPT
+  try {
+    const { getSystemPrompt } = await import('./agent')
+    basePrompt = await getSystemPrompt()
+  } catch {}
+
+  const systemPrompt = `${basePrompt}
 
 ${ORCHESTRATOR_PROMPT_ADDENDUM}
 
