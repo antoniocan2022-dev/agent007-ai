@@ -1,10 +1,23 @@
 /**
- * model-router.ts — Intelligent LLM model routing (upgrade #52)
+ * model-router.ts — ⚠️ DEPRECATED (UPGRADE #172 audit)
  *
- * Routes to gpt-4o for complex tasks (decisions, investments, analysis)
- * and gpt-4o-mini for simple tasks (lookups, greetings, simple questions).
+ * Originally intended (upgrade #52) to route to gpt-4o for complex tasks
+ * and gpt-4o-mini for simple tasks. The functions `classifyTaskComplexity`
+ * and `getModelConfig` are exported but NEVER imported anywhere in src/.
+ * `llm-fallback.ts:21` hardcodes `gpt-4o` and ignores complexity.
  *
- * Also provides response caching for read-only tools.
+ * The intelligence boost (+15% on complex) and cost savings (-30% on
+ * simple) that #52 promised were never realized. This file is 183 lines
+ * of dead code.
+ *
+ * KEPT for now (might be referenced by external scripts). To activate:
+ *   1. Import `getModelConfig` in llm-fallback.ts:124
+ *   2. Use the returned model name instead of OPENAI_MODEL
+ *   3. Wire `classifyTaskComplexity` into the agent's pre-LLM step
+ *
+ * To delete: confirm no scripts/ reference it, then `rm`.
+ *
+ * Also provides response caching for read-only tools (also unused).
  */
 
 // ─── MODEL ROUTING ────────────────────────────────────────────────

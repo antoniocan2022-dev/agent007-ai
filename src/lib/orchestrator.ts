@@ -246,7 +246,7 @@ TEAM: SCOUT (research) | AURORA (creation) | VERTEX (SaaS) | QUANTUM (revenue)
 ECHO (QA) | FORGE (build) | PULSE (monitor) | QUILL (content) | PRISM (design)
 LEGAL (US/Canada law) | BANKER (treasury) | HUNT (freelance) | DEVELOPER (health)
 CYBERSECURITY_A (offense) | CYBERSECURITY_R (defense) | TRADER (crypto)
-Plus 3 custom test agents.
+Plus 2 custom test agents (testfast2, fasttest3).
 
 MISSION PIPELINE (hierarchical verification):
 Type "start mission: <type>: <objective>" to run a full pipeline.

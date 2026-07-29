@@ -185,15 +185,100 @@ export async function toolAccuracyChecker(args: any, _ctx: ToolContext): Promise
     }
   }
 
-  // Calculate confidence based on how many sources found the claim
+  // UPGRADE #172: REAL claim verification via LLM, not count-based confidence.
+  //
+  // BEFORE (#162 fix made it REAL data but logic was weak):
+  //   confidence = foundCount === 0 ? 0 : 1 ? 50 : 2 ? 80 : 95
+  // This measured search YIELD, not claim VERIFICATION. A false claim
+  // like "The sky is green" returns Wikipedia's "Green Sky" article
+  // (about a band) + Reddit posts "Why is the sky never green?" →
+  // 2/3 sources found → 80% → "LIKELY ACCURATE" — a false positive.
+  //
+  // AFTER (#172): we send the claim + snippets from each source to the
+  // LLM (Groq first, OpenAI/z.ai fallback) and ask it to:
+  //   1. Compare the claim against each snippet
+  //   2. Output a verdict: ACCURATE / INACCURATE / UNVERIFIED / MIXED
+  //   3. Output a confidence 0-100
+  //   4. Output a 1-sentence reasoning citing which snippets support/contradict
+  // The LLM can actually READ the snippet and tell whether it SUPPORTS
+  // the claim or just CONTAINS the keywords. This is real verification.
   const foundCount = sources.filter(s => s.found).length
   const totalSources = sources.length
-  const confidence = foundCount === 0 ? 0 : foundCount === 1 ? 50 : foundCount === 2 ? 80 : 95
-  const verdict = confidence >= 80 ? 'LIKELY ACCURATE' : confidence >= 50 ? 'PARTIALLY VERIFIED' : 'UNVERIFIED'
+
+  let llmVerdict = ''
+  let llmConfidence = 0
+  let llmReasoning = ''
+
+  if (foundCount === 0) {
+    // No sources returned anything — genuinely unverifiable
+    llmVerdict = 'UNVERIFIED'
+    llmConfidence = 0
+    llmReasoning = 'No source returned any results for this claim. Cannot verify without external data.'
+  } else {
+    // UPGRADE #172: ask the LLM to actually READ the snippets and judge
+    try {
+      const { callLlmWithRetry } = await import('./agent')
+      const sourcesBlock = sources
+        .filter(s => s.found)
+        .map((s, i) => `Source ${i + 1} (${s.source}):\n  ${s.snippet}`)
+        .join('\n\n')
+      const systemPrompt = `You are a fact-checker. Compare the CLAIM against the SOURCE snippets.
+Output EXACTLY 4 lines (no other text):
+
+VERDICT: <one of ACCURATE | INACCURATE | UNVERIFIED | MIXED>
+CONFIDENCE: <integer 0-100>
+REASONING: <one sentence citing which snippets support or contradict the claim>
+QUOTED_SNIPPET: <short quote from a source that supports or contradicts>
+
+Rules:
+- ACCURATE: at least one snippet clearly SUPPORTS the claim (not just mentions the keywords)
+- INACCURATE: at least one snippet clearly CONTRADICTS the claim
+- MIXED: some snippets support, some contradict
+- UNVERIFIED: snippets don't address the claim (e.g., they're about an unrelated topic that happens to share keywords)
+- Be strict: a snippet mentioning "sky" and "green" does NOT verify "the sky is green" — it must actually state it.`
+      const userPrompt = `CLAIM: "${claim}"
+
+SOURCE SNIPPETS:
+${sourcesBlock}
+
+Output your verdict in the exact 4-line format above.`
+
+      const result = await callLlmWithRetry([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ])
+      const llmContent = (result?.choices?.[0]?.message?.content ?? '').trim()
+
+      // Parse the 4 lines
+      const lines = llmContent.split('\n').filter(l => l.trim())
+      for (const line of lines) {
+        const m = line.match(/^(VERDICT|CONFIDENCE|REASONING|QUOTED_SNIPPET):\s*(.*)$/i)
+        if (m) {
+          const key = m[1].toUpperCase()
+          const val = m[2].trim()
+          if (key === 'VERDICT') llmVerdict = val.toUpperCase()
+          else if (key === 'CONFIDENCE') llmConfidence = parseInt(val) || 0
+          else if (key === 'REASONING') llmReasoning = val
+        }
+      }
+      // Validate verdict
+      if (!['ACCURATE', 'INACCURATE', 'UNVERIFIED', 'MIXED'].includes(llmVerdict)) {
+        llmVerdict = 'UNVERIFIED'
+        llmConfidence = 0
+        llmReasoning = 'LLM did not return a valid verdict. ' + llmReasoning
+      }
+    } catch (e: any) {
+      // LLM unavailable — fall back to conservative count-based logic,
+      // but with a CLEAR warning that it's not real verification.
+      llmVerdict = foundCount >= 2 ? 'PARTIALLY VERIFIED' : 'UNVERIFIED'
+      llmConfidence = foundCount >= 2 ? 40 : 0
+      llmReasoning = `LLM unavailable (${e?.message?.slice(0, 80) ?? 'unknown'}). Falling back to count-based logic. WARNING: this is search YIELD, not claim VERIFICATION — the snippets may mention the keywords without supporting the claim.`
+    }
+  }
 
   return okResult(
-    `Accuracy check: ${verdict} (${confidence}% confidence, ${foundCount}/${totalSources} sources)`,
-    `ACCURACY CHECKER\n${'='.repeat(60)}\nClaim: "${claim}"\n\nVERIFICATION RESULTS:\n${sources.map(s => `  ${s.found ? '✅' : '❌'} ${s.source}: ${s.snippet}`).join('\n')}\n\nVERDICT: ${verdict} (${confidence}% confidence)\n\n${confidence < 80 ? '⚠ This claim could not be fully verified. Recommend additional research.' : '✅ Claim appears accurate based on multiple sources.'}`
+    `Accuracy check: ${llmVerdict} (${llmConfidence}% confidence, ${foundCount}/${totalSources} sources)`,
+    `ACCURACY CHECKER (REAL — LLM-based verification, UPGRADE #172)\n${'='.repeat(60)}\nClaim: "${claim}"\n\nSEARCH RESULTS (raw data from real sources):\n${sources.map(s => `  ${s.found ? '✅' : '❌'} ${s.source}: ${s.snippet}`).join('\n')}\n\nLLM VERIFICATION:\n  VERDICT: ${llmVerdict}\n  CONFIDENCE: ${llmConfidence}%\n  REASONING: ${llmReasoning}\n\n${llmVerdict === 'ACCURATE' ? '✅ Claim verified by sources.' : llmVerdict === 'INACCURATE' ? '❌ Claim contradicted by sources. Do NOT use this claim.' : llmVerdict === 'MIXED' ? '⚠ Sources disagree — verify with additional research.' : '⚠ Claim could not be verified. Recommend additional research.'}`
   )
 }
 

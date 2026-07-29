@@ -1,0 +1,338 @@
+     1→# AUDIT-FINDINGS — Deep Audit of Upgrades #153-#168
+     2→
+     3→**Auditor:** Sub Agent (AUDIT-1)
+     4→**Date:** 2026-07-29
+     5→**Scope:** /home/z/my-project — Next.js + TypeScript (Agent007 AI)
+     6→**Method:** git log --since="48 hours ago" + manual file inspection + tsc --noEmit
+     7→
+     8→## Summary
+     9→
+    10→Across the 16 commits (#153–#168), several upgrades are **broken at runtime**, several are **misrepresented by their comments**, and the codebase has accumulated significant **duplicate/dead code**. The TypeScript compiler catches 3 critical bugs in `subagents.ts` that block strict type-checks (but Next.js build tolerates them).
+    11→
+    12→Total findings: **18** (5 CRITICAL, 6 HIGH, 5 MEDIUM, 2 LOW)
+    13→
+    14→---
+    15→
+    16→## CRITICAL
+    17→
+    18→### C1 — `parsed.dispatch` does not exist on `Parsed` — upgrade #165 Gap #1 is dead code
+    19→- **File:Line:** `src/lib/subagents.ts:1583, 1584, 1585`
+    20→- **Evidence:**
+    21→  - `subagents.ts` line 3 imports `parseAssistant` from `@/lib/agent`.
+    22→  - `agent.ts:1090-1096` declares `export interface Parsed { thought?; tool?; textAfterTool; textBeforeTool; raw }` — **no `dispatch` field**.
+    23→  - `subagents.ts:1569` does `const parsed = parseAssistant(content)` then immediately references `parsed.dispatch` at lines 1583, 1584, 1585.
+    24→  - `tsc --noEmit` reports:
+    25→    ```
+    26→    src/lib/subagents.ts(1583,16): error TS2339: Property 'dispatch' does not exist on type 'Parsed'.
+    27→    src/lib/subagents.ts(1584,38): error TS2339: Property 'dispatch' does not exist on type 'Parsed'.
+    28→    src/lib/subagents.ts(1585,35): error TS2339: Property 'dispatch' does not exist on type 'Parsed'.
+    29→    ```
+    30→- **Why it's a problem:** At runtime `parsed.dispatch` is always `undefined`, so `if (parsed.dispatch && !parsed.tool)` is always `false`. The entire block at lines 1583-1640 — which is supposed to let leaders delegate to specialists recursively — **never executes**. UPGRADE #165 Gap #1 ("Handle dispatch_subagent INSIDE subagents") had zero effect. Subagent leaders STILL cannot dispatch to specialists.
+    31→- **Suggested fix:** Use `parseOrchestrator` (orchestrator.ts:133, returns `dispatch`), or add `dispatch` to `Parsed` in `agent.ts` and populate it the same way `parseOrchestrator` does, or replicate the DISPATCH_SUBAGENT_RE regex inline in subagents.ts.
+    32→
+    33→---
+    34→
+    35→### C2 — `tool_boundary_audit` in orchestrator audits the WRONG list of tools
+    36→- **File:Line:** `src/lib/orchestrator.ts:1326-1346`
+    37→- **Evidence:**
+    38→  ```ts
+    39→  const toolsUsedInThisDispatch = steps
+    40→    .filter((s: any) => s.toolName && s.finishedAt)
+    41→    .map((s: any) => s.toolName)
+    42→  if (toolsUsedInThisDispatch.length > 0) {
+    43→    const auditResult = await dispatchTool('tool_boundary_audit', {
+    44→      agentId: sub.id,
+    45→      toolsUsed: toolsUsedInThisDispatch,
+    46→    }, ...)
+    47→  ```
+    48→  - `steps` is the orchestrator's SUPER-AGENT step array — only direct tool calls by the orchestrator are pushed to it (line 1395).
+    49→  - Subagent tool calls happen INSIDE `runSubagent` (in subagents.ts) and are NOT pushed to the orchestrator's `steps`.
+    50→  - `runSubagent` returns `{ answer, steps }` (subagents.ts:1886) but only `result.answer` is consumed (orchestrator.ts:1276). The subagent's `result.steps` is ignored.
+    51→- **Why it's a problem:** The audit is comparing the SUPER AGENT's tool calls against the SUBAGENT's `allowedTools`. This will produce false positives (super agent's tools not in `sub.allowedTools`) and miss real violations (subagent's actual tool usage is never audited). UPGRADE #167 Step 5 ("REAL-TIME tool_boundary_audit in the quality gate") is fundamentally broken — it audits the wrong list.
+    52→- **Suggested fix:** Replace `steps.filter(...)` with `result.steps?.filter(s => s.toolName && s.finishedAt).map(s => s.toolName) ?? []` so the audit uses the subagent's actual tool calls.
+    53→
+    54→---
+    55→
+    56→### C3 — Self-learning score never accumulates (upgrade #167 Step 3 is broken)
+    57→- **File:Line:** `src/lib/subagents.ts:1854-1881`
+    58→- **Evidence:** The block does this in order:
+    59→  1. Line 1859-1864: `storePersistentMemory(learningKey, value, 'self_learning', score=75 or 25)`.
+    60→  2. `storePersistentMemory` in `persistent-memory.ts:76-81` **OVERWRITES** the existing entry:
+    61→     ```ts
+    62→     const existingIdx = entries.findIndex(e => e.key === key)
+    63→     if (existingIdx >= 0) { entries[existingIdx] = entry }  // full replace
+    64→     ```
+    65→  3. Line 1875-1880: Re-recall the learning and call `updateMemoryScore(key, succeeded)` which moves score ±10.
+    66→  - Net effect per success run: stored as 75 → updated to 85. Per failure run: stored as 25 → updated to 15. The score **oscillates between two values** and never accumulates.
+    67→- **Why it's a problem:** The UPGRADE #167 Step 3 comment at lines 1865-1872 claims: *"a task that succeeded 5 times has score ~95, while one that failed 3 times has score ~15."* This is FALSE. The score can only ever be 75+10=85 (success) or 25-10=15 (failure). The "REAL confidence trend" promised by the upgrade does not exist.
+    68→- **Suggested fix:** Either skip `storePersistentMemory` when the key already exists, OR pass the existing score through and only update incrementally (e.g., `storePersistentMemory(key, value, cat, existingScore + (succeeded ? 10 : -10))`).
+    69→
+    70→---
+    71→
+    72→### C4 — 5 of 7 "FAKE tools replaced" by upgrade #166 were NOT replaced
+    73→- **File:Line:** `src/lib/real-intelligence-tools.ts:6-18` (claims) vs `src/lib/tools.ts:2844-2851` (reality)
+    74→- **Evidence:** Header comment in `real-intelligence-tools.ts` claims 7 fake tools were replaced:
+    75→  1. `toolSelfImprovingStrategy` — **REPLACED** (tools.ts:2844 overwrites TOOL_REGISTRY.self_improving_strategy)
+    76→  2. `toolSelfOptimizationEngine` — **NOT REPLACED**. Still uses `intelligence-tools-v3.ts:98` (returns hardcoded "47,318 actions analyzed", "67 learnings", "+34% decision quality" — all fake). No REAL replacement defined or imported.
+    77→  3. `toolFeedbackOptimizationLoop` — **NOT REPLACED**. Still uses `performance-enhancement-tools.ts:234` (returns hardcoded "47 learnings", "+78% conversion", "NPS: +47", fake A/B test results).
+    78→  4. `toolAutonomousDecisionMaker` — **NOT REPLACED**. Still uses `performance-enhancement-tools.ts:730` (returns hardcoded "$4,820/month", "$890/mo projected", "Confidence: 0.87", fake 10-step framework).
+    79→  5. `toolDecisionMatrix` — **REPLACED** (tools.ts:2845 overwrites). The OLD fake one in `full-autonomy-tools.ts:787` (uses `Math.random()` at line 815) is now dead code but still imported.
+    80→  6. `toolEfficiencyOptimizer` — **NOT REPLACED**. Still uses `performance-booster-tools.ts:201` (returns hardcoded "+40% speed improvement", "5 recommendations" — all fake).
+    81→  7. `toolUsageAnalyzer` — **NOT REPLACED**. Still uses `performance-booster-tools.ts:209` (partially real — queries TOOL_REGISTRY — but hardcodes "MOST POWERFUL TOOLS" recommendations).
+    82→- **Why it's a problem:** The agent continues to use 5 fake "intelligence" tools that return hallucinated metrics. The upgrade's claim that fake tools were "replaced by REAL ones" is misleading — only 2 of 7 were actually replaced. Users calling `self_optimization_engine`, `feedback_optimization_loop`, `autonomous_decision_maker`, `efficiency_optimizer`, or `tool_usage_analyzer` still get fake data.
+    83→- **Suggested fix:** Either implement REAL versions of the 5 remaining tools in `real-intelligence-tools.ts` and wire them up in `tools.ts`, OR update the misleading header comment to reflect the actual scope (only 2 of 7 replaced).
+    84→
+    85→---
+    86→
+    87→### C5 — `process.env.LLM_PROVIDER_ORDER` mutation in `multi-provider-comparison.ts` is not restored on throw
+    88→- **File:Line:** `src/lib/multi-provider-comparison.ts:49-58`
+    89→- **Evidence:**
+    90→  ```ts
+    91→  const originalOrder = process.env.LLM_PROVIDER_ORDER
+    92→  process.env.LLM_PROVIDER_ORDER = provider       // mutate global env
+    93→  const result = await callLlmWithRetry(messages)  // can throw
+    94→  // ... (try body)
+    95→  process.env.LLM_PROVIDER_ORDER = originalOrder  // restore in TRY only
+    96→  } catch (e: any) {
+    97→    return { provider, model: provider, content: '', ok: false, error: e?.message?.slice(0, 200), ... }
+    98→    // NO restore — env var stays mutated
+    99→  }
+   100→  ```
+   101→- **Why it's a problem:** If `callLlmWithRetry` throws (rate limit, network, auth), `LLM_PROVIDER_ORDER` is permanently stuck at the single-provider value for the lifetime of the Vercel warm instance. Every subsequent LLM call (across all concurrent requests in that instance) will use ONLY that one provider — until the instance cold-starts. If that provider is rate-limited, the entire agent becomes non-functional.
+   102→- **Suggested fix:** Move the restore into a `try/finally` block, or use a different mechanism (e.g., pass the order as an argument to `callLlmWithRetry` instead of mutating env).
+   103→
+   104→---
+   105→
+   106→## HIGH
+   107→
+   108→### H1 — Client-side timeout (180s) is shorter than server maxDuration (300s)
+   109→- **File:Line:** `src/store/chat-store.ts:586` (client) vs `src/app/api/agent/route.ts:12` (server)
+   110→- **Evidence:**
+   111→  - Server: `export const maxDuration = 300` (300 seconds — Vercel Pro limit)
+   112→  - Client: `signal: AbortSignal.timeout(180_000)` (180 seconds)
+   113→  - Comment at chat-store.ts:574-576 says: *"Increased to 180s (server maxDuration is now 300s on Vercel Pro). Before: 90s timeout (server was 60s). After: 180s gives the agent enough time to complete complex missions with subagent dispatches."*
+   114→- **Why it's a problem:** If a mission legitimately takes 200-280 seconds (within the 300s server limit), the client aborts at 180s and the user sees an error — but the server is still working. The response is discarded. The comment claims this gives enough time, but 180 < 300 means legitimate complex missions get cut off.
+   115→- **Suggested fix:** Increase the client timeout to ~290s (give 10s buffer below server's 300s hard limit) so legitimate long missions aren't prematurely aborted.
+   116→
+   117→---
+   118→
+   119→### H2 — `runAgent` in `agent.ts` (344 lines) is dead code, still maintained
+   120→- **File:Line:** `src/lib/agent.ts:1311-1654` (function `runAgent`)
+   121→- **Evidence:**
+   122→  - `runAgent` is only DEFINED — never imported or called anywhere in `src/`.
+   123→  - `/api/agent/route.ts:108` calls `runOrchestrator`, not `runAgent`.
+   124→  - `upgrade-manifest.ts:571` explicitly notes: *"Upgrade #63 fixed runAgent() in agent.ts, but /api/agent uses runOrchestrator() — so #63 had ZERO effect. This upgrade applied ALL fixes to the orchestrator."* The fix was to apply changes to BOTH files, but only `runOrchestrator` is the live path.
+   125→- **Why it's a problem:** `runAgent` (lines 1311-1654 = ~344 lines) contains duplicate logic: heartbeat emission, multi-dispatch detection, continue-command support, classifyQuerySmart, tool-awareness reminder, conversation-anchor injection — all also present in `runOrchestrator`. The dead code adds maintenance burden: any future fix must be applied twice, and forgetting one creates drift. The duplicate `classifyQuerySmart` (agent.ts:1264) vs `classifyQuery` (orchestrator.ts:539) is also dead.
+   126→- **Suggested fix:** Delete `runAgent` and `classifyQuerySmart` from `agent.ts`, or deprecate them with a clear `@deprecated` comment so future maintainers don't update them.
+   127→
+   128→---
+   129→
+   130→### H3 — Tool count is inconsistent across files (real count ≈ 458, prompts claim 673+)
+   131→- **File:Line:** Multiple
+   132→- **Evidence:**
+   133→  - `rg -c "TOOL_REGISTRY\." src/lib/tools.ts` returns **458** (some are dynamic, but ~458 assignments).
+   134→  - `src/lib/agent.ts:52` (SYSTEM_PROMPT): *"You have 673+ tools."*
+   135→  - `src/lib/agent.ts:1560` (anti-amnesia reminder): *"YOU HAVE 567+ TOOLS (UPGRADE #62)"*
+   136→  - `src/lib/subagents.ts:174`: *"ALL 469+ tools"*
+   137→  - `src/lib/subagents.ts:1097`: *"audit all 667 tools"*
+   138→  - `src/lib/subagents.ts:1510`: *"The Super Agent (orchestrator) still has all 667 tools."*
+   139→  - `src/lib/subagents.ts:1707`: *"ALL 452 tools were available"*
+   140→  - `src/lib/orchestrator.ts:819`: *"20 subagents"*
+   141→  - `src/lib/subagents.ts:7`: *"20 specialists (12 built-in + 8 custom)"*
+   142→- **Why it's a problem:** The agent's SYSTEM_PROMPT tells the LLM it has 673+ tools, but the actual count is ~458. The LLM may attempt to call tools that don't exist (hallucinating names) or waste tokens calling `manage action="list_tools"` to verify. The subagent count is also wrong: SUBAGENTS array has **18** built-ins (aurora, vertex, quantum, scout, hunt, forge, quill, prism, pulse, echo, legal, banker, trader, cybersecurity_a, cybersecurity_r, developer, testfast2, fasttest3), not 12. The orchestrator's new compressed prompt lists 16 + "Plus 3 custom test agents" = 19, still wrong.
+   143→- **Suggested fix:** Compute the actual count dynamically (e.g., `Object.keys(TOOL_REGISTRY).length`) and inject it into the prompt, OR audit every "N tools" mention and align them to the real number. Also fix the SUBAGENTS header comment to reflect 18 built-ins.
+   144→
+   145→---
+   146→
+   147→### H4 — Duplicate LLM HTTP call implementations across 4 files
+   148→- **File:Line:** Multiple
+   149→- **Evidence:**
+   150→  - `src/lib/agent.ts:667` — `callGroqLlm` (internal router use)
+   151→  - `src/lib/agent.ts:625` — `callMistralLlm`
+   152→  - `src/lib/agent.ts:535` — `callGeminiLlm`
+   153→  - `src/lib/agent.ts:734` — `callOpenRouterLlm`
+   154→  - `src/lib/agent.ts:823` — `callBraveLlm`
+   155→  - `src/lib/agent.ts:885` — `callCerebrasLlm`
+   156→  - `src/lib/agent.ts:970` — `callZaiDirectLlm`
+   157→  - `src/lib/llm-fallback.ts:103` — `callFallbackLlm` (OpenAI)
+   158→  - `src/lib/ai-providers-integration.ts:20` — `toolCerebrasLLM` (separate fetch)
+   159→  - `src/lib/ai-providers-integration.ts:37` — `toolSambaNovaLLM`
+   160→  - `src/lib/ai-providers-integration.ts:54` — `toolTogetherLLM`
+   161→  - `src/lib/ai-providers-integration.ts:71` — `toolMistralLLM` (duplicate of `callMistralLlm`)
+   162→  - `src/lib/ai-providers-integration.ts:88` — `toolHuggingFaceLLM`
+   163→  - `src/lib/ai-providers-integration.ts:106` — `toolCloudflareLLM`
+   164→  - `src/lib/ai-providers-integration.ts` — `toolCohereLLM` (line 122+)
+   165→- **Why it's a problem:** Two layers of LLM-call code exist: (a) the internal router in `agent.ts` and `llm-fallback.ts`, and (b) the agent-callable "tool" versions in `ai-providers-integration.ts`. The "tool" versions use different (often outdated) parameters — e.g., `toolCerebrasLLM` uses `temperature: 0.3, max_tokens: 8000` while `callCerebrasLlm` uses `temperature: 0.7, max_tokens: 12000, top_p: 0.95` and includes the User-Agent header to bypass Cloudflare. The tool version will fail on Cloudflare-protected endpoints. Drift between the two makes maintenance error-prone.
+   166→- **Suggested fix:** Have the `ai-providers-integration.ts` tool versions delegate to the internal router functions, OR extract a shared `callOpenAICompatible(url, key, model, body)` helper used by both layers.
+   167→
+   168→---
+   169→
+   170→### H5 — `model-router.ts` (UPGRADE #52) is fully dead code, never wired in
+   171→- **File:Line:** `src/lib/model-router.ts:1-182` (entire file)
+   172→- **Evidence:**
+   173→  - `rg "getModelConfig|classifyTaskComplexity" src/` returns matches only inside `model-router.ts` itself and `upgrade-manifest.ts:463` (description).
+   174→  - No `import` of `model-router` anywhere in `src/`.
+   175→  - `llm-fallback.ts:21` hardcodes `gpt-4o` via `OPENAI_MODEL` env var, ignoring complexity classification.
+   176→  - `agent.ts` provider chain (line 319) always uses `callFallbackLlm` for OpenAI, no model selection by task type.
+   177→- **Why it's a problem:** UPGRADE #52 promised "+15% intelligence on complex tasks, -30% cost on simple tasks" via gpt-4o vs gpt-4o-mini routing. This never worked — the file was added but never imported. The agent has been running on a single hardcoded model this entire time. The 182 lines of code + cache logic are pure dead weight.
+   178→- **Suggested fix:** Either delete `model-router.ts`, or wire it into `llm-fallback.ts:103` so `callFallbackLlm` picks the model based on the user's last message.
+   179→
+   180→---
+   181→
+   182→### H6 — `_pendingTokens` / `_tokenFlushTimer` are module-level singletons, shared across all chats
+   183→- **File:Line:** `src/store/chat-store.ts:834-835`
+   184→- **Evidence:**
+   185→  ```ts
+   186→  let _pendingTokens = ''
+   187→  let _tokenFlushTimer: ReturnType<typeof setTimeout> | null = null
+   188→  ```
+   189→  These are declared at module scope (not inside the zustand store), so there's exactly one pair for the entire browser tab.
+   190→- **Why it's a problem:** If two chats are mounted in the same tab (e.g., the user opens two conversation panels simultaneously), tokens from chat A can be flushed into chat B's message — corrupting the displayed content. Even in single-chat use, the safety-net code added by UPGRADE #163 at chat-store.ts:626-639 is **dead code**: `_pendingTokens` is set to `''` synchronously in `applyEvent('done')` at line 1293, so the outer-loop check `if (_pendingTokens)` at line 626 is always false by the time it runs.
+   191→- **Suggested fix:** Move these into per-message state (e.g., a `WeakMap<messageId, {tokens, timer}>`), and delete the dead outer-loop safety net.
+   192→
+   193→---
+   194→
+   195→## MEDIUM
+   196→
+   197→### M1 — `agent.ts` "tool awareness reminder" injects fake tool list every 2 iterations
+   198→- **File:Line:** `src/lib/agent.ts:1560-1569`
+   199→- **Evidence:**
+   200→  ```ts
+   201→  const toolAwarenessReminder = `[SYSTEM REMINDER — YOU HAVE 567+ TOOLS (UPGRADE #62)]
+   202→  ...
+   203→  You HAVE: memory_store, memory_recall, decision_matrix, autonomous_decision_maker,
+   204→  self_improving_strategy, performance_optimizer, feedback_optimization_loop,
+   205→  task_automation_expander, advanced_trend_analyzer, repetitive_task_automator,
+   206→  self_optimization_engine, quantum_revenue_optimizer, financial_tracker,
+   207→  smart_tool_router, parallel_executor, accuracy_checker, web_search, ddg_search,
+   208→  brave_search, page_reader, http_fetch, file_read, file_write, source_read,
+   209→  code_exec, image_gen, vision, + 540 more.`
+   210→  ```
+   211→  - The list says "567+ TOOLS" but the actual count is ~458 (see H3).
+   212→  - Several tools listed (`autonomous_decision_maker`, `feedback_optimization_loop`, `self_optimization_engine`) are the FAKE tools that UPGRADE #166 was supposed to replace (see C4) — they still return hardcoded fake data.
+   213→- **Why it's a problem:** The reminder actively steers the LLM toward fake tools. The LLM calls them, gets fake metrics, and reports them to the user as if they were real analyses. This propagates fake intelligence into user-visible answers.
+   214→- **Suggested fix:** Replace the static list with a dynamic call to `Object.keys(TOOL_REGISTRY).slice(0, 30)`, and remove the fake tools from the suggested list (or replace them with real alternatives once C4 is fixed).
+   215→
+   216→---
+   217→
+   218→### M2 — The "Plus 3 custom test agents" line in the compressed prompt is stale
+   219→- **File:Line:** `src/lib/orchestrator.ts:227`
+   220→- **Evidence:** The new compressed `ORCHESTRATOR_PROMPT_ADDENDUM` (lines 216-237) ends with *"Plus 3 custom test agents."* But only 2 test agents are defined in `SUBAGENTS` (testfast2 at line 1121, fasttest3 at line 1190). The third is unspecified.
+   221→- **Why it's a problem:** The LLM may attempt to dispatch to a "third test agent" that doesn't exist, causing dispatch failures and confusing fallback messages. The compressed prompt lost information from the original prompt which had a more accurate count.
+   222→- **Suggested fix:** Either change "Plus 3 custom test agents" to "Plus 2 test agents" (matching the actual SUBAGENTS array), or update it to mention any custom DB agents dynamically (similar to `dynamicAgentSection` at line 806).
+   223→
+   224→---
+   225→
+   226→### M3 — `getBestProvider` in `provider-intelligence.ts` is defined but never called
+   227→- **File:Line:** `src/lib/provider-intelligence.ts:297-303`
+   228→- **Evidence:**
+   229→  - `getBestProvider(availableProviders)` is exported (line 297).
+   230→  - `rg "getBestProvider" src/` returns only the definition — no caller.
+   231→  - `agent.ts:225` imports `getBestProvider` from `provider-intelligence` (line 225), but never calls it.
+   232→  - UPGRADE #160 explicitly disabled the circuit breaker (`shouldSkipProvider` always returns `false`), so providers are tried in DEFAULT_ORDER sort order (after upgrade #168), not by health score.
+   233→- **Why it's a problem:** UPGRADE #159 promised "Provider Intelligence Integration" with "auto-selection of the healthiest provider." The function exists but is never used. The agent tries providers in static priority order regardless of health, which means a chronically failing provider (e.g., bad API key) is tried first on every call, wasting time before falling back. The `getHealthScore`, `recordSuccess`, and `recordFailure` functions are called for tracking, but the score is never used for selection.
+   234→- **Suggested fix:** Either call `getBestProvider(activeProviders.map(p => p.name))` to get the healthiest provider name, then sort `activeProviders` so that name is first; OR delete `getBestProvider` and update the UPGRADE #159 comment to reflect that health tracking is informational only.
+   235→
+   236→---
+   237→
+   238→### M4 — `recallPersistentMemory` returns DB rows with hardcoded `score: 50`, ignoring file score
+   239→- **File:Line:** `src/lib/persistent-memory.ts:111-119`
+   240→- **Evidence:**
+   241→  ```ts
+   242→  const dbMems = await db.memory.findMany({ take: 100 }).catch(() => [])
+   243→  dbEntries = dbMems.map(m => ({
+   244→    key: m.key, value: m.value, category: m.category,
+   245→    createdAt: m.createdAt.getTime(),
+   246→    score: 50,  // default
+   247→    timesRecalled: 0,
+   248→  }))
+   249→  ```
+   250→  - File entries (loaded from `/tmp` JSON) have REAL scores (0-100) set by `storePersistentMemory` and updated by `updateMemoryScore`.
+   251→  - DB entries are mapped with hardcoded `score: 50` and `timesRecalled: 0`, ignoring any score the DB might have stored (the Prisma `Memory` model has no `score` field, so this is forced).
+   252→  - The merge (line 124-125) gives FILE priority, so DB entries only appear if the file doesn't have them — meaning cross-instance learning (where instance A stores, instance B recalls) gets score 50, defeating the weighted-recall logic.
+   253→- **Why it's a problem:** On Vercel serverless, each instance has its own `/tmp` file. A learning stored by instance A and recalled by instance B (via the DB) gets `score: 50` — neutral, regardless of whether it was a high-confidence success (95) or repeated failure (15). The "weighted recall" promised by UPGRADE #167 only works within a single warm instance, not across cold starts.
+   254→- **Suggested fix:** Add a `score` column to the Prisma `Memory` model and persist it, OR encode the score in the `value` field (e.g., JSON `{ score, value }`) and parse it on recall.
+   255→
+   256→---
+   257→
+   258→### M5 — Orchestrator DB writes are duplicated between tool-dispatch and dispatch paths
+   259→- **File:Line:** `src/lib/orchestrator.ts:1222-1233` (dispatch) and `1471-1488` (tool)
+   260→- **Evidence:**
+   261→  - When a subagent is dispatched, the orchestrator writes one row to `db.message` with `role: 'tool'`, `toolName: 'subagent_dispatch'` (lines 1222-1233).
+   262→  - Inside `runSubagent` (subagents.ts:1787-1810), each subagent's own tool call ALSO writes a row with `role: 'tool'`, `toolName: 'subagent_tool'` and another row at subagent completion (subagents.ts:1830-1840) with `toolName: 'subagent_complete'`.
+   263→  - The orchestrator's persist call (line 1471-1488) for SUPER AGENT tool calls also writes one row per tool.
+   264→- **Why it's a problem:** Three writes per dispatch on average. For a 3-dispatch turn with 5 subagent tool calls each, that's 3 + 15 + 3 = 21 DB writes. On Vercel serverless with cold-start DB connections, this is slow and costs connection-pool slots. The history reconstruction logic in `buildHistoryMessages` (agent.ts:1200-1208) only handles `role === 'tool'` generically — the extra metadata is mostly ignored.
+   265→- **Suggested fix:** Consolidate to one summary write per dispatch, or move intermediate step writes to a batched fire-and-forget call.
+   266→
+   267→---
+   268→
+   269→## LOW
+   270→
+   271→### L1 — Tool count in UPGRADE comments is wildly inconsistent across history
+   272→- **File:Line:** `src/lib/upgrade-manifest.ts` (multiple entries)
+   273→- **Evidence:** The upgrade manifest documents claims like "448 → 452 tools", "662 to 667 tools", "567 tools", "588+ tools", "612+ tools". The actual count in `tools.ts` is 458.
+   274→- **Why it's a problem:** Future maintainers reading the manifest will be confused about which count is correct. It also suggests the upgrade counter has been wrong many times historically.
+   275→- **Suggested fix:** Single source of truth: `Object.keys(TOOL_REGISTRY).length` evaluated at build time and reported in the manifest.
+   276→
+   277→---
+   278→
+   279→### L2 — `done` event safety-net flush at chat-store.ts:626 is unreachable
+   280→- **File:Line:** `src/store/chat-store.ts:621-641`
+   281→- **Evidence:** The block runs only `if (evt.event === 'done' || evt.event === 'error')`. Inside `applyEvent`, the `done` handler at line 1291-1308 already flushes `_pendingTokens` and sets it to `''`. By the time control returns to the outer loop, `_pendingTokens` is always `''`, so the safety-net check `if (_pendingTokens)` at line 626 is always false.
+   282→- **Why it's a problem:** Dead code added by UPGRADE #163. Not actively harmful, but adds 15 lines of confusing logic that future maintainers may try to "fix" without realizing it's already a no-op.
+   283→- **Suggested fix:** Remove the unreachable safety-net block; the `applyEvent` handler at line 1291-1308 already covers the case.
+   284→
+   285→---
+   286→
+   287→## Pre-existing TypeScript Errors in src/ (66 total)
+   288→
+   289→These are NOT introduced by #153-#168 but are pre-existing and would block a strict `tsc --noEmit`. Next.js's build pipeline tolerates them. Highlights:
+   290→
+   291→- `src/lib/subagents.ts(1583,16): error TS2339: Property 'dispatch' does not exist on type 'Parsed'.` (×3 — see C1)
+   292→- `src/components/agent/provider-error-banner.tsx(29,50): error TS2339: Property 'serverErrorUntil' does not exist on type 'ChatState'.` — the banner reads state that doesn't exist.
+   293→- Multiple `PrismaClient` errors (`platformConnection`, `riskProfile`, `scalingPlan`, `experiment`, `sentimentLog`) — these Prisma models don't exist in the schema. Code paths using them will crash at runtime if called.
+   294→- `src/app/api/api-keys/[id]/route.ts(52,13): error TS2339: Property 'deobf' does not exist` — referencing a non-exported function from a sibling route file.
+   295→- `src/lib/intelligence-tools.ts(220,18): error TS2339: Property 'sentimentLog' does not exist on type 'PrismaClient'` — fake/stale Prisma calls.
+   296→
+   297→---
+   298→
+   299→## Upgrade Marker Verification (#153-#168)
+   300→
+   301→| # | Marker Claim | Actually Implemented? | Notes |
+   302→|---|---|---|---|
+   303→| #153 | Brave AI REMOVED from LLM chain | ✅ Verified | agent.ts:340 — comment-only, Brave push was commented out |
+   304→| #154 | Look up thread by CURRENT stage | ⚠️ Cannot verify in audit scope | chat-store.ts:1285 references 'done' flush; needs deeper component audit |
+   305→| #155 | maxDuration 60 → 300, timeout 90 → 180 | ✅ Verified | chat-store.ts:586, route.ts:12 — but 180 < 300 (see H1) |
+   306→| #156 | waitUntil fire-and-forget | ✅ Verified | schedules/tick/route.ts:13-29 |
+   307→| #157 | Auth-error detection | ✅ Verified | orchestrator.ts:924-957 |
+   308→| #158 | Gemini/OpenRouter/Cerebras fallback models | ✅ Verified | agent.ts:541, 736, 887 |
+   309→| #159 | Provider Intelligence Integration | ⚠️ Partial | provider-intelligence.ts:1-371 — tracking works, but `getBestProvider` never called (M3) |
+   310→| #160 | Circuit breaker disabled (shouldSkipProvider=false) | ✅ Verified | agent.ts:206-208 |
+   311→| #161 | Provider chain optimization (Groq first) | ✅ Verified | agent.ts:307 (DEFAULT_ORDER) |
+   312→| #162 | (No marker found in src/) | — | Likely a worklog-only entry |
+   313→| #163 | Remove mandatory feedback loop | ✅ Verified | orchestrator.ts:1622-1638 (block is now a removal comment) |
+   314→| #164 | Sync llm-providers with DEFAULT_ORDER | ⚠️ Cannot verify | Need to check llm-providers route (out of audit scope) |
+   315→| #165 | Wire persistent-memory + handle dispatch in subagents | ❌ BROKEN | Gap #1 (dispatch inside subagents) is dead code — see C1. Gaps #2 (allowedTools enforcement) and #3 (persistent-memory wiring) are working. |
+   316→| #166 | Replace 7 fake tools with REAL ones | ❌ MISREPRESENTED | Only 2 of 7 actually replaced — see C4 |
+   317→| #167 | Stuck-counter, score updates, boundary audit | ⚠️ PARTIALLY BROKEN | Step 3 (score accumulation) broken — see C3. Step 5 (boundary audit) audits wrong list — see C2. Steps 1, 2, 4 appear OK. |
+   318→| #168 | Sort provider chain by DEFAULT_ORDER | ✅ Verified | agent.ts:380-396 — sort logic is correct |
+   319→
+   320→---
+   321→
+   322→## Top 10 Most Critical Findings (for the user's report)
+   323→
+   324→1. **C1** — `parsed.dispatch` doesn't exist on `Parsed`; UPGRADE #165 Gap #1 (subagent-to-specialist delegation) is dead code that never runs. 3 TS errors.
+   325→2. **C2** — Orchestrator's `tool_boundary_audit` audits the SUPER AGENT's tool list against the SUBAGENT's allowedTools (wrong list) — false positives, missed real violations.
+   326→3. **C3** — Self-learning score oscillates between two values (75↔85 / 25↔15), never accumulates — UPGRADE #167 Step 3 comment is misleading.
+   327→4. **C4** — 5 of 7 "fake tools replaced" by UPGRADE #166 were NOT replaced. Agent still calls fake `self_optimization_engine`, `feedback_optimization_loop`, `autonomous_decision_maker`, `efficiency_optimizer`, `tool_usage_analyzer` returning hardcoded hallucinated metrics.
+   328→5. **C5** — `multi-provider-comparison.ts` mutates `process.env.LLM_PROVIDER_ORDER` and doesn't restore on throw — first failure permanently locks the entire Vercel instance to one provider.
+   329→6. **H1** — Client timeout (180s) is shorter than server maxDuration (300s) — complex missions cut off prematurely.
+   330→7. **H2** — `runAgent` in agent.ts (344 lines) and `classifyQuerySmart` are dead code but still maintained, causing maintenance drift.
+   331→8. **H3** — Tool count is inconsistent: real ~458, prompts claim 673+, code claims 567/667/469/452/588 in different files.
+   332→9. **H4** — Duplicate LLM HTTP-call implementations across `agent.ts` and `ai-providers-integration.ts` with divergent parameters (temperature, max_tokens, User-Agent header).
+   333→10. **H5** — `model-router.ts` (UPGRADE #52, 182 lines) is fully dead code — promised +15% intelligence via gpt-4o vs gpt-4o-mini routing, never wired in.
+   334→
+   335→---
+   336→
+   337→*End of AUDIT-FINDINGS.md*
+   338→

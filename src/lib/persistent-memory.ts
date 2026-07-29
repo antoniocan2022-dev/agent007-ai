@@ -1,8 +1,22 @@
 /**
- * persistent-memory.ts — Persistent memory layer (upgrade #52)
+ * persistent-memory.ts — Persistent memory layer (upgrade #52, #171, #172)
  *
- * Triple-store: Redis (if configured) → /tmp file → DB
- * Ensures learnings survive Vercel cold starts.
+ * Two-tier store: /tmp file → DB. Ensures learnings survive Vercel cold starts.
+ *
+ * UPGRADE #172: Removed the misleading "Triple-store: Redis (if configured)"
+ * claim from the header. A prior audit (AUDIT-REDIS-ACCURACY) confirmed:
+ *   - This file has ZERO Redis code (only fs, path, os, db imports)
+ *   - The Redis tier was aspirational in the original #52 design but never
+ *     implemented.
+ *   - Production Vercel has REDIS_API_KEY, UPSTASH_REDIS_REST_URL,
+ *     UPSTASH_REDIS_REST_TOKEN env vars set, but they're EMPTY (length 0)
+ *     and not read by this file anyway.
+ * If a future agent wants Redis, they need to actually implement it here
+ * (import ioredis, ping REDIS_URL on init, fallback to file+DB on failure).
+ *
+ * UPGRADE #171: Memory TTL changed from 90 days to Infinity — Antonio wants
+ * memory forever. decayFactor is 1 (no age decay). Antonio can still update
+ * scores via updateMemoryScore (±10 per outcome).
  */
 
 import { db } from './db'
