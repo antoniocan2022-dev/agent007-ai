@@ -345,3 +345,43 @@ Stage Summary:
   - H3: PreWarmDb fires /api/health which is a NO-OP
 - Final report saved to /home/z/my-project/AUDIT-FINAL-REPORT.md
 - Production URL: https://agent007-ai.vercel.app (verified working)
+
+---
+Task ID: 169-fix-all
+Agent: main (Super Z)
+Task: Fix all 7 audit findings (5 CRITICAL + 2 HIGH) + deploy + verify live.
+
+Work Log:
+- Read Parsed interface in agent.ts:1090-1096 — confirmed it had no `dispatch` field.
+- Read parseOrchestrator at orchestrator.ts:133 — confirmed its OrchestratorParsed DOES have `dispatch`.
+- Read subagents.ts:1583-1640 — confirmed it reads parsed.dispatch but Parsed never had it.
+- C2 fix: Added `dispatch?: { agentId: string; task: string }` to Parsed interface in agent.ts. Updated parseAssistant (lines 1104-1178) to populate dispatch from BOTH <dispatch_subagent id="X"> tags AND <tool name="dispatch_subagent">{id,task}</tool> tool calls. Updated subagents.ts:1583-1591 to drop the `&& !parsed.tool` workaround since dispatch is now properly populated.
+- H1 fix: Refactored multi-provider-comparison.ts:43-84 to wrap the process.env.LLM_PROVIDER_ORDER mutation in try/finally. The original restore was inside the try block — if callLlmWithRetry threw, the restore never ran. After: finally always runs.
+- H2 fix: Bumped chat-store.ts:586 from AbortSignal.timeout(180_000) to AbortSignal.timeout(290_000). Server maxDuration is 300s — old 180s < 300s caused long missions to abort on client while server still working.
+- H3 fix: Replaced pre-warm-db.tsx /api/health (NO-OP — returns static JSON, no DB touch) with parallel Promise.allSettled of /api/conversations?limit=1, /api/memory?limit=1, /api/subagents — the 3 endpoints the dashboard actually loads. Each gets its own warm Lambda.
+- C3 fix: orchestrator.ts:1258-1290 now captures subagentSteps = result.steps ?? [] after runSubagent. The tool_boundary_audit at line 1338-1351 now uses subagentSteps (the SUBAGENT's actual tool calls) instead of `steps` (the orchestrator's super-agent step array). Before: compared super-agent calls against subagent allowedTools → false positives + missed real violations. After: compares the subagent's own tool calls against its allowedTools.
+- C4 fix: subagents.ts:1860-1905 — self-learning score accumulation. Before: storePersistentMemory was called first (overwriting score to 75|25), then updateMemoryScore moved it ±10. Net effect: success → 75→85, failure → 25→15, oscillates forever. After: check if learning already exists FIRST (via getAllPersistentMemory, with fallback to recallPersistentMemory). If new: storePersistentMemory once with initial score. If existing: only updateMemoryScore. Real confidence trend now: success → 75 → 85 → 95 → 100 (capped); failure → 25 → 15 → 5 → 0 (capped).
+- C5 fix: Added 5 new REAL tool implementations in real-intelligence-tools.ts: toolSelfOptimizationEngine (counts actual learnings in persistent memory), toolFeedbackOptimizationLoop (counts actual feedback/progress/help entries), toolAutonomousDecisionMaker (uses LLM with real learning context — no more hardcoded OPTION A), toolEfficiencyOptimizer (reads actual env config — no more fake +40% speed), toolToolUsageAnalyzer (counts actual tools in TOOL_REGISTRY — no more fake $890/mo). Updated tools.ts:2833-2865 to import these and override the 5 fake TOOL_REGISTRY entries.
+- C5 followup: tool-testing-coordination.ts:31-53 REAL_EXECUTABLE_TOOLS whitelist now includes the 5 newly-converted REAL tools + 4 #166 REAL coordination tools (request_help, report_progress, verify_work, tool_boundary_audit). Health checker now correctly reports 66 REAL (was 57) instead of mislabeling them as VIRTUAL.
+- Build verification: npx tsc --noEmit shows 0 errors in any modified file. Total project errors dropped from 66 → 63 (the 3 parsed.dispatch errors are now fixed).
+- Deployed twice via `npx vercel --prod` (with `bash scripts/lock-project.sh` first):
+  - Commit ab1d0c9: All 7 fixes + 8 files changed (+394 -59)
+  - Commit d4ff414: C5 followup whitelist update + 1 file changed (+8)
+  - Production URL: https://agent007-ai.vercel.app (correctly aliased both times)
+
+Live verification on production:
+- FIX #168: Groq tried first (318ms response). 2/5 attempts returned 'groq' provider, 3/5 returned 'openai-fallback' (transient Groq 429 — expected behavior, falls back to OpenAI as designed).
+- FIX #169 C5: tool_health_checker now shows '66 REAL, 611 VIRTUAL' (was '57 REAL, 620 VIRTUAL') — 9 more tools correctly classified.
+- FIX #169 H3: All 3 real endpoints respond on production:
+  - /api/conversations: HTTP 307 (auth redirect), TTFB 62ms
+  - /api/memory: HTTP 307 (auth redirect), TTFB 49ms
+  - /api/subagents: HTTP 200, TTFB 287ms
+  - /api/health: HTTP 200, TTFB 258ms (still works, just no longer used for prewarm)
+- All providers: Groq ✅ 318ms, OpenAI ✅ 464ms, Z.ai ✅ 1737ms. Mistral/OpenRouter/Cerebras/Gemini all ❌ (existing issues, not introduced by these fixes).
+
+Stage Summary:
+- ALL 7 audit findings FIXED and DEPLOYED to production.
+- Total files modified: 9 (agent.ts, subagents.ts, orchestrator.ts, real-intelligence-tools.ts, tools.ts, tool-testing-coordination.ts, multi-provider-comparison.ts, chat-store.ts, pre-warm-db.tsx).
+- Total lines changed: +402 / -59 across 2 commits.
+- Production URL: https://agent007-ai.vercel.app verified live.
+- TypeScript: 0 errors in modified files; pre-existing 3 errors RESOLVED (parsed.dispatch fix); total project errors 66 → 63.
