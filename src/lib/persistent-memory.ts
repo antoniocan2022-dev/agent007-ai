@@ -202,8 +202,33 @@ export async function updateMemoryScore(key: string, success: boolean): Promise<
 }
 
 /**
- * Get all persistent memories (for backup/debugging).
+ * Get all persistent memories (for backup/debugging/team-performance).
+ * UPGRADE #184 fix M4: Was only reading /tmp file. On Vercel cold starts,
+ * /tmp is wiped → team-performance endpoint showed "0 tasks" even when
+ * the DB had real data. Now reads BOTH file + DB, merges + deduplicates.
  */
 export async function getAllPersistentMemory(): Promise<MemoryEntry[]> {
-  return loadFromFile()
+  // Start with file entries (fast, in-memory cache)
+  const fileEntries = loadFromFile()
+
+  // Also read from DB (survives Vercel cold starts)
+  let dbEntries: MemoryEntry[] = []
+  try {
+    const dbMems = await db.memory.findMany({ take: 500 }).catch(() => [])
+    dbEntries = dbMems.map(m => ({
+      key: m.key,
+      value: m.value,
+      category: m.category,
+      createdAt: m.createdAt.getTime(),
+      score: 50,  // DB doesn't store score (only file does); default to 50
+      timesRecalled: 0,
+    }))
+  } catch {}
+
+  // Merge + deduplicate (file takes priority — has real scores)
+  const merged = new Map<string, MemoryEntry>()
+  for (const e of dbEntries) merged.set(e.key, e)
+  for (const e of fileEntries) merged.set(e.key, e)  // file overrides
+
+  return Array.from(merged.values())
 }

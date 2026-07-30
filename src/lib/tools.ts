@@ -1781,8 +1781,9 @@ TOOL_REGISTRY.conversion_optimizer = { fn: toolConversionOptimizer, icon: 'targe
 // 3. Investment Management (4)
 TOOL_REGISTRY.portfolio_optimizer = { fn: toolPortfolioOptimizer, icon: 'pie-chart', label: 'Portfolio Optimizer (MPT + Sharpe + rebalancing)' }
 TOOL_REGISTRY.realtime_market_data = { fn: toolRealtimeMarketData, icon: 'activity', label: 'Real-Time Market Data (stocks + crypto)' }
-TOOL_REGISTRY.crypto_analyzer = { fn: toolCryptoAnalyzer, icon: 'bitcoin', label: 'Crypto Analyzer (technical + on-chain + sentiment)' }
-TOOL_REGISTRY.stock_screener = { fn: toolStockScreener, icon: 'search', label: 'Stock Screener (fundamental + valuation)' }
+// UPGRADE #184 fix M1: Dead — overridden by REAL versions at line ~2629-2630
+// TOOL_REGISTRY.crypto_analyzer = { fn: toolCryptoAnalyzer, icon: 'bitcoin', label: 'Crypto Analyzer (technical + on-chain + sentiment)' }
+// TOOL_REGISTRY.stock_screener = { fn: toolStockScreener, icon: 'search', label: 'Stock Screener (fundamental + valuation)' }
 
 // 4. Content Creation (4)
 TOOL_REGISTRY.ai_writing_assistant = { fn: toolAIWritingAssistant, icon: 'pen-line', label: 'AI Writing Assistant (blogs + emails + scripts)' }

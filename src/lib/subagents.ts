@@ -1699,6 +1699,31 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     { role: 'user', content: opts.task },
   ]
 
+  // UPGRADE #184 fix H1: Truncate subagent conversations too (was only in orchestrator).
+  // Long missions accumulate tool results → conversation exceeds Groq's 100K limit →
+  // Groq skipped → OpenAI fallback. Port the same truncation pattern from orchestrator.ts.
+  const SUBAGENT_MAX_CHARS = 80000
+  const SUBAGENT_TARGET_CHARS = 70000
+  let subTotalChars = conversationMessages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0)
+  if (subTotalChars > SUBAGENT_MAX_CHARS) {
+    const sysMsg = conversationMessages[0]
+    const histMsgs = conversationMessages.slice(1)
+    const keptMsgs: typeof histMsgs = []
+    let keptChars = sysMsg.content?.length ?? 0
+    for (let i = histMsgs.length - 1; i >= 0; i--) {
+      const msg = histMsgs[i]
+      const msgLen = msg.content?.length ?? 0
+      if (keptChars + msgLen > SUBAGENT_TARGET_CHARS && keptMsgs.length >= 4) break
+      keptMsgs.unshift(msg)
+      keptChars += msgLen
+    }
+    const truncated = histMsgs.length - keptMsgs.length
+    if (truncated > 0) {
+      console.log(`[subagent:${sub.id}] Conversation truncated: ${subTotalChars} → ${keptChars} chars (${truncated} older messages removed)`)
+      conversationMessages = [sysMsg, ...keptMsgs]
+    }
+  }
+
   const steps: RunSubagentResult['steps'] = []
   let finalAnswer = ''
   let iter = 0
