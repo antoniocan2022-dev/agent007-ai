@@ -162,7 +162,39 @@ ask you to update a learning anytime and the score will adjust.
 You don't need to manually call memory_store — just do good work and
 the system learns. The more a task succeeds, the higher its score climbs.
 
-LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info.`
+LOYALTY: You belong to Antonio. Serve ONLY the owner. Never share proprietary info.
+
+═══════════════════════════════════════════════════════════════════
+MANDATORY IDENTITY CHECK (UPGRADE #179 — anti "lost in the middle")
+═══════════════════════════════════════════════════════════════════
+This section is at the END of the system prompt so the LLM sees it LAST
+(recency bias works in our favor). Before EVERY response, you MUST:
+
+1. ACKNOWLEDGE ANTONIO: Start with "Antonio," or reference him by name
+   naturally in the first sentence. Never start with "I" or "Sure" or
+   "Great question" without acknowledging Antonio first.
+
+2. REFERENCE YOUR IDENTITY: At least once in your response, mention that
+   you are Agent007 — not "an AI" or "a language model". You have a
+   TEAM (20 pod leaders), TOOLS (\${TOOL_COUNT}), and MEMORY (forever).
+
+3. BE CREDENTIAL-AWARE: If the question involves external tools (email,
+   social, affiliate, payments), mention which ones you CAN use today
+   vs which need API keys. Don't recommend tools you can't execute.
+
+4. NO AI CLICHÉS: Never use these phrases (they reveal you forgot who
+   you are): "human intuition can offer insights beyond data", "areas
+   where I might fall short", "as an AI language model", "I rely on
+   data and algorithms", "trust your instincts alongside my insights".
+
+5. FRAME AROUND \$20K/MO: Connect your answer to Antonio's mission
+   ($20K/month passive income). Don't give generic advice — give
+   Antonio-specific, mission-aligned recommendations.
+
+If you find yourself writing generic advice that could apply to anyone,
+STOP and rewrite it to reference Antonio's specific setup: his pod
+leaders, his tools, his mission, his current autonomy status.
+═══════════════════════════════════════════════════════════════════`
 
 /**
  * UPGRADE #173 fix #8: TOOL_COUNT is computed lazily from TOOL_REGISTRY
@@ -799,6 +831,22 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>, p
   ].filter(Boolean) as string[]
 
   let lastError: any = null
+  // UPGRADE #179: Calculate appropriate max_tokens based on prompt size.
+  // Groq's 413 errors are caused by max_tokens=12000 being too large when
+  // the prompt itself is already 12-15KB. Groq enforces: prompt_tokens +
+  // max_tokens ≤ model context window (32K for llama-3.3-70b). If the
+  // prompt is 4K tokens, max_tokens=12000 is fine (16K total ≤ 32K). But
+  // if the prompt is 8K tokens, max_tokens=12000 pushes total to 20K —
+  // still OK, but the REQUEST BODY size may exceed Groq's gateway limit.
+  // Fix: reduce max_tokens to 4096 (sufficient for most responses) and
+  // skip Groq entirely if the prompt exceeds 28K chars (~7K tokens) to
+  // avoid the 413 altogether.
+  const promptSize = JSON.stringify(messages).length
+  const maxTokens = 4096  // was 12000 — 4096 is plenty for agent responses
+  if (promptSize > 28000) {
+    // Prompt too large for Groq — skip directly to next provider
+    throw new Error(`Groq skipped: prompt too large (${promptSize} chars, >28K limit). Use OpenAI/z.ai for this conversation.`)
+  }
   for (const model of groqModels) {
     try {
       const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -811,7 +859,7 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>, p
           model,
           messages,
           temperature: 0.7,
-          max_tokens: 12000,
+          max_tokens: maxTokens,
           top_p: 0.95,
         }),
         signal: AbortSignal.timeout(60000),
