@@ -201,32 +201,76 @@ story.append(Paragraph(
     small_style
 ))
 
-# === STEP 2: AMAZON ASSOCIATES ===
-story.append(Paragraph("Step 2: Add Amazon Associates (Affiliate Links) — 1 hour, Free", h2_style))
+# === STEP 2: AMAZON ASSOCIATES — JUST THE TAG (5 min!) ===
+story.append(Paragraph("Step 2: Add Amazon Associates Tag — 5 min (NOT 1 hour) — Free", h2_style))
 story.append(Paragraph(
-    "<b>Why:</b> Lets the agent generate REAL affiliate links (Amazon, ShareASale, Impact, Awin, ClickBank). "
-    "Without this, the affiliate_link_generator tool falls back to generic URLs that don't track your commissions. "
-    "Amazon pays 1-4% on most categories, higher on some.",
+    "<b>Why:</b> Lets the agent generate REAL Amazon affiliate links. The good news: "
+    "you don't need the PA API to generate links — only the Associates Tag. "
+    "The PA API is optional (used only for programmatic product search; the agent "
+    "can use web_search + page_reader instead).",
     body_style
 ))
 story.append(Paragraph(
-    "<b>How:</b><br/>"
-    "1. Apply at https://affiliate-program.amazon.com (use your website or any blog URL — approval takes 1-3 days)<br/>"
-    "2. Once approved, get your <b>Associate Tag</b> (looks like <font face='Courier'>yourname-20</font>)<br/>"
-    "3. Go to https://webservices.amazon.com/paapi (Product Advertising API) → Request API access<br/>"
-    "4. Create a credential pair: <b>Access Key</b> + <b>Secret Key</b><br/>"
-    "5. Add 2 Vercel env vars:<br/>"
-    "   • Key: <font face='Courier'>AMAZON_ASSOCIATES_TAG</font> → Value: yourname-20<br/>"
-    "   • Key: <font face='Courier'>AMAZON_PA_API_KEY</font> → Value: AKIA... (the Access Key)<br/>"
-    "   • Key: <font face='Courier'>AMAZON_PA_API_SECRET</font> → Value: (the Secret Key)<br/>"
-    "6. Save all 3. Vercel auto-redeploys.<br/>"
-    "7. Verify: re-run capability-audit — affiliate_link_generator should now show as READY.",
+    "<b>How (5 min):</b><br/>"
+    "1. Login to your Amazon Associates account at https://affiliate-program.amazon.com<br/>"
+    "2. Find your <b>Associate Tag</b> (top-right corner — looks like <font face='Courier'>antoniocan-20</font>)<br/>"
+    "3. Go to https://vercel.com/antoniocan2022-devs-projects/agent007-ai/settings/environment-variables<br/>"
+    "4. Add: Key <font face='Courier'>AMAZON_ASSOCIATES_TAG</font> → Value <font face='Courier'>yourname-20</font> → Environment: Production<br/>"
+    "5. Click Save. Vercel auto-redeploys.<br/>"
+    "6. Verify: re-run capability-audit — affiliate_link_generator should now be READY.<br/>"
+    "<br/>"
+    "<b>NOTE on PA API (OPTIONAL):</b> If you want the agent to programmatically "
+    "search Amazon's catalog (instead of using web_search), apply at "
+    "https://webservices.amazon.com/paapi — but approval takes weeks. Skip "
+    "this for now. The agent works perfectly without it.",
     body_style
 ))
+
+# === STEP 2B: ALTERNATIVE NETWORKS ===
+story.append(Paragraph("Alternative Networks (Instant Approval — Antonio's Niche: AI Tools/SaaS)", h2_style))
 story.append(Paragraph(
-    "After this, the agent can: generate real affiliate links for any Amazon product, look up product prices + reviews, "
-    "build affiliate funnels with real commission tracking, auto-pick trending products in your niche.",
-    small_style
+    "If you want to diversify beyond Amazon (lower commission rates, 1-10%), "
+    "here are 2 instant-access alternatives:",
+    body_style
+))
+
+alt_data = [
+    ['Network', 'Approval', 'Commission', 'Best For'],
+    ['ClickBank', 'INSTANT (5 min)', '50-75% (digital)', 'AI courses, e-books, software'],
+    ['PartnerStack', '1-2 days', '20-30% LIFETIME', 'SaaS: Notion, Webflow, Jasper, Copy.ai, Monday, ClickUp'],
+    ['Amazon (tag only)', 'INSTANT (already has)', '1-10%', 'Physical products on Amazon'],
+]
+
+alt_table = Table(alt_data, colWidths=[1.4*inch, 1.3*inch, 1.4*inch, 2.3*inch])
+alt_table.setStyle(TableStyle([
+    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+    ('FONTSIZE', (0, 0), (-1, 0), 9),
+    ('BACKGROUND', (0, 0), (-1, 0), COLOR_DARK),
+    ('TEXTCOLOR', (0, 0), (-1, 0), white),
+    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+    ('FONTSIZE', (0, 1), (-1, -1), 8.5),
+    ('TEXTCOLOR', (0, 1), (-1, -1), COLOR_TEXT),
+    ('BACKGROUND', (0, 1), (-1, 1), HexColor("#dcfce7")),  # ClickBank — instant
+    ('BACKGROUND', (0, 2), (-1, 2), HexColor("#fef3c7")),  # PartnerStack — 1-2 days
+    ('BACKGROUND', (0, 3), (-1, 3), HexColor("#dcfce7")),  # Amazon — instant tag
+    ('GRID', (0, 0), (-1, -1), 0.5, COLOR_BORDER),
+    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+    ('TOPPADDING', (0, 0), (-1, -1), 4),
+    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+]))
+story.append(alt_table)
+
+story.append(Spacer(1, 6))
+
+story.append(Paragraph(
+    "<b>Recommended path (if Antonio's niche is AI tools):</b><br/>"
+    "1. Add the Amazon Associates Tag (Step 2 above — 5 min) → enables Amazon commissions<br/>"
+    "2. Sign up for PartnerStack (https://partnerstack.com) → enables SaaS recurring commissions<br/>"
+    "3. Sign up for ClickBank (https://www.clickbank.com) → enables digital product commissions<br/>"
+    "Add the 2 new env vars when ready: <font face='Courier'>CLICKBANK_API_KEY</font> + <font face='Courier'>PARTNERSTACK_API_KEY</font>",
+    body_style
 ))
 
 # === AFTER BOTH: WHAT THE AGENT CAN DO ===

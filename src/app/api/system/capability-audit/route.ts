@@ -60,7 +60,11 @@ const TOOL_REQUIRED_ENV: Record<string, string[]> = {
   hootsuite_schedule: ['HOOTSUITE_ACCESS_TOKEN'],
 
   // === AFFILIATE MARKETING ===
-  affiliate_link_generator: ['AMAZON_ASSOCIATES_TAG', 'AMAZON_PA_API_KEY'], // can fall back to generic without these, but real affiliate links need them
+  // UPGRADE #175: AMAZON_PA_API_KEY is OPTIONAL — only needed for programmatic
+  // product search (the agent can use web_search + page_reader instead).
+  // AMAZON_ASSOCIATES_TAG ALONE is enough to monetize: agent builds links as
+  // https://www.amazon.com/dp/{ASIN}?tag={tag} — no API call required.
+  affiliate_link_generator: ['AMAZON_ASSOCIATES_TAG'],
   affiliate_tracker: [], // uses internal DB, no external API
   affiliate_funnel_builder: [], // design only, no external API
 
@@ -223,12 +227,34 @@ export async function GET() {
       cost: 'Free for 3 social accounts',
     })
   }
-  if (!isEnvSet('AMAZON_ASSOCIATES_TAG') || !isEnvSet('AMAZON_PA_API_KEY')) {
+  if (!isEnvSet('AMAZON_ASSOCIATES_TAG')) {
     blockingForRevenue.push({
-      envVar: 'AMAZON_ASSOCIATES_TAG + AMAZON_PA_API_KEY',
+      envVar: 'AMAZON_ASSOCIATES_TAG (Amazon Associate Tag only — PA API optional)',
       tools: ['affiliate_link_generator'],
-      setupTime: '~1 hour (apply + wait approval + add 2 keys)',
-      cost: 'Free, 1-4% commission on sales',
+      // UPGRADE #175: Just the Associates Tag unlocks affiliate links.
+      // Build: https://www.amazon.com/dp/{ASIN}?tag={your-tag-20}
+      // Antonio already has an Associates account. Just needs to add
+      // the tag env var. No PA API wait required.
+      setupTime: '~5 min (you already have an Associates account, just add the tag env var)',
+      cost: 'Free, 1-10% commission on Amazon sales',
+    })
+  }
+  // Add ClickBank as alternative (instant signup, no API wait)
+  if (!isEnvSet('CLICKBANK_API_KEY')) {
+    blockingForRevenue.push({
+      envVar: 'CLICKBANK_API_KEY (alternative — INSTANT signup, no approval)',
+      tools: ['affiliate_link_generator'],
+      setupTime: '~10 min (signup + verify email + add payment info)',
+      cost: 'Free, 50-75% commission on digital products',
+    })
+  }
+  // Add PartnerStack as alternative (SaaS-focused, fast approval)
+  if (!isEnvSet('PARTNERSTACK_API_KEY')) {
+    blockingForRevenue.push({
+      envVar: 'PARTNERSTACK_API_KEY (alternative for SaaS — 1-2 day approval)',
+      tools: ['affiliate_link_generator'],
+      setupTime: '~1-2 days (apply + per-brand approval)',
+      cost: 'Free, 20-30% LIFETIME RECURRING on SaaS products',
     })
   }
   if (!isEnvSet('GOOGLE_ANALYTICS_API_KEY')) {
