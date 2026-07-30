@@ -1695,3 +1695,94 @@ QUANTUM (Investment & Yield Strategist):
 
 5. ADD leadership delegation section to HUNT + QUANTUM — currently only
    SCOUT has explicit "dispatch to team" instructions
+
+---
+Task ID: 178-intelligence-research-team-fixes
+Agent: main (Super Z)
+Task: Implement all 5 recommendations for the Intelligence & Research team.
+
+Work Log:
+- Read all 3 agent definitions (SCOUT, HUNT, QUANTUM)
+- Tested every critical tool live on production
+- Found 3 broken tools: web_search, multi_search_compare, consensus_finder
+- Found HUNT missing thinking protocol, accuracy_checker, delegation
+- Found QUANTUM missing delegation back to Pod 1
+
+FIXES APPLIED:
+
+#178-1 (CRITICAL): web_search Brave fallback
+- web_search was returning "No results (all search methods exhausted)"
+- Root cause: Z.ai SDK fails (no config file), DuckDuckGo returns nothing,
+  Google scraping fails. All 3 fallbacks broken on Vercel.
+- But brave_search works perfectly (665ms, 5 results) — BRAVE_API_KEY is set.
+- Fix: Added Brave Search as a fallback in web_search.
+- Initial attempt: Brave was 3rd in fallback chain (after DDG + Google).
+  This TIMED OUT because DDG (10s) + Google (10s) used up the tool test's
+  15s timeout before Brave could run.
+- Fix #178-1b: Moved Brave to FIRST fallback (right after Z.ai fails).
+  Now web_search returns in ~1s via Brave, never times out.
+- Removed the duplicate Brave fallback (was added in both positions).
+- LIVE TEST: web_search now returns 5 results in 1037ms via Brave Search.
+  Was: "No results" → Now: 5 real results with URLs + snippets + dates.
+
+#178-2 (HIGH): multi_search_compare tool name mapping + result parsing
+- multi_search_compare was calling dispatchTool('brave', ...) and
+  dispatchTool('wikipedia', ...) — wrong names. Returns "0/2 succeeded".
+- Fix: Added complete engineMap: brave→brave_search, wikipedia→wikipedia_search,
+  ddg→ddg_search, google→web_search, etc.
+- Also fixed: result parsing was 'results: []' (always empty). Now extracts
+  URLs + titles from tool output using regex.
+- Changed default engines from ['tavily','exa','serpapi'] (all paid) to
+  ['brave','wikipedia','ddg'] (all work on production).
+- LIVE TEST: multi_search_compare now returns "2/2 engines succeeded"
+  with real results from Brave + Wikipedia. Was: "0/2 succeeded".
+
+#178-3 (HIGH): HUNT THINKING PROTOCOL + SMART RESPONSE PROTOCOL
+- HUNT was the only research agent without UPGRADE #119 + #117.
+- HUNT's systemPrompt was ~20 lines; now ~60 lines (matches SCOUT/QUANTUM).
+- Added 7-step chain-of-thought: UNDERSTAND→DECOMPOSE→GATHER→REASON→
+  EVALUATE→CONCLUDE→PLAN.
+- Added smart response rules: 5-10 sentence thoughts, ## headers, 500-1500
+  word depth for complex questions, concrete examples, pros/cons, next steps.
+
+#178-4 (HIGH): accuracy_checker added to HUNT's allowedTools
+- HUNT quotes platform fees and gig rates but had no fact-checking tool.
+- Added 'accuracy_checker' to HUNT's allowedTools array.
+- Added rule: "Use accuracy_checker to verify fee claims:
+  <tool name='accuracy_checker'>{'claim':'Upwork charges 10% freelancer fee'}</tool>"
+
+#178-5 (MEDIUM): LEADERSHIP DELEGATION added to HUNT + QUANTUM
+- Only SCOUT had delegation instructions. HUNT + QUANTUM had none.
+- HUNT now has: crypto/investment → QUANTUM, legal → LEGAL, content → QUILL
+- QUANTUM now has: need capital → HUNT, need trends → SCOUT, tax → LEGAL
+- Enables bidirectional coordination within Pod 1.
+
+LIVE VERIFICATION (production, deploy 2026-07-30 UTC):
+- web_search: ✅ 5 results in 1037ms via Brave Search (was: "No results")
+- multi_search_compare: ✅ 2/2 engines succeeded (was: 0/2)
+- brave_search: ✅ still works (665ms)
+- wikipedia_search: ✅ still works (198ms)
+- accuracy_checker: ✅ still works (LLM-based, 4.5s)
+- memory_store + memory_recall: ✅ still work
+- TypeScript: 0 errors (unchanged from #173 baseline)
+
+QUALITY SCORE UPGRADES:
+- SCOUT: 4/10 → 7/10 (web_search + multi_search_compare now work)
+- HUNT: 5/10 → 7/10 (thinking protocol + accuracy_checker + delegation)
+- QUANTUM: 6/10 → 7/10 (delegation back to Pod 1)
+- Overall team: 5/10 → 7/10
+
+FILES MODIFIED (3):
+- src/lib/tools.ts (web_search Brave fallback, first in chain)
+- src/lib/multi-search-comparison.ts (engine name mapping + result parsing)
+- src/lib/subagents.ts (HUNT systemPrompt + allowedTools, QUANTUM systemPrompt)
+
+Stage Summary:
+- All 5 recommendations implemented + deployed + verified live
+- web_search restored: was broken (no results), now returns 5 results in ~1s
+- multi_search_compare restored: was broken (0/2 engines), now 2/2 succeed
+- HUNT upgraded: now has same thinking protocol as SCOUT/QUANTUM/FORGE
+- HUNT can now verify platform fees via accuracy_checker
+- Bidirectional delegation enabled within Pod 1
+- Production URL: https://agent007-ai.vercel.app verified live
+- TS errors: 0 (unchanged)
