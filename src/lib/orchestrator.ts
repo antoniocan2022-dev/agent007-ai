@@ -898,6 +898,44 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     ]
   }
 
+  // UPGRADE #183 fix B: Conversation truncation for long conversations.
+  // If total conversation exceeds 90K chars (~22K tokens), truncate older
+  // messages to keep the conversation within provider limits.
+  // Strategy: keep system prompt + last N messages that fit under 80K chars.
+  // This preserves the most recent context (most relevant) while staying
+  // within Groq's 32K token context window.
+  const MAX_CONVERSATION_CHARS = 90000
+  const TARGET_CONVERSATION_CHARS = 80000
+  let totalChars = conversationMessages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0)
+  if (totalChars > MAX_CONVERSATION_CHARS) {
+    const systemMsg = conversationMessages[0]  // always keep system prompt
+    const historyMsgs = conversationMessages.slice(1)  // user + assistant messages
+
+    // Keep messages from the END (most recent) until we hit the target
+    const keptMsgs: typeof historyMsgs = []
+    let keptChars = systemMsg.content?.length ?? 0
+    for (let i = historyMsgs.length - 1; i >= 0; i--) {
+      const msg = historyMsgs[i]
+      const msgLen = msg.content?.length ?? 0
+      if (keptChars + msgLen > TARGET_CONVERSATION_CHARS && keptMsgs.length >= 4) {
+        break  // stop when we'd exceed target AND have at least 4 messages
+      }
+      keptMsgs.unshift(msg)
+      keptChars += msgLen
+    }
+
+    const truncatedCount = historyMsgs.length - keptMsgs.length
+    if (truncatedCount > 0) {
+      console.log(`[orchestrator] Conversation truncated: ${totalChars} → ${keptChars} chars (${truncatedCount} older messages removed to fit provider context limits)`)
+      // Add a summary note about truncated history
+      conversationMessages = [
+        systemMsg,
+        { role: 'user', content: `[SYSTEM NOTE: ${truncatedCount} earlier messages were truncated to fit context limits. The conversation above is the most recent portion.]` },
+        ...keptMsgs,
+      ]
+    }
+  }
+
   let finalAnswer = ''
   let iter = 0
   let dispatchCount = 0

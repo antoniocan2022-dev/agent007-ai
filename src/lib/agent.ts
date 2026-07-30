@@ -385,7 +385,12 @@ export async function callLlmWithRetry(
   async function callWithRetry(
     providerName: string,
     fn: () => Promise<any>,
-    backoffMs: number[] = [0, 500, 1500]
+    // UPGRADE #183 fix C: Increased from [0, 500, 1500] (3 retries) to
+    // [0, 1000, 3000, 8000, 15000] (5 retries). Antonio reported OpenAI
+    // and z.ai returning 429 on long conversations — the old 1.5s max
+    // backoff wasn't enough time for the rate limit to clear.
+    // New backoff: 0s → 1s → 3s → 8s → 15s (total max wait: 27s)
+    backoffMs: number[] = [0, 1000, 3000, 8000, 15000]
   ): Promise<any> {
     let lastProviderErr: any = null
     for (let attempt = 0; attempt < backoffMs.length; attempt++) {
@@ -843,9 +848,15 @@ async function callGroqLlm(messages: Array<{ role: string; content: string }>, p
   // avoid the 413 altogether.
   const promptSize = JSON.stringify(messages).length
   const maxTokens = 4096  // was 12000 — 4096 is plenty for agent responses
-  if (promptSize > 28000) {
-    // Prompt too large for Groq — skip directly to next provider
-    throw new Error(`Groq skipped: prompt too large (${promptSize} chars, >28K limit). Use OpenAI/z.ai for this conversation.`)
+  // UPGRADE #183 fix A: Raised Groq limit from 28K → 100K chars.
+  // Groq's llama-3.3-70b-versatile has a 32K TOKEN context window.
+  // 100K chars ≈ 25K tokens (safe under 32K). The old 28K limit was
+  // too conservative (only 7K tokens) and caused Groq to be skipped
+  // on normal-length conversations. Antonio reported 176K char prompts
+  // failing — those ARE too large for Groq (44K tokens > 32K limit),
+  // but anything under 100K chars should try Groq first.
+  if (promptSize > 100000) {
+    throw new Error(`Groq skipped: prompt too large (${promptSize} chars, >100K limit = ~25K tokens, exceeds Groq's 32K context). Use OpenAI/z.ai for this conversation.`)
   }
   for (const model of groqModels) {
     try {
