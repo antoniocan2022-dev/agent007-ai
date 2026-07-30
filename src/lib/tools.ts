@@ -2607,7 +2607,7 @@ TOOL_REGISTRY.deepl_translate = { fn: toolDeepLTranslate, icon: 'languages', lab
 TOOL_REGISTRY.remove_bg = { fn: toolRemoveBg, icon: 'scissors', label: 'Remove.bg (AI background removal, 50 images/month free)' }
 // Utils (2)
 TOOL_REGISTRY.summarize_tech = { fn: toolSummarizeTech, icon: 'video', label: 'Summarize.tech (AI video summarization, free)' }
-TOOL_REGISTRY.yahoo_finance = { fn: toolYahooFinance, icon: 'dollar-sign', label: 'Yahoo Finance via RapidAPI (stock prices, financials)' }
+TOOL_REGISTRY.yahoo_finance = { fn: toolYahooFinance, icon: 'dollar-sign', label: 'Yahoo Finance (FREE v8 API — stocks + crypto, no key needed)' }
 // UPGRADE #181 fix #2b: CoinGecko — free crypto data, no API key needed.
 TOOL_REGISTRY.coingecko = { fn: toolCoinGecko, icon: 'bitcoin', label: 'CoinGecko (REAL crypto prices, trending, top 20 — FREE, no key)' }
 

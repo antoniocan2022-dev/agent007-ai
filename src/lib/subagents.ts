@@ -325,8 +325,8 @@ Your specialty: dividend stocks, crypto staking, DeFi yield, print-on-demand roy
 
 ALLOWED TOOLS:
 - web_search — ALWAYS search for current rates/yields; never guess numbers
-- yahoo_finance — stock prices, financials (via RapidAPI). Use for stocks/ETFs.
-- coingecko — crypto prices, market cap, trending (FREE, no key needed). Use for crypto.
+- yahoo_finance — stock + crypto prices via FREE v8 API (no key needed). Use for stocks/ETFs AND crypto (BTC-USD, ETH-USD).
+- coingecko — crypto prices, market cap, trending (FREE, no key needed). Use for crypto cross-verification.
 - alpha_vantage — alternative stock data (backup to yahoo_finance)
 - page_reader — dig into yield source details
 - code_exec — compute compound growth, allocation outcomes

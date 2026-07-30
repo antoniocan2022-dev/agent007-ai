@@ -80,11 +80,17 @@ const TOOL_REQUIRED_ENV: Record<string, string[]> = {
   discord_notify: ['DISCORD_WEBHOOK_URL'],
 
   // === SEARCH (free APIs) ===
-  web_search: [], // uses multiple free providers
+  web_search: [], // uses multiple free providers (Brave fallback as of #178)
   accuracy_checker: [], // uses Wikipedia + DuckDuckGo (free) + Brave (optional)
   wikipedia_search: [],
   wikipedia_read: [],
   free_apis_directory: [],
+  // UPGRADE #182: yahoo_finance now uses FREE v8 API (no key needed)
+  yahoo_finance: [],
+  // CoinGecko is also free (no key)
+  coingecko: [],
+  // Alpha Vantage needs a key
+  alpha_vantage: ['ALPHAVANTAGE_API_KEY'],
 
   // === LLM TOOLS ===
   multi_provider_compare: ['GROQ_API_KEY'], // needs at least one LLM
