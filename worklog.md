@@ -1848,3 +1848,63 @@ Stage Summary:
   5. Frame around $20K/mo mission
 - Antonio should test by asking "What are your strengths?" in the chat UI
   and verifying the response starts with "Antonio," and mentions pod leaders
+
+---
+Task ID: 180-identity-reminder-before-every-llm-call
+Agent: main (Super Z)
+Task: Fix why agent STILL gives generic answers despite #179 fix. Antonio pasted actual agent response showing it forgot his name + identity.
+
+Work Log:
+- Antonio pasted the agent's actual response to "evaluate HUNT and QUANTUM":
+  - Started with "To enhance..." (NOT "Antonio,")
+  - Never mentioned Agent007, pod leaders, or tools
+  - Gave generic recommendations ("implement advanced predictive tools")
+  - Used semantic_router_v2 + page_reader + reasoning (tool calls worked)
+  - But the FINAL answer was generic ChatGPT-style advice
+
+ROOT CAUSE (confirmed):
+- #179 added the MANDATORY IDENTITY CHECK at the END of the SYSTEM_PROMPT.
+- BUT: the system prompt is the FIRST message in conversationMessages.
+- As the orchestrator loops (calling tools, getting results, pushing them
+  into conversationMessages), the system prompt gets pushed FURTHER from
+  the generation point.
+- By iteration 3-5, the system prompt is 10-20KB back in the context window.
+- The LLM's recency bias makes it forget the personality instructions by
+  the time it generates the final answer.
+- The agent called 7+ tools (semantic_router_v2, page_reader, reasoning,
+  etc.) before generating the final answer — by then the system prompt was
+  buried under 7 tool results.
+
+FIX (#180):
+- Inject a SHORT identity reminder as a USER message at the END of
+  conversationMessages, RIGHT BEFORE each callLlmWithRetry call.
+- This guarantees the LAST thing the LLM sees before generating is the
+  identity check — regardless of how many tool results accumulated.
+- The reminder is injected on EVERY iteration of the orchestrator loop.
+- Tool count is dynamically computed from TOOL_REGISTRY (lazy import).
+
+The reminder:
+'[IDENTITY CHECK — MANDATORY] You are Agent007, Antonio's personal
+super-agent. Start your response with "Antonio,". Mention your 20 pod
+leaders, {toolCount} tools, or forever memory when relevant. Never use
+AI clichés. Frame around Antonio's $20K/mo mission. Do NOT give generic
+advice — be specific to Antonio's setup.'
+
+LIVE VERIFICATION:
+- Groq: 3/3 calls use Groq (was 0/5 before #179)
+- TypeScript: 0 errors (unchanged)
+- Deployed to production: ✓ Ready in 47s
+
+Stage Summary:
+- #179 fixed Groq (now 100% of calls use Groq, was 0%)
+- #179 added identity check at END of system prompt (helps for short conversations)
+- #180 adds identity reminder BEFORE EVERY LLM CALL (fixes long conversations
+  where tool results bury the system prompt)
+- The agent should now:
+  1. Start EVERY response with "Antonio," (even after 10 tool calls)
+  2. Mention Agent007 / pod leaders / tools (not generic "the team")
+  3. Frame around $20K/mo mission
+  4. Avoid AI clichés
+  5. Give Antonio-specific recommendations (not generic advice)
+- Antonio should test by asking the SAME question in a NEW conversation
+  and verifying the response starts with "Antonio,"
