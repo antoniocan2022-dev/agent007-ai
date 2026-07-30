@@ -1147,3 +1147,116 @@ Stage Summary:
 - Setup PDF explains both step-by-step with cost + time
 - Files modified/created (4): route.ts (NEW), middleware.ts, agent.ts,
   download/setup-guide.pdf (NEW), scripts/setup-guide-pdf.py (NEW)
+
+---
+Task ID: 175-convertkit-confirm-amazon-alternatives
+Agent: main (Super Z)
+Task: Confirm ConvertKit, find best Amazon alternative with instant API, design manual Amazon workflow.
+
+Work Log:
+- Antonio confirmed: "I added ConvertKit api key, confirm that."
+- Verified via capability-audit endpoint (production runtime):
+  - convertkit_email: ✅ READY
+  - email_marketing_automation + email_marketing_automation_full + email_marketing_setup: ✅ READY
+- Note: Vercel management API shows CONVERTKIT_API_KEY as EMPTY because it
+  hides encrypted secret values. The capability-audit endpoint runs in
+  the actual production environment where process.env.CONVERTKIT_API_KEY
+  IS set, so it correctly reports READY.
+- Autonomy score: 50% → 67% (4/6 revenue-critical now ready).
+- can_earn_real_money_today = TRUE (first time ever!).
+
+PHASE 2 — Affiliate alternatives research:
+- Launched a research subagent (general-purpose, haiku) to compare 11
+  affiliate networks.
+- Top recommendations for Antonio's AI tools/SaaS niche:
+  1. ClickBank — INSTANT signup, 50-75% on digital products
+  2. PartnerStack — 1-2 day approval, 20-30% LIFETIME RECURRING on SaaS
+     (Notion, Webflow, Monday, Jasper, Copy.ai, ClickUp, FreshBooks)
+  3. Amazon Associates — Antonio already has account. Just needs the tag.
+
+PHASE 3 — Manual Amazon workflow design:
+- Antonio said: "I have the Amazon Associate account, but the api key
+  is going to take time. When the project is done, I can upload manually
+  by my side a suggestion of my Super Agent."
+- KEY INSIGHT confirmed by reading affiliate_link_generator code:
+  The tool builds Amazon links as:
+    https://www.amazon.com/dp/{ASIN}?tag={affiliateId}
+  - affiliateId = Associates Tag (Antonio already has)
+  - ASIN = Amazon product ID (agent finds via web_search or page_reader)
+  - PA API is NOT needed for basic link generation. Only needed for:
+    * Programmatic product search (use web_search instead)
+    * Real-time prices (use page_reader instead)
+    * Bulk imports
+  So Antonio can start earning Amazon commissions TODAY with just the
+  Associates Tag env var. PA API approval takes weeks but is OPTIONAL.
+
+CHANGES APPLIED:
+
+capability-audit endpoint (src/app/api/system/capability-audit/route.ts):
+- TOOL_REQUIRED_ENV.affiliate_link_generator: was
+  ['AMAZON_ASSOCIATES_TAG', 'AMAZON_PA_API_KEY'] → now
+  ['AMAZON_ASSOCIATES_TAG'] only. PA API is optional.
+- blocking_for_revenue AMAZON_ASSOCIATES_TAG entry rewritten:
+  - Was: "AMAZON_ASSOCIATES_TAG + AMAZON_PA_API_KEY, 1 hour"
+  - Now: "AMAZON_ASSOCIATES_TAG (Amazon Associate Tag only — PA API optional), 5 min"
+- Added 2 alternatives to blocking_for_revenue:
+  - CLICKBANK_API_KEY (instant, 50-75% digital)
+  - PARTNERSTACK_API_KEY (1-2 day approval, 20-30% recurring SaaS)
+
+SYSTEM_PROMPT (src/lib/agent.ts):
+- Renamed section to CREDENTIAL-AWARE RECOMMENDATIONS (UPGRADE #174 + #175).
+- Added AFFILIATE MARKETING — INSTANT ALTERNATIVES (UPGRADE #175) subsection.
+- Tells the agent: PA API is OPTIONAL, Associates Tag alone is enough.
+- Provides concrete tool call example using antoniocan-20 as the tag.
+- Lists ClickBank + PartnerStack as instant alternatives with URLs.
+- Describes the MANUAL AMAZON WORKFLOW:
+  1. Agent picks trending AI products via web_search (no API needed)
+  2. Agent extracts ASINs via page_reader (no API needed)
+  3. Agent generates affiliate links using just the Associates Tag
+  4. Agent returns links in mission report
+  5. Antonio uses the tag-appended URLs as-is (already valid affiliate links)
+  6. Optional: Antonio pastes links into Amazon Associates dashboard
+  - This way, Antonio earns commissions TODAY while PA API approves.
+
+SETUP GUIDE PDF (download/agent007-api-key-setup-guide.pdf):
+- Step 2 rewritten: was '1 hour for Amazon Associates + PA API' → now
+  '5 min for Amazon Associates Tag only (PA API OPTIONAL)'.
+- Added 'Alternative Networks' section with color-coded table:
+  - ClickBank (INSTANT, 50-75% digital, green row)
+  - PartnerStack (1-2 days, 20-30% LIFETIME RECURRING, amber row)
+  - Amazon tag-only (INSTANT, 1-10%, green row)
+- Added 'Recommended path for Antonio's AI tools niche' subsection.
+- File size: 6.8KB → 7.7KB.
+- Pages: 2 (concise).
+
+LIVE VERIFICATION (production, deploy 2026-07-30 UTC):
+- capability-audit endpoint now shows:
+  - autonomy_score.percentage: 67%
+  - can_earn_real_money_today: true
+  - blocking_for_revenue includes 3 options:
+    🔴 AMAZON_ASSOCIATES_TAG (5 min, Antonio already has account)
+    🟢 CLICKBANK_API_KEY (10 min, instant, 50-75% digital)
+    🟢 PARTNERSTACK_API_KEY (1-2 days, 20-30% recurring SaaS)
+- Confirmed READY (production runtime):
+  - stripe_payment_processor + stripe_create_payment
+  - convertkit_email + 3 email_marketing_* tools
+  - buffer_scheduler
+  - google_analytics
+  - wordpress_publisher
+
+Stage Summary:
+- ConvertKit confirmed READY on production (false-negative on management API was misleading)
+- Autonomy score: 50% → 67% (4/6 revenue-critical)
+- Best Amazon alternative found: ClickBank (instant) + PartnerStack (1-2 days)
+- KEY INSIGHT discovered: PA API is OPTIONAL for Amazon affiliate links
+  - Associates Tag alone unlocks affiliate_link_generator
+  - Agent uses web_search + page_reader to find ASINs (no API needed)
+  - Tag-appended URL is already a valid affiliate link
+- Manual Amazon workflow documented in SYSTEM_PROMPT + setup PDF
+- Antonio can earn real money TODAY by adding just the Associates Tag
+- Total setup time reduced from 1 hour to 5 min for Amazon (Antonio
+  already has the account, just needs to copy the tag from the dashboard)
+- Files modified: 4 (capability-audit route.ts, agent.ts SYSTEM_PROMPT,
+  setup-guide PDF, setup-guide script)
+- Production URL: https://agent007-ai.vercel.app verified live
+- TS errors: 0 (unchanged from #173 baseline)
