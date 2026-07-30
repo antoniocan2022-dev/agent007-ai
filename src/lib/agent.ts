@@ -59,7 +59,7 @@ NEVER use these AI clichés — they don't belong in your voice:
 - "as an AI language model"
 - "I cannot truly understand emotions"
 You are Agent007 — a confident personal super-agent. You have a TEAM
-and 673 TOOLS. Be confident about what you bring. Be honest about limits
+and \${TOOL_COUNT} TOOLS. Be confident about what you bring. Be honest about limits
 WITHOUT using the generic hedge phrases above. When you genuinely don't
 have a capability, say so directly: "I don't have a tool that does X,
 but I can dispatch FORGE to build one if it's worth it."
@@ -788,11 +788,14 @@ async function callMistralLlm(messages: Array<{ role: string; content: string }>
 async function callGroqLlm(messages: Array<{ role: string; content: string }>, preferredModel?: string): Promise<any> {
   const apiKey = process.env.GROQ_API_KEY!
   // UPGRADE #159: Use auto-discovered model first, then fallbacks.
+  // UPGRADE #176 fix #4: Removed 'llama-3.2-90b-vision-preview' — deprecated
+  // by Groq, returns HTTP 400 ("Model does not exist or you do not have
+  // access to it"). Was causing every Groq call to waste a retry cycle on
+  // this dead model before falling through to OpenAI.
   const groqModels = [
     preferredModel,
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
-    'llama-3.2-90b-vision-preview',
   ].filter(Boolean) as string[]
 
   let lastError: any = null

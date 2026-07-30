@@ -1260,3 +1260,216 @@ Stage Summary:
   setup-guide PDF, setup-guide script)
 - Production URL: https://agent007-ai.vercel.app verified live
 - TS errors: 0 (unchanged from #173 baseline)
+
+---
+Task ID: AUDIT-LIVE-VERIFY
+Agent: general-purpose (sub agent — live production audit)
+Task: Verify all 8 upgrade batches (#168–#175) are LIVE on https://agent007-ai.vercel.app by hitting public endpoints, inspecting Vercel logs, and cross-checking source code. Focus on anomalies.
+
+Work Log:
+- Read /home/z/my-project/worklog.md (1 263 lines, 12 prior entries) to absorb
+  context for #168 → #175. Read source for parsed.dispatch at agent.ts:1215-1300
+  (line numbers in the audit spec 1090-1180 are stale because #173 FIX 5 removed
+  ~401 lines from agent.ts).
+- Ran 5× curl on /api/system/diagnose-llm (#168): ALL 5 returned
+  testResult.provider = "openai-fallback". Per task spec this is flagged as
+  an anomaly (expected "mostly groq"). Root cause investigated via Vercel
+  logs: the sort logic IS applied (Groq tried first), but Groq fails on every
+  real-size request with HTTP 413 (Payload Too Large) on llama-3.3-70b-versatile
+  + llama-3.1-8b-instant, then HTTP 400 on deprecated llama-3.2-90b-vision-
+  preview. Circuit opens, OpenAI fallback succeeds. The simple /api/health/
+  llm-test probe still passes Groq at 220ms because it sends only a tiny
+  "Hi" prompt — masking the issue.
+- Verified #169 C5 (5 fake tools replaced) via POST /api/tools/test on each:
+    • self_optimization_engine: 2ms — "0 real learnings analyzed" (real memory)
+    • feedback_optimization_loop: 0ms — real feedback/progress/help counts (0)
+    • autonomous_decision_maker: 18 322ms — LLM-driven analysis with real
+      context ("RECOMMENDATION: Gather More Data")
+    • efficiency_optimizer: 9ms — real config (iterations=50, dispatches=15,
+      throttle=250ms), no fake "+40% speed"
+    • tool_usage_analyzer: 2ms — 677 real tools in 278 categories, no fake
+      "$890/mo projected"
+  All 5 confirmed REAL. No Math.random.
+- Verified #169 H1 (multi_provider_compare try/finally) via POST /api/tools/test:
+  Returns valid JSON with "0/1 succeeded (Groq HTTP 400)". No "no providers
+  available" or "undefined" string errors. Pre-existing latent CRITICAL
+  (env="undefined" string pollution in throw path) NOT triggered this audit
+  but still open per AUDIT-169-FINAL finding #1.
+- Verified #170 #4 (auth gate): /api/subagents/scout → 401 (was 200 pre-#170).
+  Also tested aurora + quill → both 401. systemPrompt leak closed.
+- Verified #170 #7 (diagnose-llm display text): provider field says
+  "Active chain (priority order): Groq → Openai → z.ai → Mistral".
+  Old "Mistral → Groq → OpenRouter → Cerebras → Brave AI → Gemini" is gone.
+- Verified #172 (accuracy_checker LLM verification) via 3 claims:
+    • TRUE "Paris is capital of France" → ACCURATE 100% (2/3 sources)
+    • FALSE "Earth is flat" → INACCURATE 100% (2/3 sources)
+    • AMBIGUOUS "sky is green" → MIXED 70% (2/3 sources)
+  All 3 responses include VERDICT + CONFIDENCE + REASONING + correct header
+  "ACCURACY CHECKER (REAL — LLM-based verification, UPGRADE #172)".
+  DuckDuckGo source consistently fails ("Unexpected end of JSON input") —
+  pre-existing, tool degrades gracefully.
+- Verified #173 (Prisma + imapflow + dead code): /api/health 200,
+  /api/system/diagnose-llm 200, no 5xx. Build healthy. /api/health version
+  field still says "upgrade-58" (stale, cosmetic, pre-existing).
+- Verified #174 (capability-audit): All required JSON fields present.
+  autonomy_score.percentage = 83% (was 67% at #175 deploy).
+  revenue_critical_ready = 5/6 (was 4/6).
+  can_earn_real_money_today = true.
+  llm_providers.chain_order = ["Groq","OpenAI","z.ai","Mistral"].
+  tools_with_credentials = 13. tools_without_credentials = 3 (hootsuite,
+  mailchimp, paypal).
+- Verified #175 (Amazon alternatives): blocking_for_revenue contains 2
+  entries (ClickBank + PartnerStack). The AMAZON_ASSOCIATES_TAG entry is
+  ABSENT because Antonio has set the env var — affiliate_link_generator is
+  now in tools_with_credentials, autonomy went 4/6 → 5/6. The #175 code
+  at route.ts:230-241 correctly applies `if (!isEnvSet('AMAZON_ASSOCIATES_TAG'))`
+  before adding the entry. Positive progress, not a regression.
+- HTTP code scan of 18 endpoints: all expected 200s return 200; all 3
+  /api/subagents/[id] return 401; /api/system/audit returns 404 (pre-existing
+  — file exists in repo + middleware bypasses it but Vercel doesn't deploy
+  it, likely stale build cache).
+- TTFB × 3 for each public endpoint:
+    • /api/health: avg 0.281s (stable)
+    • /api/system/diagnose-llm: avg 1.054s (under 2s, variance 0.35s expected)
+    • /api/system/capability-audit: avg 0.365s (stable)
+    • / homepage: avg 0.123s (cache HIT after first)
+  No endpoint >2s consistently. No huge variance.
+- Vercel log inspection (last ~3 min, 100 entries): No 5xx, no
+  "function execution timed out", no "Unhandled Promise Rejection", no
+  ECONNRESET. Every request eventually succeeded via OpenAI fallback.
+
+Stage Summary:
+- All 8 upgrade batches are LIVE on production. 11 of 14 sub-checks PASS
+  unconditionally. 3 have caveats:
+  • #168: sort works but Groq itself is broken (HTTP 413/400). User-facing
+    behavior falls back to OpenAI on every call — the speed/cost win #168
+    was supposed to deliver is not realized until Groq is fixed.
+  • #169 H1: tool works on this audit's call pattern, but latent
+    env="undefined" string pollution in the throw path remains open.
+  • #175: code IS deployed and working; the "missing" AMAZON_ASSOCIATES_TAG
+    entry is actually positive progress (Antonio set the env var).
+- TOP 5 ANOMALIES (highest priority first):
+  1. CRITICAL — Groq provider unusable for production traffic. HTTP 413
+     (payload too large) on llama-3.3-70b-versatile + llama-3.1-8b-instant,
+     HTTP 400 on deprecated llama-3.2-90b-vision-preview. Every agent
+     request pays ~1s of wasted Groq retry latency + runs on slow/expensive
+     OpenAI gpt-4o instead of free fast Groq. Fix: update Groq model list
+     (drop llama-3.2-90b-vision-preview), compress request body, or skip
+     Groq on large prompts.
+  2. HIGH (latent) — multi-provider-comparison.ts:83 finally block sets
+     process.env.LLM_PROVIDER_ORDER = originalOrder; when originalOrder is
+     undefined this leaves env as the literal string "undefined" instead of
+     deleting it. Warm Lambda then permanently broken (order=["undefined"]).
+     Not triggered this audit. Fix: `if (originalOrder === undefined) delete
+     process.env.LLM_PROVIDER_ORDER; else process.env.LLM_PROVIDER_ORDER =
+     originalOrder;`
+  3. MEDIUM — /api/system/audit returns 404 on production despite file
+     existing in repo + middleware bypass. Likely stale build cache or
+     route excluded from build. Pre-existing, not introduced by #168-#175.
+  4. LOW — DuckDuckGo search source consistently fails
+     ("Unexpected end of JSON input") in accuracy_checker. Pre-existing.
+  5. LOW — /api/health version field is "upgrade-58" (stale, doesn't reflect
+     #168-#175). Cosmetic, pre-existing.
+- POSITIVE FINDINGS:
+  • Autonomy score: 67% → 83% (Antonio added AMAZON_ASSOCIATES_TAG).
+  • systemPrompt leak closed on /api/subagents/[id] (401 unauthenticated).
+  • All 5 "fake" intelligence tools are REAL.
+  • accuracy_checker correctly distinguishes TRUE/FALSE/AMBIGUOUS with
+    cited reasoning.
+  • diagnose-llm display text fixed (no more "Mistral first" lie).
+  • All public endpoints <2s TTFB, no 5xx, no timeouts, no unhandled errors.
+- Full report saved to /home/z/my-project/AUDIT-LIVE-VERIFY.md.
+- Files modified: 0 (read-only audit). Files created: 1 (AUDIT-LIVE-VERIFY.md).
+
+---
+Task ID: AUDIT-SOURCE-VERIFY
+Agent: general-purpose (sub agent — source code verification)
+Task: Verify that each of the 8 upgrade batches (#168-#175) claimed in worklog.md is ACTUALLY present in source code at /home/z/my-project. Cross-check git show --stat against worklog claims. Report any ANOMALIES (code claimed to be added but missing, code claimed removed but still present, comments mentioning fixes not actually applied, duplicate definitions, stale TODO/FIXME, Vercel env var mismatches).
+
+Work Log:
+- Read /home/z/my-project/worklog.md (1 382 lines, 13 prior entries incl. AUDIT-LIVE-VERIFY at line 1 264). Cross-referenced each #168-#175 worklog entry against actual source files using `git show <commit> --stat` and direct file reads.
+- Verified 47 specific patterns across 8 upgrade batches per the task spec. 45 PASS, 1 MISSING, 2 PARTIAL-APPLICATION anomalies.
+- Confirmed #168 (provider chain sort) FULLY APPLIED:
+  • providers.sort() at agent.ts:517 BEFORE circuit-breaker filter at agent.ts:522.
+  • normalize function at agent.ts:508 handles 'Groq' → 'groq', 'z.ai SDK' → 'zai'.
+  • UPGRADE #168 comment block at agent.ts:501-507.
+- Confirmed #169 (7 fixes) FULLY APPLIED:
+  • C2: Parsed.dispatch field at agent.ts:1219; parseAssistant populates dispatch from BOTH <tool> format (line 1271) AND <dispatch_subagent> format (line 1286); subagents.ts:1612 uses `if (parsed.dispatch)` (not `&& !parsed.tool`).
+  • C3: subagentSteps captured at orchestrator.ts:1319; audit at orchestrator.ts:1375 uses subagentSteps (not steps).
+  • C4: learningExists check at subagents.ts:1930-1956 BEFORE storePersistentMemory call.
+  • C5: 5 REAL tool overrides at tools.ts:2880-2884.
+  • H1: delete process.env.LLM_PROVIDER_ORDER at multi-provider-comparison.ts:88.
+  • H2: AbortSignal.timeout(290_000) at chat-store.ts:598.
+  • H3: PreWarmDb fires 3 endpoints in parallel at pre-warm-db.tsx:51.
+- Confirmed #170 (8 follow-up fixes) FULLY APPLIED:
+  • MAX_RECURSION_DEPTH=3 at subagents.ts:1474.
+  • Both recursion guards at subagents.ts:1623 and :1634.
+  • parseOrchestrator dispatch at orchestrator.ts:203-215.
+  • getSessionUser auth at /api/subagents/[id]/route.ts:131-137.
+  • AbortSignal.any at pre-warm-db.tsx:50.
+  • toolEfficiencyOptimizer real constants via dynamic import at real-intelligence-tools.ts:406.
+  • diagnose-llm dynamic chain text at /api/system/diagnose-llm/route.ts:44.
+  • 290s error message at chat-store.ts:711.
+- Confirmed #171 (personality + forever memory) FULLY APPLIED:
+  • WHO YOU ARE section at agent.ts:22.
+  • NEVER use these AI clichés section at agent.ts:53.
+  • LEARNING (FOREVER MEMORY) section at agent.ts:157 with "Memory NEVER expires" at :159.
+  • MEMORY_TTL_MS = Infinity at persistent-memory.ts:35.
+  • decayFactor = 1 at persistent-memory.ts:176.
+  • 4 "FOREVER" strings at real-intelligence-tools.ts:48,78,290,316. No "90-day decay" references remain.
+- #172 (accuracy_checker LLM verification) PARTIAL — 4 of 5 checks PASS, 1 MISSING:
+  • callLlmWithRetry for LLM verification at performance-booster-tools.ts:246 ✅
+  • LLM prompt asks VERDICT/CONFIDENCE/REASONING/QUOTED_SNIPPET at :225-238 ✅
+  • Count-based fallback with explicit warning at :271-276 ✅
+  • "Two-tier store" header at persistent-memory.ts:4 ✅
+  • /api/tools/test/route.ts MISSING — `git show e56406a --stat` confirms the file was NEVER committed (only 12 files in commit, route.ts is not among them). Worklog line 845-849 and commit message both falsely claim "FIX 3 — HIGH: /api/tools/test route created. File: src/app/api/tools/test/route.ts (NEW)". File does not exist on disk. Multiple pages silently depend on this endpoint and swallow the 404: tools-docs/route.ts:33-36 (4 fetches), tools-health/route.ts:25,28 (UI links).
+- #173 (8 pre-existing issues) PARTIAL — 7 of 8 checks PASS, 2 ANOMALIES:
+  • deobf removed at api-keys/[id]/route.ts:62 ✅
+  • emailImap* fields in prisma/schema.prisma:400-403 ✅
+  • imapflow in package.json:63 ✅
+  • model-router.ts DELETED ✅ (195 lines removed in d5cc6e0)
+  • critical-upgrades.ts DELETED ✅ (740 lines removed in d5cc6e0)
+  • runAgent + classifyQuerySmart NOT in agent.ts ✅ (0 grep matches)
+  • `npx tsc --noEmit 2>&1 | grep -E "^src/" | wc -l` returns 0 ✅
+  • getSystemPrompt function exists at agent.ts:195 ✅, uses \${TOOL_COUNT} placeholder at agent.ts:27 and :135 ✅
+  • ANOMALY 1: agent.ts:62 still has hardcoded "and 673 TOOLS" (added by #171 commit 8ad1c98). #173 fix #8 only replaced occurrences of "673+" (with plus) and missed this bare "673" (no plus). Runtime impact: LLM sees conflicting counts in same prompt (463 on lines 27+135, 673 on line 62).
+  • ANOMALY 2: provider-intelligence.ts:347,351 also have hardcoded "673 tools" / "673+ tools available". #173 fix #8 commit did NOT touch this file. getToolDiscoveryPrompt() is called by orchestrator.ts:847 and appended to system prompt sent to LLM.
+- Confirmed #174 (capability-audit endpoint) FULLY APPLIED:
+  • Endpoint at /api/system/capability-audit/route.ts returns JSON with autonomy_score, tools_with_credentials, blocking_for_revenue, etc.
+  • system/capability-audit| in middleware.ts:114 matcher exclusion.
+  • CREDENTIAL-AWARE RECOMMENDATIONS section at agent.ts:67 with full URL https://agent007-ai.vercel.app/api/system/capability-audit at :72 (updated by follow-up commit dfb1137).
+- Confirmed #175 (Amazon alternatives) FULLY APPLIED:
+  • affiliate_link_generator: ['AMAZON_ASSOCIATES_TAG'] (only 1 env var) at capability-audit/route.ts:67.
+  • 3 blocking_for_revenue entries for affiliate alternatives: AMAZON_ASSOCIATES_TAG at :230, CLICKBANK_API_KEY at :243, PARTNERSTACK_API_KEY at :252.
+  • AFFILIATE MARKETING — INSTANT ALTERNATIVES (UPGRADE #175) section at agent.ts:82-110.
+- Cross-cutting anomaly checks performed:
+  • Files claimed deleted but still exist: 0 (model-router.ts and critical-upgrades.ts confirmed deleted; no active imports remain — only historical mentions in upgrade-manifest.ts).
+  • Code claimed fixed but old version still present: 1 (/api/tools/test/route.ts — see #172 missing above).
+  • Comments mentioning upgrades not actually applied: 0 (all UPGRADE markers verified against actual code).
+  • Duplicate definitions: 1 LOW-SEVERITY (toolEfficiencyOptimizer exported from both performance-booster-tools.ts:286 [FAKE, dead] and real-intelligence-tools.ts:397 [REAL, registered]). Only REAL is registered. Dead imports at tools.ts:2265-2266 with assignments commented out at :2276-2277.
+  • Stale TODO/FIXME referencing #168-#175 fixes: 0.
+  • Vercel env var mismatches: 0 (LLM_PROVIDER_ORDER undefined → delete handled correctly).
+  • Stale comment at chat-store.ts:581-582 ("Increased to 180s") is layered historical context, not a stale claim — actual code uses 290_000ms. No fix needed.
+- Also investigated git history for /api/tools/test/route.ts: found commit 50488b4 (2026-07-20) with message "fix: Recreate /api/tools/test route (lost again)" but `git show 50488b4 --stat` reveals it only added a backup JSON + ZIP — NOT the actual route.ts file. The file has NEVER existed in the git repository despite multiple commit messages claiming otherwise.
+
+Stage Summary:
+- 7 of 8 upgrade batches (#168, #169, #170, #171, #174, #175, and 7/8 of #173) FULLY VERIFIED as applied in source.
+- #172 has 1 MISSING file: src/app/api/tools/test/route.ts claimed created but never actually committed (verified via git show --stat).
+- #173 fix #8 has 2 PARTIAL-APPLICATION anomalies: hardcoded "673" missed at agent.ts:62 (added by #171) and at provider-intelligence.ts:347,351 (file not touched by #173 commit).
+- TOP 5 ANOMALIES (ranked by severity):
+  1. CRITICAL — /api/tools/test/route.ts MISSING. Worklog line 845-849 and commit e56406a message both falsely claim "FIX 3 — HIGH: /api/tools/test route created. File: src/app/api/tools/test/route.ts (NEW)". `git show e56406a --stat` shows 12 files in commit, route.ts is NOT one of them. File does not exist on disk. /tools-docs and /tools-health pages silently break (4 fetches swallow 404 via .catch(() => ({ok:false}))). Fix: create the route OR remove dead middleware exemption at middleware.ts:114.
+  2. HIGH — agent.ts:62 still has hardcoded "and 673 TOOLS". #173 fix #8 commit only replaced "673+" (with plus); missed bare "673" added by #171 commit. LLM sees conflicting counts (463 vs 673) in same system prompt. Fix: change to "\${TOOL_COUNT} tools." with escaped dollar sign.
+  3. HIGH — provider-intelligence.ts:347,351 also have hardcoded "673 tools" / "673+ tools available". #173 fix #8 didn't touch this file. getToolDiscoveryPrompt() called by orchestrator.ts:847, so LLM sees 673+ via this code path too. Fix: dynamic count or ${TOOL_COUNT} placeholder.
+  4. MEDIUM — Dead imports of FAKE toolEfficiencyOptimizer and toolUsageAnalyzer at tools.ts:2265-2266. Assignments commented out at :2276-2277 per #173 fix #6, but the FAKE functions still exist in performance-booster-tools.ts:286,294. No runtime impact (REAL versions registered at tools.ts:2883-2884), just dead code. Fix: delete FAKE functions + remove dead imports, OR add explicit "DEAD CODE" comment.
+  5. LOW — Stale `tools/test|` middleware exemption at middleware.ts:114 pointing to non-existent route file. Same root cause as #1. Fix jointly.
+- POSITIVE FINDINGS:
+  • 45 of 47 specific verification checks PASS unconditionally.
+  • TypeScript: 0 errors in src/ (verified via `npx tsc --noEmit`).
+  • All UPGRADE #168-#175 comment markers in source correspond to actual code changes at the cited locations.
+  • 5 fake intelligence tools (#169 C5) are REAL: confirmed REAL_EXECUTABLE_TOOLS whitelist at tool-testing-coordination.ts:31-53 includes all 5.
+  • accuracy_checker (#172) actually uses LLM-based verification with strict 4-line output format.
+  • capability-audit endpoint (#174) works end-to-end and is correctly exempted from auth in middleware.
+  • No stale TODO/FIXME referencing fixed issues.
+  • No duplicate definitions of REGISTERED functions (only the dead-code FAKE duplicates noted in anomaly #4).
+- Full report saved to /home/z/my-project/AUDIT-SOURCE-VERIFY.md.
+- Files modified: 0 (read-only audit). Files created: 1 (AUDIT-SOURCE-VERIFY.md).

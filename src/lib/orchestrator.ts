@@ -844,7 +844,7 @@ above. The list above is authoritative.`
   try {
     const { getProviderMetadataSummary, getToolDiscoveryPrompt } = await import('./provider-intelligence')
     providerMetadata = getProviderMetadataSummary()
-    toolDiscoveryPrompt = getToolDiscoveryPrompt()
+    toolDiscoveryPrompt = await getToolDiscoveryPrompt()  // UPGRADE #176 fix #3: now async
   } catch {}
 
   // UPGRADE #173 fix #8: Use getSystemPrompt() to substitute ${TOOL_COUNT}

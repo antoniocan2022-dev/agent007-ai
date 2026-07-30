@@ -344,11 +344,19 @@ export function getProviderMetadataSummary(): string {
 
 /**
  * Tool discovery prompt for the system prompt.
- * Instead of listing all 673 tools (which adds 4K tokens), this tells
+ * UPGRADE #176 fix #3: Was hard-coded "673+" but real count is dynamic
+ * (463+ depending on dynamic TOOL_REGISTRY assignments). Now uses
+ * getToolCount() to inject the real number.
+ * Instead of listing all tools (which adds 4K tokens), this tells
  * the agent to use smart_tool_router to discover tools dynamically.
  */
-export function getToolDiscoveryPrompt(): string {
-  return `TOOL DISCOVERY — You have 673+ tools available. Instead of guessing which tool to use:
+export async function getToolDiscoveryPrompt(): Promise<string> {
+  let toolCount = 463  // fallback
+  try {
+    const { TOOL_REGISTRY } = await import('./tools')
+    toolCount = Object.keys(TOOL_REGISTRY).length
+  } catch {}
+  return `TOOL DISCOVERY — You have ${toolCount} tools available. Instead of guessing which tool to use:
 1. Call <tool name="smart_tool_router">{"task":"describe your task"}</tool> to find the top 3-5 tools
 2. Use <tool name="parallel_executor">{"tools":[...]} to run multiple tools simultaneously
 3. After getting results, call <tool name="accuracy_checker">{"claim":"your key finding"}</tool> to verify accuracy
