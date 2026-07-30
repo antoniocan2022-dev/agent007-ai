@@ -19,12 +19,24 @@ import { ChatTab } from '@/components/agent/tabs/chat-tab'
 // This cuts ~500-800KB from the initial bundle (recharts + framer-motion only
 // load when the Dashboard tab is opened).
 import dynamic from 'next/dynamic'
-const DashboardTab = dynamic(() => import('@/components/agent/tabs/dashboard-tab').then(m => ({ default: m.DashboardTab })), { loading: () => null })
-const SchedulesTab = dynamic(() => import('@/components/agent/tabs/schedules-tab').then(m => ({ default: m.SchedulesTab })), { loading: () => null })
-const SettingsTab = dynamic(() => import('@/components/agent/tabs/settings-tab').then(m => ({ default: m.SettingsTab })), { loading: () => null })
-const MissionsTab = dynamic(() => import('@/components/agent/tabs/missions-tab').then(m => ({ default: m.MissionsTab })), { loading: () => null })
-const PodsTab = dynamic(() => import('@/components/agent/tabs/pods-tab').then(m => ({ default: m.PodsTab })), { loading: () => null })
-const MissionActiveTab = dynamic(() => import('@/components/agent/tabs/mission-active-tab').then(m => ({ default: m.MissionActiveTab })), { loading: () => null })
+
+// DEBUG-SLOW-TABS fix: Show a loading spinner during chunk download instead of
+// a blank screen. Before: `loading: () => null` rendered NOTHING while the JS
+// chunk (recharts + framer-motion + tab code) downloaded — users saw a blank
+// center panel for 1-5s and thought the tab was broken/slow.
+// After: a centered spinner with "Loading X…" so the user knows work is happening.
+const TabLoader = ({ label }: { label: string }) => (
+  <div className="flex-1 flex flex-col items-center justify-center text-[#7c89b5] gap-3">
+    <Loader2 className="w-6 h-6 animate-spin text-cyan-300" />
+    <span className="text-xs tracking-wider">{label}</span>
+  </div>
+)
+const DashboardTab = dynamic(() => import('@/components/agent/tabs/dashboard-tab').then(m => ({ default: m.DashboardTab })), { loading: () => <TabLoader label="Loading dashboard…" /> })
+const SchedulesTab = dynamic(() => import('@/components/agent/tabs/schedules-tab').then(m => ({ default: m.SchedulesTab })), { loading: () => <TabLoader label="Loading schedules…" /> })
+const SettingsTab = dynamic(() => import('@/components/agent/tabs/settings-tab').then(m => ({ default: m.SettingsTab })), { loading: () => <TabLoader label="Loading settings…" /> })
+const MissionsTab = dynamic(() => import('@/components/agent/tabs/missions-tab').then(m => ({ default: m.MissionsTab })), { loading: () => <TabLoader label="Loading missions…" /> })
+const PodsTab = dynamic(() => import('@/components/agent/tabs/pods-tab').then(m => ({ default: m.PodsTab })), { loading: () => <TabLoader label="Loading pods…" /> })
+const MissionActiveTab = dynamic(() => import('@/components/agent/tabs/mission-active-tab').then(m => ({ default: m.MissionActiveTab })), { loading: () => <TabLoader label="Loading active missions…" /> })
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
 
@@ -66,26 +78,38 @@ export default function Home() {
   // "React Hook order" violation which causes client-side exception:
   // "Application error: a client-side exception has occurred"
   //
-  // UPGRADE #156 Fix 6: Sequence API calls AFTER pre-warm completes.
-  // Before: fired 3 API calls simultaneously on mount → each hit a COLD serverless
-  //   instance → each paid the ~1-2s cold-start penalty → total 3-6s.
-  // After: fire /api/health first (warm one instance), then fire all 3 API calls
-  //   in parallel → they all hit the WARM instance → total ~200-500ms.
+  // DEBUG-SLOW-TABS fix: Removed the sequential `fetch('/api/health')` warm-up.
+  // Before: fired /api/health FIRST, then in .finally() fired the 3 real loads.
+  //   /api/health is a SEPARATE Lambda from /api/conversations — warming it does
+  //   NOTHING for the other endpoints. This added a ~0.3s sequential delay before
+  //   the real data fetches even started.
+  // After: fire the 3 real loads immediately in parallel + pre-warm the Dashboard
+  //   tab endpoints (income, settings, dashboard/widgets) in the background so
+  //   they're warm when the user clicks the Dashboard tab.
   useEffect(() => {
     if (status !== 'authenticated') return
-    // Pre-warm the serverless instance, THEN fire all 3 loads in parallel.
-    // The pre-warm is fast (~100ms warm, ~500ms cold) and warms the DB connection.
-    fetch('/api/health', { signal: AbortSignal.timeout(5000) })
-      .catch(() => {}) // Non-fatal — proceed even if pre-warm fails
-      .finally(() => {
-        // Now fire all 3 loads in parallel — they should hit a warm instance.
-        Promise.all([
-          loadConversations(),
-          loadMemories(),
-          loadSubagentCount(),
-        ]).catch(() => {/* swallow — each function already handles errors */})
-      })
-    // Start the 15s auto-refresh loop (non-blocking)
+    // Fire the 3 primary loads in parallel immediately (no pre-warm gate).
+    Promise.all([
+      loadConversations(),
+      loadMemories(),
+      loadSubagentCount(),
+    ]).catch(() => {/* swallow — each function already handles errors */})
+
+    // DEBUG-SLOW-TABS fix: Pre-warm the Dashboard tab endpoints in the background.
+    // These are DIFFERENT Lambdas from the 3 above and are NOT warmed by PreWarmDb.
+    // Without this, the first Dashboard tab click hits 3-4 COLD Lambdas (3-5s each).
+    // We fire them with `keepalive: true` so they survive page navigation.
+    const dashEndpoints = [
+      '/api/income?limit=1',
+      '/api/settings',
+      '/api/dashboard/widgets',
+    ]
+    dashEndpoints.forEach((path) => {
+      fetch(path, { method: 'GET', keepalive: true, signal: AbortSignal.timeout(8000) })
+        .catch(() => {/* silent — just warming */})
+    })
+
+    // Start the 30s auto-refresh loop (non-blocking)
     startAutoRefresh()
   }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 

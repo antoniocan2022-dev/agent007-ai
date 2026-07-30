@@ -175,7 +175,7 @@ export function AutonomyIntelligencePanel({ mode = 'full', className = '' }: Pro
   useEffect(() => {
     if (mode !== 'full') return
     let cancelled = false
-    fetch('/api/system/manifest')
+    fetch('/api/system/manifest?summary=true')  // UPGRADE #185: summary mode = 100 bytes, not 219KB
       .then((r) => r.json())
       .then((j) => {
         if (cancelled) return

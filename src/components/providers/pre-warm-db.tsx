@@ -35,32 +35,21 @@ import { useEffect } from 'react'
 
 export function PreWarmDb() {
   useEffect(() => {
-    // UPGRADE #169 H3 + #170 fix #5: Fire the 3 real DB-touching endpoints
-    // in parallel instead of /api/health (which was a NO-OP). Even though
-    // they 401 (no session yet), the Lambda + Prisma connection is warmed.
+    // UPGRADE #185: Use the dedicated /api/_warm endpoint instead of
+    // auth-protected routes. The old PreWarmDb fired /api/conversations,
+    // /api/memory, /api/subagents — but the first 2 are auth-protected,
+    // so middleware 307-redirected them and the Lambda was NEVER invoked.
+    // Only /api/subagents (public) actually got warmed.
     //
-    // #170 fix #5: BEFORE — the cleanup `controller.abort()` was dead code
-    // because the fetches only used `AbortSignal.timeout(15_000)` and the
-    // controller's signal was never passed to fetches. On rapid page
-    // navigation, each PreWarmDb mount fired 3 unabortable fetches that
-    // held connections for up to 15s each.
-    // AFTER — we use `AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])`
-    // so both the unmount cleanup AND the 15s timeout can abort the fetch.
+    // /api/_warm is PUBLIC and runs ensureDbReady() + trivial count()
+    // queries on all major tables. This warms the Prisma connection pool
+    // so when the user clicks a tab, the DB is already connected.
     const controller = new AbortController()
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])
-    const endpoints = ['/api/conversations?limit=1', '/api/memory?limit=1', '/api/subagents']
-    Promise.allSettled(
-      endpoints.map((path) =>
-        fetch(path, {
-          method: 'GET',
-          signal,
-        }).catch(() => {
-          // Silent — 401 or any error is fine, we just want to warm the Lambda
-        })
-      )
-    ).catch(() => {
-      // Silent — this is a best-effort optimization, not critical
-    })
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)])
+    fetch('/api/_warm', { method: 'GET', signal })
+      .catch(() => {
+        // Silent — best-effort warming
+      })
     return () => controller.abort()
   }, [])
 
