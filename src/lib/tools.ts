@@ -128,7 +128,49 @@ export async function toolWebSearch(
     setCached('web_search', args, out)
     return out
   } catch (zaiError: any) {
-    // ── FALLBACK: DuckDuckGo Instant Answer API (free, no API key needed) ──
+    // UPGRADE #178 fix #1b: Brave Search is now the FIRST fallback (was 3rd).
+    // On Vercel production, Brave works perfectly (665ms, 5 results) while
+    // DuckDuckGo and Google scraping both fail. Putting Brave first means
+    // we get results in <1s instead of timing out on DDG (10s) + Google (10s)
+    // before reaching Brave.
+    if (process.env.BRAVE_API_KEY) {
+      try {
+        const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(Math.max(args.num ?? 5, 1), 10)}`
+        const braveRes = await fetch(braveUrl, {
+          signal: AbortSignal.timeout(8000),
+          headers: {
+            'Accept': 'application/json',
+            'X-Subscription-Token': process.env.BRAVE_API_KEY,
+          },
+        })
+        if (braveRes.ok) {
+          const braveData = await braveRes.json().catch(() => ({}))
+          const braveResults: any[] = (braveData?.web?.results ?? []).map((r: any) => ({
+            name: r.title ?? r.url,
+            url: r.url,
+            snippet: (r.description ?? '').slice(0, 400),
+            date: r.age ?? r.published,
+          })).slice(0, args.num ?? 5)
+
+          if (braveResults.length > 0) {
+            const formatted = braveResults
+              .map((r, i) => `${i + 1}. **${r.name}**\n   URL: ${r.url}\n   ${r.snippet}${r.date ? `\n   Date: ${r.date}` : ''}`)
+              .join('\n\n')
+            const preview = braveResults.slice(0, 3).map(r => `• ${r.name}`).join('\n')
+            const out = okResult(
+              preview + ' (via Brave Search)',
+              `Web search results for "${query}" (via Brave Search — primary on Vercel):\n\n${formatted}`
+            )
+            setCached('web_search', args, out)
+            return out
+          }
+        }
+      } catch (braveError: any) {
+        console.warn('[web_search] Brave fallback failed:', braveError?.message?.slice(0, 100))
+      }
+    }
+
+    // ── FALLBACK 2: DuckDuckGo Instant Answer API (free, no API key needed) ──
     // The Z.ai SDK's web_search fails on Vercel because the .z-ai-config
     // file doesn't exist in the serverless environment. DuckDuckGo's API
     // is free, requires no authentication, and works perfectly on Vercel.
@@ -197,46 +239,10 @@ export async function toolWebSearch(
         return out
       }
 
-      // UPGRADE #178 fix #1: Brave Search fallback (CRITICAL).
-      // Brave works on Vercel production (BRAVE_API_KEY is set, verified
-      // live: 5 results in 665ms). DuckDuckGo + Google both fail.
-      // This is the fallback that ACTUALLY returns results.
-      if (process.env.BRAVE_API_KEY) {
-        try {
-          const braveUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(Math.max(args.num ?? 5, 1), 10)}`
-          const braveRes = await fetch(braveUrl, {
-            signal: AbortSignal.timeout(10000),
-            headers: {
-              'Accept': 'application/json',
-              'X-Subscription-Token': process.env.BRAVE_API_KEY,
-            },
-          })
-          if (braveRes.ok) {
-            const braveData = await braveRes.json().catch(() => ({}))
-            const braveResults: any[] = (braveData?.web?.results ?? []).map((r: any) => ({
-              name: r.title ?? r.url,
-              url: r.url,
-              snippet: (r.description ?? '').slice(0, 400),
-              date: r.age ?? r.published,
-            })).slice(0, args.num ?? 5)
-
-            if (braveResults.length > 0) {
-              const formatted = braveResults
-                .map((r, i) => `${i + 1}. **${r.name}**\n   URL: ${r.url}\n   ${r.snippet}${r.date ? `\n   Date: ${r.date}` : ''}`)
-                .join('\n\n')
-              const preview = braveResults.slice(0, 3).map(r => `• ${r.name}`).join('\n')
-              const out = okResult(
-                preview + ' (via Brave Search fallback)',
-                `Web search results for "${query}" (via Brave Search — Z.ai SDK + DuckDuckGo unavailable on Vercel):\n\n${formatted}`
-              )
-              setCached('web_search', args, out)
-              return out
-            }
-          }
-        } catch (braveError: any) {
-          console.warn('[web_search] Brave fallback failed:', braveError?.message?.slice(0, 100))
-        }
-      }
+      // UPGRADE #178 fix #1b: Old Brave fallback removed — Brave is now the
+      // FIRST fallback (above, right after Z.ai fails). This duplicate was
+      // the 3rd fallback in the chain (after DDG + Google), which timed out
+      // before ever reaching Brave. Now Brave runs first, returns in <1s.
 
       // If Brave also returned nothing (or no API key), try Google scraping
       // via the http_fetch pattern (fetch Google search results page)
