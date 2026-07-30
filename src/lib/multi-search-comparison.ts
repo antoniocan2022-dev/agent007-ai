@@ -199,21 +199,116 @@ export async function toolContentVerifier(args: any): Promise<ToolResult> {
  * ════════════════════════════════════════════════════════════════ */
 
 export async function toolConsensusFinder(args: any): Promise<ToolResult> {
-  const { results = [] } = args ?? {}
+  // UPGRADE #181 fix #1: Was a STUB that just printed help text.
+  // Now actually analyzes results from multi_search_compare to find:
+  // - URLs that appear across multiple engines (HIGH consensus)
+  // - Domain overlap (engines citing same sources)
+  // - Confidence level based on agreement count
+  const { results = [], query = '' } = args ?? {}
+
+  if (!Array.isArray(results) || results.length === 0) {
+    return ok(
+      `Consensus analysis: 0 results (run multi_search_compare first)`,
+      `CONSENSUS FINDER (UPGRADE #181 — REAL ANALYSIS)\n${'='.repeat(60)}\n\n` +
+        `STATUS: No results to analyze.\n\n` +
+        `HOW TO USE:\n` +
+        `  1. Call multi_search_compare first: <tool name="multi_search_compare">{"query":"...","engines":["brave","wikipedia"]}</tool>\n` +
+        `  2. Pass its results to consensus_finder: <tool name="consensus_finder">{"results":[...],"query":"..."}</tool>\n` +
+        `  3. This tool finds URLs/domains that appear across multiple engines = HIGH consensus`
+    )
+  }
+
+  // Extract URLs from results (results can be from multi_search_compare's output)
+  // Format: [{ engine, results: [{ url, title, snippet }] }, ...]
+  // OR: [{ url, title, snippet }, ...] (flat list)
+  const engineResults: Array<{ engine: string; urls: string[] }> = []
+  const allUrls: Array<{ url: string; engine: string; title?: string }> = []
+
+  for (const r of results) {
+    if (r.engine && Array.isArray(r.results)) {
+      // multi_search_compare format
+      const urls = r.results.map((rr: any) => rr.url).filter(Boolean)
+      engineResults.push({ engine: r.engine, urls })
+      for (const rr of r.results) {
+        if (rr.url) allUrls.push({ url: rr.url, engine: r.engine, title: rr.title })
+      }
+    } else if (r.url) {
+      // flat format
+      const engine = r.engine || 'unknown'
+      const existing = engineResults.find(e => e.engine === engine)
+      if (existing) {
+        existing.urls.push(r.url)
+      } else {
+        engineResults.push({ engine, urls: [r.url] })
+      }
+      allUrls.push({ url: r.url, engine, title: r.title })
+    }
+  }
+
+  // Find URLs that appear in multiple engines (consensus)
+  const urlCounts: Record<string, { engines: Set<string>; titles: string[] }> = {}
+  for (const item of allUrls) {
+    // Normalize URL (strip trailing slash, query params for comparison)
+    const normalized = item.url.replace(/\/$/, '').split('?')[0].toLowerCase()
+    if (!urlCounts[normalized]) {
+      urlCounts[normalized] = { engines: new Set(), titles: [] }
+    }
+    urlCounts[normalized].engines.add(item.engine)
+    if (item.title) urlCounts[normalized].titles.push(item.title)
+  }
+
+  // Find domain overlap (engines citing same domains)
+  const domainCounts: Record<string, { engines: Set<string>; count: number }> = {}
+  for (const item of allUrls) {
+    try {
+      const domain = new URL(item.url).hostname.replace(/^www\./, '')
+      if (!domainCounts[domain]) {
+        domainCounts[domain] = { engines: new Set(), count: 0 }
+      }
+      domainCounts[domain].engines.add(item.engine)
+      domainCounts[domain].count++
+    } catch {}
+  }
+
+  // Calculate consensus
+  const totalEngines = engineResults.length
+  const consensusUrls = Object.entries(urlCounts)
+    .filter(([_, info]) => info.engines.size >= 2)
+    .sort((a, b) => b[1].engines.size - a[1].engines.size)
+
+  const consensusDomains = Object.entries(domainCounts)
+    .filter(([_, info]) => info.engines.size >= 2)
+    .sort((a, b) => b[1].engines.size - a[1].engines.size)
+
+  let consensusLevel = '🔴 LOW — Engines disagree (verify manually)'
+  if (consensusUrls.length >= 3 || (totalEngines >= 3 && consensusUrls.length >= 1)) {
+    consensusLevel = '🟢 HIGH — Multiple engines agree (trust result)'
+  } else if (consensusUrls.length >= 1 || consensusDomains.length >= 2) {
+    consensusLevel = '🟡 MEDIUM — 2 engines agree (likely correct)'
+  }
+
+  const resultText = `CONSENSUS FINDER (UPGRADE #181 — REAL ANALYSIS)\n${'='.repeat(60)}\n\n` +
+    `QUERY: "${query || '(not provided)'}"\n` +
+    `ENGINES ANALYZED: ${totalEngines} (${engineResults.map(e => e.engine).join(', ')})\n` +
+    `TOTAL URLS: ${allUrls.length}\n\n` +
+    `CONSENSUS LEVEL: ${consensusLevel}\n\n` +
+    (consensusUrls.length > 0
+      ? `🟢 URLS WITH HIGH CONSENSUS (${consensusUrls.length}):\n${consensusUrls.slice(0, 5).map(([url, info]) =>
+          `  • ${url} (engines: ${[...info.engines].join(', ')})\n    Title: ${info.titles[0] || 'N/A'}`
+        ).join('\n\n')}\n\n`
+      : `❌ No URLs appeared in multiple engines.\n\n`) +
+    (consensusDomains.length > 0
+      ? `🟡 DOMAIN CONSENSUS (${consensusDomains.length}):\n${consensusDomains.slice(0, 5).map(([domain, info]) =>
+          `  • ${domain} — cited by ${info.engines.size} engines (${[...info.engines].join(', ')})`
+        ).join('\n')}\n\n`
+      : ``) +
+    `SUMMARY: ${consensusUrls.length} URL(s) with multi-engine consensus, ` +
+    `${consensusDomains.length} domain(s) with multi-engine overlap.\n` +
+    `Confidence: ${consensusLevel.includes('HIGH') ? 'HIGH' : consensusLevel.includes('MEDIUM') ? 'MEDIUM' : 'LOW'}`
 
   return ok(
-    `Consensus analysis on ${Array.isArray(results) ? results.length : 0} results`,
-    `CONSENSUS FINDER (UPGRADE #94)\n${'='.repeat(60)}\n\n` +
-      `Results analyzed: ${Array.isArray(results) ? results.length : 0}\n\n` +
-      `CONSENSUS LEVELS:\n` +
-      `  🟢 HIGH CONSENSUS — 3+ engines agree (trust result)\n` +
-      `  🟡 MEDIUM CONSENSUS — 2 engines agree (likely correct)\n` +
-      `  🔴 LOW CONSENSUS — Engines disagree (verify manually)\n\n` +
-      `HOW TO INTERPRET:\n` +
-      `  When engines agree on a URL or fact, confidence is HIGH.\n` +
-      `  When engines disagree, use content_verifier to check specific claims.\n` +
-      `  When only 1 engine returns a result, treat as UNVERIFIED.\n\n` +
-      `Use multi_search_compare first, then pass results here.`
+    `Consensus: ${consensusUrls.length} URLs agreed across ${totalEngines} engines — ${consensusLevel.split('—')[0].trim()}`,
+    resultText
   )
 }
 

@@ -391,15 +391,145 @@ export async function toolYahooFinance(args: any): Promise<ToolResult> {
   if (!key) return needKey('Yahoo Finance (RapidAPI)', 'RAPIDAPI_KEY', 'https://rapidapi.com')
   const { symbol, action = 'get-quote' } = args ?? {}
   if (!symbol) return fail('yahoo_finance requires "symbol"')
+
+  // UPGRADE #181 fix #2: Try multiple RapidAPI Yahoo Finance endpoints.
+  // The old endpoint (apidojo-yahoo-finance-v1) returns HTTP 403 on some
+  // RapidAPI keys. Try 3 alternatives before giving up.
+  const endpoints = [
+    {
+      host: 'apidojo-yahoo-finance-v1.p.rapidapi.com',
+      url: `https://apidojo-yahoo-finance-v1.p.rapidapi.com/stock/v2/get-summary?symbol=${symbol}`,
+    },
+    {
+      host: 'yahoo-finance127.p.rapidapi.com',
+      url: `https://yahoo-finance127.p.rapidapi.com/price/${symbol}`,
+    },
+    {
+      host: 'yahoo-finance15.p.rapidapi.com',
+      url: `https://yahoo-finance15.p.rapidapi.com/api/v1/markets/quote?ticker=${symbol}`,
+    },
+  ]
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep.url, {
+        headers: { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': ep.host },
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!res.ok) {
+        console.warn(`[yahoo_finance] ${ep.host}: HTTP ${res.status}, trying next...`)
+        continue
+      }
+      const data = await res.json()
+
+      // Parse price from various response formats
+      const price = data?.price?.regularMarketPrice?.raw
+        ?? data?.price?.regularMarketPrice
+        ?? data?.regularMarketPrice
+        ?? data?.quoteSummary?.result?.[0]?.price?.regularMarketPrice?.raw
+        ?? data?.body?.[0]?.regularMarketPrice
+        ?? 'N/A'
+      const change = data?.price?.regularMarketChangePercent?.raw
+        ?? data?.price?.regularMarketChangePercent
+        ?? data?.regularMarketChangePercent
+        ?? data?.body?.[0]?.regularMarketChangePercent
+        ?? 'N/A'
+      const currency = data?.summaryDetail?.currency
+        ?? data?.price?.currency
+        ?? data?.body?.[0]?.currency
+        ?? 'USD'
+      const name = data?.price?.longName
+        ?? data?.quoteSummary?.result?.[0]?.price?.longName
+        ?? data?.body?.[0]?.longName
+        ?? symbol
+
+      if (price !== 'N/A') {
+        return ok(
+          `${symbol}: $${price} (${change}%)`,
+          `Yahoo Finance (${symbol}) via ${ep.host}:\n` +
+          `Name: ${name}\n` +
+          `Price: $${price}\n` +
+          `Change: ${change}%\n` +
+          `Currency: ${currency}\n\n` +
+          `Source: RapidAPI (${ep.host})`
+        )
+      }
+    } catch (e: any) {
+      console.warn(`[yahoo_finance] ${ep.host} error: ${e?.message?.slice(0, 80)}`)
+    }
+  }
+
+  return fail(`Yahoo Finance: All ${endpoints.length} RapidAPI endpoints failed for "${symbol}". The RAPIDAPI_KEY may be invalid or the free tier expired. Try CoinGecko for crypto (no API key needed) or alpha_vantage for stocks.`)
+}
+
+// UPGRADE #181 fix #2b: CoinGecko — free crypto data, NO API key needed.
+// Works on Vercel production. QUANTUM uses this alongside yahoo_finance
+// to cross-verify crypto prices.
+export async function toolCoinGecko(args: any): Promise<ToolResult> {
+  const { coin, action = 'price' } = args ?? {}
+  if (!coin) return fail('coingecko requires "coin" (e.g. "bitcoin", "ethereum", "solana")')
+
   try {
-    const res = await fetch(`https://apidojo-yahoo-finance-v1.p.rapidapi.com/stock/v2/get-summary?symbol=${symbol}`, {
-      headers: { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': 'apidojo-yahoo-finance-v1.p.rapidapi.com' },
-      signal: AbortSignal.timeout(30000),
-    })
-    if (!res.ok) return fail(`Yahoo Finance: HTTP ${res.status}`)
-    const data = await res.json()
-    const price = data?.price?.regularMarketPrice?.raw ?? 'N/A'
-    const change = data?.price?.regularMarketChangePercent?.raw ?? 'N/A'
-    return ok(`${symbol}: $${price} (${change}%)`, `Yahoo Finance (${symbol}):\nPrice: $${price}\nChange: ${change}%\nCurrency: ${data?.summaryDetail?.currency ?? 'USD'}`)
-  } catch (e: any) { return fail(`Yahoo Finance: ${e?.message}`) }
+    if (action === 'price' || !action) {
+      // Get current price + 24h change
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coin)}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true&include_24hr_vol=true`
+      const res = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!res.ok) return fail(`CoinGecko: HTTP ${res.status}`)
+      const data = await res.json()
+      const coinData = data?.[coin]
+      if (!coinData) return fail(`CoinGecko: coin "${coin}" not found. Use lowercase ID (e.g. "bitcoin", "ethereum", "solana", "cardano")`)
+
+      const price = coinData.usd
+      const change24h = coinData.usd_24h_change
+      const marketCap = coinData.usd_market_cap
+      const volume24h = coinData.usd_24h_vol
+
+      return ok(
+        `${coin}: $${price} (${change24h?.toFixed(2)}%)`,
+        `CoinGecko (${coin}):\n` +
+        `Price: $${price?.toLocaleString()}\n` +
+        `24h Change: ${change24h?.toFixed(2)}%\n` +
+        `Market Cap: $${marketCap?.toLocaleString()}\n` +
+        `24h Volume: $${volume24h?.toLocaleString()}\n\n` +
+        `Source: CoinGecko API (free, no key needed)\n` +
+        `Compare with yahoo_finance for cross-verification.`
+      )
+    } else if (action === 'trending') {
+      // Get trending coins
+      const res = await fetch('https://api.coingecko.com/api/v3/search/trending', {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!res.ok) return fail(`CoinGecko trending: HTTP ${res.status}`)
+      const data = await res.json()
+      const trending = (data?.coins ?? []).slice(0, 10).map((c: any, i: number) =>
+        `${i + 1}. ${c.item.name} (${c.item.symbol}) — Rank #${c.item.market_cap_rank ?? 'N/A'} — ID: ${c.item.id}`
+      ).join('\n')
+      return ok(
+        `Trending: ${Math.min(10, data?.coins?.length ?? 0)} coins`,
+        `CoinGecko Trending Coins:\n\n${trending}\n\nSource: CoinGecko API (free)`
+      )
+    } else if (action === 'list') {
+      // List top coins by market cap
+      const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&page=1', {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!res.ok) return fail(`CoinGecko list: HTTP ${res.status}`)
+      const data = await res.json()
+      const coins = (Array.isArray(data) ? data : []).slice(0, 20).map((c: any, i: number) =>
+        `${i + 1}. ${c.name} (${c.symbol?.toUpperCase()}) — $${c.current_price} (${c.price_change_percentage_24h?.toFixed(2)}%) — MCap: $${(c.market_cap / 1e9).toFixed(2)}B`
+      ).join('\n')
+      return ok(
+        `Top 20 coins by market cap`,
+        `CoinGecko Top 20:\n\n${coins}\n\nSource: CoinGecko API (free)`
+      )
+    }
+    return fail(`CoinGecko: unknown action "${action}". Use "price", "trending", or "list".`)
+  } catch (e: any) {
+    return fail(`CoinGecko: ${e?.message}`)
+  }
 }

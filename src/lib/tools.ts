@@ -2578,7 +2578,7 @@ import {
   toolFREDEconomic, toolJinaReader, toolExaSearch, toolProductHunt,
   toolHFInference, toolPollinationsImage, toolCraiyonImage, toolStabilityImage,
   toolElevenLabsTTS, toolDeepLTranslate, toolRemoveBg,
-  toolSummarizeTech, toolYahooFinance,
+  toolSummarizeTech, toolYahooFinance, toolCoinGecko,
 } from './ai-providers-integration'
 // LLM Providers (7)
 TOOL_REGISTRY.cerebras_llm = { fn: toolCerebrasLLM, icon: 'cpu', label: 'Cerebras LLM (Llama 3.1 — fastest inference, 2600 tok/s)' }
@@ -2608,6 +2608,8 @@ TOOL_REGISTRY.remove_bg = { fn: toolRemoveBg, icon: 'scissors', label: 'Remove.b
 // Utils (2)
 TOOL_REGISTRY.summarize_tech = { fn: toolSummarizeTech, icon: 'video', label: 'Summarize.tech (AI video summarization, free)' }
 TOOL_REGISTRY.yahoo_finance = { fn: toolYahooFinance, icon: 'dollar-sign', label: 'Yahoo Finance via RapidAPI (stock prices, financials)' }
+// UPGRADE #181 fix #2b: CoinGecko — free crypto data, no API key needed.
+TOOL_REGISTRY.coingecko = { fn: toolCoinGecko, icon: 'bitcoin', label: 'CoinGecko (REAL crypto prices, trending, top 20 — FREE, no key)' }
 
 /* ================================================================== *
  * REAL API ENHANCEMENTS — 7 tools (upgrade #55)

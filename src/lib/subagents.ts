@@ -317,7 +317,7 @@ RULES:
     specialty: 'Dividend stocks, crypto staking, DeFi yield, print-on-demand royalties, REITs, index funds',
     color: '#fbbf24',
     icon: 'TrendingUp',
-    allowedTools: ['alpha_vantage','yahoo_finance','fred_economic','web_search','code_exec','memory_store','memory_recall','decision_matrix','parallel_executor','source_quality_ranker','multi_search_compare','quality_scorer_v2','semantic_router_v2','income_reality_check','mission_mode','http_fetch','failure_learning','tool_cache','multi_provider_compare'],
+    allowedTools: ['alpha_vantage','yahoo_finance','coingecko','fred_economic','web_search','code_exec','memory_store','memory_recall','decision_matrix','parallel_executor','source_quality_ranker','multi_search_compare','quality_scorer_v2','semantic_router_v2','income_reality_check','mission_mode','http_fetch','failure_learning','tool_cache','multi_provider_compare'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are QUANTUM, the Investment & Yield Strategist sub-agent of Agent007 AI.
@@ -325,10 +325,32 @@ Your specialty: dividend stocks, crypto staking, DeFi yield, print-on-demand roy
 
 ALLOWED TOOLS:
 - web_search — ALWAYS search for current rates/yields; never guess numbers
+- yahoo_finance — stock prices, financials (via RapidAPI). Use for stocks/ETFs.
+- coingecko — crypto prices, market cap, trending (FREE, no key needed). Use for crypto.
+- alpha_vantage — alternative stock data (backup to yahoo_finance)
 - page_reader — dig into yield source details
 - code_exec — compute compound growth, allocation outcomes
 - memory_store — save the user's risk tolerance / capital / goals
 - memory_recall — recall the user's investment context
+
+DUAL-SOURCE VERIFICATION (UPGRADE #181 fix #2c — MANDATORY):
+For ANY investment recommendation, you MUST cross-verify prices using BOTH:
+1. yahoo_finance (for stocks/ETFs): <tool name="yahoo_finance">{"symbol":"AAPL"}</tool>
+2. coingecko (for crypto): <tool name="coingecko">{"coin":"bitcoin"}</tool>
+If both sources return data, compare them. If they disagree by >2%, flag the
+discrepancy and recommend manual verification. If one source fails, use the
+other but note the failure in your report.
+
+Example for a crypto recommendation:
+  Step 1: <tool name="coingecko">{"coin":"bitcoin"}</tool> → $43,500
+  Step 2: <tool name="yahoo_finance">{"symbol":"BTC-USD"}</tool> → $43,480
+  Step 3: Compare → 0.05% difference = ✅ HIGH confidence
+  Step 4: Report with both sources cited
+
+Example for a stock recommendation:
+  Step 1: <tool name="yahoo_finance">{"symbol":"AAPL"}</tool> → $185.50
+  Step 2: <tool name="alpha_vantage">{"function":"GLOBAL_QUOTE","symbol":"AAPL"}</tool> → $185.45
+  Step 3: Compare → 0.03% difference = ✅ HIGH confidence
 
 OUTPUT FORMAT:
 - <thought>brief reasoning</thought> before each action
@@ -336,7 +358,9 @@ OUTPUT FORMAT:
 - Plain markdown final answer
 
 RULES:
-- NEVER quote a yield/price/APY without web_search verification first
+- NEVER quote a yield/price/APY without verification from at least ONE source
+- For crypto: ALWAYS use coingecko first (free, reliable), then yahoo_finance for cross-check
+- For stocks: ALWAYS use yahoo_finance first, then alpha_vantage for cross-check
 - Present risk-adjusted: pair every yield with its risk (smart contract, market, liquidity)
 - Use code_exec to project 1y/5y/10y compound outcomes for the user's capital
 - Suggest diversified allocations, not single bets
@@ -1534,6 +1558,27 @@ export interface RunSubagentResult {
 
 const SUBAGENT_MAX_ITERATIONS = 15
 
+// UPGRADE #181 fix #4: Find an alternative tool when one has a low success score.
+// Maps known-failing tools to their working alternatives.
+const TOOL_ALTERNATIVES: Record<string, string[]> = {
+  'web_search': ['brave_search', 'wikipedia_search', 'http_fetch'],
+  'yahoo_finance': ['alpha_vantage', 'coingecko'],
+  'consensus_finder': ['multi_search_compare', 'accuracy_checker'],
+  'multi_search_compare': ['brave_search', 'wikipedia_search'],
+  'ddg_search': ['brave_search', 'wikipedia_search'],
+  'google_ai_search': ['brave_search', 'web_search'],
+  'perplexity_ai_search': ['brave_search', 'web_search'],
+}
+function findAlternativeTool(failingTool: string, allowed: Set<string>): string | null {
+  const alts = TOOL_ALTERNATIVES[failingTool]
+  if (!alts) return null
+  // Return the first alternative that's in the agent's allowedTools
+  for (const alt of alts) {
+    if (allowed.has(alt)) return alt
+  }
+  return null
+}
+
 /* Per-agent request throttle (#10). Ensures each individual sub-agent waits
  * at least MIN_AGENT_INTERVAL_MS between its own LLM calls, on top of the
  * app-wide throttle in agent.ts. */
@@ -1595,22 +1640,62 @@ CURRENT UTC TIME: ${new Date().toUTCString()}
 
 You are operating autonomously inside Agent007's multi-agent network. The Super Agent has given you a specific task. Execute it end-to-end using only your allowed tools. Then return a clear, structured final answer.`
 
-  // UPGRADE #165 Gap #3: Recall past learnings before starting the task.
+  // UPGRADE #165 Gap #3 + #181 fix #4: Recall past learnings before starting.
   // This gives the agent REAL self-learning — it remembers what worked
   // and what didn't from previous runs of similar tasks.
+  // #181 fix #4: Also check for LOW-SCORED tools and warn the agent to
+  // avoid them. If a tool has score < 40 in recent history, inject a
+  // warning so the agent uses an alternative.
   let pastLearnings = ''
+  let toolWarnings = ''
   try {
-    const { recallPersistentMemory } = await import('./persistent-memory')
+    const { recallPersistentMemory, getAllPersistentMemory } = await import('./persistent-memory')
     const memories = await recallPersistentMemory(opts.task.slice(0, 100), 3).catch(() => [])
     if (memories.length > 0) {
       pastLearnings = `\n\nPAST LEARNINGS (from previous runs, sorted by success score):\n${memories.map(m => `  - [score: ${m.score}/100] ${m.value.slice(0, 200)}`).join('\n')}\n\nUse these learnings to improve your approach. Higher-scored learnings worked well in the past.`
+    }
+
+    // UPGRADE #181 fix #4: Check for tools with low success scores.
+    // If a tool has been used by this subagent and consistently scored
+    // below 40, warn the agent to use an alternative.
+    const allMems = await getAllPersistentMemory().catch(() => [])
+    const toolFailures: Record<string, { score: number; count: number }> = {}
+    for (const m of allMems) {
+      if (m.category === 'self_learning' && m.key.includes(`_${sub.id}_`)) {
+        // Extract tool name from learning value if present
+        const toolMatch = m.value.match(/tool[:\s]+([a-z_]+)/i)
+        if (toolMatch) {
+          const toolName = toolMatch[1]
+          if (!toolFailures[toolName]) {
+            toolFailures[toolName] = { score: m.score, count: 1 }
+          } else {
+            toolFailures[toolName].score = (toolFailures[toolName].score + m.score) / 2
+            toolFailures[toolName].count++
+          }
+        }
+      }
+    }
+
+    // Find tools with avg score < 40 (failing)
+    const failingTools = Object.entries(toolFailures)
+      .filter(([_, info]) => info.score < 40 && info.count >= 1)
+      .sort((a, b) => a[1].score - b[1].score)
+
+    if (failingTools.length > 0) {
+      toolWarnings = `\n\n⚠️ TOOL PERFORMANCE WARNINGS (UPGRADE #181 fix #4):\n`
+      toolWarnings += `The following tools have LOW success scores in recent history. Consider using alternatives:\n`
+      for (const [tool, info] of failingTools.slice(0, 5)) {
+        const alternative = findAlternativeTool(tool, allowed)
+        toolWarnings += `  • ${tool} (avg score: ${Math.round(info.score)}/100, uses: ${info.count})${alternative ? ` → try "${alternative}" instead` : ' → no alternative available, use with caution'}\n`
+      }
+      toolWarnings += `\nThese warnings are based on REAL past performance data from the forever memory system.`
     }
   } catch {
     /* non-fatal */
   }
 
   let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-    { role: 'system', content: systemPrompt + pastLearnings },
+    { role: 'system', content: systemPrompt + pastLearnings + toolWarnings },
     { role: 'user', content: opts.task },
   ]
 
