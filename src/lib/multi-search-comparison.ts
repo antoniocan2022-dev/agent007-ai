@@ -33,15 +33,27 @@ interface SearchResult {
 }
 
 export async function toolMultiSearchCompare(args: any): Promise<ToolResult> {
-  const { query, engines = ['tavily', 'exa', 'serpapi'], compare_mode = 'consensus' } = args ?? {}
+  const { query, engines = ['brave', 'wikipedia', 'ddg'], compare_mode = 'consensus' } = args ?? {}
   if (!query) return fail('multi_search_compare requires "query"')
 
   const { dispatchTool } = await import('./tools')
   const start = Date.now()
   const searchResults: SearchResult[] = []
 
-  // Map engine names to tool names
+  // UPGRADE #178 fix #2: Map engine short names to actual TOOL_REGISTRY names.
+  // BEFORE: 'brave' → dispatchTool('brave', ...) → "Unknown tool: brave"
+  //         'wikipedia' → dispatchTool('wikipedia', ...) → "Unknown tool: wikipedia"
+  // AFTER: 'brave' → 'brave_search', 'wikipedia' → 'wikipedia_search', etc.
+  // Also changed default engines from ['tavily','exa','serpapi'] (which all
+  // require paid API keys Antonio doesn't have) to ['brave','wikipedia','ddg']
+  // (which work on production: brave_search 665ms, wikipedia_search 198ms).
   const engineMap: Record<string, string> = {
+    brave: 'brave_search',
+    wikipedia: 'wikipedia_search',
+    wiki: 'wikipedia_search',
+    ddg: 'ddg_search',
+    duckduckgo: 'ddg_search',
+    google: 'web_search',
     tavily: 'tavily_search',
     exa: 'exa_search',
     serpapi: 'serpapi',
@@ -53,18 +65,42 @@ export async function toolMultiSearchCompare(args: any): Promise<ToolResult> {
 
   // Search all engines in parallel
   const searchPromises = engines.slice(0, 5).map(async (engine: string) => {
-    const toolName = engineMap[engine] ?? engine
+    const toolName = engineMap[engine.toLowerCase()] ?? engine
     const eStart = Date.now()
     try {
       const result = await Promise.race([
-        dispatchTool(toolName, { query, q: query, symbol: query, series_id: query, url: query, action: 'trending' }, { attachments: [], language: 'en', conversationId: 'multi-search' }),
+        dispatchTool(toolName, { query, q: query, symbol: query, series_id: query, url: query, action: 'trending', limit: 5, count: 5 }, { attachments: [], language: 'en', conversationId: 'multi-search' }),
         new Promise<ToolResult>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
       ])
       const elapsed = Date.now() - eStart
+
+      // UPGRADE #178 fix #2: Actually PARSE the results from the tool output.
+      // BEFORE: results: [] (always empty — never extracted URLs from result.result)
+      // AFTER: extract URLs + snippets from the result text using regex.
+      const text = result?.result ?? ''
+      const extractedResults: Array<{ url: string; snippet: string; title?: string }> = []
+      // Match patterns like "URL: https://..." and "1. **Title**\n   URL: https://..."
+      const urlMatches = text.matchAll(/(?:URL:\s*)?(https?:\/\/[^\s\n|)\]]+)/gi)
+      const titleMatches = text.matchAll(/\*\*([^*]+)\*\*/g)
+      const titles = [...titleMatches].map(m => m[1]).slice(0, 10)
+      let urlIdx = 0
+      for (const m of urlMatches) {
+        const url = m[1]
+        // Skip non-result URLs (API endpoints, etc.)
+        if (url.includes('api.') || url.includes('api/search') || url.includes('duckduckgo.com/?q=')) continue
+        extractedResults.push({
+          url,
+          snippet: titles[urlIdx] ?? '',
+          title: titles[urlIdx],
+        })
+        urlIdx++
+        if (extractedResults.length >= 5) break
+      }
+
       return {
         engine,
         query,
-        results: [], // Parse from result.result
+        results: extractedResults,
         elapsed,
         ok: result.ok,
         error: result.ok ? undefined : result.preview,
