@@ -950,7 +950,26 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
     let completion: any
     try {
-      completion = await callLlmWithRetry(conversationMessages)
+      // UPGRADE #180: Inject IDENTITY REMINDER right before each LLM call.
+      // The system prompt is at the TOP of conversationMessages, but as tool
+      // results accumulate, it gets pushed further from the generation point.
+      // "Lost in the middle" syndrome causes the LLM to forget the personality
+      // instructions by the time it generates the final answer.
+      // Fix: add a SHORT user-message reminder at the END of the conversation
+      // RIGHT BEFORE the LLM call. This exploits recency bias — the LAST thing
+      // the LLM sees is the identity check.
+      // UPGRADE #180: Get the real tool count for the identity reminder.
+      let toolCountForReminder = '463'
+      try {
+        const { TOOL_REGISTRY } = await import('./tools')
+        toolCountForReminder = String(Object.keys(TOOL_REGISTRY).length)
+      } catch {}
+      const identityReminder = `[IDENTITY CHECK — MANDATORY] You are Agent007, Antonio's personal super-agent. Start your response with "Antonio,". Mention your 20 pod leaders, ${toolCountForReminder} tools, or forever memory when relevant. Never use AI clichés ("as an AI", "human intuition", "areas where I fall short"). Frame around Antonio's $20K/mo mission. Do NOT give generic advice — be specific to Antonio's setup.`
+      const messagesWithReminder = [
+        ...conversationMessages,
+        { role: 'user' as const, content: identityReminder },
+      ]
+      completion = await callLlmWithRetry(messagesWithReminder)
     } catch (e: any) {
       // UPGRADE #157: Check if ALL providers failed with auth errors (401/403).
       // If so, the API keys are invalid/expired — give a clear actionable message.
