@@ -1603,3 +1603,95 @@ Stage Summary:
 - 0 TypeScript errors (maintained from #173)
 - Files modified: 5 (tools/test/route.ts NEW, agent.ts, provider-intelligence.ts,
   orchestrator.ts, health/route.ts)
+
+---
+Task ID: 177-intelligence-research-team-audit
+Agent: main (Super Z)
+Task: Deep comprehension of Intelligence & Research team. Find weaknesses. Test coordination. Evaluate each specialist. Provide 5 recommendations.
+
+Work Log:
+- Read subagent definitions for the Intelligence & Research Pod (POD 1):
+  - SCOUT (leader) — Trend & Market Researcher
+  - HUNT (member) — Freelance & Gig Hunter
+  - QUANTUM (co-leader of POD 8 but supports POD 1) — Investment & Yield Strategist
+- Verified all 3 agents' allowedTools are registered in TOOL_REGISTRY (55 total tools across the 3 agents, 0 missing).
+- Tested each agent's core tools live on production via /api/tools/test.
+
+CRITICAL FINDINGS:
+
+1. web_search is BROKEN on production (SCOUT's primary tool):
+   - Z.ai SDK fails: "Configuration file not found"
+   - DuckDuckGo fallback: "returned no results"
+   - Google fallback: "returned no results"
+   - Result: "No results for [query] (all search methods exhausted)"
+   - SCOUT CANNOT DO RESEARCH without web_search.
+   - But brave_search WORKS (5 results, 665ms) — web_search doesn't fall back to Brave.
+
+2. multi_search_compare is BROKEN (SCOUT's cross-verification tool):
+   - Tries to call tools named "brave" and "wikipedia"
+   - Actual tool names are "brave_search" and "wikipedia_search"
+   - Returns "0/2 engines succeeded, 0 consensus URLs"
+   - SCOUT cannot cross-verify research across multiple search engines.
+
+3. consensus_finder returns 0 results:
+   - Same root cause — calls wrong tool names internally
+   - Returns "Consensus analysis on 0 results"
+
+4. yahoo_finance FAILS (QUANTUM's stock data tool):
+   - HTTP error (likely API blocked or rate-limited)
+   - QUANTUM falls back to alpha_vantage which works (43ms)
+
+5. page_reader works but is SLOW on first call (93ms — Z.ai SDK overhead)
+6. memory_store + memory_recall work correctly (3.8s + 786ms)
+7. accuracy_checker works (LLM-based verification, 4.5s)
+8. brave_search works perfectly (5 results, 665ms)
+9. wikipedia_search works (198ms)
+10. decision_matrix works (0ms — pure computation)
+11. alpha_vantage works (43ms)
+
+COORDINATION EVALUATION:
+- SCOUT is LEADER of POD 1 with HUNT + QUANTUM as team members
+- SCOUT's systemPrompt says: "Use <dispatch_subagent id='hunt'> for freelance/gig platform research"
+- SCOUT's systemPrompt says: "Use <dispatch_subagent id='quantum'> for investment/yield analysis"
+- The dispatch mechanism (parsed.dispatch) was fixed in #169 C2 + #170 fix #3
+- BUT: the #170 recursion depth cap (MAX_RECURSION_DEPTH=3) limits deep delegation
+- Coordination is THEORETICALLY possible but UNTESTED in this audit (requires full agent auth)
+
+PER-AGENT EVALUATION:
+
+SCOUT (Leader, Trend & Market Researcher):
+- Strengths: 23 tools (most of any agent), leadership role, thinking protocol
+- Weaknesses: web_search broken, multi_search_compare broken, consensus_finder broken
+- Can actually do: brave_search, wikipedia_search, page_reader, accuracy_checker, memory
+- Cannot do: cross-verify across multiple search engines (multi_search_compare broken)
+- Quality score: 4/10 (severely hampered by broken web_search)
+
+HUNT (Freelance & Gig Hunter):
+- Strengths: 13 focused tools, clear specialty (Upwork/Fiverr/Toptal/Contra)
+- Weaknesses: web_search broken (same as SCOUT), no leadership role, no thinking protocol
+- Can actually do: brave_search, page_reader, memory, http_fetch
+- Cannot do: web_search (broken)
+- Quality score: 5/10 (brave_search compensates for web_search failure)
+
+QUANTUM (Investment & Yield Strategist):
+- Strengths: 19 tools, financial data APIs (alpha_vantage works), decision_matrix, code_exec
+- Weaknesses: yahoo_finance broken, web_search broken
+- Can actually do: alpha_vantage, decision_matrix, code_exec, memory, accuracy_checker
+- Cannot do: yahoo_finance, web_search
+- Quality score: 6/10 (best of the 3 — alpha_vantage + decision_matrix work)
+
+5 RECOMMENDATIONS:
+
+1. FIX web_search fallback chain — add Brave Search as 3rd fallback
+   (Brave works on production, web_search doesn't use it)
+
+2. FIX multi_search_compare tool name mapping — "brave" → "brave_search",
+   "wikipedia" → "wikipedia_search" (currently calls non-existent tools)
+
+3. ADD thinking protocol to HUNT — SCOUT + QUANTUM + FORGE have it, HUNT doesn't
+
+4. ADD accuracy_checker to HUNT's allowedTools — HUNT verifies freelance
+   data but has no fact-checking tool (SCOUT + QUANTUM both have it)
+
+5. ADD leadership delegation section to HUNT + QUANTUM — currently only
+   SCOUT has explicit "dispatch to team" instructions
