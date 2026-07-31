@@ -157,8 +157,10 @@ export async function GET() {
     }
 
     if (required.length === 0) {
-      // Listed but explicitly no external deps (e.g., affiliate_tracker uses DB only)
-      toolsNoExternalDeps.push({ name: toolName, label })
+      // UPGRADE #187 fix: Tools with NO required env vars (FREE tools like
+      // yahoo_finance, coingecko, web_search, accuracy_checker) are READY
+      // to use. Add them to toolsWithCreds so they appear in the audit.
+      toolsWithCreds.push({ name: toolName, label })
       continue
     }
 

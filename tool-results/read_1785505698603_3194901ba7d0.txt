@@ -1,0 +1,527 @@
+     1→/**
+     2→ * real-intelligence-tools.ts — UPGRADE #166
+     3→ * ===================================================================
+     4→ * REAL implementations of every tool that was previously FAKE.
+     5→ *
+     6→ * FAKE tools replaced (7):
+     7→ *   1. toolSelfImprovingStrategy  → REAL: analyzes persistent-memory learnings
+     8→ *   2. toolSelfOptimizationEngine → REAL: analyzes tool call patterns
+     9→ *   3. toolFeedbackOptimizationLoop → REAL: analyzes income + traffic data
+    10→ *   4. toolAutonomousDecisionMaker → REAL: uses LLM to decide
+    11→ *   5. toolDecisionMatrix          → REAL: weighted scoring with REAL criteria
+    12→ *   6. toolEfficiencyOptimizer    → REAL: analyzes actual step counts + timings
+    13→ *   7. toolUsageAnalyzer          → REAL: queries TOOL_REGISTRY for real counts
+    14→ *
+    15→ * NEW tools added (3):
+    16→ *   8. toolRequestHelp            → specialist asks leader for help (Leadership)
+    17→ *   9. toolReportProgress         → specialist reports progress to leader (Coordination)
+    18→ *   10. toolVerifyWork             → specialist asks for verification (Coordination)
+    19→ *
+    20→ * Design principle: NEVER return hardcoded fake metrics. Every tool
+    21→ * either queries REAL data (DB, API, registry) or returns an honest
+    22→ * "not enough data yet" message.
+    23→ */
+    24→
+    25→import { dispatchTool, type ToolContext, type ToolResult } from './tools'
+    26→
+    27→function okResult(preview: string, result: string): ToolResult {
+    28→  return { ok: true, preview, result, artifacts: undefined }
+    29→}
+    30→function badResult(msg: string): ToolResult {
+    31→  return { ok: false, preview: msg, result: msg, artifacts: undefined }
+    32→}
+    33→
+    34→// ════════════════════════════════════════════════════════════════════
+    35→// 1. LEARNING: REAL Self-Improving Strategy
+    36→// ════════════════════════════════════════════════════════════════════
+    37→
+    38→export async function toolSelfImprovingStrategy(args: any, _ctx: ToolContext): Promise<ToolResult> {
+    39→  // UPGRADE #166: REAL implementation — queries persistent-memory for actual learnings.
+    40→  try {
+    41→    const { recallPersistentMemory, getAllPersistentMemory } = await import('./persistent-memory')
+    42→    const allMemories = await getAllPersistentMemory().catch(() => [])
+    43→    const learnings = allMemories.filter(m => m.category === 'self_learning')
+    44→
+    45→    if (learnings.length === 0) {
+    46→      return okResult(
+    47→        'Self-learning: 0 learnings recorded yet',
+    48→        `SELF-IMPROVING STRATEGY ENGINE\n${'='.repeat(60)}\n\nSTATUS: No learnings recorded yet.\n\nThe system is ready to learn. Each time a subagent completes a task, it automatically:\n  1. Records what worked (score: 75) and what didn't (score: 25)\n  2. Stores the learning FOREVER (UPGRADE #171: no expiration)\n  3. Recalls top learnings on future similar tasks\n\nAntonio can update any learning's score anytime via updateMemoryScore.\nAfter running a few missions, this tool will show REAL insights from actual task outcomes.`
+    49→      )
+    50→    }
+    51→
+    52→    // Sort by score (highest first) + recency
+    53→    const sorted = learnings
+    54→      .map(m => ({
+    55→        ...m,
+    56→        ageDays: (Date.now() - m.createdAt) / (24 * 60 * 60 * 1000),
+    57→        decayFactor: Math.max(0.5, 1 - ((Date.now() - m.createdAt) / (90 * 24 * 60 * 60 * 1000))),
+    58→      }))
+    59→      .sort((a, b) => (b.score * b.decayFactor) - (a.score * a.decayFactor))
+    60→
+    61→    const successCount = sorted.filter(m => m.score >= 60).length
+    62→    const failCount = sorted.filter(m => m.score < 40).length
+    63→
+    64→    const topLearnings = sorted.slice(0, 5).map((m, i) =>
+    65→      `  LEARNING ${i + 1}: [score: ${m.score}/100, age: ${Math.round(m.ageDays)}d]\n` +
+    66→      `    Key: ${m.key.slice(0, 60)}\n` +
+    67→      `    Value: ${m.value.slice(0, 200)}\n`
+    68→    ).join('\n')
+    69→
+    70→    return okResult(
+    71→      `Self-learning: ${learnings.length} learnings (${successCount} success, ${failCount} failure)`,
+    72→      `SELF-IMPROVING STRATEGY ENGINE\n${'='.repeat(60)}\n\n` +
+    73→      `LEARNING DATABASE: ${learnings.length} recorded insights\n` +
+    74→      `SUCCESS RATE: ${successCount}/${learnings.length} (${Math.round(successCount / learnings.length * 100)}%)\n` +
+    75→      `TOP LEARNINGS (by score × recency):\n\n${topLearnings}\n\n` +
+    76→      `FEEDBACK LOOP:\n` +
+    77→      `  1. Each subagent run → records learning (score 75 for success, 25 for failure)\n` +
+    78→      `  2. Future runs recall top learnings (FOREVER — no expiration)\n` +
+    79→      `  3. Higher-scored learnings are preferred\n\n` +
+    80→      `NEXT STEPS:\n` +
+    81→      `  • Run more missions to build learning history\n` +
+    82→      `  • Review low-score learnings to avoid repeating mistakes\n` +
+    83→      `  • Use memory_recall to query specific topics`
+    84→    )
+    85→  } catch (e: any) {
+    86→    return badResult(`Self-learning analysis failed: ${e?.message?.slice(0, 100)}`)
+    87→  }
+    88→}
+    89→
+    90→// ════════════════════════════════════════════════════════════════════
+    91→// 2. INTELLIGENCE: REAL Decision Matrix
+    92→// ════════════════════════════════════════════════════════════════════
+    93→
+    94→export async function toolDecisionMatrix(args: any, _ctx: ToolContext): Promise<ToolResult> {
+    95→  // UPGRADE #166: REAL implementation — uses weighted scoring with actual criteria.
+    96→  const options = args?.options
+    97→  const criteria = args?.criteria
+    98→
+    99→  if (!options || !Array.isArray(options) || options.length === 0) {
+   100→    return badResult('Missing "options" array. Example: {"options":["A","B","C"],"criteria":{"speed":8,"cost":3,"quality":9}}')
+   101→  }
+   102→  if (!criteria || typeof criteria !== 'object') {
+   103→    return badResult('Missing "criteria" object. Example: {"criteria":{"speed":8,"cost":3}}')
+   104→  }
+   105→
+   106→  // If scores are provided for each option, use them. Otherwise, ask the LLM.
+   107→  // UPGRADE #166: NEVER use Math.random(). If no scores, return "needs more data."
+   108→  const criteriaEntries = Object.entries(criteria)
+   109→  const totalWeight = criteriaEntries.reduce((sum, [_, w]) => sum + Number(w), 0)
+   110→
+   111→  const results = options.map((opt: any) => {
+   112→    const optStr = typeof opt === 'string' ? opt : JSON.stringify(opt)
+   113→    const scores = (args?.scores?.[optStr] || args?.scores?.[opt?.id || opt?.name]) as Record<string, number> | undefined
+   114→
+   115→    if (scores) {
+   116→      // REAL scores provided — calculate weighted sum
+   117→      const weightedSum = criteriaEntries.reduce((sum, [key, weight]) => {
+   118→        return sum + (Number(scores[key] ?? 0) * Number(weight))
+   119→      }, 0)
+   120→      const normalizedScore = totalWeight > 0 ? (weightedSum / totalWeight).toFixed(1) : '0'
+   121→      return { option: optStr, score: Number(normalizedScore), scores, hasData: true }
+   122→    } else {
+   123→      // No scores — don't fake it. Report honestly.
+   124→      return { option: optStr, score: null, hasData: false }
+   125→    }
+   126→  })
+   127→
+   128→  const scored = results.filter((r: any) => r.hasData)
+   129→  const unscored = results.filter((r: any) => !r.hasData)
+   130→
+   131→  if (scored.length === 0) {
+   132→    return okResult(
+   133→      `Decision matrix: ${options.length} options, 0 scored — needs data`,
+   134→      `DECISION MATRIX\n${'='.repeat(60)}\n\nOPTIONS: ${options.map((o: any) => `"${typeof o === 'string' ? o : o.name || o.id}"`).join(', ')}\nCRITERIA: ${criteriaEntries.map(([k, w]) => `${k} (weight: ${w})`).join(', ')}\n\nSTATUS: No scores provided.\n\nTo use this tool:\n  1. Provide scores for each option: {"scores":{"Option A":{"speed":8,"cost":3}}}\n  2. The tool calculates weighted scores\n  3. The highest-scoring option is recommended\n\nAlternatively, ask the LLM directly: "Which option is best and why?"`
+   135→    )
+   136→  }
+   137→
+   138→  // Sort by score (highest first)
+   139→  scored.sort((a: any, b: any) => b.score - a.score)
+   140→  const winner = scored[0]
+   141→
+   142→  return okResult(
+   143→    `Decision: "${winner.option}" wins with ${winner.score}/100`,
+   144→    `DECISION MATRIX\n${'='.repeat(60)}\n\nCRITERIA (weights):\n${criteriaEntries.map(([k, w]) => `  ${k}: ${w}`).join('\n')}\n\nRESULTS:\n${scored.map((r: any) => `  ${r.option}: ${r.score}/100 ${r.option === winner.option ? '← WINNER' : ''}`).join('\n')}${unscored.length > 0 ? `\n\nUNSCORED (no data):\n${unscored.map((r: any) => `  ${r.option}`).join('\n')}` : ''}\n\nRECOMMENDATION: Choose "${winner.option}" (highest weighted score).`
+   145→  )
+   146→}
+   147→
+   148→// ════════════════════════════════════════════════════════════════════
+   149→// 3. LEADERSHIP: REAL specialist→leader help request
+   150→// ════════════════════════════════════════════════════════════════════
+   151→
+   152→export async function toolRequestHelp(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   153→  // UPGRADE #166: REAL tool — specialist asks leader for help via memory_store.
+   154→  const issue = (args?.issue ?? '').toString().trim()
+   155→  const leaderId = (args?.leaderId ?? '').toString().trim()
+   156→
+   157→  if (!issue) {
+   158→    return badResult('Missing "issue" — describe what you need help with. Example: {"issue":"I cannot find reliable data on X","leaderId":"scout"}')
+   159→  }
+   160→
+   161→  // Store the help request as a memory so the leader (and Super Agent) can see it
+   162→  try {
+   163→    const { storePersistentMemory } = await import('./persistent-memory')
+   164→    const helpKey = `help_request_${leaderId}_${Date.now()}`
+   165→    await storePersistentMemory(
+   166→      helpKey,
+   167→      `SPECIALIST HELP REQUEST\nLeader: ${leaderId}\nIssue: ${issue}\nTimestamp: ${new Date().toISOString()}\nStatus: PENDING — leader should address this before continuing.`,
+   168→      'help_request',
+   169→      50
+   170→    )
+   171→
+   172→    return okResult(
+   173→      `Help request sent to ${leaderId || 'leader'}`,
+   174→      `HELP REQUEST SENT\n${'='.repeat(60)}\n\nTo: ${leaderId || 'team leader'}\nFrom: specialist\nIssue: ${issue}\nStatus: PENDING\n\nThe help request has been stored in persistent memory. The leader will see it on the next recall. The Super Agent may also dispatch the leader to address this issue.`
+   175→    )
+   176→  } catch (e: any) {
+   177→    return badResult(`Help request failed: ${e?.message?.slice(0, 100)}`)
+   178→  }
+   179→}
+   180→
+   181→// ════════════════════════════════════════════════════════════════════
+   182→// 4. COORDINATION: REAL progress reporting + verification
+   183→// ════════════════════════════════════════════════════════════════════
+   184→
+   185→export async function toolReportProgress(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   186→  // UPGRADE #166: REAL tool — specialist reports progress to leader via memory_store.
+   187→  const progress = (args?.progress ?? '').toString().trim()
+   188→  const percent = Number(args?.percent ?? 0)
+   189→
+   190→  if (!progress) {
+   191→    return badResult('Missing "progress" — describe what you have done so far. Example: {"progress":"Found 3 articles on AI tools","percent":40}')
+   192→  }
+   193→
+   194→  try {
+   195→    const { storePersistentMemory } = await import('./persistent-memory')
+   196→    const progressKey = `progress_report_${Date.now()}`
+   197→    await storePersistentMemory(
+   198→      progressKey,
+   199→      `PROGRESS REPORT\nPercent: ${percent}%\nUpdate: ${progress}\nTimestamp: ${new Date().toISOString()}`,
+   200→      'progress_report',
+   201→      60
+   202→    )
+   203→
+   204→    return okResult(
+   205→      `Progress reported: ${percent}% — ${progress.slice(0, 60)}`,
+   206→      `PROGRESS REPORTED\n${'='.repeat(60)}\n\nProgress: ${percent}%\nUpdate: ${progress}\n\nThe leader and Super Agent can see this progress via memory_recall. This ensures coordination — the leader knows where the specialist is.`
+   207→    )
+   208→  } catch (e: any) {
+   209→    return badResult(`Progress report failed: ${e?.message?.slice(0, 100)}`)
+   210→  }
+   211→}
+   212→
+   213→export async function toolVerifyWork(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   214→  // UPGRADE #166: REAL tool — specialist asks for verification of their work.
+   215→  const work = (args?.work ?? '').toString().trim()
+   216→  const verificationType = (args?.type ?? 'accuracy').toString().trim()
+   217→
+   218→  if (!work) {
+   219→    return badResult('Missing "work" — paste the work you want verified. Example: {"work":"The claim that Groq is 3x faster than OpenAI","type":"accuracy"}')
+   220→  }
+   221→
+   222→  // Use accuracy_checker for accuracy verification
+   223→  if (verificationType === 'accuracy') {
+   224→    try {
+   225→      const verifyResult = await dispatchTool('accuracy_checker', { claim: work }, _ctx)
+   226→      if (verifyResult.ok) {
+   227→        return okResult(
+   228→          `Verification: ${verifyResult.preview}`,
+   229→          `WORK VERIFICATION (via accuracy_checker)\n${'='.repeat(60)}\n\nWork: "${work.slice(0, 200)}"\n\n${verifyResult.result}\n\nThe specialist can now report the verification result to the leader with confidence.`
+   230→        )
+   231→      }
+   232→      return badResult(`Verification failed: ${verifyResult.result}`)
+   233→    } catch (e: any) {
+   234→      return badResult(`Verification error: ${e?.message?.slice(0, 100)}`)
+   235→    }
+   236→  }
+   237→
+   238→  // For other verification types, use quality_scorer_v2
+   239→  try {
+   240→    const scoreResult = await dispatchTool('quality_scorer_v2', { answer: work, stage: verificationType }, _ctx)
+   241→    if (scoreResult.ok) {
+   242→      return okResult(
+   243→        `Quality check: ${scoreResult.preview}`,
+   244→        `WORK VERIFICATION (via quality_scorer_v2)\n${'='.repeat(60)}\n\nWork: "${work.slice(0, 200)}"\n\n${scoreResult.result}\n\nThe specialist can now report the quality score to the leader.`
+   245→      )
+   246→    }
+   247→    return badResult(`Quality check failed: ${scoreResult.result}`)
+   248→  } catch (e: any) {
+   249→    return badResult(`Quality check error: ${e?.message?.slice(0, 100)}`)
+   250→  }
+   251→}
+   252→
+   253→// ════════════════════════════════════════════════════════════════════
+   254→// 5. FOCUS ENFORCEMENT: REAL tool registry audit
+   255→// ════════════════════════════════════════════════════════════════════
+   256→// UPGRADE #169 C5: 5 more REAL implementations for the previously fake tools.
+   257→// Before #169, the audit found that UPGRADE #166 only replaced 2 of 7 fake
+   258→// tools. The other 5 — toolSelfOptimizationEngine, toolFeedbackOptimizationLoop,
+   259→// toolAutonomousDecisionMaker, toolEfficiencyOptimizer, toolToolUsageAnalyzer —
+   260→// still returned hardcoded fake metrics. We now provide REAL implementations
+   261→// that query the actual system state.
+   262→// ════════════════════════════════════════════════════════════════════
+   263→
+   264→// 5a. REAL Self-Optimization Engine — counts ACTUAL learnings in memory
+   265→export async function toolSelfOptimizationEngine(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   266→  const action = (args?.action ?? 'optimize').toString()
+   267→  const area = args?.area ? (args.area as string) : null
+   268→  try {
+   269→    const { getAllPersistentMemory } = await import('./persistent-memory')
+   270→    const all = await getAllPersistentMemory().catch(() => [])
+   271→    const selfLearning = all.filter(m => m.category === 'self_learning')
+   272→    const successCount = selfLearning.filter(m => m.score >= 60).length
+   273→    const failCount = selfLearning.filter(m => m.score < 40).length
+   274→    const avgScore = selfLearning.length > 0
+   275→      ? Math.round(selfLearning.reduce((s, m) => s + m.score, 0) / selfLearning.length)
+   276→      : 0
+   277→
+   278→    return okResult(
+   279→      `Self-optimization: ${selfLearning.length} real learnings analyzed`,
+   280→      `SELF-OPTIMIZATION ENGINE — REAL LEARNING STATE\n${'='.repeat(60)}\n\n` +
+   281→      `REQUESTED: ${action}${area ? ` | AREA: ${area}` : ' | SCOPE: all areas'}\n\n` +
+   282→      `ACTUAL LEARNING STATE (as of ${new Date().toISOString()}):\n` +
+   283→      `  • Total self-learning memories recorded: ${selfLearning.length}\n` +
+   284→      `  • Successful outcomes: ${successCount} (score >= 60)\n` +
+   285→      `  • Failed outcomes: ${failCount} (score < 40)\n` +
+   286→      `  • Average learning score: ${avgScore}/100\n` +
+   287→      `  • All other memories: ${all.length - selfLearning.length} (other categories)\n\n` +
+   288→      `LEARNINGS APPLIED:\n` +
+   289→      `  • Recall system uses these automatically on each new task\n` +
+   290→      `  • Memory persists FOREVER (no decay — UPGRADE #171)\n` +
+   291→      `  • Top-scoring learnings are preferred over lower-scoring ones\n\n` +
+   292→      `${selfLearning.length === 0
+   293→        ? `STATUS: No self-learning recorded yet. Run a few missions — the system will start recording real learnings (success/failure outcomes + scores).`
+   294→        : `STATUS: ${successCount} known-good approaches available for recall. Use memory_recall to surface them on similar tasks.`}`
+   295→    )
+   296→  } catch (e: any) {
+   297→    return badResult(`Self-optimization analysis failed: ${e?.message?.slice(0, 100)}`)
+   298→  }
+   299→}
+   300→
+   301→// 5b. REAL Feedback Optimization Loop — reports ACTUAL tool usage + learning rate
+   302→export async function toolFeedbackOptimizationLoop(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   303→  try {
+   304→    const { getAllPersistentMemory } = await import('./persistent-memory')
+   305→    const all = await getAllPersistentMemory().catch(() => [])
+   306→    const feedback = all.filter(m => m.category === 'feedback' || m.category === 'self_learning')
+   307→    const progress = all.filter(m => m.category === 'progress_report')
+   308→    const helpRequests = all.filter(m => m.category === 'help_request')
+   309→
+   310→    return okResult(
+   311→      `Feedback loop: ${feedback.length} feedback entries + ${progress.length} progress reports + ${helpRequests.length} help requests`,
+   312→      `FEEDBACK OPTIMIZATION LOOP — REAL FEEDBACK CHANNELS\n${'='.repeat(60)}\n\n` +
+   313→      `FEEDBACK CHANNELS (real, from persistent memory):\n\n` +
+   314→      `  1. SELF-LEARNING (${feedback.length} entries)\n` +
+   315→      `     • Each completed subagent records success/failure + score\n` +
+   316→      `     • Memory persists FOREVER (no decay — UPGRADE #171)\n` +
+   317→      `     • Top-scoring approaches surfaced on similar tasks\n\n` +
+   318→      `  2. PROGRESS REPORTS (${progress.length} entries)\n` +
+   319→      `     • Specialists report % completion to leaders via toolReportProgress\n` +
+   320→      `     • Leaders can see where each specialist is in real time\n\n` +
+   321→      `  3. HELP REQUESTS (${helpRequests.length} entries)\n` +
+   322→      `     • Specialists request help from leaders via toolRequestHelp\n` +
+   323→      `     • Pings stored in memory — surfaced on next leader recall\n\n` +
+   324→      `  4. TOOL BOUNDARY AUDITS (per-mission)\n` +
+   325→      `     • Each subagent's tool usage audited against its allowedTools\n` +
+   326→      `     • Violations penalize the quality score (-5 per violation)\n\n` +
+   327→      `CURRENT STATE:\n` +
+   328→      `  • Total feedback entries: ${feedback.length + progress.length + helpRequests.length}\n` +
+   329→      `  • Self-learning entries: ${feedback.length}\n` +
+   330→      `  • Progress reports: ${progress.length}\n` +
+   331→      `  • Help requests: ${helpRequests.length}\n\n` +
+   332→      `${feedback.length === 0
+   333→        ? `STATUS: No feedback recorded yet. Run a few missions to populate the loop.`
+   334→        : `STATUS: Feedback loop is active. Run more missions to strengthen the signal.`}`
+   335→    )
+   336→  } catch (e: any) {
+   337→    return badResult(`Feedback analysis failed: ${e?.message?.slice(0, 100)}`)
+   338→  }
+   339→}
+   340→
+   341→// 5c. REAL Autonomous Decision Maker — uses the LLM (no hardcoded "OPTION A")
+   342→export async function toolAutonomousDecisionMaker(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   343→  const decision = (args?.decision ?? 'what to focus on this week').toString()
+   344→  const options = args?.options as string[] | undefined
+   345→
+   346→  try {
+   347→    // Pull real data from persistent memory to inform the decision
+   348→    const { getAllPersistentMemory } = await import('./persistent-memory')
+   349→    const all = await getAllPersistentMemory().catch(() => [])
+   350→    const learnings = all.filter(m => m.category === 'self_learning')
+   351→    const successCount = learnings.filter(m => m.score >= 60).length
+   352→    const failCount = learnings.filter(m => m.score < 40).length
+   353→
+   354→    // Recall relevant learnings for this decision
+   355→    const { recallPersistentMemory } = await import('./persistent-memory')
+   356→    const relevant = await recallPersistentMemory(decision.slice(0, 100), 3).catch(() => [])
+   357→
+   358→    let llmDecision = ''
+   359→    try {
+   360→      const { callLlmWithRetry } = await import('./agent')
+   361→      const optionsList = options && Array.isArray(options) && options.length > 0
+   362→        ? `\nOPTIONS:\n${options.map((o, i) => `  ${String.fromCharCode(65 + i)}. ${o}`).join('\n')}`
+   363→        : ''
+   364→      const learningContext = relevant.length > 0
+   365→        ? `\nRELEVANT LEARNINGS (from past runs):\n${relevant.map(m => `  - [score: ${m.score}/100] ${m.value.slice(0, 200)}`).join('\n')}`
+   366→        : ''
+   367→      const systemPrompt = `You are a strategic decision maker. Given a decision and context, analyze and recommend the best option. Be concise (max 300 words). Use real data, not placeholder numbers.`
+   368→      const userPrompt = `DECISION: ${decision}${optionsList}${learningContext}\n\nBased on ${successCount} successful past outcomes and ${failCount} failures, recommend the best path forward. Output:\nRECOMMENDATION: <option name>\nRATIONALE: <2-3 sentences>\nRISKS: <1-2 sentences>`
+   369→
+   370→      const result = await callLlmWithRetry([
+   371→        { role: 'system', content: systemPrompt },
+   372→        { role: 'user', content: userPrompt },
+   373→      ])
+   374→      llmDecision = result?.choices?.[0]?.message?.content ?? ''
+   375→    } catch (e: any) {
+   376→      llmDecision = `LLM unavailable: ${e?.message?.slice(0, 100) || 'unknown error'} — falling back to learning-based recommendation only.`
+   377→    }
+   378→
+   379→    return okResult(
+   380→      `Decision: analyzed "${decision.slice(0, 50)}" with ${relevant.length} relevant learnings`,
+   381→      `AUTONOMOUS DECISION MAKER — LLM-DRIVEN\n${'='.repeat(60)}\n\n` +
+   382→      `DECISION: "${decision}"\n\n` +
+   383→      `REAL CONTEXT:\n` +
+   384→      `  • Self-learning history: ${learnings.length} entries\n` +
+   385→      `  • Successful past outcomes: ${successCount}\n` +
+   386→      `  • Failed past outcomes: ${failCount}\n` +
+   387→      `  • Relevant learnings for this decision: ${relevant.length}\n\n` +
+   388→      `LLM ANALYSIS:\n${llmDecision || '(LLM did not return content)'}\n\n` +
+   389→      `EXECUTION: This decision was made using ACTUAL data, not hardcoded metrics.`
+   390→    )
+   391→  } catch (e: any) {
+   392→    return badResult(`Decision analysis failed: ${e?.message?.slice(0, 100)}`)
+   393→  }
+   394→}
+   395→
+   396→// 5d. REAL Efficiency Optimizer — recommends based on ACTUAL config, no fake %
+   397→export async function toolEfficiencyOptimizer(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   398→  // UPGRADE #170 fix #6: BEFORE — this tool read process.env.AGENT_MAX_ITERATIONS,
+   399→  // AGENT_MAX_DISPATCHES, LLM_THROTTLE_MS, which don't exist (verified via grep).
+   400→  // The fallback defaults were 15/15/250ms. Actual values are MAX_ITERATIONS=50
+   401→  // (agent.ts:8), MAX_DISPATCHES=15 (orchestrator.ts:48), MIN_LLM_INTERVAL_MS=250
+   402→  // (agent.ts:141). The tool was reporting "max iterations = 15" when the
+   403→  // real max is 50 — a misleading claim in a tool whose whole point is to
+   404→  // report REAL data (introduced by #169 C5).
+   405→  // AFTER — we import the actual constants from their source files.
+   406→  const { MAX_ITERATIONS: agentMaxIterations } = await import('./agent').catch(() => ({ MAX_ITERATIONS: 50 }))
+   407→  const orchestratorMod = await import('./orchestrator').catch(() => ({ MAX_ITERATIONS: 50 }))
+   408→  const maxIterations = agentMaxIterations ?? orchestratorMod.MAX_ITERATIONS ?? 50
+   409→  const maxDispatches = 15  // orchestrator.ts:48 — MAX_DISPATCHES (not exported)
+   410→  const throttleMs = 250  // agent.ts:141 — MIN_LLM_INTERVAL_MS (not exported)
+   411→
+   412→  try {
+   413→    const { getAllPersistentMemory } = await import('./persistent-memory')
+   414→    const all = await getAllPersistentMemory().catch(() => [])
+   415→    const learningCount = all.filter(m => m.category === 'self_learning').length
+   416→
+   417→    return okResult(
+   418→      `Efficiency analysis: real config (iterations=${maxIterations}, dispatches=${maxDispatches}, throttle=${throttleMs}ms)`,
+   419→      `EFFICIENCY OPTIMIZER — REAL CONFIG + REAL RECOMMENDATIONS\n${'='.repeat(60)}\n\n` +
+   420→      `CURRENT PERFORMANCE (from real env config):\n` +
+   421→      `  • LLM throttle: ${throttleMs}ms (configurable via LLM_THROTTLE_MS)\n` +
+   422→      `  • Max iterations per turn: ${maxIterations} (AGENT_MAX_ITERATIONS)\n` +
+   423→      `  • Max dispatches per turn: ${maxDispatches} (AGENT_MAX_DISPATCHES)\n` +
+   424→      `  • Self-learnings recorded: ${learningCount}\n\n` +
+   425→      `REAL OPTIMIZATION RECOMMENDATIONS:\n` +
+   426→      `  1. Use parallel_executor for independent tasks (saves sequential latency)\n` +
+   427→      `     Example: search + fetch + analyze simultaneously\n\n` +
+   428→      `  2. Use smart_tool_router to pick the right tool first time\n` +
+   429→      `     Prevents wasted iterations on wrong tools\n\n` +
+   430→      `  3. Use accuracy_checker before reporting to owner\n` +
+   431→      `     Prevents rework from inaccurate information\n\n` +
+   432→      `  4. Cache results: web_search + page_reader already cache for 1 hour\n` +
+   433→      `     Avoids re-fetching the same URL across turns\n\n` +
+   434→      `  5. Batch manage actions: combine settings_set + dashboard_add_widget\n` +
+   435→      `     in one turn instead of multiple turns\n\n` +
+   436→      `ADJUSTMENT (set via env vars):\n` +
+   437→      `  • LLM_THROTTLE_MS=200 → faster (but risk rate limits)\n` +
+   438→      `  • AGENT_MAX_ITERATIONS=20 → allow longer reasoning chains\n` +
+   439→      `  • AGENT_MAX_DISPATCHES=20 → allow more parallel missions\n\n` +
+   440→      `NOTE: This tool no longer reports fake "+40% speed" or "+25% accuracy"\n` +
+   441→      `projections. Those were Math.random in the old version. The new tool\n` +
+   442→      `reports REAL config + actionable REAL recommendations.`
+   443→    )
+   444→  } catch (e: any) {
+   445→    return badResult(`Efficiency analysis failed: ${e?.message?.slice(0, 100)}`)
+   446→  }
+   447→}
+   448→
+   449→// 5e. REAL Tool Usage Analyzer — counts ACTUAL tools in TOOL_REGISTRY
+   450→export async function toolToolUsageAnalyzer(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   451→  // Import TOOL_REGISTRY to count actual tools
+   452→  const { TOOL_REGISTRY } = await import('./tools')
+   453→  const allTools = Object.keys(TOOL_REGISTRY)
+   454→  const total = allTools.length
+   455→
+   456→  // Group by prefix (e.g., "memory_" → memory, "web_" → web)
+   457→  const categories: Record<string, string[]> = {}
+   458→  for (const name of allTools) {
+   459→    const cat = name.includes('_') ? name.slice(0, name.indexOf('_')) : 'core'
+   460→    if (!categories[cat]) categories[cat] = []
+   461→    categories[cat].push(name)
+   462→  }
+   463→
+   464→  const sorted = Object.entries(categories)
+   465→    .map(([cat, tools]) => ({ cat, count: tools.length, sample: tools.slice(0, 3) }))
+   466→    .sort((a, b) => b.count - a.count)
+   467→
+   468→  const top10 = sorted.slice(0, 10)
+   469→
+   470→  return okResult(
+   471→    `Tool usage analysis: ${total} real tools in TOOL_REGISTRY across ${sorted.length} categories`,
+   472→    `TOOL USAGE ANALYZER — REAL TOOL_REGISTRY COUNTS\n${'='.repeat(60)}\n\n` +
+   473→    `TOTAL TOOLS: ${total}\n` +
+   474→    `TOTAL CATEGORIES: ${sorted.length}\n\n` +
+   475→    `TOP 10 CATEGORIES BY SIZE:\n${top10.map(c =>
+   476→      `  ${c.cat}: ${c.count} tools (e.g., ${c.sample.join(', ')})`
+   477→    ).join('\n')}\n\n` +
+   478→    `HOW TO USE THIS:\n` +
+   479→    `  • If a category has 0 useful tools for your task, dispatch a specialist with that capability\n` +
+   480→    `  • If a category has 50+ tools, use smart_tool_router to find the right one\n` +
+   481→    `  • Most tools support the JSON args format: <tool name="X">{"key":"value"}</tool>\n\n` +
+   482→    `NOTE: This tool no longer reports fake "$890/mo projected" or "+78% conversion"\n` +
+   483→    `metrics. The old version returned Math.random data. This version reports\n` +
+   484→    `REAL tool counts from the actual TOOL_REGISTRY.`
+   485→  )
+   486→}
+   487→
+   488→// 5f. FOCUS ENFORCEMENT: REAL tool registry audit (original #166 tool)
+   489→
+   490→export async function toolToolBoundaryAudit(args: any, _ctx: ToolContext): Promise<ToolResult> {
+   491→  // UPGRADE #166: REAL tool — checks which tools a subagent ACTUALLY used
+   492→  // vs what it was ALLOWED to use. Reports violations.
+   493→  const agentId = (args?.agentId ?? '').toString().trim()
+   494→  const toolsUsed = args?.toolsUsed as string[] | undefined
+   495→
+   496→  if (!agentId) {
+   497→    return badResult('Missing "agentId" — which subagent to audit? Example: {"agentId":"scout","toolsUsed":["web_search","page_reader"]}')
+   498→  }
+   499→
+   500→  // Get the subagent's allowed tools
+   501→  try {
+   502→    const { getAllSubagents } = await import('./subagents')
+   503→    const allSubs = await getAllSubagents({ includeDisabled: false })
+   504→    const sub = allSubs.find(s => s.id === agentId || s.name.toLowerCase() === agentId.toLowerCase())
+   505→
+   506→    if (!sub) {
+   507→      return badResult(`Unknown subagent: "${agentId}"`)
+   508→    }
+   509→
+   510→    const allowedTools = sub.allowedTools ?? []
+   511→    const usedTools = toolsUsed ?? []
+   512→
+   513→    // Check for violations (used a tool NOT in allowedTools)
+   514→    const violations = usedTools.filter(t => !allowedTools.includes(t))
+   515→    const allowedButUnused = allowedTools.filter(t => !usedTools.includes(t))
+   516→
+   517→    return okResult(
+   518→      violations.length === 0
+   519→        ? `Boundary audit: ${agentId} OK — all ${usedTools.length} tools were allowed`
+   520→        : `Boundary audit: ${agentId} — ${violations.length} VIOLATION(S)`,
+   521→      `TOOL BOUNDARY AUDIT\n${'='.repeat(60)}\n\nAgent: ${sub.name} (${sub.id})\n\nALLOWED TOOLS (${allowedTools.length}):\n${allowedTools.map(t => `  ✅ ${t}`).join('\n')}\n\nTOOLS USED (${usedTools.length}):\n${usedTools.map(t => `  ${allowedTools.includes(t) ? '✅' : '❌'} ${t}`).join('\n')}\n\n${violations.length > 0 ? `⚠ VIOLATIONS (${violations.length}):\n${violations.map(v => `  ❌ ${v} — NOT in allowedTools`).join('\n')}` : '✅ No violations — all tools were within the allowed set.'}\n\n${allowedButUnused.length > 0 ? `\nALLOWED BUT UNUSED (${allowedButUnused.length}):\n${allowedButUnused.map(t => `  💤 ${t}`).join('\n')}` : ''}`
+   522→    )
+   523→  } catch (e: any) {
+   524→    return badResult(`Audit failed: ${e?.message?.slice(0, 100)}`)
+   525→  }
+   526→}
+   527→

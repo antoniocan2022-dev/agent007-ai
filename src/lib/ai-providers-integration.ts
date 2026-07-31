@@ -478,7 +478,12 @@ export async function toolYahooFinance(args: any): Promise<ToolResult> {
 // to cross-verify crypto prices.
 export async function toolCoinGecko(args: any): Promise<ToolResult> {
   const { coin, action = 'price' } = args ?? {}
-  if (!coin) return fail('coingecko requires "coin" (e.g. "bitcoin", "ethereum", "solana")')
+  // UPGRADE #187 fix: Don't require "coin" for trending/list actions.
+  // Was: `if (!coin) return fail(...)` — blocked all action-only calls.
+  // Now: only require coin for the default "price" action.
+  if ((!coin || !coin.trim()) && (action === 'price' || !action)) {
+    return fail('coingecko requires "coin" for price action (e.g. "bitcoin", "ethereum", "solana"). For trending/list, use {"action":"trending"} or {"action":"list"}.')
+  }
 
   try {
     if (action === 'price' || !action) {

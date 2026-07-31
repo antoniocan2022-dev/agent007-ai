@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-176',  // UPGRADE #176 fix #5: was stale 'upgrade-58'
+    version: 'upgrade-186',  // UPGRADE #187: bumped from 176 to reflect #177-#186
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',
