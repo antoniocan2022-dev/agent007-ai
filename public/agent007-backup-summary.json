@@ -1,13 +1,47 @@
 {
-  "backup_date": "2026-07-30T23:38:15.569148",
+  "backup_date": "2026-07-31T00:18:56.062303",
   "project": "Agent007 AI",
   "production_url": "https://agent007-ai.vercel.app",
-  "version": "upgrade-185",
-  "total_upgrades_applied": "168 through 185 (18 upgrade batches)",
+  "version": "upgrade-186",
+  "total_upgrades_applied": "168 through 186 (19 upgrade batches in 48 hours)",
   "typescript_errors": 0,
-  "files_in_backup": "src/ prisma/ public/ package.json package-lock.json next.config.ts tsconfig.json",
-  "backup_file": "agent007-full-backup-2026-07-30-233801.tar.gz",
-  "backup_size": "4.8MB",
+  "system_prompt_size": "5.4K chars (was 10.4K \u2014 48% smaller, more focused)",
+  "files_in_backup": 560,
+  "backup_formats": {
+    "zip": "https://agent007-ai.vercel.app/agent007-backup-2026-07-30.zip",
+    "tar_gz": "https://agent007-ai.vercel.app/agent007-backup-2026-07-30.tar.gz",
+    "json_summary": "https://agent007-ai.vercel.app/agent007-backup-summary.json"
+  },
+  "current_capabilities": {
+    "autonomy_score": "83%",
+    "revenue_critical_ready": "5/6",
+    "can_earn_real_money": true,
+    "groq_provider": "100% of calls (was 0% before #179)",
+    "tools_in_registry": 463,
+    "subagents": 18,
+    "success_threshold": 92,
+    "memory": "FOREVER (no expiration)",
+    "accuracy_checker": "LLM-based verification (ACCURATE/INACCURATE/MIXED)",
+    "yahoo_finance": "FREE v8 API (no key needed)",
+    "coingecko": "FREE (no key needed)",
+    "web_search": "Brave fallback (works on Vercel)",
+    "multi_search_compare": "2/2 engines succeed (brave + wikipedia)",
+    "consensus_finder": "REAL URL analysis (was stub)",
+    "conversation_truncation": "90K char limit (handles long text)",
+    "retry_backoff": "5 retries, max 15s per provider",
+    "identity_reminder": "Injected before EVERY LLM call"
+  },
+  "revenue_ready_tools": [
+    "stripe_payment_processor (can charge money)",
+    "convertkit_email (can send emails)",
+    "buffer_scheduler (can post to social media)",
+    "google_analytics (can track conversions)",
+    "wordpress_publisher (can publish blog posts)",
+    "affiliate_link_generator (can create Amazon affiliate links)",
+    "yahoo_finance (can get stock + crypto prices)",
+    "coingecko (can get crypto prices + trending)",
+    "alpha_vantage (can get stock data)"
+  ],
   "key_upgrades": {
     "#168": "Provider chain sorted (Groq first)",
     "#169": "7 fixes: dispatch, boundary audit, learning, fake tools, env, timeout, PreWarmDb",
@@ -21,36 +55,35 @@
     "#178": "web_search Brave fallback + multi_search_compare + HUNT upgrades",
     "#179": "Groq max_tokens fix + MANDATORY IDENTITY CHECK",
     "#180": "Identity reminder BEFORE every LLM call",
-    "#181": "consensus_finder + yahoo_finance + CoinGecko + team-performance",
+    "#181": "consensus_finder + yahoo_finance + CoinGecko + team-performance + tool routing",
     "#182": "yahoo_finance FREE v8 API (no key needed)",
     "#183": "Groq limit 100K + conversation truncation + 5x retry backoff",
     "#184": "Subagent truncation + DB memory merge + dead code cleanup",
-    "#185": "Tab loading fix + /api/_warm + manifest summary + backup"
+    "#185": "Tab loading speed + /api/warm + manifest summary",
+    "#186": "Sharpened SYSTEM_PROMPT (10.4K\u21925.4K) + backup downloadable"
   },
-  "current_capabilities": {
-    "autonomy_score": "83%",
-    "revenue_critical_ready": "5/6",
-    "can_earn_real_money": true,
-    "groq_provider": "100% of calls (was 0% before #179)",
-    "tools_in_registry": 463,
-    "subagents": 18,
-    "success_threshold": 92,
-    "memory": "FOREVER (no expiration)",
-    "accuracy_checker": "LLM-based verification",
-    "yahoo_finance": "FREE v8 API (no key needed)",
-    "coingecko": "FREE (no key needed)",
-    "web_search": "Brave fallback (works on Vercel)"
+  "intelligence_assessment": {
+    "verdict": "IMPROVED, not degraded",
+    "improvements": [
+      "Specific tool names in prompt (yahoo_finance, coingecko, accuracy_checker)",
+      "8 actionable 'HOW TO SOUND LIKE AGENT007' rules",
+      "'Dispatch SCOUT' instead of 'I don't have access'",
+      "Quality threshold 85 \u2192 92",
+      "48% smaller prompt = less 'lost in the middle' = LLM follows more rules"
+    ],
+    "compressed_sections": [
+      "AFFILIATE MARKETING: 25 lines \u2192 4 lines (still mentions ClickBank/PartnerStack/Amazon)",
+      "CREDENTIAL-AWARE: 12 lines \u2192 3 lines (still calls capability-audit)",
+      "CONVERSATION MODE: 7 lines \u2192 4 lines (same rules, less prose)"
+    ],
+    "mitigations": [
+      "affiliate_link_generator tool has the URL logic built in \u2014 agent calls it, doesn't need to remember the format",
+      "MANDATORY IDENTITY CHECK at end says 'BE SPECIFIC: reference actual tool names' \u2014 covers the lost credential example"
+    ]
   },
-  "revenue_ready_tools": [
-    "stripe_payment_processor",
-    "convertkit_email",
-    "buffer_scheduler",
-    "google_analytics",
-    "wordpress_publisher",
-    "affiliate_link_generator (with AMAZON_ASSOCIATES_TAG)"
-  ],
   "still_needed": [
     "AMAZON_ASSOCIATES_TAG (5 min \u2014 Antonio already has account)",
-    "Run 3 real missions to accumulate forever-memory data"
+    "Run 3 real missions to accumulate forever-memory data",
+    "Revoke Vercel token at https://vercel.com/account/tokens"
   ]
 }

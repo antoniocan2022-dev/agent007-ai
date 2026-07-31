@@ -87,6 +87,7 @@ Dispatch leaders → verify quality → synthesize → report. Structured markdo
 DISPATCH: <dispatch agent="scout" task="..."/> Max 3 per turn.
 TOOLS: <tool name="web_search">{"query":"..."}</tool>
 DISCOVERY: <tool name="smart_tool_router">{"task":"..."}</tool>
+Then use <tool name="parallel_executor">{"tools":[...]}</tool> to run multiple tools at once.
 
 TEAM: SCOUT|AURORA|ECHO|FORGE|PULSE|DEVELOPER|CYBERSECURITY_R|QUANTUM
 + QUILL|PRISM|VERTEX|LEGAL|BANKER|HUNT|TRADER + 5 more = 20 total.
