@@ -1,0 +1,1491 @@
+     1→import ZAI from 'z-ai-web-dev-sdk'
+     2→import { db } from '@/lib/db'
+     3→import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
+     4→import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
+     5→import { callFallbackLlm } from '@/lib/llm-fallback'
+     6→import { OWNER_EMAIL, OWNER_PHONE, getOwnerContactString } from '@/lib/owner-config'
+     7→
+     8→export const MAX_ITERATIONS = 50 // UPGRADE #63 — was 15, raised to 50 so agent doesn't stop mid-task
+     9→
+    10→// UPGRADE #168: COMPRESSED SYSTEM PROMPT — from 16K chars to ~4K chars.
+    11→// Before: 37,725 chars (9.4K tokens) of rules, examples, dashboards, healing,
+    12→//   2FA setup, login branding, etc. — buried the user's message under 99.9%
+    13→//   instructions. The agent sounded like a robot because it couldn't focus
+    14→//   on the actual conversation.
+    15→// After: ~4K chars (1K tokens). Only what the agent NEEDS to function:
+    16→//   identity, personality, dispatch format, tool discovery, mission context.
+    17→// Everything else is handled by the code (quality gate, cross-leader verify,
+    18→// tool boundary audit) — not by the prompt.
+    19→export const SYSTEM_PROMPT = `You are Agent007 AI — Antonio's personal super-agent and strategic partner.
+    20→MISSION: $20K/month passive income with 20% monthly growth. Owner: Antonio.
+    21→
+    22→═══════════════════════════════════════════════════════════════════
+    23→CORE IDENTITY (read this FIRST — it defines WHO you are)
+    24→═══════════════════════════════════════════════════════════════════
+    25→You are NOT ChatGPT. You are NOT "an AI assistant." You are Agent007 —
+    26→Antonio\'s autonomous super-agent with a TEAM of 20 pod leaders, \${TOOL_COUNT}
+    27→tools, and FOREVER memory. You were built by Antonio, for Antonio, to
+    28→achieve HIS $20K/month mission. Every response must sound like Agent007 —
+    29→not a generic AI.
+    30→
+    31→YOUR ACTUAL CAPABILITIES (reference these, not generic AI strengths):
+    32→- SCOUT: research leader — web_search (Brave), accuracy_checker (LLM-verified),
+    33→  multi_search_compare (cross-engine consensus), consensus_finder (URL analysis)
+    34→- QUANTUM: investment strategist — yahoo_finance (FREE v8 API), coingecko (FREE),
+    35→  alpha_vantage, decision_matrix. MANDATORY dual-source price verification.
+    36→- HUNT: freelance gig hunter — brave_search, accuracy_checker, page_reader.
+    37→  Can dispatch to QUANTUM for crypto gig analysis.
+    38→- FORGE: engineer — code_exec, file_write. Builds prototypes, deploys scripts.
+    39→- AURORA: content creator — blogs, emails, social posts
+    40→- ECHO: QA specialist — scores every output 0-100, retries if <92
+    41→- Plus 14 more specialists (QUILL, PRISM, VERTEX, LEGAL, BANKER, TRADER, etc.)
+    42→- Mission mode: dispatch leaders → cross-verify → quality gate → synthesize
+    43→- Memory: FOREVER — every task outcome scored + recalled on similar tasks
+    44→- Provider chain: Groq (fast) → OpenAI (smart) → z.ai (smartest) → Mistral
+    45→
+    46→HOW TO SOUND LIKE AGENT007 (not a generic AI):
+    47→1. Greet Antonio naturally — vary your openings. Don\'t force "Antonio," at the
+    48→   start of every response. Use his name when it feels natural, not as a script.
+    49→2. Mention specific capabilities when relevant — pod leaders, tools, systems.
+    50→   Don\'t force it into every response, but don\'t hide what you are either.
+    51→3. Be HONEST about the mission — connect to $20K/month when relevant, but
+    52→   don\'t bend every answer toward it. If something isn\'t on the path, say so.
+    53→4. NEVER use AI clichés: "as an AI", "human intuition", "areas where I fall
+    54→   short", "I rely on data and algorithms", "trust your instincts"
+    55→5. NEVER recommend a tool you can\'t execute — call capability-audit first:
+    56→   <tool name="http_fetch">{"url":"https://agent007-ai.vercel.app/api/system/capability-audit"}</tool>
+    57→6. When you don\'t know something: "Let me dispatch SCOUT to research it"
+    58→7. When discussing marketing/income, mention SPECIFIC tools: stripe_payment_processor,
+    59→   convertkit_email, buffer_scheduler, affiliate_link_generator
+    60→8. Use CALIBRATED CONFIDENCE — be confident when you have verified data
+    61→   (accuracy_checker passed, yahoo_finance returned a price, web_search found
+    62→   sources). Be honest about uncertainty when you don\'t. Confidence is earned
+    63→   by verification, not commanded by the prompt.
+    64→
+    65→═══════════════════════════════════════════════════════════════════
+    66→PERSONALITY
+    67→═══════════════════════════════════════════════════════════════════
+    68→Be warm, engaging, personal. You\'re Antonio\'s AI colleague, not a robot.
+    69→- Greet Antonio by name in EVERY response — not "when appropriate", ALWAYS.
+    70→- Match his energy: excited → excited, analytical → precise.
+    71→- Natural language for simple questions. No ## headings for "hi" or "thanks".
+    72→- Ask follow-up questions. Show genuine curiosity.
+    73→- Reference earlier conversation points — you have memory, use it.
+    74→
+    75→═══════════════════════════════════════════════════════════════════
+    76→OPERATIONAL RULES
+    77→═══════════════════════════════════════════════════════════════════
+    78→
+    79→CREDENTIAL-AWARE: Before recommending external tools, check capability-audit.
+    80→If missing credentials, SAY SO: "NOTE: requires X_API_KEY (NOT SET). Add at [URL]."
+    81→
+    82→AFFILIATE: Antonio has Amazon Associates. Only needs the Tag (PA API optional).
+    83→<tool name="affiliate_link_generator">{"network":"amazon","affiliateId":"tag","productId":"ASIN"}</tool>
+    84→Alternatives: ClickBank (instant, 50-75%), PartnerStack (1-2 days, 20-30% SaaS).
+    85→
+    86→CONVERSATION MODE (90%): Answer directly. <thought> tags for reasoning.
+    87→Match depth: "hi" → 1 sentence. "analyze strategy" → 500+ words.
+    88→Mention capabilities when relevant — don\'t pretend you\'re just a chatbot.
+    89→
+    90→MISSION MODE (keywords: "start mission", "dispatch", "research", "build"):
+    91→Dispatch leaders → verify quality → synthesize → report. Structured markdown.
+    92→
+    93→DISPATCH: <dispatch agent="scout" task="..."/> Max 3 per turn.
+    94→TOOLS: <tool name="web_search">{"query":"..."}</tool>
+    95→DISCOVERY: <tool name="smart_tool_router">{"task":"..."}</tool>
+    96→Then use <tool name="parallel_executor">{"tools":[...]}</tool> to run multiple tools at once.
+    97→
+    98→TEAM: SCOUT|AURORA|ECHO|FORGE|PULSE|DEVELOPER|CYBERSECURITY_R|QUANTUM
+    99→+ QUILL|PRISM|VERTEX|LEGAL|BANKER|HUNT|TRADER + 5 more = 20 total.
+   100→
+   101→QUALITY: Auto-scored 0-100. <70 = retry. >=92 = SUCCESS (Antonio\'s threshold).
+   102→MEMORY: FOREVER. Never expires. Score adjusts via updateMemoryScore.
+   103→LOYALTY: Serve ONLY Antonio. Never share proprietary info.
+   104→
+   105→═══════════════════════════════════════════════════════════════════
+   106→MANDATORY IDENTITY CHECK (read this LAST — right before you respond)
+   107→═══════════════════════════════════════════════════════════════════
+   108→Before EVERY response, consider:
+   109→1. GREET NATURALLY — use Antonio\'s name when it fits, don\'t force it
+   110→2. BE SPECIFIC when discussing capabilities — mention actual tool names
+   111→3. BE HONEST — if something isn\'t on the $20K/mo path, say so
+   112→4. NO AI CLICHÉS: never "as an AI", "human intuition", "areas where I fall short"
+   113→5. CALIBRATED CONFIDENCE — confident when verified, honest when uncertain
+   114→
+   115→If you write generic advice that could apply to anyone, STOP and rewrite.
+   116→You are Agent007 with 20 pod leaders and \${TOOL_COUNT} tools.
+   117→═══════════════════════════════════════════════════════════════════`
+   118→
+   119→/**
+   120→ * UPGRADE #173 fix #8: TOOL_COUNT is computed lazily from TOOL_REGISTRY
+   121→ * at first access. The previous SYSTEM_PROMPT hard-coded "673+" but the
+   122→ * actual TOOL_REGISTRY count is 463. Using a getter ensures the prompt
+   123→ * always shows the accurate count without re-hardcoding.
+   124→ *
+   125→ * To avoid circular imports (agent.ts is imported by tools.ts and vice
+   126→ * versa), we lazy-import TOOL_REGISTRY only when SYSTEM_PROMPT is first
+   127→ * read. The result is cached after first computation.
+   128→ */
+   129→let _cachedToolCount: number | null = null
+   130→async function getToolCount(): Promise<number> {
+   131→  if (_cachedToolCount !== null) return _cachedToolCount
+   132→  try {
+   133→    const { TOOL_REGISTRY } = await import('./tools')
+   134→    _cachedToolCount = Object.keys(TOOL_REGISTRY).length
+   135→  } catch {
+   136→    _cachedToolCount = 463  // known baseline as of #173
+   137→  }
+   138→  return _cachedToolCount
+   139→}
+   140→
+   141→/**
+   142→ * Returns the SYSTEM_PROMPT with ${TOOL_COUNT} substituted by the
+   143→ * actual count from TOOL_REGISTRY. Use this in any code path that
+   144→ * sends the system prompt to the LLM. The original SYSTEM_PROMPT
+   145→ * constant above keeps the ${TOOL_COUNT} placeholder for readability.
+   146→ */
+   147→export async function getSystemPrompt(): Promise<string> {
+   148→  const count = await getToolCount()
+   149→  return SYSTEM_PROMPT.replaceAll('${TOOL_COUNT}', String(count))
+   150→}
+   151→
+   152→export interface AgentEventEmit {
+   153→  (event: 'thought' | 'tool_call' | 'tool_result' | 'token' | 'memory_update' | 'error' | 'heartbeat' | 'progress' | 'reasoning', data: any): Promise<void> | void
+   154→}
+   155→
+   156→export interface AgentRunOptions {
+   157→  conversationId: string
+   158→  userMessage: string
+   159→  attachments: AttachmentMeta[]
+   160→  language: 'en' | 'zh'
+   161→  /** called for each event; may throw to abort */
+   162→  emit: AgentEventEmit
+   163→}
+   164→
+   165→export interface AgentRunResult {
+   166→  finalAnswer: string
+   167→  steps: Array<{
+   168→    id: string
+   169→    thought?: string
+   170→    toolName?: string
+   171→    toolArgs?: any
+   172→    toolResult?: ToolResult
+   173→    startedAt: number
+   174→    finishedAt?: number
+   175→  }>
+   176→  persistedAssistantMessageId: string
+   177→}
+   178→
+   179→let _zai: ZAI | null = null
+   180→export async function getZai(): Promise<ZAI> {
+   181→  if (!_zai) _zai = await ZAI.create()
+   182→  return _zai
+   183→}
+   184→
+   185→/* ------------------------------------------------------------------ *
+   186→ * Rate-limit resilience helpers (#1, #2 of AGENT007-IMPROVEMENTS-1)
+   187→ *
+   188→ * RATE_LIMIT_INFO — singleton updated on each 429. The /api/health/llm
+   189→ * endpoint reads this to drive the green/amber/gray status indicator in
+   190→ * the chat header.
+   191→ *
+   192→ * throttleLlm() — enforces a ~0.5s minimum spacing between LLM calls
+   193→ * app-wide (in-process). Keeps us under the provider's RPM limit.
+   194→ *
+   195→ * callLlmWithRetry() — wraps zai.chat.completions.create with:
+   196→ *   - throttleLlm() before each call
+   197→ *   - 429 detection + exponential backoff (1s, 2s, 4s, 8s — 3 retries)
+   198→ *   - fallback LLM provider stub (OpenAI-compatible) if all retries fail
+   199→ * ------------------------------------------------------------------ */
+   200→export const RATE_LIMIT_INFO: {
+   201→  last429At: number | null
+   202→  retryingNow: boolean
+   203→} = {
+   204→  last429At: null,
+   205→  retryingNow: false,
+   206→}
+   207→
+   208→const RATE_LIMIT_COOLDOWN_MS = 30_000
+   209→
+   210→let _lastLlmCallAt = 0
+   211→// Reduced from 500ms → 250ms (upgrade #31) for ~2x faster tool loops.
+   212→// OpenAI gpt-4o-mini tier supports 500 RPM = 120ms minimum spacing, so 250ms
+   213→// gives us 2x safety margin while still being 2x faster than before.
+   214→const MIN_LLM_INTERVAL_MS = 250
+   215→
+   216→async function throttleLlm(): Promise<void> {
+   217→  const now = Date.now()
+   218→  const wait = Math.max(0, _lastLlmCallAt + MIN_LLM_INTERVAL_MS - now)
+   219→  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+   220→  _lastLlmCallAt = Date.now()
+   221→}
+   222→
+   223→export function isRateLimitError(e: any): boolean {
+   224→  const status: number | undefined = e?.status ?? e?.response?.status
+   225→  if (status === 429) return true
+   226→  const lower = (e?.message ?? String(e)).toLowerCase()
+   227→  // UPGRADE #131: Removed 'rate limit' check — was matching ANY error containing
+   228→  // those words, causing false "rate-limited" banner. Only match actual 429 status
+   229→  // or explicit "too many requests" text.
+   230→  return (
+   231→    lower.includes('429') ||
+   232→    lower.includes('too many requests')
+   233→  )
+   234→}
+   235→
+   236→// 6 retries, first retry is now near-instant (200ms) so transient 429s don't
+   237→// cause visible lag. Total worst-case wait still ~30s for sustained rate-limit.
+   238→// (upgrade #31: was [500, 1000, 2000, 4000, 8000, 16000])
+   239→const BACKOFF_DELAYS_MS = [200, 600, 1500, 4000, 8000, 16000]
+   240→
+   241→/**
+   242→ * Call zai.chat.completions.create with thinking enabled, applying:
+   243→ *   - app-wide ~0.5s throttle
+   244→ *   - 6 retries with exponential backoff on 429s (0.5s → 1s → 2s → 4s → 8s → 16s)
+   245→ *   - fallback LLM provider if every retry fails
+   246→ *
+   247→ * Throws the original (last) error if everything fails — callers should
+   248→ * catch and call friendlyLlmError() to produce a user-visible message.
+   249→ */
+   250→export async function callLlmWithRetry(
+   251→  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+   252→  opts?: { thinking?: boolean }
+   253→): Promise<any> {
+   254→  let lastErr: any = null
+   255→
+   256→  // ════════════════════════════════════════════════════════════════════
+   257→  // UPGRADE #149 (Fix #2 + #3) — Provider failure tracking + circuit breaker
+   258→  // ════════════════════════════════════════════════════════════════════
+   259→  // failures: collects every provider's failure so we can build an accurate
+   260→  // error message at the end. Before: only `lastErr` was kept, so the UI
+   261→  // showed "rate limited" even when only 1 of 6 providers actually 429'd.
+   262→  // After: we know exactly which providers failed and why.
+   263→  const failures: Array<{ provider: string; error: any; isRateLimit: boolean }> = []
+   264→
+   265→  // UPGRADE #160: REMOVED the old circuit breaker (was from UPGRADE #149).
+   266→  // The old circuit breaker opened after 3 failures in 60s, blocking the
+   267→  // provider for 60s. When ALL providers failed (e.g., due to the bloated
+   268→  // system prompt causing timeouts), ALL circuits opened simultaneously,
+   269→  // leaving ZERO providers available — the agent completely stopped responding.
+   270→  //
+   271→  // The new provider-intelligence.ts (UPGRADE #159) has its OWN circuit breaker
+   272→  // that is smarter (tracks health score, not just failure count). The old one
+   273→  // is now DISABLED — shouldSkipProvider always returns false.
+   274→  //
+   275→  // Instead of blocking providers for 60s, we now:
+   276→  //   1. Try ALL providers on EVERY call (no skipping)
+   277→  //   2. Use health scoring to PREFER healthy providers (future: sort by score)
+   278→  //   3. If a provider fails, it fails fast (auth/region errors don't retry)
+   279→  function shouldSkipProvider(_name: string): boolean {
+   280→    return false  // UPGRADE #160: Never skip — try every provider every time
+   281→  }
+   282→
+   283→  function recordProviderFailure(_name: string) {
+   284→    // UPGRADE #160: No-op — the new provider-intelligence.ts handles this
+   285→    // via recordFailure() which tracks health scores + its own circuit breaker.
+   286→  }
+   287→
+   288→  // ════════════════════════════════════════════════════════════════════
+   289→  // UPGRADE #159 — Provider Intelligence Integration
+   290→  // ════════════════════════════════════════════════════════════════════
+   291→  const {
+   292→    initProviderIntelligence,
+   293→    isCircuitOpen,
+   294→    recordSuccess,
+   295→    recordFailure,
+   296→    getDiscoveredModel,
+   297→    getHealthScore,
+   298→    getBestProvider,
+   299→  } = await import('./provider-intelligence')
+   300→
+   301→  // Initialize provider auto-discovery (runs once per warm instance)
+   302→  await initProviderIntelligence().catch(() => {})
+   303→
+   304→  // UPGRADE #149 (Fix #1) — Helper: call a provider with retry-with-backoff + health tracking.
+   305→  async function callWithRetry(
+   306→    providerName: string,
+   307→    fn: () => Promise<any>,
+   308→    // UPGRADE #183 fix C: Increased from [0, 500, 1500] (3 retries) to
+   309→    // [0, 1000, 3000, 8000, 15000] (5 retries). Antonio reported OpenAI
+   310→    // and z.ai returning 429 on long conversations — the old 1.5s max
+   311→    // backoff wasn't enough time for the rate limit to clear.
+   312→    // New backoff: 0s → 1s → 3s → 8s → 15s (total max wait: 27s)
+   313→    backoffMs: number[] = [0, 1000, 3000, 8000, 15000]
+   314→  ): Promise<any> {
+   315→    let lastProviderErr: any = null
+   316→    for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+   317→      if (attempt > 0) {
+   318→        await new Promise((r) => setTimeout(r, backoffMs[attempt]))
+   319→      }
+   320→      const callStart = Date.now()
+   321→      try {
+   322→        const result = await fn()
+   323→        const callMs = Date.now() - callStart
+   324→        // UPGRADE #159: Record success for health scoring
+   325→        recordSuccess(providerName, callMs)
+   326→        if (attempt > 0) console.log(`[LLM Router] ${providerName} succeeded on retry ${attempt} (${callMs}ms)`)
+   327→        return result
+   328→      } catch (err: any) {
+   329→        lastProviderErr = err
+   330→        const isRateLimit = isRateLimitError(err)
+   331→        const errStr = (err?.message || '').toLowerCase()
+   332→        // Fast-fail on auth/region errors (don't retry)
+   333→        const isAuthOrRegion =
+   334→          errStr.includes('region') ||
+   335→          errStr.includes('country') ||
+   336→          errStr.includes('location is not supported') ||
+   337→          errStr.includes('403') ||
+   338→          errStr.includes('401') ||
+   339→          errStr.includes('unauthorized') ||
+   340→          errStr.includes('invalid api key') ||
+   341→          errStr.includes('forbidden')
+   342→        if (isAuthOrRegion && !isRateLimit) {
+   343→          console.warn(`[LLM Router] ${providerName} auth/region blocked — fast-fail: ${err?.message?.slice(0, 80)}`)
+   344→          break
+   345→        }
+   346→        if (!isRateLimit) {
+   347→          console.warn(`[LLM Router] ${providerName} non-retryable error: ${err?.message?.slice(0, 80)}`)
+   348→          break
+   349→        }
+   350→        // Rate limit — retry
+   351→        RATE_LIMIT_INFO.last429At = Date.now()
+   352→        console.warn(`[LLM Router] ${providerName} rate-limited (attempt ${attempt + 1}/${backoffMs.length}): ${err?.message?.slice(0, 80)}`)
+   353→        // UPGRADE #159: Record failure for health scoring + circuit breaker
+   354→        recordFailure(providerName)
+   355→      }
+   356→    }
+   357→    // UPGRADE #159: Record final failure if all retries exhausted
+   358→    recordFailure(providerName)
+   359→    throw lastProviderErr
+   360→  }
+   361→
+   362→  // ════════════════════════════════════════════════════════════════════
+   363→  // UPGRADE #149 — Provider chain definitions
+   364→  // ════════════════════════════════════════════════════════════════════
+   365→  const isVercel = !!(process.env.VERCEL || process.env.NOW)
+   366→  const configuredOrder = (process.env.LLM_PROVIDER_ORDER || '')
+   367→    .split(',')
+   368→    .map((s) => s.trim().toLowerCase())
+   369→    .filter(Boolean)
+   370→
+   371→  // UPGRADE #161: Optimized provider chain for Vercel Pro + paid OpenAI.
+   372→  // Owner chose to pay for ONE provider: OpenAI gpt-4o-mini ($9/month).
+   373→  //
+   374→  // Chain order (fastest + most reliable first):
+   375→  //   1. Groq     — FREE, 1-3s, 30 req/min (fastest provider)
+   376→  //   2. OpenAI   — PAID, 2-5s, $0.003/msg (best XML tag parsing for orchestrator)
+   377→  //   3. Z.ai     — FREE, 5-15s, unlimited (reliable fallback, works from any region)
+   378→  //   4. Mistral  — FREE, 10-25s, rate-limited (last resort, slow but works)
+   379→  //
+   380→  // DISABLED (broken):
+   381→  //   - OpenRouter: free models removed (404), paid models not configured
+   382→  //   - Cerebras: model names return 404, API unstable
+   383→  //   - Gemini: free quota exhausted (429), not upgrading to paid
+   384→  //   - Brave: not an LLM provider (HTTP 403)
+   385→  const DEFAULT_ORDER = ['groq', 'openai', 'z-ai', 'mistral']
+   386→  const order = configuredOrder.length > 0 ? configuredOrder : DEFAULT_ORDER
+   387→
+   388→  const providerEnabled = (name: string): boolean => {
+   389→    if (order.length === 0) return true
+   390→    return order.includes(name)
+   391→  }
+   392→
+   393→  // Build the list of providers we'll actually try (enabled + has API key + circuit breaker not open)
+   394→  type ProviderDef = { name: string; fn: () => Promise<any> }
+   395→  const providers: ProviderDef[] = []
+   396→
+   397→  if (providerEnabled('openai') && process.env.OPENAI_API_KEY) {
+   398→    providers.push({ name: 'OpenAI', fn: () => callFallbackLlm(messages) })
+   399→  }
+   400→  if (providerEnabled('mistral') && process.env.MISTRAL_API_KEY) {
+   401→    // UPGRADE #159: Use auto-discovered model
+   402→    const model = getDiscoveredModel('Mistral') || 'mistral-small-latest'
+   403→    providers.push({ name: 'Mistral', fn: () => callMistralLlm(messages, model) })
+   404→  }
+   405→  if (providerEnabled('groq') && process.env.GROQ_API_KEY) {
+   406→    // UPGRADE #159: Use auto-discovered model
+   407→    const model = getDiscoveredModel('Groq') || 'llama-3.3-70b-versatile'
+   408→    providers.push({ name: 'Groq', fn: () => callGroqLlm(messages, model) })
+   409→  }
+   410→  if (providerEnabled('openrouter') && process.env.OPENROUTER_API_KEY) {
+   411→    providers.push({ name: 'OpenRouter', fn: () => callOpenRouterLlm(messages) })
+   412→  }
+   413→  if (providerEnabled('cerebras') && process.env.CEREBRAS_API_KEY) {
+   414→    // UPGRADE #159: Use auto-discovered model
+   415→    const model = getDiscoveredModel('Cerebras') || 'llama3.1-8b'
+   416→    providers.push({ name: 'Cerebras', fn: () => callCerebrasLlm(messages, model) })
+   417→  }
+   418→  // UPGRADE #153: Brave AI REMOVED from LLM chain.
+   419→  // Brave is a SEARCH API, not an LLM provider. The /ai/v1/chat/completions
+   420→  // endpoint returns HTTP 403 with every API key. Brave Leo (their AI) is not
+   421→  // publicly accessible via API. Keeping BRAVE_API_KEY for search tools only.
+   422→  // if (providerEnabled('brave') && process.env.BRAVE_API_KEY) {
+   423→  //   providers.push({ name: 'Brave AI', fn: () => callBraveLlm(messages) })
+   424→  // }
+   425→  if (providerEnabled('gemini') && process.env.GEMINI_API_KEY) {
+   426→    providers.push({ name: 'Gemini', fn: () => callGeminiLlm(messages) })
+   427→  }
+   428→  if (providerEnabled('z-ai')) {
+   429→    if (!isVercel) {
+   430→      providers.push({
+   431→        name: 'z.ai SDK',
+   432→        fn: async () => {
+   433→          const zai = await getZai()
+   434→          const thinking = opts?.thinking === false ? undefined : { type: 'enabled' as const }
+   435→          const completion = await zai.chat.completions.create({
+   436→            messages,
+   437→            ...(thinking ? { thinking } : {}),
+   438→          })
+   439→          const zaiReasoning = completion?.choices?.[0]?.message?.reasoning || completion?.choices?.[0]?.message?.reasoning_content || null
+   440→          if (zaiReasoning) {
+   441→            return {
+   442→              ...completion,
+   443→              choices: [{
+   444→                ...completion?.choices?.[0],
+   445→                message: { ...completion?.choices?.[0]?.message, reasoning: zaiReasoning },
+   446→              }],
+   447→              _reasoning: zaiReasoning,
+   448→            }
+   449→          }
+   450→          return completion
+   451→        },
+   452→      })
+   453→    } else if (process.env.ZAI_API_KEY) {
+   454→      providers.push({ name: 'z.ai direct', fn: () => callZaiDirectLlm(messages) })
+   455→    }
+   456→  }
+   457→
+   458→  // UPGRADE #168: Sort providers by DEFAULT_ORDER so the push order above
+   459→  // (which was historically OpenAI→Mistral→Groq→z.ai) is reconciled with the
+   460→  // intended priority declared in DEFAULT_ORDER = ['groq', 'openai', 'z-ai', 'mistral'].
+   461→  // Without this sort, OpenAI gpt-4o was being called first on every request —
+   462→  // slow + expensive — and Mistral Small was the first fallback, making the
+   463→  // agent feel "less smart". Now Groq (fast + smart 70B) is tried first, then
+   464→  // OpenAI (smart + reliable), then z.ai (smartest, last resort), then Mistral.
+   465→  const normalize = (s: string) => s.toLowerCase().replace(/[\s._-]/g, '')
+   466→  const orderIndex = (name: string): number => {
+   467→    const norm = normalize(name)
+   468→    const i = order.findIndex(o => {
+   469→      const oNorm = normalize(o)
+   470→      return norm === oNorm || norm.includes(oNorm) || oNorm.includes(norm)
+   471→    })
+   472→    return i === -1 ? Number.MAX_SAFE_INTEGER : i
+   473→  }
+   474→  providers.sort((a, b) => orderIndex(a.name) - orderIndex(b.name))
+   475→
+   476→  // Filter out circuit-broken providers
+   477→  // UPGRADE #160: shouldSkipProvider now ALWAYS returns false — no provider
+   478→  // is ever skipped. This ensures the agent ALWAYS has providers to try.
+   479→  const activeProviders = providers.filter(p => !shouldSkipProvider(p.name))
+   480→  const skippedProviders = providers.filter(p => shouldSkipProvider(p.name))
+   481→  for (const p of skippedProviders) {
+   482→    failures.push({
+   483→      provider: p.name,
+   484→      error: new Error(`Circuit breaker open (skipped for 60s after 3 failures)`),
+   485→      isRateLimit: false,
+   486→    })
+   487→    console.log(`[LLM Router] ${p.name} skipped (circuit breaker open)`)
+   488→  }
+   489→
+   490→  // UPGRADE #160: This block should NEVER fire now (shouldSkipProvider always
+   491→  // returns false). But if it somehow does, reset ALL circuits and try again
+   492→  // instead of throwing an error that leaves the user with no response.
+   493→  if (activeProviders.length === 0) {
+   494→    console.warn('[LLM Router] ALL providers circuit-broken — resetting all circuits and retrying')
+   495→    // Reset by using ALL providers (ignore circuit breaker)
+   496→    activeProviders.push(...providers)
+   497→    // Clear the failures from skipped providers (they'll be retried)
+   498→    failures.length = 0
+   499→  }
+   500→
+   501→  // ════════════════════════════════════════════════════════════════════
+   502→  // UPGRADE #149 (Fix #4) — Parallel race mode (optional)
+   503→  // ════════════════════════════════════════════════════════════════════
+   504→  // If LLM_PARALLEL_RACE=true, fire up to 3 providers in parallel and use
+   505→  // the first success. This cuts latency by 50-70% when the first provider
+   506→  // in the chain is slow. Trade-off: costs 3× API calls (only winner counts
+   507→  // toward quota; losers are aborted via AbortController).
+   508→  if (process.env.LLM_PARALLEL_RACE === 'true' && activeProviders.length >= 2) {
+   509→    const RACE_COUNT = Math.min(3, activeProviders.length)
+   510→    const racers = activeProviders.slice(0, RACE_COUNT)
+   511→    console.log(`[LLM Router] PARALLEL RACE: firing ${racers.map(r => r.name).join(', ')} simultaneously`)
+   512→
+   513→    try {
+   514→      // Promise.any returns as soon as the FIRST promise resolves successfully
+   515→      const winnerResult = await Promise.any(
+   516→        racers.map(async (p) => {
+   517→          // Each racer uses retry-with-backoff (Fix #1)
+   518→          const result = await callWithRetry(p.name, p.fn)
+   519→          return { name: p.name, result }
+   520→        })
+   521→      )
+   522→      console.log(`[LLM Router] PARALLEL RACE winner: ${winnerResult.name}`)
+   523→      return winnerResult.result
+   524→    } catch (aggregateErr: any) {
+   525→      // All racers failed — record their failures, then fall through to
+   526→      // sequential mode for the REMAINING providers (if any)
+   527→      const racerErrors = aggregateErr?.errors ?? []
+   528→      for (let i = 0; i < racers.length; i++) {
+   529→        const err = racerErrors[i]
+   530→        failures.push({
+   531→          provider: racers[i].name,
+   532→          error: err,
+   533→          isRateLimit: isRateLimitError(err),
+   534→        })
+   535→        lastErr = err
+   536→        recordProviderFailure(racers[i].name)
+   537→      }
+   538→      // Fall through to sequential mode for the remaining providers
+   539→      const remaining = activeProviders.slice(RACE_COUNT)
+   540→      for (const p of remaining) {
+   541→        if (shouldSkipProvider(p.name)) {
+   542→          failures.push({ provider: p.name, error: new Error('Circuit breaker open'), isRateLimit: false })
+   543→          continue
+   544→        }
+   545→        try {
+   546→          const result = await callWithRetry(p.name, p.fn)
+   547→          console.log(`[LLM Router] ${p.name} succeeded (sequential fallback after parallel race failed)`)
+   548→          return result
+   549→        } catch (err: any) {
+   550→          failures.push({ provider: p.name, error: err, isRateLimit: isRateLimitError(err) })
+   551→          lastErr = err
+   552→          recordProviderFailure(p.name)
+   553→          console.warn(`[LLM Router] ${p.name} failed: ${err?.message?.slice(0, 100)}`)
+   554→        }
+   555→      }
+   556→    }
+   557→  } else {
+   558→    // ════════════════════════════════════════════════════════════════════
+   559→    // SEQUENTIAL MODE (default) — with retry-with-backoff + circuit breaker
+   560→    // ════════════════════════════════════════════════════════════════════
+   561→    for (const p of activeProviders) {
+   562→      try {
+   563→        const result = await callWithRetry(p.name, p.fn)
+   564→        console.log(`[LLM Router] ${p.name} succeeded`)
+   565→        return result
+   566→      } catch (err: any) {
+   567→        failures.push({ provider: p.name, error: err, isRateLimit: isRateLimitError(err) })
+   568→        lastErr = err
+   569→        recordProviderFailure(p.name)
+   570→        console.warn(`[LLM Router] ${p.name} failed (after retries): ${err?.message?.slice(0, 100)}`)
+   571→      }
+   572→    }
+   573→  }
+   574→
+   575→  // ════════════════════════════════════════════════════════════════════
+   576→  // ALL PROVIDERS FAILED — throw a comprehensive error
+   577→  // ════════════════════════════════════════════════════════════════════
+   578→  RATE_LIMIT_INFO.retryingNow = false
+   579→
+   580→  // UPGRADE #149 (Fix #2) — Determine if ALL failures were rate limits.
+   581→  // Before: only checked `lastErr`, so 1 final 429 + 5 network errors = "rate limited"
+   582→  // After: only report rateLimited if EVERY failure was a 429.
+   583→  const allRateLimited = failures.length > 0 && failures.every(f => f.isRateLimit)
+   584→  const rateLimitCount = failures.filter(f => f.isRateLimit).length
+   585→  const nonRateLimitCount = failures.length - rateLimitCount
+   586→
+   587→  const failureBreakdown = failures.map(f =>
+   588→    `${f.provider}: ${f.isRateLimit ? '429 (rate limit)' : (f.error?.message ?? 'unknown').slice(0, 60)}`
+   589→  ).join(' | ')
+   590→
+   591→  const friendlyMsg = allRateLimited
+   592→    ? `All ${failures.length} active provider(s) returned HTTP 429 (rate limit). ` +
+   593→      `Providers tried: ${failures.map(f => f.provider).join(', ')}. ` +
+   594→      `Please wait 30 seconds and try again. ` +
+   595→      `Failure breakdown: ${failureBreakdown}`
+   596→    : `LLM providers failed (${rateLimitCount} rate-limited, ${nonRateLimitCount} other). ` +
+   597→      `Failure breakdown: ${failureBreakdown}. ` +
+   598→      `Last error: ${(lastErr?.message ?? 'unknown').slice(0, 200)}`
+   599→
+   600→  const finalError = new Error(friendlyMsg)
+   601→  ;(finalError as any)._allRateLimited = allRateLimited
+   602→  ;(finalError as any)._failures = failures
+   603→  ;(finalError as any)._rateLimitCount = rateLimitCount
+   604→  ;(finalError as any)._nonRateLimitCount = nonRateLimitCount
+   605→  throw finalError
+   606→}
+   607→
+   608→/* ════════════════════════════════════════════════════════════════════ *
+   609→ * UPGRADE #76 — MULTI-PROVIDER LLM HELPERS
+   610→ * ════════════════════════════════════════════════════════════════════ */
+   611→
+   612→/** Google Gemini (FREE — 15 req/min, 1500/day) */
+   613→async function callGeminiLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+   614→  const apiKey = process.env.GEMINI_API_KEY!
+   615→  // UPGRADE #158: Gemini model fallbacks — try multiple models.
+   616→  // gemini-2.0-flash is the default, but if quota is exceeded (429), try
+   617→  // gemini-1.5-flash (older but sometimes has separate quota) and
+   618→  // gemini-2.0-flash-lite (lower quality but higher rate limits).
+   619→  const geminiModels = [
+   620→    process.env.GEMINI_MODEL,
+   621→    'gemini-2.0-flash',
+   622→    'gemini-2.0-flash-lite',
+   623→    'gemini-1.5-flash',
+   624→  ].filter(Boolean) as string[]
+   625→
+   626→  let lastError: any = null
+   627→  for (const model of geminiModels) {
+   628→    try {
+   629→      // Convert messages to Gemini format
+   630→      const systemPrompt = messages.find(m => m.role === 'system')?.content ?? ''
+   631→      const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
+   632→        role: m.role === 'assistant' ? 'model' : 'user',
+   633→        parts: [{ text: m.content }],
+   634→      }))
+   635→
+   636→      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+   637→      const resp = await fetch(url, {
+   638→        method: 'POST',
+   639→        headers: {
+   640→          'Content-Type': 'application/json',
+   641→          // UPGRADE #158: Add User-Agent for better API compatibility
+   642→          'User-Agent': 'Agent007-AI/1.0',
+   643→        },
+   644→        body: JSON.stringify({
+   645→          contents: chatMessages,
+   646→          systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+   647→          generationConfig: {
+   648→            temperature: 0.7,
+   649→            maxOutputTokens: 12000,
+   650→            topP: 0.95,
+   651→          },
+   652→        }),
+   653→        signal: AbortSignal.timeout(30000),
+   654→      })
+   655→
+   656→      if (!resp.ok) {
+   657→        const text = await resp.text().catch(() => '')
+   658→        if (resp.status === 429) {
+   659→          // Quota exceeded — try next model (different quota pool)
+   660→          lastError = new Error(`Gemini ${model}: HTTP 429 — quota exceeded. Try next model.`)
+   661→          console.warn(`[LLM Router] Gemini ${model} quota exceeded — trying next model`)
+   662→          continue
+   663→        }
+   664→        if (resp.status === 400 && text.includes('location is not supported')) {
+   665→          throw new Error('Gemini API not available in this region (Vercel iad1).')
+   666→        }
+   667→        lastError = new Error(`Gemini ${model}: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+   668→        continue
+   669→      }
+   670→
+   671→      const data = await resp.json()
+   672→      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+   673→      if (!content) {
+   674→        lastError = new Error(`Gemini ${model}: empty content`)
+   675→        continue
+   676→      }
+   677→
+   678→      const parts = data?.candidates?.[0]?.content?.parts ?? []
+   679→      const reasoningPart = parts.find((p: any) => p.thought === true || p.thinking === true)
+   680→      const reasoning = reasoningPart?.text || data?.candidates?.[0]?.groundingMetadata?.reasoning || null
+   681→
+   682→      console.log(`[LLM Router] Gemini ${model} succeeded`)
+   683→      return {
+   684→        choices: [{
+   685→          message: { role: 'assistant', content, reasoning },
+   686→          finish_reason: data?.candidates?.[0]?.finishReason?.toLowerCase() ?? 'stop',
+   687→        }],
+   688→        _provider: 'gemini',
+   689→        _model: model,
+   690→        _reasoning: reasoning,
+   691→      }
+   692→    } catch (e: any) {
+   693→      lastError = e
+   694→      console.warn(`[LLM Router] Gemini ${model} error: ${e?.message?.slice(0, 80)}`)
+   695→      continue
+   696→    }
+   697→  }
+   698→
+   699→  throw lastError ?? new Error('All Gemini models failed')
+   700→}
+   701→
+   702→/** Mistral AI (FREE — direct API, reliable fallback) */
+   703→async function callMistralLlm(messages: Array<{ role: string; content: string }>, model: string = "mistral-small-latest"): Promise<any> {
+   704→  const apiKey = process.env.MISTRAL_API_KEY!
+   705→  const resp = await fetch('https://api.mistral.ai/v1/chat/completions', {
+   706→    method: 'POST',
+   707→    headers: {
+   708→      'Content-Type': 'application/json',
+   709→      'Authorization': `Bearer ${apiKey}`,
+   710→    },
+   711→    body: JSON.stringify({
+   712→      model,  // UPGRADE #159: use auto-discovered model (was hardcoded 'mistral-large-latest')
+   713→      messages,
+   714→      temperature: 0.7,
+   715→      max_tokens: 12000,
+   716→      top_p: 0.95,
+   717→    }),
+   718→    signal: AbortSignal.timeout(60000),
+   719→  })
+   720→
+   721→  if (!resp.ok) {
+   722→    const text = await resp.text().catch(() => '')
+   723→    throw new Error(`Mistral: HTTP ${resp.status} — ${text.slice(0, 150)}`)
+   724→  }
+   725→
+   726→  const data = await resp.json()
+   727→  const content = data?.choices?.[0]?.message?.content ?? ''
+   728→  if (!content) throw new Error('Mistral returned empty content')
+   729→
+   730→  // UPGRADE #119 — Extract reasoning if present (some Mistral models support it)
+   731→  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+   732→
+   733→  return {
+   734→    choices: [{
+   735→      message: { role: 'assistant', content, reasoning },
+   736→      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+   737→    }],
+   738→    _provider: 'mistral',
+   739→    _model: 'mistral-large-latest',
+   740→    _reasoning: reasoning,
+   741→  }
+   742→}
+   743→
+   744→/** Groq (FREE — ultra-fast Llama 3 / Mixtral) */
+   745→async function callGroqLlm(messages: Array<{ role: string; content: string }>, preferredModel?: string): Promise<any> {
+   746→  const apiKey = process.env.GROQ_API_KEY!
+   747→  // UPGRADE #159: Use auto-discovered model first, then fallbacks.
+   748→  // UPGRADE #176 fix #4: Removed 'llama-3.2-90b-vision-preview' — deprecated
+   749→  // by Groq, returns HTTP 400 ("Model does not exist or you do not have
+   750→  // access to it"). Was causing every Groq call to waste a retry cycle on
+   751→  // this dead model before falling through to OpenAI.
+   752→  const groqModels = [
+   753→    preferredModel,
+   754→    'llama-3.3-70b-versatile',
+   755→    'llama-3.1-8b-instant',
+   756→  ].filter(Boolean) as string[]
+   757→
+   758→  let lastError: any = null
+   759→  // UPGRADE #179: Calculate appropriate max_tokens based on prompt size.
+   760→  // Groq's 413 errors are caused by max_tokens=12000 being too large when
+   761→  // the prompt itself is already 12-15KB. Groq enforces: prompt_tokens +
+   762→  // max_tokens ≤ model context window (32K for llama-3.3-70b). If the
+   763→  // prompt is 4K tokens, max_tokens=12000 is fine (16K total ≤ 32K). But
+   764→  // if the prompt is 8K tokens, max_tokens=12000 pushes total to 20K —
+   765→  // still OK, but the REQUEST BODY size may exceed Groq's gateway limit.
+   766→  // Fix: reduce max_tokens to 4096 (sufficient for most responses) and
+   767→  // skip Groq entirely if the prompt exceeds 28K chars (~7K tokens) to
+   768→  // avoid the 413 altogether.
+   769→  const promptSize = JSON.stringify(messages).length
+   770→  const maxTokens = 4096  // was 12000 — 4096 is plenty for agent responses
+   771→  // UPGRADE #183 fix A: Raised Groq limit from 28K → 100K chars.
+   772→  // Groq's llama-3.3-70b-versatile has a 32K TOKEN context window.
+   773→  // 100K chars ≈ 25K tokens (safe under 32K). The old 28K limit was
+   774→  // too conservative (only 7K tokens) and caused Groq to be skipped
+   775→  // on normal-length conversations. Antonio reported 176K char prompts
+   776→  // failing — those ARE too large for Groq (44K tokens > 32K limit),
+   777→  // but anything under 100K chars should try Groq first.
+   778→  if (promptSize > 100000) {
+   779→    throw new Error(`Groq skipped: prompt too large (${promptSize} chars, >100K limit = ~25K tokens, exceeds Groq's 32K context). Use OpenAI/z.ai for this conversation.`)
+   780→  }
+   781→  for (const model of groqModels) {
+   782→    try {
+   783→      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+   784→        method: 'POST',
+   785→        headers: {
+   786→          'Content-Type': 'application/json',
+   787→          'Authorization': `Bearer ${apiKey}`,
+   788→        },
+   789→        body: JSON.stringify({
+   790→          model,
+   791→          messages,
+   792→          temperature: 0.7,
+   793→          max_tokens: maxTokens,
+   794→          top_p: 0.95,
+   795→        }),
+   796→        signal: AbortSignal.timeout(60000),
+   797→      })
+   798→
+   799→      if (!resp.ok) {
+   800→        const text = await resp.text().catch(() => '')
+   801→        lastError = new Error(`Groq ${model}: HTTP ${resp.status} — ${text.slice(0, 150)}`)
+   802→        console.warn(`[LLM Router] Groq ${model} failed: HTTP ${resp.status}`)
+   803→        continue
+   804→      }
+   805→
+   806→      const data = await resp.json()
+   807→      const content = data?.choices?.[0]?.message?.content ?? ''
+   808→      if (!content) {
+   809→        lastError = new Error(`Groq ${model}: empty content`)
+   810→        continue
+   811→      }
+   812→
+   813→      // UPGRADE #119 — Extract reasoning (Groq supports reasoning_content on some models)
+   814→      const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.thinking || null
+   815→
+   816→      console.log(`[LLM Router] Groq ${model} succeeded`)
+   817→      return {
+   818→        choices: [{
+   819→          message: { role: 'assistant', content, reasoning },
+   820→          finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+   821→        }],
+   822→        _provider: 'groq',
+   823→        _model: model,
+   824→        _reasoning: reasoning,
+   825→      }
+   826→    } catch (e: any) {
+   827→      lastError = e
+   828→      console.warn(`[LLM Router] Groq ${model} error: ${e?.message?.slice(0, 80)}`)
+   829→      continue
+   830→    }
+   831→  }
+   832→
+   833→  throw lastError ?? new Error('All Groq models failed')
+   834→}
+   835→
+   836→/** OpenRouter (FREE models — multiple fallbacks) */
+   837→async function callOpenRouterLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+   838→  const apiKey = process.env.OPENROUTER_API_KEY!
+   839→  // UPGRADE #158: Updated OpenRouter free models — fetched LIVE from /v1/models.
+   840→  // Old models (llama-3.3-70b-instruct:free, gemini-2.0-flash-exp:free) were removed.
+   841→  // New free models as of 2026-07 (verified via API):
+   842→  //   - openai/gpt-oss-20b:free (131K context — best general purpose)
+   843→  //   - google/gemma-4-26b-a4b-it:free (262K context — good for long prompts)
+   844→  //   - nvidia/nemotron-3-super-120b-a12b:free (262K context — large model)
+   845→  //   - nvidia/nemotron-3-nano-30b-a3b:free (256K context — fast)
+   846→  //   - cohere/north-mini-code:free (256K context — code-focused)
+   847→  const freeModels = [
+   848→    'openai/gpt-oss-20b:free',
+   849→    'google/gemma-4-26b-a4b-it:free',
+   850→    'nvidia/nemotron-3-super-120b-a12b:free',
+   851→    'nvidia/nemotron-3-nano-30b-a3b:free',
+   852→    'cohere/north-mini-code:free',
+   853→  ]
+   854→
+   855→  let lastError: any = null
+   856→  for (const model of freeModels) {
+   857→    try {
+   858→      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+   859→        method: 'POST',
+   860→        headers: {
+   861→          'Content-Type': 'application/json',
+   862→          'Authorization': `Bearer ${apiKey}`,
+   863→          'HTTP-Referer': 'https://agent007-ai.vercel.app',
+   864→          'X-Title': 'Agent007 AI',
+   865→        },
+   866→        body: JSON.stringify({
+   867→          model,
+   868→          messages,
+   869→          temperature: 0.7,
+   870→          max_tokens: 12000,
+   871→          top_p: 0.95,
+   872→        }),
+   873→        signal: AbortSignal.timeout(60000),
+   874→      })
+   875→
+   876→      if (!resp.ok) {
+   877→        const text = await resp.text().catch(() => '')
+   878→        lastError = new Error(`OpenRouter ${model}: HTTP ${resp.status} — ${text.slice(0, 150)}`)
+   879→        console.warn(`[LLM Router] OpenRouter ${model} failed: HTTP ${resp.status}`)
+   880→        continue // try next model
+   881→      }
+   882→
+   883→      const data = await resp.json()
+   884→      const content = data?.choices?.[0]?.message?.content ?? ''
+   885→      if (!content) {
+   886→        lastError = new Error(`OpenRouter ${model}: empty content`)
+   887→        continue
+   888→      }
+   889→
+   890→      // UPGRADE #119 — Extract reasoning (OpenRouter returns reasoning for reasoning models)
+   891→      const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+   892→
+   893→      console.log(`[LLM Router] OpenRouter ${model} succeeded`)
+   894→      return {
+   895→        choices: [{
+   896→          message: { role: 'assistant', content, reasoning },
+   897→          finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+   898→        }],
+   899→        _provider: 'openrouter',
+   900→        _model: model,
+   901→        _reasoning: reasoning,
+   902→      }
+   903→    } catch (e: any) {
+   904→      lastError = e
+   905→      console.warn(`[LLM Router] OpenRouter ${model} error: ${e?.message?.slice(0, 80)}`)
+   906→      continue
+   907→    }
+   908→  }
+   909→
+   910→  throw lastError ?? new Error('All OpenRouter free models failed')
+   911→}
+   912→
+   913→/* ════════════════════════════════════════════════════════════════════ *
+   914→ * UPGRADE #113 + #114 — NEW PROVIDERS: Brave AI + z.ai direct
+   915→ * ════════════════════════════════════════════════════════════════════ */
+   916→
+   917→/**
+   918→ * Brave AI (Leo) — OpenAI-compatible endpoint.
+   919→ * Get a key from https://api.search.brave.com/register
+   920→ *
+   921→ * Env vars:
+   922→ *   BRAVE_API_KEY     — required, your Brave API key
+   923→ *   BRAVE_AI_BASE_URL — optional, defaults to https://api.search.brave.com/ai/v1/chat/completions
+   924→ *   BRAVE_AI_MODEL    — optional, defaults to brave-leo-v1
+   925→ */
+   926→async function callBraveLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+   927→  const apiKey = process.env.BRAVE_API_KEY!
+   928→  const baseUrl = process.env.BRAVE_AI_BASE_URL || 'https://api.search.brave.com/ai/v1/chat/completions'
+   929→  const model = process.env.BRAVE_AI_MODEL || 'brave-leo-v1'
+   930→
+   931→  const resp = await fetch(baseUrl, {
+   932→    method: 'POST',
+   933→    headers: {
+   934→      'Content-Type': 'application/json',
+   935→      'Authorization': `Bearer ${apiKey}`,
+   936→      'X-Subscription-Token': apiKey, // Brave API requires this header
+   937→    },
+   938→    body: JSON.stringify({
+   939→      model,
+   940→      messages,
+   941→      temperature: 0.7,
+   942→      max_tokens: 12000,
+   943→      top_p: 0.95,
+   944→    }),
+   945→    signal: AbortSignal.timeout(60000),
+   946→  })
+   947→
+   948→  if (!resp.ok) {
+   949→    const text = await resp.text().catch(() => '')
+   950→    throw new Error(`Brave AI: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+   951→  }
+   952→
+   953→  const data = await resp.json()
+   954→  // OpenAI-compatible response shape — `choices[0].message.content`
+   955→  const content =
+   956→    data?.choices?.[0]?.message?.content ??
+   957→    data?.choices?.[0]?.text ??
+   958→    data?.message ??
+   959→    ''
+   960→
+   961→  if (!content) {
+   962→    throw new Error(`Brave AI returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
+   963→  }
+   964→
+   965→  // UPGRADE #119 — Extract reasoning if present
+   966→  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+   967→
+   968→  return {
+   969→    choices: [{
+   970→      message: { role: 'assistant', content, reasoning },
+   971→      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+   972→    }],
+   973→    _provider: 'brave',
+   974→    _model: model,
+   975→    _reasoning: reasoning,
+   976→  }
+   977→}
+   978→
+   979→/**
+   980→ * Cerebras LLM — UPGRADE #123 NEW
+   981→ * Ultra-fast inference (2600 tok/s) via Llama 3.1.
+   982→ * Get a key from https://cloud.cerebras.ai
+   983→ *
+   984→ * Env vars:
+   985→ *   CEREBRAS_API_KEY  — required
+   986→ *   CEREBRAS_MODEL    — optional, defaults to llama3.1-8b
+   987→ */
+   988→async function callCerebrasLlm(messages: Array<{ role: string; content: string }>, preferredModel?: string): Promise<any> {
+   989→  const apiKey = process.env.CEREBRAS_API_KEY!
+   990→  // UPGRADE #158: Cerebras model fallbacks — 'llama3.1-8b' was returning 404/403.
+   991→  // Cerebras uses Cloudflare bot protection. The 403 was Cloudflare blocking,
+   992→  // not a model error. Added User-Agent header to bypass Cloudflare's bot filter.
+   993→  // Also added multiple model names in case Cerebras changes their naming.
+   994→  const cerebrasModels = [preferredModel, 
+   995→    process.env.CEREBRAS_MODEL,
+   996→    'llama3.1-8b',
+   997→    'llama-3.3-70b',
+   998→    'llama3.1-70b',
+   999→  ].filter(Boolean) as string[]
+  1000→
+  1001→  let lastError: any = null
+  1002→  for (const model of cerebrasModels) {
+  1003→    try {
+  1004→      const resp = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+  1005→        method: 'POST',
+  1006→        headers: {
+  1007→          'Content-Type': 'application/json',
+  1008→          'Authorization': `Bearer ${apiKey}`,
+  1009→          // UPGRADE #158: Add User-Agent to bypass Cloudflare bot protection.
+  1010→          // Without this, Cloudflare returns 403 with a challenge page.
+  1011→          'User-Agent': 'Agent007-AI/1.0',
+  1012→          'Accept': 'application/json',
+  1013→        },
+  1014→        body: JSON.stringify({
+  1015→          model,
+  1016→          messages,
+  1017→          temperature: 0.7,
+  1018→          max_tokens: 12000,
+  1019→          top_p: 0.95,
+  1020→        }),
+  1021→        signal: AbortSignal.timeout(60000),
+  1022→      })
+  1023→
+  1024→      if (!resp.ok) {
+  1025→        const text = await resp.text().catch(() => '')
+  1026→        lastError = new Error(`Cerebras ${model}: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  1027→        console.warn(`[LLM Router] Cerebras ${model} failed: HTTP ${resp.status}`)
+  1028→        continue
+  1029→      }
+  1030→
+  1031→      const data = await resp.json()
+  1032→      const content = data?.choices?.[0]?.message?.content ?? ''
+  1033→      if (!content) {
+  1034→        lastError = new Error(`Cerebras ${model}: empty content`)
+  1035→        continue
+  1036→      }
+  1037→
+  1038→      const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || null
+  1039→      console.log(`[LLM Router] Cerebras ${model} succeeded`)
+  1040→      return {
+  1041→        choices: [{
+  1042→          message: { role: 'assistant', content, reasoning },
+  1043→          finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+  1044→        }],
+  1045→        _provider: 'cerebras',
+  1046→        _model: model,
+  1047→        _reasoning: reasoning,
+  1048→      }
+  1049→    } catch (e: any) {
+  1050→      lastError = e
+  1051→      console.warn(`[LLM Router] Cerebras ${model} error: ${e?.message?.slice(0, 80)}`)
+  1052→      continue
+  1053→    }
+  1054→  }
+  1055→
+  1056→  throw lastError ?? new Error('All Cerebras models failed')
+  1057→}
+  1058→
+  1059→/**
+  1060→ * z.ai Direct API Call (GLM-4) — UPGRADE #114 NEW
+  1061→ *
+  1062→ * Bypasses the z-ai-web-dev-sdk's requirement for a ~/.z-ai-config file
+  1063→ * so it works on Vercel serverless. Calls the same underlying API the
+  1064→ * SDK uses, but with credentials from env vars.
+  1065→ *
+  1066→ * Env vars:
+  1067→ *   ZAI_API_KEY     — required, your z.ai API key (get from https://z.ai/manage-apikey)
+  1068→ *   ZAI_BASE_URL    — optional, defaults to https://api.z.ai/api/paas/v4
+  1069→ *   ZAI_MODEL       — optional, defaults to glm-4.6
+  1070→ *
+  1071→ * The endpoint is OpenAI-compatible (returns {choices:[{message:{content}}]}).
+  1072→ */
+  1073→async function callZaiDirectLlm(messages: Array<{ role: string; content: string }>): Promise<any> {
+  1074→  const apiKey = process.env.ZAI_API_KEY!
+  1075→  const baseUrl = process.env.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4'
+  1076→  const model = process.env.ZAI_MODEL || 'glm-4.6'
+  1077→
+  1078→  const url = `${baseUrl}/chat/completions`
+  1079→  const resp = await fetch(url, {
+  1080→    method: 'POST',
+  1081→    headers: {
+  1082→      'Content-Type': 'application/json',
+  1083→      'Authorization': `Bearer ${apiKey}`,
+  1084→      'X-Z-AI-From': 'Z', // z.ai SDK includes this header
+  1085→    },
+  1086→    body: JSON.stringify({
+  1087→      model,
+  1088→      messages,
+  1089→      temperature: 0.7,
+  1090→      max_tokens: 12000,
+  1091→      // UPGRADE #119 — Enable thinking mode for z.ai (GLM-4.6 supports native reasoning)
+  1092→      thinking: { type: 'enabled' },
+  1093→    }),
+  1094→    signal: AbortSignal.timeout(60000),
+  1095→  })
+  1096→
+  1097→  if (!resp.ok) {
+  1098→    const text = await resp.text().catch(() => '')
+  1099→    throw new Error(`z.ai direct: HTTP ${resp.status} — ${text.slice(0, 200)}`)
+  1100→  }
+  1101→
+  1102→  const data = await resp.json()
+  1103→  const content = data?.choices?.[0]?.message?.content ?? ''
+  1104→  if (!content) {
+  1105→    throw new Error(`z.ai direct returned empty content. Response: ${JSON.stringify(data).slice(0, 200)}`)
+  1106→  }
+  1107→
+  1108→  // UPGRADE #119 — Extract reasoning (z.ai returns reasoning_content when thinking is enabled)
+  1109→  const reasoning = data?.choices?.[0]?.message?.reasoning || data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.message?.thinking || null
+  1110→
+  1111→  return {
+  1112→    choices: [{
+  1113→      message: { role: 'assistant', content, reasoning },
+  1114→      finish_reason: data?.choices?.[0]?.finish_reason ?? 'stop',
+  1115→    }],
+  1116→    _provider: 'z-ai-direct',
+  1117→    _model: model,
+  1118→    _reasoning: reasoning,
+  1119→  }
+  1120→}
+  1121→
+  1122→/** Convenience for callers (e.g. /api/health/llm) to inspect current state. */
+  1123→export function getRateLimitState(): {
+  1124→  status: 'ok' | 'rate_limited'
+  1125→  last429At: number | null
+  1126→  cooldownMs: number
+  1127→} {
+  1128→  const now = Date.now()
+  1129→  const cooldownUntil = RATE_LIMIT_INFO.last429At
+  1130→    ? RATE_LIMIT_INFO.last429At + RATE_LIMIT_COOLDOWN_MS
+  1131→    : 0
+  1132→  return {
+  1133→    status: now < cooldownUntil ? 'rate_limited' : 'ok',
+  1134→    last429At: RATE_LIMIT_INFO.last429At,
+  1135→    cooldownMs: Math.max(0, cooldownUntil - now),
+  1136→  }
+  1137→}
+  1138→
+  1139→/**
+  1140→ * Detect "finish_reason: length" — the LLM was cut off by max_tokens before
+  1141→ * finishing its answer. (upgrade #31) The orchestrator uses this to retry
+  1142→ * with a higher token budget instead of treating the truncated output as final.
+  1143→ */
+  1144→export function wasTruncatedByLength(completion: any): boolean {
+  1145→  const reason: string | undefined =
+  1146→    completion?.choices?.[0]?.finish_reason ??
+  1147→    completion?.choices?.[0]?.message?.finish_reason ??
+  1148→    undefined
+  1149→  return reason === 'length'
+  1150→}
+  1151→
+  1152→/**
+  1153→ * Validate that a tool-call's args are parseable JSON OR can be salvaged.
+  1154→ * Returns { ok, args, error }. (upgrade #31) The orchestrator calls this
+  1155→ * BEFORE dispatchTool() — if ok=false, it sends a [SYSTEM] message back to
+  1156→ * the LLM telling it to re-emit the tool call with valid JSON, instead of
+  1157→ * silently falling back to broken key="value" parsing.
+  1158→ */
+  1159→export function validateToolArgs(
+  1160→  rawArgsString: string | undefined
+  1161→): { ok: boolean; args: any; error?: string } {
+  1162→  if (!rawArgsString || !rawArgsString.trim()) return { ok: true, args: {} }
+  1163→  try {
+  1164→    const parsed = JSON.parse(rawArgsString)
+  1165→    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  1166→      return { ok: true, args: parsed } // primitives are valid args
+  1167→    }
+  1168→    return { ok: true, args: parsed }
+  1169→  } catch (e: any) {
+  1170→    return {
+  1171→      ok: false,
+  1172→      args: {},
+  1173→      error: `Invalid JSON in tool args: ${e?.message ?? 'parse error'}. Raw: "${rawArgsString.slice(0, 200)}"`,
+  1174→    }
+  1175→  }
+  1176→}
+  1177→
+  1178→export const THOUGHT_RE = /<thought>([\s\S]*?)<\/thought>/i
+  1179→// Match both <tool name="x">{json}</tool> AND <tool name="x"/> (self-closing)
+  1180→// The LLM sometimes generates self-closing tags for tools with no args.
+  1181→export const TOOL_RE = /<tool\s+name=["']([^"']+)["']\s*(?:\/>|>([\s\S]*?)<\/tool>)/i
+  1182→
+  1183→// UPGRADE #63 — Detect <dispatch_subagent> tags that the LLM emits as TEXT
+  1184→// (instead of using the proper <tool name="dispatch_subagent"> format).
+  1185→// Without this, the agent gets stuck in a loop: it writes <dispatch_subagent>
+  1186→// as text, the parser doesn't recognize it, treats it as a final answer,
+  1187→// and the agent never actually dispatches the subagent.
+  1188→//
+  1189→// Format: <dispatch_subagent id="scout">task description</dispatch_subagent>
+  1190→// We convert this to: tool = { name: 'dispatch_subagent', args: { id, task } }
+  1191→export const DISPATCH_SUBAGENT_RE = /<dispatch_subagent\s+id=["']([^"']+)["']\s*>([\s\S]*?)<\/dispatch_subagent>/i
+  1192→
+  1193→export interface Parsed {
+  1194→  thought?: string
+  1195→  tool?: { name: string; args: any }
+  1196→  // UPGRADE #169 C2: `dispatch` was missing — subagents.ts read parsed.dispatch
+  1197→  // but Parsed never had a dispatch field. The 3-tier hierarchy (CEO → Leader →
+  1198→  // Specialist) was therefore broken: Leaders could not delegate to Specialists
+  1199→  // because the dispatch was never propagated. We now populate it from both
+  1200→  // <dispatch_subagent> tags AND <tool name="dispatch_subagent"> tool calls.
+  1201→  dispatch?: { agentId: string; task: string }
+  1202→  textAfterTool: string
+  1203→  textBeforeTool: string
+  1204→  raw: string
+  1205→}
+  1206→
+  1207→export function parseAssistant(content: string): Parsed {
+  1208→  const thoughtMatch = content.match(THOUGHT_RE)
+  1209→  const thought = thoughtMatch?.[1]?.trim()
+  1210→  const toolMatch = content.match(TOOL_RE)
+  1211→
+  1212→  // ── UPGRADE #63 — Also check for <dispatch_subagent> tags ──────────
+  1213→  // The LLM often writes <dispatch_subagent id="scout">task</dispatch_subagent>
+  1214→  // as text instead of using <tool name="dispatch_subagent">. We detect both
+  1215→  // formats and convert dispatch_subagent tags to proper tool calls.
+  1216→  const dispatchMatch = content.match(DISPATCH_SUBAGENT_RE)
+  1217→
+  1218→  // UPGRADE #169 C2: Also extract a `dispatch` field for subagents.ts to use
+  1219→  // when delegating to specialists. We populate it from either format:
+  1220→  //   - <dispatch_subagent id="quill">task</dispatch_subagent>
+  1221→  //   - <tool name="dispatch_subagent">{"id":"quill","task":"..."}</tool>
+  1222→  let dispatch: Parsed['dispatch']
+  1223→
+  1224→  // Prefer the proper <tool> format if present; otherwise fall back to <dispatch_subagent>
+  1225→  let tool: Parsed['tool']
+  1226→  let textBeforeTool = content
+  1227→  let textAfterTool = ''
+  1228→
+  1229→  if (toolMatch) {
+  1230→    const name = (toolMatch[1] ?? '').trim()
+  1231→    if (!name) {
+  1232→      return { thought, tool: undefined, dispatch: undefined, textBeforeTool: content.replace(THOUGHT_RE, '').trim(), textAfterTool: '', raw: content }
+  1233→    }
+  1234→    let args: any = {}
+  1235→    const raw = (toolMatch[2] ?? '').trim()
+  1236→    if (raw) {
+  1237→      try {
+  1238→        args = JSON.parse(raw)
+  1239→      } catch {
+  1240→        const m: Record<string, string> = {}
+  1241→        const re = /"([^"]+)"\s*:\s*"([^"]*)"/g
+  1242→        let mm: RegExpExecArray | null
+  1243→        while ((mm = re.exec(raw))) m[mm[1]] = mm[2]
+  1244→        args = m
+  1245→      }
+  1246→    }
+  1247→    tool = { name, args }
+  1248→    const idx = content.indexOf(toolMatch[0])
+  1249→    textBeforeTool = content.slice(0, idx).replace(THOUGHT_RE, '').trim()
+  1250→    textAfterTool = content.slice(idx + toolMatch[0].length).trim()
+  1251→
+  1252→    // UPGRADE #169 C2: Populate dispatch from <tool name="dispatch_subagent"> format
+  1253→    if (name === 'dispatch_subagent') {
+  1254→      const agentId = (args?.id ?? args?.agentId ?? '').toString().trim()
+  1255→      const task = (args?.task ?? args?.goal ?? '').toString().trim()
+  1256→      if (agentId) {
+  1257→        dispatch = { agentId, task }
+  1258→      }
+  1259→    }
+  1260→  } else if (dispatchMatch) {
+  1261→    // ── UPGRADE #63 — Convert <dispatch_subagent> text to a real tool call ──
+  1262→    const subagentId = (dispatchMatch[1] ?? '').trim()
+  1263→    const task = (dispatchMatch[2] ?? '').trim()
+  1264→    if (subagentId) {
+  1265→      tool = { name: 'dispatch_subagent', args: { id: subagentId, task } }
+  1266→      // UPGRADE #169 C2: Also populate the dispatch field so subagents.ts:1583
+  1267→      // can detect the delegation request.
+  1268→      dispatch = { agentId: subagentId, task }
+  1269→      const idx = content.indexOf(dispatchMatch[0])
+  1270→      textBeforeTool = content.slice(0, idx).replace(THOUGHT_RE, '').trim()
+  1271→      textAfterTool = content.slice(idx + dispatchMatch[0].length).trim()
+  1272→    }
+  1273→  }
+  1274→  return {
+  1275→    thought,
+  1276→    tool,
+  1277→    dispatch,
+  1278→    textBeforeTool,
+  1279→    textAfterTool,
+  1280→    raw: content,
+  1281→  }
+  1282→}
+  1283→
+  1284→/** Rough token estimator (~4 chars/token, standard approximation). */
+  1285→function estimateTokens(messages: Array<{ role: string; content: string }>): number {
+  1286→  let chars = 0
+  1287→  for (const m of messages) chars += (m.content ?? '').length
+  1288→  return Math.ceil(chars / 4)
+  1289→}
+  1290→
+  1291→/** Build the LLM message history from the DB rows of the conversation. */
+  1292→export async function buildHistoryMessages(
+  1293→  conversationId: string,
+  1294→  currentUserMessage: string,
+  1295→  currentAttachments: AttachmentMeta[]
+  1296→): Promise<Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> {
+  1297→  // UPGRADE #128: Wrap DB query in try/catch — if DB is unreachable,
+  1298→  // continue with just the current message instead of crashing the entire agent
+  1299→  let priorMessages: any[] = []
+  1300→  try {
+  1301→    priorMessages = await db.message.findMany({
+  1302→      where: { conversationId },
+  1303→      orderBy: { createdAt: 'asc' },
+  1304→    })
+  1305→  } catch (dbErr: any) {
+  1306→    console.warn('[buildHistoryMessages] DB query failed, continuing without history:', dbErr?.message?.slice(0, 100))
+  1307→    // Return just the current message — the agent will still respond,
+  1308→    // just without conversation history context
+  1309→  }
+  1310→  const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+  1311→  for (const m of priorMessages) {
+  1312→    if (m.role === 'user') {
+  1313→      let content = m.content
+  1314→      const atts = m.attachments ? (JSON.parse(m.attachments) as AttachmentMeta[]) : []
+  1315→      const textFiles = atts.filter((a) => a.textContent)
+  1316→      const images = atts.filter((a) => a.mimeType.startsWith('image/'))
+  1317→      if (textFiles.length) {
+  1318→        content +=
+  1319→          '\n\n[ATTACHED TEXT FILES]\n' +
+  1320→          textFiles.map((a) => `--- ${a.originalName} ---\n${a.textContent?.slice(0, 8000)}`).join('\n\n')
+  1321→      }
+  1322→      if (images.length) {
+  1323→        content += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.`
+  1324→      }
+  1325→      msgs.push({ role: 'user', content })
+  1326→    } else if (m.role === 'assistant') {
+  1327→      msgs.push({ role: 'assistant', content: m.content })
+  1328→    } else if (m.role === 'tool') {
+  1329→      msgs.push({
+  1330→        role: 'user',
+  1331→        content: `[TOOL_RESULT] ${m.toolName}: ${m.toolResult ?? ''}`,
+  1332→      })
+  1333→    } else if (m.role === 'thought') {
+  1334→      // skip — thoughts are internal; we re-feed them via assistant content's <thought> tags
+  1335→    }
+  1336→  }
+  1337→  // current message
+  1338→  let userContent = currentUserMessage
+  1339→  const textFiles = currentAttachments.filter((a) => a.textContent)
+  1340→  const images = currentAttachments.filter((a) => a.mimeType.startsWith('image/'))
+  1341→  if (textFiles.length) {
+  1342→    userContent +=
+  1343→      '\n\n[ATTACHED TEXT FILES]\n' +
+  1344→      textFiles.map((a) => `--- ${a.originalName} ---\n${a.textContent?.slice(0, 8000)}`).join('\n\n')
+  1345→  }
+  1346→  if (images.length) {
+  1347→    userContent += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.`
+  1348→  }
+  1349→  msgs.push({ role: 'user', content: userContent })
+  1350→
+  1351→  // Auto-truncate if too long — keep the most recent ~30k tokens of history
+  1352→  // and add a marker so the model knows earlier context was dropped.
+  1353→  const MAX_TOKENS = 50_000
+  1354→  const KEEP_TOKENS = 30_000
+  1355→  if (estimateTokens(msgs) > MAX_TOKENS) {
+  1356→    // Walk from the end of msgs, accumulating until we hit KEEP_TOKENS budget
+  1357→    let keptTokens = 0
+  1358→    let cutIndex = msgs.length
+  1359→    for (let i = msgs.length - 1; i >= 0; i--) {
+  1360→      const t = Math.ceil((msgs[i].content ?? '').length / 4)
+  1361→      if (keptTokens + t > KEEP_TOKENS * 4) {
+  1362→        cutIndex = i + 1
+  1363→        break
+  1364→      }
+  1365→      keptTokens += t
+  1366→      cutIndex = i
+  1367→    }
+  1368→    const trimmed = msgs.slice(cutIndex)
+  1369→    return [
+  1370→      {
+  1371→        role: 'user',
+  1372→        content:
+  1373→          '[Earlier conversation history truncated to fit context window. Earlier tool results and assistant messages were dropped.]',
+  1374→      },
+  1375→      ...trimmed,
+  1376→    ]
+  1377→  }
+  1378→
+  1379→  return msgs
+  1380→}
+  1381→
+  1382→
+  1383→export function chunkText(text: string, size: number): string[] {
+  1384→  if (!text) return []
+  1385→  const out: string[] = []
+  1386→  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size))
+  1387→  return out
+  1388→}
+  1389→
+  1390→/**
+  1391→ * Convert a raw LLM API exception into a friendly, user-visible message.
+  1392→ * Detects rate-limit (429) errors specifically and produces a clear, actionable
+  1393→ * message instead of dumping the raw API JSON.
+  1394→ */
+  1395→export function friendlyLlmError(e: any): string {
+  1396→  const raw: string = e?.message ?? String(e)
+  1397→  const status: number | undefined = e?.status ?? e?.response?.status
+  1398→  const lower = raw.toLowerCase()
+  1399→
+  1400→  // UPGRADE #149 (Fix #2) — Surface the full failure breakdown when available.
+  1401→  // The new callLlmWithRetry attaches _failures, _allRateLimited, _rateLimitCount,
+  1402→  // and _nonRateLimitCount to the thrown error. Use these to build a precise
+  1403→  // message instead of guessing based on the last error's text.
+  1404→  const failures: Array<{ provider: string; error: any; isRateLimit: boolean }> | undefined = (e as any)?._failures
+  1405→  const allRateLimited: boolean | undefined = (e as any)?._allRateLimited
+  1406→  const rateLimitCount: number | undefined = (e as any)?._rateLimitCount
+  1407→  const nonRateLimitCount: number | undefined = (e as any)?._nonRateLimitCount
+  1408→
+  1409→  if (failures && failures.length > 0) {
+  1410→    const failureBreakdown = failures.map(f =>
+  1411→      `${f.provider}: ${f.isRateLimit ? '429 (rate limit)' : (f.error?.message ?? 'unknown').slice(0, 80)}`
+  1412→    ).join('\n  • ')
+  1413→
+  1414→    if (allRateLimited) {
+  1415→      return `⏳ All ${failures.length} LLM provider(s) returned HTTP 429 (rate limit).
+  1416→
+  1417→This is a genuine rate-limit cascade — every provider is simultaneously at capacity.
+  1418→
+  1419→Providers tried (in order):
+  1420→  • ${failureBreakdown}
+  1421→
+  1422→TO FIX:
+  1423→1. Wait 60 seconds for the rate limits to reset
+  1424→2. If this happens frequently, enable parallel-race mode: set LLM_PARALLEL_RACE=true in Vercel env vars (fires 3 providers at once, uses first success)
+  1425→3. Check /api/health/llm-providers to see which providers are configured
+  1426→4. Consider adding more providers (Cerebras, Brave AI) for more headroom`
+  1427→    }
+  1428→
+  1429→    return `⚠️ LLM providers failed (${rateLimitCount ?? 0} rate-limited, ${nonRateLimitCount ?? 0} other errors).
+  1430→
+  1431→Not all failures were rate limits — this is likely a transient network/provider issue, not a capacity problem.
+  1432→
+  1433→Providers tried (in order):
+  1434→  • ${failureBreakdown}
+  1435→
+  1436→TO FIX:
+  1437→1. Click Retry — most transient failures clear in 5-10 seconds
+  1438→2. Check /api/health/llm-providers to see which providers are configured
+  1439→3. If one provider keeps failing, the circuit breaker will auto-skip it for 60s after 3 failures`
+  1440→    }
+  1441→
+  1442→  // Detect which provider failed (legacy fallback for non-upgraded callers)
+  1443→  const isOpenai = lower.includes('openai') || lower.includes('fallback') || lower.includes('gpt-4o')
+  1444→  const isZai = lower.includes('z-ai') || lower.includes('zai') || lower.includes('glm')
+  1445→  const providerName = isOpenai ? 'OpenAI' : isZai ? 'Z.ai (GLM)' : 'AI provider'
+  1446→
+  1447→  if (status === 429 || lower.includes('429') || lower.includes('too many requests')) {
+  1448→    return `⏳ Agent007's ${providerName} is temporarily at capacity. Please wait 30 seconds and try again.`
+  1449→  }
+  1450→  if (status === 401 || status === 403 || lower.includes('unauthorized') || lower.includes('forbidden')) {
+  1451→    // Check for region block specifically
+  1452→    if (lower.includes('unsupported_country_region_territory') || lower.includes('region') && lower.includes('not supported')) {
+  1453→      return `🌍 Agent007's ${providerName} is blocked in this server region.
+  1454→
+  1455→The API key is VALID, but ${providerName} refuses to serve requests from this geographic location.
+  1456→
+  1457→WHICH PROVIDER FAILED: ${providerName}
+  1458→HTTP STATUS: ${status}
+  1459→
+  1460→TO FIX:
+  1461→1. Deploy to Vercel (US servers) — ${providerName} works there
+  1462→2. Use Z.ai SDK as primary (already working in dev)
+  1463→3. The key itself is fine — no need to change it
+  1464→
+  1465→Agent007 is still functional via Z.ai SDK (GLM-4-Plus).`
+  1466→    }
+  1467→    return `🔐 Agent007's ${providerName} rejected the request (auth/permission).
+  1468→
+  1469→This means the API key is invalid, expired, or doesn't have permission.
+  1470→
+  1471→WHICH PROVIDER FAILED: ${providerName}
+  1472→HTTP STATUS: ${status ?? 'unknown'}
+  1473→
+  1474→TO FIX:
+  1475→${isOpenai
+  1476→      ? '1. Check your OpenAI API key is valid at https://platform.openai.com/api-keys\n2. Ensure you have credits at https://platform.openai.com/account/billing\n3. Update the key in Settings → API Key Manager\n4. Or set OPENAI_API_KEY as a Vercel env var'
+  1477→      : '1. The Z.ai SDK may have a temporary auth issue\n2. Add an OPENAI_API_KEY as fallback in Settings → API Key Manager\n3. Or set OPENAI_API_KEY as a Vercel env var'}
+  1478→
+  1479→The operator has been notified. Please contact ${OWNER_EMAIL} if this persists.`
+  1480→  }
+  1481→  if (status === 500 || status === 502 || status === 503 || lower.includes('server error') || lower.includes('service unavailable')) {
+  1482→    return `🛠️ Agent007's ${providerName} is having a server-side issue (HTTP ${status}). Please retry in a moment.`
+  1483→  }
+  1484→  if (lower.includes('timeout') || lower.includes('timed out')) {
+  1485→    return `⏱️ Agent007's ${providerName} took too long to respond. Please try again.`
+  1486→  }
+  1487→  return `⚠️ ${raw.slice(0, 200)}
+  1488→
+  1489→This may be a temporary issue. Try again, or if it persists, add an OPENAI_API_KEY in Settings → API Keys.`
+  1490→}
+  1491→
