@@ -84,3 +84,5 @@ public/Agent007-Backup*.zip
 public/Agent007-Backup*.json
 public/backups/
 public/backup/
+public/backups/*.zip
+public/backups/*.tar.gz
