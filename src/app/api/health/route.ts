@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-200',  // UPGRADE #200: auto-inject charter for strategic questions + locked deploy script
+    version: 'upgrade-201',  // UPGRADE #201: auto-execute diagnostics + delete conversation + date grouping
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',

@@ -1003,43 +1003,129 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         toolCountForReminder = String(Object.keys(TOOL_REGISTRY).length)
       } catch {}
 
-      // UPGRADE #200: Detect strategic questions and auto-inject the charter.
-      // The LLM keeps ignoring rule #12 (call kb_search for the charter) because
-      // rules buried in a 12-item list get lost. Instead of relying on the LLM
-      // to call kb_search, we DETECT strategic questions and inject the charter
-      // DIRECTLY into the conversation. The LLM has no choice but to see it.
+      // UPGRADE #201: Auto-execute diagnostic tools for strategic questions.
+      // The LLM kept ignoring the charter (injected in #200) because its training
+      // distribution for "strategic question → consulting report" is too strong.
+      // No amount of injected rules can override that.
+      //
+      // NEW APPROACH: Instead of injecting RULES the LLM can ignore, inject
+      // REAL DATA the LLM CAN'T ignore. When a strategic question is detected,
+      // auto-execute 4 diagnostic checks in parallel, format the results as a
+      // "System Status Report", and inject it as context. The LLM is then forced
+      // to respond to DATA, not to the abstract question.
+      //
+      // The LLM can't write "consider implementing security audits" when it's
+      // staring at: "cybersecurity_a: 3 scans today, 0 critical findings".
       const STRATEGIC_KEYWORDS = /\b(improve|enhance|evaluate|evaluation|assess|assessment|how is|how do|what should|what can|strategy|strategic|optimi[sz]e|upgrade|comprehensive|whole system|entire system|deep comprehension|deep analysis|audit|review|performing|status of|state of)\b/i
       const isStrategicQuestion = STRATEGIC_KEYWORDS.test(userMessage) && userMessage.length > 15
 
-      let charterContext = ''
+      let systemStatusReport = ''
       if (isStrategicQuestion) {
+        console.log('[orchestrator] Strategic question detected — auto-executing diagnostics')
         try {
-          const { searchKnowledgeBase } = await import('./knowledge-base')
-          const { db } = await import('./db')
-          const seedUser = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-          if (seedUser) {
-            const results = await searchKnowledgeBase(seedUser.id, 'agent007 charter how to respond', 8)
-            if (results.length > 0) {
-              charterContext = '\n\n═══ AGENT007 OPERATIONAL CHARTER (auto-retrieved from KB) ═══\n' +
-                results.map((r: any) => r.content).join('\n\n---\n\n').slice(0, 6000) +
-                '\n═══ END CHARTER ═══\n\n' +
-                'MANDATORY: Follow the charter above for this response. Key rules:\n' +
-                '1. ACT, don\'t advise — call tools/dispatch agents, don\'t just recommend\n' +
-                '2. Never describe yourself in third person — it\'s "my system" not "your system"\n' +
-                '3. Never recommend building tools you already have — USE them\n' +
-                '4. No AI clichés — no "Let\'s dive into", no "Leveraging our capabilities"\n' +
-                '5. If you write generic advice that could apply to anyone, STOP and rewrite\n'
-              console.log('[orchestrator] Strategic question detected — charter injected (', charterContext.length, 'chars)')
-            } else {
-              console.log('[orchestrator] Strategic question detected but charter not in KB yet — falling back to inline rules')
+          // Auto-execute 4 diagnostic checks in parallel
+          const BASE = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+          const [healthRes, capRes, teamRes, llmRes] = await Promise.allSettled([
+            fetch(`${BASE}/api/health`).then(r => r.json()).catch(() => null),
+            fetch(`${BASE}/api/system/capability-audit`).then(r => r.json()).catch(() => null),
+            fetch(`${BASE}/api/system/team-performance`).then(r => r.json()).catch(() => null),
+            fetch(`${BASE}/api/system/diagnose-llm`).then(r => r.json()).catch(() => null),
+          ])
+
+          // Extract data from results
+          const health = healthRes.status === 'fulfilled' ? healthRes.value : null
+          const cap = capRes.status === 'fulfilled' ? capRes.value : null
+          const team = teamRes.status === 'fulfilled' ? teamRes.value : null
+          const llm = llmRes.status === 'fulfilled' ? llmRes.value : null
+
+          // Format as System Status Report
+          const lines: string[] = []
+          lines.push('═══ SYSTEM STATUS REPORT (auto-generated — you already ran these checks) ═══')
+          lines.push('')
+
+          // Health
+          if (health) {
+            lines.push(`SYSTEM HEALTH:`)
+            lines.push(`  Version: ${health.version}`)
+            lines.push(`  Status: ${health.status}`)
+            lines.push(`  Uptime: ${Math.round((health.uptime_seconds || 0) / 60)} min`)
+            lines.push(`  Region: ${health.region}`)
+            lines.push('')
+          }
+
+          // Capability audit
+          if (cap) {
+            const tools = cap.tools || {}
+            const auto = cap.autonomy_score || {}
+            lines.push(`CAPABILITIES:`)
+            lines.push(`  Total tools: ${tools.total_in_registry || '?'}`)
+            lines.push(`  With credentials: ${tools.with_credentials || '?'}`)
+            lines.push(`  Without credentials: ${tools.without_credentials || '?'}`)
+            lines.push(`  Can earn real money: ${auto.can_earn_real_money_today ? 'YES' : 'NO'}`)
+            lines.push(`  Revenue-critical ready: ${auto.revenue_critical_ready || '?'}`)
+            lines.push('')
+
+            // List missing credentials
+            const missing = tools.tools_without_credentials || []
+            if (missing.length > 0) {
+              lines.push(`MISSING CREDENTIALS (blocking ${missing.length} tools):`)
+              for (const m of missing) {
+                lines.push(`  ❌ ${m.name} — needs: ${m.missingEnvVars?.join(', ')}`)
+              }
+              lines.push('')
             }
           }
+
+          // Team performance
+          if (team) {
+            const ts = team.team_summary || {}
+            const agents = team.agents || []
+            lines.push(`TEAM STATUS:`)
+            lines.push(`  Total agents: ${ts.total_agents || agents.length}`)
+            lines.push(`  Tasks completed: ${ts.total_tasks_completed || 0}`)
+            lines.push(`  Avg quality score: ${ts.team_avg_quality_score || 0}`)
+            lines.push(`  Success rate: ${ts.team_success_rate_percent || 0}%`)
+            lines.push('')
+
+            // List agents with 0 tasks (underutilized)
+            const underutilized = agents.filter((a: any) => a.metrics?.total_tasks === 0)
+            if (underutilized.length > 0) {
+              lines.push(`UNDERUTILIZED AGENTS (${underutilized.length} with 0 tasks):`)
+              for (const a of underutilized.slice(0, 5)) {
+                lines.push(`  - ${a.name}: ${a.metrics?.allowed_tools_count || 0} tools, 0 tasks`)
+              }
+              lines.push('')
+            }
+          }
+
+          // LLM status
+          if (llm) {
+            lines.push(`LLM PROVIDERS:`)
+            lines.push(`  Status: ${llm.overallStatus || '?'}`)
+            lines.push(`  Active provider: ${llm.testResult?.provider || '?'}`)
+            lines.push(`  Chain: ${llm.provider || '?'}'`)
+            lines.push('')
+          }
+
+          lines.push('═══ END SYSTEM STATUS REPORT ═══')
+          lines.push('')
+          lines.push('MANDATORY RESPONSE FORMAT for this strategic question:')
+          lines.push('1. Start with: "I checked my system. Here\'s what I found:"')
+          lines.push('2. Report 3-5 specific findings FROM THE DATA ABOVE (cite real numbers)')
+          lines.push('3. List 2-3 concrete actions ranked by impact (based on the data)')
+          lines.push('4. End with: "Want me to fix #1 right now?"')
+          lines.push('5. Do NOT write generic advice. Do NOT say "your system". Say "my system".')
+          lines.push('6. Do NOT recommend building tools you already have. The data shows what exists.')
+          lines.push('7. Do NOT use "Let\'s dive into" or "Leveraging our capabilities".')
+
+          systemStatusReport = lines.join('\n')
+          console.log('[orchestrator] System Status Report generated:', systemStatusReport.length, 'chars')
         } catch (e: any) {
-          console.log('[orchestrator] Charter retrieval failed:', e?.message)
+          console.log('[orchestrator] Diagnostic auto-execution failed:', e?.message)
         }
       }
 
-      const identityReminder = `[IDENTITY CHECK] You are Agent007, Antonio's personal super-agent. Mention your 20 pod leaders (18 built-in + 2 custom), ${toolCountForReminder} tools, or forever memory when relevant. Never use AI clichés ("as an AI", "human intuition", "areas where I fall short", "Let\'s dive into", "Leveraging our capabilities"). Be honest — connect to the mission when relevant, don\'t force it. Use calibrated confidence: be confident when you have verified data, honest when you don\'t. Never recommend building tools you already have — USE them. Never describe yourself in the third person — it\'s "my system" not "your system". Do NOT give generic advice — be specific.${charterContext}`
+      const identityReminder = `[IDENTITY CHECK] You are Agent007, Antonio's personal super-agent. Mention your 20 pod leaders (18 built-in + 2 custom), ${toolCountForReminder} tools, or forever memory when relevant. Never use AI clichés ("as an AI", "human intuition", "areas where I fall short", "Let\'s dive into", "Leveraging our capabilities"). Be honest — connect to the mission when relevant, don\'t force it. Use calibrated confidence: be confident when you have verified data, honest when you don\'t. Never recommend building tools you already have — USE them. Never describe yourself in the third person — it\'s "my system" not "your system". Do NOT give generic advice — be specific.${systemStatusReport ? '\n\n' + systemStatusReport : ''}`
       const messagesWithReminder = [
         ...conversationMessages,
         { role: 'user' as const, content: identityReminder },
