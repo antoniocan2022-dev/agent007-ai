@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-197',  // UPGRADE #197: 12-issue deep audit fix — SYSTEM_PROMPT contradiction, dup tools, missing route, etc.
+    version: 'upgrade-198',  // UPGRADE #198: revert pod count to 20 (was wrong in #197) + anti-consulting rules + example exchanges
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',
