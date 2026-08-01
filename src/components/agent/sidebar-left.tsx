@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, MessageSquare, Trash2, X, Settings, Download } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, X, Settings, Download, ChevronDown, ChevronRight } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import { NexusLogo } from './nexus-logo'
 
@@ -49,6 +49,20 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
   const createConversation = useChatStore((s) => s.createConversation)
   const deleteConversation = useChatStore((s) => s.deleteConversation)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  // UPGRADE #202: Collapsible dropdown for each time group.
+  // Today + Yesterday expanded by default; older groups collapsed (saves space).
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
+    Today: false,
+    Yesterday: false,
+    'This Week': true,
+    'Last Week': true,
+    'This Month': true,
+    'Last Month': true,
+    Older: true,
+  })
+  const toggleGroup = (group: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [group]: !prev[group] }))
+  }
 
   const handleNew = async () => {
     await createConversation()
@@ -116,13 +130,26 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
             No conversations yet.
           </div>
         ) : (
-          grouped.map(([groupLabel, convs]) => (
+          grouped.map(([groupLabel, convs]) => {
+            const isCollapsed = collapsedGroups[groupLabel] ?? false
+            return (
             <div key={groupLabel}>
-              <div className="text-[9px] tracking-[0.2em] text-[#5b6a92] px-2 py-2 pt-3 font-semibold uppercase">
-                {groupLabel}
-              </div>
+              <button
+                onClick={() => toggleGroup(groupLabel)}
+                className="w-full flex items-center gap-1.5 text-[9px] tracking-[0.2em] text-[#5b6a92] px-2 py-2 pt-3 font-semibold uppercase hover:text-cyan-300 transition"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="w-3 h-3 flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 flex-shrink-0" />
+                )}
+                <span>{groupLabel}</span>
+                <span className="text-[8px] text-[#3f4a6b] normal-case tracking-normal ml-auto">
+                  {convs.length}
+                </span>
+              </button>
               <AnimatePresence initial={false}>
-                {convs.map((c) => {
+                {!isCollapsed && convs.map((c) => {
                   const active = c.id === currentId
                   const isConfirming = confirmDeleteId === c.id
                   return (
@@ -216,7 +243,8 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
                 })}
               </AnimatePresence>
             </div>
-          ))
+            )
+          })
         )}
       </div>
 
