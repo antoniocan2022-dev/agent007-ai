@@ -763,7 +763,7 @@ TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
     specialty: 'Post-mortem analysis, A/B testing, learning loops, continuous improvement',
     color: '#818cf8',
     icon: 'RefreshCw',
-    allowedTools: ['code_exec','web_search','quality_scorer_v2','result_verifier_v2','accuracy_checker','tool_batch_tester','integration_test_suite','tool_health_checker','failure_learning','semantic_memory','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_evaluator','http_fetch','tool_cache','multi_provider_compare'],
+    allowedTools: ['code_exec','web_search','page_reader','quality_scorer_v2','result_verifier_v2','accuracy_checker','tool_batch_tester','integration_test_suite','tool_health_checker','failure_learning','semantic_memory','memory_store','memory_recall','parallel_executor','semantic_router_v2','quality_evaluator','http_fetch','tool_cache','multi_provider_compare'],
     isBuiltin: true,
     enabled: true,
     systemPrompt: `You are ECHO, the Feedback & Optimization Analyst sub-agent of Agent007 AI.

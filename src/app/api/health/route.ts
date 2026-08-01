@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-198',  // UPGRADE #198: revert pod count to 20 (was wrong in #197) + anti-consulting rules + example exchanges
+    version: 'upgrade-199',  // UPGRADE #199: KB Charter injection + ECHO page_reader fix + pods count fix
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',

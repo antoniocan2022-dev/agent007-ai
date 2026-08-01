@@ -39,7 +39,7 @@ export async function GET() {
           ${p.members.map(m => `<span class="member-tag" style="border-color: ${p.color}30;">${m}</span>`).join('')}
         </div>
         <div class="pod-stats">
-          <span>667 tools</span>
+          <span>677 tools</span>
           <span>${p.members.length + 1} agents</span>
         </div>
         <button class="pod-btn" style="background: ${p.color}15; border-color: ${p.color}40; color: ${p.color};">

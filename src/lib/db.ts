@@ -334,6 +334,19 @@ async function seedData() {
   } catch (e: any) {
     console.error('[db] Seed failed:', e?.message, e?.stack?.slice(0, 300))
   }
+
+  // UPGRADE #199: Inject the Agent007 Operational Charter into the knowledge base.
+  // This ensures the charter is always available for kb_search, even on ephemeral
+  // Vercel cold starts where the DB is fresh. Idempotent — skips if already exists.
+  try {
+    const seedUser = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+    if (seedUser) {
+      const { injectCharterIntoKB } = await import('./charter-injector')
+      await injectCharterIntoKB(seedUser.id)
+    }
+  } catch (e: any) {
+    console.error('[db] Charter injection failed:', e?.message)
+  }
 }
 
 // Auto-init: MUST be awaited before any query
