@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
   const zipBuffer = zip.toBuffer()
   const fileName = `agent007-source-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
 
-  return new NextResponse(zipBuffer, {
+  return new NextResponse(new Uint8Array(zipBuffer), {
     status: 200,
     headers: {
       'Content-Type': 'application/zip',
