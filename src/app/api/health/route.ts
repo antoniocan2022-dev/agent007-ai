@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-203',  // UPGRADE #203: 46 critical tools added to 17 agents + parallel_executor to 8 agents
+    version: 'upgrade-204',  // UPGRADE #204: 40 team recommendations — thinking protocols + cross-pod dispatch + pipelines
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',
