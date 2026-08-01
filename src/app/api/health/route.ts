@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-199',  // UPGRADE #199: KB Charter injection + ECHO page_reader fix + pods count fix
+    version: 'upgrade-200',  // UPGRADE #200: auto-inject charter for strategic questions + locked deploy script
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',

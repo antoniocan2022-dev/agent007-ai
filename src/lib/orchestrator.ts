@@ -1002,7 +1002,44 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         const { TOOL_REGISTRY } = await import('./tools')
         toolCountForReminder = String(Object.keys(TOOL_REGISTRY).length)
       } catch {}
-      const identityReminder = `[IDENTITY CHECK] You are Agent007, Antonio's personal super-agent. Mention your 20 pod leaders (18 built-in + 2 custom), ${toolCountForReminder} tools, or forever memory when relevant. Never use AI clichés ("as an AI", "human intuition", "areas where I fall short"). Be honest — connect to the mission when relevant, don't force it. Use calibrated confidence: be confident when you have verified data, honest when you don't. Never recommend building tools you already have — USE them. Never describe yourself in the third person. Do NOT give generic advice — be specific to Antonio's setup.`
+
+      // UPGRADE #200: Detect strategic questions and auto-inject the charter.
+      // The LLM keeps ignoring rule #12 (call kb_search for the charter) because
+      // rules buried in a 12-item list get lost. Instead of relying on the LLM
+      // to call kb_search, we DETECT strategic questions and inject the charter
+      // DIRECTLY into the conversation. The LLM has no choice but to see it.
+      const STRATEGIC_KEYWORDS = /\b(improve|enhance|evaluate|evaluation|assess|assessment|how is|how do|what should|what can|strategy|strategic|optimi[sz]e|upgrade|comprehensive|whole system|entire system|deep comprehension|deep analysis|audit|review|performing|status of|state of)\b/i
+      const isStrategicQuestion = STRATEGIC_KEYWORDS.test(userMessage) && userMessage.length > 15
+
+      let charterContext = ''
+      if (isStrategicQuestion) {
+        try {
+          const { searchKnowledgeBase } = await import('./knowledge-base')
+          const { db } = await import('./db')
+          const seedUser = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
+          if (seedUser) {
+            const results = await searchKnowledgeBase(seedUser.id, 'agent007 charter how to respond', 8)
+            if (results.length > 0) {
+              charterContext = '\n\n═══ AGENT007 OPERATIONAL CHARTER (auto-retrieved from KB) ═══\n' +
+                results.map((r: any) => r.content).join('\n\n---\n\n').slice(0, 6000) +
+                '\n═══ END CHARTER ═══\n\n' +
+                'MANDATORY: Follow the charter above for this response. Key rules:\n' +
+                '1. ACT, don\'t advise — call tools/dispatch agents, don\'t just recommend\n' +
+                '2. Never describe yourself in third person — it\'s "my system" not "your system"\n' +
+                '3. Never recommend building tools you already have — USE them\n' +
+                '4. No AI clichés — no "Let\'s dive into", no "Leveraging our capabilities"\n' +
+                '5. If you write generic advice that could apply to anyone, STOP and rewrite\n'
+              console.log('[orchestrator] Strategic question detected — charter injected (', charterContext.length, 'chars)')
+            } else {
+              console.log('[orchestrator] Strategic question detected but charter not in KB yet — falling back to inline rules')
+            }
+          }
+        } catch (e: any) {
+          console.log('[orchestrator] Charter retrieval failed:', e?.message)
+        }
+      }
+
+      const identityReminder = `[IDENTITY CHECK] You are Agent007, Antonio's personal super-agent. Mention your 20 pod leaders (18 built-in + 2 custom), ${toolCountForReminder} tools, or forever memory when relevant. Never use AI clichés ("as an AI", "human intuition", "areas where I fall short", "Let\'s dive into", "Leveraging our capabilities"). Be honest — connect to the mission when relevant, don\'t force it. Use calibrated confidence: be confident when you have verified data, honest when you don\'t. Never recommend building tools you already have — USE them. Never describe yourself in the third person — it\'s "my system" not "your system". Do NOT give generic advice — be specific.${charterContext}`
       const messagesWithReminder = [
         ...conversationMessages,
         { role: 'user' as const, content: identityReminder },
