@@ -36,7 +36,6 @@ yarn-error.log*
 # vercel
 .vercel
 
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -50,5 +49,38 @@ test
 prompt
 
 server.log
+
 # Skills directory
 /skills/
+
+# ═══ UPGRADE #198: GitHub repo hygiene ═══
+# These directories contain large backup artifacts (315MB+ in download/,
+# 35MB in public/) that don't belong in version control. They are still
+# present locally and in .vercelignore, but no longer tracked by git.
+# Backups should live in Vercel Postgres, S3, or external storage — not git.
+
+# Backup artifacts (ZIPs, JSON dumps, tar.gz) — 315MB, 303 files
+/download/
+
+# Tool execution results (transient, 11MB, 104 files)
+/tool-results/
+
+# Audit snapshots (regenerated on demand, 432KB)
+/audit/
+/audit-v2/
+
+# User uploads (runtime data, 5.6MB)
+/upload/
+
+# Local SQLite database (Vercel uses ephemeral /tmp or Postgres)
+/db/
+
+# Large backup archives in public/ (keep icons/manifest, drop backups)
+public/agent007-backup-*.zip
+public/agent007-backup-*.tar.gz
+public/agent007-backup-*.json
+public/agent007-backup-summary.json
+public/Agent007-Backup*.zip
+public/Agent007-Backup*.json
+public/backups/
+public/backup/
