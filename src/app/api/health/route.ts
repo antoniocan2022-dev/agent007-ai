@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-202',  // UPGRADE #202: collapsible dropdown for chat history time groups
+    version: 'upgrade-203',  // UPGRADE #203: 46 critical tools added to 17 agents + parallel_executor to 8 agents
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',
