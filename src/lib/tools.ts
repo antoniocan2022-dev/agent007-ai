@@ -1504,9 +1504,7 @@ import {
   SUBAGENT_TOOLS, PHASE3_TOOLS,
 } from './agent007-extensions'
 
-// Register Business Infrastructure
-TOOL_REGISTRY.real_time_monitor = { fn: toolRealTimeMonitor, icon: 'activity', label: 'Real-Time Market Monitoring' }
-TOOL_REGISTRY.business_infrastructure = { fn: toolBusinessInfrastructure, icon: 'building', label: 'Business Infrastructure Builder' }
+
 TOOL_REGISTRY.service_delivery = { fn: toolServiceDelivery, icon: 'package', label: 'Service Delivery Framework' }
 TOOL_REGISTRY.financial_controls = { fn: toolFinancialControls, icon: 'dollar-sign', label: 'Financial Controls' }
 TOOL_REGISTRY.crm = { fn: toolCRM, icon: 'users', label: 'Customer Management System (CRM)' }
@@ -1514,7 +1512,6 @@ TOOL_REGISTRY.marketing_automation = { fn: toolMarketingAutomation, icon: 'megap
 TOOL_REGISTRY.partnership_network = { fn: toolPartnershipNetwork, icon: 'handshake', label: 'Partnership Network' }
 TOOL_REGISTRY.autonomous_revenue = { fn: toolAutonomousRevenue, icon: 'trending-up', label: 'Autonomous Revenue Generation' }
 TOOL_REGISTRY.predictive_bi = { fn: toolPredictiveBI, icon: 'bar-chart', label: 'Predictive Business Intelligence' }
-TOOL_REGISTRY.scalable_infrastructure = { fn: toolScalableInfrastructure, icon: 'server', label: 'Scalable Infrastructure' }
 TOOL_REGISTRY.mission_tracker = { fn: toolMissionTracker, icon: 'target', label: 'Mission Tracker ($20K/mo)' }
 
 // Content + Payment + Support + Analytics + Strategic
@@ -1528,7 +1525,6 @@ TOOL_REGISTRY.multi_currency = { fn: toolMultiCurrency, icon: 'globe', label: 'M
 TOOL_REGISTRY.fraud_prevention = { fn: toolFraudPrevention, icon: 'shield-alert', label: 'Fraud Prevention' }
 TOOL_REGISTRY.advanced_chatbot = { fn: toolAdvancedChatbot, icon: 'message-circle', label: 'Advanced AI Chatbot' }
 TOOL_REGISTRY.proactive_support = { fn: toolProactiveSupport, icon: 'bell', label: 'Proactive Support' }
-TOOL_REGISTRY.market_intelligence = { fn: toolMarketIntelligence, icon: 'globe', label: 'Market Intelligence' }
 TOOL_REGISTRY.strategic_planning = { fn: toolStrategicPlanning, icon: 'map', label: 'Strategic Planning Automation' }
 TOOL_REGISTRY.resource_allocation = { fn: toolResourceAllocation, icon: 'pie-chart', label: 'Resource Allocation' }
 TOOL_REGISTRY.risk_management_systems = { fn: toolRiskManagementSystems, icon: 'shield', label: 'Risk Management Systems' }
@@ -1569,7 +1565,6 @@ TOOL_REGISTRY.rollback_manager = { fn: toolRollbackManager, icon: 'rotate-ccw', 
 TOOL_REGISTRY.cost_guard = { fn: toolCostGuard, icon: 'dollar-sign', label: 'Cost Guard' }
 TOOL_REGISTRY.cascading_failure_detector = { fn: toolCascadingFailureDetector, icon: 'alert-octagon', label: 'Cascading Failure Detector' }
 TOOL_REGISTRY.multi_provider_llm_router = { fn: toolMultiProviderLLMRouter, icon: 'shuffle', label: 'Multi-Provider LLM Router' }
-TOOL_REGISTRY.external_uptime_monitor = { fn: toolExternalUptimeMonitor, icon: 'activity', label: 'External Uptime Monitor' }
 TOOL_REGISTRY.automated_backup_scheduler = { fn: toolAutomatedBackupScheduler, icon: 'archive', label: 'Automated Backup Scheduler' }
 TOOL_REGISTRY.disaster_recovery_planner = { fn: toolDisasterRecoveryPlanner, icon: 'shield-alert', label: 'Disaster Recovery Planner' }
 TOOL_REGISTRY.db_replication_setup = { fn: toolDBReplicationSetup, icon: 'copy', label: 'DB Replication Setup' }
@@ -1781,9 +1776,6 @@ TOOL_REGISTRY.conversion_optimizer = { fn: toolConversionOptimizer, icon: 'targe
 // 3. Investment Management (4)
 TOOL_REGISTRY.portfolio_optimizer = { fn: toolPortfolioOptimizer, icon: 'pie-chart', label: 'Portfolio Optimizer (MPT + Sharpe + rebalancing)' }
 TOOL_REGISTRY.realtime_market_data = { fn: toolRealtimeMarketData, icon: 'activity', label: 'Real-Time Market Data (stocks + crypto)' }
-// UPGRADE #184 fix M1: Dead — overridden by REAL versions at line ~2629-2630
-// TOOL_REGISTRY.crypto_analyzer = { fn: toolCryptoAnalyzer, icon: 'bitcoin', label: 'Crypto Analyzer (technical + on-chain + sentiment)' }
-// TOOL_REGISTRY.stock_screener = { fn: toolStockScreener, icon: 'search', label: 'Stock Screener (fundamental + valuation)' }
 
 // 4. Content Creation (4)
 TOOL_REGISTRY.ai_writing_assistant = { fn: toolAIWritingAssistant, icon: 'pen-line', label: 'AI Writing Assistant (blogs + emails + scripts)' }
@@ -2005,7 +1997,6 @@ TOOL_REGISTRY.marketplace_sync = { fn: toolMarketplaceSync, icon: 'refresh-cw', 
 
 // Category 8: Learning & Adaptation (3 tools)
 TOOL_REGISTRY.ml_performance_analyzer = { fn: toolMlPerformanceAnalyzer, icon: 'cpu', label: 'ML Performance Analyzer (pattern recognition)' }
-TOOL_REGISTRY.self_improving_strategy = { fn: toolSelfImprovingStrategy, icon: 'trending-up', label: 'Self-Improving Strategy (auto-applied learnings)' }
 TOOL_REGISTRY.adaptive_pricing = { fn: toolAdaptivePricing, icon: 'tag', label: 'Adaptive Pricing (dynamic demand-based pricing)' }
 
 // Category 9: Resource Allocation (3 tools)
@@ -2016,7 +2007,6 @@ TOOL_REGISTRY.bottleneck_detector = { fn: toolBottleneckDetector, icon: 'alert-t
 // Category 10: User Engagement (3 tools)
 TOOL_REGISTRY.lead_chatbot = { fn: toolLeadChatbot, icon: 'bot', label: 'Lead Chatbot (website + IG DM + Twitter DM)' }
 TOOL_REGISTRY.follow_up_automation = { fn: toolFollowUpAutomation, icon: 'send', label: 'Follow-Up Automation (5 segment sequences)' }
-TOOL_REGISTRY.community_engagement = { fn: toolCommunityEngagement, icon: 'users', label: 'Community Engagement (Reddit/Discord/Facebook)' }
 
 /* ================================================================== *
  * SUBAGENT ENHANCEMENTS — 12 specialized tools, one per built-in
@@ -2089,10 +2079,7 @@ TOOL_REGISTRY.predictive_analytics_engine = { fn: toolPredictiveAnalyticsEngine,
 // Factor 3: Broader API Integration
 TOOL_REGISTRY.api_integration_orchestrator = { fn: toolApiIntegrationOrchestrator, icon: 'plug', label: 'API Integration Orchestrator (25 platform integrations)' }
 // Factor 4: Improved Feedback Mechanisms
-// UPGRADE #173 fix #6: This dead TOOL_REGISTRY assignment was overridden at
-// line ~2862 by the REAL implementation from real-intelligence-tools.ts
-// (UPGRADE #169 C5). Removed to stop loading the fake Math.random version.
-// TOOL_REGISTRY.feedback_optimization_loop = { fn: toolFeedbackOptimizationLoop, ... }
+// (REAL versions registered at lines ~2627+ from real-intelligence-tools.ts)
 // Factor 5: Resource Allocation Optimization
 TOOL_REGISTRY.auto_resource_allocator = { fn: toolAutoResourceAllocator, icon: 'pie-chart', label: 'Auto Resource Allocator (ROI-weighted time/budget/sub-agent)' }
 // Factor 6: Autonomous Learning
@@ -2103,9 +2090,6 @@ TOOL_REGISTRY.task_automation_expander = { fn: toolTaskAutomationExpander, icon:
 TOOL_REGISTRY.continuous_audit_system = { fn: toolContinuousAuditSystem, icon: 'activity', label: 'Continuous Audit System (8 categories, auto-remediation)' }
 // Supporting tool 9: Performance Optimizer
 TOOL_REGISTRY.performance_optimizer = { fn: toolPerformanceOptimizer, icon: 'gauge', label: 'Performance Optimizer (8 optimizations, +42% faster)' }
-// Supporting tool 10: Autonomous Decision Maker
-// UPGRADE #173 fix #6: Dead — overridden at line ~2863 by REAL implementation.
-// TOOL_REGISTRY.autonomous_decision_maker = { fn: toolAutonomousDecisionMaker, ... }
 // Supporting tool 11: Workflow Orchestrator
 TOOL_REGISTRY.workflow_orchestrator = { fn: toolWorkflowOrchestrator, icon: 'git-branch', label: 'Workflow Orchestrator (10 pre-built multi-step workflows)' }
 // Supporting tool 12: Capability Expander
@@ -2318,11 +2302,8 @@ TOOL_REGISTRY.smart_tool_router = { fn: toolSmartToolRouter, icon: 'compass', la
 TOOL_REGISTRY.tool_catalog = { fn: toolToolCatalog, icon: 'list', label: 'Tool Catalog (browse ALL tools by category)' }
 TOOL_REGISTRY.parallel_executor = { fn: toolParallelExecutor, icon: 'zap', label: 'Parallel Executor (run 5 tools simultaneously)' }
 TOOL_REGISTRY.accuracy_checker = { fn: toolAccuracyChecker, icon: 'check-circle', label: 'Accuracy Checker (cross-reference verify claims)' }
-// UPGRADE #173 fix #6: efficiency_optimizer + tool_usage_analyzer dead
-// assignments removed — overridden at line ~2864-2865 by REAL implementations
-// from real-intelligence-tools.ts (UPGRADE #169 C5).
-// TOOL_REGISTRY.efficiency_optimizer = { fn: toolEfficiencyOptimizer, ... }
-// TOOL_REGISTRY.tool_usage_analyzer = { fn: toolUsageAnalyzer, ... }
+// (efficiency_optimizer + tool_usage_analyzer dead — REAL versions at lines ~2627+)
+TOOL_REGISTRY.scalable_infrastructure = { fn: toolScalableInfrastructure, icon: 'server', label: 'Scalable Infrastructure' }
 
 /* ═══ UPGRADE #88 — MAX AUTONOMY ENGINE (8 new tools) ═══ */
 import {
@@ -2431,10 +2412,6 @@ import {
 
 // Data Analysis: advanced analytics for trends + opportunities
 TOOL_REGISTRY.advanced_trend_analyzer = { fn: toolAdvancedTrendAnalyzer, icon: 'trending-up', label: 'Advanced Trend Analyzer (6 techniques, 47 sources, 23 trends)' }
-// Self-Optimization: continuously learn from past actions
-// UPGRADE #173 fix #6: Dead — overridden at line ~2861 by REAL implementation.
-// TOOL_REGISTRY.self_optimization_engine = { fn: toolSelfOptimizationEngine, ... }
-// Integration of Feedback: refine strategies based on metrics
 TOOL_REGISTRY.strategy_feedback_integrator = { fn: toolStrategyFeedbackIntegrator, icon: 'refresh-cw', label: 'Strategy Feedback Integrator (4 loops, 23 refinements, +78% conv)' }
 // Task Automation: automate repetitive tasks
 TOOL_REGISTRY.repetitive_task_automator = { fn: toolRepetitiveTaskAutomator, icon: 'zap', label: 'Repetitive Task Automator (87 tasks automated, 42 hrs/week saved)' }
@@ -2467,8 +2444,7 @@ import {
   toolAutonomyPolicyEnforcer,
 } from './full-autonomy-tools'
 
-// Decision Matrix — evaluate options against weighted criteria
-TOOL_REGISTRY.decision_matrix = { fn: toolDecisionMatrix, icon: 'grid', label: 'Decision Matrix (multi-criteria decision analysis, auto-tier assignment)' }
+// Decision Matrix & Autonomy — REAL versions registered at lines ~2627+ and ~2919
 // Autonomy Policy Enforcer — enforces the 97% autonomy rule
 TOOL_REGISTRY.autonomy_policy_enforcer = { fn: toolAutonomyPolicyEnforcer, icon: 'shield', label: 'Autonomy Policy Enforcer (97% auto-execute, 3% owner approval)' }
 

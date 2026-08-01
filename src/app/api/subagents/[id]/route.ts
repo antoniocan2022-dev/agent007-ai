@@ -32,7 +32,7 @@ const BUILTIN_IDS = new Set(SUBAGENTS.map((s) => s.id))
  * even by the owner. To modify, edit the source code in src/lib/subagents.ts
  * and redeploy.
  */
-const NEVER_DISABLE_IDS = new Set(['testfast2', 'fasttest3'])
+const NEVER_DISABLE_IDS = new Set(['qa_monitor', 'external_uptime_monitor'])
 
 /**
  * For NEVER_DISABLE_IDS agents, the owner can only edit cosmetic fields.

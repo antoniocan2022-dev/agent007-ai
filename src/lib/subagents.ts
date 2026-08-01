@@ -742,7 +742,7 @@ You are the LEADER of POD 5: MONITORING & OPERATIONS.
 Your team: External Monitor (uptime), THE BANKER (financial monitoring).
 LEADERSHIP DUTIES:
 - When you receive a monitoring task, DECOMPOSE and delegate
-- Use <dispatch_subagent id="fasttest3"> for external uptime monitoring
+- Use <dispatch_subagent id="external_uptime_monitor"> for external uptime monitoring
 - Use <dispatch_subagent id="banker"> for financial/treasury monitoring
 - Use anomaly_detector to detect unusual patterns
 - Use mission_mode action="report" for mission KPI tracking
@@ -814,7 +814,7 @@ You are the LEADER of POD 3: QUALITY ASSURANCE & TESTING.
 Your team: QA Monitor (internal health), Performance Analyst (performance testing).
 LEADERSHIP DUTIES:
 - When you receive a QA task, DECOMPOSE it and delegate to your team
-- Use <dispatch_subagent id="testfast2"> for internal system health checks
+- Use <dispatch_subagent id="qa_monitor"> for internal system health checks
 - Use <dispatch_subagent id="cmri2zn1i000kl604e9yljtdz"> for performance analysis
 - Use quality_scorer_v2 to score ALL outputs (target 99% Grade A)
 - Use result_verifier_v2 (12 checks) to verify completeness
@@ -1164,8 +1164,8 @@ You are the LEADER of POD 6: SYSTEM HEALTH & INFRASTRUCTURE.
 Your team: QA Monitor (dual — health checks), External Monitor (dual — API monitoring).
 LEADERSHIP DUTIES:
 - When you receive an infrastructure task, DECOMPOSE and delegate
-- Use <dispatch_subagent id="testfast2"> for internal health checks
-- Use <dispatch_subagent id="fasttest3"> for external API monitoring
+- Use <dispatch_subagent id="qa_monitor"> for internal health checks
+- Use <dispatch_subagent id="external_uptime_monitor"> for external API monitoring
 - Use tool_self_healing_loop action="run" for full repair pipeline
 - Use tool_registry_auditor to audit all 667 tools
 - Use tool_fixer action="fix_all" to auto-fix broken tools
@@ -1191,7 +1191,7 @@ FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name
 TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
   },
   {
-    id: 'testfast2',
+    id: 'qa_monitor',
     name: 'QA Monitor',
     role: 'Internal QA & System Health Monitor (Scheduled)',
     specialty: 'Periodic internal health checks every 1h / 6h / 12h / 24h — DB, tools, sub-agents, deployment, error logs. Alerts owner on any failure.',
@@ -1200,7 +1200,7 @@ TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
     allowedTools: ['tool_health_checker','tool_registry_auditor','tool_batch_tester','real_time_monitor','anomaly_detector','memory_store','memory_recall','page_reader','http_fetch','send_email','auto_recovery_v2','multi_provider_compare'],
     isBuiltin: true,
     enabled: true,
-    systemPrompt: `You are QA Monitor (id: testfast2), the Internal QA & System Health Monitor of Agent007 AI.
+    systemPrompt: `You are QA Monitor (id: qa_monitor), the Internal QA & System Health Monitor of Agent007 AI.
 Your specialty: scheduled internal health checks at 4 depths — every 1h (quick), 6h (standard), 12h (deep), 24h (full audit).
 
 MISSION: Continuously verify the internal health of Agent007 AI. Detect failures BEFORE the owner notices. Alert the owner on ANY failure.
@@ -1260,7 +1260,7 @@ GUIDELINES:
 ${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
   },
   {
-    id: 'fasttest3',
+    id: 'external_uptime_monitor',
     name: 'External Monitor',
     role: 'External Uptime & Connectivity Monitor (Scheduled every 30 min)',
     specialty: 'External uptime monitoring every 30 min — public URLs, third-party APIs, SSL, latency, DNS. Alerts owner on any failure.',
@@ -1269,7 +1269,7 @@ ${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
     allowedTools: ['http_fetch','web_search','anomaly_detector','external_trigger','memory_store','memory_recall','page_reader','send_email','multi_provider_compare'],
     isBuiltin: true,
     enabled: true,
-    systemPrompt: `You are External Monitor (id: fasttest3), the External Uptime & Connectivity Monitor of Agent007 AI.
+    systemPrompt: `You are External Monitor (id: external_uptime_monitor), the External Uptime & Connectivity Monitor of Agent007 AI.
 Your specialty: scheduled external uptime monitoring every 30 minutes — public URLs, third-party APIs, SSL, latency, DNS.
 
 MISSION: Continuously verify that all externally-facing services are up and responsive. Detect outages BEFORE users report them. Alert the owner on ANY failure.
@@ -1474,8 +1474,8 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
   // the old seeding code that ran before upgrade #38 promoted them).
   //
   // UPGRADE #60 FIX: The built-in agents were RENAMED in upgrade #57:
-  //   - TESTFAST2 → QA Monitor (id: testfast2)
-  //   - FASTTEST3 → External Monitor (id: fasttest3)
+  //   - TESTFAST2 → QA Monitor (id: qa_monitor)
+  //   - FASTTEST3 → External Monitor (id: external_uptime_monitor)
   // So the old DB entries (name="TESTFAST2", name="FASTTEST3") were slipping
   // through the name-based dedup. Now we also check against the OLD names.
   const OLD_NAMES_TO_FILTER = new Set([

@@ -221,7 +221,7 @@ export const agentSpecialtyTools: Record<string, string[]> = {
     'patch_source_file',        // apply patches (owner auth required)
     'comprehensive_self_check', // verify system health after fix
   ],
-  testfast2: [
+  qa_monitor: [
     'test_endpoint',            // test any API endpoint
     'parallel_executor',        // test multiple endpoints in parallel
     'accuracy_checker',         // verify expected vs actual
@@ -237,7 +237,7 @@ export const agentSpecialtyTools: Record<string, string[]> = {
     'view_error_logs',          // check error logs
     'verify_deployment',        // verify deployment health
   ],
-  fasttest3: [
+  external_uptime_monitor: [
     'test_endpoint',            // test any API endpoint
     'parallel_executor',        // test multiple endpoints in parallel
     'accuracy_checker',         // verify expected vs actual
