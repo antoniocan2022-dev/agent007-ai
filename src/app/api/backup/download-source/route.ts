@@ -2,23 +2,17 @@
  * /api/backup/download-source — UPGRADE #205
  *
  * Generates a source-code backup ZIP on-demand and streams it to the client.
- * PRIVATE: requires session authentication (only Antonio can access when logged in).
- * NO files stored in public/ — generated on-the-fly, streamed directly to browser.
+ * PRIVATE: requires authentication via EITHER:
+ *   1. Session cookie (if logged in to the dashboard), OR
+ *   2. ?token=<OWNER_BACKUP_TOKEN> query parameter
  *
- * What's included (~7MB):
- * - src/ (all source code)
- * - scripts/ (all audit/deploy/patch scripts)
- * - public/ (icons, manifest, agent007-charter.md)
- * - prisma/ (database schema)
- * - Config files (package.json, tsconfig.json, vercel.json, etc.)
+ * This dual-auth ensures the download ALWAYS works:
+ *   - If Antonio is logged in, the session cookie authenticates him
+ *   - If he visits the link directly, he can append ?token=XXX
+ *   - No auth = 401 JSON error (not a redirect — so the link works in any browser)
  *
- * What's NOT included:
- * - .git/ (244MB — too large for on-demand generation on Vercel)
- * - node_modules/ (1.4GB — regeneratable via npm install)
- * - .next/ (build output)
- *
- * For the full backup with .git/ history, run locally:
- *   bash scripts/create-full-backup.sh
+ * URL: /api/backup/download-source
+ * URL: /api/backup/download-source?token=<OWNER_BACKUP_TOKEN>
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionUserId } from '@/lib/session-user'
@@ -30,12 +24,29 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
-  // ═══ AUTH: Only authenticated users (Antonio) can download ═══
-  const userId = await getSessionUserId()
-  if (!userId) {
+  // ═══ AUTH: Check session OR token ═══
+  const url = new URL(req.url)
+  const queryToken = url.searchParams.get('token')
+  const expectedToken = process.env.OWNER_BACKUP_TOKEN || ''
+
+  let authenticated = false
+
+  // Try session auth first
+  try {
+    const userId = await getSessionUserId()
+    if (userId) authenticated = true
+  } catch {}
+
+  // If session failed, try token auth
+  if (!authenticated && expectedToken && queryToken === expectedToken) {
+    authenticated = true
+  }
+
+  if (!authenticated) {
     return NextResponse.json({
       ok: false,
-      error: 'Not authenticated. Log in to download backups.',
+      error: 'Authentication required.',
+      hint: 'Either log in at https://agent007-ai.vercel.app and visit this URL, or add ?token=<OWNER_BACKUP_TOKEN> to the URL.',
     }, { status: 401 })
   }
 
@@ -103,7 +114,6 @@ export async function GET(req: NextRequest) {
     includes: ['src/', 'scripts/', 'public/', 'prisma/', 'config files'],
     excludes: ['.git/ (too large for Vercel)', 'node_modules/ (regeneratable)', '.next/ (build output)'],
     fixes: '#197 through #205',
-    note: 'For full backup with .git/ history, run scripts/create-full-backup.sh locally',
   }
   zip.addFile('BACKUP-MANIFEST.json', Buffer.from(JSON.stringify(manifest, null, 2)))
 
