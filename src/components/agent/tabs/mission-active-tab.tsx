@@ -121,7 +121,7 @@ export function MissionActiveTab() {
   const [selectedMission, setSelectedMission] = useState<ActiveMission | null>(null)
   const [selectedStageIdx, setSelectedStageIdx] = useState<number>(0)
   const [showCreate, setShowCreate] = useState(false)
-  const [activeView, setActiveView] = useState<'missions' | 'telemetry' | 'observability'>('missions')
+  const [activeView, setActiveView] = useState<'missions' | 'telemetry' | 'observability' | 'lifecycle' | 'selfhealing'>('missions')
 
   // Leader chat state
   const [chatInput, setChatInput] = useState('')
@@ -135,6 +135,14 @@ export function MissionActiveTab() {
   // Observability state
   const [observabilityData, setObservabilityData] = useState<any>(null)
   const [observabilityLoading, setObservabilityLoading] = useState(false)
+
+  // Lifecycle state
+  const [lifecycleData, setLifecycleData] = useState<any>(null)
+  const [lifecycleLoading, setLifecycleLoading] = useState(false)
+
+  // Self-healing state
+  const [selfHealingData, setSelfHealingData] = useState<any[]>([])
+  const [selfHealingLoading, setSelfHealingLoading] = useState(false)
 
   // Fetch telemetry data
   const fetchTelemetry = useCallback(async () => {
@@ -158,10 +166,34 @@ export function MissionActiveTab() {
     setObservabilityLoading(false)
   }, [])
 
-  // Load telemetry/observability when switching to those tabs
+  // Fetch lifecycle data
+  const fetchLifecycle = useCallback(async () => {
+    setLifecycleLoading(true)
+    try {
+      const r = await fetch('/api/system/lifecycle')
+      const d = await r.json()
+      setLifecycleData(d)
+    } catch { setLifecycleData(null) }
+    setLifecycleLoading(false)
+  }, [])
+
+  // Fetch self-healing data
+  const fetchSelfHealing = useCallback(async () => {
+    setSelfHealingLoading(true)
+    try {
+      const r = await fetch('/api/system/self-healing')
+      const d = await r.json()
+      setSelfHealingData(d.events || [])
+    } catch { setSelfHealingData([]) }
+    setSelfHealingLoading(false)
+  }, [])
+
+  // Load data when switching to those tabs
   useEffect(() => {
     if (activeView === 'telemetry' && telemetryData.length === 0) fetchTelemetry()
     if (activeView === 'observability' && !observabilityData) fetchObservability()
+    if (activeView === 'lifecycle' && !lifecycleData) fetchLifecycle()
+    if (activeView === 'selfhealing' && selfHealingData.length === 0) fetchSelfHealing()
   }, [activeView])
 
   const loadMissions = useCallback(async () => {
@@ -738,36 +770,185 @@ export function MissionActiveTab() {
           </div>
         </div>
 
-        {/* Navigation tabs — UPGRADE #218 */}
-        <div className="mb-6 flex items-center gap-1 p-1 rounded-xl glass border border-cyan-400/10 max-w-md">
+        {/* Navigation tabs — UPGRADE #218 + #221 */}
+        <div className="mb-6 flex items-center gap-1 p-1 rounded-xl glass border border-cyan-400/10 flex-wrap">
           <button
             onClick={() => setActiveView('missions')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${
-              activeView === 'missions' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'
-            }`}
+            className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${activeView === 'missions' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'}`}
           >
-            <GitBranch className="w-3.5 h-3.5" />
-            Missions
+            <GitBranch className="w-3.5 h-3.5" /> Missions
+          </button>
+          <button
+            onClick={() => setActiveView('lifecycle')}
+            className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${activeView === 'lifecycle' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'}`}
+          >
+            <Activity className="w-3.5 h-3.5" /> Lifecycle
           </button>
           <button
             onClick={() => setActiveView('telemetry')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${
-              activeView === 'telemetry' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'
-            }`}
+            className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${activeView === 'telemetry' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'}`}
           >
-            <Activity className="w-3.5 h-3.5" />
-            Telemetry
+            <Activity className="w-3.5 h-3.5" /> Telemetry
           </button>
           <button
             onClick={() => setActiveView('observability')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${
-              activeView === 'observability' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'
-            }`}
+            className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${activeView === 'observability' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'}`}
           >
-            <TrendingUp className="w-3.5 h-3.5" />
-            Observability
+            <TrendingUp className="w-3.5 h-3.5" /> Observability
+          </button>
+          <button
+            onClick={() => setActiveView('selfhealing')}
+            className={`flex-1 min-w-[80px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${activeView === 'selfhealing' ? 'bg-emerald-400/15 text-emerald-300 border border-emerald-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'}`}
+          >
+            <Shield className="w-3.5 h-3.5" /> Self-Healing
           </button>
         </div>
+
+        {/* ── LIFECYCLE VIEW ── */}
+        {activeView === 'lifecycle' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-[#e0e7ff]">Mission Lifecycle — 11-Stage Pipeline</h2>
+              <button onClick={fetchLifecycle} className="text-[10px] text-cyan-300 hover:text-cyan-200 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </button>
+            </div>
+            {lifecycleLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+              </div>
+            ) : lifecycleData ? (
+              <>
+                {/* Pipeline visualization */}
+                <div className="space-y-2">
+                  {lifecycleData.stages?.map((stage: any, idx: number) => (
+                    <motion.div
+                      key={stage.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.08 }}
+                      className="flex items-center gap-3"
+                    >
+                      {/* Stage number circle */}
+                      <div className="relative flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs border-2"
+                          style={{
+                            borderColor: idx === 10 ? '#22c55e' : '#00f0ff',
+                            background: idx === 10 ? 'rgba(34,197,94,0.1)' : 'rgba(0,240,255,0.1)',
+                            color: idx === 10 ? '#22c55e' : '#00f0ff',
+                          }}
+                        >
+                          {stage.id}
+                        </div>
+                        {idx < 10 && (
+                          <div className="absolute top-10 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-cyan-400/20" />
+                        )}
+                      </div>
+                      {/* Stage content */}
+                      <div className="flex-1 glass rounded-lg p-3 border border-cyan-400/10">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-xs font-bold text-[#e0e7ff]">{stage.name}</div>
+                            <div className="text-[10px] text-[#7c89b5] mt-0.5">{stage.description}</div>
+                          </div>
+                          <div className="text-[9px] px-2 py-0.5 rounded-full font-bold"
+                            style={{
+                              background: idx === 10 ? 'rgba(34,197,94,0.15)' : 'rgba(0,240,255,0.1)',
+                              color: idx === 10 ? '#22c55e' : '#00f0ff',
+                            }}
+                          >
+                            {idx === 10 ? 'FINAL' : `STAGE ${stage.id}`}
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Recent missions count */}
+                {lifecycleData.recentCount > 0 && (
+                  <div className="mt-4 glass rounded-xl p-3 border border-cyan-400/10">
+                    <div className="text-xs text-[#7c89b5]">
+                      <span className="text-cyan-300 font-bold">{lifecycleData.recentCount}</span> recent missions tracked
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-12 text-[#5b6a92] text-xs">Failed to load lifecycle data.</div>
+            )}
+          </div>
+        )}
+
+        {/* ── SELF-HEALING VIEW ── */}
+        {activeView === 'selfhealing' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-[#e0e7ff]">Self-Healing System — Automatic Recovery Events</h2>
+              <button onClick={fetchSelfHealing} className="text-[10px] text-emerald-300 hover:text-emerald-200 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </button>
+            </div>
+
+            {/* Self-healing flow diagram */}
+            <div className="glass rounded-xl p-4 border border-emerald-400/20 mb-3">
+              <div className="flex items-center justify-center gap-2 flex-wrap text-[10px]">
+                <span className="px-2 py-1 rounded bg-red-500/15 text-red-300 font-bold">Leader Fails</span>
+                <ArrowRight className="w-3 h-3 text-[#5b6a92]" />
+                <span className="px-2 py-1 rounded bg-amber-500/15 text-amber-300 font-bold">Retry</span>
+                <ArrowRight className="w-3 h-3 text-[#5b6a92]" />
+                <span className="px-2 py-1 rounded bg-cyan-500/15 text-cyan-300 font-bold">Different Leader</span>
+                <ArrowRight className="w-3 h-3 text-[#5b6a92]" />
+                <span className="px-2 py-1 rounded bg-purple-500/15 text-purple-300 font-bold">Fallback</span>
+                <ArrowRight className="w-3 h-3 text-[#5b6a92]" />
+                <span className="px-2 py-1 rounded bg-blue-500/15 text-blue-300 font-bold">Log</span>
+                <ArrowRight className="w-3 h-3 text-[#5b6a92]" />
+                <span className="px-2 py-1 rounded bg-emerald-500/15 text-emerald-300 font-bold">Learn</span>
+              </div>
+            </div>
+
+            {selfHealingLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+              </div>
+            ) : selfHealingData.length === 0 ? (
+              <div className="text-center py-12 text-[#5b6a92] text-xs">
+                No self-healing events yet. When a leader fails, the system will automatically retry with a different leader and log the event here.
+              </div>
+            ) : (
+              selfHealingData.map((event: any, i: number) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="glass rounded-xl p-3 border border-emerald-400/10"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <div className="text-[11px] font-mono text-emerald-300">
+                        {event.originalLeader} → {event.fallbackLeader}
+                      </div>
+                      <div className="text-[10px] text-[#7c89b5] mt-0.5">{event.task?.slice(0, 80) || '—'}</div>
+                    </div>
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                      event.outcome === 'fallback_success' ? 'bg-emerald-500/15 text-emerald-300' :
+                      event.outcome === 'ultimate_fallback' ? 'bg-purple-500/15 text-purple-300' :
+                      'bg-red-500/15 text-red-300'
+                    }`}>
+                      {event.outcome?.replace(/_/g, ' ').toUpperCase()}
+                    </span>
+                  </div>
+                  {event.errors?.length > 0 && (
+                    <div className="text-[9px] text-red-300/60 mt-1">
+                      Errors: {event.errors.join('; ').slice(0, 120)}
+                    </div>
+                  )}
+                </motion.div>
+              ))
+            )}
+          </div>
+        )}
 
         {/* ── TELEMETRY VIEW ── */}
         {activeView === 'telemetry' && (
