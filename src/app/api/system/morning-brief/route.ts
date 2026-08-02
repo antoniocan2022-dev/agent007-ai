@@ -11,7 +11,7 @@ import { runMorningBrief } from '@/lib/autonomous-strategic-planner'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 60  // UPGRADE #215: reduced from 120 to prevent Vercel retries
 
 export async function GET() {
   const result = await runMorningBrief()

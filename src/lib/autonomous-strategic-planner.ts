@@ -45,6 +45,46 @@ export async function runMorningBrief(): Promise<{
 }> {
   console.log('[morning-brief] Starting Morning Executive Brief...')
 
+  // ═══ DEDUPLICATION LOCK (UPGRADE #215) ═══
+  // PROBLEM: Antonio received 10+ duplicate Telegram messages in 2 hours.
+  // ROOT CAUSE: Vercel retries the cron job if it times out (maxDuration=120s).
+  // Each retry calls runMorningBrief() again → sends another Telegram message.
+  // Also: the /api/monitor/qa cron (hourly) calls /api/monitor/qa which
+  // internally fetches /api/health etc. — but does NOT call morning brief.
+  // The real culprit is Vercel retrying the morning-brief cron when it's slow.
+  //
+  // FIX: Check if a brief was already sent in the last 6 hours.
+  // If yes, skip sending. This prevents duplicates from:
+  //   1. Vercel cron retries (timeout → retry → duplicate)
+  //   2. Manual triggers while cron is running
+  //   3. Multiple cold-start instances running simultaneously
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000
+  const dedupKey = 'morning_brief_last_sent'
+  try {
+    const { db } = await import('./db')
+    const lastSentRow = await db.memory.findFirst({
+      where: { key: dedupKey },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (lastSentRow) {
+      const lastSentTime = new Date(lastSentRow.createdAt).getTime()
+      const elapsed = Date.now() - lastSentTime
+      if (elapsed < SIX_HOURS_MS) {
+        console.log(`[morning-brief] DEDUP: Already sent ${Math.round(elapsed / 60000)} min ago. Skipping.`)
+        return {
+          ok: true,
+          brief: '(skipped — already sent recently)',
+          sections: [],
+          sent: false,
+          error: `Deduplication: brief was already sent ${Math.round(elapsed / 60000)} minutes ago. Next brief allowed in ${Math.round((SIX_HOURS_MS - elapsed) / 3600000)} hours.`,
+        }
+      }
+    }
+  } catch (e) {
+    // If DB check fails, continue (don't block the brief)
+    console.log('[morning-brief] Dedup check failed (non-blocking):', e)
+  }
+
   try {
     // ═══ PHASE 1: Dispatch 5 leaders in parallel ═══
     console.log('[morning-brief] Phase 1: Dispatching leaders...')
@@ -220,6 +260,25 @@ ${sections
         sent = true
       } catch (e) {
         console.log('[morning-brief] Email send failed:', e)
+      }
+    }
+
+    // ═══ DEDUPLICATION RECORD (UPGRADE #215) ═══
+    // Record that we sent the brief NOW — so future calls within 6 hours
+    // will be skipped by the dedup check at the top of this function.
+    if (sent) {
+      try {
+        const { db } = await import('./db')
+        await db.memory.create({
+          data: {
+            key: dedupKey,
+            value: `Morning brief sent at ${new Date().toISOString()}`,
+            category: 'dedup_lock',
+          },
+        })
+        console.log('[morning-brief] Dedup lock recorded — next brief blocked for 6 hours')
+      } catch (e) {
+        console.log('[morning-brief] Dedup lock failed (non-blocking):', e)
       }
     }
 
