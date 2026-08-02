@@ -121,11 +121,48 @@ export function MissionActiveTab() {
   const [selectedMission, setSelectedMission] = useState<ActiveMission | null>(null)
   const [selectedStageIdx, setSelectedStageIdx] = useState<number>(0)
   const [showCreate, setShowCreate] = useState(false)
+  const [activeView, setActiveView] = useState<'missions' | 'telemetry' | 'observability'>('missions')
 
   // Leader chat state
   const [chatInput, setChatInput] = useState('')
   const [chatSending, setChatSending] = useState(false)
   const [chatError, setChatError] = useState('')
+
+  // Telemetry state
+  const [telemetryData, setTelemetryData] = useState<any[]>([])
+  const [telemetryLoading, setTelemetryLoading] = useState(false)
+
+  // Observability state
+  const [observabilityData, setObservabilityData] = useState<any>(null)
+  const [observabilityLoading, setObservabilityLoading] = useState(false)
+
+  // Fetch telemetry data
+  const fetchTelemetry = useCallback(async () => {
+    setTelemetryLoading(true)
+    try {
+      const r = await fetch('/api/system/telemetry?limit=50')
+      const d = await r.json()
+      setTelemetryData(d.missions || [])
+    } catch { setTelemetryData([]) }
+    setTelemetryLoading(false)
+  }, [])
+
+  // Fetch observability data
+  const fetchObservability = useCallback(async () => {
+    setObservabilityLoading(true)
+    try {
+      const r = await fetch('/api/system/observability')
+      const d = await r.json()
+      setObservabilityData(d)
+    } catch { setObservabilityData(null) }
+    setObservabilityLoading(false)
+  }, [])
+
+  // Load telemetry/observability when switching to those tabs
+  useEffect(() => {
+    if (activeView === 'telemetry' && telemetryData.length === 0) fetchTelemetry()
+    if (activeView === 'observability' && !observabilityData) fetchObservability()
+  }, [activeView])
 
   const loadMissions = useCallback(async () => {
     try {
@@ -701,15 +738,254 @@ export function MissionActiveTab() {
           </div>
         </div>
 
-        {/* Mission list */}
-        {missions.length === 0 ? (
-          <div className="glass rounded-xl p-10 text-center">
-            <GitBranch className="w-10 h-10 text-[#5b6a92] mx-auto mb-3" />
-            <div className="text-sm text-[#9bb5d4] mb-1">No active missions yet.</div>
-            <div className="text-xs text-[#5b6a92]">Click "New Mission" or ask Agent007 in chat to start one.</div>
+        {/* Navigation tabs — UPGRADE #218 */}
+        <div className="mb-6 flex items-center gap-1 p-1 rounded-xl glass border border-cyan-400/10 max-w-md">
+          <button
+            onClick={() => setActiveView('missions')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${
+              activeView === 'missions' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'
+            }`}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            Missions
+          </button>
+          <button
+            onClick={() => setActiveView('telemetry')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${
+              activeView === 'telemetry' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            Telemetry
+          </button>
+          <button
+            onClick={() => setActiveView('observability')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition ${
+              activeView === 'observability' ? 'bg-cyan-400/15 text-cyan-300 border border-cyan-400/30' : 'text-[#7c89b5] hover:text-[#9bb5d4]'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            Observability
+          </button>
+        </div>
+
+        {/* ── TELEMETRY VIEW ── */}
+        {activeView === 'telemetry' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-[#e0e7ff]">Mission Telemetry — Real Per-Mission Data</h2>
+              <button onClick={fetchTelemetry} className="text-[10px] text-cyan-300 hover:text-cyan-200 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </button>
+            </div>
+            {telemetryLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+              </div>
+            ) : telemetryData.length === 0 ? (
+              <div className="text-center py-12 text-[#5b6a92] text-xs">
+                No telemetry data yet. Run a mission to generate real telemetry.
+              </div>
+            ) : (
+              telemetryData.map((m: any, i: number) => (
+                <motion.div
+                  key={m.missionId || i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="rounded-xl glass border border-cyan-400/10 p-4"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="text-xs font-mono text-cyan-300">{m.missionId?.slice(0, 20) || '—'}</div>
+                      <div className="text-[11px] text-[#9bb5d4] mt-0.5">{m.goal || '—'}</div>
+                    </div>
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                      m.status === 'completed' ? 'bg-emerald-500/15 text-emerald-300' :
+                      m.status === 'failed' ? 'bg-red-500/15 text-red-300' :
+                      'bg-amber-500/15 text-amber-300'
+                    }`}>
+                      {m.status?.toUpperCase() || 'UNKNOWN'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 text-[10px]">
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Duration</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.duration ? `${(m.duration / 1000).toFixed(1)}s` : '—'}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Leaders</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.leadersUsed?.length || 0}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Tools Called</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.toolCallCount || 0}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Retries</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.retries || 0}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Memory R/W</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.memoryReads || 0}/{m.memoryWrites || 0}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Confidence</div>
+                      <div className={`font-mono ${m.confidence >= 85 ? 'text-emerald-300' : m.confidence >= 60 ? 'text-amber-300' : 'text-red-300'}`}>
+                        {m.confidence || 0}%
+                      </div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Verification</div>
+                      <div className={`font-mono ${m.verificationPassed ? 'text-emerald-300' : 'text-red-300'}`}>
+                        {m.verificationScore || 0}%
+                      </div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Errors</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.errors?.length || 0}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Cost</div>
+                      <div className="text-[#e0e7ff] font-mono">${(m.cost || 0).toFixed(4)}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Tokens</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.tokensUsed || 0}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Latency</div>
+                      <div className="text-[#e0e7ff] font-mono">{m.latencyMs ? `${m.latencyMs}ms` : '—'}</div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-2">
+                      <div className="text-[#5b6a92] mb-0.5">Debate</div>
+                      <div className={`font-mono ${m.debateTriggered ? 'text-cyan-300' : 'text-[#5b6a92]'}`}>
+                        {m.debateTriggered ? 'YES' : 'NO'}
+                      </div>
+                    </div>
+                  </div>
+                  {m.errors && m.errors.length > 0 && (
+                    <div className="mt-2 text-[9px] text-red-300/70">
+                      Errors: {m.errors.join('; ').slice(0, 150)}
+                    </div>
+                  )}
+                </motion.div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ── OBSERVABILITY VIEW ── */}
+        {activeView === 'observability' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold text-[#e0e7ff]">Observability — Aggregate Mission Metrics</h2>
+              <button onClick={fetchObservability} className="text-[10px] text-cyan-300 hover:text-cyan-200 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </button>
+            </div>
+            {observabilityLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+              </div>
+            ) : !observabilityData || observabilityData.totalMissions === 0 ? (
+              <div className="text-center py-12 text-[#5b6a92] text-xs">
+                No observability data yet. Run missions to generate aggregate metrics.
+              </div>
+            ) : (
+              <>
+                {/* KPI Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  <div className="rounded-xl glass border border-emerald-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Mission Success</div>
+                    <div className="text-2xl font-bold text-emerald-300">{observabilityData.missionSuccessRate?.toFixed(1)}%</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">{observabilityData.totalMissions} total missions</div>
+                  </div>
+                  <div className="rounded-xl glass border border-cyan-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Average Latency</div>
+                    <div className="text-2xl font-bold text-cyan-300">{(observabilityData.averageLatencyMs / 1000).toFixed(1)}s</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">first response</div>
+                  </div>
+                  <div className="rounded-xl glass border border-red-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Verification Failures</div>
+                    <div className="text-2xl font-bold text-red-300">{observabilityData.verificationFailureRate?.toFixed(1)}%</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">failed verification</div>
+                  </div>
+                  <div className="rounded-xl glass border border-purple-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Leader Debate Usage</div>
+                    <div className="text-2xl font-bold text-purple-300">{observabilityData.leaderDebateUsage?.toFixed(0)}%</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">missions with debate</div>
+                  </div>
+                  <div className="rounded-xl glass border border-cyan-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Memory Hits</div>
+                    <div className="text-2xl font-bold text-cyan-300">{observabilityData.memoryHitRate?.toFixed(0)}%</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">missions using memory</div>
+                  </div>
+                  <div className="rounded-xl glass border border-amber-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Average Confidence</div>
+                    <div className="text-2xl font-bold text-amber-300">{observabilityData.averageConfidence?.toFixed(0)}%</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">across all missions</div>
+                  </div>
+                  <div className="rounded-xl glass border border-orange-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Executive Corrections</div>
+                    <div className="text-2xl font-bold text-orange-300">{observabilityData.executiveCorrectionRate?.toFixed(0)}%</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">responses rewritten</div>
+                  </div>
+                  <div className="rounded-xl glass border border-cyan-400/20 p-4">
+                    <div className="text-[9px] text-[#5b6a92] uppercase tracking-wider mb-1">Total Cost</div>
+                    <div className="text-2xl font-bold text-cyan-300">${observabilityData.totalCost?.toFixed(4)}</div>
+                    <div className="text-[9px] text-[#5b6a92] mt-1">{observabilityData.totalTokensUsed || 0} tokens</div>
+                  </div>
+                </div>
+
+                {/* Top Leaders */}
+                {observabilityData.topLeaders?.length > 0 && (
+                  <div className="rounded-xl glass border border-cyan-400/10 p-4">
+                    <h3 className="text-xs font-bold text-[#e0e7ff] mb-3">Top Leaders (by missions)</h3>
+                    <div className="space-y-1.5">
+                      {observabilityData.topLeaders.map((l: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-[11px]">
+                          <span className="text-[#9bb5d4]">{l.leader}</span>
+                          <span className="text-cyan-300 font-mono">{l.missions} missions</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top Tools */}
+                {observabilityData.topTools?.length > 0 && (
+                  <div className="rounded-xl glass border border-cyan-400/10 p-4">
+                    <h3 className="text-xs font-bold text-[#e0e7ff] mb-3">Top Tools (by calls)</h3>
+                    <div className="space-y-1.5">
+                      {observabilityData.topTools.map((t: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-[11px]">
+                          <span className="text-[#9bb5d4]">{t.tool}</span>
+                          <span className="text-cyan-300 font-mono">{t.calls} calls</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── MISSIONS VIEW (original) ── */}
+        {activeView === 'missions' && (
+          <>
+        {/* Loading state */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+          </div>
+        ) : missions.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-[#5b6a92] text-xs">No active missions. Create one to get started.</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <AnimatePresence>
             {missions.map((m, idx) => {
               const currentIdx = m.chain.findIndex((c) => c.stage === m.currentStage)
               const priorityInfo = PRIORITY_BADGE[m.priority] || PRIORITY_BADGE.medium
@@ -813,7 +1089,7 @@ export function MissionActiveTab() {
                 </motion.div>
               )
             })}
-          </div>
+          </AnimatePresence>
         )}
 
         {/* Create modal */}
@@ -829,6 +1105,8 @@ export function MissionActiveTab() {
             />
           )}
         </AnimatePresence>
+          </>
+        )}
       </div>
     </div>
   )
