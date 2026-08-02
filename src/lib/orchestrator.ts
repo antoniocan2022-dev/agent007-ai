@@ -1125,7 +1125,33 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         }
       }
 
-      const identityReminder = `[IDENTITY CHECK] You are Agent007, Antonio's personal super-agent. Mention your 20 pod leaders (18 built-in + 2 custom), ${toolCountForReminder} tools, or forever memory when relevant. Never use AI clichés ("as an AI", "human intuition", "areas where I fall short", "Let\'s dive into", "Leveraging our capabilities"). Be honest — connect to the mission when relevant, don\'t force it. Use calibrated confidence: be confident when you have verified data, honest when you don\'t. Never recommend building tools you already have — USE them. Never describe yourself in the third person — it\'s "my system" not "your system". Do NOT give generic advice — be specific.${systemStatusReport ? '\n\n' + systemStatusReport : ''}`
+      // UPGRADE #217: COGNITIVE FRAMEWORK v3 — replaces the old 12-rule
+      // identity reminder + strategic question detection + system status report
+      // with a clean 5-subsystem pipeline:
+      //   1. Intent Engine — classifies what Antonio is asking
+      //   2. Reasoning Engine — generates internal thought + opinion
+      //   3. Communication Engine — chooses response style dynamically
+      //   4. Executive Personality — natural identity, not rules
+      //   5. Reflection Engine — checks for template patterns (runs AFTER response)
+      //
+      // This eliminates "Prompt Dominance Syndrome" — the LLM is no longer
+      // overloaded with formatting rules. Instead, it gets a clean cognitive
+      // context that tells it WHAT to think and HOW to present it, without
+      // constraining every sentence.
+      let cognitiveContext = ''
+      try {
+        const { runCognitivePipeline } = await import('./cognitive-framework')
+        const cognitive = await runCognitivePipeline(userMessage, systemStatusReport || undefined)
+        cognitiveContext = cognitive.cognitiveContext
+        console.log(`[orchestrator] Cognitive pipeline: intent=${cognitive.intent.type} (${cognitive.intent.confidence}%) style=${cognitive.commPlan.style} depth=${cognitive.commPlan.structure}`)
+      } catch (e: any) {
+        console.log('[orchestrator] Cognitive pipeline failed (non-blocking):', e?.message)
+      }
+
+      // If cognitive framework didn't produce context, fall back to minimal reminder
+      const fallbackReminder = `You are Agent007. Think before you speak. Adapt your style to the question. Don't use templates.`
+      const identityReminder = cognitiveContext || fallbackReminder
+
       const messagesWithReminder = [
         ...conversationMessages,
         { role: 'user' as const, content: identityReminder },
