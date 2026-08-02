@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Code must be 6 digits' }, { status: 400 })
     }
 
-    const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+    const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
     if (!user) {
       return NextResponse.json({ ok: false, error: 'Operator user not found' }, { status: 404 })
     }

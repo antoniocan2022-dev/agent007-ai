@@ -286,7 +286,7 @@ export async function toolAutomatedReportingDashboard(args: any, _ctx: ToolConte
   return okResult(
     `Automated ${frequency} report scheduled via ${channel} — ${metrics.length} KPIs`,
     `AUTOMATED REPORTING DASHBOARD\n${'='.repeat(60)}\n` +
-    `Frequency: ${frequency}\nDelivery channel: ${channel} (antonio.can2022@hotmail.com / +15145496297)\n\n` +
+    `Frequency: ${frequency}\nDelivery channel: ${channel} (OWNER_EMAIL / OWNER_PHONE)\n\n` +
     `REPORT CONTENTS:\n${metrics.map((m, i) => `  ${i + 1}. ${m}`).join('\n')}\n\n` +
     `SAMPLE ${frequency.toUpperCase()} REPORT:\n` +
     `${'─'.repeat(60)}\n` +
@@ -306,7 +306,7 @@ export async function toolAutomatedReportingDashboard(args: any, _ctx: ToolConte
     `  • Data source: cross_stream_analytics + IncomeEntry DB table\n` +
     `  • Template: stored in /api/system/report-templates\n` +
     `  • Delivery: ${channel === 'whatsapp' ? 'WhatsApp via wa.me + CallMeBot' : 'SMTP email + WhatsApp backup'}\n` +
-    `  • Owner contact: +15145496297 / antonio.can2022@hotmail.com\n\n` +
+    `  • Owner contact: OWNER_PHONE / OWNER_EMAIL\n\n` +
     `ALERTS (auto-triggered):\n` +
     `  • Revenue drops > 30% → immediate WhatsApp alert\n` +
     `  • Conversion rate < 1% → daily report flagged\n` +
@@ -935,7 +935,7 @@ export async function toolPayoutScheduler(args: any, _ctx: ToolContext): Promise
     `     • Threshold: $500+ balance triggers payout\n` +
     `     • Last payout: $1,247.30 (Friday)\n\n` +
     `  2. PAYPAL (secondary)\n` +
-    `     • Email: antonio.can2022@hotmail.com\n` +
+    `     • Email: OWNER_EMAIL\n` +
     `     • Schedule: Monthly 1st\n` +
     `     • Threshold: $200+\n` +
     `     • Last payout: $384.20 (1st of month)\n\n` +

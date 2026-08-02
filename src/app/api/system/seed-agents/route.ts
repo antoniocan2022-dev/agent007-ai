@@ -33,8 +33,8 @@ export async function GET() {
         await db.phoneConfig.create({
           data: {
             userId: user.id,
-            phoneNumber: '+15145496297',
-            whatsappNumber: '+15145496297',
+            phoneNumber: 'OWNER_PHONE',
+            whatsappNumber: 'OWNER_PHONE',
             email: SEED_EMAIL,
             smsEnabled: true,
             whatsappEnabled: true,

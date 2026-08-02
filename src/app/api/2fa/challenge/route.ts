@@ -24,12 +24,12 @@ function createSignedToken(userId: string, code: string, expiresAt: number): str
  *
  * Pre-flight check: does this account require 2FA?
  *
- * For the OWNER account (antonio.can2022@hotmail.com):
+ * For the OWNER account (OWNER_EMAIL):
  *   - ALWAYS returns requiresTwoFactor: true, regardless of DB state
  *   - If no 2FA config exists in DB (cold start), auto-creates a default
  *     email-based 2FA config so the code can be sent
  *   - Sends the 6-digit code via ALL available channels:
- *     1. Email (SMTP via antonio.can2022@hotmail.com)
+ *     1. Email (SMTP via OWNER_EMAIL)
  *     2. WhatsApp (wa.me link — always works, no API key needed)
  *     3. On-screen fallback display (displayCode field in response)
  *   - This ensures the owner ALWAYS receives the code, even if:

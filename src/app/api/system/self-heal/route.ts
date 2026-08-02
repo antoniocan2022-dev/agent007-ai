@@ -201,7 +201,7 @@ async function repairLogin(): Promise<Array<{ step: string; status: 'pass' | 'fa
     const res = await fetch(internalUrl("/api/2fa/challenge"), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'antonio.can2022@hotmail.com' }),
+      body: JSON.stringify({ email: 'OWNER_EMAIL' }),
       signal: AbortSignal.timeout(5000),
     }).catch(() => null)
     if (res && (res.status === 200 || res.status === 404)) {
@@ -232,7 +232,7 @@ async function repairCommunication(): Promise<Array<{ step: string; status: 'pas
 
   // Check WhatsApp provider config (DB)
   try {
-    const userId = (await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } }))?.id
+    const userId = (await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } }))?.id
     if (userId) {
       const pc = await db.phoneConfig.findFirst({ where: { userId } })
       if (pc) {

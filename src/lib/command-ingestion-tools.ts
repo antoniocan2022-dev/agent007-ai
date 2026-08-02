@@ -3,7 +3,7 @@
  * email, cellphone (SMS), and WhatsApp.
  *
  * The owner can send commands to Agent007 via:
- *   1. EMAIL — send to antonio.can2022@hotmail.com (parsed by /api/commands/inbound)
+ *   1. EMAIL — send to OWNER_EMAIL (parsed by /api/commands/inbound)
  *   2. SMS — send to +1 514 549 6297 (parsed by /api/commands/inbound)
  *   3. WHATSAPP — send to +1 514 549 6297 (parsed by /api/commands/inbound)
  *

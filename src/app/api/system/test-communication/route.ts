@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       })
     } else {
       try {
-        const target = 'antonio.can2022@hotmail.com'
+        const target = 'OWNER_EMAIL'
         const r = await sendEmail({
           to: target,
           subject: 'Agent007 Communication Test',
@@ -73,9 +73,9 @@ export async function POST(req: Request) {
 
   /* ----- WhatsApp test ----- */
   if (waProvider as any !== false) {
-    const userId = (await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } }))?.id
+    const userId = (await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } }))?.id
     const pc = userId ? await db.phoneConfig.findFirst({ where: { userId } }) : null
-    const targetPhone = phone ?? pc?.whatsappNumber ?? pc?.callmebotNumber ?? '15145496297'
+    const targetPhone = phone ?? pc?.whatsappNumber ?? pc?.callmebotNumber ?? 'OWNER_PHONE_DIGITS'
     const testMsg = `Agent007 test message at ${new Date().toISOString()}`
 
     // Always test wa_link (always works)

@@ -79,7 +79,7 @@ const DEFAULT_INCOME: IncomeSettings = {
 }
 const DEFAULT_NOTIF: NotificationSettings = {
   enabled: false,
-  email: 'antonio.can2022@hotmail.com',
+  email: 'OWNER_EMAIL',
   events: {
     mission_complete: true,
     mission_failed: true,
@@ -357,7 +357,7 @@ export function SettingsTab({ onOpenChangePassword }: { onOpenChangePassword: ()
                     value={notif.email}
                     onChange={(e) => setNotif({ ...notif, email: e.target.value })}
                     className="w-full glass rounded-lg px-3 py-2.5 text-sm text-[#e0e7ff] outline-none focus:border-cyan-400/70 transition"
-                    placeholder="antonio.can2022@hotmail.com"
+                    placeholder="OWNER_EMAIL"
                   />
                 </div>
                 <div>
@@ -1168,7 +1168,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string) => void }) {
   const setup = async () => {
     setBusy(true)
     try {
-      const r = await fetch('/api/2fa/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, phoneNumber: phone || undefined, email: 'antonio.can2022@hotmail.com' }) })
+      const r = await fetch('/api/2fa/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, phoneNumber: phone || undefined, email: 'OWNER_EMAIL' }) })
       const d = await r.json()
       if (d.ok) {
         setSetupData(d)
@@ -1212,7 +1212,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string) => void }) {
                 <option value="whatsapp">WhatsApp</option>
                 <option value="email">Email</option>
               </select>
-              {(method === 'sms' || method === 'whatsapp') && <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone (+15145496297)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />}
+              {(method === 'sms' || method === 'whatsapp') && <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone (OWNER_PHONE)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />}
               {setupData?.qrCodeUrl && <div className="text-[10px] text-cyan-200 bg-cyan-400/10 rounded-md p-2 break-all font-mono">Scan in Google Authenticator: {setupData.qrCodeUrl}</div>}
               {setupData?.configId ? (
                 <div className="flex gap-2"><input value={code} onChange={e => setCode(e.target.value)} placeholder="6-digit code" className="flex-1 h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" maxLength={6} /><button onClick={verify} disabled={busy} className="h-9 px-3 rounded-md text-[11px] font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-100">{busy ? '...' : 'VERIFY'}</button></div>
@@ -1248,10 +1248,10 @@ function WhatsAppConnectSection({ onToast }: { onToast: (msg: string) => void })
   }, [provider, data, load, onToast])
 
   const setProv = async (p: string) => { try { await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_provider', provider: p }) }); setProvider(p); onToast(`Provider: ${p}`) } catch { onToast('Failed') } }
-  const savePhone = async () => { if (!phoneInput.trim()) { onToast('Phone number required'); return }; try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_phone', phone: phoneInput, email: 'antonio.can2022@hotmail.com' }) }); const d = await r.json(); if (d.ok) { onToast(`✅ ${d.message}`); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } }
+  const savePhone = async () => { if (!phoneInput.trim()) { onToast('Phone number required'); return }; try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_phone', phone: phoneInput, email: 'OWNER_EMAIL' }) }); const d = await r.json(); if (d.ok) { onToast(`✅ ${d.message}`); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } }
   const saveCallmebot = async () => { if (!callmebotKey || !callmebotNum) { onToast('Key + number required'); return }; try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_callmebot', apiKey: callmebotKey, number: callmebotNum }) }); const d = await r.json(); if (d.ok) { onToast('✅ CallMeBot saved'); load() } else onToast(`❌ ${d.error}`) } catch { onToast('Failed') } }
   const startBaileys = async () => { setStarting(true); setQrCode(null); try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start_baileys', forceFresh: true }) }); const d = await r.json(); if (d.qrCode) setQrCode(d.qrCode); onToast('QR generating — scan with WhatsApp') } catch { onToast('Failed') } finally { setStarting(false) } }
-  const sendTest = async () => { try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send_test', to: phoneInput || '+15145496297', message: '🤖 Test from Agent007: WhatsApp is working!' }) }); const d = await r.json(); onToast(d.ok ? `✅ ${d.message}` : `❌ ${d.message}`) } catch { onToast('Failed') } }
+  const sendTest = async () => { try { const r = await fetch('/api/whatsapp-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send_test', to: phoneInput || 'OWNER_PHONE', message: '🤖 Test from Agent007: WhatsApp is working!' }) }); const d = await r.json(); onToast(d.ok ? `✅ ${d.message}` : `❌ ${d.message}`) } catch { onToast('Failed') } }
   const disconnect = async () => { if (!confirm('Disconnect WhatsApp?')) return; try { await fetch('/api/whatsapp-bridge/disconnect', { method: 'POST' }); onToast('Disconnected'); load() } catch {} }
 
   return (
@@ -1267,7 +1267,7 @@ function WhatsAppConnectSection({ onToast }: { onToast: (msg: string) => void })
           <div className="mb-3 p-3 rounded-lg glass border-cyan-400/20">
             <label className="block text-[10px] tracking-[0.2em] text-[#7c89b5] mb-1 font-semibold">YOUR PHONE NUMBER</label>
             <div className="flex gap-2">
-              <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)} placeholder="+15145496297" className="flex-1 h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60 font-mono" />
+              <input value={phoneInput} onChange={e => setPhoneInput(e.target.value)} placeholder="OWNER_PHONE" className="flex-1 h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none focus:border-cyan-400/60 font-mono" />
               <button onClick={savePhone} className="h-9 px-4 rounded-md text-[11px] font-bold bg-emerald-500/20 border border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/30 transition">SAVE</button>
             </div>
             <div className="text-[9px] text-[#5b6a92] mt-1">This number is permanently linked for WhatsApp + SMS + Email communication.</div>
@@ -1297,7 +1297,7 @@ function WhatsAppConnectSection({ onToast }: { onToast: (msg: string) => void })
                 3. You will receive your API key in the reply. Paste it below.<br/>
                 <a href="https://wa.me/34600837975?text=I%20allow%20callmebot%20to%20send%20me%20messages" target="_blank" rel="noreferrer" className="text-blue-300 underline text-[10px]">→ Click here to open WhatsApp and send the message</a>
               </div>
-              <input value={callmebotNum} onChange={e => setCallmebotNum(e.target.value)} placeholder="Your WhatsApp Number (15145496297)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />
+              <input value={callmebotNum} onChange={e => setCallmebotNum(e.target.value)} placeholder="Your WhatsApp Number (OWNER_PHONE_DIGITS)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />
               <input value={callmebotKey} onChange={e => setCallmebotKey(e.target.value)} placeholder="CallMeBot API Key (from WhatsApp reply)" className="w-full h-9 px-3 rounded-md bg-black/40 border border-cyan-400/20 text-[12px] text-[#e0e7ff] outline-none font-mono" />
               <button onClick={saveCallmebot} className="h-8 px-3 rounded-md text-[11px] font-bold bg-blue-500/20 border border-blue-400/50 text-blue-100">SAVE CALLMEBOT</button>
             </div>

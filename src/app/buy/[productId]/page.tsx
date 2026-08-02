@@ -187,7 +187,7 @@ export default function BuyPage() {
               <div className="mb-4 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-200">
                 <strong>🚧 Coming Soon</strong> — This product is being finalized and is not yet available for purchase.
                 <br /><br />
-                <a href={`mailto:antonio.can2022@hotmail.com?subject=Notify me when ${product.name} is ready`} className="text-cyan-300 hover:underline">
+                <a href={`mailto:OWNER_EMAIL?subject=Notify me when ${product.name} is ready`} className="text-cyan-300 hover:underline">
                   Click here to be notified when it launches →
                 </a>
               </div>

@@ -70,7 +70,7 @@ export async function runSystemAudit(): Promise<any> {
   report.dashboard.navItems = navItems.map(item => ({ id: item.id, label: item.label, status: 'pass' as const }))
 
   try {
-    const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+    const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
     if (user) {
       const cfg = await db.twoFactorSecret.findFirst({ where: { userId: user.id, enabled: true } })
       report.login.checks.push({ name: '2FA Status', status: 'pass', detail: cfg ? `2FA ENABLED via ${cfg.method}` : '2FA not enabled' })
@@ -314,17 +314,17 @@ export async function testCommunication(opts?: { email?: boolean; whatsapp?: any
       results.push({ channel: 'email', status: 'warn', detail: 'SMTP not configured', timestamp: ts() })
     } else {
       try {
-        const r = await sendEmail({ to: 'antonio.can2022@hotmail.com', subject: 'Agent007 Test', body: `Test at ${new Date().toISOString()}`, type: 'comm_test' })
+        const r = await sendEmail({ to: 'OWNER_EMAIL', subject: 'Agent007 Test', body: `Test at ${new Date().toISOString()}`, type: 'comm_test' })
         results.push({ channel: 'email', status: r.sent ? 'pass' : 'fail', detail: r.sent ? 'Email sent' : (r.error ?? 'Send failed'), timestamp: ts() })
       } catch (e: any) { results.push({ channel: 'email', status: 'fail', detail: e?.message, timestamp: ts() }) }
     }
   }
-  const targetPhone = opts?.phone ?? '15145496297'
+  const targetPhone = opts?.phone ?? 'OWNER_PHONE_DIGITS'
   const testMsg = `Agent007 test at ${new Date().toISOString()}`
   const waLink = generateWaLink(targetPhone, testMsg)
   results.push({ channel: 'whatsapp:wa_link', status: 'pass', detail: `wa.me link generated: ${waLink.slice(0, 60)}...`, timestamp: ts() })
   try {
-    const userId = (await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } }))?.id
+    const userId = (await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } }))?.id
     if (userId) {
       const r = await sendWhatsApp({ userId, to: targetPhone, message: testMsg }).catch(() => ({ ok: false, message: 'Not linked' }))
       results.push({ channel: 'whatsapp:provider', status: r.ok ? 'pass' : 'warn', detail: r.message ?? 'Not linked', timestamp: ts() })

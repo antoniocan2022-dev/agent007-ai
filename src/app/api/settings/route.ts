@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     }
     const safeNotif: NotificationSettings = notif ?? {
       enabled: false,
-      email: 'antonio.can2022@hotmail.com',
+      email: 'OWNER_EMAIL',
       events: {
         mission_complete: true,
         mission_failed: true,
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
       income: { monthlyGoal: 20000, dailyGrowthTarget: 20, currencySymbol: '$', displayMode: 'detailed' },
       notifications: {
         enabled: false,
-        email: 'antonio.can2022@hotmail.com',
+        email: 'OWNER_EMAIL',
         events: {},
         minDelayMinutes: 5,
       },

@@ -170,7 +170,7 @@ DOWNLOAD OPTIONS:
   3. Encrypted file: ${filepath}
 
 To send to owner via email:
-  <tool name="autonomous_email_sender">{"to":"antonio.can2022@hotmail.com","subject":"Vault File: ${filename}","body":"Your vault file is available for download at: https://agent007-ai.vercel.app/api/owner-vault?file=${filename}","channel":"email"}</tool>
+  <tool name="autonomous_email_sender">{"to":"OWNER_EMAIL","subject":"Vault File: ${filename}","body":"Your vault file is available for download at: https://agent007-ai.vercel.app/api/owner-vault?file=${filename}","channel":"email"}</tool>
 
 CAPABILITY STATUS: Agent007 can share vault files with the owner.`)
   } catch (e: any) { return bad(`Vault download failed: ${e?.message}`) }

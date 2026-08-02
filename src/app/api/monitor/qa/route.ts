@@ -14,7 +14,7 @@ export const maxDuration = 60
  *   h=03,15 → TIER 2 (6h standard)
  *   else → TIER 1 (1h quick)
  *
- * On ANY failure: emails owner (antonio.can2022@hotmail.com) via Resend.
+ * On ANY failure: emails owner (OWNER_EMAIL) via Resend.
  *
  * Upgrade #57 — PERMANENT. Cannot be disabled or removed.
  */

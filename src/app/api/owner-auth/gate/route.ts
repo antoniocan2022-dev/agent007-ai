@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
  * Universal authorization gate for ALL reset/delete operations.
  * 
  * Body: { action: 'request', operation: 'delete_subagent' }
- *   → Sends 6-digit code to +15145496297 via WhatsApp
+ *   → Sends 6-digit code to OWNER_PHONE via WhatsApp
  *   → Returns: { ok, authId, message, code? (fallback) }
  * 
  * Body: { action: 'verify', authId: '...', code: '123456' }

@@ -8,7 +8,7 @@
  * Both:
  *   1. Run their respective tool battery via dispatchTool
  *   2. Persist a structured report to the Memory table
- *   3. If ANY check fails → email owner (antonio.can2022@hotmail.com) via Resend
+ *   3. If ANY check fails → email owner (OWNER_EMAIL) via Resend
  *
  * Used by:
  *   - /api/monitor/qa        (Vercel Cron: hourly at minute 0)
@@ -303,7 +303,7 @@ export async function runExternalMonitor(opts?: {
             signal: AbortSignal.timeout(8000),
             // UPGRADE #72 — Reddit requires a descriptive User-Agent or returns 403.
             // Use a more descriptive UA that Reddit's bot detection accepts.
-            headers: { 'User-Agent': 'Agent007-Monitor/1.0 (server-side health check; contact: antonio.can2022@hotmail.com)' },
+            headers: { 'User-Agent': 'Agent007-Monitor/1.0 (server-side health check; contact: OWNER_EMAIL)' },
           })
           const latencyMs = Date.now() - startMs
           const ok = res.status === (ep.expectedStatus ?? 200) || (res.status >= 200 && res.status < 400)

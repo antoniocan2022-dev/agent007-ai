@@ -1063,7 +1063,7 @@ export async function dispatchTool(
           `To authorize:\n` +
           `1. <manage action="request_tool_execution" tool="${name}" method="whatsapp"/>\n` +
           `   → Sends a 6-digit code to the owner's cellphone / email / WhatsApp\n` +
-          `2. Owner receives the code on +15145496297 or antonio.can2022@hotmail.com\n` +
+          `2. Owner receives the code on OWNER_PHONE or OWNER_EMAIL\n` +
           `3. <manage action="verify_tool_execution" tool="${name}" auth_id="..." code="XXXXXX"/>\n` +
           `   → Verifies the code and caches authorization for 10 minutes\n` +
           `4. Then re-dispatch: <tool name="${name}">...</tool>\n\n` +
@@ -1722,10 +1722,10 @@ export async function toolRequestOwnerAuth(args: { operation?: string }, _ctx: T
     const { requestOwnerAuthorization, requiresOwnerAuth } = await import('./owner-auth')
     if (!requiresOwnerAuth(args.operation.toString())) return okLocal('Not required', `Operation "${args.operation}" does not require owner authorization.`)
     const result = await requestOwnerAuthorization(args.operation.toString())
-    return result.ok ? okLocal('Code sent', `✅ ${result.message}\n\nAuth ID: ${result.authId}\n\nThe owner must reply with the 6-digit code sent to +15145496297 (WhatsApp) or email. Use verify_owner_auth to check.`) : badLocal(result.message)
+    return result.ok ? okLocal('Code sent', `✅ ${result.message}\n\nAuth ID: ${result.authId}\n\nThe owner must reply with the 6-digit code sent to OWNER_PHONE (WhatsApp) or email. Use verify_owner_auth to check.`) : badLocal(result.message)
   } catch (e: any) { return badLocal(`request_owner_auth failed: ${e?.message}`) }
 }
-TOOL_REGISTRY.request_owner_auth = { fn: toolRequestOwnerAuth, icon: 'key', label: 'Request Owner Auth (send 6-digit code to +15145496297)' }
+TOOL_REGISTRY.request_owner_auth = { fn: toolRequestOwnerAuth, icon: 'key', label: 'Request Owner Auth (send 6-digit code to OWNER_PHONE)' }
 
 export async function toolVerifyOwnerAuth(args: { auth_id?: string; code?: string }, _ctx: ToolContext): Promise<ToolResult> {
   if (!args.auth_id || !args.code) return badLocal('Missing auth_id or code')

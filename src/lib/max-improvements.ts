@@ -29,7 +29,7 @@ export async function toolAutonomousEmailSender(args: {
   body?: string
   channel?: string // 'email' | 'whatsapp' | 'sms'
 }, _ctx: ToolContext): Promise<ToolResult> {
-  const to = (args.to ?? 'antonio.can2022@hotmail.com').toString()
+  const to = (args.to ?? 'OWNER_EMAIL').toString()
   const subject = (args.subject ?? 'Agent007 Notification').toString()
   const body = (args.body ?? '').toString()
   const channel = (args.channel ?? 'email').toString()

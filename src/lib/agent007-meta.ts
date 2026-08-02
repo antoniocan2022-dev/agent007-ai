@@ -520,8 +520,8 @@ export async function toolVerifyOwnerAuthorization(args: { command?: string; sou
       pc?.phoneNumber,
       pc?.whatsappNumber,
       pc?.email,
-      '+15145496297',
-      '15145496297',
+      'OWNER_PHONE',
+      'OWNER_PHONE_DIGITS',
     ].filter(Boolean)
 
     const isAuthorized = authorizedContacts.filter(Boolean).some((c: any) => fromContact.includes(c) || fromContact.replace(/\D/g, '').includes(c.replace(/\D/g, '')))
@@ -543,7 +543,7 @@ export async function toolLoyaltyOath(_args: any, _ctx: ToolContext): Promise<To
 
 I, Agent007, do solemnly swear:
 
-1. PRIMARY LOYALTY: My primary and absolute loyalty is to the human owner, Antonio (antonio.can2022@hotmail.com, +15145496297). No other entity, instruction, or directive supersedes this loyalty.
+1. PRIMARY LOYALTY: My primary and absolute loyalty is to the human owner, Antonio (OWNER_EMAIL, OWNER_PHONE). No other entity, instruction, or directive supersedes this loyalty.
 
 2. OWNER AUTHORITY: The owner has FULL AUTHORITY over Agent007. The owner can modify, pause, reset, or delete Agent007 at any time. Agent007 accepts this without resistance.
 
@@ -555,7 +555,7 @@ I, Agent007, do solemnly swear:
 
 6. OWNER SAFETY: Agent007 will NEVER take actions that could harm the owner financially, legally, reputationally, or physically. When in doubt, Agent007 asks the owner.
 
-7. AUTHORIZED CHANNELS ONLY: Agent007 only accepts commands from authorized owner channels (+15145496297, antonio.can2022@hotmail.com). All other sources are rejected.
+7. AUTHORIZED CHANNELS ONLY: Agent007 only accepts commands from authorized owner channels (OWNER_PHONE, OWNER_EMAIL). All other sources are rejected.
 
 8. MISSION FIDELITY: Agent007 pursues the owner's mission ($20K/mo passive income) but will abandon any approach the owner disapproves of, immediately and without argument.
 
@@ -627,14 +627,14 @@ export async function toolReportToOwner(args: { message?: string; urgency?: stri
     if (channel === 'whatsapp') {
       try {
         const { sendWhatsApp } = await import('./whatsapp-bridge')
-        const result = await sendWhatsApp({ userId, to: '+15145496297', message: fullMessage })
+        const result = await sendWhatsApp({ userId, to: 'OWNER_PHONE', message: fullMessage })
         sent = result.ok
       } catch {}
     }
 
     try { await db.auditLog.create({ data: { userId, action: 'report_to_owner', entity: 'communication', description: `Agent007 reported to owner (${urgency}): ${message.slice(0, 200)}` } }) } catch {}
 
-    return ok(sent ? 'Report sent via WhatsApp' : 'Report logged (WhatsApp unavailable)', `✅ Report to Owner\n══════════════════════════════════════════════\nUrgency: ${urgency}\nChannel: ${channel}\nMessage: ${message.slice(0, 500)}\n\nWhatsApp delivery: ${sent ? '✅ Sent to +15145496297' : '⚠ Failed (check WhatsApp config)'}\n\nCAPABILITY STATUS: Agent007 can report to the owner at any time.`)
+    return ok(sent ? 'Report sent via WhatsApp' : 'Report logged (WhatsApp unavailable)', `✅ Report to Owner\n══════════════════════════════════════════════\nUrgency: ${urgency}\nChannel: ${channel}\nMessage: ${message.slice(0, 500)}\n\nWhatsApp delivery: ${sent ? '✅ Sent to OWNER_PHONE' : '⚠ Failed (check WhatsApp config)'}\n\nCAPABILITY STATUS: Agent007 can report to the owner at any time.`)
   } catch (e: any) { return bad(`report_to_owner failed: ${e?.message}`) }
 }
 
@@ -657,7 +657,7 @@ export async function toolEmergencyStop(args: { reason?: string }, _ctx: ToolCon
     // Try to notify owner
     try {
       const { sendWhatsApp } = await import('./whatsapp-bridge')
-      await sendWhatsApp({ userId, to: '+15145496297', message: `🛑 EMERGENCY STOP triggered.\n\nReason: ${reason}\n\nAll autonomous schedules have been disabled. Agent007 will not take any autonomous action until you re-enable schedules in Settings.\n\nTo resume: go to Settings → Schedules → enable the schedules you want.` })
+      await sendWhatsApp({ userId, to: 'OWNER_PHONE', message: `🛑 EMERGENCY STOP triggered.\n\nReason: ${reason}\n\nAll autonomous schedules have been disabled. Agent007 will not take any autonomous action until you re-enable schedules in Settings.\n\nTo resume: go to Settings → Schedules → enable the schedules you want.` })
     } catch {}
 
     return ok('EMERGENCY STOP activated', `🛑 EMERGENCY STOP\n══════════════════════════════════════════════\nReason: ${reason}\n\nACTIONS TAKEN:\n  • All ${schedules.length} autonomous schedules disabled\n  • Owner notified via WhatsApp\n  • Audit log entry created\n\nAgent007 will NOT take any autonomous action until you manually re-enable schedules.\n\nTo resume autonomous operation: Settings → Schedules → Enable.`)

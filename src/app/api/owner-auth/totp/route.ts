@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const action = (body.action as string) ?? 'setup'
 
     // Find the operator user
-    const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+    const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
     if (!user) {
       return NextResponse.json({ ok: false, error: 'Operator user not found' }, { status: 404 })
     }
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     await ensureDbReady()
-    const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+    const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
     if (!user) {
       return NextResponse.json({ configured: false, enabled: false })
     }

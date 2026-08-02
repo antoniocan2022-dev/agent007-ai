@@ -6,7 +6,7 @@ import { db } from './db'
  * Multi-user support helpers.
  *
  * getSessionUserId() — returns the authenticated user's id from the NextAuth
- * session, falling back to the seed user (antonio.can2022@hotmail.com) for
+ * session, falling back to the seed user (OWNER_EMAIL) for
  * backward compatibility with existing data.
  *
  * registerUser() — creates a new user account (used by /api/auth/register).

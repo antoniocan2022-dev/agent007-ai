@@ -2,16 +2,16 @@
  * user-approval.ts — New-user approval flow.
  *
  * SECURITY POLICY (PERMANENT — compiled into source code):
- *   1. The owner's email (antonio.can2022@hotmail.com) + phone
- *      (+15145496297) are PERMANENTLY LOCKED in source code.
+ *   1. The owner's email (OWNER_EMAIL) + phone
+ *      (OWNER_PHONE) are PERMANENTLY LOCKED in source code.
  *      They CANNOT be changed, edited, or deleted at runtime.
  *      Only the human owner can change them via source-code edit + redeploy.
  *
  *   2. Any NEW user account registration REQUIRES explicit approval
  *      from the owner via one of:
- *        a. Email approval link (sent to antonio.can2022@hotmail.com)
+ *        a. Email approval link (sent to OWNER_EMAIL)
  *        b. Google authorization (OAuth — owner signs in with Google)
- *        c. SMS text message with approval link (sent to +15145496297)
+ *        c. SMS text message with approval link (sent to OWNER_PHONE)
  *        d. WhatsApp message with approval link (sent via wa.me)
  *
  *   3. New users CANNOT log in until approved. They see a "Pending
@@ -31,9 +31,9 @@ import { sendEmail } from './email'
 import { sendWhatsApp } from './whatsapp-bridge'
 
 // ── PERMANENT OWNER CONTACT (cannot be changed at runtime) ──────────
-export const OWNER_EMAIL = 'antonio.can2022@hotmail.com'
-export const OWNER_PHONE = '+15145496297'
-export const OWNER_PHONE_DIGITS = '15145496297'
+export const OWNER_EMAIL = 'OWNER_EMAIL'
+export const OWNER_PHONE = 'OWNER_PHONE'
+export const OWNER_PHONE_DIGITS = 'OWNER_PHONE_DIGITS'
 export const OWNER_NAME = 'Antonio'
 
 /**
@@ -99,14 +99,14 @@ TO REJECT (deny access):
 
 SECURITY NOTES:
   - This approval link expires in 24 hours
-  - Only the owner (antonio.can2022@hotmail.com) can approve new users
+  - Only the owner (OWNER_EMAIL) can approve new users
   - If you did not expect this registration, reject the request
   - The new user CANNOT log in until you approve
 
 — Agent007 AI
 Owner: Antonio
 Phone: +1 514 549 6297
-Email: antonio.can2022@hotmail.com`
+Email: OWNER_EMAIL`
 
   const sentChannels: string[] = []
 

@@ -34,7 +34,7 @@ export async function GET() {
       try {
         const userId = (await db.user.findFirst({ orderBy: { createdAt: 'asc' } }))?.id
         const r = await sendEmail({
-          to: 'antonio.can2022@hotmail.com',
+          to: 'OWNER_EMAIL',
           subject: 'Agent007 Email Diagnostic Test',
           body: `This is a diagnostic test email from Agent007 AI.\n\nSent at: ${new Date().toISOString()}\n\nEmail Provider: ${resendConfigured ? 'Resend.com' : 'SMTP'}\n${resendConfigured ? `Resend From: ${resendFrom}` : `SMTP Host: ${smtpHost}\nSMTP Port: ${smtpPort}\nSMTP User: ${smtpUser}\nSMTP From: ${smtpFrom}`}\n\nIf you received this email, email delivery is working correctly!\n\n— Agent007 AI`,
           userId: userId ?? '',
@@ -67,7 +67,7 @@ export async function GET() {
       sendResult,
       recommendations: resendConfigured
         ? [
-            'Resend is configured! Check your inbox at antonio.can2022@hotmail.com',
+            'Resend is configured! Check your inbox at OWNER_EMAIL',
             'If using onboarding@resend.dev, you can ONLY send to the email you signed up with',
             'To send to any address: verify your own domain in Resend dashboard',
           ]

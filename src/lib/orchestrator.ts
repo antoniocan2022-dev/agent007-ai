@@ -2596,8 +2596,8 @@ async function executeManageAction(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               method,
-              phoneNumber: attrs.phone ?? attrs.phoneNumber ?? '15145496297',
-              email: 'antonio.can2022@hotmail.com',
+              phoneNumber: attrs.phone ?? attrs.phoneNumber ?? 'OWNER_PHONE_DIGITS',
+              email: 'OWNER_EMAIL',
             }),
           })
           const setupData = await setupRes.json().catch(() => ({}))
@@ -2962,7 +2962,7 @@ async function executeManageAction(
           const { db, ensureDbReady } = await import('./db')
           const { generateTotpSecret, generateTotpUrl } = await import('./owner-auth')
           await ensureDbReady()
-          const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+          const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
           if (!user) return { ok: false, message: 'Operator user not found' }
 
           const secret = generateTotpSecret()
@@ -3013,7 +3013,7 @@ async function executeManageAction(
           const { db, ensureDbReady } = await import('./db')
           const { verifyTotpCode } = await import('./owner-auth')
           await ensureDbReady()
-          const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+          const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
           if (!user) return { ok: false, message: 'Operator user not found' }
 
           const config = await db.twoFactorSecret.findFirst({

@@ -2,9 +2,9 @@
  * owner-auth.ts — Owner authorization for ALL reset/delete/disable operations.
  *
  * Every destructive operation requires a 6-digit code sent to ONE of:
- * - WhatsApp: +15145496297 (primary — sends immediately)
- * - SMS: +15145496297 (fallback — via wa.me link if no SMS provider)
- * - Email: antonio.can2022@hotmail.com (backup)
+ * - WhatsApp: OWNER_PHONE (primary — sends immediately)
+ * - SMS: OWNER_PHONE (fallback — via wa.me link if no SMS provider)
+ * - Email: OWNER_EMAIL (backup)
  * - Google Authenticator (TOTP): owner registers a secret, scans QR, enters 6-digit code
  *
  * The code is displayed on-screen as fallback if all automated channels fail.
@@ -16,8 +16,8 @@
 import { db } from './db'
 import crypto from 'node:crypto'
 
-const OWNER_PHONE = '+15145496297'
-const OWNER_EMAIL = 'antonio.can2022@hotmail.com'
+const OWNER_PHONE = 'OWNER_PHONE'
+const OWNER_EMAIL = 'OWNER_EMAIL'
 
 interface PendingAuth {
   code: string

@@ -347,7 +347,7 @@ function LoginInner() {
                   {twofaDisplayCode}
                 </div>
                 <div className="text-[9px] text-[#7c89b5] mt-1">
-                  Check your email + spam folder for antonio.can2022@hotmail.com
+                  Check your email + spam folder for OWNER_EMAIL
                 </div>
               </div>
             )}

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: 'Invalid or expired download token. This could mean: (1) the link has expired (7-day limit), (2) the purchase was refunded, or (3) the token was tampered with. Email antonio.can2022@hotmail.com for a new link.',
+        error: 'Invalid or expired download token. This could mean: (1) the link has expired (7-day limit), (2) the purchase was refunded, or (3) the token was tampered with. Email OWNER_EMAIL for a new link.',
       },
       { status: 403 }
     )

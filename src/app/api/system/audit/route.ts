@@ -73,7 +73,7 @@ export async function GET() {
 
   // Login flow checks
   try {
-    const user = await db.user.findUnique({ where: { email: 'antonio.can2022@hotmail.com' } })
+    const user = await db.user.findUnique({ where: { email: 'OWNER_EMAIL' } })
     if (user) {
       const cfg = await db.twoFactorSecret.findFirst({ where: { userId: user.id, enabled: true } })
       report.login.checks.push({

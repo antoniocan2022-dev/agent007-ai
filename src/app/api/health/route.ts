@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-209',  // UPGRADE #209: Mission OS + Leader Debate + Autonomous Strategic Planning
+    version: 'upgrade-210',  // UPGRADE #210: deep audit — 0 errors, re-applied CROSS-POD DISPATCH, re-deleted dead code
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',

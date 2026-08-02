@@ -14,7 +14,7 @@ export async function GET() {
       let pc = await db.phoneConfig.findFirst({ where: { userId: existing.id } })
       if (!pc) {
         await db.phoneConfig.create({
-          data: { userId: existing.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
+          data: { userId: existing.id, phoneNumber: 'OWNER_PHONE', whatsappNumber: 'OWNER_PHONE', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
         })
         results.push('✅ Phone config: created')
       } else {
@@ -25,7 +25,7 @@ export async function GET() {
       const user = await db.user.create({ data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' } })
       results.push('✅ Seed user: created')
       await db.phoneConfig.create({
-        data: { userId: user.id, phoneNumber: '+15145496297', whatsappNumber: '+15145496297', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
+        data: { userId: user.id, phoneNumber: 'OWNER_PHONE', whatsappNumber: 'OWNER_PHONE', email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
       })
       results.push('✅ Phone config: created')
     }

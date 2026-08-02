@@ -74,12 +74,12 @@ export async function POST(req: NextRequest) {
     let whatsappSent = false
     try {
       const { sendWhatsApp } = await import('@/lib/whatsapp-bridge')
-      const waResult = await sendWhatsApp({ userId: user.id, to: '+15145496297', message: `🔐 Agent007 Password Reset Code: ${code}\n\nThis code expires in 10 minutes.` })
+      const waResult = await sendWhatsApp({ userId: user.id, to: 'OWNER_PHONE', message: `🔐 Agent007 Password Reset Code: ${code}\n\nThis code expires in 10 minutes.` })
       whatsappSent = waResult.ok
     } catch {}
     
     // Generate wa.me link as manual fallback
-    const waLink = `https://wa.me/15145496297?text=${encodeURIComponent('Agent007 reset code: ' + code)}`
+    const waLink = `https://wa.me/OWNER_PHONE_DIGITS?text=${encodeURIComponent('Agent007 reset code: ' + code)}`
     
     return NextResponse.json({
       ok: true,
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       message: emailSent 
         ? `✅ Reset code sent to ${email}. Check your inbox (and spam folder).`
         : whatsappSent
-          ? `✅ Reset code sent via WhatsApp to +15145496297.`
+          ? `✅ Reset code sent via WhatsApp to OWNER_PHONE.`
           : `⚠ Email delivery failed (${emailError}). Use this code: ${code}`,
       // Always return the code as fallback (so the UI can show it if email fails)
       code: emailSent ? undefined : code,

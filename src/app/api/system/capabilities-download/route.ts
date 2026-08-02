@@ -81,8 +81,8 @@ export async function GET(req: NextRequest) {
     const report = {
       meta: {
         agent: 'Agent007 AI',
-        owner: 'Antonio (antonio.can2022@hotmail.com)',
-        phone: '+15145496297',
+        owner: 'Antonio (OWNER_EMAIL)',
+        phone: 'OWNER_PHONE',
         vercelUrl: 'https://agent007-ai.vercel.app',
         generatedAt: new Date().toISOString(),
         generator: '/api/system/capabilities-download (on-demand)',

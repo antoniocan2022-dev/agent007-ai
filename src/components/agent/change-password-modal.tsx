@@ -58,7 +58,7 @@ export function ChangePasswordModal() {
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword, email: 'antonio.can2022@hotmail.com' }),
+        body: JSON.stringify({ currentPassword, newPassword, email: 'OWNER_EMAIL' }),
       })
       const data = await res.json().catch(() => ({ ok: false, error: 'Request failed' }))
       if (!res.ok || !data.ok) {

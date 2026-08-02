@@ -17,7 +17,7 @@ export const maxDuration = 60
  *   - API health / manifest / subagents
  *   - Resend / CoinGecko / GitHub / HN / Reddit / WordPress
  *
- * On ANY failure: emails owner (antonio.can2022@hotmail.com) via Resend.
+ * On ANY failure: emails owner (OWNER_EMAIL) via Resend.
  *
  * Upgrade #57 — PERMANENT. Cannot be disabled or removed.
  */

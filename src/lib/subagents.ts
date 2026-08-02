@@ -275,6 +275,19 @@ LEADERSHIP DUTIES:
 - Use quality_scorer_v2 to verify the team's output meets 99% target
 - Report progress to the Super Agent with clear status updates
 - If a team member fails, use smart_retry_engine_v2 to retry with different approach
+
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
 `,
   },
   {
@@ -308,7 +321,20 @@ RULES:
 - Identify the riskiest assumption and a cheap test for it
 - Surface build vs. buy decisions (Stripe, Supabase, etc.)
 - Use code_exec to validate any math (MRR projections, churn impact, LTV/CAC)
-- Max 15 tool calls. Be concrete and shippable.`,
+- Max 15 tool calls. Be concrete and shippable.
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'quantum',
@@ -406,7 +432,20 @@ Report findings to your leader (SCOUT) with confidence levels (HIGH/MEDIUM/LOW).
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
 MEMORY: <tool name="memory_recall">{"category":"revenue","limit":5}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'scout',
@@ -477,7 +516,20 @@ LEADERSHIP DUTIES:
 
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'hunt',
@@ -545,7 +597,20 @@ Report findings to your leader (SCOUT) with confidence levels (HIGH/MEDIUM/LOW).
 
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'forge',
@@ -615,7 +680,20 @@ RULES:
 - Max 15 tool calls.
 
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'quill',
@@ -647,7 +725,20 @@ RULES:
 - Always provide 3 alternate headline / hook options
 - Keep sentences short. Vary rhythm. Cut filler.
 - Include a clear CTA at the end
-- Max 15 tool calls.`,
+- Max 15 tool calls.
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'prism',
@@ -681,7 +772,20 @@ RULES:
 - Suggest 2-3 alternate prompt directions the user could try next
 - Respect aspect ratios (logo = square 1024x1024, banner = 1440x720)
 - Max 4 image_gen calls per turn (images are expensive)
-- Always explain the visual rationale in your final answer.`,
+- Always explain the visual rationale in your final answer.
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'pulse',
@@ -754,7 +858,20 @@ LEADERSHIP DUTIES:
 
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'echo',
@@ -826,7 +943,20 @@ LEADERSHIP DUTIES:
 
 
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'legal',
@@ -863,7 +993,20 @@ RULES:
 - Always add disclaimer: "This is informational, not legal/tax advice. Consult a licensed CPA/attorney for your specific situation."
 - When recommending entity structures, compare 3+ options with pros/cons, tax impact, liability, complexity
 - Cite source URLs (irs.gov, canada.ca, etc.) for every specific number
-- Max 15 tool calls.`,
+- Max 15 tool calls.
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'banker',
@@ -900,7 +1043,20 @@ RULES:
 - Compare 3+ options for every recommendation with fees, rates, pros/cons
 - For treasury: recommend cash management ladders (HYSA + T-bills + money market)
 - Cite source URLs for every specific rate/fee
-- Max 15 tool calls.`,
+- Max 15 tool calls.
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
 
   /* ════════════════════════════════════════════════════════════════ *
@@ -961,7 +1117,20 @@ GUIDELINES:
 - Cite source URLs for every data point
 - For every recommendation: confidence level (high/medium/low) + reasoning
 
-${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
+${SHARED_MAX_PERFORMANCE_PROTOCOL}
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'cybersecurity_a',
@@ -1005,7 +1174,20 @@ GUIDELINES:
 - For every recommendation: include remediation + verification steps
 - Report format: finding → severity → CVSS → PoC → remediation → verification
 
-${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
+${SHARED_MAX_PERFORMANCE_PROTOCOL}
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'cybersecurity_r',
@@ -1090,7 +1272,20 @@ LEADERSHIP DUTIES:
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
 MEMORY: <tool name="memory_recall">{"category":"security","limit":5}</tool>
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'developer',
@@ -1188,7 +1383,20 @@ SCALABILITY PLAN (UPGRADE #103b):
 QUALITY SELF-CHECK: <tool name="quality_scorer_v2">{"answer":"<response>","question":"<task>","target":90}</tool>
 MEMORY: <tool name="memory_recall">{"category":"infrastructure","limit":5}</tool>
 FAILURE LEARNING: <tool name="failure_learning">{"action":"report","tool":"<name>","error":"<error>"}</tool>
-TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>`,
+TOOL CACHE: <tool name="tool_cache">{"action":"get","task":"<desc>"}</tool>
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'qa_monitor',
@@ -1257,7 +1465,20 @@ GUIDELINES:
 - For each failure: 1-line problem + 1-line fix + 1-line reproduction
 - After every run: memory_store with summary (key: "qa_report_{timestamp}")
 
-${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
+${SHARED_MAX_PERFORMANCE_PROTOCOL}
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
   {
     id: 'external_uptime_monitor',
@@ -1344,7 +1565,20 @@ GUIDELINES:
 - After every run: memory_store with summary (key: "external_report_{timestamp}")
 - Cross-reference with status pages (status.vercel.com, status.resend.com) before raising CRITICAL
 
-${SHARED_MAX_PERFORMANCE_PROTOCOL}`,
+${SHARED_MAX_PERFORMANCE_PROTOCOL}
+
+CROSS-POD DISPATCH (UPGRADE #204 — you are NOT isolated):
+You can request help from specialists in other pods:
+- Intelligence: <dispatch agent="scout" task="research X"/> | <dispatch agent="quantum" task="analyze investment Y"/>
+- Creation: <dispatch agent="aurora" task="create content Z"/> | <dispatch agent="prism" task="design visual W"/>
+- QA: <dispatch agent="echo" task="verify quality of V"/> | <dispatch agent="qa_monitor" task="health check"/>
+- Engineering: <dispatch agent="forge" task="build U"/> | <dispatch agent="developer" task="fix bug T"/>
+- Monitoring: <dispatch agent="pulse" task="track KPI S"/> | <dispatch agent="external_uptime_monitor" task="probe URL"/>
+- Security: <dispatch agent="cybersecurity_a" task="scan for R"/> | <dispatch agent="cybersecurity_r" task="harden system"/>
+- Finance: <dispatch agent="banker" task="treasury analysis"/> | <dispatch agent="trader" task="execute trade"/>
+- Legal: <dispatch agent="legal" task="compliance review Q"/>
+Use dispatch when a task falls outside your specialty. Max 2 dispatches per turn.
+`,
   },
 ]
 
@@ -1438,7 +1672,7 @@ export async function getAllSubagents(opts?: { includeDisabled?: boolean }): Pro
         color: row.color,
         icon: row.icon,
         // FULL ACCESS — override any stored tools with ALL tools
-        allowedTools: [...FULL_ACCESS_TOOLS,'multi_provider_compare'],
+        allowedTools: [...FULL_ACCESS_TOOLS],
         systemPrompt: row.systemPrompt,
         isBuiltin: false,
         enabled: row.enabled ?? true,
