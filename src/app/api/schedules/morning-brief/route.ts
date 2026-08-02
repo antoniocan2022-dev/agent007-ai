@@ -4,8 +4,23 @@
  * Vercel Cron trigger for the Morning Executive Brief.
  * Schedule: 0 9 * * * (every day at 9AM UTC)
  *
- * This endpoint is public (no auth) because Vercel Cron can't authenticate.
- * It only runs the brief — doesn't expose any sensitive data.
+ * ARCHITECTURE NOTE (UPGRADE #212):
+ * There are TWO Morning Brief endpoints — this is BY DESIGN, not duplication:
+ *
+ * 1. /api/schedules/morning-brief (THIS FILE)
+ *    - Triggered by: Vercel Cron (0 9 * * *)
+ *    - Auth: NONE (Vercel Cron can't authenticate)
+ *    - Purpose: Automated daily execution at 9AM UTC
+ *    - Returns: minimal status JSON (ok, sent, timestamp)
+ *
+ * 2. /api/system/morning-brief
+ *    - Triggered by: Manual browser visit or API call
+ *    - Auth: Session (requires login)
+ *    - Purpose: On-demand brief generation when owner wants it now
+ *    - Returns: full brief text + sections + status
+ *
+ * Both call the SAME function: runMorningBrief() from autonomous-strategic-planner.ts
+ * They are two ENTRY POINTS to the same logic, NOT duplicate implementations.
  */
 import { NextResponse } from 'next/server'
 import { runMorningBrief } from '@/lib/autonomous-strategic-planner'
