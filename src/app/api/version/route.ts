@@ -35,7 +35,7 @@ export async function GET() {
   const gitCommitDate = process.env.VERCEL_GIT_COMMIT_DATE || ''
 
   return NextResponse.json({
-    version: 'upgrade-219',
+    version: 'upgrade-220',
     gitCommit,
     gitBranch,
     gitCommitMessage,

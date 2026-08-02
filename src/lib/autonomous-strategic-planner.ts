@@ -45,20 +45,19 @@ export async function runMorningBrief(): Promise<{
 }> {
   console.log('[morning-brief] Starting Morning Executive Brief...')
 
-  // ═══ DEDUPLICATION LOCK (UPGRADE #215) ═══
+  // ═══ DEDUPLICATION LOCK (UPGRADE #215, fixed #219) ═══
   // PROBLEM: Antonio received 10+ duplicate Telegram messages in 2 hours.
   // ROOT CAUSE: Vercel retries the cron job if it times out (maxDuration=120s).
   // Each retry calls runMorningBrief() again → sends another Telegram message.
-  // Also: the /api/monitor/qa cron (hourly) calls /api/monitor/qa which
-  // internally fetches /api/health etc. — but does NOT call morning brief.
-  // The real culprit is Vercel retrying the morning-brief cron when it's slow.
   //
-  // FIX: Check if a brief was already sent in the last 6 hours.
-  // If yes, skip sending. This prevents duplicates from:
-  //   1. Vercel cron retries (timeout → retry → duplicate)
-  //   2. Manual triggers while cron is running
-  //   3. Multiple cold-start instances running simultaneously
-  const SIX_HOURS_MS = 6 * 60 * 60 * 1000
+  // FIX #215: 6-hour dedup window — but Antonio still received a duplicate
+  // at 2:48 PM (10 hours after the morning brief). The 6-hour window had
+  // expired, so the dedup let it through.
+  //
+  // FIX #219: Increased to 24-hour window. The morning brief should only be
+  // sent ONCE per day. If any trigger fires within 24 hours of the last send,
+  // it's blocked. This completely eliminates duplicates.
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
   const dedupKey = 'morning_brief_last_sent'
   try {
     const { db } = await import('./db')
@@ -69,14 +68,14 @@ export async function runMorningBrief(): Promise<{
     if (lastSentRow) {
       const lastSentTime = new Date(lastSentRow.createdAt).getTime()
       const elapsed = Date.now() - lastSentTime
-      if (elapsed < SIX_HOURS_MS) {
+      if (elapsed < TWENTY_FOUR_HOURS_MS) {
         console.log(`[morning-brief] DEDUP: Already sent ${Math.round(elapsed / 60000)} min ago. Skipping.`)
         return {
           ok: true,
           brief: '(skipped — already sent recently)',
           sections: [],
           sent: false,
-          error: `Deduplication: brief was already sent ${Math.round(elapsed / 60000)} minutes ago. Next brief allowed in ${Math.round((SIX_HOURS_MS - elapsed) / 3600000)} hours.`,
+          error: `Deduplication: brief was already sent ${Math.round(elapsed / 60000)} minutes ago. Next brief allowed in ${Math.round((TWENTY_FOUR_HOURS_MS - elapsed) / 3600000)} hours.`,
         }
       }
     }
