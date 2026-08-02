@@ -2301,7 +2301,7 @@ import {
 TOOL_REGISTRY.smart_tool_router = { fn: toolSmartToolRouter, icon: 'compass', label: 'Smart Tool Router (scans ALL tools by keyword, picks best 10)' }
 TOOL_REGISTRY.tool_catalog = { fn: toolToolCatalog, icon: 'list', label: 'Tool Catalog (browse ALL tools by category)' }
 TOOL_REGISTRY.parallel_executor = { fn: toolParallelExecutor, icon: 'zap', label: 'Parallel Executor (run 5 tools simultaneously)' }
-TOOL_REGISTRY.accuracy_checker = { fn: toolAccuracyChecker, icon: 'check-circle', label: 'Accuracy Checker (cross-reference verify claims)' }
+TOOL_REGISTRY.accuracy_checker = { fn: toolAccuracyChecker, icon: 'check-circle', label: 'Accuracy Checker (8 sources: Wiki+DDG+Brave+CoinGecko+Yahoo+GitHub+arXiv+HN — LLM verified)' }
 // (efficiency_optimizer + tool_usage_analyzer dead — REAL versions at lines ~2627+)
 TOOL_REGISTRY.scalable_infrastructure = { fn: toolScalableInfrastructure, icon: 'server', label: 'Scalable Infrastructure' }
 

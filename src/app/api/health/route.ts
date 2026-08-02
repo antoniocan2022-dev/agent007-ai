@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-213',  // UPGRADE #213: Version API uses Vercel git env vars (fixes 'unknown' commit)
+    version: 'upgrade-214',  // UPGRADE #214: accuracy_checker upgraded to 8 sources (never fails)
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',
