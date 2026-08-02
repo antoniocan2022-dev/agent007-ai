@@ -210,8 +210,7 @@ export function DashboardTab() {
           <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                <span className="neon-text-cyan">Income</span>{' '}
-                <span className="neon-text-purple">Tracker</span>
+                <span className="neon-text-cyan">Tracker</span><span className="neon-text-purple">+</span>
               </h1>
               <p className="text-xs text-[#7c89b5] mt-1 tracking-wide">
                 Mission: $20,000/month passive income • 20% monthly growth • 20% daily growth • Full autonomous authority
@@ -270,8 +269,17 @@ export function DashboardTab() {
           </div>
 
           {/* UPGRADE #87 — Autonomy / Intelligence / Awareness panel (live data) */}
+          {/* ── Section: System Intelligence ── */}
+          <div className="mb-2 mt-1">
+            <h2 className="text-[10px] tracking-[0.2em] text-[#5b6a92] uppercase font-bold">📊 System Intelligence</h2>
+          </div>
           <div className="glass rounded-xl p-4 border border-cyan-400/20 mb-5">
             <AutonomyIntelligencePanel mode="full" />
+          </div>
+
+          {/* ── Section: Revenue KPIs ── */}
+          <div className="mb-2">
+            <h2 className="text-[10px] tracking-[0.2em] text-[#5b6a92] uppercase font-bold">💰 Revenue KPIs</h2>
           </div>
 
           {/* Custom widgets — top position */}
@@ -488,6 +496,11 @@ export function DashboardTab() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* ── Section: Activity Log ── */}
+              <div className="mb-2">
+                <h2 className="text-[10px] tracking-[0.2em] text-[#5b6a92] uppercase font-bold">📋 Activity Log</h2>
               </div>
 
               {/* Recent income events */}

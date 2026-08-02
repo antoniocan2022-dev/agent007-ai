@@ -36,7 +36,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'missions', label: 'Missions', icon: Rocket },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'dashboard', label: 'Tracker+', icon: LayoutDashboard },
   { id: 'pods', label: 'Pods', icon: Network },
   { id: 'mission-active', label: 'Mission Actives', icon: GitBranch },
   { id: 'schedules', label: 'Schedules', icon: CalendarClock },
