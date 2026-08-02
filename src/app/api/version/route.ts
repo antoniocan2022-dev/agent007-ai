@@ -22,27 +22,24 @@
  * the deployed version without logging in.
  */
 import { NextResponse } from 'next/server'
-import { execSync } from 'node:child_process'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  let gitCommit = 'unknown'
-  let gitBranch = 'unknown'
-
-  try {
-    gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim()
-  } catch {}
-  try {
-    gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim()
-  } catch {}
+  // Vercel provides these env vars automatically when deployed via git
+  // https://vercel.com/docs/projects/environment-variables/system-environment-variables
+  const gitCommit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) || 'unknown'
+  const gitBranch = process.env.VERCEL_GIT_COMMIT_REF || 'main'
+  const gitCommitMessage = process.env.VERCEL_GIT_COMMIT_MESSAGE || ''
+  const gitCommitDate = process.env.VERCEL_GIT_COMMIT_DATE || ''
 
   return NextResponse.json({
-    version: 'upgrade-212',
+    version: 'upgrade-213',
     gitCommit,
     gitBranch,
-    buildDate: process.env.VERCEL_GIT_COMMIT_DATE || new Date().toISOString(),
+    gitCommitMessage,
+    buildDate: gitCommitDate || new Date().toISOString(),
     environment: process.env.VERCEL_ENV || (process.env.VERCEL ? 'production' : 'development'),
     region: process.env.VERCEL_REGION || 'local',
     nodeVersion: process.version,
