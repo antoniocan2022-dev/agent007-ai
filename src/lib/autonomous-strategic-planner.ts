@@ -199,7 +199,8 @@ export async function runMorningBrief(): Promise<{
   ${briefDate}
 ═══════════════════════════════════════════════════════════════
 
-MISSION STATUS: $20K/month passive income with 20% monthly growth
+MISSION: Continuously discover, validate, build, launch, optimize, automate, and scale ethical digital businesses that maximize enterprise value.
+VISION: An Autonomous AI Enterprise managing a portfolio of digital businesses through shared executive intelligence.
 
 ${sections.map(s => `── ${s.leader} (confidence: ${s.confidence}%) ──
   Findings: ${s.findings}

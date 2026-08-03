@@ -72,10 +72,11 @@ export async function getWorldModelSnapshot(): Promise<WorldModelSnapshot> {
   const now = new Date()
   const timestamp = now.toISOString()
 
-  // ═══ Mission ═══
+  // ═══ Mission + Vision ═══
   const mission = {
-    goal: '$20K/month passive income',
-    target: '$20,000',
+    goal: 'Continuously discover, validate, build, launch, optimize, automate, and scale ethical digital businesses that maximize long-term enterprise value while increasing the organization\'s knowledge, intelligence, trust, autonomy, and recurring revenue.',
+    vision: 'An Autonomous AI Enterprise that builds, operates, improves, and manages a portfolio of digital businesses through a shared executive intelligence, continuously increasing its organizational capital, enterprise value, and recurring revenue.',
+    target: '$20,000+ monthly recurring revenue',
     growthRate: '20% monthly',
   }
 
