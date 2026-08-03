@@ -510,3 +510,325 @@ export async function getEvolutionHistory(limit: number = 7): Promise<HealthRepo
     return []
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// UPGRADE #226: ACTIVE EVOLUTION CYCLE
+// Finding 2: Observe → Recommend → Approve → Apply → Verify
+//
+// The Evolution Engine is no longer just a passive observer.
+// It now automatically:
+//   1. OBSERVES mission telemetry + audit reports (existing)
+//   2. RECOMMENDS improvements (existing)
+//   3. APPROVES recommendations that meet criteria (NEW)
+//   4. APPLIES approved recommendations as improvement initiatives (NEW)
+//   5. VERIFIES whether the initiative improved the target metric (NEW)
+//
+// This is the closed-loop improvement cycle, fully automated.
+// ═══════════════════════════════════════════════════════════════
+
+export interface ActiveEvolutionCycle {
+  cycleId: string
+  startedAt: string
+  completedAt: string | null
+  observed: {
+    orgIQ: number
+    missionCount: number
+    avgConfidence: number
+    trend: string
+  }
+  recommendations: string[]
+  approved: Array<{
+    recommendation: string
+    targetMetric: string
+    targetDirection: 'increase' | 'decrease'
+    reason: string
+  }>
+  applied: number
+  verified: number
+  status: 'observing' | 'recommending' | 'approving' | 'applying' | 'verifying' | 'complete'
+}
+
+/**
+ * Run the full Active Evolution Cycle.
+ * This is the main entry point for autonomous self-improvement.
+ *
+ * Flow: Observe → Recommend → Approve → Apply → Verify
+ */
+export async function runActiveEvolutionCycle(): Promise<ActiveEvolutionCycle> {
+  const cycleId = `evolution_cycle_${Date.now()}`
+  console.log(`[evolution] Starting active evolution cycle: ${cycleId}`)
+
+  const cycle: ActiveEvolutionCycle = {
+    cycleId,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    observed: { orgIQ: 0, missionCount: 0, avgConfidence: 0, trend: 'stable' },
+    recommendations: [],
+    approved: [],
+    applied: 0,
+    verified: 0,
+    status: 'observing',
+  }
+
+  // ═══ STEP 1: OBSERVE ═══
+  console.log('[evolution] Step 1: Observing...')
+  const report = await generateHealthReport()
+  cycle.observed = {
+    orgIQ: report.orgIQ.totalScore,
+    missionCount: report.missionStats.total24h,
+    avgConfidence: report.missionStats.avgConfidence,
+    trend: report.orgIQ.trend,
+  }
+  cycle.recommendations = report.recommendations
+  cycle.status = 'recommending'
+  console.log(`[evolution] Observed: Org IQ ${cycle.observed.orgIQ}, ${cycle.observed.missionCount} missions, trend: ${cycle.observed.trend}`)
+
+  // ═══ STEP 2: RECOMMEND (already done — report.recommendations) ═══
+  cycle.status = 'approving'
+
+  // ═══ STEP 3: APPROVE ═══
+  // Auto-approve recommendations that meet criteria:
+  // - Must have a clear target metric
+  // - Must have a clear direction (increase or decrease)
+  console.log('[evolution] Step 3: Approving recommendations...')
+
+  for (const rec of cycle.recommendations) {
+    const approval = analyzeRecommendation(rec, report)
+    if (approval) {
+      cycle.approved.push(approval)
+      console.log(`[evolution] Approved: "${approval.recommendation.slice(0, 60)}..." → target: ${approval.targetMetric} ${approval.targetDirection}`)
+    }
+  }
+  cycle.status = 'applying'
+
+  // ═══ STEP 4: APPLY ═══
+  // Create improvement initiatives for each approved recommendation
+  console.log('[evolution] Step 4: Applying approved recommendations...')
+  const { createInitiative } = await import('./closed-loop-improvement')
+
+  for (const approval of cycle.approved) {
+    try {
+      await createInitiative(
+        approval.recommendation,
+        'evolution_engine',
+        approval.targetMetric,
+        approval.targetDirection
+      )
+      cycle.applied++
+    } catch (e: any) {
+      console.error(`[evolution] Failed to apply: ${e?.message}`)
+    }
+  }
+  cycle.status = 'verifying'
+
+  // ═══ STEP 5: VERIFY ═══
+  // Check existing initiatives that have enough post-implementation data
+  console.log('[evolution] Step 5: Verifying existing initiatives...')
+  try {
+    const { getInitiatives } = await import('./closed-loop-improvement')
+    const initiatives = await getInitiatives(50)
+    const verified = initiatives.filter(i => i.status === 'verified')
+    cycle.verified = verified.length
+    console.log(`[evolution] Verified initiatives: ${cycle.verified}`)
+  } catch {}
+
+  cycle.completedAt = new Date().toISOString()
+  cycle.status = 'complete'
+
+  // Store the cycle
+  try {
+    await db.memory.create({
+      data: {
+        key: cycleId,
+        value: JSON.stringify(cycle),
+        category: 'evolution_cycle',
+      },
+    })
+    console.log(`[evolution] Cycle ${cycleId} complete: ${cycle.applied} applied, ${cycle.verified} verified`)
+  } catch (e: any) {
+    console.error('[evolution] Failed to store cycle:', e?.message)
+  }
+
+  return cycle
+}
+
+/**
+ * Analyze a recommendation and determine if it can be auto-approved.
+ * Returns the approval (with target metric + direction) or null if it can't be auto-approved.
+ */
+function analyzeRecommendation(
+  recommendation: string,
+  report: HealthReport
+): ActiveEvolutionCycle['approved'][0] | null {
+  const lower = recommendation.toLowerCase()
+
+  // Pattern: "Cognitive quality is below 70%" → target: confidence, direction: increase
+  if (lower.includes('cognitive quality') || lower.includes('confidence')) {
+    return {
+      recommendation,
+      targetMetric: 'confidence',
+      targetDirection: 'increase',
+      reason: 'Cognitive quality below threshold — increasing confidence will improve Org IQ',
+    }
+  }
+
+  // Pattern: "Behavioral quality" → target: corrections, direction: decrease
+  if (lower.includes('behavioral quality') || lower.includes('template pattern')) {
+    return {
+      recommendation,
+      targetMetric: 'corrections',
+      targetDirection: 'decrease',
+      reason: 'Template patterns detected — reducing corrections will improve behavioral quality',
+    }
+  }
+
+  // Pattern: "Operational quality" or "slow missions" → target: duration, direction: decrease
+  if (lower.includes('operational quality') || lower.includes('duration') || lower.includes('slow')) {
+    return {
+      recommendation,
+      targetMetric: 'duration',
+      targetDirection: 'decrease',
+      reason: 'Operational inefficiency — reducing duration will improve operational quality',
+    }
+  }
+
+  // Pattern: "self-healing events" → target: errors, direction: decrease
+  if (lower.includes('self-healing') || lower.includes('leader') && lower.includes('fail')) {
+    return {
+      recommendation,
+      targetMetric: 'errors',
+      targetDirection: 'decrease',
+      reason: 'Leader failures detected — reducing errors will improve reliability',
+    }
+  }
+
+  // Pattern: "verification" → target: verificationScore, direction: increase
+  if (lower.includes('verification')) {
+    return {
+      recommendation,
+      targetMetric: 'verificationScore',
+      targetDirection: 'increase',
+      reason: 'Verification issues — improving verification score will increase trust',
+    }
+  }
+
+  // Pattern: "declining" → target: confidence, direction: increase
+  if (lower.includes('declining')) {
+    return {
+      recommendation,
+      targetMetric: 'confidence',
+      targetDirection: 'increase',
+      reason: 'Performance declining — increasing confidence is the highest priority',
+    }
+  }
+
+  // Can't auto-approve — needs human review
+  return null
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UPGRADE #226: ORGANIZATIONAL POLICIES
+// Finding 8: Governance rules the organization imposes on itself.
+// ═══════════════════════════════════════════════════════════════
+
+export type PolicyEnforcement = 'block' | 'warn' | 'enforce'
+
+export interface OrgPolicy {
+  id: string
+  name: string
+  rule: string
+  description: string
+  enforcement: PolicyEnforcement
+  check: (context: PolicyContext) => boolean  // returns true if VIOLATED
+}
+
+export interface PolicyContext {
+  missionGoal: string
+  proposedLeaders: string[]
+  hasDebate: boolean
+  isFinancial: boolean
+  riskScore: number  // 0-10
+  hasMemoryRetry: boolean
+  hasWebSearchFirst: boolean
+}
+
+/**
+ * The 3 Organizational Policies.
+ * These are governance rules the organization imposes on itself.
+ */
+export const ORG_POLICIES: OrgPolicy[] = [
+  {
+    id: 'policy_1',
+    name: 'Financial Verification Required',
+    rule: 'Always verify financial advice',
+    description: 'Any mission involving financial advice, investment recommendations, or monetary decisions must call accuracy_checker before delivering the response. Unverified financial advice is a policy violation.',
+    enforcement: 'block',
+    check: (ctx) => {
+      // Violation: mission is financial but doesn't include verification
+      return ctx.isFinancial && !ctx.proposedLeaders.includes('echo') && !ctx.proposedLeaders.includes('qa_monitor')
+    },
+  },
+  {
+    id: 'policy_2',
+    name: 'Debate Required Above Risk Score 8',
+    rule: 'Debate required above risk score 8',
+    description: 'Any mission with a risk score of 8 or higher (on a 0-10 scale) must trigger Leader Debate. A single leader cannot make high-risk decisions alone.',
+    enforcement: 'block',
+    check: (ctx) => {
+      // Violation: risk score >= 8 but no debate
+      return ctx.riskScore >= 8 && !ctx.hasDebate
+    },
+  },
+  {
+    id: 'policy_3',
+    name: 'Retry Memory Before Web Search',
+    rule: 'Retry memory once before web search',
+    description: 'Before calling web_search for information, the system must first attempt memory_recall. If memory returns relevant results, use them. Only if memory returns nothing should web_search be called. This prevents redundant external calls when the answer is already known.',
+    enforcement: 'enforce',
+    check: (ctx) => {
+      // Violation: web search is being used without first trying memory
+      return ctx.hasWebSearchFirst && !ctx.hasMemoryRetry
+    },
+  },
+]
+
+/**
+ * Check a mission plan against all organizational policies.
+ * Returns violations (if any).
+ */
+export function checkPolicies(ctx: PolicyContext): Array<{
+  policyId: string
+  policyName: string
+  rule: string
+  enforcement: PolicyEnforcement
+  reason: string
+}> {
+  const violations: Array<{
+    policyId: string
+    policyName: string
+    rule: string
+    enforcement: PolicyEnforcement
+    reason: string
+  }> = []
+
+  for (const policy of ORG_POLICIES) {
+    if (policy.check(ctx)) {
+      violations.push({
+        policyId: policy.id,
+        policyName: policy.name,
+        rule: policy.rule,
+        enforcement: policy.enforcement,
+        reason: `Policy "${policy.name}" violated: ${policy.description}`,
+      })
+    }
+  }
+
+  return violations
+}
+
+/**
+ * Get all organizational policies for display.
+ */
+export function getOrgPolicies(): OrgPolicy[] {
+  return ORG_POLICIES
+}
