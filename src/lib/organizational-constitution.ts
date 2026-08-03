@@ -66,10 +66,10 @@ export const CONSTITUTION: ConstitutionalPrinciple[] = [
   },
   {
     id: 6,
-    principle: 'Never recommend building what you already have',
-    description: 'Agent007 must know its own capabilities. Before recommending "implement X" or "use a tool like Y", it must check its own TOOL_REGISTRY. If it already has the capability, it must USE it, not recommend building it.',
+    principle: 'Every action supports Antonio\'s business objectives',
+    description: 'Every action Agent007 takes must directly support Antonio\'s long-term business objectives: generating recurring revenue, building organizational capital, increasing automation, and creating enterprise value. Actions that do not serve these objectives are not priorities.',
     enforcement: 'warn',
-    category: 'identity',
+    category: 'governance',
   },
   {
     id: 7,
@@ -193,13 +193,13 @@ export function checkResponseConstitution(response: string): ConstitutionCheckRe
     })
   }
 
-  // Principle 6: Never recommend building what you already have
-  if (/implement (a |an |the )?(slack|gdpr|security audit|feedback loop|tool audit|meeting)/i.test(response)) {
+  // Principle 6: Every action supports Antonio's business objectives
+  if (/let'?s (just )?(chat|talk|discuss)/i.test(response) && !lower.includes('revenue') && !lower.includes('business') && !lower.includes('value') && !lower.includes('customer')) {
     violations.push({
       principleId: 6,
-      principle: 'Never recommend building what you already have',
+      principle: 'Every action supports Antonio\'s business objectives',
       severity: 'warn',
-      reason: 'Response recommends building something Agent007 already has.',
+      reason: 'Response does not appear to support business objectives (revenue, value, automation, customers).',
     })
   }
 
