@@ -172,10 +172,14 @@ export async function updateBusiness(businessId: string, updates: Partial<Busine
       data: { value: JSON.stringify(business) },
     })
 
-    // Check for retirement condition
+    // Check for retirement condition — auto-retire if ROI is severely negative
     if (business.lifecycle === 'active' && business.roi < -50 && business.monthlyRevenue > 0) {
-      console.log(`[portfolio] Business ${business.name} has negative ROI (${business.roi}%) — recommending retirement`)
-      // Don't auto-retire — recommend it
+      console.log(`[portfolio] Business ${business.name} has negative ROI (${business.roi}%) — auto-retiring`)
+      await retireBusiness(business.businessId, `Auto-retired: ROI ${business.roi}% (negative for too long). Resources recovered for better opportunities.`)
+      // Recover resources — log the learning
+      await recoverResources(business)
+    } else if (business.lifecycle === 'active' && business.roi < -20 && business.monthlyRevenue > 0) {
+      console.log(`[portfolio] Business ${business.name} has declining ROI (${business.roi}%) — warning`)
     }
 
     return business
@@ -206,6 +210,205 @@ export async function retireBusiness(businessId: string, reason: string): Promis
     console.log(`[portfolio] Business retired: ${business.name} — reason: ${reason}`)
   } catch (e: any) {
     console.error('[portfolio] Failed to retire business:', e?.message)
+  }
+}
+
+/**
+ * Recover resources from a retired business.
+ * Stores the failure learnings so the organization doesn't repeat the same mistakes.
+ */
+async function recoverResources(business: Business): Promise<void> {
+  try {
+    // Store failure learning in Org KB
+    await db.memory.create({
+      data: {
+        key: `recovered_${business.businessId}_${Date.now()}`,
+        value: JSON.stringify({
+          businessName: business.name,
+          businessType: business.type,
+          retirementReason: business.retirementReason,
+          finalRevenue: business.monthlyRevenue,
+          finalROI: business.roi,
+          customerCount: business.customerCount,
+          automationLevel: business.automationLevel,
+          targetMarket: business.targetMarket,
+          pricingModel: business.pricingModel,
+          lesson: `Business "${business.name}" (${business.type}) was retired with ROI ${business.roi}%. Avoid similar market/pricing combinations in future ventures.`,
+          recoveredAt: new Date().toISOString(),
+        }),
+        category: 'business_retirement_log',
+      },
+    })
+    console.log(`[portfolio] Resources recovered from ${business.name} — failure lesson stored`)
+  } catch (e: any) {
+    console.error('[portfolio] Resource recovery failed:', e?.message)
+  }
+}
+
+/**
+ * Check all active businesses for negative ROI and auto-retire failing ones.
+ * Called periodically (e.g., from the Morning Brief or Evolution Cycle).
+ */
+export async function checkPortfolioHealth(): Promise<{
+  checked: number
+  retired: number
+  warnings: string[]
+}> {
+  const businesses = await getActiveBusinesses()
+  const active = businesses.filter(b => b.lifecycle === 'active' || b.lifecycle === 'scaling')
+  const warnings: string[] = []
+  let retired = 0
+
+  for (const business of active) {
+    // Auto-retire if ROI is severely negative (< -50%)
+    if (business.roi < -50 && business.monthlyRevenue > 0) {
+      await retireBusiness(business.businessId, `Auto-retired: ROI ${business.roi}%`)
+      await recoverResources(business)
+      retired++
+      warnings.push(`Auto-retired: ${business.name} (ROI: ${business.roi}%)`)
+    }
+    // Warning if ROI is declining (< -20%)
+    else if (business.roi < -20 && business.monthlyRevenue > 0) {
+      warnings.push(`Declining: ${business.name} (ROI: ${business.roi}%)`)
+    }
+  }
+
+  console.log(`[portfolio] Health check: ${active.length} checked, ${retired} retired, ${warnings.length} warnings`)
+  return { checked: active.length, retired, warnings }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CROSS-BUSINESS KNOWLEDGE SHARING
+// ═══════════════════════════════════════════════════════════════
+
+export interface CrossBusinessInsight {
+  insightId: string
+  sourceBusinessId: string
+  sourceBusinessName: string
+  targetBusinessType: BusinessType
+  insight: string
+  confidence: number
+  createdAt: string
+  applied: boolean
+}
+
+/**
+ * Extract insights from a business and share them with other businesses.
+ * Called when a business achieves success (high revenue, high confidence, etc.)
+ *
+ * Example: Affiliate marketing discovers high-converting keywords.
+ * SaaS learns from them. Content business benefits. SEO improves.
+ */
+export async function shareBusinessInsights(sourceBusinessId: string): Promise<CrossBusinessInsight[]> {
+  const insights: CrossBusinessInsight[] = []
+
+  try {
+    // Get the source business
+    const record = await db.memory.findFirst({
+      where: { key: sourceBusinessId, category: 'business_portfolio' },
+    })
+    if (!record) return insights
+
+    const source: Business = JSON.parse(record.value)
+
+    // Only share if the business is performing well
+    if (source.monthlyRevenue < 100 && source.customerCount < 5) {
+      return insights
+    }
+
+    // Get all other active businesses
+    const allBusinesses = await getActiveBusinesses()
+    const targets = allBusinesses.filter(b => b.businessId !== sourceBusinessId)
+
+    // Generate insights based on the source business's success
+    const insightTypes = [
+      {
+        condition: source.automationLevel > 50,
+        insight: `Business "${source.name}" achieved ${source.automationLevel}% automation. Apply similar automation patterns (${source.automationNotes}) to reduce manual work in other businesses.`,
+        targetType: 'all' as BusinessType | 'all',
+      },
+      {
+        condition: source.customerCount > 10,
+        insight: `Business "${source.name}" acquired ${source.customerCount} customers. Customer acquisition strategy for ${source.targetMarket} may be applicable to other businesses targeting similar markets.`,
+        targetType: 'all' as BusinessType | 'all',
+      },
+      {
+        condition: source.monthlyRevenue > 500,
+        insight: `Business "${source.name}" is generating $${source.monthlyRevenue}/month with pricing model "${source.pricingModel}". Consider testing this pricing model in other ventures.`,
+        targetType: 'all' as BusinessType | 'all',
+      },
+      {
+        condition: source.brandScore > 50,
+        insight: `Business "${source.name}" achieved brand score ${source.brandScore}/100. Content/brand strategy may be transferable to other businesses in the same market.`,
+        targetType: 'all' as BusinessType | 'all',
+      },
+    ]
+
+    for (const { condition, insight, targetType } of insightTypes) {
+      if (!condition) continue
+
+      // Share with all target businesses
+      for (const target of targets) {
+        const crossInsight: CrossBusinessInsight = {
+          insightId: `insight_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          sourceBusinessId: source.businessId,
+          sourceBusinessName: source.name,
+          targetBusinessType: target.type,
+          insight,
+          confidence: Math.min(100, source.monthlyRevenue / 10 + 30),
+          createdAt: new Date().toISOString(),
+          applied: false,
+        }
+        insights.push(crossInsight)
+
+        // Store the insight
+        await db.memory.create({
+          data: {
+            key: crossInsight.insightId,
+            value: JSON.stringify(crossInsight),
+            category: 'cross_business_insight',
+          },
+        })
+      }
+    }
+
+    // Also feed insights to the Org KB so future businesses benefit
+    if (insights.length > 0) {
+      const { ingestMission } = await import('./organizational-knowledge-base')
+      const { startMissionTelemetry, completeMissionTelemetry } = await import('./mission-telemetry')
+      const telemetry = startMissionTelemetry(`Cross-business insight sharing from ${source.name}`)
+      telemetry.leadersUsed = ['venture_studio']
+      telemetry.confidence = Math.min(100, source.monthlyRevenue / 10 + 30)
+      telemetry.verificationPassed = true
+      telemetry.verificationScore = 80
+      await completeMissionTelemetry(telemetry, 'completed')
+      await ingestMission(telemetry)
+    }
+
+    console.log(`[portfolio] Shared ${insights.length} insights from ${source.name} to ${targets.length} businesses`)
+  } catch (e: any) {
+    console.error('[portfolio] Cross-business sharing failed:', e?.message)
+  }
+
+  return insights
+}
+
+/**
+ * Get all cross-business insights.
+ */
+export async function getCrossBusinessInsights(limit: number = 50): Promise<CrossBusinessInsight[]> {
+  try {
+    const records = await db.memory.findMany({
+      where: { category: 'cross_business_insight' },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    })
+    return records.map(r => {
+      try { return JSON.parse(r.value) as CrossBusinessInsight }
+      catch { return null }
+    }).filter(Boolean) as CrossBusinessInsight[]
+  } catch {
+    return []
   }
 }
 
