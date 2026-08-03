@@ -92,7 +92,7 @@ export async function GET() {
 
   // ═══ 4. BUILD VERSION ═══
   const buildVersion = {
-    version: 'upgrade-226',
+    version: 'upgrade-227',
     gitCommit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) || 'unknown',
     gitBranch: process.env.VERCEL_GIT_COMMIT_REF || 'main',
     environment: process.env.VERCEL_ENV || (process.env.VERCEL ? 'production' : 'development'),

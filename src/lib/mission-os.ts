@@ -247,6 +247,16 @@ CONFIDENCE: <number>%`
     await checkRecommendationsAgainstMission(telemetry, auditReport)
     learnings.push('Closed-loop improvement check completed')
 
+    // ═══ FINDING 3: Ingest into Organizational Knowledge Base (#227) ═══
+    // Every completed mission feeds the org KB with:
+    // - Best/worst workflows
+    // - Common failures/successes
+    // - Leader combinations
+    // - Reasoning patterns
+    const { ingestMission } = await import('./organizational-knowledge-base')
+    await ingestMission(telemetry)
+    learnings.push('Organizational knowledge base updated')
+
     stages[6] = { stage: 'LEARN', status: 'complete', output: learning + '\n' + auditReport.lessonsLearned, durationMs: Date.now() - stageStart }
     console.log(`[mission-os] Stage 8 LEARN complete — audit: ${auditReport.overallVerdict}`)
   } catch (e: any) {
