@@ -33,7 +33,7 @@ export async function GET() {
     ok: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: 'upgrade-227',  // UPGRADE #225: Adaptive Weights + Live Monitoring + Constitution + Predicted IQ + Simulation
+    version: 'upgrade-228',  // UPGRADE #225: Adaptive Weights + Live Monitoring + Constitution + Predicted IQ + Simulation
     app: 'Agent007 AI',
     url: 'https://agent007-ai.vercel.app',
     region: process.env.VERCEL_REGION ?? 'iad1',
