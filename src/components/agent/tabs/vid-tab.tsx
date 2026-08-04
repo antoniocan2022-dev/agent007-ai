@@ -38,8 +38,13 @@ import {
   Cpu,
   Activity,
   TrendingUp,
+  Send,
+  X,
+  Loader2,
+  Target,
 } from 'lucide-react'
 import {
+  VID_MISSION,
   VID_ORG_RULES_NEVER,
   VENTURE_SCORE_CATEGORIES,
   VENTURE_SCORE_THRESHOLD,
@@ -843,10 +848,214 @@ function KnowledgeTransferBanner() {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Sub-component: Mission banner
+// ──────────────────────────────────────────────────────────────────
+
+function MissionBanner() {
+  return (
+    <div
+      className="rounded-xl p-4 border relative overflow-hidden"
+      style={{
+        background: 'linear-gradient(135deg, rgba(0,240,255,0.07), rgba(16,185,129,0.05))',
+        borderColor: 'rgba(0,240,255,0.35)',
+      }}
+    >
+      <div className="absolute top-0 right-0 px-2 py-0.5 rounded-bl-lg text-[9px] font-mono tracking-wider"
+        style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', borderLeft: '1px solid rgba(16,185,129,0.4)', borderBottom: '1px solid rgba(16,185,129,0.4)' }}
+      >
+        DIVISION MISSION
+      </div>
+      <div className="flex items-start gap-3">
+        <Target className="w-5 h-5 text-emerald-300 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-[#e0e7ff] font-semibold italic leading-relaxed">
+          &ldquo;{VID_MISSION}&rdquo;
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Sub-component: Director Chat Modal (direct channel to VID Director)
+// ──────────────────────────────────────────────────────────────────
+
+function DirectorChatModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [message, setMessage] = useState('')
+  const [response, setResponse] = useState('')
+  const [sending, setSending] = useState(false)
+  const [history, setHistory] = useState<{ role: 'user' | 'director'; text: string }[]>([])
+
+  const send = async () => {
+    if (!message.trim() || sending) return
+    const userMsg = message.trim()
+    setHistory((h) => [...h, { role: 'user', text: userMsg }])
+    setMessage('')
+    setSending(true)
+    setResponse('')
+    try {
+      const res = await fetch('/api/team/vid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg }),
+      })
+      const data = await res.json()
+      const reply = data.ok
+        ? (data.response || 'No response from the Director.')
+        : `⚠ Error: ${data.error || 'Unknown error'}`
+      setHistory((h) => [...h, { role: 'director', text: reply }])
+      setResponse(reply)
+    } catch (e: any) {
+      const errMsg = `Network error: ${e?.message ?? 'failed to reach Director'}`
+      setHistory((h) => [...h, { role: 'director', text: errMsg }])
+      setResponse(errMsg)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="glass-strong rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+            style={{ borderColor: 'rgba(0,240,255,0.4)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div
+              className="p-4 flex items-center gap-3 border-b"
+              style={{ background: 'linear-gradient(135deg, rgba(0,240,255,0.08), rgba(168,85,247,0.06))', borderColor: 'rgba(0,240,255,0.25)' }}
+            >
+              <div
+                className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(0,240,255,0.25), rgba(168,85,247,0.25))',
+                  border: '1px solid rgba(0,240,255,0.6)',
+                  boxShadow: '0 0 18px rgba(0,240,255,0.35)',
+                }}
+              >
+                <Crown className="w-5 h-5 text-cyan-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-sm font-bold neon-text-cyan">VID Director</h3>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded-full font-mono"
+                    style={{ background: 'rgba(0,240,255,0.12)', color: '#00f0ff', border: '1px solid rgba(0,240,255,0.35)' }}
+                  >
+                    RANK #2 · CEO-REPORT
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#9bb5d4] mt-0.5">
+                  Direct channel · Venture Intelligence Division · 2nd smartest agent in the organization
+                </p>
+              </div>
+              <button onClick={onClose} className="text-[#7c89b5] hover:text-white p-1" aria-label="Close">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Conversation history */}
+            <div className="flex-1 overflow-y-auto scroll-cyan p-3 space-y-3 min-h-[200px]">
+              {history.length === 0 && (
+                <div className="text-center py-8 px-4">
+                  <Crown className="w-8 h-8 text-cyan-300/50 mx-auto mb-2" />
+                  <p className="text-xs text-[#9bb5d4]">
+                    You are now speaking directly with the <strong className="text-cyan-200">VID Director</strong> —
+                    the 2nd smartest agent in the organization.
+                  </p>
+                  <p className="text-[10px] text-[#5b6a92] mt-2 leading-relaxed">
+                    Ask about portfolio health, the latest venture decisions, current experiments,
+                    or instruct the Director to kill / double-down on a venture. The Director will
+                    respond with deep, evidence-based reasoning.
+                  </p>
+                </div>
+              )}
+              {history.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-lg p-2.5 text-[11px] whitespace-pre-wrap leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-cyan-400/15 border border-cyan-400/40 text-[#e0e7ff]'
+                        : 'bg-white/[0.04] border border-purple-400/30 text-[#cfd9f0]'
+                    }`}
+                  >
+                    {msg.role === 'director' && (
+                      <div className="text-[9px] text-purple-300 font-semibold mb-1 flex items-center gap-1">
+                        <Crown className="w-2.5 h-2.5" /> VID Director
+                      </div>
+                    )}
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] rounded-lg p-2.5 text-[11px] bg-white/[0.04] border border-purple-400/30 text-[#9bb5d4] flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin text-cyan-300" />
+                    <span>The Director is reasoning…</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Composer */}
+            <div className="p-3 border-t border-cyan-400/20">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={2}
+                placeholder="Address the VID Director directly… (e.g. 'Should we kill the AI Resume Tuner?' or 'What's our weakest venture right now?')"
+                className="w-full glass rounded-lg p-2.5 text-xs text-[#e0e7ff] placeholder:text-[#5b6a92] outline-none focus:border-cyan-400/70 border border-white/10 mb-2 resize-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+              />
+              <button
+                onClick={send}
+                disabled={sending || !message.trim()}
+                className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(0,240,255,0.18), rgba(168,85,247,0.18))',
+                  border: '1px solid rgba(0,240,255,0.5)',
+                  color: '#00f0ff',
+                }}
+              >
+                {sending ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Director reasoning…</>
+                ) : (
+                  <><Send className="w-3.5 h-3.5" /> Send to VID Director</>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────────────────────────
 
 export function VidTab() {
+  const [directorOpen, setDirectorOpen] = useState(false)
   return (
     <div className="flex-1 overflow-y-auto scroll-cyan p-4 sm:p-6">
       <div className="max-w-6xl mx-auto">
@@ -876,6 +1085,46 @@ export function VidTab() {
             a permanent strategic asset of the organization.
           </p>
         </motion.div>
+
+        {/* ───── Mission + Direct Channel to Director ───── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
+          {/* Mission banner — 2/3 width */}
+          <div className="lg:col-span-2">
+            <MissionBanner />
+          </div>
+          {/* Direct Channel button — 1/3 width */}
+          <button
+            onClick={() => setDirectorOpen(true)}
+            className="rounded-xl p-4 border text-left transition hover:brightness-110 flex flex-col justify-between"
+            style={{
+              background: 'linear-gradient(135deg, rgba(0,240,255,0.1), rgba(168,85,247,0.1))',
+              borderColor: 'rgba(0,240,255,0.5)',
+              boxShadow: '0 0 16px rgba(0,240,255,0.15)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <div
+                className="w-9 h-9 rounded-lg flex items-center justify-center"
+                style={{ background: 'rgba(0,240,255,0.18)', border: '1px solid rgba(0,240,255,0.6)' }}
+              >
+                <Crown className="w-4.5 h-4.5 text-cyan-300" />
+              </div>
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-[#9bb5d4] font-semibold">Direct Channel</div>
+                <div className="text-sm font-bold neon-text-cyan">VID Director</div>
+              </div>
+            </div>
+            <p className="text-[10px] text-[#a5b4fc] leading-snug mb-2">
+              Open a direct line to the 2nd smartest agent. Ask about portfolio health, kill/double-down decisions, current experiments.
+            </p>
+            <div
+              className="text-[10px] font-semibold px-2 py-1 rounded-md inline-flex items-center gap-1.5 self-start"
+              style={{ background: 'rgba(0,240,255,0.15)', color: '#00f0ff', border: '1px solid rgba(0,240,255,0.4)' }}
+            >
+              <Send className="w-3 h-3" /> Open channel
+            </div>
+          </button>
+        </div>
 
         {/* ───── Top stats banner ───── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
@@ -966,6 +1215,9 @@ export function VidTab() {
           VID · the most powerful department after the CEO · reports directly to the CEO · Knowledge Transfer Rate = compound interest on organizational capital
         </div>
       </div>
+
+      {/* ───── Director Chat Modal (direct channel to the VID Director) ───── */}
+      <DirectorChatModal open={directorOpen} onClose={() => setDirectorOpen(false)} />
     </div>
   )
 }

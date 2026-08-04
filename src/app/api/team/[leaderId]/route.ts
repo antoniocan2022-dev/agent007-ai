@@ -16,6 +16,21 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 const POD_STRUCTURE: Record<string, { name: string; leader: string; members: string[]; focus: string; color: string; target?: string }> = {
+  // UPGRADE VID — Venture Intelligence Division is the 2nd most powerful
+  // department after the CEO. Reports DIRECTLY to the CEO. Owns venture
+  // creation, Venture Score ≥ 87, and Knowledge Transfer Rate.
+  vid: {
+    name: 'Venture Intelligence Division',
+    leader: 'VID Director',
+    members: [
+      'Opportunity Hunter', 'Market Intelligence Analyst', 'Customer Psychologist',
+      'Business Architect', 'MVP Strategist', 'Growth Strategist',
+      'Automation Architect', 'Portfolio Manager', 'Chief Venture Scientist',
+    ],
+    focus: 'Builds, scores, launches, and manages ventures. Venture Score threshold ≥ 87. Owns Knowledge Transfer Rate — the single most important KPI. Mission: Increase Enterprise Value by continuously creating, validating, scaling, and retiring businesses while making every future venture easier, faster, smarter, and more profitable than the last.',
+    color: '#00f0ff',
+    target: 'KTR ≥ 0.85',
+  },
   scout: { name: 'Intelligence & Research', leader: 'SCOUT', members: ['HUNT', 'QUANTUM'], focus: 'Find opportunities, validate demand, research competitors', color: '#38bdf8' },
   aurora: { name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX'], focus: 'Create content, design products, build affiliate funnels (Content Specialist merged into AURORA)', color: '#00f0ff' },
   echo: { name: 'Quality Assurance & Testing', leader: 'ECHO', members: ['QA Monitor'], focus: 'Test, verify, score quality, ensure 99% target (Performance Analyst merged into PULSE)', color: '#818cf8' },

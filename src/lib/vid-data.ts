@@ -44,6 +44,15 @@ import {
 } from 'lucide-react'
 
 // ──────────────────────────────────────────────────────────────────────
+// VID Mission — the division's reason for existing.
+// ──────────────────────────────────────────────────────────────────────
+
+export const VID_MISSION =
+  'Increase Enterprise Value by continuously creating, validating, scaling, and retiring ' +
+  'businesses while making every future venture easier, faster, smarter, and more profitable ' +
+  'than the last.'
+
+// ──────────────────────────────────────────────────────────────────────
 // Organizational Rules — The Studio NEVER list
 // ──────────────────────────────────────────────────────────────────────
 
