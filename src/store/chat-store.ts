@@ -136,8 +136,10 @@ interface ChatState {
   setRight: (v: boolean) => void
 
   // active top-level tab
-  activeTab: 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions'
-  setActiveTab: (tab: 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions') => void
+  // UPGRADE VID — Added 'vid' tab (Venture Intelligence Division) between Missions and Tracker+.
+  // VID is the most powerful department after the CEO — owns venture creation, scoring, and portfolio.
+  activeTab: 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions' | 'vid'
+  setActiveTab: (tab: 'chat' | 'dashboard' | 'pods' | 'mission-active' | 'schedules' | 'settings' | 'missions' | 'vid') => void
 
   // global change-password modal trigger (openable from chat-header user menu + Settings tab)
   changePasswordOpen: boolean

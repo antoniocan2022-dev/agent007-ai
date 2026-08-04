@@ -2752,3 +2752,76 @@ Stage Summary:
 - Production is READY. No blockers. All HIGH/MEDIUM findings are non-fatal.
 - Report saved to: /home/z/my-project/AUDIT-METICULOUS-LIVE.md
 - Antonio can confidently ship.
+
+---
+Task ID: VID-001
+Agent: main (Super Z)
+Task: Build the Venture Intelligence Division (VID) — a new tab between Missions and Tracker+ and integrate it into Pods. Follow the analyst's exact structure (1 Leader + 8 Permanent Members + 4 Specialists + Chief Venture Scientist). Threshold = 87 (not 75). All members built with REAL tools linked to actual files in /src/lib and the zai.functions.invoke registry. NO FAKE TOOLS.
+
+Work Log:
+- Read /home/z/my-project/src/app/page.tsx to understand the tab-routing structure and the existing lazy-load pattern.
+- Read /home/z/my-project/src/components/agent/chat-header.tsx to find the TABS array.
+- Read /home/z/my-project/src/store/chat-store.ts to find the activeTab type union (line 139).
+- Read /home/z/my-project/src/components/agent/tabs/pods-tab.tsx (full file) to understand the pod-card pattern + leader-chat modal.
+- Read /home/z/my-project/src/components/agent/tabs/missions-tab.tsx (head) for header style reference.
+- Inspected /home/z/my-project/src/lib/*.ts to enumerate REAL tool names already wired up in the codebase:
+  - zai.functions.invoke tools: web_search, page_reader, http_fetch, inspect_url, wikipedia_search, wikipedia_read, google_ai_search, perplexity_ai_search, arxiv_search, github_search, memory_store, memory_recall
+  - File-backed tools: free-search-tools, ai-search-engines, real-intelligence-tools, multi-search-comparison, business-portfolio, business-infrastructure, mission-templates, affiliate-link-generator, external-platform-tools, course-platform-tools, autonomy-tools, closed-loop-improvement, adaptive-weights, predicted-iq, leader-debate, organizational-knowledge-base, self-healing-engine, tool-self-repair-engine, feedback-loop, full-autonomy-tools
+  - API routes for specialists: /api/compliance, /api/contracts, /api/audit-log, /api/risk-profile, /api/bank-accounts, /api/paypal-accounts, /api/payment-accounts, /api/transactions, /api/income, /api/currency, /api/system/portfolio, /api/system-health, /api/tools/health, /api/system/observability, /api/sentiment, /api/experiments, /api/schedules
+- Updated src/store/chat-store.ts: extended the activeTab union to include 'vid' (lines 138-142).
+- Updated src/components/agent/chat-header.tsx: added Compass icon import, added 'vid' to TabId, added { id: 'vid', label: 'VID', icon: Compass } between Missions and Tracker+ in TABS array.
+- Updated src/app/page.tsx: added `const VidTab = dynamic(...)` lazy import, added `{activeTab === 'vid' && <VidTab />}` to the render switch.
+- Created src/lib/vid-data.ts (660+ lines) — single source of truth for the entire division:
+  - VID_ORG_RULES_NEVER (6 NEVER rules)
+  - VENTURE_SCORE_CATEGORIES (7 weighted categories, total 100%) + VENTURE_SCORE_THRESHOLD = 87
+  - VID_WORKFLOW_STAGES (13 stages, each with REAL example data — venture = "AI Resume Tuner for Shopify Merchants", with concrete artifact + metric per stage)
+  - VID_KPIS (10 KPIs with current vs target)
+  - VID_LEADER (full personality array of 11 traits, NEVER/INSTEAD responsibilities, 9 KPIs, iqRank = "#2 of all agents")
+  - VID_MEMBERS (8 permanent members, each with: mission, scope[], personality[], toolDomain, real tools[] with source paths, output, optional highlight)
+  - CHIEF_VENTURE_SCIENTIST (separate permanent member focused on experiments, with 7 experiment types, weekly cadence, 7 real tools)
+  - VID_SPECIALISTS (4 specialists: Legal, Financial Controller, Brand Designer, Technical Architect — each with mission, scope, real tools, activation trigger, status: 'standby'|'active')
+  - VID_ORG_SECTIONS (3 accordion section headers: "1 Leader", "8 Permanent Members", "4 Specialists")
+  - KNOWLEDGE_TRANSFER_RATE_BANNER (the single most important KPI — full description)
+- Created src/components/agent/tabs/vid-tab.tsx (~600 lines) — main VID tab component:
+  - Header banner with rank/CEO-report badge
+  - Top stats: 1 Leader, 9 Permanent Members (8 + Chief Venture Scientist), 4 Specialists, Threshold ≥87
+  - Knowledge Transfer Rate banner (top placement — most important KPI, with progress bar)
+  - 3 OrgSectionAccordion dropdowns (1 Leader default open, Members and Specialists collapsed):
+    * Leader accordion → LeaderCard (rank ribbon, personality grid, NEVER/INSTEAD split, KPI grid)
+    * Members accordion → 8 MemberCard components (each expandable to show scope, personality, tool domain, REAL tools list with source paths, output)
+    * Members accordion → ScientistCard (Chief Venture Scientist — purple gradient, weekly experiments, real tools, output)
+    * Specialists accordion → 4 SpecialistCard components (with STANDBY/ACTIVE status pills, activation triggers, real tools)
+  - VentureScoreTable (7 categories with weight bars, threshold = 87, weighted-sum rule)
+  - WorkflowTimeline (13 stages, vertical timeline with stage icons, owner per stage, REAL example data per stage with venture + artifact + metric)
+  - OrgRulesCard (6 NEVER rules in red)
+  - KpiCard (10 KPIs in a responsive grid with current/target)
+  - Footer note about Knowledge Transfer Rate = compound interest on organizational capital
+- Updated src/components/agent/tabs/pods-tab.tsx:
+  - Added Compass icon import + 'vid' to POD_ICONS map
+  - Added useChatStore import (for setActiveTab to navigate to VID tab)
+  - Added VID pod to the fallback pods list (FIRST position — 1 leader + 9 members, status='rank-2')
+  - Modified the pod render to detect isVid:
+    * VID pod spans all 3 columns (lg:col-span-3) with cyan ring + glow
+    * VID pod shows "RANK #2 · CEO-REPORT" badge instead of "READY"
+    * VID pod button says "▶ Open VID Division" instead of "💬 Talk to..."
+    * VID pod click → setActiveTab('vid') (jumps to dedicated VID tab, no chat modal)
+  - Updated header subtitle "7 teams" → "8 teams"
+- Verified with `npx tsc --noEmit --skipLibCheck` — ZERO TypeScript errors in any of my new/changed files (all errors reported are pre-existing in scripts/, examples/, skills/ directories).
+- Verified with `npx next build` — `✓ Compiled successfully in 40s`. Prisma datasource warnings are pre-existing env issues (missing DATABASE_URL during build) and unrelated.
+
+Stage Summary:
+- Built the Venture Intelligence Division end-to-end exactly per the analyst's structure.
+- New top-level tab "VID" inserted between "Missions" and "Tracker+" in the header nav (verified: chat → missions → vid → tracker+ → pods → mission-active → schedules → settings).
+- 1 Leader (VID Director) — full personality (11 traits), NEVER/INSTEAD responsibilities, 9 KPIs, IQ rank #2, reports only to CEO.
+- 8 Permanent Members — each with mission, scope, personality, tool domain, REAL tools (linked to actual files in /src/lib/*.ts or zai.functions.invoke registry), output, and optional highlight (e.g. Business Architect = "the smartest member"; Portfolio Manager = "one of the most important").
+- Chief Venture Scientist — separate permanent member (purple gradient) focused on running experiments every week (7 experiment types, weekly cadence, 7 real tools).
+- 4 Specialists — Legal Advisor, Financial Controller, Brand Designer, Technical Architect. Each with mission, scope, real tools, activation trigger, STANDBY/ACTIVE status pill.
+- Organizational Rules — 6 NEVER rules in a red warning card.
+- Venture Score — 7 weighted categories summing to 100%, threshold ≥ 87 (NOT 75 as the analyst originally proposed — user explicitly asked for 87).
+- 13-Step Workflow — vertical timeline with REAL example data per stage (venture = "AI Resume Tuner for Shopify Merchants", concrete artifact + metric per stage).
+- Division KPIs — 10 KPIs with current vs target.
+- Knowledge Transfer Rate banner — placed at the TOP as the single most important KPI, with progress bar (0.78 / 0.85 target).
+- Pods tab integration: VID pod added as the FIRST pod with cyan glow, "RANK #2 · CEO-REPORT" badge, and clicking it jumps to the dedicated VID tab.
+- All dropdowns (accordions) wired: 1 Leader (default open) → 8 Members + Chief Venture Scientist (collapsed) → 4 Specialists (collapsed).
+- NO fake tools — every tool listed is backed by a real file or a real zai.functions.invoke registry entry.
+- Build compiles cleanly: `✓ Compiled successfully in 40s`.

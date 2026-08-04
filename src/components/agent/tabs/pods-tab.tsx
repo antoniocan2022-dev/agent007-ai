@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Palette, CheckCircle, Hammer, Activity, Settings as SettingsIcon,
-  Shield, Send, X, Loader2, Users, Zap,
+  Shield, Send, X, Loader2, Users, Zap, Compass,
 } from 'lucide-react'
+import { useChatStore } from '@/store/chat-store'
 
 interface Pod {
   id: string
@@ -27,6 +28,7 @@ const POD_ICONS: Record<string, any> = {
   pulse: Activity,
   developer: SettingsIcon,
   cybersecurity_r: Shield,
+  vid: Compass,
 }
 
 export function PodsTab() {
@@ -47,6 +49,24 @@ export function PodsTab() {
     } catch {
       // fallback to static pods
       setPods([
+        // UPGRADE VID — Venture Intelligence Division is the 2nd most powerful
+        // department after the CEO. It reports DIRECTLY to the CEO and owns
+        // venture creation, Venture Score ≥ 87, and portfolio management.
+        {
+          id: 'vid',
+          name: 'Venture Intelligence Division',
+          leader: 'VID Director',
+          members: [
+            'Opportunity Hunter', 'Market Intelligence Analyst', 'Customer Psychologist',
+            'Business Architect', 'MVP Strategist', 'Growth Strategist',
+            'Automation Architect', 'Portfolio Manager', 'Chief Venture Scientist',
+          ],
+          focus: 'Builds, scores, launches, and manages ventures. Venture Score threshold ≥ 87. Owns Knowledge Transfer Rate — the single most important KPI in the organization. Reports directly to the CEO.',
+          color: '#00f0ff',
+          icon: 'vid',
+          toolCount: 667,
+          status: 'rank-2',
+        },
         { id: 'scout', name: 'Intelligence & Research', leader: 'SCOUT', members: ['HUNT', 'QUANTUM'], focus: 'Find opportunities, validate demand, research competitors', color: '#38bdf8', icon: 'scout', toolCount: 667, status: 'ready' },
         { id: 'aurora', name: 'Creation & Design', leader: 'AURORA', members: ['QUILL', 'PRISM', 'VERTEX'], focus: 'Create content, design products, build affiliate funnels', color: '#00f0ff', icon: 'aurora', toolCount: 667, status: 'ready' },
         { id: 'echo', name: 'Quality Assurance', leader: 'ECHO', members: ['QA Monitor'], focus: 'Test, verify, score quality, ensure 99% target', color: '#818cf8', icon: 'echo', toolCount: 667, status: 'ready' },
@@ -97,6 +117,8 @@ export function PodsTab() {
     )
   }
 
+  const setActiveTab = useChatStore.getState().setActiveTab
+
   return (
     <div className="flex-1 overflow-y-auto scroll-cyan p-4 sm:p-6">
       <div className="max-w-6xl mx-auto">
@@ -107,7 +129,7 @@ export function PodsTab() {
             <span className="neon-text-purple">Pods</span>
           </h1>
           <p className="text-xs text-[#7c89b5] mt-1 tracking-wide">
-            7 specialized teams • 20 agents • 667 tools • Click any pod to communicate with its leader
+            8 specialized teams • 20 agents • 667 tools • Click any pod to communicate with its leader
           </p>
         </div>
 
@@ -115,15 +137,24 @@ export function PodsTab() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {pods.map((pod, i) => {
             const Icon = POD_ICONS[pod.id] || Users
+            const isVid = pod.id === 'vid'
             return (
               <motion.div
                 key={pod.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="glass rounded-xl border overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform"
-                style={{ borderColor: `${pod.color}40` }}
+                className={`glass rounded-xl border overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform ${isVid ? 'lg:col-span-3 ring-1 ring-cyan-400/40' : ''}`}
+                style={{
+                  borderColor: isVid ? 'rgba(0,240,255,0.6)' : `${pod.color}40`,
+                  boxShadow: isVid ? '0 0 24px rgba(0,240,255,0.2)' : undefined,
+                }}
                 onClick={() => {
+                  // VID pod → jump to the dedicated VID tab (no chat modal)
+                  if (isVid) {
+                    setActiveTab('vid')
+                    return
+                  }
                   setSelectedPod(pod)
                   setLeaderMessage('')
                   setLeaderResponse('')
@@ -149,8 +180,17 @@ export function PodsTab() {
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[9px] text-emerald-300 font-mono">READY</span>
+                    {isVid ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                        <span className="text-[9px] text-cyan-300 font-mono font-bold">RANK #2 · CEO-REPORT</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-[9px] text-emerald-300 font-mono">READY</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -184,7 +224,7 @@ export function PodsTab() {
                       color: pod.color,
                     }}
                   >
-                    💬 Talk to {pod.leader}
+                    {isVid ? '▶ Open VID Division' : `💬 Talk to ${pod.leader}`}
                   </button>
                 </div>
               </motion.div>

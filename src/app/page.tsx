@@ -37,6 +37,9 @@ const SettingsTab = dynamic(() => import('@/components/agent/tabs/settings-tab')
 const MissionsTab = dynamic(() => import('@/components/agent/tabs/missions-tab').then(m => ({ default: m.MissionsTab })), { loading: () => <TabLoader label="Loading missions…" /> })
 const PodsTab = dynamic(() => import('@/components/agent/tabs/pods-tab').then(m => ({ default: m.PodsTab })), { loading: () => <TabLoader label="Loading pods…" /> })
 const MissionActiveTab = dynamic(() => import('@/components/agent/tabs/mission-active-tab').then(m => ({ default: m.MissionActiveTab })), { loading: () => <TabLoader label="Loading active missions…" /> })
+// UPGRADE VID — Venture Intelligence Division tab. The most powerful department after the CEO.
+// Owns venture creation, scoring (Venture Score ≥ 87), portfolio management, and Knowledge Transfer Rate.
+const VidTab = dynamic(() => import('@/components/agent/tabs/vid-tab').then(m => ({ default: m.VidTab })), { loading: () => <TabLoader label="Loading Venture Intelligence Division…" /> })
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
 
@@ -219,6 +222,7 @@ export default function Home() {
             <AgentProgressBanner />
             {activeTab === 'chat' && <ChatTab />}
             {activeTab === 'missions' && <MissionsTab />}
+            {activeTab === 'vid' && <VidTab />}
             {activeTab === 'pods' && <PodsTab />}
             {activeTab === 'mission-active' && <MissionActiveTab />}
             {activeTab === 'dashboard' && <DashboardTab />}
