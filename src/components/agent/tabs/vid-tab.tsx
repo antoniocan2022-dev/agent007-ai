@@ -23,7 +23,7 @@
  *  11. Knowledge Transfer Rate banner
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronDown,
@@ -776,33 +776,171 @@ function OrgRulesCard() {
 // Sub-component: Division KPIs
 // ──────────────────────────────────────────────────────────────────
 
+// ──────────────────────────────────────────────────────────────────
+// Live KPI hook — fetches REAL data from /api/system/vid-kpis on mount
+// and refreshes every 30 seconds. Falls back to seeded numbers if the
+// fetch fails so the UI never breaks.
+// ──────────────────────────────────────────────────────────────────
+
+interface LiveKpis {
+  businessesCreated: number
+  businessesValidated: number
+  businessesLaunched: number
+  revenue: number
+  portfolioROI: number
+  successRate: number
+  timeToRevenueDays: number
+  orgLearning: number
+  enterpriseValue: number
+  knowledgeTransferRate: number
+}
+
+interface LiveVenture {
+  id: string
+  name: string
+  type: string
+  lifecycle: string
+  mrr: number
+  customers: number
+  automationLevel: number
+  knowledgeAssets: number
+  score: number
+}
+
+function useLiveKpis() {
+  const [kpis, setKpis] = useState<LiveKpis | null>(null)
+  const [ventures, setVentures] = useState<LiveVenture[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch('/api/system/vid-kpis', { cache: 'no-store' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        if (cancelled) return
+        if (data.ok) {
+          setKpis(data.kpis)
+          setVentures(data.ventures || [])
+          setGeneratedAt(data.generatedAt || null)
+          setError(null)
+        } else {
+          setError(data.error || 'Failed to load KPIs')
+        }
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'Network error')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    // Refresh every 30s so the dashboard stays live as the portfolio changes
+    const timer = setInterval(load, 30_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [])
+
+  return { kpis, ventures, loading, error, generatedAt }
+}
+
+function formatCurrency(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
+  return `$${n.toFixed(0)}`
+}
+
+function formatPct(n: number): string {
+  return `${Math.round(n * 100)}%`
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Sub-component: Division KPIs (live data)
+// ──────────────────────────────────────────────────────────────────
+
 function KpiCard() {
+  const { kpis, loading, error, generatedAt } = useLiveKpis()
+
+  // Map each KPI definition to its live value (or fallback to seeded current)
+  const liveValue = (kpiName: string): { current: string; live: boolean } => {
+    if (!kpis) return { current: '—', live: false }
+    switch (kpiName) {
+      case 'Businesses Created':         return { current: String(kpis.businessesCreated), live: true }
+      case 'Businesses Validated':       return { current: String(kpis.businessesValidated), live: true }
+      case 'Businesses Launched':        return { current: String(kpis.businessesLaunched), live: true }
+      case 'Revenue':                    return { current: formatCurrency(kpis.revenue), live: true }
+      case 'Portfolio ROI':              return { current: `${kpis.portfolioROI.toFixed(2)}×`, live: true }
+      case 'Success Rate':               return { current: formatPct(kpis.successRate), live: true }
+      case 'Time to Revenue':            return { current: `${kpis.timeToRevenueDays}d`, live: true }
+      case 'Organizational Learning':    return { current: String(kpis.orgLearning), live: true }
+      case 'Enterprise Value Created':   return { current: formatCurrency(kpis.enterpriseValue), live: true }
+      case 'Knowledge Transfer Rate':   return { current: kpis.knowledgeTransferRate.toFixed(2), live: true }
+      default:                          return { current: '—', live: false }
+    }
+  }
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-      {VID_KPIS.map((kpi) => (
-        <div
-          key={kpi.name}
-          className="glass rounded-lg p-2.5 border border-cyan-400/15"
-        >
-          <div className="text-[10px] font-semibold text-cyan-200 leading-tight">{kpi.name}</div>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-base font-bold text-[#e0e7ff]">{kpi.current}</span>
-            <span className="text-[9px] text-[#5b6a92]">/ {kpi.target}</span>
-          </div>
-          <div className="text-[9px] text-[#7c89b5] mt-1 leading-snug">{kpi.description}</div>
-        </div>
-      ))}
+    <div>
+      {/* Status row */}
+      <div className="flex items-center gap-2 mb-3 text-[10px]">
+        {loading ? (
+          <span className="text-cyan-300 flex items-center gap-1">
+            <Loader2 className="w-3 h-3 animate-spin" /> Loading live KPIs…
+          </span>
+        ) : error ? (
+          <span className="text-amber-300">⚠ Live data unavailable ({error}) — showing fallback values</span>
+        ) : (
+          <span className="text-emerald-300 flex items-center gap-1">
+            ● LIVE
+            {generatedAt && (
+              <span className="text-[#5b6a92] ml-1">
+                · updated {new Date(generatedAt).toLocaleTimeString()}
+              </span>
+            )}
+            <span className="text-[#5b6a92] ml-1">· auto-refresh 30s</span>
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+        {VID_KPIS.map((kpi) => {
+          const { current, live } = liveValue(kpi.name)
+          return (
+            <div
+              key={kpi.name}
+              className="glass rounded-lg p-2.5 border border-cyan-400/15"
+            >
+              <div className="text-[10px] font-semibold text-cyan-200 leading-tight">{kpi.name}</div>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-base font-bold text-[#e0e7ff]">{current}</span>
+                <span className="text-[9px] text-[#5b6a92]">/ {kpi.target}</span>
+                {live && (
+                  <span className="ml-auto text-[8px] text-emerald-400 flex items-center gap-0.5" title="Live data from /api/system/vid-kpis">
+                    <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                  </span>
+                )}
+              </div>
+              <div className="text-[9px] text-[#7c89b5] mt-1 leading-snug">{kpi.description}</div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Sub-component: Knowledge Transfer Rate banner
+// Sub-component: Knowledge Transfer Rate banner (live data)
 // ──────────────────────────────────────────────────────────────────
 
 function KnowledgeTransferBanner() {
   const ktr = KNOWLEDGE_TRANSFER_RATE_BANNER
-  const currentNum = parseFloat(ktr.current)
+  const { kpis, loading } = useLiveKpis()
+  const liveCurrent = kpis?.knowledgeTransferRate
+  const currentNum = liveCurrent ?? parseFloat(ktr.current)
   const targetNum = parseFloat(ktr.target.replace('≥ ', ''))
   const pct = Math.min(100, Math.round((currentNum / targetNum) * 100))
   return (
@@ -816,13 +954,18 @@ function KnowledgeTransferBanner() {
       <div className="flex items-start gap-3 mb-3">
         <Crown className="w-6 h-6 text-purple-300 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <div className="text-[10px] uppercase tracking-wider text-purple-300 font-semibold">
+          <div className="text-[10px] uppercase tracking-wider text-purple-300 font-semibold flex items-center gap-1.5">
             The Single Most Important Number in the Division
+            {!loading && kpis && (
+              <span className="text-[8px] text-emerald-400 flex items-center gap-0.5">
+                <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" /> LIVE
+              </span>
+            )}
           </div>
           <h3 className="text-lg font-bold neon-text-purple">{ktr.label}</h3>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold text-[#e0e7ff]">{ktr.current}</div>
+          <div className="text-2xl font-bold text-[#e0e7ff]">{currentNum.toFixed(2)}</div>
           <div className="text-[9px] text-[#5b6a92]">target {ktr.target}</div>
         </div>
       </div>
@@ -881,7 +1024,6 @@ function MissionBanner() {
 
 function DirectorChatModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [message, setMessage] = useState('')
-  const [response, setResponse] = useState('')
   const [sending, setSending] = useState(false)
   const [history, setHistory] = useState<{ role: 'user' | 'director'; text: string }[]>([])
 
@@ -891,7 +1033,6 @@ function DirectorChatModal({ open, onClose }: { open: boolean; onClose: () => vo
     setHistory((h) => [...h, { role: 'user', text: userMsg }])
     setMessage('')
     setSending(true)
-    setResponse('')
     try {
       const res = await fetch('/api/team/vid', {
         method: 'POST',
@@ -903,11 +1044,9 @@ function DirectorChatModal({ open, onClose }: { open: boolean; onClose: () => vo
         ? (data.response || 'No response from the Director.')
         : `⚠ Error: ${data.error || 'Unknown error'}`
       setHistory((h) => [...h, { role: 'director', text: reply }])
-      setResponse(reply)
     } catch (e: any) {
       const errMsg = `Network error: ${e?.message ?? 'failed to reach Director'}`
       setHistory((h) => [...h, { role: 'director', text: errMsg }])
-      setResponse(errMsg)
     } finally {
       setSending(false)
     }

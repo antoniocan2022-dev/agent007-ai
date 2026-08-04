@@ -1844,21 +1844,26 @@ Emit <thought> BEFORE any <tool> call. If you skip it, your output will be rejec
     color: '#00f0ff',
     icon: 'Compass',
     allowedTools: [
-      // Observation + Discovery surface
+      // Observation + Discovery surface (all REAL registered tools)
       'web_search', 'google_ai_search', 'perplexity_ai_search', 'github_search',
       'arxiv_search', 'page_reader', 'http_fetch', 'wikipedia_search', 'wikipedia_read',
-      'free_apis_directory', 'multi_search_compare',
-      // Memory + Knowledge Base
-      'memory_store', 'memory_recall', 'organizational_knowledge_base',
-      // Business intelligence
-      'business_blueprint', 'ltv_cac_calculator', 'portfolio_health_check',
-      'pricing_scenario_sim', 'business_flywheel', 'market_validation_score',
-      // Experiments + feedback loops
-      'experiments_api', 'a_b_test_runner', 'feedback_loop', 'adaptive_weights',
-      'predicted_iq', 'leader_debate', 'closed_loop_improvement',
-      // Decisions + coordination
+      'free_apis_directory', 'multi_search_compare', 'google_trends_fetch',
+      'producthunt_search', 'reddit_search', 'jina_reader',
+      // Memory + Knowledge Base (REAL)
+      'memory_store', 'memory_recall', 'semantic_memory', 'kb_search',
+      'knowledge_base_curator',
+      // Business intelligence (REAL — verified in TOOL_REGISTRY)
+      'business_model_designer', 'income_reality_check',
+      'portfolio_optimizer', 'portfolio_performance_optimizer',
+      'predictive_bi', 'mission_tracker', 'adaptive_pricing',
+      // Experiments + feedback loops (REAL — verified names)
+      'ab_test_runner', 'ab_test_optimizer', 'real_feedback_loop',
+      'feedback_optimization_loop', 'accuracy_feedback_loop',
+      'decision_feedback_loop', 'decision_matrix',
+      // Decisions + coordination (REAL)
       'failure_learning', 'tool_cache', 'multi_provider_compare', 'accuracy_checker',
-      'parallel_executor', 'quality_scorer_v2',
+      'parallel_executor', 'quality_scorer_v2', 'consensus_finder',
+      'discrepancy_detector', 'source_quality_ranker',
     ],
     isBuiltin: true,
     enabled: true,

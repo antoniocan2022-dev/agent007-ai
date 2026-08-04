@@ -1,15 +1,20 @@
 /**
- * /api/team/[leaderId] — UPGRADE #97
- * Direct communication with a pod leader.
+ * /api/team/[leaderId] — UPGRADE #97 + VID
+ * Direct communication with a pod leader (including the VID Director).
  * Owner can ask a specific leader for reports, status, or task execution.
  *
  * GET  /api/team/[leaderId]?action=status — get leader's pod status
- * POST /api/team/[leaderId] — send message directly to leader
+ * GET  /api/team/[leaderId]?action=pods   — list all pods (call on any leader)
+ * POST /api/team/[leaderId]               — send message directly to leader
  *
- * Leaders: scout, aurora, echo, forge, pulse, developer, cybersecurity_r
+ * Leaders (9 pods): vid, scout, aurora, echo, forge, pulse, developer,
+ *                   cybersecurity_r, revenue
+ *
+ * VID Director (id='vid') is the 2nd most powerful agent — only the CEO
+ * outranks it. Reports DIRECTLY to the CEO. Owns venture creation,
+ * Venture Score ≥ 87, and Knowledge Transfer Rate.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
 import { runSubagent, getAllSubagents } from '@/lib/subagents'
 
 export const dynamic = 'force-dynamic'
