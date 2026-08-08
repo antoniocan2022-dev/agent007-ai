@@ -1,0 +1,74 @@
+name: DR Recovery Schema Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type BOOTSTRAP_RECOVERY_SCHEMA to authorize schema creation in the isolated DR database'
+        required: true
+        type: string
+
+jobs:
+  bootstrap:
+    if: ${{ inputs.confirm == 'BOOTSTRAP_RECOVERY_SCHEMA' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout production source
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify database targets are different
+        env:
+          DR_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+          PROD_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+        run: |
+          test -n "$DR_URL"
+          test -n "$PROD_URL"
+          case "$DR_URL" in postgres://*|postgresql://*) ;; *) echo 'DR URL is not PostgreSQL'; exit 1;; esac
+          if [ "$DR_URL" = "$PROD_URL" ]; then
+            echo 'REFUSED: DR database URL equals production database URL.'
+            exit 1
+          fi
+          echo 'Database-target safety check passed.'
+
+      - name: Bootstrap isolated recovery schema
+        env:
+          DATABASE_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+        run: |
+          npx prisma generate
+          npx prisma db push --accept-data-loss=false
+
+      - name: Verify expected Prisma tables
+        env:
+          DATABASE_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+        run: |
+          node <<'NODE'
+          const { Client } = require('pg')
+          const expected = [
+            'ApiKey','AuditLog','BankAccount','BusinessStrategy','ComplianceCheck','ContractDraft',
+            'Conversation','CustomSubagent','Customer','IncomeEntry','IncomingCommand','KnowledgeChunk',
+            'KnowledgeDoc','MLModel','MarketingCampaign','Memory','Message','MissionTracker','NotificationLog',
+            'Opportunity','Partnership','PayPalAccount','PendingManageAction','PhoneConfig','Prediction',
+            'RiskRegister','Schedule','ServicePackage','SystemHealth','Transaction','TwoFactorSecret','User',
+            'UserSetting','Experiment','PlatformConnection','RiskProfile','ScalingPlan','SentimentLog'
+          ]
+          const client = new Client({ connectionString: process.env.DATABASE_URL })
+          ;(async () => {
+            await client.connect()
+            const r = await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
+            const actual = new Set(r.rows.map(x => x.table_name))
+            const missing = expected.filter(x => !actual.has(x))
+            if (missing.length) throw new Error(`Missing tables: ${missing.join(', ')}`)
+            console.log(`DR schema verified: ${expected.length}/${expected.length} expected tables present.`)
+            await client.end()
+          })().catch(async e => { console.error(e); try { await client.end() } catch {} ; process.exit(1) })
+          NODE
