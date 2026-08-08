@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import { db, ensureDbReady } from '@/lib/db'
 
-export const BACKUP_V2_VERSION = '2.0'
+export const BACKUP_V2_VERSION = '2.1'
 
 /** All Prisma models currently present in prisma/schema.prisma. */
 export const BACKUP_TABLES = [
@@ -52,7 +52,7 @@ function decryptSecret(payload: string): unknown {
   if (!key) throw new Error('BACKUP_ENCRYPTION_KEY is required to decrypt secret fields')
   const [ivB64, tagB64, dataB64] = payload.split('.')
   if (!ivB64 || !tagB64 || !dataB64) throw new Error('Invalid encrypted secret envelope')
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64url'))
+  const decipher = createDecipheriv('aes-256-gcm', key, ivB64 ? Buffer.from(ivB64, 'base64url') : Buffer.alloc(0))
   decipher.setAuthTag(Buffer.from(tagB64, 'base64url'))
   const plaintext = Buffer.concat([
     decipher.update(Buffer.from(dataB64, 'base64url')),
@@ -70,6 +70,60 @@ function normalize(value: unknown): unknown {
     return out
   }
   return value
+}
+
+/**
+ * Historical Agent007 messages, tool arguments, URLs and audit payloads can
+ * contain credentials that were previously passed through tools. Those values
+ * are not secret columns, so encrypting SECRET_COLUMNS alone cannot protect
+ * them. Redact common credential-bearing query parameters, headers, JSON keys,
+ * and bearer tokens from all public backup data before it leaves the server.
+ */
+function redactHistoricalSecrets(value: unknown): { value: unknown; redactions: number } {
+  let redactions = 0
+
+  const redactString = (input: string): string => {
+    let output = input
+
+    const patterns: RegExp[] = [
+      /([?&](?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)=)[^&#\s"'<>]+/gi,
+      /(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi,
+      /("(?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)"\s*:\s*")[^"]+("\s*)/gi,
+      /('(?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)'\s*:\s*')[^']+('\s*)/gi,
+    ]
+
+    for (const pattern of patterns) {
+      output = output.replace(pattern, (...args: any[]) => {
+        redactions++
+        const captures = args.slice(1, -2)
+        if (captures.length >= 2) return `${captures[0]}[REDACTED]${captures[1]}`
+        return `${captures[0] ?? ''}[REDACTED]`
+      })
+    }
+
+    return output
+  }
+
+  const walk = (input: unknown): unknown => {
+    if (typeof input === 'string') return redactString(input)
+    if (Array.isArray(input)) return input.map(walk)
+    if (input && typeof input === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const [key, item] of Object.entries(input as Record<string, unknown>)) {
+        const lower = key.toLowerCase()
+        if (/(access[_-]?token|api[_-]?key|client[_-]?secret|refresh[_-]?token|id[_-]?token|auth[_-]?token|password|passwd|secret|authorization)/i.test(lower)) {
+          if (item !== null && item !== undefined && item !== '') redactions++
+          out[key] = '[REDACTED]'
+        } else {
+          out[key] = walk(item)
+        }
+      }
+      return out
+    }
+    return input
+  }
+
+  return { value: walk(value), redactions }
 }
 
 function canonicalJson(value: unknown): string {
@@ -99,6 +153,7 @@ async function readTable(table: BackupTable) {
   const secrets = SECRET_COLUMNS[table] ?? []
   const publicRows: Record<string, unknown>[] = []
   const encryptedSecrets: Array<{ id: string; fields: Record<string, string> }> = []
+  let historicalSecretRedactions = 0
 
   for (const raw of rows) {
     const row = normalize(raw) as Record<string, unknown>
@@ -110,23 +165,28 @@ async function readTable(table: BackupTable) {
         delete clean[column]
       }
     }
-    publicRows.push(clean)
+
+    const sanitized = redactHistoricalSecrets(clean)
+    historicalSecretRedactions += sanitized.redactions
+    publicRows.push(sanitized.value as Record<string, unknown>)
     if (Object.keys(encrypted).length) encryptedSecrets.push({ id: String(row.id), fields: encrypted })
   }
 
-  return { rows: publicRows, encryptedSecrets, count: rows.length }
+  return { rows: publicRows, encryptedSecrets, count: rows.length, historicalSecretRedactions }
 }
 
 export async function createBackupV2() {
   await ensureDbReady().catch(() => {})
   const startedAt = Date.now()
-  const tables: Record<string, { rows: Record<string, unknown>[]; encryptedSecrets: Array<{ id: string; fields: Record<string, string> }>; count: number }> = {}
+  const tables: Record<string, { rows: Record<string, unknown>[]; encryptedSecrets: Array<{ id: string; fields: Record<string, string> }>; count: number; historicalSecretRedactions: number }> = {}
   let totalRecords = 0
+  let totalHistoricalSecretRedactions = 0
 
   for (const table of BACKUP_TABLES) {
     const result = await readTable(table)
     tables[table] = result
     totalRecords += result.count
+    totalHistoricalSecretRedactions += result.historicalSecretRedactions
   }
 
   const schemaFingerprint = await getSchemaFingerprint()
@@ -143,8 +203,9 @@ export async function createBackupV2() {
       exportedModels: Object.keys(tables).length,
     },
     security: {
-      secretPolicy: getEncryptionKey() ? 'AES-256-GCM encrypted' : 'secret fields omitted; configure BACKUP_ENCRYPTION_KEY for complete credential recovery',
+      secretPolicy: getEncryptionKey() ? 'AES-256-GCM encrypted; historical credential-like values redacted' : 'secret fields omitted; configure BACKUP_ENCRYPTION_KEY for complete credential recovery; historical credential-like values redacted',
       encryptedSecretRows: Object.values(tables).reduce((n, t) => n + t.encryptedSecrets.length, 0),
+      historicalSecretRedactions: totalHistoricalSecretRedactions,
     },
     totals: { models: Object.keys(tables).length, records: totalRecords },
     tables,
@@ -156,7 +217,7 @@ export async function createBackupV2() {
 }
 
 export async function inspectBackupV2(input: any) {
-  if (!input || input.backupVersion !== BACKUP_V2_VERSION || !input.tables) {
+  if (!input || (input.backupVersion !== '2.0' && input.backupVersion !== BACKUP_V2_VERSION) || !input.tables) {
     return { valid: false, errors: ['Unsupported or malformed Backup V2 payload'] }
   }
   const errors: string[] = []
