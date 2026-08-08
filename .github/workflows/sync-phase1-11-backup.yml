@@ -1,0 +1,41 @@
+name: Sync Phase 1-11 Backup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download latest Agent007 source backup
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://agent007-ai.vercel.app/api/system/full-backup?download=zip' -o /tmp/agent007-backup.zip
+          unzip -t /tmp/agent007-backup.zip
+          mkdir -p /tmp/agent007-source
+          unzip -q /tmp/agent007-backup.zip -d /tmp/agent007-source
+      - name: Replace repository source from backup
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/agent007-source
+          if [ "$(find "$ROOT" -mindepth 1 -maxdepth 1 | wc -l)" -eq 1 ] && [ -d "$(find "$ROOT" -mindepth 1 -maxdepth 1 -type d | head -1)" ]; then ROOT="$(find "$ROOT" -mindepth 1 -maxdepth 1 -type d | head -1)"; fi
+          mkdir -p .github/workflows
+          rsync -a --delete --exclude='.git/' --exclude='.env' --exclude='.env.*' --exclude='.github/workflows/sync-phase1-11-backup.yml' "$ROOT/" ./
+          test -f package.json
+          test -d src
+          test -f vercel.json
+          echo "Source files: $(find src -type f | wc -l)"
+      - name: Commit synchronized source
+        run: |
+          git config user.name 'agent007-backup-sync'
+          git config user.email 'agent007-backup-sync@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then echo 'No source changes detected.'; exit 0; fi
+          git commit -m 'chore(sync): restore latest Phase 1-11 source backup'
+          git push origin HEAD:main
