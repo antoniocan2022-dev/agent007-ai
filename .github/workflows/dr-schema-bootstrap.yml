@@ -52,7 +52,7 @@ jobs:
           DATABASE_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
         run: |
           node <<'NODE'
-          const { Client } = require('pg')
+          const { PrismaClient } = require('@prisma/client')
           const expected = [
             'ApiKey','AuditLog','BankAccount','BusinessStrategy','ComplianceCheck','ContractDraft',
             'Conversation','CustomSubagent','Customer','IncomeEntry','IncomingCommand','KnowledgeChunk',
@@ -61,14 +61,13 @@ jobs:
             'RiskRegister','Schedule','ServicePackage','SystemHealth','Transaction','TwoFactorSecret','User',
             'UserSetting','Experiment','PlatformConnection','RiskProfile','ScalingPlan','SentimentLog'
           ]
-          const client = new Client({ connectionString: process.env.DATABASE_URL })
+          const db = new PrismaClient()
           ;(async () => {
-            await client.connect()
-            const r = await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
-            const actual = new Set(r.rows.map(x => x.table_name))
+            const rows = await db.$queryRawUnsafe(`SELECT table_name FROM information_schema.tables WHERE table_schema='public'`)
+            const actual = new Set(rows.map(x => x.table_name))
             const missing = expected.filter(x => !actual.has(x))
             if (missing.length) throw new Error(`Missing tables: ${missing.join(', ')}`)
             console.log(`DR schema verified: ${expected.length}/${expected.length} expected tables present.`)
-            await client.end()
-          })().catch(async e => { console.error(e); try { await client.end() } catch {} ; process.exit(1) })
+            await db.$disconnect()
+          })().catch(async e => { console.error(e); try { await db.$disconnect() } catch {} ; process.exit(1) })
           NODE
