@@ -7,11 +7,10 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * Backup V2 is intentionally protected by the normal application middleware.
- * Unlike the old public /backup page, this endpoint can contain sensitive
- * enterprise state and therefore must never be added to the public whitelist.
+ * Backup V2.1 is intentionally protected by the normal application middleware.
+ * It contains sensitive enterprise state and must never be added to the public whitelist.
  *
- * GET ?format=json|gzip       -> complete non-secret DB export + encrypted secrets when configured
+ * GET ?format=json|gzip       -> complete DB export with encrypted secret columns when configured
  * POST {mode:'inspect',backup} -> validate integrity/schema without mutation
  * POST {mode:'restore',backup,dryRun:true} -> additive recovery preview
  * POST {mode:'restore',backup,dryRun:false} -> additive recovery (never deletes)
@@ -35,7 +34,7 @@ export async function GET(req: NextRequest) {
           'Content-Type': 'application/gzip',
           'Content-Disposition': `attachment; filename="agent007-backup-v2-${stamp}.json.gz"`,
           'Cache-Control': 'no-store, private',
-          'X-Agent007-Backup-Version': '2.0',
+          'X-Agent007-Backup-Version': '2.1',
           'X-Agent007-Backup-Checksum': backup.integrity.checksum,
         },
       })
@@ -47,7 +46,7 @@ export async function GET(req: NextRequest) {
         'Content-Type': 'application/json',
         'Content-Disposition': `attachment; filename="agent007-backup-v2-${stamp}.json"`,
         'Cache-Control': 'no-store, private',
-        'X-Agent007-Backup-Version': '2.0',
+        'X-Agent007-Backup-Version': '2.1',
         'X-Agent007-Backup-Checksum': backup.integrity.checksum,
       },
     })
