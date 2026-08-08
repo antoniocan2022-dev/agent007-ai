@@ -260,7 +260,7 @@ export async function restoreBackupV2(input: any, dryRun = true) {
   if (input.security?.encryptedSecretRows && !key) throw new Error('BACKUP_ENCRYPTION_KEY is required to restore encrypted secrets')
 
   const order: BackupTable[] = [
-    'User', 'UserSetting', 'ApiKey', 'BankAccount', 'BusinessStrategy', 'ComplianceCheck',
+    'User', 'AuditLog', 'UserSetting', 'ApiKey', 'BankAccount', 'BusinessStrategy', 'ComplianceCheck',
     'ContractDraft', 'Customer', 'IncomeEntry', 'IncomingCommand', 'KnowledgeDoc', 'KnowledgeChunk',
     'MLModel', 'MarketingCampaign', 'Memory', 'Opportunity', 'Partnership', 'PayPalAccount',
     'PendingManageAction', 'PhoneConfig', 'Prediction', 'RiskProfile', 'RiskRegister', 'ScalingPlan',
