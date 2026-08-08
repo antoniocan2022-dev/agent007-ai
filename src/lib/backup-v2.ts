@@ -16,8 +16,6 @@ export const BACKUP_TABLES = [
 
 type BackupTable = typeof BACKUP_TABLES[number]
 
-/** Secrets are never emitted as plaintext. If BACKUP_ENCRYPTION_KEY is configured,
- * they are placed in an authenticated encrypted envelope so a recovery can restore them. */
 const SECRET_COLUMNS: Record<string, string[]> = {
   ApiKey: ['key'],
   BankAccount: ['accountNumber', 'routingNumber'],
@@ -52,7 +50,7 @@ function decryptSecret(payload: string): unknown {
   if (!key) throw new Error('BACKUP_ENCRYPTION_KEY is required to decrypt secret fields')
   const [ivB64, tagB64, dataB64] = payload.split('.')
   if (!ivB64 || !tagB64 || !dataB64) throw new Error('Invalid encrypted secret envelope')
-  const decipher = createDecipheriv('aes-256-gcm', key, ivB64 ? Buffer.from(ivB64, 'base64url') : Buffer.alloc(0))
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64url'))
   decipher.setAuthTag(Buffer.from(tagB64, 'base64url'))
   const plaintext = Buffer.concat([
     decipher.update(Buffer.from(dataB64, 'base64url')),
@@ -85,21 +83,37 @@ function redactHistoricalSecrets(value: unknown): { value: unknown; redactions: 
   const redactString = (input: string): string => {
     let output = input
 
-    const patterns: RegExp[] = [
+    output = output.replace(
       /([?&](?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)=)[^&#\s"'<>]+/gi,
-      /(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi,
-      /("(?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)"\s*:\s*")[^"]+("\s*)/gi,
-      /('(?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)'\s*:\s*')[^']+('\s*)/gi,
-    ]
-
-    for (const pattern of patterns) {
-      output = output.replace(pattern, (...args: any[]) => {
+      (_match, prefix) => {
         redactions++
-        const captures = args.slice(1, -2)
-        if (captures.length >= 2) return `${captures[0]}[REDACTED]${captures[1]}`
-        return `${captures[0] ?? ''}[REDACTED]`
-      })
-    }
+        return `${prefix}[REDACTED]`
+      },
+    )
+
+    output = output.replace(
+      /(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi,
+      (_match, prefix) => {
+        redactions++
+        return `${prefix}[REDACTED]`
+      },
+    )
+
+    output = output.replace(
+      /(\"(?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)\"\s*:\s*\")[^\"]+(\"\s*)/gi,
+      (_match, prefix, suffix) => {
+        redactions++
+        return `${prefix}[REDACTED]${suffix}`
+      },
+    )
+
+    output = output.replace(
+      /('(?:access_token|api[_-]?key|apikey|client_secret|clientSecret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)'\s*:\s*')[^']+('\s*)/gi,
+      (_match, prefix, suffix) => {
+        redactions++
+        return `${prefix}[REDACTED]${suffix}`
+      },
+    )
 
     return output
   }
@@ -148,7 +162,6 @@ async function getSchemaFingerprint(): Promise<string> {
 }
 
 async function readTable(table: BackupTable) {
-  // Table names come exclusively from the constant whitelist above; they are not user input.
   const rows = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(`SELECT * FROM "${table}"`)
   const secrets = SECRET_COLUMNS[table] ?? []
   const publicRows: Record<string, unknown>[] = []
@@ -284,7 +297,7 @@ export async function restoreBackupV2(input: any, dryRun = true) {
       if (!columns.length) continue
       const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
       const quotedColumns = columns.map(c => `"${c.replace(/"/g, '""')}"`).join(', ')
-      const values = columns.map(c => row[c] instanceof Date ? row[c] : row[c])
+      const values = columns.map(c => row[c])
       try {
         await db.$executeRawUnsafe(
           `INSERT INTO "${table}" (${quotedColumns}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
