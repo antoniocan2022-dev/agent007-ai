@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { gzipSync } from 'node:zlib'
-import { createBackupV2, inspectBackupV2, restoreBackupV2 } from '@/lib/backup-v2'
+import { createBackupV2, inspectBackupV2 } from '@/lib/backup-v2'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,8 +12,9 @@ export const maxDuration = 60
  *
  * GET ?format=json|gzip       -> complete DB export with encrypted secret columns when configured
  * POST {mode:'inspect',backup} -> validate integrity/schema without mutation
- * POST {mode:'restore',backup,dryRun:true} -> additive recovery preview
- * POST {mode:'restore',backup,dryRun:false} -> additive recovery (never deletes)
+ *
+ * Real recovery is intentionally NOT available here. Use /api/system/dr-restore,
+ * which has a dedicated AGENT007_DR_DATABASE_URL safety boundary.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -69,9 +70,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === 'restore') {
-      const dryRun = body?.dryRun !== false
-      const result = await restoreBackupV2(backup, dryRun)
-      return NextResponse.json({ ok: true, ...result }, { status: 200 })
+      return NextResponse.json({
+        ok: false,
+        error: 'Real restores are disabled on the production backup endpoint. Use /api/system/dr-restore with AGENT007_DR_DATABASE_URL.',
+      }, { status: 409 })
     }
 
     return NextResponse.json({ ok: false, error: 'mode must be inspect or restore' }, { status: 400 })
