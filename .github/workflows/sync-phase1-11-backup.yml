@@ -1,13 +1,15 @@
 name: Sync Phase 1-11 Backup
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   sync:
+    if: ${{ !contains(github.event.head_commit.message, 'chore(sync): restore latest Phase 1-11 source backup') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
