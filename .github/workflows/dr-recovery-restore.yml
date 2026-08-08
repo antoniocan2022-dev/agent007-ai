@@ -1,0 +1,65 @@
+name: DR Recovery Restore
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Choose dry-run first; restore performs the actual additive restore into the isolated DR database'
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - restore
+        default: dry-run
+      confirm:
+        description: 'Type RESTORE_AGENT007_DR to authorize the operation'
+        required: true
+        type: string
+
+jobs:
+  restore:
+    if: ${{ inputs.confirm == 'RESTORE_AGENT007_DR' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Verify production and recovery targets are different
+        env:
+          DR_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+          PROD_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+        run: |
+          test -n "$DR_URL"
+          test -n "$PROD_URL"
+          case "$DR_URL" in postgres://*|postgresql://*) ;; *) echo 'DR URL is not PostgreSQL'; exit 1;; esac
+          case "$PROD_URL" in postgres://*|postgresql://*) ;; *) echo 'Production URL is not PostgreSQL'; exit 1;; esac
+          if [ "$DR_URL" = "$PROD_URL" ]; then echo 'REFUSED: DR URL equals production URL'; exit 1; fi
+          DR_HOST=$(node -e "console.log(new URL(process.env.DR_URL).hostname)" )
+          PROD_HOST=$(node -e "console.log(new URL(process.env.PROD_URL).hostname)" )
+          if [ -z "$DR_HOST" ] || [ -z "$PROD_HOST" ] || [ "$DR_HOST" = "$PROD_HOST" ]; then
+            echo 'REFUSED: database hosts are not positively distinguishable.'
+            exit 1
+          fi
+          echo 'Target safety check passed.'
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Execute isolated Backup V2 restore
+        env:
+          AGENT007_PRODUCTION_DATABASE_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+          AGENT007_DR_DATABASE_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          DR_RESTORE_CONFIRMATION: ${{ inputs.confirm }}
+          DR_RESTORE_MODE: ${{ inputs.mode }}
+        run: npx --yes tsx@4.19.4 scripts/dr-restore.ts
