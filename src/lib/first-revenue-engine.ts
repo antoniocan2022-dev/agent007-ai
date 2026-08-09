@@ -21,30 +21,39 @@ export type RevenueMission = {
 }
 
 const TARGET = 1
+const BASE_CURRENCY = 'CAD'
+const ENGINE_SOURCE = 'first_revenue_engine'
+const OPPORTUNITY_TITLE = 'AI-assisted business operations service for small businesses'
+const SERVICE_NAME = 'AI Business Operations Starter'
 
 function inferStage(input: {
   verifiedRevenue: number
-  customers: number
+  prospects: number
   opportunities: number
   services: number
 }): RevenueStage {
   if (input.verifiedRevenue >= TARGET) return 'learning'
-  if (input.customers > 0) return 'sale'
+  if (input.prospects > 0) return 'sale'
   if (input.services > 0) return 'acquisition'
   if (input.opportunities > 0) return 'offer'
   return 'opportunity'
 }
 
 export async function getFirstRevenueMission(userId: string): Promise<RevenueMission> {
-  const [transactions, customers, opportunities, services] = await Promise.all([
-    db.transaction.findMany({ where: { userId, status: 'succeeded' }, select: { amount: true, currency: true } }),
-    db.customer.count({ where: { userId } }),
-    db.opportunity.count({ where: { userId, status: { not: 'retired' } } }),
-    db.servicePackage.count({ where: { userId, active: true } }),
+  const [transactions, prospects, opportunities, services] = await Promise.all([
+    db.transaction.findMany({
+      where: { userId, status: 'succeeded', currency: BASE_CURRENCY },
+      select: { amount: true },
+    }),
+    db.customer.count({ where: { userId, source: ENGINE_SOURCE } }),
+    db.opportunity.count({ where: { userId, source: ENGINE_SOURCE, status: { not: 'retired' } } }),
+    db.servicePackage.count({ where: { userId, active: true, name: SERVICE_NAME } }),
   ])
 
+  // Never add amounts across currencies. The first-revenue service is priced in CAD,
+  // so only successful CAD transactions contribute to the mission's verified total.
   const verifiedRevenue = transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
-  const stage = inferStage({ verifiedRevenue, customers, opportunities, services })
+  const stage = inferStage({ verifiedRevenue, prospects, opportunities, services })
 
   const blockers: string[] = []
   let nextAction = ''
@@ -52,19 +61,19 @@ export async function getFirstRevenueMission(userId: string): Promise<RevenueMis
   switch (stage) {
     case 'opportunity':
       nextAction = 'Validate one reachable customer problem and create a single opportunity record.'
-      blockers.push('No active revenue opportunity is recorded.')
+      blockers.push('No active first-revenue opportunity is recorded.')
       break
     case 'offer':
-      nextAction = 'Turn the strongest opportunity into one specific, priced service package.'
-      if (services === 0) blockers.push('No active service package is recorded.')
+      nextAction = 'Turn the first-revenue opportunity into one specific, priced service package.'
+      if (services === 0) blockers.push('The first-revenue service package is not active.')
       break
     case 'acquisition':
       nextAction = 'Add qualified prospects to the CRM and start direct conversations for the active offer.'
-      blockers.push('No verified customer transaction exists yet.')
+      blockers.push('No first-revenue prospect is recorded yet.')
       break
     case 'sale':
       nextAction = 'Convert a qualified prospect through the configured payment flow; do not manually count the sale as revenue.'
-      blockers.push('A CRM customer exists, but no processor-verified transaction exists.')
+      blockers.push('A first-revenue prospect exists, but no processor-verified CAD transaction exists.')
       break
     case 'learning':
       nextAction = 'Review the first verified transaction, fulfillment outcome, acquisition source, and repeatability before scaling.'
@@ -75,43 +84,41 @@ export async function getFirstRevenueMission(userId: string): Promise<RevenueMis
 
   return {
     stage,
-    goal: 'First verified $1 of revenue',
+    goal: `First verified $1 of ${BASE_CURRENCY} revenue`,
     nextAction,
     blockers,
     verifiedRevenue,
-    customerCount: customers,
+    customerCount: prospects,
     opportunityCount: opportunities,
     serviceCount: services,
   }
 }
 
 export async function initializeFirstRevenueMission(userId: string) {
-  const existing = await db.opportunity.findFirst({
-    where: { userId, status: { not: 'retired' } },
+  // Scope initialization to records owned by this engine. Existing unrelated
+  // opportunities/offers must never be silently adopted by the revenue mission.
+  const opportunity = await db.opportunity.findFirst({
+    where: { userId, source: ENGINE_SOURCE, title: OPPORTUNITY_TITLE, status: { not: 'retired' } },
     orderBy: { createdAt: 'desc' },
-  })
-
-  const opportunity = existing ?? await db.opportunity.create({
+  }) ?? await db.opportunity.create({
     data: {
       userId,
-      title: 'AI-assisted business operations service for small businesses',
+      title: OPPORTUNITY_TITLE,
       description: 'Validate a narrowly scoped service that solves a measurable operational problem for a reachable small-business customer. Revenue is counted only after a verified payment transaction.',
       category: 'ai_business_service',
-      source: 'first_revenue_engine',
+      source: ENGINE_SOURCE,
       status: 'new',
       riskScore: 3,
     },
   })
 
-  const existingPackage = await db.servicePackage.findFirst({
-    where: { userId, active: true },
+  const service = await db.servicePackage.findFirst({
+    where: { userId, active: true, name: SERVICE_NAME },
     orderBy: { createdAt: 'desc' },
-  })
-
-  const service = existingPackage ?? await db.servicePackage.create({
+  }) ?? await db.servicePackage.create({
     data: {
       userId,
-      name: 'AI Business Operations Starter',
+      name: SERVICE_NAME,
       description: 'A tightly scoped, outcome-based AI operations service. Final scope and price must be validated with the first prospect before scaling.',
       category: 'consulting',
       priceOneTime: 250,
@@ -144,15 +151,16 @@ export async function initializeFirstRevenueMission(userId: string) {
 }
 
 export async function addProspect(userId: string, input: { name: string; email?: string; company?: string; source?: string; notes?: string }) {
-  if (!input.name.trim()) throw new Error('Prospect name is required')
+  const name = input.name.trim()
+  if (!name) throw new Error('Prospect name is required')
 
   return db.customer.create({
     data: {
       userId,
-      name: input.name.trim(),
+      name,
       email: input.email?.trim() || null,
       company: input.company?.trim() || null,
-      source: input.source?.trim() || 'first_revenue_engine',
+      source: ENGINE_SOURCE,
       notes: input.notes?.trim() || null,
       status: 'lead',
       value: 0,
