@@ -23,6 +23,8 @@ export interface OciUploadResult {
 
 const MAX_RETRIES = 4
 const CONCURRENCY = 4
+const CHECKSUM_HEADER = 'opc-checksum-algorithm'
+const CHECKSUM_ALGORITHM = 'SHA256'
 
 async function api(body: Record<string, unknown>) {
   const response = await fetch('/api/storage/multipart', {
@@ -44,7 +46,7 @@ async function uploadPart(file: File, partNumber: number, partSize: number, key:
       const { url } = await api({ action: 'presign-part', key, uploadId, partNumber })
       const response = await fetch(url, {
         method: 'PUT',
-        headers: { 'x-amz-checksum-algorithm': 'SHA256' },
+        headers: { [CHECKSUM_HEADER]: CHECKSUM_ALGORITHM },
         body,
       })
       if (!response.ok) throw new Error(`Part ${partNumber} upload failed (${response.status})`)
@@ -69,6 +71,10 @@ export async function uploadLargeFile(
     size: file.size,
     contentType: file.type || 'application/octet-stream',
   })
+
+  if (init.checksumAlgorithm !== CHECKSUM_ALGORITHM) {
+    throw new Error('OCI storage did not negotiate the required SHA256 integrity mode.')
+  }
 
   const completed: Array<{ partNumber: number; etag: string; size: number }> = []
   let nextPart = 1
