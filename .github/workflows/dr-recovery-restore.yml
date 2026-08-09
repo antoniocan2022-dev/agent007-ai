@@ -44,8 +44,8 @@ jobs:
           case "$DR_URL" in postgres://*|postgresql://*) ;; *) echo 'DR URL is not PostgreSQL'; exit 1;; esac
           case "$PROD_URL" in postgres://*|postgresql://*) ;; *) echo 'Production URL is not PostgreSQL'; exit 1;; esac
           if [ "$DR_URL" = "$PROD_URL" ]; then echo 'REFUSED: DR URL equals production URL'; exit 1; fi
-          DR_HOST=$(node -e "console.log(new URL(process.env.DR_URL).hostname" )
-          PROD_HOST=$(node -e "console.log(new URL(process.env.PROD_URL).hostname" )
+          DR_HOST=$(node -e "console.log(new URL(process.env.DR_URL).hostname)")
+          PROD_HOST=$(node -e "console.log(new URL(process.env.PROD_URL).hostname)")
           if [ -z "$DR_HOST" ] || [ -z "$PROD_HOST" ] || [ "$DR_HOST" = "$PROD_HOST" ]; then
             echo 'REFUSED: database hosts are not positively distinguishable.'
             exit 1
