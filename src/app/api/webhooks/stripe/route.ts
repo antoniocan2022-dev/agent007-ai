@@ -12,6 +12,13 @@ export const dynamic = 'force-dynamic'
  * signature-verified and owner-bound through Checkout Session metadata.
  * Webhooks have no user session, so this endpoint never falls back to an
  * arbitrary/seed user.
+ *
+ * Idempotency rules:
+ * - A Stripe transaction is unique by provider/providerTxId.
+ * - A repeated checkout.session.completed event must not create another
+ *   IncomeEntry.
+ * - Checkout transactions use the PaymentIntent ID when available so a
+ *   later charge.refunded event can be reconciled to the same transaction.
  */
 export async function POST(req: NextRequest) {
   const payload = await req.text()
@@ -23,9 +30,7 @@ export async function POST(req: NextRequest) {
     console.error('[stripe-webhook] REJECTED: STRIPE_WEBHOOK_SECRET not set.')
     return NextResponse.json({ error: 'Webhook secret not configured.' }, { status: 503 })
   }
-  if (!secretKey) {
-    return NextResponse.json({ error: 'Stripe secret key not configured.' }, { status: 503 })
-  }
+  if (!secretKey) return NextResponse.json({ error: 'Stripe secret key not configured.' }, { status: 503 })
   if (!sig) return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 })
 
   let event: Stripe.Event
@@ -44,7 +49,8 @@ export async function POST(req: NextRequest) {
     if (eventType === 'checkout.session.completed') {
       const amount = (data.amount_total ?? 0) / 100
       const currency = (data.currency || 'usd').toUpperCase()
-      const providerTxId = data.id
+      const providerTxId = typeof data.payment_intent === 'string' ? data.payment_intent : data.id
+      const providerCheckoutSessionId = data.id
       const customerEmail = data.customer_details?.email
       const customerName = data.customer_details?.name
       const productId = data.metadata?.productId || 'unknown'
@@ -56,63 +62,79 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true, skipped: true, reason: `payment_status=${paymentStatus}` })
       }
       if (!metadataUserId) {
-        console.error(`[stripe-webhook] Missing owner metadata for paid checkout ${providerTxId}`)
+        console.error(`[stripe-webhook] Missing owner metadata for paid checkout ${providerCheckoutSessionId}`)
         return NextResponse.json({ error: 'Paid checkout is missing Agent007 owner metadata.' }, { status: 422 })
       }
 
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) {
-        console.error(`[stripe-webhook] Owner ${metadataUserId} not found for paid checkout ${providerTxId}`)
+        console.error(`[stripe-webhook] Owner ${metadataUserId} not found for paid checkout ${providerCheckoutSessionId}`)
         return NextResponse.json({ error: 'Agent007 checkout owner not found.' }, { status: 422 })
       }
 
-      const tx = await db.transaction.upsert({
+      const existing = await db.transaction.findUnique({
         where: { provider_providerTxId: { provider: 'stripe', providerTxId } },
-        update: {
-          userId: owner.id,
-          status: 'succeeded',
-          amount,
-          currency,
-          customerEmail,
-          customerName,
-          description: `Product: ${productName} (ID: ${productId})`,
-          rawPayload: payload.slice(0, 10000),
-        },
-        create: {
-          userId: owner.id,
-          provider: 'stripe',
-          providerTxId,
-          amount,
-          currency,
-          status: 'succeeded',
-          customerEmail,
-          customerName,
-          description: `Product: ${productName} (ID: ${productId})`,
-          rawPayload: payload.slice(0, 10000),
-        },
+        select: { id: true },
       })
 
-      await db.incomeEntry.create({
-        data: {
-          amount,
-          source: 'stripe',
-          notes: `Stripe Checkout — ${productName} (product: ${productId}, session: ${providerTxId})`,
-          date: new Date(),
-        },
-      })
+      const tx = existing
+        ? await db.transaction.update({
+            where: { id: existing.id },
+            data: {
+              userId: owner.id,
+              status: 'succeeded',
+              amount,
+              currency,
+              customerEmail,
+              customerName,
+              productName,
+              description: `Product: ${productName} (ID: ${productId})`,
+              rawPayload: payload.slice(0, 10000),
+            },
+          })
+        : await db.transaction.create({
+            data: {
+              userId: owner.id,
+              provider: 'stripe',
+              providerTxId,
+              amount,
+              currency,
+              status: 'succeeded',
+              customerEmail,
+              customerName,
+              productName,
+              description: `Product: ${productName} (ID: ${productId})`,
+              rawPayload: payload.slice(0, 10000),
+            },
+          })
+
+      // Only the first successful transaction event creates the income entry.
+      // Stripe can retry webhook delivery, so this must never be an unconditional
+      // create after an upsert.
+      if (!existing) {
+        await db.incomeEntry.create({
+          data: {
+            amount,
+            source: 'stripe',
+            notes: `Stripe Checkout — ${productName} (product: ${productId}, session: ${providerCheckoutSessionId}, payment_intent: ${providerTxId})`,
+            date: new Date(),
+          },
+        })
+      }
 
       let fulfillmentResult: { downloadUrl?: string; emailSent?: boolean; isFirstSale?: boolean } = {}
-      if (customerEmail && productId !== 'unknown') {
+      if (!existing && customerEmail && productId !== 'unknown') {
         try {
           const { fulfillPurchase } = await import('@/lib/product-fulfillment')
           fulfillmentResult = await fulfillPurchase({ customerEmail, productId, amount, transactionId: providerTxId })
         } catch (fulfillErr: any) {
-          console.error(`[stripe-webhook] Fulfillment FAILED for ${providerTxId}:`, fulfillErr?.message?.slice(0, 200))
+          console.error(`[stripe-webhook] Fulfillment FAILED for ${providerCheckoutSessionId}:`, fulfillErr?.message?.slice(0, 200))
         }
       }
 
       return NextResponse.json({
         received: true,
+        duplicate: !!existing,
         transactionId: tx.id,
         product: productName,
         fulfilled: !!fulfillmentResult.downloadUrl,
@@ -130,22 +152,48 @@ export async function POST(req: NextRequest) {
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) return NextResponse.json({ error: 'Agent007 payment owner not found.' }, { status: 422 })
 
-      const tx = await db.transaction.upsert({
+      const existing = await db.transaction.findUnique({
         where: { provider_providerTxId: { provider: 'stripe', providerTxId } },
-        update: { userId: owner.id, status: 'succeeded', amount, currency, rawPayload: payload.slice(0, 10000) },
-        create: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', rawPayload: payload.slice(0, 10000) },
+        select: { id: true },
       })
-      return NextResponse.json({ received: true, transactionId: tx.id })
+
+      const tx = existing
+        ? await db.transaction.update({
+            where: { id: existing.id },
+            data: { userId: owner.id, status: 'succeeded', amount, currency, rawPayload: payload.slice(0, 10000) },
+          })
+        : await db.transaction.create({
+            data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', rawPayload: payload.slice(0, 10000) },
+          })
+
+      if (!existing) {
+        await db.incomeEntry.create({
+          data: { amount, source: 'stripe', notes: `Stripe PaymentIntent — ${providerTxId}`, date: new Date() },
+        })
+      }
+
+      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: tx.id })
     }
 
     if (eventType === 'charge.refunded') {
-      const providerTxId = data.id
+      const providerTxId = typeof data.payment_intent === 'string' ? data.payment_intent : ''
       const amountRefunded = (data.amount_refunded ?? 0) / 100
-      await db.transaction.updateMany({ where: { provider: 'stripe', providerTxId }, data: { status: 'refunded' } })
-      if (amountRefunded > 0) {
-        await db.incomeEntry.create({ data: { amount: -amountRefunded, source: 'stripe-refund', notes: `Stripe refund for ${providerTxId}`, date: new Date() } })
+      if (!providerTxId) return NextResponse.json({ received: true, skipped: true, reason: 'refund_missing_payment_intent' })
+
+      const existing = await db.transaction.findUnique({
+        where: { provider_providerTxId: { provider: 'stripe', providerTxId } },
+        select: { id: true, status: true },
+      })
+      if (!existing) return NextResponse.json({ received: true, skipped: true, reason: 'transaction_not_found' })
+
+      const alreadyRefunded = existing.status === 'refunded'
+      await db.transaction.update({ where: { id: existing.id }, data: { status: 'refunded' } })
+      if (amountRefunded > 0 && !alreadyRefunded) {
+        await db.incomeEntry.create({
+          data: { amount: -amountRefunded, source: 'stripe-refund', notes: `Stripe refund for PaymentIntent ${providerTxId}`, date: new Date() },
+        })
       }
-      return NextResponse.json({ received: true, refunded: amountRefunded })
+      return NextResponse.json({ received: true, refunded: amountRefunded, duplicate: alreadyRefunded })
     }
 
     return NextResponse.json({ received: true, unhandled: eventType })
@@ -153,4 +201,8 @@ export async function POST(req: NextRequest) {
     console.error('[stripe-webhook] error:', e)
     return NextResponse.json({ error: e?.message ?? 'Webhook failed' }, { status: 500 })
   }
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, endpoint: '/api/webhooks/stripe', signatureRequired: true })
 }
