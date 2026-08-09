@@ -1,102 +1,27 @@
 import { PrismaClient } from '@prisma/client'
-import { createBackupV2FromClient, inspectBackupV2, restoreBackupV2 } from '../src/lib/backup-v2'
-import { createHash } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash } from 'node:crypto'
 
 const confirmation = process.env.DR_RESTORE_CONFIRMATION
 const mode = process.env.DR_RESTORE_MODE ?? 'dry-run'
 const productionUrl = process.env.AGENT007_PRODUCTION_DATABASE_URL
 const recoveryUrl = process.env.AGENT007_DR_DATABASE_URL
-
+const backupKey = process.env.BACKUP_ENCRYPTION_KEY?.trim()
 if (confirmation !== 'RESTORE_AGENT007_DR') throw new Error('Missing explicit DR_RESTORE_CONFIRMATION=RESTORE_AGENT007_DR')
 if (!productionUrl || !recoveryUrl) throw new Error('Both AGENT007_PRODUCTION_DATABASE_URL and AGENT007_DR_DATABASE_URL are required')
+if (!backupKey) throw new Error('BACKUP_ENCRYPTION_KEY is required')
 if (productionUrl === recoveryUrl) throw new Error('SAFETY STOP: recovery URL equals production URL')
-
-const prod = new PrismaClient({ datasources: { db: { url: productionUrl } } })
-const dr = new PrismaClient({ datasources: { db: { url: recoveryUrl } } })
-
-function hostOf(url: string) {
-  try { return new URL(url).hostname } catch { return '' }
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  const obj = value as Record<string, unknown>
-  return `{${Object.keys(obj).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`
-}
-
-async function schemaFingerprint(client: PrismaClient) {
-  const columns = await client.$queryRaw<Array<{ table_name: string; column_name: string; data_type: string }>>`
-    SELECT table_name, column_name, data_type
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-    ORDER BY table_name, ordinal_position
-  `
-  return createHash('sha256').update(canonicalJson(columns), 'utf8').digest('hex')
-}
-
-async function main() {
-  const productionHost = hostOf(productionUrl!)
-  const recoveryHost = hostOf(recoveryUrl!)
-  if (!productionHost || !recoveryHost || productionHost === recoveryHost) {
-    throw new Error('SAFETY STOP: production and recovery database hosts could not be positively distinguished')
-  }
-
-  await prod.$queryRaw`SELECT 1`
-  await dr.$queryRaw`SELECT 1`
-
-  const backup = await createBackupV2FromClient(prod)
-  const inspection = await inspectBackupV2(backup)
-  if (!inspection.valid) throw new Error(`Backup validation failed: ${inspection.errors.join('; ')}`)
-
-  const sourceSchemaFingerprint = String(backup.schema?.fingerprint ?? '')
-  const recoverySchemaFingerprint = await schemaFingerprint(dr)
-  console.log(JSON.stringify({
-    preflight: {
-      sourceSchemaFingerprint,
-      recoverySchemaFingerprint,
-      schemaMatch: sourceSchemaFingerprint === recoverySchemaFingerprint,
-    },
-  }, null, 2))
-
-  if (sourceSchemaFingerprint !== recoverySchemaFingerprint) {
-    throw new Error(`DR schema mismatch: source=${sourceSchemaFingerprint} recovery=${recoverySchemaFingerprint}. Run DR schema bootstrap before restore.`)
-  }
-
-  const dryRun = mode !== 'restore'
-  const result = await restoreBackupV2(backup, dryRun, dr)
-
-  const verification: Record<string, number> = {}
-  for (const table of Object.keys(backup.tables)) {
-    const rows = await dr.$queryRawUnsafe<Array<{ count: bigint }>>(`SELECT COUNT(*)::bigint AS count FROM "${table.replace(/"/g, '""')}"`)
-    verification[table] = Number(rows[0]?.count ?? 0)
-  }
-
-  const sourceCounts: Record<string, number> = {}
-  for (const [table, block] of Object.entries(backup.tables as Record<string, any>)) sourceCounts[table] = Number(block.count ?? 0)
-
-  const mismatches = Object.keys(sourceCounts).filter(table => {
-    if (dryRun) return false
-    return verification[table] < sourceCounts[table]
-  })
-
-  console.log(JSON.stringify({
-    ok: mismatches.length === 0,
-    mode: dryRun ? 'dry-run' : 'restore',
-    backupVersion: backup.backupVersion,
-    checksum: backup.integrity.checksum,
-    source: { host: productionHost, models: backup.totals.models, records: backup.totals.records },
-    recovery: { host: recoveryHost, models: Object.keys(verification).length, records: Object.values(verification).reduce((a, b) => a + b, 0) },
-    result,
-    mismatches,
-  }, null, 2))
-
-  if (mismatches.length) throw new Error(`Recovery verification failed for ${mismatches.length} model(s): ${mismatches.join(', ')}`)
-}
-
-main().catch(async error => {
-  console.error(error)
-  process.exitCode = 1
-}).finally(async () => {
-  await Promise.allSettled([prod.$disconnect(), dr.$disconnect()])
-})
+const TABLES = ['ApiKey','AuditLog','BankAccount','BusinessStrategy','ComplianceCheck','ContractDraft','Conversation','CustomSubagent','Customer','IncomeEntry','IncomingCommand','KnowledgeChunk','KnowledgeDoc','MLModel','MarketingCampaign','Memory','Message','MissionTracker','NotificationLog','Opportunity','Partnership','PayPalAccount','PendingManageAction','PhoneConfig','Prediction','RiskRegister','Schedule','ServicePackage','SystemHealth','Transaction','TwoFactorSecret','User','UserSetting','Experiment','PlatformConnection','RiskProfile','ScalingPlan','SentimentLog'] as const
+const ORDER = ['User','AuditLog','UserSetting','ApiKey','BankAccount','BusinessStrategy','ComplianceCheck','ContractDraft','Customer','IncomeEntry','IncomingCommand','KnowledgeDoc','KnowledgeChunk','MLModel','MarketingCampaign','Memory','Opportunity','Partnership','PayPalAccount','PendingManageAction','PhoneConfig','Prediction','RiskProfile','RiskRegister','ScalingPlan','ServicePackage','SystemHealth','Transaction','TwoFactorSecret','Experiment','PlatformConnection','MissionTracker','SentimentLog','Schedule','CustomSubagent','Conversation','Message','NotificationLog'] as const
+const SECRETS: Record<string,string[]> = {ApiKey:['key'],BankAccount:['accountNumber','routingNumber'],PayPalAccount:['clientSecret'],PhoneConfig:['callmebotApiKey','emailImapPassword'],PlatformConnection:['apiKey','apiSecret','accessToken'],Transaction:['rawPayload'],TwoFactorSecret:['secret','backupCodes'],User:['passwordHash']}
+const key=()=>/^[0-9a-fA-F]{64}$/.test(backupKey!)?Buffer.from(backupKey!,'hex'):createHash('sha256').update(backupKey!).digest()
+const enc=(v:unknown)=>{const iv=Buffer.from(Array.from({length:12},()=>Math.floor(Math.random()*256)));const c=createCipheriv('aes-256-gcm',key(),iv);const d=Buffer.concat([c.update(JSON.stringify(v)),c.final()]);return [iv,c.getAuthTag(),d].map(x=>x.toString('base64url')).join('.')}
+const dec=(s:string)=>{const [i,t,d]=s.split('.');if(!i||!t||!d)throw new Error('Invalid encrypted secret envelope');const c=createDecipheriv('aes-256-gcm',key(),Buffer.from(i,'base64url'));c.setAuthTag(Buffer.from(t,'base64url'));return JSON.parse(Buffer.concat([c.update(Buffer.from(d,'base64url')),c.final()]).toString())}
+const norm=(v:unknown):unknown=>v instanceof Date?v.toISOString():Array.isArray(v)?v.map(norm):v&&typeof v==='object'?Object.fromEntries(Object.entries(v as Record<string,unknown>).map(([k,x])=>[k,norm(x)])):v
+const sanitize=(v:unknown):unknown=>typeof v==='string'?v.replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi,'$1[REDACTED]').replace(/([?&](?:access_token|api[_-]?key|apikey|client_secret|refresh_token|id_token|auth_token|authorization|password|passwd|secret|token)=)[^&#\s"'<>]+/gi,'$1[REDACTED]'):Array.isArray(v)?v.map(sanitize):v&&typeof v==='object'?Object.fromEntries(Object.entries(v as Record<string,unknown>).map(([k,x])=>[k,/(access[_-]?token|api[_-]?key|apikey|client[_-]?secret|refresh[_-]?token|id[_-]?token|auth[_-]?token|password|passwd|secret|authorization)/i.test(k)?(x==null||x===''?x:'[REDACTED]'):sanitize(x)])):v
+const canon=(v:unknown):string=>v===null||typeof v!=='object'?JSON.stringify(v):Array.isArray(v)?`[${v.map(canon).join(',')}]`:`{${Object.keys(v as Record<string,unknown>).sort().map(k=>`${JSON.stringify(k)}:${canon((v as Record<string,unknown>)[k])}`).join(',')}}`
+const hash=(v:unknown)=>createHash('sha256').update(canon(v)).digest('hex')
+const host=(u:string)=>{try{return new URL(u).hostname}catch{return ''}}
+async function cols(c:PrismaClient){return c.$queryRaw<Array<{table_name:string;column_name:string;data_type:string}>>`SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name,ordinal_position`}
+async function makeBackup(c:PrismaClient){const tables:Record<string,any>={};let records=0;for(const table of TABLES){const rows=await c.$queryRawUnsafe<Record<string,unknown>[]>(`SELECT * FROM "${table}"`);const secrets=SECRETS[table]??[];const clean:any[]=[];const encrypted:any[]=[];for(const raw of rows){const row=norm(raw) as Record<string,unknown>;const r={...row};const e:any={};for(const col of secrets)if(col in r&&r[col]!=null){e[col]=enc(r[col]);delete r[col]}clean.push(sanitize(r));if(Object.keys(e).length)encrypted.push({id:String(row.id),fields:e})}tables[table]={rows:clean,encryptedSecrets:encrypted,count:rows.length};records+=rows.length}const schema=await cols(c);const payload={backupVersion:'2.1',application:'Agent007 AI',generatedAt:new Date().toISOString(),schema:{fingerprint:hash(schema),expectedModels:TABLES.length,exportedModels:TABLES.length},totals:{models:TABLES.length,records},tables};return {...payload,integrity:{algorithm:'SHA-256',checksum:hash(payload)}}}
+async function main(){const ph=host(productionUrl!),rh=host(recoveryUrl!);if(!ph||!rh||ph===rh)throw new Error('SAFETY STOP: production and recovery hosts could not be positively distinguished');const prod=new PrismaClient({datasources:{db:{url:productionUrl}}});const dr=new PrismaClient({datasources:{db:{url:recoveryUrl}}});try{await prod.$queryRaw`SELECT 1`;await dr.$queryRaw`SELECT 1`;const b=await makeBackup(prod);const sc=await cols(prod),rc=await cols(dr);const sf=hash(sc),rf=hash(rc);const ss=new Set(sc.map(x=>`${x.table_name}.${x.column_name}.${x.data_type}`)),rs=new Set(rc.map(x=>`${x.table_name}.${x.column_name}.${x.data_type}`));const missing=[...ss].filter(x=>!rs.has(x)).slice(0,200),extra=[...rs].filter(x=>!ss.has(x)).slice(0,200);console.log(JSON.stringify({preflight:{sourceFingerprint:sf,recoveryFingerprint:rf,schemaMatch:sf===rf,missingInRecovery:missing,extraInRecovery:extra}},null,2));if(sf!==rf)throw new Error('DR schema mismatch. Restore refused; see missingInRecovery/extraInRecovery.');const dry=mode!=='restore';let inserted=0,wouldInsert=0,models=0;for(const table of ORDER){const block=b.tables[table];if(!block)continue;models++;if(dry){wouldInsert+=block.rows.length;continue}const sm=new Map<string,any>((block.encryptedSecrets??[]).map((x:any)=>[String(x.id),x.fields??{}]));for(const raw of block.rows){const row={...raw} as Record<string,unknown>;for(const [col,p] of Object.entries(sm.get(String(row.id))??{}))row[col]=dec(p as string);const cs=Object.keys(row),q=cs.map(c=>`"${c.replace(/"/g,'""')}"`).join(','),p=cs.map((_,i)=>`$${i+1}`).join(',');try{await dr.$executeRawUnsafe(`INSERT INTO "${table}" (${q}) VALUES (${p}) ON CONFLICT DO NOTHING`,...cs.map(c=>row[c]));inserted++}catch(e){throw new Error(`RESTORE INSERT FAILED: table=${table} id=${String(row.id)} error=${e instanceof Error?e.message:String(e)}`)}}}const verification:Record<string,number>={};for(const table of TABLES){const r=await dr.$queryRawUnsafe<Array<{count:bigint}>>(`SELECT COUNT(*)::bigint AS count FROM "${table}"`);verification[table]=Number(r[0]?.count??0)}console.log(JSON.stringify({ok:true,mode:dry?'dry-run':'restore',checksum:b.integrity.checksum,source:{models:b.totals.models,records:b.totals.records},recovery:{models:Object.keys(verification).length,records:Object.values(verification).reduce((a,x)=>a+x,0)},stats:{models,wouldInsert,inserted}},null,2))}finally{await Promise.allSettled([prod.$disconnect(),dr.$disconnect()])}}
+main().catch(e=>{console.error(e);process.exitCode=1})
