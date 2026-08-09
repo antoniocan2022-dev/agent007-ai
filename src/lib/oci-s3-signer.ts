@@ -4,6 +4,8 @@ const ALGORITHM = 'AWS4-HMAC-SHA256'
 const SERVICE = 's3'
 const DEFAULT_EXPIRY_SECONDS = 900
 
+type PresignMethod = 'GET' | 'HEAD' | 'PUT' | 'POST' | 'DELETE'
+
 function hmac(key: Buffer | string, data: string) {
   return createHmac('sha256', key).update(data).digest()
 }
@@ -25,6 +27,12 @@ function canonicalQuery(params: Record<string, string>) {
 
 function canonicalUri(key: string) {
   return `/${key.split('/').map(awsEncode).join('/')}`
+}
+
+function canonicalHeaders(headers: Record<string, string>) {
+  return Object.entries(headers)
+    .map(([name, value]) => [name.toLowerCase().trim(), value.trim().replace(/\s+/g, ' ')] as const)
+    .sort(([a], [b]) => a.localeCompare(b))
 }
 
 function getConfig() {
@@ -56,16 +64,21 @@ export function presignOciS3Url({
   method,
   key,
   query = {},
+  headers = {},
   expiresIn = DEFAULT_EXPIRY_SECONDS,
 }: {
-  method: 'GET' | 'PUT' | 'POST' | 'DELETE'
+  method: PresignMethod
   key: string
   query?: Record<string, string>
+  headers?: Record<string, string>
   expiresIn?: number
 }) {
   const { accessKeyId, secretAccessKey, bucket, region, endpoint } = getConfig()
   const url = new URL(`${endpoint}/${awsEncode(bucket)}${canonicalUri(key)}`)
   const host = url.host
+  const signedHeaderEntries = canonicalHeaders({ host, ...headers })
+  const signedHeaders = signedHeaderEntries.map(([name]) => name).join(';')
+  const canonicalHeaderText = `${signedHeaderEntries.map(([name, value]) => `${name}:${value}`).join('\n')}\n`
   const now = new Date()
   const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
   const date = amzDate.slice(0, 8)
@@ -76,15 +89,13 @@ export function presignOciS3Url({
     'X-Amz-Credential': `${accessKeyId}/${credentialScope}`,
     'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(Math.min(604800, Math.max(1, expiresIn))),
-    'X-Amz-SignedHeaders': 'host',
+    'X-Amz-SignedHeaders': signedHeaders,
   }
-  const canonicalHeaders = `host:${host}\n`
-  const signedHeaders = 'host'
   const canonicalRequest = [
     method,
     url.pathname,
     canonicalQuery(params),
-    canonicalHeaders,
+    canonicalHeaderText,
     signedHeaders,
     'UNSIGNED-PAYLOAD',
   ].join('\n')
