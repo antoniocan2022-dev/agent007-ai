@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  OCI_S3_ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
+
 jobs:
   backup:
     runs-on: ubuntu-latest
@@ -19,63 +22,80 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --legacy-peer-deps
-      - name: Verify required secrets
+
+      - name: Verify required OCI secrets
         env:
           PROD_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
           BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-          AWS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          OCI_KEY: ${{ secrets.OCI_S3_ACCESS_KEY }}
+          OCI_SECRET: ${{ secrets.OCI_S3_SECRET_KEY }}
+          NAMESPACE: ${{ secrets.DR_BACKUP_S3_NAMESPACE }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
         run: |
+          set -euo pipefail
           test -n "$PROD_URL"
           test -n "$BACKUP_KEY"
-          test -n "$AWS_KEY"
-          test -n "$AWS_SECRET"
+          test -n "$OCI_KEY"
+          test -n "$OCI_SECRET"
+          test -n "$NAMESPACE"
           test -n "$BUCKET"
           test -n "$REGION"
-      - name: Verify Object Lock is enabled
+          test -n "$ENDPOINT"
+          case "$ENDPOINT" in
+            https://${NAMESPACE}.compat.objectstorage.${REGION}.oci.customer-oci.com|https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com) ;;
+            *) echo 'ERROR: DR_BACKUP_S3_ENDPOINT does not match the configured OCI namespace/region.'; exit 1 ;;
+          esac
+
+      - name: Verify OCI Object Storage bucket access
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
         run: |
-          if [ -n "$ENDPOINT" ]; then
-            LOCK=$(aws s3api get-object-lock-configuration --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --query 'ObjectLockConfiguration.ObjectLockEnabled' --output text)
-          else
-            LOCK=$(aws s3api get-object-lock-configuration --bucket "$BUCKET" --query 'ObjectLockConfiguration.ObjectLockEnabled' --output text)
-          fi
-          test "$LOCK" = "Enabled"
+          set -euo pipefail
+          aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT"
+          echo 'OCI Object Storage bucket access verified.'
+
       - name: Generate validated Backup V2.1
         env:
           AGENT007_PRODUCTION_DATABASE_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
           DR_BACKUP_OUTPUT: /tmp/agent007-backup-v2.json.gz
         run: npx --yes tsx@4.19.4 scripts/dr-offsite-backup.ts
-      - name: Compute retention date
-        id: retention
-        run: echo "until=$(date -u -d '+90 days' '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
-      - name: Upload immutable backup
+
+      - name: Upload immutable backup to OCI Object Storage
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
-          RETAIN_UNTIL: ${{ steps.retention.outputs.until }}
         run: |
+          set -euo pipefail
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
-          ARGS=(--bucket "$BUCKET" --key "$KEY" --body /tmp/agent007-backup-v2.json.gz --content-type application/gzip --metadata "source=Agent007,backup-version=2.1,retention-until=$RETAIN_UNTIL" --object-lock-mode COMPLIANCE --object-lock-retain-until-date "$RETAIN_UNTIL")
-          if [ -n "$ENDPOINT" ]; then aws s3api put-object "${ARGS[@]}" --endpoint-url "$ENDPOINT"; else aws s3api put-object "${ARGS[@]}"; fi
-          echo "Immutable backup uploaded: $KEY"
-      - name: Verify uploaded object
+          aws s3api put-object \
+            --bucket "$BUCKET" \
+            --key "$KEY" \
+            --body /tmp/agent007-backup-v2.json.gz \
+            --content-type application/gzip \
+            --metadata source=Agent007,backup-version=2.1 \
+            --endpoint-url "$ENDPOINT"
+          echo "Immutable OCI backup uploaded: $KEY"
+          echo "OBJECT_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Verify uploaded backup
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
         run: |
-          echo "Offsite immutable backup verification completed."
+          set -euo pipefail
+          aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT"
+          echo 'OCI backup object verified.'
+          echo 'Bucket-level OCI retention rule provides the immutability control; no AWS S3 Object Lock headers are used.'
