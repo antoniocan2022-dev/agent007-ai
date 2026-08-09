@@ -6,11 +6,19 @@ export interface OciUploadProgress {
   percent: number
 }
 
+export interface OciUploadVerification {
+  verified: boolean
+  expectedSize: number
+  actualSize: number
+  checksum: { algorithm: string; value: string }
+}
+
 export interface OciUploadResult {
   bucket: string
   key: string
   uploadId: string
   size: number
+  verification: OciUploadVerification
 }
 
 const MAX_RETRIES = 4
@@ -34,7 +42,11 @@ async function uploadPart(file: File, partNumber: number, partSize: number, key:
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const { url } = await api({ action: 'presign-part', key, uploadId, partNumber })
-      const response = await fetch(url, { method: 'PUT', body })
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { 'x-amz-checksum-algorithm': 'SHA256' },
+        body,
+      })
       if (!response.ok) throw new Error(`Part ${partNumber} upload failed (${response.status})`)
       const etag = response.headers.get('etag')
       if (!etag) throw new Error(`Part ${partNumber} completed without an ETag`)
@@ -83,19 +95,47 @@ export async function uploadLargeFile(
   try {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, init.totalParts) }, () => worker()))
     completed.sort((a, b) => a.partNumber - b.partNumber)
+
+    if (completed.length !== init.totalParts) {
+      throw new Error(`Upload completed only ${completed.length} of ${init.totalParts} parts.`)
+    }
+
     await api({
       action: 'complete',
       key: init.key,
       uploadId: init.uploadId,
+      totalParts: init.totalParts,
       parts: completed.map(({ partNumber, etag }) => ({ partNumber, etag })),
     })
-    return { bucket: init.bucket, key: init.key, uploadId: init.uploadId, size: file.size }
+
+    const verification = await api({
+      action: 'verify',
+      key: init.key,
+      size: file.size,
+    })
+
+    if (!verification.verified || verification.actualSize !== file.size || !verification.checksum?.value) {
+      throw new Error(verification.error || 'Remote OCI object verification failed.')
+    }
+
+    return {
+      bucket: init.bucket,
+      key: init.key,
+      uploadId: init.uploadId,
+      size: file.size,
+      verification: {
+        verified: true,
+        expectedSize: file.size,
+        actualSize: verification.actualSize,
+        checksum: verification.checksum,
+      },
+    }
   } catch (error) {
     aborted = true
     try {
       await api({ action: 'abort', key: init.key, uploadId: init.uploadId })
     } catch {
-      // Preserve the original upload error; an orphaned multipart upload is cleaned up by OCI retention policy.
+      // Preserve the original upload/verification error. OCI lifecycle cleanup handles orphaned uploads.
     }
     throw error
   }
