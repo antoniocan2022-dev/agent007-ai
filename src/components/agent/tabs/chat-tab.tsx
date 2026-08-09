@@ -10,11 +10,11 @@ export function ChatTab() {
   const setLeft = useChatStore((s) => s.setLeft)
   const setRight = useChatStore((s) => s.setRight)
 
-  // CEO chat opens as a clean canvas. Users can reveal either panel from the
-  // header; this keeps the first impression focused on the conversation.
+  // CEO chat keeps the left history drawer closed but keeps the
+  // conversation-outline rail visible, like a ChatGPT-style context column.
   useLayoutEffect(() => {
     setLeft(false)
-    setRight(false)
+    setRight(true)
   }, [setLeft, setRight])
 
   return (
