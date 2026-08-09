@@ -54,6 +54,28 @@ Browser → Upload Manager → Object Storage → validation/security → extrac
 
 Large files require resumable/multipart object-storage uploads, progress, retry/resume, checksum verification and a file-processing state machine. The chat API should receive file references, not 100 GB payloads.
 
+### OCI implementation status
+
+The current branch now contains the first production-oriented storage foundation:
+
+- `src/lib/oci-s3-signer.ts` — AWS SigV4-compatible signing for OCI Object Storage S3 compatibility.
+- `src/app/api/storage/multipart/route.ts` — initiate, presign-part, complete and abort controls.
+- `src/lib/oci-large-upload.ts` — browser multipart uploader with 256 MiB parts, four concurrent workers and retry handling.
+- Maximum object target: 100 GB.
+- Maximum multipart parts: 10,000.
+- Default OCI namespace fallback: `axpyeqhqzuof`.
+
+Expected server environment:
+
+- `AWS_ACCESS_KEY_ID` — OCI Customer Secret Key access key.
+- `AWS_SECRET_ACCESS_KEY` — OCI Customer Secret Key secret.
+- `DR_BACKUP_S3_BUCKET` — OCI Object Storage bucket.
+- `DR_BACKUP_S3_REGION` — `ca-montreal-1`.
+- `DR_BACKUP_S3_ENDPOINT` — optional; if omitted, the namespace-based OCI S3 endpoint is derived.
+- `DR_BACKUP_S3_NAMESPACE` — optional namespace override; defaults to `axpyeqhqzuof` for this deployment configuration.
+
+Important: the chat composer still uses the legacy 8 MB attachment path. The OCI large-file uploader is deliberately not advertised as a general chat attachment until the remote object reference is connected to extraction/indexing and the knowledge workspace. This prevents a UI claim from getting ahead of the end-to-end capability.
+
 ## Business architecture
 
 The CEO must operate the closed loop:
@@ -74,7 +96,7 @@ The UI should make this loop visible through Missions, Businesses and Finance wi
 
 ## Implementation phases
 
-### Phase 1 — UX shell
+### Phase 1 — UX shell — implemented on this branch
 
 - CEO_AGENT007 branding
 - executive navigation
@@ -83,7 +105,7 @@ The UI should make this loop visible through Missions, Businesses and Finance wi
 - cleaner chat composer
 - preserve existing mission/chat functionality
 
-### Phase 2 — Business surfaces
+### Phase 2 — Business surfaces — next
 
 - Businesses portfolio
 - opportunity pipeline
@@ -91,10 +113,11 @@ The UI should make this loop visible through Missions, Businesses and Finance wi
 - Finance & Analytics executive metrics
 - mission-to-business linkage
 
-### Phase 3 — Large-file knowledge system
+### Phase 3 — Large-file knowledge system — foundation implemented
 
-- object-storage upload manager
-- resumable/multipart uploads
+- OCI S3-compatible multipart control API
+- browser multipart uploader
+- resumable/retry-ready upload flow
 - 100 GB object target
 - indexing pipeline
 - knowledge workspace
@@ -113,4 +136,4 @@ The UI should make this loop visible through Missions, Businesses and Finance wi
 - Conversation history can be opened without permanently consuming the main canvas.
 - Executive context can be opened without showing a wall of telemetry.
 - Existing authentication, missions, conversations and memory continue to work.
-- Large-file support is only advertised as 100 GB after the resumable object-storage path is implemented and verified.
+- Large-file support is only advertised as 100 GB after the resumable object-storage path is implemented and verified end-to-end.
