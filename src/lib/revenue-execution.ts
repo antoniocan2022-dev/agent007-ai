@@ -32,35 +32,50 @@ export async function prepareRevenueExecution(userId: string, request: RevenueEx
   return created
 }
 export async function approveRevenueExecution(userId: string, actionId: string) {
-  const action = await db.pendingManageAction.findFirst({ where: { id: actionId, userId } })
-  if (!action) throw new Error('Revenue execution action not found')
-  if (action.status !== 'pending') throw new Error(`Action is ${action.status}; only pending actions can be approved.`)
-  const updated = await db.pendingManageAction.update({ where: { id: action.id }, data: { status: 'approved', result: JSON.stringify({ approvedAt: new Date().toISOString(), execution: 'awaiting-authorized-executor' }) } })
+  const updatedAt = new Date()
+  const claimed = await db.pendingManageAction.updateMany({
+    where: { id: actionId, userId, status: 'pending' },
+    data: { status: 'approved', result: JSON.stringify({ approvedAt: updatedAt.toISOString(), execution: 'awaiting-authorized-executor' }) },
+  })
+  if (claimed.count === 0) {
+    const action = await db.pendingManageAction.findFirst({ where: { id: actionId, userId }, select: { status: true } })
+    if (!action) throw new Error('Revenue execution action not found')
+    throw new Error(`Action is ${action.status}; only pending actions can be approved.`)
+  }
+  const updated = await db.pendingManageAction.findFirst({ where: { id: actionId, userId } })
+  if (!updated) throw new Error('Revenue execution action disappeared after approval.')
   await audit(userId, 'revenue.execution.approved', updated.id, 'Revenue execution action approved; no external side effect was performed.', { action: updated.action, approvalBoundary: true, externalSideEffect: false })
   return updated
 }
 export async function executeApprovedRevenueExecution(userId: string, actionId: string) {
-  const action = await db.pendingManageAction.findFirst({ where: { id: actionId, userId } })
-  if (!action) throw new Error('Revenue execution action not found')
-  if (action.status !== 'approved') throw new Error(`Action is ${action.status}; only approved actions can be executed.`)
-  const revenueAction = parseExecutionAction(action.action)
+  const existing = await db.pendingManageAction.findFirst({ where: { id: actionId, userId } })
+  if (!existing) throw new Error('Revenue execution action not found')
+  if (existing.status !== 'approved') throw new Error(`Action is ${existing.status}; only approved actions can be executed.`)
+  const revenueAction = parseExecutionAction(existing.action)
   if (!revenueAction) throw new Error('Unsupported revenue execution action.')
   const executor = getRevenueExecutor(revenueAction)
   if (!executor || !executor.enabled) throw new Error(`No authorized executor is configured for ${revenueAction}.`)
-  const attrs = safeParse(action.attrs)
+
+  const startedAt = new Date()
+  const claimed = await db.pendingManageAction.updateMany({
+    where: { id: existing.id, userId, status: 'approved' },
+    data: { status: 'executing', result: JSON.stringify({ startedAt: startedAt.toISOString(), executorId: executor.id }) },
+  })
+  if (claimed.count !== 1) throw new Error('Revenue execution action was already claimed by another executor attempt.')
+
+  const attrs = safeParse(existing.attrs)
   const contextAttrs = attrs && typeof attrs === 'object' && !Array.isArray(attrs) ? attrs as Record<string, unknown> : {}
-  await db.pendingManageAction.update({ where: { id: action.id }, data: { status: 'executing', result: JSON.stringify({ startedAt: new Date().toISOString(), executorId: executor.id }) } })
-  await audit(userId, 'revenue.execution.started', action.id, `Started ${revenueAction} with ${executor.id}.`, { executorId: executor.id, externalSideEffect: false })
+  await audit(userId, 'revenue.execution.started', existing.id, `Started ${revenueAction} with ${executor.id}.`, { executorId: executor.id, externalSideEffect: false })
   try {
-    const result = await executor.execute({ actionId: action.id, action: revenueAction, attrs: contextAttrs })
+    const result = await executor.execute({ actionId: existing.id, action: revenueAction, attrs: contextAttrs })
     const finalStatus: RevenueExecutionStatus = result.externalSideEffect ? 'done' : 'failed'
-    const updated = await db.pendingManageAction.update({ where: { id: action.id }, data: { status: finalStatus, result: JSON.stringify({ completedAt: new Date().toISOString(), executorId: executor.id, ...result }) } })
-    await audit(userId, `revenue.execution.${finalStatus}`, action.id, `Executor ${executor.id} completed with status ${finalStatus}.`, result.details)
+    const updated = await db.pendingManageAction.update({ where: { id: existing.id }, data: { status: finalStatus, result: JSON.stringify({ completedAt: new Date().toISOString(), executorId: executor.id, ...result }) } })
+    await audit(userId, `revenue.execution.${finalStatus}`, existing.id, `Executor ${executor.id} completed with status ${finalStatus}.`, result.details)
     return updated
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Executor failed.'
-    const updated = await db.pendingManageAction.update({ where: { id: action.id }, data: { status: 'failed', result: JSON.stringify({ failedAt: new Date().toISOString(), executorId: executor.id, error: message }) } })
-    await audit(userId, 'revenue.execution.failed', action.id, message, { executorId: executor.id, failClosed: true })
+    const updated = await db.pendingManageAction.update({ where: { id: existing.id }, data: { status: 'failed', result: JSON.stringify({ failedAt: new Date().toISOString(), executorId: executor.id, error: message }) } })
+    await audit(userId, 'revenue.execution.failed', existing.id, message, { executorId: executor.id, failClosed: true })
     throw Object.assign(new Error(message), { action: updated })
   }
 }
