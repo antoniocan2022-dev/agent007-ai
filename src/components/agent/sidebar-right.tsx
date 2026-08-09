@@ -4,10 +4,10 @@ import { useMemo } from 'react'
 import { X, List, MessageSquare } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 
-function messageTitle(content: string): string {
+function messagePreview(content: string): string {
   const clean = content.replace(/\s+/g, ' ').trim()
   if (!clean) return 'Untitled message'
-  return clean.length > 72 ? `${clean.slice(0, 72)}…` : clean
+  return clean.length > 96 ? `${clean.slice(0, 96)}…` : clean
 }
 
 export function SidebarRight({ onClose }: { onClose?: () => void }) {
@@ -31,30 +31,43 @@ export function SidebarRight({ onClose }: { onClose?: () => void }) {
           <List className="w-4 h-4 text-cyan-300 flex-shrink-0" />
           <div className="min-w-0">
             <div className="text-xs font-semibold tracking-wider text-[#e0e7ff]">IN THIS CONVERSATION</div>
-            <div className="text-[9px] text-[#5b6a92] truncate">{currentConversationId ? `${userMessages.length} messages` : 'Current chat'}</div>
+            <div className="text-[9px] text-[#5b6a92] truncate">
+              {currentConversationId ? `${userMessages.length} messages` : 'Current chat'}
+            </div>
           </div>
         </div>
-        {onClose && <button onClick={onClose} className="md:hidden text-[#7c89b5] hover:text-cyan-300" aria-label="Close conversation outline"><X className="w-4 h-4" /></button>}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden text-[#7c89b5] hover:text-cyan-300"
+            aria-label="Close conversation outline"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto scroll-cyan p-2">
         {userMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4">
             <MessageSquare className="w-5 h-5 text-[#3f4a6b] mb-2" />
-            <p className="text-[10px] text-[#5b6a92]">Your previous messages in this conversation will appear here.</p>
+            <p className="text-[10px] text-[#5b6a92]">Your messages in this conversation will appear here.</p>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {userMessages.map((message, index) => (
               <button
                 key={message.id}
                 onClick={() => scrollToMessage(message.id)}
-                className="w-full text-left rounded-lg px-2.5 py-2.5 border border-transparent hover:border-cyan-400/20 hover:bg-cyan-400/5 transition group"
+                className="w-full text-left rounded-md px-2.5 py-2 border border-transparent hover:border-cyan-400/20 hover:bg-cyan-400/5 transition group"
                 title={message.content}
+                aria-label={`Go to message ${index + 1}: ${message.content}`}
               >
-                <div className="flex items-start gap-2">
-                  <span className="text-[9px] text-[#3f4a6b] mt-0.5 tabular-nums w-4 flex-shrink-0">{index + 1}</span>
-                  <span className="text-[11px] leading-4 text-[#9bb5d4] group-hover:text-[#e0e7ff] line-clamp-3">{messageTitle(message.content)}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[9px] text-[#3f4a6b] tabular-nums w-4 flex-shrink-0">{index + 1}</span>
+                  <span className="text-[11px] leading-4 text-[#9bb5d4] group-hover:text-[#e0e7ff] truncate min-w-0">
+                    {messagePreview(message.content)}
+                  </span>
                 </div>
               </button>
             ))}
