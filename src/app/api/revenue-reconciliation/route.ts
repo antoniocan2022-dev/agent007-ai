@@ -15,7 +15,7 @@ async function getAuthenticatedUserId() {
   return user?.id ?? null
 }
 
-export async function POST(req: NextRequest) {
+async function reconcile(req: NextRequest) {
   try {
     const cronSecret = process.env.CRON_SECRET?.trim()
     const authorization = req.headers.get('authorization')
@@ -43,3 +43,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error?.message ?? 'Revenue reconciliation failed.' }, { status: 500 })
   }
 }
+
+export async function GET(req: NextRequest) { return reconcile(req) }
+export async function POST(req: NextRequest) { return reconcile(req) }
