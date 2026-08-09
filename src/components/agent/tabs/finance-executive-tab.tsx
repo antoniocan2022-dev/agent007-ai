@@ -69,11 +69,11 @@ export function FinanceExecutiveTab() {
   }, [load])
 
   const incomeResult = reality?.income?.result
-  const realIncome = parseMoney(incomeResult, /REAL INCOME \\(verified transactions\\):\\s+\\$([\\d,]+)/i)
-  const projectedIncome = parseMoney(incomeResult, /PROJECTED INCOME \\(auto-parsed from agent text\\):\\s+\\$([\\d,]+)/i)
-  const targetIncome = parseMoney(incomeResult, /TARGET:\\s+\\$([\\d,]+)\\/month/i)
-  const realVsTarget = parseMoney(incomeResult, /PROGRESS \\(real only\\):\\s+([\\d.]+)%/i)
-  const projectedVsTarget = parseMoney(incomeResult, /PROGRESS \\(projected\\):\\s+([\\d.]+)%/i)
+  const realIncome = parseMoney(incomeResult, /REAL INCOME.*?\$([\d,]+)/i)
+  const projectedIncome = parseMoney(incomeResult, /PROJECTED INCOME.*?\$([\d,]+)/i)
+  const targetIncome = parseMoney(incomeResult, /TARGET:.*?\$([\d,]+)/i)
+  const realVsTarget = parseMoney(incomeResult, /PROGRESS \(real only\):\s+([\d.]+)%/i)
+  const projectedVsTarget = parseMoney(incomeResult, /PROGRESS \(projected\):\s+([\d.]+)%/i)
   const dimensionEntries = useMemo(() => Object.entries(enterpriseValue?.components || {}), [enterpriseValue])
 
   return (
