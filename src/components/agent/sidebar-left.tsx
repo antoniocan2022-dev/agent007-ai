@@ -67,12 +67,11 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
 
   return (
     <div className="h-full flex flex-col glass-strong border-r border-cyan-400/15">
-      <div className="p-3 flex items-center justify-between border-b border-cyan-400/10">
-        <div className="flex items-center gap-2">
-          <NexusLogo size={24} />
-          <div className="leading-tight">
-            <div className="text-sm font-bold neon-text-cyan">CEO_AGENT007</div>
-            <div className="text-[8px] tracking-[0.25em] text-[#7c89b5]">EXECUTIVE OS</div>
+      <div className="h-12 px-3 flex items-center justify-between border-b border-cyan-400/10">
+        <div className="flex items-center gap-2 min-w-0">
+          <NexusLogo size={22} />
+          <div className="leading-tight min-w-0">
+            <div className="text-sm font-bold neon-text-cyan truncate">CEO_AGENT007</div>
           </div>
         </div>
         {onClose && <button onClick={onClose} className="md:hidden text-[#7c89b5] hover:text-cyan-300" aria-label="Close sidebar"><X className="w-4 h-4" /></button>}
@@ -106,7 +105,7 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
                         <MessageSquare className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${active ? 'text-cyan-300' : 'text-[#5b6a92]'}`} />
                         <div className="flex-1 min-w-0">
                           <div className={`text-xs truncate ${active ? 'text-[#e0e7ff] font-medium' : 'text-[#9bb5d4]'}`} title={c.title || 'New Conversation'}>{c.title || 'New Conversation'}</div>
-                          <div className="text-[9px] text-[#5b6a92] mt-0.5">{relativeTime(c.updatedAt)}{c._count?.messages ? ` • ${c._count.messages} msgs` : ''}</div>
+                          <div className="text-[9px] text-[#5b6a92] mt-0.5">{relativeTime(c.updatedAt)}</div>
                         </div>
                         {!isConfirming && <div className="flex items-center gap-1 flex-shrink-0">
                           <button onClick={(e) => { e.stopPropagation(); window.open(`/api/conversations/${c.id}/export?format=markdown`, '_blank') }} className="opacity-0 group-hover:opacity-100 text-[#5b6a92] hover:text-cyan-300 transition" aria-label="Export conversation" title="Export conversation"><Download className="w-3.5 h-3.5" /></button>
@@ -121,10 +120,6 @@ export function SidebarLeft({ onClose }: { onClose?: () => void }) {
             </div>
           )
         })}
-      </div>
-
-      <div className="p-3 border-t border-cyan-400/10 text-[10px] text-[#5b6a92]">
-        <div className="flex items-center justify-between"><span>Executive workspace</span><span>v2.0</span></div>
       </div>
     </div>
   )
