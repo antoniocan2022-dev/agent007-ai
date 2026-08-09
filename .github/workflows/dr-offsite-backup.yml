@@ -10,6 +10,8 @@ permissions:
 
 env:
   OCI_S3_ENDPOINT: https://axpyeqhqzuof.compat.objectstorage.ca-montreal-1.oci.customer-oci.com
+  OCI_S3_NAMESPACE: axpyeqhqzuof
+  OCI_S3_REGION: ca-montreal-1
 
 jobs:
   backup:
@@ -29,26 +31,24 @@ jobs:
           BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
           OCI_KEY: ${{ secrets.OCI_S3_ACCESS_KEY }}
           OCI_SECRET: ${{ secrets.OCI_S3_SECRET_KEY }}
-          NAMESPACE: ${{ secrets.DR_BACKUP_S3_NAMESPACE }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
         run: |
           set -euo pipefail
           test -n "$PROD_URL"
           test -n "$BACKUP_KEY"
           test -n "$OCI_KEY"
           test -n "$OCI_SECRET"
-          test -n "$NAMESPACE"
           test -n "$BUCKET"
-          test -n "$REGION"
-          test "$NAMESPACE" = "axpyeqhqzuof"
-          test "$REGION" = "ca-montreal-1"
+          test "$OCI_S3_NAMESPACE" = "axpyeqhqzuof"
+          test "$OCI_S3_REGION" = "ca-montreal-1"
+          echo 'Required Agent007 and OCI credentials are present.'
+          echo 'OCI namespace and region are pinned to the configured Montreal endpoint.'
 
       - name: Verify OCI Object Storage bucket access
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.OCI_S3_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ env.OCI_S3_ENDPOINT }}
         run: |
@@ -71,7 +71,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.OCI_S3_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ env.OCI_S3_ENDPOINT }}
           SHA256: ${{ steps.checksum.outputs.sha256 }}
@@ -93,7 +93,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.OCI_S3_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ env.OCI_S3_ENDPOINT }}
         run: |
