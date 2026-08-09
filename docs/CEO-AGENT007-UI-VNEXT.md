@@ -113,7 +113,7 @@ The UI should make this loop visible through Missions, Businesses and Finance wi
 - Finance & Analytics executive metrics
 - mission-to-business linkage
 
-### Phase 3 — Large-file knowledge system — foundation implemented
+### Phase 3 — Large-file knowledge system — storage foundation implemented
 
 - OCI S3-compatible multipart control API
 - browser multipart uploader
@@ -121,6 +121,8 @@ The UI should make this loop visible through Missions, Businesses and Finance wi
 - 100 GB object target
 - indexing pipeline
 - knowledge workspace
+
+The 100 GB feature becomes **production-enabled** only after a real OCI integration test completes: initiate → upload multiple parts → complete → HEAD/GET verification → checksum/size verification → cleanup/abort test. Until that test passes on the deployed environment, the feature remains an internal capability rather than a user-facing promise.
 
 ### Phase 4 — Reliability
 
