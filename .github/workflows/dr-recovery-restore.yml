@@ -52,6 +52,17 @@ jobs:
           fi
           echo 'Target safety check passed.'
 
+      - name: Verify backup encryption secret exists
+        env:
+          BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          if [ -z "$BACKUP_KEY" ]; then
+            echo 'BACKUP_ENCRYPTION_KEY GitHub Actions secret is missing.'
+            echo 'Add the same backup encryption key used by Agent007 Backup V2 to GitHub repository secrets.'
+            exit 1
+          fi
+          echo 'Backup encryption secret is present.'
+
       - name: Generate Prisma Client
         run: npx prisma generate
 
