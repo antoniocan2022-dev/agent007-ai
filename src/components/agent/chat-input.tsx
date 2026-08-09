@@ -2,15 +2,17 @@
 
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { Paperclip, ArrowUp, Square, X, FileText } from 'lucide-react'
+import { Paperclip, ArrowUp, Square, X, FileText, Mic } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export function ChatInput() {
   const [text, setText] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [listening, setListening] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const recognitionRef = useRef<any>(null)
   const language = useChatStore((s) => s.language)
   const setLanguage = useChatStore((s) => s.setLanguage)
   const attachments = useChatStore((s) => s.attachments)
@@ -19,17 +21,7 @@ export function ChatInput() {
   const sendMessage = useChatStore((s) => s.sendMessage)
   const stopStreaming = useChatStore((s) => s.stopStreaming)
   const status = useChatStore((s) => s.status)
-  const messages = useChatStore((s) => s.messages)
   const isBusy = status !== 'idle'
-
-  const latestAssistantText = (() => {
-    if (!messages || !Array.isArray(messages) || messages.length === 0) return ''
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if (m && m.role === 'assistant' && m.content && m.content.trim().length > 0 && !m.isStreaming) return m.content
-    }
-    return ''
-  })()
 
   useEffect(() => {
     const ta = textareaRef.current
@@ -37,6 +29,8 @@ export function ChatInput() {
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
   }, [text])
+
+  useEffect(() => () => recognitionRef.current?.stop?.(), [])
 
   const handleSend = useCallback(() => {
     const t = text.trim()
@@ -53,15 +47,39 @@ export function ChatInput() {
     }
   }
 
+  const toggleVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported by this browser.')
+      return
+    }
+    if (listening) {
+      recognitionRef.current?.stop?.()
+      setListening(false)
+      return
+    }
+    const recognition = new SpeechRecognition()
+    recognition.lang = language === 'en' ? 'en-CA' : 'es-CA'
+    recognition.interimResults = true
+    recognition.continuous = false
+    recognition.onresult = (event: any) => {
+      let transcript = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript
+      setText(transcript)
+    }
+    recognition.onend = () => setListening(false)
+    recognition.onerror = () => setListening(false)
+    recognitionRef.current = recognition
+    recognition.start()
+    setListening(true)
+  }
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
-        // The current API upload path is still bounded at 8 MB. The 100 GB target
-        // is documented for the upcoming object-storage upload manager and should
-        // not be advertised here until that backend path is live.
         if (file.size > 8 * 1024 * 1024) {
           alert(`File "${file.name}" is too large for the current upload path (max 8MB). Large-file support is being migrated to object storage.`)
           continue
@@ -93,14 +111,16 @@ export function ChatInput() {
           </button>
           <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/*,.txt,.md,.csv,.json,.js,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.log,.py,.go,.rs,.java,.c,.cpp,.h,.pdf,.sh,.sql" onChange={handleFile} />
 
-          <textarea ref={textareaRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} placeholder={language === 'zh' ? '告诉 CEO_AGENT007 任何事情…（Enter 发送）' : 'Ask CEO_AGENT007 anything… (Enter to send)'} rows={1} className="flex-1 bg-transparent resize-none outline-none text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] py-2 max-h-[200px] overflow-y-auto scroll-cyan" />
+          <textarea ref={textareaRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} placeholder="Ask CEO_AGENT007 anything…" rows={1} className="flex-1 bg-transparent resize-none outline-none text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] py-2 max-h-[200px] overflow-y-auto scroll-cyan" />
 
           <button onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')} className="flex-shrink-0 h-9 px-2.5 rounded-lg text-[11px] font-semibold tracking-wider glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 transition flex items-center gap-1.5" title="Toggle CEO reply language" aria-label="Toggle language"><span className={language === 'en' ? 'text-cyan-300' : 'text-[#7c89b5]'}>EN</span><span className="text-[#5b6a92]">|</span><span className={language === 'zh' ? 'text-purple-300' : 'text-[#7c89b5]'}>中文</span></button>
+
+          <button onClick={toggleVoice} disabled={isBusy} className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition ${listening ? 'bg-cyan-400/20 border border-cyan-400/60 text-cyan-200' : 'text-cyan-300 hover:bg-cyan-400/10'} disabled:opacity-40`} aria-label="Voice input" title="Voice input"><Mic className="w-4 h-4" /></button>
 
           {isBusy ? <button onClick={stopStreaming} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center bg-pink-500/20 border border-pink-400/50 text-pink-200 hover:bg-pink-500/30 transition" aria-label="Stop generation" title="Stop"><Square className="w-3.5 h-3.5" fill="currentColor" /></button> : <button onClick={handleSend} disabled={!text.trim() && attachments.length === 0} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center neon-btn-cyan disabled:cursor-not-allowed" aria-label="Send message" title="Send (Enter)"><ArrowUp className="w-4 h-4" strokeWidth={2.5} /></button>}
         </div>
 
-        <div className="mt-1.5 text-center text-[10px] text-[#5b6a92] tracking-wide">{language === 'zh' ? 'Enter 发送 • Shift+Enter 换行 • 附加文件供 CEO 分析' : 'Enter to send • Shift+Enter for new line • Attach anything for CEO analysis'}</div>
+        <div className="mt-1.5 text-center text-[10px] text-[#5b6a92] tracking-wide">Enter to send • Shift+Enter for new line • Attach files or use voice</div>
       </div>
     </div>
   )
