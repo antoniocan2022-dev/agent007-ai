@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, CircleAlert, CircleDollarSign, RefreshCw, Target, TrendingUp } from 'lucide-react'
+import { RevenueExecutionPanel } from '@/components/agent/revenue-execution-panel'
 
 type Reality = {
   income?: {
@@ -68,11 +69,11 @@ export function FinanceExecutiveTab() {
   }, [load])
 
   const incomeResult = reality?.income?.result
-  const realIncome = parseMoney(incomeResult, /REAL INCOME \(verified transactions\):\s+\$([\d,]+)/i)
-  const projectedIncome = parseMoney(incomeResult, /PROJECTED INCOME \(auto-parsed from agent text\):\s+\$([\d,]+)/i)
-  const targetIncome = parseMoney(incomeResult, /TARGET:\s+\$([\d,]+)\/month/i)
-  const realVsTarget = parseMoney(incomeResult, /PROGRESS \(real only\):\s+([\d.]+)%/i)
-  const projectedVsTarget = parseMoney(incomeResult, /PROGRESS \(projected\):\s+([\d.]+)%/i)
+  const realIncome = parseMoney(incomeResult, /REAL INCOME \\(verified transactions\\):\\s+\\$([\\d,]+)/i)
+  const projectedIncome = parseMoney(incomeResult, /PROJECTED INCOME \\(auto-parsed from agent text\\):\\s+\\$([\\d,]+)/i)
+  const targetIncome = parseMoney(incomeResult, /TARGET:\\s+\\$([\\d,]+)\\/month/i)
+  const realVsTarget = parseMoney(incomeResult, /PROGRESS \\(real only\\):\\s+([\\d.]+)%/i)
+  const projectedVsTarget = parseMoney(incomeResult, /PROGRESS \\(projected\\):\\s+([\\d.]+)%/i)
   const dimensionEntries = useMemo(() => Object.entries(enterpriseValue?.components || {}), [enterpriseValue])
 
   return (
@@ -119,6 +120,8 @@ export function FinanceExecutiveTab() {
           <div className="grid grid-cols-3 gap-2 pt-2 text-center text-[10px]"><Metric label="Active businesses" value={enterpriseValue?.activeBusinesses} /><Metric label="Monthly portfolio revenue" value={enterpriseValue?.totalMonthlyRevenue} money /><Metric label="Customers" value={enterpriseValue?.totalCustomers} /></div>
         </div>
       </div>
+
+      <RevenueExecutionPanel />
 
       <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/[0.03] p-3 text-[11px] text-[#7181aa] flex gap-2"><Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" /> Live source: existing Reality Check and Portfolio APIs. {updatedAt ? `Last updated ${updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</div>
     </section>
