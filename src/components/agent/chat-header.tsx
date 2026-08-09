@@ -6,7 +6,6 @@ import {
   PanelLeft,
   PanelRight,
   Globe,
-  ShieldCheck,
   LogOut,
   KeyRound,
   ChevronDown,
@@ -16,8 +15,7 @@ import {
   Settings as SettingsIcon,
   Rocket,
   Network,
-  GitBranch,
-  Compass,
+  BriefcaseBusiness,
   type LucideIcon,
 } from 'lucide-react'
 import { useSession, signOut } from 'next-auth/react'
@@ -34,15 +32,15 @@ interface TabDef {
   icon: LucideIcon
 }
 
+// Executive navigation: expose outcomes and business functions, not internal machinery.
 const TABS: TabDef[] = [
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'chat', label: 'CEO_AGENT007', icon: MessageSquare },
   { id: 'missions', label: 'Missions', icon: Rocket },
-  { id: 'vid', label: 'VID', icon: Compass },
-  { id: 'dashboard', label: 'Tracker+', icon: LayoutDashboard },
-  { id: 'pods', label: 'Pods', icon: Network },
-  { id: 'mission-active', label: 'Mission Actives', icon: GitBranch },
-  { id: 'schedules', label: 'Schedules', icon: CalendarClock },
-  { id: 'settings', label: 'Settings', icon: SettingsIcon },
+  { id: 'vid', label: 'Businesses', icon: BriefcaseBusiness },
+  { id: 'dashboard', label: 'Finance & Analytics', icon: LayoutDashboard },
+  { id: 'pods', label: 'Organization', icon: Network },
+  { id: 'schedules', label: 'Automation', icon: CalendarClock },
+  { id: 'settings', label: 'System', icon: SettingsIcon },
 ]
 
 export function ChatHeader({
@@ -64,7 +62,6 @@ export function ChatHeader({
   const subagentCount = useChatStore((s) => s.subagentCount)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // Close user menu on outside click
   useEffect(() => {
     if (!userMenuOpen) return
     const handler = (e: MouseEvent) => {
@@ -80,30 +77,34 @@ export function ChatHeader({
   const displayName = session?.user?.name ?? email
   const initials = displayName.slice(0, 2).toUpperCase()
 
+  const statusLabel =
+    status === 'idle'
+      ? 'Operational'
+      : status === 'thinking'
+      ? 'CEO reasoning…'
+      : status === 'tool_running'
+      ? 'Executing…'
+      : 'Responding…'
+
   return (
     <header className="sticky top-0 z-30 glass-strong border-b border-cyan-400/15">
-      {/* Top row: toggles + logo + actions */}
       <div className="px-3 sm:px-4 py-2.5 flex items-center gap-3">
-        {/* left toggle (mobile) */}
         <button
           onClick={onToggleLeft}
           className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-cyan-300 hover:bg-cyan-400/10"
           aria-label="Toggle conversations"
-          style={{ touchAction: 'manipulation' }}
         >
           <Menu className="w-4 h-4" />
         </button>
         <button
           onClick={onToggleLeft}
           className="hidden md:flex w-9 h-9 rounded-lg items-center justify-center text-cyan-300 hover:bg-cyan-400/10"
-          aria-label="Toggle left sidebar"
-          title="Toggle left sidebar"
-          style={{ touchAction: 'manipulation' }}
+          aria-label="Toggle conversation history"
+          title="Conversation history"
         >
           <PanelLeft className="w-4 h-4" />
         </button>
 
-        {/* logo / title */}
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="hidden sm:block">
             <NexusLogo size={28} />
@@ -111,32 +112,23 @@ export function ChatHeader({
           <div className="leading-tight min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-bold tracking-tight">
-                <span className="neon-text-cyan">Agent007</span>{' '}
-                <span className="neon-text-purple">AI</span>
+                <span className="neon-text-cyan">CEO_AGENT007</span>
               </h1>
               <span className="hidden sm:inline-flex text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-400/10 border border-cyan-400/30 text-cyan-200 tracking-wider">
-                INCOME OPERATOR
+                EXECUTIVE OS
               </span>
             </div>
             <div className="text-[9px] text-[#5b6a92] tracking-wide hidden sm:block">
-              {status === 'idle'
-                ? 'Ready • $20K/mo • 20% growth/mo'
-                : status === 'thinking'
-                ? 'Reasoning…'
-                : status === 'tool_running'
-                ? 'Executing tools…'
-                : 'Streaming response…'}
+              {statusLabel} • {subagentCount || 0} specialists available
             </div>
           </div>
         </div>
 
-        {/* language toggle */}
         <button
           onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
           className="h-9 px-3 rounded-lg text-[11px] font-semibold tracking-wider glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 transition flex items-center gap-1.5"
           title="Toggle reply language"
           aria-label="Toggle language"
-          style={{ touchAction: 'manipulation' }}
         >
           <Globe className="w-3.5 h-3.5" />
           <span className={language === 'en' ? 'text-cyan-300' : 'text-[#7c89b5]'}>EN</span>
@@ -144,19 +136,14 @@ export function ChatHeader({
           <span className={language === 'zh' ? 'text-purple-300' : 'text-[#7c89b5]'}>中文</span>
         </button>
 
-        {/* capabilities badge (desktop) — with API status indicator */}
         <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border-cyan-400/20 text-[10px] text-[#9bb5d4]">
           <ApiStatusIndicator />
-          <ShieldCheck className="w-3 h-3 text-cyan-300" />
-          <span>{subagentCount} sub-agents • full web access • autonomous</span>
+          <span>System connected</span>
         </div>
-
-        {/* API status indicator (mobile/tablet) — shown separately when xl hidden */}
         <div className="xl:hidden">
           <ApiStatusIndicator compact />
         </div>
 
-        {/* user menu */}
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setUserMenuOpen((v) => !v)}
@@ -164,7 +151,6 @@ export function ChatHeader({
             aria-label="User menu"
             aria-haspopup="menu"
             aria-expanded={userMenuOpen}
-            style={{ touchAction: 'manipulation' }}
           >
             <span className="w-6 h-6 rounded-full bg-cyan-400/15 border border-cyan-400/40 text-cyan-200 text-[10px] font-bold flex items-center justify-center">
               {initials}
@@ -193,78 +179,33 @@ export function ChatHeader({
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setUserMenuOpen(false)
-                    setActiveTab('settings')
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-[#cfd9f0] hover:bg-cyan-400/10 transition"
-                  role="menuitem"
-                  style={{ touchAction: 'manipulation' }}
-                >
+                <button onClick={() => { setUserMenuOpen(false); setActiveTab('settings') }} className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-[#cfd9f0] hover:bg-cyan-400/10 transition" role="menuitem">
                   <SettingsIcon className="w-3.5 h-3.5 text-cyan-300" />
-                  Open Settings
+                  System settings
                 </button>
-                <button
-                  onClick={() => {
-                    setUserMenuOpen(false)
-                    setChangePasswordOpen(true)
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-[#cfd9f0] hover:bg-cyan-400/10 transition"
-                  role="menuitem"
-                  style={{ touchAction: 'manipulation' }}
-                >
+                <button onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true) }} className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-[#cfd9f0] hover:bg-cyan-400/10 transition" role="menuitem">
                   <KeyRound className="w-3.5 h-3.5 text-cyan-300" />
-                  Change Password
+                  Change password
                 </button>
-                <button
-                  onClick={() => {
-                    setUserMenuOpen(false)
-                    signOut({ callbackUrl: '/login' })
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-pink-200 hover:bg-pink-400/10 transition"
-                  role="menuitem"
-                  style={{ touchAction: 'manipulation' }}
-                >
+                <button onClick={() => { setUserMenuOpen(false); signOut({ callbackUrl: '/login' }) }} className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-pink-200 hover:bg-pink-400/10 transition" role="menuitem">
                   <LogOut className="w-3.5 h-3.5" />
-                  Sign Out
+                  Sign out
                 </button>
-                <div className="mt-1 pt-2 border-t border-cyan-400/10 px-3 text-[9px] text-[#5b6a92] tracking-wide">
-                  v2.0 • powered by Z.ai SDK
-                </div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* right toggle */}
-        <button
-          onClick={onToggleRight}
-          className="hidden md:flex w-9 h-9 rounded-lg items-center justify-center text-cyan-300 hover:bg-cyan-400/10"
-          aria-label="Toggle right sidebar"
-          title="Toggle telemetry panel"
-          style={{ touchAction: 'manipulation' }}
-        >
+        <button onClick={onToggleRight} className="hidden md:flex w-9 h-9 rounded-lg items-center justify-center text-cyan-300 hover:bg-cyan-400/10" aria-label="Toggle executive context" title="Executive context">
           <PanelRight className="w-4 h-4" />
         </button>
-        <button
-          onClick={onToggleRight}
-          className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-cyan-300 hover:bg-cyan-400/10"
-          aria-label="Toggle telemetry"
-          style={{ touchAction: 'manipulation' }}
-        >
+        <button onClick={onToggleRight} className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-cyan-300 hover:bg-cyan-400/10" aria-label="Toggle executive context">
           <PanelRight className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Tab navigation row — horizontally scrollable on mobile */}
       <div className="px-3 sm:px-4 pb-2 -mt-1">
-        <nav
-          className="flex items-center gap-1 overflow-x-auto scroll-cyan pb-0.5"
-          role="tablist"
-          aria-label="Main navigation"
-          style={{ scrollbarWidth: 'none' }}
-        >
+        <nav className="flex items-center gap-1 overflow-x-auto scroll-cyan pb-0.5" role="tablist" aria-label="Executive navigation" style={{ scrollbarWidth: 'none' }}>
           {TABS.map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -274,25 +215,11 @@ export function ChatHeader({
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative flex items-center gap-1.5 h-8 px-3 sm:px-4 rounded-lg text-[11px] sm:text-xs font-semibold tracking-wider transition whitespace-nowrap flex-shrink-0 ${
-                  isActive
-                    ? 'text-cyan-200 bg-cyan-400/10 border border-cyan-400/40'
-                    : 'text-[#7c89b5] border border-transparent hover:text-cyan-200 hover:bg-cyan-400/5'
-                }`}
-                style={{ touchAction: 'manipulation' }}
+                className={`relative flex items-center gap-1.5 h-8 px-3 sm:px-4 rounded-lg text-[11px] sm:text-xs font-semibold tracking-wide transition whitespace-nowrap flex-shrink-0 ${isActive ? 'text-cyan-200 bg-cyan-400/10 border border-cyan-400/40' : 'text-[#7c89b5] border border-transparent hover:text-cyan-200 hover:bg-cyan-400/5'}`}
               >
                 <Icon className="w-3.5 h-3.5" />
-                {tab.label.toUpperCase()}
-                {isActive && (
-                  <motion.span
-                    layoutId="tab-underline"
-                    className="absolute left-2 right-2 -bottom-0.5 h-0.5 rounded-full"
-                    style={{
-                      background: 'linear-gradient(90deg, #00f0ff, #a855f7)',
-                      boxShadow: '0 0 8px rgba(0,240,255,0.7)',
-                    }}
-                  />
-                )}
+                {tab.label}
+                {isActive && <motion.span layoutId="tab-underline" className="absolute left-2 right-2 -bottom-0.5 h-0.5 rounded-full" style={{ background: 'linear-gradient(90deg, #00f0ff, #a855f7)', boxShadow: '0 0 8px rgba(0,240,255,0.7)' }} />}
               </button>
             )
           })}
