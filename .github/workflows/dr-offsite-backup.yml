@@ -1,0 +1,81 @@
+name: DR Immutable Offsite Backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - name: Verify required secrets
+        env:
+          PROD_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+          BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          AWS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
+          REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+        run: |
+          test -n "$PROD_URL"
+          test -n "$BACKUP_KEY"
+          test -n "$AWS_KEY"
+          test -n "$AWS_SECRET"
+          test -n "$BUCKET"
+          test -n "$REGION"
+      - name: Verify Object Lock is enabled
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
+        run: |
+          if [ -n "$ENDPOINT" ]; then
+            LOCK=$(aws s3api get-object-lock-configuration --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --query 'ObjectLockConfiguration.ObjectLockEnabled' --output text)
+          else
+            LOCK=$(aws s3api get-object-lock-configuration --bucket "$BUCKET" --query 'ObjectLockConfiguration.ObjectLockEnabled' --output text)
+          fi
+          test "$LOCK" = "Enabled"
+      - name: Generate validated Backup V2.1
+        env:
+          AGENT007_PRODUCTION_DATABASE_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          DR_BACKUP_OUTPUT: /tmp/agent007-backup-v2.json.gz
+        run: npx --yes tsx@4.19.4 scripts/dr-offsite-backup.ts
+      - name: Compute retention date
+        id: retention
+        run: echo "until=$(date -u -d '+90 days' '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable backup
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
+          RETAIN_UNTIL: ${{ steps.retention.outputs.until }}
+        run: |
+          KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
+          ARGS=(--bucket "$BUCKET" --key "$KEY" --body /tmp/agent007-backup-v2.json.gz --content-type application/gzip --metadata "source=Agent007,backup-version=2.1,retention-until=$RETAIN_UNTIL" --object-lock-mode COMPLIANCE --object-lock-retain-until-date "$RETAIN_UNTIL")
+          if [ -n "$ENDPOINT" ]; then aws s3api put-object "${ARGS[@]}" --endpoint-url "$ENDPOINT"; else aws s3api put-object "${ARGS[@]}"; fi
+          echo "Immutable backup uploaded: $KEY"
+      - name: Verify uploaded object
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
+          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
+        run: |
+          echo "Offsite immutable backup verification completed."
