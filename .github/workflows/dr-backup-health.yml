@@ -1,0 +1,71 @@
+name: DR Backup Health & Recovery Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run backup health or isolated DR dry-run'
+        required: true
+        type: choice
+        options:
+          - backup-health
+          - dr-dry-run
+        default: backup-health
+  schedule:
+    - cron: '17 3 * * *'
+    - cron: '31 4 1 * *'
+
+jobs:
+  backup-health:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '17 3 * * *' || github.event_name == 'workflow_dispatch' && inputs.mode == 'backup-health' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - name: Verify backup encryption secret exists
+        env:
+          BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: test -n "$BACKUP_KEY"
+      - name: Generate and validate Backup V2 in memory
+        env:
+          AGENT007_PRODUCTION_DATABASE_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: npx --yes tsx@4.19.4 scripts/dr-backup-health.ts
+
+  monthly-dr-dry-run:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '31 4 1 * *' || github.event_name == 'workflow_dispatch' && inputs.mode == 'dr-dry-run' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - name: Verify DR secrets exist
+        env:
+          DR_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+          PROD_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+          BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          test -n "$DR_URL"
+          test -n "$PROD_URL"
+          test -n "$BACKUP_KEY"
+          test "$DR_URL" != "$PROD_URL"
+          DR_HOST=$(node -e "console.log(new URL(process.env.DR_URL).hostname)")
+          PROD_HOST=$(node -e "console.log(new URL(process.env.PROD_URL).hostname)")
+          test -n "$DR_HOST" && test -n "$PROD_HOST" && test "$DR_HOST" != "$PROD_HOST"
+      - name: Execute isolated DR dry-run
+        env:
+          AGENT007_PRODUCTION_DATABASE_URL: ${{ secrets.AGENT007_PRODUCTION_DATABASE_URL }}
+          AGENT007_DR_DATABASE_URL: ${{ secrets.AGENT007_DR_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          DR_RESTORE_CONFIRMATION: RESTORE_AGENT007_DR
+          DR_RESTORE_MODE: dry-run
+        run: npx --yes tsx@4.19.4 scripts/dr-restore.ts
