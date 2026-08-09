@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowUpRight, BriefcaseBusiness, CircleAlert, RefreshCw, TrendingUp } from 'lucide-react'
+import { RevenueOperatingSystem } from '@/components/agent/revenue-operating-system'
 
 type Business = {
   id?: string
@@ -89,6 +90,8 @@ export function BusinessExecutiveTab() {
         <Metric label="Customers" value={customers.toLocaleString('en-CA')} />
         <Metric label="Avg. ROI" value={`${avgRoi.toFixed(1)}%`} />
       </div>
+
+      <RevenueOperatingSystem businesses={active} />
 
       <div className="grid xl:grid-cols-[1.4fr_.8fr] gap-4">
         <div className="rounded-2xl glass border border-cyan-400/15 overflow-hidden">
