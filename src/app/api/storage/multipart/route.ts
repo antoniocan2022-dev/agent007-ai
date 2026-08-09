@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic'
 const MAX_FILE_BYTES = 100 * 1024 * 1024 * 1024
 const PART_SIZE_BYTES = 256 * 1024 * 1024
 const MAX_PARTS = 10000
+const CHECKSUM_ALGORITHM = 'SHA256'
 
 function safeObjectName(name: string) {
   const cleaned = name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'upload.bin'
@@ -51,10 +52,19 @@ export async function POST(request: NextRequest) {
       if (parts > MAX_PARTS) return NextResponse.json({ error: 'File would require too many multipart parts.' }, { status: 400 })
 
       const key = safeObjectName(name)
-      const url = presignOciS3Url({ method: 'POST', key, query: { uploads: '' }, expiresIn: 900 })
+      const url = presignOciS3Url({
+        method: 'POST',
+        key,
+        query: { uploads: '' },
+        headers: { 'opc-checksum-algorithm': CHECKSUM_ALGORITHM },
+        expiresIn: 900,
+      })
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': contentType },
+        headers: {
+          'content-type': contentType,
+          'opc-checksum-algorithm': CHECKSUM_ALGORITHM,
+        },
         cache: 'no-store',
       })
       const xml = await readResponse(response)
@@ -68,7 +78,7 @@ export async function POST(request: NextRequest) {
         partSize: PART_SIZE_BYTES,
         totalParts: parts,
         maxSize: MAX_FILE_BYTES,
-        checksumAlgorithm: 'SHA256',
+        checksumAlgorithm: CHECKSUM_ALGORITHM,
       })
     }
 
@@ -83,10 +93,10 @@ export async function POST(request: NextRequest) {
         method: 'PUT',
         key,
         query: { partNumber: String(partNumber), uploadId },
-        headers: { 'x-amz-checksum-algorithm': 'SHA256' },
+        headers: { 'opc-checksum-algorithm': CHECKSUM_ALGORITHM },
         expiresIn: 3600,
       })
-      return NextResponse.json({ url, expiresIn: 3600, checksumAlgorithm: 'SHA256' })
+      return NextResponse.json({ url, expiresIn: 3600, checksumAlgorithm: CHECKSUM_ALGORITHM })
     }
 
     if (action === 'complete') {
@@ -113,8 +123,22 @@ export async function POST(request: NextRequest) {
       }
 
       const xml = `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUpload>${normalized.map((p: { partNumber: number; etag: string }) => `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>${p.etag}</ETag></Part>`).join('')}</CompleteMultipartUpload>`
-      const url = presignOciS3Url({ method: 'POST', key, query: { uploadId }, expiresIn: 900 })
-      const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/xml' }, body: xml, cache: 'no-store' })
+      const url = presignOciS3Url({
+        method: 'POST',
+        key,
+        query: { uploadId },
+        headers: { 'opc-checksum-algorithm': CHECKSUM_ALGORITHM },
+        expiresIn: 900,
+      })
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/xml',
+          'opc-checksum-algorithm': CHECKSUM_ALGORITHM,
+        },
+        body: xml,
+        cache: 'no-store',
+      })
       await readResponse(response)
       return NextResponse.json({ ok: true, key, bucket, totalParts: expectedParts })
     }
