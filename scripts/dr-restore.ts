@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { createBackupV2FromClient, inspectBackupV2, restoreBackupV2 } from '../src/lib/backup-v2'
+import { createHash } from 'node:crypto'
 
 const confirmation = process.env.DR_RESTORE_CONFIRMATION
 const mode = process.env.DR_RESTORE_MODE ?? 'dry-run'
@@ -17,16 +18,21 @@ function hostOf(url: string) {
   try { return new URL(url).hostname } catch { return '' }
 }
 
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  const obj = value as Record<string, unknown>
+  return `{${Object.keys(obj).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`
+}
+
 async function schemaFingerprint(client: PrismaClient) {
-  const rows = await client.$queryRaw<Array<{ table_name: string; column_name: string; data_type: string; ordinal_position: number }>>`
-    SELECT table_name, column_name, data_type, ordinal_position
+  const columns = await client.$queryRaw<Array<{ table_name: string; column_name: string; data_type: string }>>`
+    SELECT table_name, column_name, data_type
     FROM information_schema.columns
     WHERE table_schema = 'public'
     ORDER BY table_name, ordinal_position
   `
-  const canonical = JSON.stringify(rows)
-  const { createHash } = await import('node:crypto')
-  return createHash('sha256').update(canonical, 'utf8').digest('hex')
+  return createHash('sha256').update(canonicalJson(columns), 'utf8').digest('hex')
 }
 
 async function main() {
