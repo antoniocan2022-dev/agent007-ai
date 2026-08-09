@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { addProspect, getFirstRevenueMission, initializeFirstRevenueMission } from '@/lib/first-revenue-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-async function getOperator() {
-  return db.user.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } })
+async function getAuthenticatedUser() {
+  const session = await getServerSession(authOptions)
+  const userId = (session?.user as { id?: string } | undefined)?.id
+  if (!userId) return null
+
+  return db.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  })
 }
 
 export async function GET() {
   try {
-    const user = await getOperator()
-    if (!user) return NextResponse.json({ ok: false, error: 'No operator user configured.' }, { status: 503 })
+    const user = await getAuthenticatedUser()
+    if (!user) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 })
 
     const mission = await getFirstRevenueMission(user.id)
     return NextResponse.json({ ok: true, mission })
@@ -23,8 +32,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getOperator()
-    if (!user) return NextResponse.json({ ok: false, error: 'No operator user configured.' }, { status: 503 })
+    const user = await getAuthenticatedUser()
+    if (!user) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 })
 
     const body = await req.json().catch(() => ({}))
     const action = String(body?.action ?? 'status')
