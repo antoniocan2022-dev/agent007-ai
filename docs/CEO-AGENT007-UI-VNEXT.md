@@ -139,3 +139,4 @@ The 100 GB feature becomes **production-enabled** only after a real OCI integrat
 - Executive context can be opened without showing a wall of telemetry.
 - Existing authentication, missions, conversations and memory continue to work.
 - Large-file support is only advertised as 100 GB after the resumable object-storage path is implemented and verified end-to-end.
+- Vercel preview/production verification must be green before this branch is merged.
