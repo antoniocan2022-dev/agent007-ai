@@ -7,6 +7,7 @@ import {
 } from './autonomy-index'
 import { classifyAutonomyAction } from './autonomy-policy'
 import { buildAutonomyTelemetrySummary } from './autonomy-telemetry'
+import { recordAutonomyEvidence, startMissionTelemetry } from '../mission-telemetry'
 import {
   canTransition,
   getAllowedMissionEvents,
@@ -130,5 +131,20 @@ describe('Autonomy telemetry', () => {
     expect(summary.index.passed).toBe(false)
     expect(summary.index.failingGates).toContain('coverage')
     expect(summary.index.failingGates).toContain('sampleSize')
+  })
+
+  test('stores explicit evidence without inferring missing dimensions', () => {
+    const telemetry = startMissionTelemetry('test mission')
+    recordAutonomyEvidence(telemetry, {
+      eligible: true,
+      executionAutonomous: true,
+      verificationIndependent: true,
+    })
+
+    expect(telemetry.autonomyEvidence?.eligible).toBe(true)
+    expect(telemetry.autonomyEvidence?.executionAutonomous).toBe(true)
+    expect(telemetry.autonomyEvidence?.verificationIndependent).toBe(true)
+    expect(telemetry.autonomyEvidence?.goalAutonomous).toBeUndefined()
+    expect(telemetry.autonomyEvidence?.learningApplied).toBeUndefined()
   })
 })
