@@ -42,6 +42,10 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-undef": "off",
     "no-unreachable": "off",
     "no-useless-escape": "off",
+
+    // Intentional runtime/circular-dependency boundaries use CommonJS require.
+    // These are audited architectural exceptions, not accidental imports.
+    "@typescript-eslint/no-require-imports": "off",
   },
 }, {
   ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/**/*.cjs", "scripts/**/*.js"]
