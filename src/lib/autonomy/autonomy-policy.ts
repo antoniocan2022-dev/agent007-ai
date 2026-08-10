@@ -1,10 +1,9 @@
 /**
  * Agent007 Autonomy Governor — policy primitives.
  *
- * This module does not execute actions. It classifies an action request so the
- * orchestrator can make an explicit, auditable authority decision before
- * execution. The final authorization boundary must remain server-side and must
- * not be inferred solely from an LLM response.
+ * This module classifies an action request. It does not execute actions.
+ * The server-side authorization boundary must never be inferred solely from
+ * an LLM response.
  */
 
 export const AUTONOMY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
@@ -70,16 +69,24 @@ const clamp01 = (value: number): number => Math.min(1, Math.max(0, Number.isFini
 /**
  * Resolve authority conservatively.
  *
- * Important design rule: uncertainty escalates authority requirements; it never
- * silently expands autonomy. An LLM cannot override this classification.
+ * Safety invariants:
+ * - uncertainty escalates authority; it never expands autonomy;
+ * - category-level hazards cannot be hidden by inconsistent boolean flags;
+ * - unknown financial cost is never treated as zero;
+ * - deployment/security/production actions require explicit approval;
+ * - irreversible external effects require explicit approval.
  */
 export function classifyAutonomyAction(
   request: AutonomyActionRequest,
   limits: AutonomyPolicyLimits = DEFAULT_LIMITS,
 ): AutonomyPolicyDecision {
   const confidence = clamp01(request.confidence)
+  const category = request.category
+  const cost = request.estimatedCost
+  const spendLimit = Math.max(0, Number.isFinite(limits.autonomousSpendLimit) ? limits.autonomousSpendLimit : 0)
+  const minimumConfidence = clamp01(limits.minimumConfidence)
 
-  if (limits.forbiddenCategories.has(request.category)) {
+  if (limits.forbiddenCategories.has(category) || category === 'data_destructive') {
     return {
       authority: 'FORBIDDEN',
       autonomous: false,
@@ -97,16 +104,16 @@ export function classifyAutonomyAction(
     }
   }
 
-  if (request.affectsSecurity || request.affectsProduction) {
+  if (category === 'deployment' || request.affectsSecurity || request.affectsProduction) {
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: 'Security or production state requires explicit owner authorization.',
+      reason: 'Deployment, security, or production state requires explicit owner authorization.',
       requiresOwnerApproval: true,
     }
   }
 
-  if (request.category === 'external_irreversible' || (!request.reversible && request.externalSideEffect)) {
+  if (category === 'external_irreversible' || (!request.reversible && request.externalSideEffect)) {
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
@@ -115,13 +122,20 @@ export function classifyAutonomyAction(
     }
   }
 
-  if (request.affectsFinancialState) {
-    const cost = Math.max(0, request.estimatedCost ?? 0)
-    if (cost > limits.autonomousSpendLimit) {
+  if (request.affectsFinancialState || category === 'financial') {
+    if (!Number.isFinite(cost) || (cost ?? 0) < 0) {
       return {
         authority: 'HUMAN_APPROVAL',
         autonomous: false,
-        reason: `Financial action exceeds autonomous spend limit of ${limits.autonomousSpendLimit}.`,
+        reason: 'Financial action has no valid bounded cost estimate.',
+        requiresOwnerApproval: true,
+      }
+    }
+    if ((cost ?? 0) > spendLimit) {
+      return {
+        authority: 'HUMAN_APPROVAL',
+        autonomous: false,
+        reason: `Financial action exceeds autonomous spend limit of ${spendLimit}.`,
         requiresOwnerApproval: true,
       }
     }
@@ -136,11 +150,20 @@ export function classifyAutonomyAction(
     }
   }
 
-  if (confidence < limits.minimumConfidence) {
+  if (category === 'communication' && !request.reversible) {
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${limits.minimumConfidence.toFixed(2)}.`,
+      reason: 'Irreversible external communication requires explicit approval.',
+      requiresOwnerApproval: true,
+    }
+  }
+
+  if (confidence < minimumConfidence) {
+    return {
+      authority: 'HUMAN_APPROVAL',
+      autonomous: false,
+      reason: `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${minimumConfidence.toFixed(2)}.`,
       requiresOwnerApproval: true,
     }
   }
