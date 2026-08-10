@@ -21,6 +21,33 @@ describe('owner authorization boundary', () => {
     expect(decision.requiresOwnerApproval).toBe(true)
   })
 
+  test('verified owner execution does not masquerade as autonomous authority', () => {
+    const verifiedOwner = {
+      kind: 'owner-session',
+      userId: 'owner',
+      email: 'operator@example.com',
+      verifiedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    } as never
+
+    const decision = classifyAutonomyAction({
+      category: 'write',
+      reversible: true,
+      externalSideEffect: false,
+      affectsProduction: false,
+      affectsSecurity: false,
+      affectsFinancialState: false,
+      containsPersonalData: false,
+      policyApproved: false,
+      confidence: 1,
+      ownerAuthorization: verifiedOwner,
+    })
+
+    expect(decision.authority).toBe('HUMAN_EXECUTION')
+    expect(decision.autonomous).toBe(false)
+    expect(decision.authorizedForExecution).toBe(true)
+  })
+
   test('forbidden destructive actions stay blocked even with owner-shaped data', () => {
     const decision = classifyAutonomyAction({
       category: 'data_destructive',
@@ -38,8 +65,6 @@ describe('owner authorization boundary', () => {
         email: 'operator@example.com',
         verifiedAt: Date.now(),
         expiresAt: Date.now() + 60_000,
-        // Runtime validation requires the non-exported symbol brand, so this
-        // structurally similar object must not count as verified authorization.
       } as never,
     })
 
