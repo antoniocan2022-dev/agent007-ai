@@ -21,8 +21,8 @@ describe('owner authorization boundary', () => {
     expect(decision.requiresOwnerApproval).toBe(true)
   })
 
-  test('verified owner execution does not masquerade as autonomous authority', () => {
-    const verifiedOwner = {
+  test('owner-shaped objects are not accepted as verified execution authority', () => {
+    const ownerShapedData = {
       kind: 'owner-session',
       userId: 'owner',
       email: 'operator@example.com',
@@ -40,12 +40,13 @@ describe('owner authorization boundary', () => {
       containsPersonalData: false,
       policyApproved: false,
       confidence: 1,
-      ownerAuthorization: verifiedOwner,
+      ownerAuthorization: ownerShapedData,
     })
 
-    expect(decision.authority).toBe('HUMAN_EXECUTION')
+    expect(decision.authority).toBe('HUMAN_APPROVAL')
     expect(decision.autonomous).toBe(false)
-    expect(decision.authorizedForExecution).toBe(true)
+    expect(decision.authorizedForExecution).toBe(false)
+    expect(decision.requiresOwnerApproval).toBe(true)
   })
 
   test('forbidden destructive actions stay blocked even with owner-shaped data', () => {
