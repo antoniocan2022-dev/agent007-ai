@@ -203,13 +203,15 @@ export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySu
     })
 
     const evidence: AutonomyMissionEvidence[] = []
-    const telemetryMissionIds = new Set<string>()
+    const explicitTelemetryMissionIds = new Set<string>()
 
     for (const record of telemetryRecords) {
       try {
         const telemetry = JSON.parse(record.value) as MissionTelemetry
-        telemetryMissionIds.add(telemetry.missionId)
-        if (telemetry.autonomyEvidence) evidence.push(telemetry.autonomyEvidence)
+        if (telemetry.autonomyEvidence) {
+          explicitTelemetryMissionIds.add(telemetry.missionId)
+          evidence.push(telemetry.autonomyEvidence)
+        }
       } catch {}
     }
 
@@ -222,7 +224,7 @@ export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySu
 
     for (const row of auditRows) {
       const missionId = row.key.slice('approval_log_'.length)
-      if (telemetryMissionIds.has(missionId)) continue
+      if (explicitTelemetryMissionIds.has(missionId)) continue
       try {
         const log = JSON.parse(row.value) as ApprovalLogEntry[]
         if (!Array.isArray(log)) continue
