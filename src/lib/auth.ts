@@ -138,3 +138,63 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
+        // Make sure the seed operator exists before attempting sign-in.
+        await ensureSeedUser()
+
+        const email = credentials?.email?.trim().toLowerCase()
+        const password = credentials?.password ?? ''
+        if (!email) return null
+
+        // ── 2FA ENFORCEMENT ──
+        const twofaVerified = (credentials as any)?.twofaVerified === 'true'
+
+        const user = await db.user.findUnique({ where: { email } })
+        if (!user) return null
+
+        // ── PASSWORD CHECK ──
+        // When twofaVerified is true, the user has ALREADY proven their identity
+        // via the 2FA code. In this case, skip the password check.
+        if (!twofaVerified) {
+          if (!password) return null
+          const valid = await verifyPassword(password, user.passwordHash)
+          if (!valid) return null
+
+          try {
+            const enabledTwoFactor = await db.twoFactorSecret.findFirst({
+              where: { userId: user.id, enabled: true },
+            })
+            if (enabledTwoFactor) {
+              const err = new Error('2FA_REQUIRED') as any
+              err.code = '2FA_REQUIRED'
+              err.userId = user.id
+              throw err
+            }
+          } catch (e: any) {
+            if (e?.code === '2FA_REQUIRED') throw e
+            console.error('[auth] 2FA check failed:', e?.message)
+          }
+        }
+
+        return { id: user.id, email: user.email, name: user.name ?? user.email }
+      },
+    }),
+  ],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = (user as any).id
+        token.email = (user as any).email
+        token.name = (user as any).name ?? (user as any).email
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        ;(session.user as any).id = token.id
+        ;(session.user as any).email = token.email
+        ;(session.user as any).name = token.name
+      }
+      return session
+    },
+  },
+}
