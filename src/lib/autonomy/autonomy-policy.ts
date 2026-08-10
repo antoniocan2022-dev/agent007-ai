@@ -118,7 +118,7 @@ export function classifyAutonomyAction(
 
   if (category === 'deployment' || request.affectsSecurity || request.affectsProduction) {
     return {
-      authority: 'HUMAN_APPROVAL',
+      authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
       autonomous: false,
       authorizedForExecution: ownerVerified,
       reason: ownerVerified
@@ -130,7 +130,7 @@ export function classifyAutonomyAction(
 
   if (category === 'external_irreversible' || (!request.reversible && request.externalSideEffect)) {
     return {
-      authority: 'HUMAN_APPROVAL',
+      authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
       autonomous: false,
       authorizedForExecution: ownerVerified,
       reason: ownerVerified
@@ -143,7 +143,7 @@ export function classifyAutonomyAction(
   if (request.affectsFinancialState || category === 'financial') {
     if (!Number.isFinite(cost) || (cost ?? 0) < 0) {
       return {
-        authority: 'HUMAN_APPROVAL',
+        authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
         autonomous: false,
         authorizedForExecution: ownerVerified,
         reason: ownerVerified
@@ -154,7 +154,7 @@ export function classifyAutonomyAction(
     }
     if ((cost ?? 0) > spendLimit) {
       return {
-        authority: 'HUMAN_APPROVAL',
+        authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
         autonomous: false,
         authorizedForExecution: ownerVerified,
         reason: ownerVerified
@@ -167,7 +167,7 @@ export function classifyAutonomyAction(
 
   if (request.containsPersonalData && request.externalSideEffect) {
     return {
-      authority: 'HUMAN_APPROVAL',
+      authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
       autonomous: false,
       authorizedForExecution: ownerVerified,
       reason: ownerVerified
@@ -179,7 +179,7 @@ export function classifyAutonomyAction(
 
   if (category === 'communication' && !request.reversible) {
     return {
-      authority: 'HUMAN_APPROVAL',
+      authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
       autonomous: false,
       authorizedForExecution: ownerVerified,
       reason: ownerVerified
@@ -191,7 +191,7 @@ export function classifyAutonomyAction(
 
   if (confidence < minimumConfidence) {
     return {
-      authority: 'HUMAN_APPROVAL',
+      authority: ownerVerified ? 'HUMAN_EXECUTION' : 'HUMAN_APPROVAL',
       autonomous: false,
       authorizedForExecution: ownerVerified,
       reason: ownerVerified
