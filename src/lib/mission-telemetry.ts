@@ -20,7 +20,7 @@ import {
   buildAutonomyTelemetrySummary,
   type AutonomyMissionEvidence,
   type AutonomyTelemetrySummary,
-} from './autonomy-telemetry'
+} from './autonomy/autonomy-telemetry'
 import type { ApprovalLogEntry } from './approval-audit-log'
 
 export const runtime = 'nodejs'
@@ -153,11 +153,6 @@ export async function completeMissionTelemetry(
   return telemetry
 }
 
-/**
- * Convert the mission approval trail into conservative autonomy evidence.
- * This is a compatibility bridge for missions created before the pipeline
- * explicitly populated `autonomyEvidence`. It uses only auditable events.
- */
 function evidenceFromApprovalLog(log: ApprovalLogEntry[]): AutonomyMissionEvidence | null {
   const hasCompletion = log.some((e) => e.action === 'completed')
   const hasFailure = log.some((e) => e.action === 'failed')
@@ -180,8 +175,6 @@ function evidenceFromApprovalLog(log: ApprovalLogEntry[]): AutonomyMissionEviden
 
   return {
     eligible: hasCompletion || hasFailure,
-    // These remain intentionally absent until the runtime records explicit
-    // autonomous goal/decision/learning evidence. Absence lowers coverage.
     executionAutonomous: submittedStages.size > 0,
     verificationIndependent: allSubmittedStagesVerified,
     recoveryAutonomous: recoveredStage,
@@ -191,8 +184,8 @@ function evidenceFromApprovalLog(log: ApprovalLogEntry[]): AutonomyMissionEviden
 
 /**
  * Rebuild the canonical autonomy score from REAL mission telemetry plus the
- * existing mission audit trail. The audit bridge prevents historical missions
- * from becoming invisible while new runtime telemetry is rolled out.
+ * existing mission audit trail. Historical missions remain visible while
+ * new runtime telemetry is rolled out.
  */
 export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySummary> {
   try {
@@ -215,8 +208,6 @@ export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySu
       } catch {}
     }
 
-    // Compatibility bridge: derive evidence from auditable mission logs when
-    // the mission has no explicit autonomyEvidence yet.
     const auditRows = await db.userSetting.findMany({
       where: { key: { startsWith: 'approval_log_' } },
       take: 500,
