@@ -87,7 +87,7 @@ export function classifyToolExecution(
     category,
     estimatedCost: inferCost(args),
     currency: typeof args.currency === 'string' ? args.currency : undefined,
-    reversible: metadata?.reversible ?? category === 'read' || category === 'write',
+    reversible: metadata?.reversible ?? (category === 'read' || category === 'write'),
     externalSideEffect: metadata?.externalSideEffect ?? (
       category === 'communication' || category === 'financial' || category === 'external_irreversible' ||
       /publish|send|post|schedule|payment|payout|marketplace|shopify|etsy|amazon/i.test(toolName)
@@ -96,6 +96,8 @@ export function classifyToolExecution(
     affectsSecurity: options?.affectsSecurity ?? metadata?.affectsSecurity ?? LEGACY_SECURITY_TOOLS.has(toolName),
     affectsFinancialState: metadata?.affectsFinancialState ?? category === 'financial',
     containsPersonalData: options?.containsPersonalData ?? metadata?.containsPersonalData ?? false,
+    // Explicit caller approval remains available for trusted higher-level
+    // authorization flows, but the ordinary tool runtime must not inject it.
     policyApproved: options?.policyApproved ?? metadata?.autonomousEligible === true,
     confidence,
   }, options?.limits)
