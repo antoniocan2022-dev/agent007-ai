@@ -43,13 +43,16 @@ export function isVerifiedOwnerAuthorization(
 ): value is VerifiedOwnerAuthorization {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Partial<VerifiedOwnerAuthorization>
+  const expiresAt = candidate.expiresAt
+  const verifiedAt = candidate.verifiedAt
+
   return candidate.kind === 'owner-session'
     && candidate[OWNER_AUTH_BRAND] === true
     && typeof candidate.userId === 'string'
     && candidate.userId.length > 0
     && typeof candidate.email === 'string'
     && isOwnerEmail(candidate.email)
-    && Number.isFinite(candidate.verifiedAt)
-    && Number.isFinite(candidate.expiresAt)
-    && candidate.expiresAt > Date.now()
+    && Number.isFinite(verifiedAt)
+    && Number.isFinite(expiresAt)
+    && expiresAt > Date.now()
 }
