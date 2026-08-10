@@ -6,7 +6,13 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-export async function GET() {
+function authorized(req: NextRequest) {
+  const secret = process.env.CRON_SECRET?.trim()
+  return !!secret && req.headers.get('authorization') === `Bearer ${secret}`
+}
+
+export async function GET(req: NextRequest) {
+  if (!authorized(req)) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const report = await runExternalMonitor({})
     const criticalEscalation = await sendCriticalCEOEscalation(report)
@@ -18,6 +24,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!authorized(req)) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await req.json().catch(() => ({}))
     const endpoints = Array.isArray(body?.endpoints) && body.endpoints.length > 0 ? body.endpoints : DEFAULT_EXTERNAL_ENDPOINTS
