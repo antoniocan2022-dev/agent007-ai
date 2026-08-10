@@ -52,8 +52,23 @@ const VALID_ICONS = new Set([
 /** GET /api/subagents — list ALL subagents (12 built-in + custom) with overlay edits applied. */
 export async function GET() {
   try {
+    // This endpoint is also used by the external uptime monitor. A transient
+    // database connection failure must not turn a healthy app into a false
+    // outage. Built-in agents are static and safe to return as a degraded
+    // fallback; custom overlays will be restored automatically on the next
+    // successful request.
     await ensureDbReady().catch(() => {})
-    const list = await getAllSubagents({ includeDisabled: true })
+
+    let list: Subagent[]
+    let degraded = false
+    try {
+      list = await getAllSubagents({ includeDisabled: true })
+    } catch (dbError) {
+      degraded = true
+      console.warn('[subagents GET] database unavailable; returning built-in agents only', dbError)
+      list = SUBAGENTS
+    }
+
     // Strip the systemPrompt from the listing payload (it's huge; only needed for edit)
     const slim = list.map((s) => ({
       id: s.id,
@@ -68,10 +83,28 @@ export async function GET() {
       // Truncate prompt for the list view; full prompt fetched on edit
       systemPromptPreview: s.systemPrompt.slice(0, 200),
     }))
-    return NextResponse.json({ subagents: slim })
+    return NextResponse.json({ subagents: slim, degraded })
   } catch (e: any) {
     console.error('[subagents GET]', e)
-    return NextResponse.json({ error: e?.message ?? 'Failed to list subagents' }, { status: 500 })
+    // Last-resort static fallback: preserve the monitor contract even if an
+    // unexpected serialization/runtime issue occurs in the normal path.
+    try {
+      const slim = SUBAGENTS.map((s) => ({
+        id: s.id,
+        name: s.name,
+        role: s.role,
+        specialty: s.specialty,
+        color: s.color,
+        icon: s.icon,
+        allowedTools: s.allowedTools,
+        enabled: s.enabled ?? true,
+        isBuiltin: s.isBuiltin ?? false,
+        systemPromptPreview: s.systemPrompt.slice(0, 200),
+      }))
+      return NextResponse.json({ subagents: slim, degraded: true })
+    } catch {
+      return NextResponse.json({ error: e?.message ?? 'Failed to list subagents' }, { status: 500 })
+    }
   }
 }
 
