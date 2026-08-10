@@ -100,7 +100,7 @@ Staging manager, regression tests, canary deployment, rollback manager, cost gua
 4 areas × 16 tools each
 
 ### Developer Tools (12)
-Code quality audit, test generator, bug detector, refactoring engine, dependency analyzer, refactoring engine, CI/CD builder, environment setup, DB migration, performance profiler, bundle optimizer, SSR/hydration fixer, API optimizer
+Code quality audit, test generator, bug detector, refactoring engine, dependency analyzer, CI/CD builder, environment setup, DB migration, performance profiler, bundle optimizer, SSR/hydration fixer, API optimizer
 
 ### Communication (3)
 Send communication (SMS/WhatsApp/Email), check inbound commands, execute inbound commands
