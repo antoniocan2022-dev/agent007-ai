@@ -7,15 +7,20 @@
  * Telemetry (per-mission):
  *   Mission ID, Duration, Leaders used, Tools called, Retries,
  *   Memory reads, Memory writes, Confidence, Verification score,
- *   Errors, Cost, Tokens, Latency
+ *   Errors, Cost, Tokens, Latency, Autonomy evidence
  *
  * Observability (aggregate):
  *   Mission Success rate, Average Latency, Verification Failures,
  *   Leader Debate Usage, Memory Hits, Average Confidence,
- *   Executive Corrections
+ *   Executive Corrections, Evidence-driven Autonomy Index
  */
 
 import { db } from './db'
+import {
+  buildAutonomyTelemetrySummary,
+  type AutonomyMissionEvidence,
+  type AutonomyTelemetrySummary,
+} from './autonomy-telemetry'
 
 export const runtime = 'nodejs'
 
@@ -45,6 +50,8 @@ export interface MissionTelemetry {
   latencyMs: number  // first-response latency
   debateTriggered: boolean
   executiveCorrections: number
+  /** Explicit runtime evidence used by the canonical Autonomy Index. */
+  autonomyEvidence?: AutonomyMissionEvidence
 }
 
 /**
@@ -74,6 +81,18 @@ export function startMissionTelemetry(goal: string): MissionTelemetry {
     debateTriggered: false,
     executiveCorrections: 0,
   }
+}
+
+/**
+ * Attach explicit autonomy evidence to the mission.
+ * Missing fields remain missing evidence; callers must never use this helper
+ * to infer autonomy from unrelated telemetry such as confidence or tool count.
+ */
+export function recordAutonomyEvidence(
+  telemetry: MissionTelemetry,
+  evidence: AutonomyMissionEvidence,
+): void {
+  telemetry.autonomyEvidence = { ...evidence }
 }
 
 /**
@@ -176,6 +195,37 @@ export async function completeMissionTelemetry(
   return telemetry
 }
 
+/**
+ * Rebuild the canonical autonomy score from REAL mission telemetry.
+ * Only missions with `autonomyEvidence.eligible === true` contribute evidence.
+ * Missing evidence is preserved as zero coverage by the canonical calculator.
+ */
+export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySummary> {
+  try {
+    const telemetryRecords = await db.memory.findMany({
+      where: { category: 'mission_telemetry' },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    })
+
+    const evidence: AutonomyMissionEvidence[] = telemetryRecords
+      .map((record) => {
+        try {
+          const telemetry = JSON.parse(record.value) as MissionTelemetry
+          return telemetry.autonomyEvidence ?? null
+        } catch {
+          return null
+        }
+      })
+      .filter((item): item is AutonomyMissionEvidence => item !== null)
+
+    return buildAutonomyTelemetrySummary(evidence)
+  } catch (e: any) {
+    console.error('[autonomy-telemetry] Failed to rebuild summary:', e?.message)
+    return buildAutonomyTelemetrySummary([])
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // OBSERVABILITY ENGINE (Aggregate Analytics)
 // ═══════════════════════════════════════════════════════════════
@@ -196,6 +246,7 @@ export interface ObservabilityMetrics {
   topLeaders: Array<{ leader: string; missions: number }>
   topTools: Array<{ tool: string; calls: number }>
   recentMissions: Array<MissionTelemetry>
+  autonomy: AutonomyTelemetrySummary
 }
 
 /**
@@ -226,6 +277,7 @@ export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
         topLeaders: [],
         topTools: [],
         recentMissions: [],
+        autonomy: buildAutonomyTelemetrySummary([]),
       }
     }
 
@@ -240,16 +292,11 @@ export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
     const withCorrections = missions.filter(m => m.executiveCorrections > 0)
     const verificationFailed = missions.filter(m => !m.verificationPassed)
 
-    // Aggregate leaders + tools
     const leaderCounts: Record<string, number> = {}
     const toolCounts: Record<string, number> = {}
     for (const m of missions) {
-      for (const l of m.leadersUsed) {
-        leaderCounts[l] = (leaderCounts[l] || 0) + 1
-      }
-      for (const t of m.toolsCalled) {
-        toolCounts[t] = (toolCounts[t] || 0) + 1
-      }
+      for (const l of m.leadersUsed) leaderCounts[l] = (leaderCounts[l] || 0) + 1
+      for (const t of m.toolsCalled) toolCounts[t] = (toolCounts[t] || 0) + 1
     }
 
     const topLeaders = Object.entries(leaderCounts)
@@ -278,6 +325,7 @@ export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
       topLeaders,
       topTools,
       recentMissions: missions.slice(0, 10),
+      autonomy: await getAutonomyTelemetrySummary(),
     }
   } catch (e: any) {
     console.error('[observability] Failed:', e?.message)
@@ -297,6 +345,7 @@ export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
       topLeaders: [],
       topTools: [],
       recentMissions: [],
+      autonomy: buildAutonomyTelemetrySummary([]),
     }
   }
 }
