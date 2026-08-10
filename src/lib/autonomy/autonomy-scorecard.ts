@@ -7,7 +7,7 @@
  * execution.
  */
 
-export interface AutonomyMissionEvidence {
+export interface OperationalMissionEvidence {
   completed: boolean
   independentlyVerified: boolean
   recoveredAfterFailure: boolean
@@ -38,12 +38,12 @@ function clamp100(value: number): number {
   return Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0))
 }
 
-function rate(values: AutonomyMissionEvidence[], selector: (mission: AutonomyMissionEvidence) => boolean): number {
+function rate(values: OperationalMissionEvidence[], selector: (mission: OperationalMissionEvidence) => boolean): number {
   if (values.length === 0) return 0
   return Number((values.filter(selector).length / values.length * 100).toFixed(2))
 }
 
-function averageQuality(values: AutonomyMissionEvidence[]): number {
+function averageQuality(values: OperationalMissionEvidence[]): number {
   if (values.length === 0) return 0
   return Number((values.reduce((sum, mission) => sum + clamp100(mission.outcomeQuality), 0) / values.length).toFixed(2))
 }
@@ -55,7 +55,7 @@ function averageQuality(values: AutonomyMissionEvidence[]): number {
  * execution dimension. A system cannot improve its autonomy score by asking
  * the owner to authorize more actions.
  */
-export function calculateAutonomyScorecard(missions: readonly AutonomyMissionEvidence[]): AutonomyScorecard {
+export function calculateAutonomyScorecard(missions: readonly OperationalMissionEvidence[]): AutonomyScorecard {
   const values = [...missions]
   const sampleSize = values.length
 
