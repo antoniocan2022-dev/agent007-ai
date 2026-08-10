@@ -21,19 +21,16 @@ import {
   type AutonomyMissionEvidence,
   type AutonomyTelemetrySummary,
 } from './autonomy-telemetry'
+import type { ApprovalLogEntry } from './approval-audit-log'
 
 export const runtime = 'nodejs'
-
-// ═══════════════════════════════════════════════════════════════
-// TELEMETRY DATA MODEL
-// ═══════════════════════════════════════════════════════════════
 
 export interface MissionTelemetry {
   missionId: string
   goal: string
   startedAt: number
   completedAt: number | null
-  duration: number | null  // ms
+  duration: number | null
   status: 'running' | 'completed' | 'failed'
   leadersUsed: string[]
   toolsCalled: string[]
@@ -41,22 +38,19 @@ export interface MissionTelemetry {
   retries: number
   memoryReads: number
   memoryWrites: number
-  confidence: number  // 0-100
-  verificationScore: number  // 0-100
+  confidence: number
+  verificationScore: number
   verificationPassed: boolean
   errors: string[]
-  cost: number  // estimated USD
+  cost: number
   tokensUsed: number
-  latencyMs: number  // first-response latency
+  latencyMs: number
   debateTriggered: boolean
   executiveCorrections: number
   /** Explicit runtime evidence used by the canonical Autonomy Index. */
   autonomyEvidence?: AutonomyMissionEvidence
 }
 
-/**
- * Start tracking a new mission. Returns the telemetry object.
- */
 export function startMissionTelemetry(goal: string): MissionTelemetry {
   return {
     missionId: `mission_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -84,9 +78,8 @@ export function startMissionTelemetry(goal: string): MissionTelemetry {
 }
 
 /**
- * Attach explicit autonomy evidence to the mission.
- * Missing fields remain missing evidence; callers must never use this helper
- * to infer autonomy from unrelated telemetry such as confidence or tool count.
+ * Attach explicit autonomy evidence. Missing fields remain missing evidence.
+ * Never infer autonomy from confidence, latency, tool count, or task volume.
  */
 export function recordAutonomyEvidence(
   telemetry: MissionTelemetry,
@@ -95,81 +88,47 @@ export function recordAutonomyEvidence(
   telemetry.autonomyEvidence = { ...evidence }
 }
 
-/**
- * Record a tool call in the telemetry.
- */
 export function recordToolCall(telemetry: MissionTelemetry, toolName: string, tokensUsed: number = 0, cost: number = 0) {
-  if (!telemetry.toolsCalled.includes(toolName)) {
-    telemetry.toolsCalled.push(toolName)
-  }
+  if (!telemetry.toolsCalled.includes(toolName)) telemetry.toolsCalled.push(toolName)
   telemetry.toolCallCount++
   telemetry.tokensUsed += tokensUsed
   telemetry.cost += cost
 }
 
-/**
- * Record a leader dispatch in the telemetry.
- */
 export function recordLeaderDispatch(telemetry: MissionTelemetry, leaderId: string) {
-  if (!telemetry.leadersUsed.includes(leaderId)) {
-    telemetry.leadersUsed.push(leaderId)
-  }
+  if (!telemetry.leadersUsed.includes(leaderId)) telemetry.leadersUsed.push(leaderId)
 }
 
-/**
- * Record a memory operation in the telemetry.
- */
 export function recordMemoryOp(telemetry: MissionTelemetry, type: 'read' | 'write') {
   if (type === 'read') telemetry.memoryReads++
   else telemetry.memoryWrites++
 }
 
-/**
- * Record a retry in the telemetry.
- */
 export function recordRetry(telemetry: MissionTelemetry) {
   telemetry.retries++
 }
 
-/**
- * Record an error in the telemetry.
- */
 export function recordError(telemetry: MissionTelemetry, error: string) {
   telemetry.errors.push(error.slice(0, 200))
 }
 
-/**
- * Record verification result in the telemetry.
- */
 export function recordVerification(telemetry: MissionTelemetry, score: number, passed: boolean) {
   telemetry.verificationScore = score
   telemetry.verificationPassed = passed
 }
 
-/**
- * Record confidence in the telemetry.
- */
 export function recordConfidence(telemetry: MissionTelemetry, confidence: number) {
   telemetry.confidence = confidence
 }
 
-/**
- * Record a debate in the telemetry.
- */
 export function recordDebate(telemetry: MissionTelemetry) {
   telemetry.debateTriggered = true
 }
 
-/**
- * Record an executive correction (Reflection Engine rewrote the response).
- */
 export function recordExecutiveCorrection(telemetry: MissionTelemetry) {
   telemetry.executiveCorrections++
 }
 
-/**
- * Complete the mission telemetry and store it in the DB.
- */
 export async function completeMissionTelemetry(
   telemetry: MissionTelemetry,
   status: 'completed' | 'failed' = 'completed'
@@ -178,7 +137,6 @@ export async function completeMissionTelemetry(
   telemetry.duration = telemetry.completedAt - telemetry.startedAt
   telemetry.status = status
 
-  // Store in DB (Memory table with category 'mission_telemetry')
   try {
     await db.memory.create({
       data: {
@@ -196,9 +154,45 @@ export async function completeMissionTelemetry(
 }
 
 /**
- * Rebuild the canonical autonomy score from REAL mission telemetry.
- * Only missions with `autonomyEvidence.eligible === true` contribute evidence.
- * Missing evidence is preserved as zero coverage by the canonical calculator.
+ * Convert the mission approval trail into conservative autonomy evidence.
+ * This is a compatibility bridge for missions created before the pipeline
+ * explicitly populated `autonomyEvidence`. It uses only auditable events.
+ */
+function evidenceFromApprovalLog(log: ApprovalLogEntry[]): AutonomyMissionEvidence | null {
+  const hasCompletion = log.some((e) => e.action === 'completed')
+  const hasFailure = log.some((e) => e.action === 'failed')
+  const submittedStages = new Set(
+    log.filter((e) => e.agentRole === 'team_leader' && e.action === 'submitted').map((e) => e.stageId),
+  )
+  const approvedStages = new Set(
+    log.filter((e) => e.agentRole === 'super_agent' && e.action === 'approved').map((e) => e.stageId),
+  )
+  const ownerGate = log.some((e) => e.stageId === 'owner_gate')
+  const ownerApproved = log.some((e) => e.action === 'owner_approved')
+  const escalated = log.some((e) => e.action === 'escalated')
+  const recoveredStage = log.some((e) => e.action === 'retry_submitted') &&
+    log.some((e) => e.agentRole === 'super_agent' && e.action === 'approved')
+
+  if (!hasCompletion && !hasFailure && submittedStages.size === 0) return null
+
+  const allSubmittedStagesVerified = submittedStages.size > 0 &&
+    [...submittedStages].every((stageId) => approvedStages.has(stageId))
+
+  return {
+    eligible: hasCompletion || hasFailure,
+    // These remain intentionally absent until the runtime records explicit
+    // autonomous goal/decision/learning evidence. Absence lowers coverage.
+    executionAutonomous: submittedStages.size > 0,
+    verificationIndependent: allSubmittedStagesVerified,
+    recoveryAutonomous: recoveredStage,
+    governancePassed: ownerGate ? ownerApproved : (!escalated && allSubmittedStagesVerified),
+  }
+}
+
+/**
+ * Rebuild the canonical autonomy score from REAL mission telemetry plus the
+ * existing mission audit trail. The audit bridge prevents historical missions
+ * from becoming invisible while new runtime telemetry is rolled out.
  */
 export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySummary> {
   try {
@@ -208,16 +202,34 @@ export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySu
       take: 500,
     })
 
-    const evidence: AutonomyMissionEvidence[] = telemetryRecords
-      .map((record) => {
-        try {
-          const telemetry = JSON.parse(record.value) as MissionTelemetry
-          return telemetry.autonomyEvidence ?? null
-        } catch {
-          return null
-        }
-      })
-      .filter((item): item is AutonomyMissionEvidence => item !== null)
+    const evidence: AutonomyMissionEvidence[] = []
+    const telemetryMissionIds = new Set<string>()
+
+    for (const record of telemetryRecords) {
+      try {
+        const telemetry = JSON.parse(record.value) as MissionTelemetry
+        telemetryMissionIds.add(telemetry.missionId)
+        if (telemetry.autonomyEvidence) evidence.push(telemetry.autonomyEvidence)
+      } catch {}
+    }
+
+    // Compatibility bridge: derive evidence from auditable mission logs when
+    // the mission has no explicit autonomyEvidence yet.
+    const auditRows = await db.userSetting.findMany({
+      where: { key: { startsWith: 'approval_log_' } },
+      take: 500,
+    })
+
+    for (const row of auditRows) {
+      const missionId = row.key.slice('approval_log_'.length)
+      if (telemetryMissionIds.has(missionId)) continue
+      try {
+        const log = JSON.parse(row.value) as ApprovalLogEntry[]
+        if (!Array.isArray(log)) continue
+        const derived = evidenceFromApprovalLog(log)
+        if (derived) evidence.push(derived)
+      } catch {}
+    }
 
     return buildAutonomyTelemetrySummary(evidence)
   } catch (e: any) {
@@ -226,20 +238,16 @@ export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySu
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// OBSERVABILITY ENGINE (Aggregate Analytics)
-// ═══════════════════════════════════════════════════════════════
-
 export interface ObservabilityMetrics {
   totalMissions: number
-  missionSuccessRate: number  // percentage
+  missionSuccessRate: number
   averageLatencyMs: number
   averageDurationMs: number
-  verificationFailureRate: number  // percentage
-  leaderDebateUsage: number  // percentage
-  memoryHitRate: number  // percentage (missions that used memory)
+  verificationFailureRate: number
+  leaderDebateUsage: number
+  memoryHitRate: number
   averageConfidence: number
-  executiveCorrectionRate: number  // percentage
+  executiveCorrectionRate: number
   totalToolsCalled: number
   totalTokensUsed: number
   totalCost: number
@@ -249,15 +257,12 @@ export interface ObservabilityMetrics {
   autonomy: AutonomyTelemetrySummary
 }
 
-/**
- * Get aggregate observability metrics from all stored mission telemetry.
- */
 export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
   try {
     const telemetryRecords = await db.memory.findMany({
       where: { category: 'mission_telemetry' },
       orderBy: { createdAt: 'desc' },
-      take: 500,  // last 500 missions
+      take: 500,
     })
 
     if (telemetryRecords.length === 0) {
