@@ -81,7 +81,9 @@ const clamp01 = (value: number): number => Math.min(1, Math.max(0, Number.isFini
  * - unknown financial cost is never treated as zero;
  * - deployment/security/production actions require explicit owner authorization;
  * - irreversible external effects require explicit owner authorization;
- * - forbidden actions remain blocked even when an owner is authenticated.
+ * - forbidden actions remain blocked even when an owner is authenticated;
+ * - owner authorization grants execution, not autonomous authority, unless an
+ *   autonomous policy independently permits the action.
  */
 export function classifyAutonomyAction(
   request: AutonomyActionRequest,
@@ -196,6 +198,16 @@ export function classifyAutonomyAction(
         ? `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${minimumConfidence.toFixed(2)}, but the verified owner session authorizes execution.`
         : `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${minimumConfidence.toFixed(2)}.`,
       requiresOwnerApproval: !ownerVerified,
+    }
+  }
+
+  if (ownerVerified && !request.policyApproved) {
+    return {
+      authority: 'HUMAN_EXECUTION',
+      autonomous: false,
+      authorizedForExecution: true,
+      reason: 'The verified owner session authorizes execution, but no autonomous policy grants autonomous authority.',
+      requiresOwnerApproval: false,
     }
   }
 
