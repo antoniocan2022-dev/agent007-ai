@@ -23,7 +23,8 @@ export interface CapabilityMetadata {
 const registry: Record<string, CapabilityMetadata> = {}
 
 function define(names: string[], metadata: CapabilityMetadata): void {
-  for (const name of names) registry[name] = metadata
+  const immutableMetadata = Object.freeze({ ...metadata })
+  for (const name of names) registry[name] = immutableMetadata
 }
 
 const safeRead = {
@@ -108,15 +109,16 @@ define(['wordpress_publisher', 'etsy_integration', 'amazon_integration', 'market
 
 /**
  * Stable read-only view exported for audit tooling and tests.
- * Keep `registry` private so callers cannot mutate the authorization map.
+ * Both the map and each metadata object are frozen so diagnostics cannot
+ * mutate the authorization contract at runtime.
  */
-export const CAPABILITY_REGISTRY: Readonly<Record<string, CapabilityMetadata>> = registry
+export const CAPABILITY_REGISTRY: Readonly<Record<string, Readonly<CapabilityMetadata>>> = Object.freeze(registry)
 
-export function getCapabilityMetadata(toolName: string): CapabilityMetadata | undefined {
+export function getCapabilityMetadata(toolName: string): Readonly<CapabilityMetadata> | undefined {
   return registry[toolName]
 }
 
-export function listCapabilityMetadata(): Readonly<Record<string, CapabilityMetadata>> {
+export function listCapabilityMetadata(): Readonly<Record<string, Readonly<CapabilityMetadata>>> {
   return registry
 }
 
