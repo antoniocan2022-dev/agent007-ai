@@ -1,6 +1,6 @@
 # Agent007 AI
 
-> Autonomous AI super-agent with 289+ tools, 20 specialists (12 built-in + 8 custom), full self-repair + autonomous issue resolution.
+> Autonomous AI super-agent with 289+ tools, 20 specialists (12 built-in + 8 custom/overlay), full self-repair + autonomous issue resolution.
 
 [![Deploy on Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black.svg)](https://vercel.com/new)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
@@ -100,13 +100,13 @@ Staging manager, regression tests, canary deployment, rollback manager, cost gua
 4 areas × 16 tools each
 
 ### Developer Tools (12)
-Code quality audit, test generator, bug detector, refactoring engine, dependency analyzer, CI/CD builder, environment setup, DB migration, performance profiler, bundle optimizer, SSR/hydration fixer, API optimizer
+Code quality audit, test generator, bug detector, refactoring engine, dependency analyzer, refactoring engine, CI/CD builder, environment setup, DB migration, performance profiler, bundle optimizer, SSR/hydration fixer, API optimizer
 
 ### Communication (3)
 Send communication (SMS/WhatsApp/Email), check inbound commands, execute inbound commands
 
 ## 🤖 Sub-Agents (20 specialists)
-AURORA, VERTEX, QUANTUM, SCOUT, HUNT, FORGE, QUILL, PRISM, PULSE, ECHO, LEGAL, THE BANKER, TRADER, Cybersecurity A (Red Team), Cybersecurity R (Blue Team), SEO_MASTER, Developer, STRATEGIST, plus 2 additional custom/overlay specialist slots managed through the subagent registry.
+The runtime registry defines **12 built-in specialists plus 8 custom/overlay specialist positions**. Built-in identities and permissions are maintained in `src/lib/subagents.ts`; custom and overlay records are database-backed.
 
 ## 🔐 Security
 - NextAuth + 2FA (TOTP/SMS/WhatsApp)
