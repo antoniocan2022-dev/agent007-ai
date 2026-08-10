@@ -42,12 +42,26 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-undef": "off",
     "no-unreachable": "off",
     "no-useless-escape": "off",
-
-    // Intentional runtime/circular-dependency boundaries use CommonJS require.
-    // These are audited architectural exceptions, not accidental imports.
+  },
+},
+// Generated upgrade-backup scripts are source generators, not production runtime.
+// Keep them lintable while allowing their intentional CommonJS construction.
+{
+  files: ["scripts/generate-upgrade57-backup.ts", "scripts/generate-upgrade58-backup.ts"],
+  rules: {
     "@typescript-eslint/no-require-imports": "off",
   },
-}, {
+},
+// These two modules intentionally use lazy CommonJS loading to break a circular
+// dependency with TOOL_REGISTRY. Replacing it with a static import would recreate
+// the initialization cycle they were specifically designed to avoid.
+{
+  files: ["src/lib/subagents.ts", "src/lib/tool-protection.ts"],
+  rules: {
+    "@typescript-eslint/no-require-imports": "off",
+  },
+},
+{
   ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/**/*.cjs", "scripts/**/*.js"]
 }];
 
