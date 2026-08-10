@@ -3,8 +3,10 @@
  *
  * This module classifies an action request. It does not execute actions.
  * The server-side authorization boundary must never be inferred solely from
- * an LLM response.
+ * an LLM response or from a caller-provided boolean.
  */
+
+import type { VerifiedOwnerAuthorization } from './owner-authorization'
 
 export const AUTONOMY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number]
@@ -40,6 +42,8 @@ export interface AutonomyActionRequest {
   containsPersonalData: boolean
   policyApproved: boolean
   confidence: number
+  /** Server-created owner authorization; never a caller-supplied boolean. */
+  ownerAuthorization?: VerifiedOwnerAuthorization | null
 }
 
 export interface AutonomyPolicyLimits {
@@ -54,6 +58,8 @@ export interface AutonomyPolicyLimits {
 export interface AutonomyPolicyDecision {
   authority: AuthorityClass
   autonomous: boolean
+  /** Whether the action may proceed at the execution boundary right now. */
+  authorizedForExecution: boolean
   reason: string
   requiresOwnerApproval: boolean
 }
@@ -73,8 +79,9 @@ const clamp01 = (value: number): number => Math.min(1, Math.max(0, Number.isFini
  * - uncertainty escalates authority; it never expands autonomy;
  * - category-level hazards cannot be hidden by inconsistent boolean flags;
  * - unknown financial cost is never treated as zero;
- * - deployment/security/production actions require explicit approval;
- * - irreversible external effects require explicit approval.
+ * - deployment/security/production actions require explicit owner authorization;
+ * - irreversible external effects require explicit owner authorization;
+ * - forbidden actions remain blocked even when an owner is authenticated.
  */
 export function classifyAutonomyAction(
   request: AutonomyActionRequest,
@@ -85,21 +92,24 @@ export function classifyAutonomyAction(
   const cost = request.estimatedCost
   const spendLimit = Math.max(0, Number.isFinite(limits.autonomousSpendLimit) ? limits.autonomousSpendLimit : 0)
   const minimumConfidence = clamp01(limits.minimumConfidence)
+  const ownerVerified = request.ownerAuthorization != null
 
   if (limits.forbiddenCategories.has(category) || category === 'data_destructive') {
     return {
       authority: 'FORBIDDEN',
       autonomous: false,
+      authorizedForExecution: false,
       reason: 'Action category is forbidden for autonomous execution.',
       requiresOwnerApproval: false,
     }
   }
 
-  if (!request.policyApproved) {
+  if (!request.policyApproved && !ownerVerified) {
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: 'No applicable policy has approved this action.',
+      authorizedForExecution: false,
+      reason: 'No applicable autonomous policy or verified owner authorization is present.',
       requiresOwnerApproval: true,
     }
   }
@@ -108,8 +118,11 @@ export function classifyAutonomyAction(
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: 'Deployment, security, or production state requires explicit owner authorization.',
-      requiresOwnerApproval: true,
+      authorizedForExecution: ownerVerified,
+      reason: ownerVerified
+        ? 'Sensitive deployment, security, or production action is authorized by the verified owner session.'
+        : 'Deployment, security, or production state requires explicit owner authorization.',
+      requiresOwnerApproval: !ownerVerified,
     }
   }
 
@@ -117,8 +130,11 @@ export function classifyAutonomyAction(
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: 'Irreversible external side effect requires explicit approval.',
-      requiresOwnerApproval: true,
+      authorizedForExecution: ownerVerified,
+      reason: ownerVerified
+        ? 'Irreversible external side effect is authorized by the verified owner session.'
+        : 'Irreversible external side effect requires explicit owner authorization.',
+      requiresOwnerApproval: !ownerVerified,
     }
   }
 
@@ -127,16 +143,22 @@ export function classifyAutonomyAction(
       return {
         authority: 'HUMAN_APPROVAL',
         autonomous: false,
-        reason: 'Financial action has no valid bounded cost estimate.',
-        requiresOwnerApproval: true,
+        authorizedForExecution: ownerVerified,
+        reason: ownerVerified
+          ? 'Financial action has no bounded cost estimate; execution is permitted only under verified owner authorization.'
+          : 'Financial action has no valid bounded cost estimate.',
+        requiresOwnerApproval: !ownerVerified,
       }
     }
     if ((cost ?? 0) > spendLimit) {
       return {
         authority: 'HUMAN_APPROVAL',
         autonomous: false,
-        reason: `Financial action exceeds autonomous spend limit of ${spendLimit}.`,
-        requiresOwnerApproval: true,
+        authorizedForExecution: ownerVerified,
+        reason: ownerVerified
+          ? `Financial action exceeds autonomous spend limit of ${spendLimit}; verified owner authorization is present.`
+          : `Financial action exceeds autonomous spend limit of ${spendLimit}.`,
+        requiresOwnerApproval: !ownerVerified,
       }
     }
   }
@@ -145,8 +167,11 @@ export function classifyAutonomyAction(
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: 'External action involving personal data requires approval.',
-      requiresOwnerApproval: true,
+      authorizedForExecution: ownerVerified,
+      reason: ownerVerified
+        ? 'External action involving personal data is authorized by the verified owner session.'
+        : 'External action involving personal data requires approval.',
+      requiresOwnerApproval: !ownerVerified,
     }
   }
 
@@ -154,8 +179,11 @@ export function classifyAutonomyAction(
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: 'Irreversible external communication requires explicit approval.',
-      requiresOwnerApproval: true,
+      authorizedForExecution: ownerVerified,
+      reason: ownerVerified
+        ? 'Irreversible external communication is authorized by the verified owner session.'
+        : 'Irreversible external communication requires explicit approval.',
+      requiresOwnerApproval: !ownerVerified,
     }
   }
 
@@ -163,8 +191,11 @@ export function classifyAutonomyAction(
     return {
       authority: 'HUMAN_APPROVAL',
       autonomous: false,
-      reason: `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${minimumConfidence.toFixed(2)}.`,
-      requiresOwnerApproval: true,
+      authorizedForExecution: ownerVerified,
+      reason: ownerVerified
+        ? `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${minimumConfidence.toFixed(2)}, but the verified owner session authorizes execution.`
+        : `Decision confidence ${confidence.toFixed(2)} is below autonomous threshold ${minimumConfidence.toFixed(2)}.`,
+      requiresOwnerApproval: !ownerVerified,
     }
   }
 
@@ -172,6 +203,7 @@ export function classifyAutonomyAction(
     return {
       authority: 'AUTONOMOUS_SAFE',
       autonomous: true,
+      authorizedForExecution: true,
       reason: 'Policy-approved, reversible internal action with sufficient confidence.',
       requiresOwnerApproval: false,
     }
@@ -180,6 +212,7 @@ export function classifyAutonomyAction(
   return {
     authority: 'AUTONOMOUS_BOUNDED',
     autonomous: true,
+    authorizedForExecution: true,
     reason: 'Policy-approved action is within bounded autonomous authority.',
     requiresOwnerApproval: false,
   }
