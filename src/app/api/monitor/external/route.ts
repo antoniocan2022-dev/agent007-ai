@@ -1,64 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  runExternalMonitor,
-  DEFAULT_EXTERNAL_ENDPOINTS,
-} from '@/lib/monitor-agents'
+import { runExternalMonitor, DEFAULT_EXTERNAL_ENDPOINTS } from '@/lib/monitor-agents'
+import { sendCriticalCEOEscalation } from '@/lib/ceo-executive-communications'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-/**
- * GET /api/monitor/external — Vercel Cron entry point.
- * Cron schedule: "0,30 * * * *" (every 30 minutes, UTC).
- *
- * Probes 10+ external endpoints in parallel:
- *   - Production app (agent007-ai.vercel.app)
- *   - API health / manifest / subagents
- *   - Resend / CoinGecko / GitHub / HN / Reddit / WordPress
- *
- * On ANY failure: emails owner (OWNER_EMAIL) via Resend.
- *
- * Upgrade #57 — PERMANENT. Cannot be disabled or removed.
- */
+function authorized(req: NextRequest) {
+  const secret = process.env.CRON_SECRET?.trim()
+  return !!secret && req.headers.get('authorization') === `Bearer ${secret}`
+}
+
 export async function GET(req: NextRequest) {
+  if (!authorized(req)) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const report = await runExternalMonitor({})
-    return NextResponse.json({
-      ok: true,
-      endpointCount: DEFAULT_EXTERNAL_ENDPOINTS.length,
-      ...report,
-    })
+    const criticalEscalation = await sendCriticalCEOEscalation(report)
+    return NextResponse.json({ ok: true, endpointCount: DEFAULT_EXTERNAL_ENDPOINTS.length, ...report, criticalEscalation })
   } catch (e: any) {
     console.error('[monitor/external] GET failed:', e)
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? 'External monitor failed' },
-      { status: 500 }
-    )
+    return NextResponse.json({ ok: false, error: e?.message ?? 'External monitor failed' }, { status: 500 })
   }
 }
 
-/**
- * POST /api/monitor/external — manual trigger.
- * Body: { endpoints?: Array<{ url: string; expectedStatus?: number }> }
- */
 export async function POST(req: NextRequest) {
+  if (!authorized(req)) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await req.json().catch(() => ({}))
-    const endpoints = Array.isArray(body?.endpoints) && body.endpoints.length > 0
-      ? body.endpoints
-      : DEFAULT_EXTERNAL_ENDPOINTS
+    const endpoints = Array.isArray(body?.endpoints) && body.endpoints.length > 0 ? body.endpoints : DEFAULT_EXTERNAL_ENDPOINTS
     const report = await runExternalMonitor({ endpoints })
-    return NextResponse.json({
-      ok: true,
-      endpointCount: endpoints.length,
-      ...report,
-    })
+    const criticalEscalation = await sendCriticalCEOEscalation(report)
+    return NextResponse.json({ ok: true, endpointCount: endpoints.length, ...report, criticalEscalation })
   } catch (e: any) {
     console.error('[monitor/external] POST failed:', e)
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? 'External monitor failed' },
-      { status: 500 }
-    )
+    return NextResponse.json({ ok: false, error: e?.message ?? 'External monitor failed' }, { status: 500 })
   }
 }
