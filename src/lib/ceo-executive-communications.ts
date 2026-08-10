@@ -6,10 +6,9 @@
  *   OPERATE     -> CEO Operations Report (daily 17:00 local)
  *   BUILD VALUE -> Investor Intelligence Brief (Saturday 05:30 local)
  *
- * The engine is intentionally data-first. It uses durable Memory records for
- * monitor evidence and existing business/finance models for traction. Revenue
- * is never inferred from plans or pipeline values; only successful Transaction
- * records are counted as verified revenue.
+ * Vercel invokes the three endpoints every 30 minutes. Each endpoint gates
+ * itself against America/Toronto (configurable) so daylight-saving changes do
+ * not move the owner's requested local delivery times.
  */
 import { db, ensureDbReady } from './db'
 import { sendEmail } from './email'
@@ -18,6 +17,8 @@ import { dispatchTool } from './tools'
 
 const LOCAL_TZ = process.env.CEO_REPORT_TIMEZONE || 'America/Toronto'
 
+type BriefKind = 'morning' | 'operations' | 'investor'
+
 function localParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: LOCAL_TZ,
@@ -25,6 +26,26 @@ function localParts(date = new Date()) {
     hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false,
   }).formatToParts(date)
   return Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value])) as Record<string,string>
+}
+
+export function isCEOCommunicationSlot(kind: BriefKind, date = new Date()) {
+  const p = localParts(date)
+  const hour = Number(p.hour)
+  const minute = Number(p.minute)
+  if (kind === 'morning') return hour === 5 && minute === 0
+  if (kind === 'operations') return hour === 17 && minute === 0
+  return p.weekday === 'Sat' && hour === 5 && minute === 30
+}
+
+async function claimSlot(kind: BriefKind, date = new Date()) {
+  const p = localParts(date)
+  const key = `ceo_communication_${kind}_${p.year}-${p.month}-${p.day}`
+  try {
+    await db.memory.create({ data: { key, value: new Date().toISOString(), category: 'ceo_communication_dedup' } })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function money(n: number, currency = 'CAD') {
@@ -51,12 +72,9 @@ async function recentMonitorReports(hours = 24) {
   const since = new Date(Date.now() - hours * 3600000)
   const rows = await db.memory.findMany({
     where: { category: { in: ['qa_health_report', 'external_uptime_report'] }, createdAt: { gte: since } },
-    orderBy: { createdAt: 'desc' },
-    take: 200,
+    orderBy: { createdAt: 'desc' }, take: 200,
   })
-  return rows.flatMap(row => {
-    try { return [JSON.parse(row.value)] } catch { return [] }
-  })
+  return rows.flatMap(row => { try { return [JSON.parse(row.value)] } catch { return [] } })
 }
 
 async function verifiedRevenue() {
@@ -79,7 +97,7 @@ export async function buildMorningExecutiveBrief() {
     '🌅 MORNING EXECUTIVE BRIEF — CEO_AGENT007',
     `Date: ${new Date().toLocaleDateString('en-CA', { timeZone: LOCAL_TZ })}`,
     '',
-    'THINK — What you should know today',
+    'THINK — What should I know today?',
     `• Verified CAD revenue: ${money(revenue)}`,
     `• Active customers/leads: ${customers}`,
     `• Active opportunities: ${opportunities}`,
@@ -87,10 +105,10 @@ export async function buildMorningExecutiveBrief() {
     `• Critical reliability events: ${critical}`,
     '',
     'CEO PRIORITIES',
-    ...(strategies.length ? strategies.map((s: any, i: number) => `${i + 1}. ${s.title} — ${s.priority} priority`) : ['1. No active strategy is currently recorded. CEO should select the highest-probability revenue mission.']),
+    ...(strategies.length ? strategies.map((s: any, i: number) => `${i + 1}. ${s.title} — ${s.priority} priority`) : ['1. Select the highest-probability revenue mission and validate it.']),
     '',
     'CEO DECISION RULE',
-    'Prioritize the next action that increases verified revenue, customer traction, reliability, or enterprise value. Do not treat projections as cash.',
+    'Prioritize the next action that increases verified revenue, customer traction, reliability, or enterprise value. Never treat projections as cash.',
     '',
     '— CEO_AGENT007 • THINK',
   ].join('\n')
@@ -120,12 +138,12 @@ export async function buildInvestorIntelligenceBrief() {
     `Customer base: ${customers}. Opportunity pipeline: ${opportunities}.`,
     '',
     '2. WHAT MATTERS',
-    revenue > 0 ? 'Agent007 has verified transaction evidence; the next objective is repeatable acquisition and retention.' : 'Agent007 has not yet recorded verified CAD revenue; the highest-value objective remains the first verified customer payment.',
+    revenue > 0 ? 'Verified transaction evidence exists; the next objective is repeatable acquisition and retention.' : 'No verified CAD revenue is recorded yet; the highest-value objective remains the first verified customer payment.',
     '',
     '3. INVESTOR RISKS',
-    '• Revenue concentration/scale is not yet established unless supported by verified transactions.',
     '• Pipeline and strategy records are not substitutes for customer traction.',
     '• Reliability issues must be resolved before they affect revenue execution.',
+    '• Scale claims must be supported by verified transaction evidence.',
     '',
     '4. 30/60/90-DAY CEO VIEW',
     '30 days: prove repeatable customer acquisition.',
@@ -140,7 +158,7 @@ export async function buildInvestorIntelligenceBrief() {
     '• What could invalidate the thesis?',
     '',
     'CEO RECOMMENDATION',
-    revenue > 0 ? 'BUILD TRACTION → SCALE only what is supported by verified evidence.' : 'WATCH → BUILD VERIFIED TRACTION BEFORE CLAIMING INVESTABILITY.',
+    revenue > 0 ? 'BUILD TRACTION → scale only what verified evidence supports.' : 'WATCH → build verified traction before claiming investability.',
     '',
     '— CEO_AGENT007 • BUILD VALUE',
   ].join('\n')
@@ -151,13 +169,9 @@ async function attemptCEORepair(report: any) {
   const outcomes: string[] = []
   for (const failure of failures.slice(0, 10)) {
     try {
-      const args = failure.name.includes('database')
-        ? {}
-        : failure.name.includes('system_health')
-          ? { verbose: true }
-          : { query: failure.actual || failure.name }
+      const args = failure.name.includes('database') ? {} : failure.name.includes('system_health') ? { verbose: true } : { query: failure.actual || failure.name }
       const tool = failure.name.includes('database') ? 'database_integrity_check' : failure.name.includes('system_health') ? 'system_health_check' : 'error_log_analyzer'
-      const result = await dispatchTool(tool, args, { attachments: [], language: 'en', userId: undefined, conversationId: `ceo_repair_${Date.now()}` })
+      const result = await dispatchTool(tool, args, { attachments: [], language: 'en', conversationId: `ceo_repair_${Date.now()}` })
       outcomes.push(`${failure.name}: ${result?.ok ? 'CEO diagnostic/recovery succeeded' : 'CEO could not resolve automatically'}`)
     } catch (e: any) {
       outcomes.push(`${failure.name}: CEO repair attempt failed — ${e?.message || 'unknown error'}`)
@@ -174,11 +188,15 @@ export async function buildCEOOperationsReport() {
   const repairs: string[] = []
   for (const report of reports.filter((r: any) => Number(r.failed || 0) > 0).slice(0, 5)) repairs.push(...await attemptCEORepair(report))
   const unresolved = repairs.filter(x => x.includes('could not resolve') || x.includes('failed')).length
+  const ownerSteps = unresolved ? [
+    '1. Open CEO_AGENT007 → System → QA Monitor.',
+    '2. Open the unresolved check and copy its exact failure.',
+    '3. Run the CEO diagnostic for that check and review the suggested fix.',
+    '4. Apply only the specific change identified by the CEO.',
+    '5. Re-run the affected QA check and confirm it returns ok=true.',
+  ] : []
   return {
-    critical,
-    failures,
-    repairs,
-    unresolved,
+    critical, failures, repairs, unresolved,
     text: [
       '🛡️ CEO OPERATIONS REPORT — CEO_AGENT007',
       `Date: ${new Date().toLocaleDateString('en-CA', { timeZone: LOCAL_TZ })}`,
@@ -195,8 +213,8 @@ export async function buildCEOOperationsReport() {
       'CEO ACTIONS',
       ...(repairs.length ? repairs.map(x => `• ${x}`) : ['• No remediation was required.']),
       '',
-      critical.length ? 'IMMEDIATE ESCALATION' : 'HUMAN ESCALATION',
-      ...(critical.length ? critical.slice(0, 5).map((f: any) => `• CRITICAL: ${f.name} — owner action may be required immediately.`) : unresolved ? ['• The CEO could not fully resolve one or more issues. Exact owner steps must be supplied in the next escalation artifact.'] : ['• None. CEO continues autonomous monitoring.']),
+      unresolved ? 'HUMAN ACTION REQUIRED' : 'HUMAN ESCALATION',
+      ...(unresolved ? ownerSteps : critical.length ? critical.slice(0, 5).map((f: any) => `• CRITICAL: ${f.name} — immediate owner attention may be required.`) : ['• None. CEO continues autonomous monitoring.']),
       '',
       '— CEO_AGENT007 • OPERATE',
     ].join('\n'),
@@ -204,20 +222,22 @@ export async function buildCEOOperationsReport() {
 }
 
 export async function sendMorningBrief() {
-  const body = await buildMorningExecutiveBrief()
-  return deliver('Agent007 — Morning Executive Brief', body)
+  if (!isCEOCommunicationSlot('morning')) return { sent: false, skipped: true, reason: 'outside 05:00 local slot' }
+  if (!(await claimSlot('morning'))) return { sent: false, skipped: true, reason: 'already claimed for today' }
+  return deliver('Agent007 — Morning Executive Brief', await buildMorningExecutiveBrief())
 }
 
 export async function sendInvestorBrief() {
-  const body = await buildInvestorIntelligenceBrief()
-  return deliver('Agent007 — Investor Intelligence Brief', body)
+  if (!isCEOCommunicationSlot('investor')) return { sent: false, skipped: true, reason: 'outside Saturday 05:30 local slot' }
+  if (!(await claimSlot('investor'))) return { sent: false, skipped: true, reason: 'already claimed for this week' }
+  return deliver('Agent007 — Investor Intelligence Brief', await buildInvestorIntelligenceBrief())
 }
 
 export async function sendCEOOperationsReport() {
+  if (!isCEOCommunicationSlot('operations')) return { sent: false, skipped: true, reason: 'outside 17:00 local slot' }
+  if (!(await claimSlot('operations'))) return { sent: false, skipped: true, reason: 'already claimed for today' }
   const report = await buildCEOOperationsReport()
   const result = await deliver('Agent007 — CEO Operations Report', report.text)
-  if (report.critical.length > 0) {
-    await deliver('🔴 Agent007 — CRITICAL CEO ESCALATION', report.text)
-  }
+  if (report.critical.length > 0) await deliver('🔴 Agent007 — CRITICAL CEO ESCALATION', report.text)
   return result
 }
