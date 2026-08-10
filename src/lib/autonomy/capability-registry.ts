@@ -106,6 +106,12 @@ define(['wordpress_publisher', 'etsy_integration', 'amazon_integration', 'market
   affectsFinancialState: false, containsPersonalData: true, autonomousEligible: false,
 })
 
+/**
+ * Stable read-only view exported for audit tooling and tests.
+ * Keep `registry` private so callers cannot mutate the authorization map.
+ */
+export const CAPABILITY_REGISTRY: Readonly<Record<string, CapabilityMetadata>> = registry
+
 export function getCapabilityMetadata(toolName: string): CapabilityMetadata | undefined {
   return registry[toolName]
 }
