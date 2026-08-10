@@ -49,6 +49,19 @@ describe('Capability-aware autonomy registry', () => {
     }
   })
 
+  test('autonomous-eligible capabilities are intrinsically low-risk', () => {
+    for (const metadata of Object.values(CAPABILITY_REGISTRY)) {
+      if (!metadata.autonomousEligible) continue
+
+      expect(metadata.reversible).toBe(true)
+      expect(metadata.externalSideEffect).toBe(false)
+      expect(metadata.affectsProduction).toBe(false)
+      expect(metadata.affectsSecurity).toBe(false)
+      expect(metadata.affectsFinancialState).toBe(false)
+      expect(metadata.containsPersonalData).toBe(false)
+    }
+  })
+
   test('capability registry cannot be mutated after initialization', () => {
     const metadata = getCapabilityMetadata('web_search')
     expect(Object.isFrozen(CAPABILITY_REGISTRY)).toBe(true)
