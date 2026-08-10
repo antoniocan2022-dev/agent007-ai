@@ -18,7 +18,7 @@ import {
   type ToolResult,
 } from './tools'
 import { classifyToolExecution, autonomyDenialMessage } from './autonomy/autonomy-runtime'
-import { isVerifiedOwnerAuthorization } from './autonomy/owner-authorization'
+import { getVerifiedOwnerAuthorization, isVerifiedOwnerAuthorization } from './autonomy/owner-authorization'
 
 export * from './tools'
 
@@ -36,9 +36,22 @@ export async function dispatchTool(
   // policy decision. Unknown tools therefore cannot become autonomous by being
   // forgotten in a local allow-list.
   const authorizedContext = ctx as AuthorizedToolContext
-  const ownerAuthorization = isVerifiedOwnerAuthorization(authorizedContext.ownerAuthorization)
+
+  // Owner authorization is resolved server-side from the authenticated
+  // NextAuth session. A caller-provided boolean or arbitrary object is never
+  // accepted as proof of approval.
+  let ownerAuthorization = isVerifiedOwnerAuthorization(authorizedContext.ownerAuthorization)
     ? authorizedContext.ownerAuthorization
     : null
+  if (!ownerAuthorization) {
+    try {
+      ownerAuthorization = await getVerifiedOwnerAuthorization()
+    } catch {
+      // A missing/unavailable session must fail closed; autonomous-safe actions
+      // can still proceed because they do not require owner authorization.
+      ownerAuthorization = null
+    }
+  }
 
   const decision = classifyToolExecution(name, args, {
     confidence: 1,
