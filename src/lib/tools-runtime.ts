@@ -18,8 +18,13 @@ import {
   type ToolResult,
 } from './tools'
 import { classifyToolExecution, autonomyDenialMessage } from './autonomy/autonomy-runtime'
+import { isVerifiedOwnerAuthorization } from './autonomy/owner-authorization'
 
 export * from './tools'
+
+type AuthorizedToolContext = ToolContext & {
+  ownerAuthorization?: unknown
+}
 
 export async function dispatchTool(
   name: string,
@@ -30,11 +35,17 @@ export async function dispatchTool(
   // authoritative eligibility contract, while the Governor remains the final
   // policy decision. Unknown tools therefore cannot become autonomous by being
   // forgotten in a local allow-list.
+  const authorizedContext = ctx as AuthorizedToolContext
+  const ownerAuthorization = isVerifiedOwnerAuthorization(authorizedContext.ownerAuthorization)
+    ? authorizedContext.ownerAuthorization
+    : null
+
   const decision = classifyToolExecution(name, args, {
     confidence: 1,
+    ownerAuthorization,
   })
 
-  if (!decision.autonomous) {
+  if (!decision.authorizedForExecution) {
     return badResult(autonomyDenialMessage(name, decision))
   }
 
