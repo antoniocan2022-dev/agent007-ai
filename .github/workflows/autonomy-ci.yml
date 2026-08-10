@@ -36,7 +36,7 @@ jobs:
         run: bunx prisma generate
 
       - name: TypeScript check
-        run: bunx tsc --noEmit
+        run: bunx tsc -p tsconfig.ci.json --noEmit
 
       - name: Autonomy domain tests
         run: bun test src/lib/autonomy/autonomy.test.ts
