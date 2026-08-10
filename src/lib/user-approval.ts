@@ -26,6 +26,7 @@
  *        - <manage action="reject_user" user_id="..."/>
  */
 
+import { randomBytes } from 'node:crypto'
 import { db } from './db'
 import { sendEmail } from './email'
 import { sendWhatsApp } from './whatsapp-bridge'
@@ -58,8 +59,7 @@ export function isOwnerEmail(email: string): boolean {
  * The token is included in the approval link sent to the owner.
  */
 export function generateApprovalToken(): string {
-  const crypto = require('node:crypto')
-  return crypto.randomBytes(32).toString('hex')
+  return randomBytes(32).toString('hex')
 }
 
 /**
@@ -110,7 +110,6 @@ Email: OWNER_EMAIL`
 
   const sentChannels: string[] = []
 
-  // 1. EMAIL (always attempt)
   try {
     const result = await sendEmail({
       to: OWNER_EMAIL,
@@ -123,7 +122,6 @@ Email: OWNER_EMAIL`
     console.warn('[user-approval] Email send failed:', e?.message)
   }
 
-  // 2. WHATSAPP (wa.me link — always works, no API key needed)
   const waMessage = `🔐 NEW USER APPROVAL REQUIRED
 
 New user: ${newUserName || newUserEmail}
@@ -134,7 +132,6 @@ REJECT: ${rejectUrl}
 
 Link expires in 24 hours. — Agent007 AI`
 
-  // Try to send via WhatsApp provider (CallMeBot/Baileys if configured)
   try {
     const userId = (await db.user.findUnique({ where: { email: OWNER_EMAIL } }))?.id
     if (userId) {
@@ -147,7 +144,6 @@ Link expires in 24 hours. — Agent007 AI`
     }
   } catch {}
 
-  // 3. Build the wa.me manual fallback link (always available)
   const waLink = `https://wa.me/${OWNER_PHONE_DIGITS}?text=${encodeURIComponent(waMessage)}`
 
   const message = sentChannels.length > 0
@@ -173,12 +169,9 @@ export async function processApproval(opts: {
   if (!token) return { ok: false, message: 'Missing approval token' }
 
   try {
-    // Find the pending user by approval token
-    // We store the token in UserSetting with key 'approval_token'
     const userId = (await db.user.findUnique({ where: { email: OWNER_EMAIL } }))?.id
     if (!userId) return { ok: false, message: 'Owner account not found' }
 
-    // Search for the approval token in UserSetting
     const tokenRow = await db.userSetting.findFirst({
       where: { key: `approval_token:${token}` },
     })
@@ -189,7 +182,6 @@ export async function processApproval(opts: {
     try { tokenData = JSON.parse(tokenRow.value) } catch {}
 
     if (tokenData.expiresAt && Date.now() > tokenData.expiresAt) {
-      // Token expired — clean up
       try { await db.userSetting.delete({ where: { id: tokenRow.id } }) } catch {}
       return { ok: false, message: 'Approval token expired (24-hour limit). The new user must register again.' }
     }
@@ -199,7 +191,6 @@ export async function processApproval(opts: {
     if (!newUserId) return { ok: false, message: 'Invalid token data (no userId)' }
 
     if (action === 'approve') {
-      // Mark the user as approved
       try {
         await db.userSetting.create({
           data: {
@@ -209,7 +200,6 @@ export async function processApproval(opts: {
           },
         })
       } catch {
-        // Already exists — update
         try {
           await db.userSetting.updateMany({
             where: { userId: newUserId, key: 'approved' },
@@ -218,7 +208,6 @@ export async function processApproval(opts: {
         } catch {}
       }
 
-      // Clean up the token
       try { await db.userSetting.delete({ where: { id: tokenRow.id } }) } catch {}
 
       return {
@@ -227,12 +216,10 @@ export async function processApproval(opts: {
         userEmail: newUserEmail,
       }
     } else {
-      // REJECT: delete the user account
       try {
         await db.user.delete({ where: { id: newUserId } })
       } catch {}
 
-      // Clean up the token
       try { await db.userSetting.delete({ where: { id: tokenRow.id } }) } catch {}
 
       return {
@@ -251,7 +238,6 @@ export async function processApproval(opts: {
  * Owner is ALWAYS approved.
  */
 export async function isUserApproved(userEmail: string): Promise<boolean> {
-  // Owner is always approved
   if (isOwnerEmail(userEmail)) return true
 
   try {
