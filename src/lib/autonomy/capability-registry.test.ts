@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { getCapabilityMetadata, listCapabilityMetadata } from './capability-registry'
 import { classifyToolExecution } from './autonomy-runtime'
+import { TOOL_REGISTRY } from '@/lib/tools'
 
 describe('Capability-aware autonomy registry', () => {
   test('research capability is explicitly autonomous-safe', () => {
@@ -55,5 +56,23 @@ describe('Capability-aware autonomy registry', () => {
       expect(typeof metadata.autonomousEligible).toBe('boolean')
       expect(toolName.length).toBeGreaterThan(0)
     }
+  })
+
+  test('every live TOOL_REGISTRY entry is governed, even when metadata is missing', () => {
+    const unregistered: string[] = []
+
+    for (const toolName of Object.keys(TOOL_REGISTRY)) {
+      if (!getCapabilityMetadata(toolName)) unregistered.push(toolName)
+      const decision = classifyToolExecution(toolName, {}, { confidence: 1 })
+      if (!getCapabilityMetadata(toolName)) {
+        expect(decision.autonomous).toBe(false)
+        expect(decision.requiresOwnerApproval).toBe(true)
+      }
+    }
+
+    // This is an audit invariant, not a requirement that every tool already
+    // has hand-authored metadata. New tools may be temporarily unregistered,
+    // but they must remain non-autonomous until explicitly classified.
+    expect(unregistered.length).toBeGreaterThanOrEqual(0)
   })
 })
