@@ -6,7 +6,7 @@
  * an LLM response or from a caller-provided boolean.
  */
 
-import type { VerifiedOwnerAuthorization } from './owner-authorization'
+import { isVerifiedOwnerAuthorization, type VerifiedOwnerAuthorization } from './owner-authorization'
 
 export const AUTONOMY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number]
@@ -92,7 +92,7 @@ export function classifyAutonomyAction(
   const cost = request.estimatedCost
   const spendLimit = Math.max(0, Number.isFinite(limits.autonomousSpendLimit) ? limits.autonomousSpendLimit : 0)
   const minimumConfidence = clamp01(limits.minimumConfidence)
-  const ownerVerified = request.ownerAuthorization != null
+  const ownerVerified = isVerifiedOwnerAuthorization(request.ownerAuthorization)
 
   if (limits.forbiddenCategories.has(category) || category === 'data_destructive') {
     return {
@@ -182,7 +182,7 @@ export function classifyAutonomyAction(
       authorizedForExecution: ownerVerified,
       reason: ownerVerified
         ? 'Irreversible external communication is authorized by the verified owner session.'
-        : 'Irreversible external communication requires explicit approval.',
+        : 'Irreversible external communication requires explicit owner approval.',
       requiresOwnerApproval: !ownerVerified,
     }
   }
