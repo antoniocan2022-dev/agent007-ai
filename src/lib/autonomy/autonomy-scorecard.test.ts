@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { calculateAutonomyScorecard, meetsAutonomyTarget, type AutonomyMissionEvidence } from './autonomy-scorecard'
+import { calculateAutonomyScorecard, meetsAutonomyTarget, type OperationalMissionEvidence } from './autonomy-scorecard'
 
-const mission = (overrides: Partial<AutonomyMissionEvidence> = {}): AutonomyMissionEvidence => ({
+const mission = (overrides: Partial<OperationalMissionEvidence> = {}): OperationalMissionEvidence => ({
   completed: true,
   independentlyVerified: true,
   recoveredAfterFailure: false,
