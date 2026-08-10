@@ -46,13 +46,18 @@ export function isVerifiedOwnerAuthorization(
   const expiresAt = candidate.expiresAt
   const verifiedAt = candidate.verifiedAt
 
-  return candidate.kind === 'owner-session'
-    && candidate[OWNER_AUTH_BRAND] === true
-    && typeof candidate.userId === 'string'
-    && candidate.userId.length > 0
-    && typeof candidate.email === 'string'
-    && isOwnerEmail(candidate.email)
-    && Number.isFinite(verifiedAt)
-    && Number.isFinite(expiresAt)
-    && expiresAt > Date.now()
+  if (candidate.kind !== 'owner-session'
+    || candidate[OWNER_AUTH_BRAND] !== true
+    || typeof candidate.userId !== 'string'
+    || candidate.userId.length === 0
+    || typeof candidate.email !== 'string'
+    || !isOwnerEmail(candidate.email)
+    || typeof verifiedAt !== 'number'
+    || !Number.isFinite(verifiedAt)
+    || typeof expiresAt !== 'number'
+    || !Number.isFinite(expiresAt)) {
+    return false
+  }
+
+  return expiresAt > Date.now()
 }
