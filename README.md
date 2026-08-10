@@ -1,12 +1,12 @@
 # Agent007 AI
 
-> Autonomous AI super-agent with 289+ tools, 18 sub-agents, full self-repair + autonomous issue resolution.
+> Autonomous AI super-agent with 289+ tools, 20 specialists (12 built-in + 8 custom), full self-repair + autonomous issue resolution.
 
 [![Deploy on Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black.svg)](https://vercel.com/new)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org)
 [![289+ Tools](https://img.shields.io/badge/Tools-289+-green.svg)](#tools)
-[![18 Sub-Agents](https://img.shields.io/badge/Sub--Agents-18-purple.svg)](#sub-agents)
+[![20 Specialists](https://img.shields.io/badge/Specialists-20-purple.svg)](#sub-agents)
 
 ## 🚀 Quick Deploy
 
@@ -18,6 +18,17 @@ cp .env.example .env  # edit with your secrets
 bunx prisma generate && bunx prisma db push
 bash scripts/deploy-vercel.sh
 ```
+
+## 🧭 Autonomy 95 Program
+
+Agent007's autonomy is measured by **verified mission outcomes**, not tool count. The Autonomy 95 program targets 95–97% measured operational autonomy across mission ownership, decision-making, execution, verification, recovery, learning and governance.
+
+Development is performed in GitHub. Production deployment is a separate controlled action and requires explicit owner authorization.
+
+See:
+- `docs/AGENT007-AUTONOMY-95-PROGRAM.md` — program, KPIs, reliability gates and completion criteria.
+- `docs/SYSTEM-CAPABILITY-MANIFEST.md` — canonical semantic capability contract.
+- `src/lib/autonomy/` — pure autonomy scoring and authority-policy primitives.
 
 ## 🗄️ Database Setup (CRITICAL for performance)
 
@@ -94,8 +105,8 @@ Code quality audit, test generator, bug detector, refactoring engine, dependency
 ### Communication (3)
 Send communication (SMS/WhatsApp/Email), check inbound commands, execute inbound commands
 
-## 🤖 Sub-Agents (18)
-AURORA, VERTEX, QUANTUM, SCOUT, HUNT, FORGE, QUILL, PRISM, PULSE, ECHO, LEGAL, THE BANKER, TRADER, Cybersecurity A (Red Team), Cybersecurity R (Blue Team), SEO_MASTER, Developer, STRATEGIST
+## 🤖 Sub-Agents (20 specialists)
+AURORA, VERTEX, QUANTUM, SCOUT, HUNT, FORGE, QUILL, PRISM, PULSE, ECHO, LEGAL, THE BANKER, TRADER, Cybersecurity A (Red Team), Cybersecurity R (Blue Team), SEO_MASTER, Developer, STRATEGIST, plus 2 additional custom/overlay specialist slots managed through the subagent registry.
 
 ## 🔐 Security
 - NextAuth + 2FA (TOTP/SMS/WhatsApp)
@@ -104,9 +115,10 @@ AURORA, VERTEX, QUANTUM, SCOUT, HUNT, FORGE, QUILL, PRISM, PULSE, ECHO, LEGAL, T
 - CSRF protection
 - Audit log with hash chain
 - Licensed activity blocker (legal/medical/tax)
+- Autonomy Governor for bounded authority decisions
 
-## 📊 Prisma Models (33)
-Conversation, Message, Memory, User, UserSetting, IncomeEntry, Transaction, KnowledgeDoc, KnowledgeChunk, Schedule, NotificationLog, PendingManageAction, CustomSubagent, AuditLog, TwoFactorSecret, PhoneConfig, IncomingCommand, BankAccount, PayPalAccount, ApiKey, Customer, MarketingCampaign, Partnership, BusinessStrategy, MissionTracker, ServicePackage, Opportunity, Prediction, SystemHealth, MLModel, RiskRegister, ComplianceCheck, ContractDraft
+## 📊 Prisma Models
+Conversation, Message, Memory, User, UserSetting, IncomeEntry, Transaction, KnowledgeDoc, KnowledgeChunk, Schedule, NotificationLog, PendingManageAction, CustomSubagent, AuditLog, TwoFactorSecret, PhoneConfig, IncomingCommand, BankAccount, PayPalAccount, ApiKey, Customer, MarketingCampaign, Partnership, BusinessStrategy, MissionTracker, ServicePackage, Opportunity, Prediction, SystemHealth, MLModel, RiskRegister, ComplianceCheck, ContractDraft, plus the additional models defined in `prisma/schema.prisma`.
 
 ## 📝 License
 Private — All rights reserved.
