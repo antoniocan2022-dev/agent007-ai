@@ -1,15 +1,10 @@
 /**
  * Agent007 Autonomy Index
  *
- * Phase A of the Autonomy 95 program.
+ * Phase A/B of the Autonomy 95 program.
  *
- * This module is intentionally pure: it does not read the database, invoke an
- * LLM, dispatch tools, or make authorization decisions. It converts measured
- * autonomy signals into a bounded score and explicit reliability gates.
- *
- * Important: a missing metric is not treated as success. Coverage and data
- * quality are first-class inputs so the system cannot manufacture a 95% score
- * from incomplete telemetry.
+ * Pure scoring only: no database, LLM, tool execution, or authorization side effects.
+ * Missing or weak telemetry is treated as a reliability failure, never as success.
  */
 
 export const AUTONOMY_DIMENSIONS = {
@@ -27,7 +22,7 @@ export type AutonomyDimension = keyof typeof AUTONOMY_DIMENSIONS
 export interface AutonomyDimensionMeasurement {
   /** Score in the inclusive range 0..100. */
   score: number
-  /** Fraction of the underlying events/missions covered by telemetry, 0..1. */
+  /** Fraction of eligible events/missions covered by telemetry, 0..1. */
   coverage: number
   /** Number of eligible observations represented by the measurement. */
   sampleSize: number
@@ -46,9 +41,7 @@ export interface ReliabilityGates {
 }
 
 export interface AutonomyIndexResult {
-  /** Weighted score before reliability gates. */
   rawScore: number
-  /** Published score. This can never exceed rawScore and is capped when gates fail. */
   score: number
   passed: boolean
   confidence: number
@@ -77,32 +70,33 @@ export interface AutonomyIndexResult {
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min))
 
-const safeMeasurement = (measurement: AutonomyDimensionMeasurement): AutonomyDimensionMeasurement => ({
-  score: clamp(measurement.score, 0, 100),
-  coverage: clamp(measurement.coverage, 0, 1),
-  sampleSize: Math.max(0, Math.floor(Number.isFinite(measurement.sampleSize) ? measurement.sampleSize : 0)),
+const safeMeasurement = (measurement: AutonomyDimensionMeasurement | undefined): AutonomyDimensionMeasurement => ({
+  score: clamp(measurement?.score ?? 0, 0, 100),
+  coverage: clamp(measurement?.coverage ?? 0, 0, 1),
+  sampleSize: Math.max(0, Math.floor(Number.isFinite(measurement?.sampleSize) ? measurement!.sampleSize : 0)),
 })
 
 /**
  * Calculate the measured autonomy index.
  *
  * Reliability policy:
- * - Verification and governance failures cap the published score at 89.
- * - Insufficient coverage/sample size caps the score at 89.
+ * - Verification/governance failures cap the published score at 89.
+ * - Every dimension must independently meet coverage and sample-size gates.
+ *   A weighted average may not hide a blind spot in one dimension.
  * - Any unresolved critical financial/security incident caps the score at 89.
  * - Missing terminal verification caps the score at 89.
- *
- * 89 is deliberately below the program's 95% claim threshold and makes it
- * impossible for excellent execution metrics to conceal an unsafe system.
  */
 export function calculateAutonomyIndex(
   measurements: AutonomyMeasurements,
   gates: ReliabilityGates,
 ): AutonomyIndexResult {
-  const normalized = {} as AutonomyMeasurements
   let weightedScore = 0
   let weightedCoverage = 0
   let totalSampleSize = 0
+  let minimumDimensionCoverage = 1
+  let minimumDimensionSampleSize = Number.POSITIVE_INFINITY
+
+  const normalized = {} as AutonomyMeasurements
 
   for (const key of Object.keys(AUTONOMY_DIMENSIONS) as AutonomyDimension[]) {
     const measurement = safeMeasurement(measurements[key])
@@ -111,14 +105,19 @@ export function calculateAutonomyIndex(
     weightedScore += measurement.score * (definition.weight / 100)
     weightedCoverage += measurement.coverage * (definition.weight / 100)
     totalSampleSize += measurement.sampleSize
+    minimumDimensionCoverage = Math.min(minimumDimensionCoverage, measurement.coverage)
+    minimumDimensionSampleSize = Math.min(minimumDimensionSampleSize, measurement.sampleSize)
   }
 
   const rawScore = Number(weightedScore.toFixed(2))
   const coverage = Number(weightedCoverage.toFixed(4))
   const verification = normalized.verification.score >= gates.verificationMin
   const governance = normalized.governance.score >= gates.governanceMin
-  const coverageGate = coverage >= gates.minimumCoverage
-  const sampleGate = totalSampleSize >= gates.minimumSampleSize
+
+  // Coverage and sample size are dimension-level gates. This prevents seven
+  // healthy dimensions from masking one dimension with no telemetry.
+  const coverageGate = minimumDimensionCoverage >= clamp(gates.minimumCoverage, 0, 1)
+  const sampleGate = minimumDimensionSampleSize >= Math.max(0, Math.floor(gates.minimumSampleSize))
   const financialGate = gates.criticalFinancialIncidentResolved
   const securityGate = gates.criticalSecurityIncidentResolved
   const verificationCompleteness = gates.allTerminalOutcomesVerified
@@ -140,10 +139,10 @@ export function calculateAutonomyIndex(
   const allGatesPass = failingGates.length === 0
   const score = Number((allGatesPass ? rawScore : Math.min(rawScore, 89)).toFixed(2))
 
-  // Confidence is deliberately conservative. Coverage and sample size each
-  // contribute 50%; a single observation can never produce high confidence.
-  const sampleConfidence = clamp(totalSampleSize / 100, 0, 1)
-  const confidence = Number((Math.min(coverage, sampleConfidence) * 100).toFixed(2))
+  // Confidence uses the weakest dimension, not the strongest aggregate.
+  // Coverage is bounded by 1; sample confidence reaches 1 at 100 observations.
+  const sampleConfidence = clamp(minimumDimensionSampleSize / 100, 0, 1)
+  const confidence = Number((Math.min(minimumDimensionCoverage, sampleConfidence) * 100).toFixed(2))
 
   const dimensions = {} as AutonomyIndexResult['dimensions']
   for (const key of Object.keys(AUTONOMY_DIMENSIONS) as AutonomyDimension[]) {
@@ -172,7 +171,6 @@ export function calculateAutonomyIndex(
   }
 }
 
-/** Default production policy for the first measurement phase. */
 export const DEFAULT_AUTONOMY_GATES: ReliabilityGates = {
   verificationMin: 90,
   governanceMin: 90,
