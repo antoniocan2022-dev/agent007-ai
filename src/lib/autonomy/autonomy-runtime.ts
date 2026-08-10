@@ -19,71 +19,35 @@ import {
 } from './autonomy-policy'
 
 const DESTRUCTIVE_TOOLS = new Set([
-  'file_delete',
-  'file_modify',
-  'file_write',
-  'patch_source_file',
-  'patch_applier',
-  'restore_from_backup',
-  'backup_restore',
-  'db_migration_validator',
-  'developer_database_migration',
-  'secrets_rotator',
-  'cache_clear',
+  'file_delete', 'file_modify', 'file_write', 'patch_source_file', 'patch_applier',
+  'restore_from_backup', 'backup_restore', 'db_migration_validator',
+  'developer_database_migration', 'secrets_rotator', 'cache_clear',
 ])
 
 const DEPLOYMENT_TOOLS = new Set([
-  'trigger_redeploy',
-  'canary_deployment_manager',
-  'staging_environment_manager',
-  'rollback_manager',
-  'developer_cicd_pipeline_builder',
+  'trigger_redeploy', 'canary_deployment_manager', 'staging_environment_manager',
+  'rollback_manager', 'developer_cicd_pipeline_builder',
 ])
 
 const SECURITY_TOOLS = new Set([
-  'security_auto_fixer',
-  'csrf_auditor',
-  'security_health_checker',
-  'security_header_tester',
-  'rate_limit_tester',
-  'csp_diagnostic',
-  'secrets_rotator',
+  'security_auto_fixer', 'csrf_auditor', 'security_health_checker',
+  'security_header_tester', 'rate_limit_tester', 'csp_diagnostic', 'secrets_rotator',
 ])
 
 const FINANCIAL_TOOLS = new Set([
-  'stripe_payment_processor',
-  'paypal_api',
-  'payment_processor',
-  'payout_scheduler',
-  'kraken_exchange',
-  'quantum_staking_automation',
-  'advanced_billing',
-  'dunning_management',
+  'stripe_payment_processor', 'paypal_api', 'payment_processor', 'payout_scheduler',
+  'kraken_exchange', 'quantum_staking_automation', 'advanced_billing', 'dunning_management',
 ])
 
 const COMMUNICATION_TOOLS = new Set([
-  'send_email',
-  'send_communication',
-  'send_whatsapp',
-  'send_sms',
-  'telegram_notify',
-  'ntfy_notify',
-  'discord_notify',
-  'resend_email_automation',
-  'convertkit_email',
-  'autonomous_email_sender',
-  'follow_up_automation',
+  'send_email', 'send_communication', 'send_whatsapp', 'send_sms', 'telegram_notify',
+  'ntfy_notify', 'discord_notify', 'resend_email_automation', 'convertkit_email',
+  'autonomous_email_sender', 'follow_up_automation',
 ])
 
 const EXTERNAL_WRITE_TOOLS = new Set([
-  'wordpress_publisher',
-  'etsy_integration',
-  'amazon_integration',
-  'marketplace_sync',
-  'buffer_scheduler',
-  'shopify_store',
-  'fiverr_freelance',
-  'automated_social_posting',
+  'wordpress_publisher', 'etsy_integration', 'amazon_integration', 'marketplace_sync',
+  'buffer_scheduler', 'shopify_store', 'fiverr_freelance', 'automated_social_posting',
   'auto_bidding_engine',
 ])
 
@@ -108,12 +72,7 @@ function inferCategory(toolName: string): ActionCategory {
   if (FINANCIAL_TOOLS.has(toolName)) return 'financial'
   if (COMMUNICATION_TOOLS.has(toolName)) return 'communication'
   if (EXTERNAL_WRITE_TOOLS.has(toolName)) return 'external_irreversible'
-
-  // Naming conventions are only a secondary signal. A tool that merely reads
-  // or analyzes data remains a read operation unless explicitly classified.
-  if (/^(read|search|fetch|inspect|query|analy[sz]e|audit|check|verify|test|monitor|report|list|lookup|web_)/i.test(toolName)) {
-    return 'read'
-  }
+  if (/^(read|search|fetch|inspect|query|analy[sz]e|audit|check|verify|test|monitor|report|list|lookup|web_)/i.test(toolName)) return 'read'
   return 'write'
 }
 
@@ -129,13 +88,6 @@ function isReversible(category: ActionCategory, toolName: string): boolean {
   return category === 'read' || category === 'write'
 }
 
-/**
- * Classify one tool invocation against the canonical Autonomy Governor.
- *
- * The default confidence is deliberately high only for read-only operations;
- * write/external actions start at 0 so they cannot silently become autonomous
- * merely because the caller omitted evidence.
- */
 export function classifyToolExecution(
   toolName: string,
   rawArgs: unknown,
@@ -143,6 +95,7 @@ export function classifyToolExecution(
     policyApproved?: boolean
     confidence?: number
     affectsProduction?: boolean
+    affectsSecurity?: boolean
     containsPersonalData?: boolean
     limits?: AutonomyPolicyLimits
   },
