@@ -20,9 +20,11 @@ async function reconcile(req: NextRequest) {
     const cronSecret = process.env.CRON_SECRET?.trim()
     const authorization = req.headers.get('authorization')
     const cronAuthorized = Boolean(cronSecret && authorization === `Bearer ${cronSecret}`)
+
     if (cronAuthorized) {
       const users = await db.user.findMany({ select: { id: true } })
-      let checked = 0, verified = 0
+      let checked = 0
+      let verified = 0
       for (const user of users) {
         const result = await reconcileRevenueExecution(user.id, 100)
         checked += result.checked
@@ -30,6 +32,7 @@ async function reconcile(req: NextRequest) {
       }
       return NextResponse.json({ ok: true, mode: 'cron', users: users.length, checked, verified })
     }
+
     const userId = await getAuthenticatedUserId()
     if (!userId) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 })
     const body = await req.json().catch(() => ({}))
