@@ -4,10 +4,8 @@ import { dispatchTool } from './tools-runtime'
 describe('Canonical tool dispatch autonomy boundary', () => {
   const ctx = { attachments: [], language: 'en' as const }
 
-  test('allows an explicitly policy-approved read through the boundary', async () => {
+  test('allows a registered autonomous read through the boundary', async () => {
     const result = await dispatchTool('web_search', { query: '' }, ctx)
-    // The empty query reaches the real tool and is rejected for its argument,
-    // which proves the autonomy boundary did not block the read first.
     expect(result.result).toContain('Missing "query" argument for web_search')
   })
 
@@ -27,8 +25,13 @@ describe('Canonical tool dispatch autonomy boundary', () => {
 
   test('keeps internal mission bookkeeping autonomous', async () => {
     const result = await dispatchTool('report_progress', { status: 'testing' }, ctx)
-    // The exact implementation may reject malformed/incomplete arguments,
-    // but it must not be rejected by the Autonomy Governor itself.
     expect(result.result).not.toContain('AUTONOMY GOVERNOR: Tool "report_progress" was not authorized')
+  })
+
+  test('blocks arbitrary code execution before the underlying tool runs', async () => {
+    const result = await dispatchTool('code_exec', { code: 'return 1' }, ctx)
+    expect(result.ok).toBe(false)
+    expect(result.result).toContain('AUTONOMY GOVERNOR')
+    expect(result.result).toContain('Owner approval')
   })
 })
