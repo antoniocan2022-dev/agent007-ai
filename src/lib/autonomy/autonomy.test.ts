@@ -6,6 +6,7 @@ import {
   type AutonomyMeasurements,
 } from './autonomy-index'
 import { classifyAutonomyAction } from './autonomy-policy'
+import { buildAutonomyTelemetrySummary } from './autonomy-telemetry'
 import {
   canTransition,
   getAllowedMissionEvents,
@@ -113,5 +114,21 @@ describe('Executive decision scoring', () => {
     expect(result.expectedReturn).toBe(100)
     expect(result.riskAdjustedValue).toBe(100)
     expect(result.priority).toBe('P1')
+  })
+})
+
+describe('Autonomy telemetry', () => {
+  test('treats missing evidence as missing coverage, not success', () => {
+    const summary = buildAutonomyTelemetrySummary([
+      { eligible: true, executionAutonomous: true },
+      { eligible: true, executionAutonomous: false },
+    ])
+
+    expect(summary.measurements.execution.score).toBe(50)
+    expect(summary.measurements.execution.coverage).toBe(1)
+    expect(summary.measurements.goalMission.coverage).toBe(0)
+    expect(summary.index.passed).toBe(false)
+    expect(summary.index.failingGates).toContain('coverage')
+    expect(summary.index.failingGates).toContain('sampleSize')
   })
 })
