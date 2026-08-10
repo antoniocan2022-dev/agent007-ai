@@ -7,7 +7,7 @@ Agent007's first concrete revenue executor is a provider-specific SMTP adapter f
 - Disabled by default.
 - Requires explicit deployment configuration to enable.
 - Requires persisted recipient, subject, and body content in the approved action payload.
-- Carries the durable idempotency key into outbound message metadata.
+- Carries the durable idempotency key into the outbound message metadata.
 - Returns provider acceptance metadata for auditability.
 - Never marks revenue as verified.
 - Missing credentials or invalid payloads fail closed.
@@ -20,6 +20,6 @@ Agent007's first concrete revenue executor is a provider-specific SMTP adapter f
 
 ## Payload contract
 
-`payload.to`, `payload.subject`, and either `payload.text` or `payload.html` are required.
+`payload.to`, `payload.subject`, and either `payload.text` or `payload.html` are required. Optional `payload.from` overrides the configured sender only when explicitly supplied by the approved action.
 
 Execution success means the SMTP provider accepted the message submission. It does not mean the recipient opened the message, responded, purchased, or generated verified revenue.

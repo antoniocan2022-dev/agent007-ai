@@ -15,50 +15,18 @@ const VALID_TOOLS = new Set(FULL_ACCESS_TOOLS)
 /* A curated allow-list of Lucide icon names the client knows how to render.
  * Anything not in this list falls back to the default Sparkles icon. */
 const VALID_ICONS = new Set([
-  'Sparkles',
-  'Box',
-  'TrendingUp',
-  'Search',
-  'Crosshair',
-  'Hammer',
-  'PenLine',
-  'Palette',
-  'Activity',
-  'RefreshCw',
-  'Scale',
-  'Landmark',
-  'Bot',
-  'Brain',
-  'Zap',
-  'Globe',
-  'Database',
-  'Terminal',
-  'Code',
-  'Cpu',
-  'Rocket',
-  'Target',
-  'DollarSign',
-  'Briefcase',
-  'LineChart',
-  'PieChart',
-  'ShieldCheck',
-  'FileText',
-  'Lightbulb',
-  'Cloud',
-  'Compass',
-  'Feather',
+  'Sparkles', 'Box', 'TrendingUp', 'Search', 'Crosshair', 'Hammer', 'PenLine', 'Palette',
+  'Activity', 'RefreshCw', 'Scale', 'Landmark', 'Bot', 'Brain', 'Zap', 'Globe', 'Database',
+  'Terminal', 'Code', 'Cpu', 'Rocket', 'Target', 'DollarSign', 'Briefcase', 'LineChart',
+  'PieChart', 'ShieldCheck', 'FileText', 'Lightbulb', 'Cloud', 'Compass', 'Feather',
 ])
 
 /** GET /api/subagents — list ALL subagents (12 built-in + custom) with overlay edits applied. */
 export async function GET() {
   try {
-    // This endpoint is also used by the external uptime monitor. A transient
-    // database connection failure must not turn a healthy app into a false
-    // outage. Built-in agents are static and safe to return as a degraded
-    // fallback; custom overlays will be restored automatically on the next
-    // successful request.
+    // Preserve the 37-hour subagent CRUD surface while making the monitor-facing
+    // read path resilient to transient database outages.
     await ensureDbReady().catch(() => {})
-
     let list: Subagent[]
     let degraded = false
     try {
@@ -68,8 +36,6 @@ export async function GET() {
       console.warn('[subagents GET] database unavailable; returning built-in agents only', dbError)
       list = SUBAGENTS
     }
-
-    // Strip the systemPrompt from the listing payload (it's huge; only needed for edit)
     const slim = list.map((s) => ({
       id: s.id,
       name: s.name,
@@ -80,14 +46,11 @@ export async function GET() {
       allowedTools: s.allowedTools,
       enabled: s.enabled ?? true,
       isBuiltin: s.isBuiltin ?? false,
-      // Truncate prompt for the list view; full prompt fetched on edit
       systemPromptPreview: s.systemPrompt.slice(0, 200),
     }))
     return NextResponse.json({ subagents: slim, degraded })
   } catch (e: any) {
     console.error('[subagents GET]', e)
-    // Last-resort static fallback: preserve the monitor contract even if an
-    // unexpected serialization/runtime issue occurs in the normal path.
     try {
       const slim = SUBAGENTS.map((s) => ({
         id: s.id,
@@ -116,65 +79,24 @@ export async function POST(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'No operator user found' }, { status: 500 })
 
     const body = await req.json().catch(() => ({}))
-    const {
-      name,
-      role,
-      specialty,
-      color,
-      icon,
-      allowedTools,
-      systemPrompt,
-      enabled,
-    } = body as Partial<Subagent> & { allowedTools?: string[] | string }
+    const { name, role, specialty, color, icon, allowedTools, systemPrompt, enabled } = body as Partial<Subagent> & { allowedTools?: string[] | string }
 
     const safeName = (name ?? '').toString().trim().slice(0, 80)
-    if (!safeName) {
-      return NextResponse.json({ error: 'name is required' }, { status: 400 })
-    }
+    if (!safeName) return NextResponse.json({ error: 'name is required' }, { status: 400 })
     const safeRole = (role ?? 'Specialist').toString().trim().slice(0, 200) || 'Specialist'
     const safeSpecialty = (specialty ?? '').toString().trim().slice(0, 500)
     const safeColor = validateColor(color) ?? '#00f0ff'
     const safeIcon = VALID_ICONS.has((icon ?? '').toString()) ? (icon as string) : 'Sparkles'
     const toolsArr = parseTools(allowedTools)
-    if (toolsArr.length === 0) {
-      return NextResponse.json(
-        { error: 'allowedTools must include at least one valid tool name' },
-        { status: 400 }
-      )
-    }
+    if (toolsArr.length === 0) return NextResponse.json({ error: 'allowedTools must include at least one valid tool name' }, { status: 400 })
     const safePrompt = (systemPrompt ?? '').toString().slice(0, 8000)
-    if (safePrompt.length < 20) {
-      return NextResponse.json(
-        { error: 'systemPrompt must be at least 20 characters' },
-        { status: 400 }
-      )
-    }
+    if (safePrompt.length < 20) return NextResponse.json({ error: 'systemPrompt must be at least 20 characters' }, { status: 400 })
     const isEnabled = enabled !== false
-
-    // Disallow creating a custom agent whose name collides with a built-in id
-    // (case-insensitive). This prevents the user from accidentally shadowing
-    // a built-in via the create path (use the edit path for that).
     const lowerName = safeName.toLowerCase()
-    if (BUILTIN_IDS.has(lowerName)) {
-      return NextResponse.json(
-        { error: `Cannot create a custom agent with the reserved name "${safeName}". Use the edit endpoint to modify the built-in.` },
-        { status: 400 }
-      )
-    }
+    if (BUILTIN_IDS.has(lowerName)) return NextResponse.json({ error: `Cannot create a custom agent with the reserved name "${safeName}". Use the edit endpoint to modify the built-in.` }, { status: 400 })
 
     const created = await db.customSubagent.create({
-      data: {
-        userId,
-        name: safeName,
-        role: safeRole,
-        specialty: safeSpecialty,
-        color: safeColor,
-        icon: safeIcon,
-        allowedTools: JSON.stringify(toolsArr),
-        systemPrompt: safePrompt,
-        enabled: isEnabled,
-        isBuiltinOverlay: false,
-      },
+      data: { userId, name: safeName, role: safeRole, specialty: safeSpecialty, color: safeColor, icon: safeIcon, allowedTools: JSON.stringify(toolsArr), systemPrompt: safePrompt, enabled: isEnabled, isBuiltinOverlay: false },
     })
     return NextResponse.json({ ok: true, subagent: created })
   } catch (e: any) {
@@ -184,7 +106,6 @@ export async function POST(req: NextRequest) {
 }
 
 /* ----------------------------- helpers -------------------------------- */
-
 function validateColor(c?: string): string | null {
   if (!c || typeof c !== 'string') return null
   const trimmed = c.trim()
@@ -194,23 +115,10 @@ function validateColor(c?: string): string | null {
 
 function parseTools(input: any): string[] {
   if (!input) return []
-  if (Array.isArray(input)) {
-    return input
-      .map((s) => (typeof s === 'string' ? s.trim() : ''))
-      .filter((s) => VALID_TOOLS.has(s))
-  }
+  if (Array.isArray(input)) return input.map((s) => (typeof s === 'string' ? s.trim() : '')).filter((s) => VALID_TOOLS.has(s))
   if (typeof input === 'string') {
-    // Try JSON parse first
-    try {
-      const parsed = JSON.parse(input)
-      if (Array.isArray(parsed)) return parseTools(parsed)
-    } catch {
-      /* fall through */
-    }
-    return input
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => VALID_TOOLS.has(s))
+    try { const parsed = JSON.parse(input); if (Array.isArray(parsed)) return parseTools(parsed) } catch { /* fall through */ }
+    return input.split(',').map((s) => s.trim()).filter((s) => VALID_TOOLS.has(s))
   }
   return []
 }

@@ -1,0 +1,1 @@
+Governed revenue execution lifecycle: prepare -> approve -> execute -> verify. Exact registered executors only; missing adapters fail closed; transaction evidence remains authoritative for verified revenue.
