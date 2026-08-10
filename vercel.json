@@ -15,7 +15,9 @@
     { "path": "/api/schedules/tick", "schedule": "*/30 * * * *" },
     { "path": "/api/monitor/qa", "schedule": "0 * * * *" },
     { "path": "/api/monitor/external", "schedule": "0 * * * *" },
-    { "path": "/api/schedules/morning-brief", "schedule": "0 9 * * *" },
+    { "path": "/api/schedules/ceo-morning-brief", "schedule": "*/30 * * * *" },
+    { "path": "/api/schedules/ceo-operations-report", "schedule": "*/30 * * * *" },
+    { "path": "/api/schedules/investor-intelligence-brief", "schedule": "*/30 * * * *" },
     { "path": "/api/revenue-reconciliation", "schedule": "*/15 * * * *" }
   ]
 }
