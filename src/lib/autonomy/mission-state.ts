@@ -1,9 +1,8 @@
 /**
  * Agent007 autonomous mission state machine.
  *
- * This is a domain-level state model. It intentionally contains no persistence
- * or execution side effects so the orchestrator can adopt it without coupling
- * storage, scheduling, and tool execution into the transition rules.
+ * Pure domain rules: no persistence, scheduling, LLM, or execution side effects.
+ * Invalid transitions throw so callers cannot silently skip lifecycle controls.
  */
 
 export const MISSION_STATES = [
@@ -52,19 +51,25 @@ const TRANSITIONS: readonly MissionTransition[] = [
   { from: 'EXECUTING', event: 'WAIT', to: 'WAITING' },
   { from: 'EXECUTING', event: 'VERIFY', to: 'VERIFYING', requiresVerification: true },
   { from: 'EXECUTING', event: 'RECOVER', to: 'RECOVERING' },
+  { from: 'EXECUTING', event: 'FAIL', to: 'FAILED' },
+  { from: 'EXECUTING', event: 'BLOCK', to: 'BLOCKED' },
   { from: 'WAITING', event: 'RESUME', to: 'EXECUTING' },
   { from: 'WAITING', event: 'BLOCK', to: 'BLOCKED' },
   { from: 'VERIFYING', event: 'COMPLETE', to: 'COMPLETED', requiresVerification: true },
   { from: 'VERIFYING', event: 'RECOVER', to: 'RECOVERING' },
+  { from: 'VERIFYING', event: 'FAIL', to: 'FAILED' },
   { from: 'RECOVERING', event: 'START', to: 'EXECUTING' },
   { from: 'RECOVERING', event: 'VERIFY', to: 'VERIFYING', requiresVerification: true },
   { from: 'RECOVERING', event: 'FAIL', to: 'FAILED' },
+  { from: 'BLOCKED', event: 'RECOVER', to: 'RECOVERING' },
+  { from: 'FAILED', event: 'RECOVER', to: 'RECOVERING' },
   { from: 'PROPOSED', event: 'CANCEL', to: 'CANCELLED' },
   { from: 'QUEUED', event: 'CANCEL', to: 'CANCELLED' },
   { from: 'PLANNING', event: 'CANCEL', to: 'CANCELLED' },
   { from: 'AUTHORIZED', event: 'CANCEL', to: 'CANCELLED' },
   { from: 'WAITING', event: 'CANCEL', to: 'CANCELLED' },
-  { from: 'BLOCKED', event: 'RECOVER', to: 'RECOVERING' },
+  { from: 'BLOCKED', event: 'CANCEL', to: 'CANCELLED' },
+  { from: 'FAILED', event: 'CANCEL', to: 'CANCELLED' },
 ] as const
 
 const transitionMap = new Map<string, MissionTransition>(
