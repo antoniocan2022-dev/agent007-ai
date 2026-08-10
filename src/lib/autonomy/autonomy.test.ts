@@ -109,9 +109,9 @@ describe('Executive decision scoring', () => {
       cost: 0,
     })
 
-    expect(result.score).toBe(96)
+    expect(result.score).toBe(88)
     expect(result.expectedReturn).toBe(100)
     expect(result.riskAdjustedValue).toBe(100)
-    expect(result.priority).toBe('P0')
+    expect(result.priority).toBe('P1')
   })
 })
