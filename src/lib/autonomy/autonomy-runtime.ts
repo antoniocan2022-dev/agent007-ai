@@ -13,6 +13,7 @@ import {
   type AutonomyPolicyLimits,
 } from './autonomy-policy'
 import { getCapabilityMetadata } from './capability-registry'
+import { isVerifiedOwnerAuthorization, type VerifiedOwnerAuthorization } from './owner-authorization'
 
 const LEGACY_DESTRUCTIVE_TOOLS = new Set([
   'file_delete', 'file_modify', 'file_write', 'patch_source_file', 'patch_applier',
@@ -75,13 +76,17 @@ export function classifyToolExecution(
     affectsProduction?: boolean
     affectsSecurity?: boolean
     containsPersonalData?: boolean
+    ownerAuthorization?: VerifiedOwnerAuthorization | null
     limits?: AutonomyPolicyLimits
   },
 ): AutonomyPolicyDecision {
-  const args = rawArgs && typeof rawArgs === 'object' ? rawArgs as Record<string, unknown> : {}
+  const args = rawArgs && typeof rawArgs === 'object' ? argsAsRecord(rawArgs) : {}
   const metadata = getCapabilityMetadata(toolName)
   const category = metadata?.category ?? inferLegacyCategory(toolName)
   const confidence = options?.confidence ?? (category === 'read' ? 1 : 0)
+  const ownerAuthorization = isVerifiedOwnerAuthorization(options?.ownerAuthorization)
+    ? options?.ownerAuthorization
+    : null
 
   return classifyAutonomyAction({
     category,
@@ -96,11 +101,14 @@ export function classifyToolExecution(
     affectsSecurity: options?.affectsSecurity ?? metadata?.affectsSecurity ?? LEGACY_SECURITY_TOOLS.has(toolName),
     affectsFinancialState: metadata?.affectsFinancialState ?? category === 'financial',
     containsPersonalData: options?.containsPersonalData ?? metadata?.containsPersonalData ?? false,
-    // Explicit caller approval remains available for trusted higher-level
-    // authorization flows, but the ordinary tool runtime must not inject it.
     policyApproved: options?.policyApproved ?? metadata?.autonomousEligible === true,
     confidence,
+    ownerAuthorization,
   }, options?.limits)
+}
+
+function argsAsRecord(value: object): Record<string, unknown> {
+  return value as Record<string, unknown>
 }
 
 export function autonomyDenialMessage(toolName: string, decision: AutonomyPolicyDecision): string {
@@ -110,6 +118,6 @@ export function autonomyDenialMessage(toolName: string, decision: AutonomyPolicy
     `Reason: ${decision.reason}`,
     decision.requiresOwnerApproval
       ? 'Owner approval is required before this action can execute.'
-      : 'The action is forbidden by policy and cannot be executed autonomously.',
+      : 'The action is forbidden by policy and cannot be executed.',
   ].join(' ')
 }
