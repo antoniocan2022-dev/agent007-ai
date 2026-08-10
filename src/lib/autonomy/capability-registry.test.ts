@@ -49,6 +49,24 @@ describe('Capability-aware autonomy registry', () => {
     }
   })
 
+  test('capability registry cannot be mutated after initialization', () => {
+    const metadata = getCapabilityMetadata('web_search')
+    expect(Object.isFrozen(CAPABILITY_REGISTRY)).toBe(true)
+    expect(Object.isFrozen(metadata)).toBe(true)
+
+    expect(() => {
+      ;(CAPABILITY_REGISTRY as Record<string, unknown>).web_search = undefined
+    }).toThrow()
+
+    expect(() => {
+      if (metadata) {
+        ;(metadata as { autonomousEligible: boolean }).autonomousEligible = false
+      }
+    }).toThrow()
+
+    expect(getCapabilityMetadata('web_search')?.autonomousEligible).toBe(true)
+  })
+
   test('every live TOOL_REGISTRY entry is governed, even when metadata is missing', () => {
     const unregistered: string[] = []
 
