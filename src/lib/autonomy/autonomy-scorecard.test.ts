@@ -48,12 +48,13 @@ describe('operational autonomy scorecard', () => {
     expect(meetsAutonomyTarget(scorecard, 95)).toBe(true)
   })
 
-  it('rejects non-finite outcome quality instead of allowing score inflation', () => {
+  it('treats non-finite outcome quality as invalid evidence instead of allowing score inflation', () => {
     const scorecard = calculateAutonomyScorecard(
       Array.from({ length: 20 }, () => mission({ outcomeQuality: Number.POSITIVE_INFINITY })),
     )
 
     expect(scorecard.dimensions.outcomeQuality).toBe(0)
-    expect(scorecard.score).toBe(90)
+    expect(scorecard.score).toBe(75)
+    expect(meetsAutonomyTarget(scorecard, 95)).toBe(false)
   })
 })
