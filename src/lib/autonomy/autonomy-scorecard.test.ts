@@ -4,6 +4,7 @@ import { calculateAutonomyScorecard, meetsAutonomyTarget, type OperationalMissio
 const mission = (overrides: Partial<OperationalMissionEvidence> = {}): OperationalMissionEvidence => ({
   completed: true,
   independentlyVerified: true,
+  failureOccurred: false,
   recoveredAfterFailure: false,
   resumedWithoutHumanRestart: true,
   executedAutonomously: true,
@@ -29,22 +30,34 @@ describe('operational autonomy scorecard', () => {
     expect(scorecard.score).toBeLessThan(95)
   })
 
-  it('requires recovery and continuity evidence for a 95+ score', () => {
+  it('penalizes observed failures that were not autonomously recovered', () => {
     const scorecard = calculateAutonomyScorecard(
-      Array.from({ length: 20 }, () => mission({ recoveredAfterFailure: false })),
+      Array.from({ length: 20 }, () => mission({ failureOccurred: true, recoveredAfterFailure: false })),
     )
 
     expect(scorecard.confidence).toBe('established')
+    expect(scorecard.dimensions.recovery).toBe(0)
+    expect(scorecard.score).toBe(85)
     expect(meetsAutonomyTarget(scorecard, 95)).toBe(false)
   })
 
-  it('can establish a 95+ score only with complete operational evidence', () => {
+  it('does not penalize healthy missions for recovery they never needed', () => {
     const scorecard = calculateAutonomyScorecard(
-      Array.from({ length: 20 }, () => mission({ recoveredAfterFailure: true })),
+      Array.from({ length: 20 }, () => mission()),
+    )
+
+    expect(scorecard.dimensions.recovery).toBe(100)
+    expect(scorecard.score).toBe(100)
+    expect(meetsAutonomyTarget(scorecard, 95)).toBe(true)
+  })
+
+  it('requires recovery evidence when a failure actually occurred', () => {
+    const scorecard = calculateAutonomyScorecard(
+      Array.from({ length: 20 }, () => mission({ failureOccurred: true, recoveredAfterFailure: true })),
     )
 
     expect(scorecard.confidence).toBe('established')
-    expect(scorecard.score).toBe(100)
+    expect(scorecard.dimensions.recovery).toBe(100)
     expect(meetsAutonomyTarget(scorecard, 95)).toBe(true)
   })
 
@@ -54,7 +67,7 @@ describe('operational autonomy scorecard', () => {
     )
 
     expect(scorecard.dimensions.outcomeQuality).toBe(0)
-    expect(scorecard.score).toBe(75)
+    expect(scorecard.score).toBe(90)
     expect(meetsAutonomyTarget(scorecard, 95)).toBe(false)
   })
 })
