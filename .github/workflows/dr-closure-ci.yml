@@ -1,0 +1,28 @@
+name: Agent007 Disaster Recovery Closure CI
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/dr-*.ts'
+      - 'src/lib/backup-v2.ts'
+      - '.github/workflows/dr-*.yml'
+      - 'docs/DISASTER-RECOVERY-CLOSURE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dr-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+      - run: bun install --frozen-lockfile
+      - name: Disaster Recovery safety contract tests
+        run: bun test scripts/dr-closure-contract.test.ts
+      - name: Targeted Disaster Recovery lint
+        run: bunx eslint scripts/dr-restore.ts scripts/dr-offsite-backup.ts scripts/dr-closure-contract.test.ts
