@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  completeMissionTelemetry,
   recordMissionResumption,
   recordOutcomeQuality,
   startMissionTelemetry,
 } from './mission-telemetry'
+import { db } from './db'
 
 describe('mission telemetry operational evidence', () => {
   test('resumption is explicit and defaults to missing evidence', () => {
@@ -25,5 +27,27 @@ describe('mission telemetry operational evidence', () => {
     expect(recordOutcomeQuality(telemetry, -1)).toBe(false)
     expect(recordOutcomeQuality(telemetry, 101)).toBe(false)
     expect(telemetry.outcomeQuality).toBe(97)
+  })
+
+  test('completed telemetry is persisted and can be read back', async () => {
+    const telemetry = startMissionTelemetry('persistence integration test')
+    recordMissionResumption(telemetry, true)
+    recordOutcomeQuality(telemetry, 96)
+
+    try {
+      const completed = await completeMissionTelemetry(telemetry)
+      const persisted = await db.memory.findUnique({ where: { key: completed.missionId } })
+
+      expect(persisted).not.toBeNull()
+      expect(persisted?.category).toBe('mission_telemetry')
+      expect(JSON.parse(persisted!.value)).toMatchObject({
+        missionId: completed.missionId,
+        status: 'completed',
+        resumedWithoutHumanRestart: true,
+        outcomeQuality: 96,
+      })
+    } finally {
+      await db.memory.delete({ where: { key: telemetry.missionId } }).catch(() => undefined)
+    }
   })
 })
