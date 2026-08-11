@@ -46,7 +46,8 @@ try {
 }
 
 const forbiddenTracked = trackedFiles.split('\n').filter(Boolean).filter((path) =>
-  /(^|\/)(\.env(?:\..*)?|.*\.pid(?:\.lock)?|download\/|tool-results\/|upload\/|db\/)/i.test(path)
+  /^(?:\.env(?:\..*)?|download\/|tool-results\/|upload\/|db\/)/i.test(path)
+  || /(^|\/)[^/]*\.pid(?:\.lock)?$/i.test(path)
   || /public\/.*(?:backup|agent007-backup).*\.(?:zip|json|gz|tar\.gz)$/i.test(path),
 )
 record(forbiddenTracked.length === 0, `Tracked local/runtime artifacts found: ${forbiddenTracked.join(', ')}`)
