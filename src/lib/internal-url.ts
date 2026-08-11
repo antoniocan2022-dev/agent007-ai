@@ -1,36 +1,21 @@
 /**
- * internal-url.ts — Returns the correct base URL for internal API calls.
+ * Host-neutral internal URL resolver.
  *
- * On Vercel serverless, localhost:3000 doesn't exist — the server
- * doesn't listen on a port. We need to use the Vercel URL instead.
- *
- * On dev (localhost), we use http://localhost:3000.
+ * Application code should not inspect hosting-provider URL variables directly.
+ * Explicit public application configuration wins; development falls back to
+ * localhost. Production fails closed when no canonical application URL exists.
  */
+import { getPublicBaseUrl } from '@/lib/runtime/public-base-url'
 
-/**
- * Get the base URL for internal API calls.
- * - Vercel: https://agent007-ai.vercel.app (from VERCEL_URL or NEXTAUTH_URL)
- * - Dev: http://localhost:3000
- */
 export function getInternalBaseUrl(): string {
-  // Vercel automatically sets VERCEL_URL (e.g. "agent007-ai-xxx.vercel.app")
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`
+  try {
+    return getPublicBaseUrl()
+  } catch {
+    if (process.env.NODE_ENV === 'production') throw new Error('Public application URL is not configured')
+    return `http://localhost:${process.env.PORT ?? 3000}`
   }
-
-  // NEXTAUTH_URL is set on Vercel (e.g. "https://agent007-ai.vercel.app")
-  if (process.env.NEXTAUTH_URL) {
-    return process.env.NEXTAUTH_URL.replace(/\/$/, '')
-  }
-
-  // Dev environment
-  return `http://localhost:${process.env.PORT ?? 3000}`
 }
 
-/**
- * Build a full internal API URL from a path.
- * Example: internalUrl('/api/system/audit') → 'https://agent007-ai.vercel.app/api/system/audit'
- */
 export function internalUrl(path: string): string {
   const base = getInternalBaseUrl()
   const cleanPath = path.startsWith('/') ? path : `/${path}`
