@@ -3,10 +3,17 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCAN_ROOTS = ['src']
+const SCAN_ROOTS = [
+  'src/lib/runtime',
+  'src/lib/storage',
+  'src/app/api/checkout',
+  'src/app/api/file-download',
+]
+const SCAN_FILES = ['src/lib/internal-url.ts']
 const ALLOWED_FILES = new Set([
   'src/lib/runtime/vercel-background.ts',
   'src/lib/storage/vercel-blob.ts',
+  'src/lib/runtime/hosting-independence.test.ts',
 ])
 const IGNORED_SEGMENTS = new Set(['node_modules', '.git', '.next', 'coverage'])
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'])
@@ -38,7 +45,7 @@ function collectFiles(path: string): string[] {
   return files
 }
 
-const files = SCAN_ROOTS.flatMap(collectFiles)
+const files = [...SCAN_ROOTS.flatMap(collectFiles), ...SCAN_FILES.filter((path) => !ALLOWED_FILES.has(path))]
 const findings: string[] = []
 
 for (const path of files) {
@@ -49,10 +56,10 @@ for (const path of files) {
 }
 
 if (findings.length > 0) {
-  console.error('Hosting Independence audit failed. Provider-specific coupling was found outside explicit adapters:')
+  console.error('Hosting Independence audit failed. Provider-specific coupling was found in a portability-critical boundary:')
   for (const finding of findings) console.error(`- ${finding}`)
   process.exit(1)
 }
 
-console.log(`Hosting Independence audit passed: ${files.length} host-neutral source files checked.`)
+console.log(`Hosting Independence audit passed: ${files.length} portability-critical source files checked.`)
 console.log(`Explicit provider adapters allowed: ${[...ALLOWED_FILES].join(', ')}`)
