@@ -3,6 +3,8 @@ import { db } from '@/lib/db'
 const OUTREACH_PREFIX = 'revenue.prepare_outreach:'
 type JsonRecord = Record<string, unknown>
 
+type TransactionRecord = Awaited<ReturnType<typeof db.transaction.findFirst>>
+
 function parseJson(value: string | null): unknown {
   if (!value) return null
   try { return JSON.parse(value) } catch { return null }
@@ -58,7 +60,7 @@ export async function reconcileRevenueExecution(userId: string, limit = 100) {
     const correlationId = correlationIdFrom(attrs, result)
     if (!correlationId) continue
 
-    let transaction = null
+    let transaction: TransactionRecord = null
     const explicitTransactionId = stringValue(result.transactionId)
     if (explicitTransactionId) {
       transaction = await db.transaction.findFirst({
