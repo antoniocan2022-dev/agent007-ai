@@ -1,0 +1,40 @@
+name: Agent007 CEO Communications CI
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+      - 'fix/**'
+      - 'development/**'
+      - 'integration/**'
+  pull_request:
+    branches:
+      - main
+      - 'development/**'
+
+permissions:
+  contents: read
+
+jobs:
+  ceo-communications:
+    name: CEO communications contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_test
+      NEXTAUTH_SECRET: ci-only-agent007-nextauth-secret
+      OWNER_EMAIL: ci-owner@example.com
+      SEED_EMAIL: ci-owner@example.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Install dependencies
+        run: bun install
+      - name: CEO communications tests
+        run: bun test src/lib/ceo-executive-communications.test.ts
+      - name: Lint targeted files
+        run: bunx eslint src/lib/ceo-executive-communications.ts src/lib/ceo-executive-communications.test.ts
