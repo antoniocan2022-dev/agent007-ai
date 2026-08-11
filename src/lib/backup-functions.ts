@@ -16,6 +16,7 @@ import { getCapabilities } from './system-functions'
 import { getAllUpgrades } from './upgrade-manifest'
 import { getPublicBaseUrl } from './runtime/public-base-url'
 import { isVercelRuntime } from './runtime/host-runtime'
+import { BACKUP_TABLES } from './backup-v2'
 
 const BACKUP_DIR = process.env.AGENT007_BACKUP_DIR?.trim() || path.join(os.tmpdir(), 'agent007-backups')
 const DOWNLOAD_DIR = process.env.AGENT007_DOWNLOAD_DIR?.trim() || path.join(os.tmpdir(), 'agent007-downloads')
@@ -59,15 +60,7 @@ export interface BackupListResult {
   warning?: string
 }
 
-const TABLE_NAMES = [
-  'conversation', 'message', 'memory', 'user', 'userSetting', 'incomeEntry',
-  'transaction', 'knowledgeDoc', 'knowledgeChunk', 'schedule', 'notificationLog',
-  'pendingManageAction', 'customSubagent', 'auditLog', 'twoFactorSecret',
-  'phoneConfig', 'incomingCommand', 'bankAccount', 'payPalAccount', 'apiKey',
-  'customer', 'marketingCampaign', 'partnership', 'businessStrategy',
-  'missionTracker', 'servicePackage', 'opportunity', 'prediction',
-  'systemHealth', 'mLModel', 'riskRegister', 'complianceCheck', 'contractDraft',
-] as const
+const TABLE_NAMES = BACKUP_TABLES.map((name) => name.charAt(0).toLowerCase() + name.slice(1))
 
 const SOURCE_PATHS = [
   'src/lib/agent.ts', 'src/lib/orchestrator.ts', 'src/lib/tools.ts',
@@ -167,7 +160,7 @@ export async function createBackup(label = 'full-system'): Promise<BackupResult>
       const gzipPath = path.join(BACKUP_DIR, gzipFilename)
       await pipeline(createReadStream(jsonPath), createGzip(), createWriteStream(gzipPath))
       archiveFilename = gzipFilename
-      archiveSizeMB = (await stat(gzipPath)).size / 1024 / 1024 .toFixed(2)
+      archiveSizeMB = ((await stat(gzipPath)).size / 1024 / 1024).toFixed(2)
     } catch (error) {
       warning = `Compression failed; JSON backup remains available: ${error instanceof Error ? error.message : String(error)}`
     }
