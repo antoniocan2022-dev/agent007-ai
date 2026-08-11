@@ -28,7 +28,7 @@ export function startMissionTelemetry(goal: string): MissionTelemetry {
 }
 
 export function recordAutonomyEvidence(telemetry: MissionTelemetry, evidence: AutonomyMissionEvidence): void { telemetry.autonomyEvidence = { ...evidence } }
-export function recordFailureOccurrence(telemetry: MissionTelemetry): void { telemetry.failureOccurred = true }
+export function recordFailureState(telemetry: MissionTelemetry, failureOccurred: boolean): void { telemetry.failureOccurred = failureOccurred }
 export function recordMissionResumption(telemetry: MissionTelemetry, resumedWithoutHumanRestart: boolean): void { telemetry.resumedWithoutHumanRestart = resumedWithoutHumanRestart }
 export function recordOutcomeQuality(telemetry: MissionTelemetry, quality: number): boolean {
   if (!Number.isFinite(quality) || quality < 0 || quality > 100) return false
