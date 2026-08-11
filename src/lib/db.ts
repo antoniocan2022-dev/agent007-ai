@@ -60,9 +60,7 @@ import { v4 as uuidv4 } from 'uuid'
     const hasPooler =
       current.includes('pgbouncer=true') ||
       current.includes('accelerate=true') ||
-      // Neon pooler hostname pattern: -pooler.region.aws.neon.tech
       current.includes('-pooler.') ||
-      // Vercel Postgres: *.db.vercel-storage.com or *.pooler.vercel-storage.com
       current.includes('vercel-storage.com')
     if (!hasPooler) {
       console.warn(
@@ -103,7 +101,7 @@ async function createTablesViaRawSQL() {
     // ── UPGRADE #60 — Postgres-compatible DDL ───────────────────────────
     // Previously used SQLite syntax (TEXT, INTEGER, REAL, DATETIME, BOOLEAN DEFAULT 1).
     // Now uses Postgres syntax (TEXT, INTEGER, DOUBLE PRECISION, TIMESTAMP, BOOLEAN DEFAULT true).
-    // Also: Prisma's `db push` is the canonical way to create tables — this raw SQL
+    // Prisma's `db push` is the canonical way to create tables — this raw SQL
     // is a SAFETY NET for cases where db push hasn't run yet (e.g. first deploy).
     const statements = [
       // ── Core 17 tables ────────────────────────────────────────────────
@@ -147,49 +145,28 @@ async function createTablesViaRawSQL() {
     let alreadyExisted = 0
     let failed = 0
 
-    // UPGRADE #142 — BATCH CREATE TABLE STATEMENTS (Issue A fix)
-    // Before: 33 sequential `await $executeRawUnsafe(sql)` calls = 33 Postgres
-    //   round-trips = ~6-8 seconds on every cold start.
-    // After: Group statements into a SINGLE multi-statement query.
-    //
-    // UPGRADE #146 (Critical #4 fix) — On ANY batch failure, ALWAYS fall back to
-    // one-by-one execution. The previous code assumed that a "already exists"
-    // batch error meant ALL 8 tables existed, which silently skipped new tables
-    // that landed in the same batch as existing ones.
-    const BATCH_SIZE = 8
-    for (let i = 0; i < statements.length; i += BATCH_SIZE) {
-      const batch = statements.slice(i, i + BATCH_SIZE)
-      const combined = batch.join(';\n')
-      let batchSucceeded = false
+    // UPGRADE #202 — PostgreSQL/Prisma correctness: execute each DDL statement
+    // independently. Prisma's PostgreSQL driver prepares `$executeRawUnsafe`
+    // statements and rejects multi-command prepared statements. The previous
+    // batching implementation therefore produced noisy `cannot insert multiple
+    // commands into a prepared statement` errors on every initialization, then
+    // relied on a fallback that hid the defect. Correctness is more important
+    // than shaving a few round-trips from a one-time safety-net path.
+    for (const sql of statements) {
       try {
-        await (db as any).$executeRawUnsafe(combined)
-        created += batch.length
-        batchSucceeded = true
+        await (db as any).$executeRawUnsafe(sql)
+        created++
       } catch (e: any) {
-        // Batch failed — could be (a) one table already exists, (b) syntax error
-        // in one statement, or (c) genuine DB error. We MUST fall through to
-        // one-by-one to ensure every NEW table gets created.
-        batchSucceeded = false
-      }
-      if (!batchSucceeded) {
-        // Execute each statement individually to isolate which ones succeeded
-        for (const sql of batch) {
-          try {
-            await (db as any).$executeRawUnsafe(sql)
-            created++
-          } catch (e2: any) {
-            const msg2 = e2?.message ?? ''
-            if (msg2.includes('already exists')) {
-              alreadyExisted++
-            } else {
-              failed++
-              console.warn('[db] SQL failed:', msg2.slice(0, 120), '— statement:', sql.slice(0, 80))
-            }
-          }
+        const msg = e?.message ?? ''
+        if (msg.includes('already exists')) {
+          alreadyExisted++
+        } else {
+          failed++
+          console.warn('[db] SQL failed:', msg.slice(0, 160), '— statement:', sql.slice(0, 100))
         }
       }
     }
-    console.log(`[db] Tables ensured via raw SQL (batched) — ${created} created, ${alreadyExisted} already existed, ${failed} failed (out of ${statements.length} statements)`)
+    console.log(`[db] Tables ensured via raw SQL — ${created} created, ${alreadyExisted} already existed, ${failed} failed (out of ${statements.length} statements)`)
     return failed === 0
   } catch (e: any) {
     console.error('[db] Table creation failed:', e?.message)
@@ -200,15 +177,8 @@ async function createTablesViaRawSQL() {
 // Seed user + critical data
 async function seedData() {
   try {
-    // Check if seed user exists
     const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } }).catch(() => null)
     if (existing) {
-      // UPGRADE #148 (Issue 2b fix) — Parallelize the 4 independent lookups.
-      // Before: 4 sequential awaits (phoneConfig → 2FA → userSetting → apiKey)
-      //   = 4 DB round-trips = ~1-2.5s on every cold start.
-      // After: Promise.all runs all 4 in parallel = 1 round-trip's worth of latency.
-      // None of these depend on each other — they only depend on `existing.id`
-      // which we already have.
       const [pc, twoFA, incomeRow, existingKey] = await Promise.all([
         db.phoneConfig.findFirst({ where: { userId: existing.id } }).catch(() => null),
         db.twoFactorSecret.findFirst({ where: { userId: existing.id, enabled: true } }).catch(() => null),
@@ -218,32 +188,21 @@ async function seedData() {
           : Promise.resolve(null),
       ])
 
-      // Ensure phone config
       if (!pc) {
         await db.phoneConfig.create({
           data: { userId: existing.id, phoneNumber: OWNER_PHONE, whatsappNumber: OWNER_PHONE, email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
         }).catch(() => {})
       }
 
-      // Ensure 2FA config exists (owner ALWAYS requires 2FA — auto-seed if missing)
-      // This fixes the "login page not asking for 2FA" issue on Vercel cold starts
       if (!twoFA) {
         try {
           await db.twoFactorSecret.create({
-            data: {
-              userId: existing.id,
-              method: 'email',
-              email: SEED_EMAIL,
-              enabled: true,
-              verifiedAt: new Date(),
-            }
+            data: { userId: existing.id, method: 'email', email: SEED_EMAIL, enabled: true, verifiedAt: new Date() }
           })
           console.log('[db] Seed: auto-created 2FA config for owner (email method)')
         } catch {}
       }
 
-      // Ensure income settings exist (auto-seed with correct 20% daily + $20K target)
-      // This fixes the "settings not saving" issue on Vercel cold starts
       if (!incomeRow) {
         try {
           const defaultIncome = { monthlyGoal: 20000, dailyGrowthTarget: 20, currencySymbol: '$', displayMode: 'detailed' }
@@ -254,43 +213,22 @@ async function seedData() {
         } catch {}
       }
 
-      // Ensure OpenAI API key exists in DB (auto-seed from env var)
-      // This fixes the "OpenAI key not saving" issue on Vercel cold starts
       if (process.env.OPENAI_API_KEY && !existingKey) {
         try {
           await db.apiKey.create({
-            data: {
-              userId: existing.id,
-              name: 'OpenAI (env var)',
-              service: 'openai',
-              key: process.env.OPENAI_API_KEY,
-              baseUrl: null,
-            }
+            data: { userId: existing.id, name: 'OpenAI (env var)', service: 'openai', key: process.env.OPENAI_API_KEY, baseUrl: null }
           })
           console.log('[db] Seed: auto-created OpenAI API key from env var')
         } catch {}
       }
-
-      // Ensure 6 custom sub-agents exist (BUG FIX — upgrade #38)
-      // Previously: the early `return` above skipped this code path entirely
-      // whenever the seed user already existed (which is always the case on the
-      // live Vercel deployment). This meant only 12 built-in agents were live
-      // instead of 18 (12 built-in + 6 custom). The customAgents block below
-      // is now moved OUTSIDE the `if (existing) return` branch so it runs on
-      // EVERY cold start. It's already idempotent (checks findFirst before
-      // creating), so re-running it on subsequent cold starts is a no-op.
-      // Fall through to the shared custom-agents block below.
     } else {
-      // Create seed user (only runs first time, when no user exists yet)
       const passwordHash = await bcrypt.hash(SEED_EMAIL, 10)
       const user = await db.user.create({ data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' } })
 
-      // Create phone config
       await db.phoneConfig.create({
         data: { userId: user.id, phoneNumber: OWNER_PHONE, whatsappNumber: OWNER_PHONE, email: SEED_EMAIL, smsEnabled: true, whatsappEnabled: true, emailEnabled: true, whatsappProvider: 'wa_link' }
       })
 
-      // Create schedules
       const schedules = [
         { name: 'Auto-Check Inbound Commands', prompt: 'Check for inbound commands from owner (OWNER_PHONE). Execute + reply.', intervalMin: 5 },
         { name: 'Daily Income Mission', prompt: 'Run mission_tracker. Report progress to owner.', intervalMin: 1440 },
@@ -300,7 +238,6 @@ async function seedData() {
         await db.schedule.create({ data: { userId: user.id, name: s.name, prompt: s.prompt, intervalMin: s.intervalMin, enabled: true } }).catch(() => {})
       }
 
-      // Create memory records
       const memories = [
         { key: 'PRIME_DIRECTIVE_20K_MISSION', value: 'MISSION: $20K/mo passive income with 20% monthly growth. Full autonomous authority. Daily: 9AM scan, 1PM execute, 9PM report via WhatsApp to OWNER_PHONE.', category: 'goal' },
         { key: 'AGENT007_LOYALTY_OATH', value: 'LOYALTY OATH — PERMANENT: Primary loyalty to Antonio (OWNER_PHONE). Owner has FULL AUTHORITY. No self-preservation above owner. Irrevocable.', category: 'goal' },
@@ -314,30 +251,12 @@ async function seedData() {
       console.log('[db] Seed: user + phone + schedules + memory created')
     }
 
-    // ── REMOVED: 6 custom sub-agents DB seeding (upgrade #40) ──
-    // Previously this block created the 6 custom agents (TRADER, Cybersecurity
-    // A/R, Developer, TESTFAST2, FASTTEST3) in the CustomSubagent DB table on
-    // every cold start. But upgrade #38 promoted these 6 agents to BUILTIN
-    // status (defined directly in the SUBAGENTS constant in subagents.ts).
-    // Running the DB seeding creates DUPLICATE entries — one from the
-    // SUBAGENTS constant (builtin=true) and one from the DB (builtin=false).
-    // getAllSubagents() merges both, causing the live deployment to show
-    // 24 agents instead of 18.
-    //
-    // FIX: Removed the DB seeding entirely. The 6 agents are now defined
-    // ONLY in the SUBAGENTS constant (always available, always BUILTIN,
-    // always PERMANENTLY LOCKED via BUILTIN_IDS check). No DB dependency.
-    //
-    // If you need to edit/disable one of these agents, use the overlay
-    // mechanism (create a CustomSubagent row with isBuiltinOverlay=true
-    // and the same id as the built-in).
+    // Builtin sub-agents are defined in subagents.ts. DB seeding is intentionally
+    // omitted to avoid duplicate builtin/custom rows.
   } catch (e: any) {
     console.error('[db] Seed failed:', e?.message, e?.stack?.slice(0, 300))
   }
 
-  // UPGRADE #199: Inject the Agent007 Operational Charter into the knowledge base.
-  // This ensures the charter is always available for kb_search, even on ephemeral
-  // Vercel cold starts where the DB is fresh. Idempotent — skips if already exists.
   try {
     const seedUser = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
     if (seedUser) {
@@ -356,9 +275,6 @@ function ensureInit(): Promise<void> {
   if (globalForPrisma.dbInitialized) return Promise.resolve()
   if (!initPromise) {
     initPromise = (async () => {
-      // UPGRADE #132 REVERTED: Skipping CREATE TABLE caused 20s+ load times
-      // because seedData() tried to query non-existent tables → Prisma timeout.
-      // The CREATE TABLE IF NOT EXISTS is idempotent and fast when tables exist.
       await createTablesViaRawSQL()
       await seedData()
       globalForPrisma.dbInitialized = true
@@ -367,7 +283,6 @@ function ensureInit(): Promise<void> {
   return initPromise
 }
 
-// Create client
 let db: PrismaClient
 if (globalForPrisma.prisma && globalForPrisma.prismaSchemaVersion === SCHEMA_VERSION) {
   db = globalForPrisma.prisma
@@ -378,10 +293,8 @@ if (globalForPrisma.prisma && globalForPrisma.prismaSchemaVersion === SCHEMA_VER
   globalForPrisma.prismaSchemaVersion = SCHEMA_VERSION
 }
 
-// Start init immediately (non-blocking but tracked)
 ensureInit().catch(() => {})
 
-// Export a helper to ensure DB is ready before queries
 export async function ensureDbReady() {
   await ensureInit()
 }
