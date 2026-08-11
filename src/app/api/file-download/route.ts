@@ -1,23 +1,14 @@
 /**
- * GET /api/file-download?token=XXX — UPGRADE #150
+ * GET /api/file-download?token=XXX
  * Serves a digital product file after validating the download token.
  *
- * Flow:
- *   1. Customer pays → Stripe webhook fires → fulfillPurchase() generates a
- *      per-customer token + stores it in UserSetting
- *   2. Customer clicks the download link (in email or /success page)
- *   3. This endpoint validates the token (exists? expired? revoked?)
- *   4. If valid: serves the file from Vercel Blob (production) or /public (dev fallback)
- *   5. If invalid: returns 403 with a clear error message
- *
- * Security:
- *   - Tokens are 32 chars of randomness — unguessable in practice
- *   - Tokens expire after 7 days (configurable in product-fulfillment.ts)
- *   - Tokens are revoked on refund (via the Stripe webhook's charge.refunded handler)
- *   - One token per customer per transaction — can't be shared across customers
+ * Storage is deliberately provider-neutral. A hosting-specific object-storage
+ * adapter is registered during runtime initialization; the application route
+ * never imports a provider SDK directly.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { validateDownloadToken, PRODUCTS, isBlobConfigured } from '@/lib/product-fulfillment'
+import { validateDownloadToken, PRODUCTS } from '@/lib/product-fulfillment'
+import { getObjectStorageAdapter } from '@/lib/storage/object-storage'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,19 +21,18 @@ export async function GET(req: NextRequest) {
   if (!token) {
     return NextResponse.json(
       { ok: false, error: 'Missing download token. Check your email for the download link.' },
-      { status: 400 }
+      { status: 400 },
     )
   }
 
-  // Validate the token
   const tokenData = await validateDownloadToken(token)
   if (!tokenData) {
     return NextResponse.json(
       {
         ok: false,
-        error: 'Invalid or expired download token. This could mean: (1) the link has expired (7-day limit), (2) the purchase was refunded, or (3) the token was tampered with. Email OWNER_EMAIL for a new link.',
+        error: 'Invalid or expired download token. The link may have expired, the purchase may have been refunded, or the token may be invalid.',
       },
-      { status: 403 }
+      { status: 403 },
     )
   }
 
@@ -50,56 +40,38 @@ export async function GET(req: NextRequest) {
   if (!product) {
     return NextResponse.json(
       { ok: false, error: `Unknown product: ${tokenData.productId}` },
-      { status: 404 }
+      { status: 404 },
     )
   }
 
-  // Serve the file
-  // PRODUCTION: Vercel Blob — fetch the file and stream it
-  // DEV FALLBACK: redirect to /products/<fileName> (INSECURE, dev only)
-  if (isBlobConfigured()) {
-    let blobHeadFn: ((path: string) => Promise<any>) | null = null
-    try {
-      // Use Function() to dynamically require @vercel/blob without TypeScript
-      // trying to resolve the module at compile time. If the package isn't
-      // installed, this returns null and we fall back to /public.
-      const dynamicRequire = new Function('id', 'return require(id)') as (id: string) => any
-      const blobModule = dynamicRequire('@vercel/blob')
-      blobHeadFn = blobModule?.head ?? null
-    } catch {
-      // @vercel/blob not installed — fall back below
+  const storage = getObjectStorageAdapter()
+  if (!storage?.isConfigured()) {
+    // Never expose an insecure public-file fallback in production. A future
+    // host registers its own adapter without changing this route.
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json(
+        { ok: false, error: 'Product storage is not configured. Please contact support.' },
+        { status: 503 },
+      )
     }
+    return NextResponse.redirect(`/products/${encodeURIComponent(product.fileName)}`, 302)
+  }
 
-    if (blobHeadFn) {
-      try {
-        const blobUrl = `products/${product.fileName}`
-        const blobInfo = await blobHeadFn(blobUrl)
-        if (!blobInfo) {
-          console.error(`[download] Blob not found: ${blobUrl}`)
-          return NextResponse.json(
-            { ok: false, error: 'Product file not found in storage. Please contact support.' },
-            { status: 404 }
-          )
-        }
-        return NextResponse.redirect(blobInfo.url, 302)
-      } catch (e: any) {
-        console.error('[download] Vercel Blob error:', e?.message?.slice(0, 200))
-        return NextResponse.json(
-          { ok: false, error: 'Failed to retrieve file from storage. Please try again or contact support.' },
-          { status: 500 }
-        )
-      }
-    } else {
-      // @vercel/blob not installed but BLOB_READ_WRITE_TOKEN is set — warn + fall back
-      console.warn('[download] BLOB_READ_WRITE_TOKEN set but @vercel/blob not installed. Falling back to /public (INSECURE). Run: bun add @vercel/blob')
-      return NextResponse.redirect(`/products/${product.fileName}`, 302)
+  const pathname = `products/${product.fileName}`
+  try {
+    const blob = await storage.head(pathname)
+    if (!blob?.url) {
+      return NextResponse.json(
+        { ok: false, error: 'Product file not found in storage. Please contact support.' },
+        { status: 404 },
+      )
     }
-  } else {
-    // DEV FALLBACK: redirect to /products/<fileName>
-    // WARNING: This is insecure — anyone with the URL gets the file free.
-    // In production, set BLOB_READ_WRITE_TOKEN and upload the file to Vercel Blob.
-    console.warn('[download] DEV FALLBACK: serving from /public (INSECURE for production)')
-    return NextResponse.redirect(`/products/${product.fileName}`, 302)
+    return NextResponse.redirect(blob.url, 302)
+  } catch (error) {
+    console.error('[download] storage adapter error:', error instanceof Error ? error.message : String(error))
+    return NextResponse.json(
+      { ok: false, error: 'Failed to retrieve file from storage. Please try again or contact support.' },
+      { status: 502 },
+    )
   }
 }
-// Cache bust: Sat Jul 25 22:51:54 UTC 2026
