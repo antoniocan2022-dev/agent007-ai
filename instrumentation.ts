@@ -14,8 +14,9 @@ export async function register(): Promise<void> {
     if (!process.env.NEXTAUTH_URL) process.env.NEXTAUTH_URL = getPublicBaseUrl()
   } catch (error) {
     if (process.env.NODE_ENV === 'production') {
-      console.warn('[instrumentation] Public application URL is not configured:', error instanceof Error ? error.message : String(error))
+      throw error
     }
+    console.warn('[instrumentation] Public application URL is not configured:', error instanceof Error ? error.message : String(error))
   }
 
   if (process.env.VERCEL !== '1') return
