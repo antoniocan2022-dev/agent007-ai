@@ -18,11 +18,12 @@ export interface MissionResult { missionId: string; goal: string; stages: Missio
 export async function runMissionPipeline(userRequest: string): Promise<MissionResult> {
   const missionId = `mission_${Date.now()}`
   const stages: MissionStage[] = []
-  const { startMissionTelemetry, recordToolCall, recordLeaderDispatch, recordMemoryOp, recordRetry, recordError, recordVerification, recordConfidence, recordAutonomyEvidence, recordMissionResumption, recordOutcomeQuality, persistMissionTelemetryEvidence, completeMissionTelemetry } = await import('./mission-telemetry')
+  const { startMissionTelemetry, recordToolCall, recordLeaderDispatch, recordMemoryOp, recordRetry, recordError, recordVerification, recordConfidence, recordAutonomyEvidence, recordFailureState, recordMissionResumption, recordOutcomeQuality, persistMissionTelemetryEvidence, completeMissionTelemetry } = await import('./mission-telemetry')
   const telemetry = startMissionTelemetry(userRequest)
   let leaders: string[] = []
   let goal = userRequest
   let recoveredAutonomously = false
+  let failureOccurred = false
 
   // 1. UNDERSTAND
   let stageStart = Date.now(); stages.push({ stage: 'UNDERSTAND', status: 'running' })
@@ -34,7 +35,7 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
     recordToolCall(telemetry, 'llm_understand')
   } catch (e: any) {
     stages[0] = { stage: 'UNDERSTAND', status: 'failed', output: e.message, durationMs: Date.now() - stageStart }
-    recordError(telemetry, `UNDERSTAND: ${e.message}`); recordRetry(telemetry); await completeMissionTelemetry(telemetry, 'failed')
+    recordError(telemetry, `UNDERSTAND: ${e.message}`); failureOccurred = true; recordFailureState(telemetry, failureOccurred); await completeMissionTelemetry(telemetry, 'failed')
     return { missionId, goal: userRequest, stages, finalDecision: 'Failed at UNDERSTAND stage', confidence: 0, learnings: [], success: false }
   }
 
@@ -63,7 +64,7 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
     for (let i = 0; i < leaders.length; i++) {
       recordLeaderDispatch(telemetry, leaders[i]); recordToolCall(telemetry, 'web_search')
       const r = results[i] as any; const ok = r.status === 'fulfilled' && r.value?.ok
-      if (!ok) { allSucceeded = false; recordError(telemetry, `round ${round}: ${leaders[i]} dispatch failed`) }
+      if (!ok) { allSucceeded = false; failureOccurred = true; recordFailureState(telemetry, true); recordError(telemetry, `round ${round}: ${leaders[i]} dispatch failed`) }
     }
     return { allSucceeded, output: results.map((r, i) => `${leaders[i]}: ${r.status === 'fulfilled' && r.value?.ok ? '✅ data collected' : '❌ failed'}`).join('\n') }
   }
@@ -74,7 +75,7 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
     try {
       const attempt = await executeEvidenceAttempt(round); dispatchOutput = attempt.output; dispatchSucceeded = attempt.allSucceeded
       if (dispatchSucceeded || round === MAX_AUTONOMOUS_RECOVERY_ROUNDS) break
-    } catch (e: any) { recordError(telemetry, `DISPATCH round ${round}: ${e.message}`); if (round === MAX_AUTONOMOUS_RECOVERY_ROUNDS) break }
+    } catch (e: any) { failureOccurred = true; recordFailureState(telemetry, true); recordError(telemetry, `DISPATCH round ${round}: ${e.message}`); if (round === MAX_AUTONOMOUS_RECOVERY_ROUNDS) break }
     recordRetry(telemetry); recoveredAutonomously = true; recordMissionResumption(telemetry, true)
   }
   stages[3] = { stage: 'DISPATCH', status: dispatchSucceeded ? 'complete' : 'failed', output: dispatchOutput || 'No dispatch result', durationMs: Date.now() - stageStart }
@@ -93,12 +94,13 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
     try {
       const verification = await verifyAttempt(); verificationScore = verification.score; verificationPassed = verification.passed
       if (verificationPassed || round === MAX_AUTONOMOUS_RECOVERY_ROUNDS) break
-      recordError(telemetry, `verification below threshold: ${verificationScore}%`)
+      failureOccurred = true; recordFailureState(telemetry, true); recordError(telemetry, `verification below threshold: ${verificationScore}%`)
       const recovery = await executeEvidenceAttempt(round + 1); dispatchOutput = recovery.output; dispatchSucceeded = recovery.allSucceeded
-    } catch (e: any) { recordError(telemetry, `VERIFY round ${round}: ${e.message}`); if (round === MAX_AUTONOMOUS_RECOVERY_ROUNDS) break }
+    } catch (e: any) { failureOccurred = true; recordFailureState(telemetry, true); recordError(telemetry, `VERIFY round ${round}: ${e.message}`); if (round === MAX_AUTONOMOUS_RECOVERY_ROUNDS) break }
     recordRetry(telemetry); recoveredAutonomously = true; recordMissionResumption(telemetry, true)
   }
   recordVerification(telemetry, verificationScore, verificationPassed)
+  recordFailureState(telemetry, failureOccurred)
   stages[4] = { stage: 'VERIFY', status: verificationPassed ? 'complete' : 'failed', output: verificationPassed ? `Verification: ${verificationScore}%` : `Verification failed (${verificationScore}%)`, durationMs: Date.now() - stageStart }
   recordAutonomyEvidence(telemetry, { eligible: true, goalAutonomous: true, executionAutonomous: dispatchSucceeded, verificationIndependent: verificationPassed, recoveryAutonomous: recoveredAutonomously })
 
