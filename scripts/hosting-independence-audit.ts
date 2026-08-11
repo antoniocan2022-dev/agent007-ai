@@ -11,6 +11,7 @@ const SCAN_ROOTS = [
 ]
 const SCAN_FILES = ['src/lib/internal-url.ts']
 const ALLOWED_FILES = new Set([
+  'src/lib/runtime/host-runtime.ts',
   'src/lib/runtime/vercel-background.ts',
   'src/lib/storage/vercel-blob.ts',
   'src/lib/runtime/hosting-independence.test.ts',
