@@ -50,6 +50,10 @@ prompt
 
 server.log
 
+# Runtime process artifacts
+*.pid
+*.pid.lock
+
 # Skills directory
 /skills/
 
