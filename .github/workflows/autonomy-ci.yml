@@ -3,6 +3,7 @@ name: Agent007 Autonomy CI
 on:
   push:
     branches:
+      - main
       - 'development/**'
       - 'feat/**'
       - 'fix/**'
@@ -57,6 +58,9 @@ jobs:
 
       - name: Prepare test database
         run: bunx prisma db push --skip-generate
+
+      - name: Deep integrated audit
+        run: bun scripts/deep-integrity-audit.ts
 
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
