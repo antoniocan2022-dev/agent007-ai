@@ -6,6 +6,7 @@ import { getOperatorUserId } from './settings'
 
 const LOCAL_TZ = process.env.CEO_REPORT_TIMEZONE || 'America/Toronto'
 type BriefKind = 'morning' | 'operations' | 'investor'
+type RevenueByCurrency = Record<string, number>
 
 function localParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -76,6 +77,16 @@ function money(n: number, currency = 'CAD') {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency, maximumFractionDigits: 2 }).format(n)
 }
 
+function formatVerifiedRevenue(revenue: RevenueByCurrency) {
+  const entries = Object.entries(revenue).filter(([, amount]) => Number.isFinite(amount) && amount !== 0)
+  if (!entries.length) return 'None recorded'
+  return entries.map(([currency, amount]) => money(amount, currency)).join(' + ')
+}
+
+function hasVerifiedRevenue(revenue: RevenueByCurrency) {
+  return Object.values(revenue).some(amount => Number.isFinite(amount) && amount > 0)
+}
+
 async function sendTelegram(message: string) {
   try {
     const result = await dispatchTool('telegram_notify', { message: message.slice(0, 4000) }, { attachments: [], language: 'en' })
@@ -101,9 +112,16 @@ async function recentMonitorReports(hours = 24) {
   return rows.flatMap(row => { try { return [JSON.parse(row.value)] } catch { return [] } })
 }
 
-async function verifiedRevenue(userId: string | null) {
-  const rows = await db.transaction.findMany({ where: { ...(userId ? { userId } : {}), status: 'succeeded', currency: 'CAD' } })
-  return rows.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
+async function verifiedRevenue(userId: string | null): Promise<RevenueByCurrency> {
+  const rows = await db.transaction.findMany({
+    where: { ...(userId ? { userId } : {}), status: 'succeeded' },
+    select: { amount: true, currency: true },
+  })
+  return rows.reduce<RevenueByCurrency>((totals, row) => {
+    const currency = String(row.currency || 'USD').toUpperCase()
+    totals[currency] = (totals[currency] || 0) + Number(row.amount || 0)
+    return totals
+  }, {})
 }
 
 export async function buildMorningExecutiveBrief() {
@@ -123,7 +141,7 @@ export async function buildMorningExecutiveBrief() {
     '🌅 MORNING EXECUTIVE BRIEF — CEO_AGENT007',
     `Date: ${new Date().toLocaleDateString('en-CA', { timeZone: LOCAL_TZ })}`,
     '', 'THINK — What should I know today?',
-    `• Verified CAD revenue: ${money(revenue)}`,
+    `• Verified revenue: ${formatVerifiedRevenue(revenue)}`,
     `• Active customers/leads: ${customers}`,
     `• Active opportunities: ${opportunities}`,
     `• Monitor failures in last 24h: ${failures}`,
@@ -144,20 +162,22 @@ export async function buildInvestorIntelligenceBrief() {
     db.opportunity.count({ where: userId ? { userId, status: { in: ['open', 'active', 'qualified'] } } : { status: { in: ['open', 'active', 'qualified'] } } }).catch(() => 0),
     db.businessStrategy.findMany({ where: userId ? { userId } : undefined, orderBy: { updatedAt: 'desc' }, take: 5 }),
   ])
-  const readiness = Math.min(100, Math.round((revenue > 0 ? 25 : 0) + (customers > 0 ? 20 : 0) + (opportunities > 0 ? 20 : 0) + (strategies.length > 0 ? 15 : 0) + 20))
+  const verified = hasVerifiedRevenue(revenue)
+  const readiness = Math.min(100, Math.round((verified ? 25 : 0) + (customers > 0 ? 20 : 0) + (opportunities > 0 ? 20 : 0) + (strategies.length > 0 ? 15 : 0) + 20))
+  const revenueText = formatVerifiedRevenue(revenue)
   return [
     '📊 INVESTOR INTELLIGENCE BRIEF — CEO_AGENT007',
     `Week ending: ${new Date().toLocaleDateString('en-CA', { timeZone: LOCAL_TZ })}`,
     '', 'EXECUTIVE VERDICT',
     `Investor readiness: ${readiness}/100`,
-    `Verified CAD revenue: ${money(revenue)}`,
+    `Verified revenue: ${revenueText}`,
     `Customers/leads: ${customers}`,
     `Active opportunities: ${opportunities}`,
     '', '1. TRACTION',
-    `Verified revenue is the only cash metric counted: ${money(revenue)}.`,
+    `Verified revenue is the only cash metric counted: ${revenueText}.`,
     `Customer base: ${customers}. Opportunity pipeline: ${opportunities}.`,
     '', '2. WHAT MATTERS',
-    revenue > 0 ? 'Verified transaction evidence exists; the next objective is repeatable acquisition and retention.' : 'No verified CAD revenue is recorded yet; the highest-value objective remains the first verified customer payment.',
+    verified ? 'Verified transaction evidence exists; the next objective is repeatable acquisition and retention.' : 'No verified revenue is recorded yet; the highest-value objective remains the first verified customer payment.',
     '', '3. INVESTOR RISKS',
     '• Pipeline and strategy records are not substitutes for customer traction.',
     '• Reliability issues must be resolved before they affect revenue execution.',
@@ -170,7 +190,7 @@ export async function buildInvestorIntelligenceBrief() {
     '• Where is verified revenue coming from?', '• What is repeatable?',
     '• What is the acquisition engine?', '• What evidence supports the growth thesis?',
     '• What could invalidate the thesis?', '', 'CEO RECOMMENDATION',
-    revenue > 0 ? 'BUILD TRACTION → scale only what verified evidence supports.' : 'WATCH → build verified traction before claiming investability.',
+    verified ? 'BUILD TRACTION → scale only what verified evidence supports.' : 'WATCH → build verified traction before claiming investability.',
     '', '— CEO_AGENT007 • BUILD VALUE',
   ].join('\n')
 }
