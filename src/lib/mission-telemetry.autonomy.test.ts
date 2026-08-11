@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   completeMissionTelemetry,
+  recordFailureState,
   recordMissionResumption,
   recordOutcomeQuality,
   startMissionTelemetry,
@@ -14,6 +15,17 @@ describe('mission telemetry operational evidence', () => {
 
     recordMissionResumption(telemetry, true)
     expect(telemetry.resumedWithoutHumanRestart).toBe(true)
+  })
+
+  test('failure state is explicit and defaults to missing evidence', () => {
+    const telemetry = startMissionTelemetry('test')
+    expect(telemetry.failureOccurred).toBeUndefined()
+
+    recordFailureState(telemetry, false)
+    expect(telemetry.failureOccurred).toBe(false)
+
+    recordFailureState(telemetry, true)
+    expect(telemetry.failureOccurred).toBe(true)
   })
 
   test('outcome quality accepts only finite values in range', () => {
@@ -31,6 +43,7 @@ describe('mission telemetry operational evidence', () => {
 
   test('completed telemetry is persisted and can be read back', async () => {
     const telemetry = startMissionTelemetry('persistence integration test')
+    recordFailureState(telemetry, false)
     recordMissionResumption(telemetry, true)
     recordOutcomeQuality(telemetry, 96)
 
@@ -43,6 +56,7 @@ describe('mission telemetry operational evidence', () => {
       expect(JSON.parse(persisted!.value)).toMatchObject({
         missionId: completed.missionId,
         status: 'completed',
+        failureOccurred: false,
         resumedWithoutHumanRestart: true,
         outcomeQuality: 96,
       })
