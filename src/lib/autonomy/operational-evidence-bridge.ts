@@ -12,6 +12,7 @@ import type { AuditReport } from '../executive-audit-engine'
 export interface OperationalOutcomeEvidence {
   completed: boolean
   independentlyVerified: boolean
+  failureOccurred: boolean
   recoveredAfterFailure: boolean
   resumedWithoutHumanRestart: boolean
   outcomeQuality: number
@@ -35,6 +36,7 @@ export function buildOperationalMissionEvidence(
   return {
     completed: outcome.completed,
     independentlyVerified: outcome.independentlyVerified,
+    failureOccurred: outcome.failureOccurred,
     recoveredAfterFailure: outcome.recoveredAfterFailure,
     resumedWithoutHumanRestart: outcome.resumedWithoutHumanRestart,
     executedAutonomously: runtime.executionAutonomous,
@@ -46,9 +48,9 @@ export function buildOperationalMissionEvidence(
  * Build operational scorecard evidence directly from persisted mission
  * telemetry and its executive audit. This is the canonical runtime adapter.
  *
- * Continuity and outcome quality are required to be explicitly recorded in
- * telemetry; the adapter never substitutes retries, confidence, or verification
- * score for those fields.
+ * Continuity, failure occurrence, and outcome quality are required to be
+ * explicitly recorded in telemetry; the adapter never substitutes retries,
+ * confidence, or verification score for those fields.
  */
 export function buildOperationalMissionEvidenceFromTelemetry(
   telemetry: MissionTelemetry,
@@ -56,12 +58,14 @@ export function buildOperationalMissionEvidenceFromTelemetry(
 ): OperationalMissionEvidence | null {
   const runtime = telemetry.autonomyEvidence
   if (!runtime) return null
+  if (typeof telemetry.failureOccurred !== 'boolean') return null
   if (typeof telemetry.resumedWithoutHumanRestart !== 'boolean') return null
   if (typeof telemetry.outcomeQuality !== 'number' || !Number.isFinite(telemetry.outcomeQuality)) return null
 
   return buildOperationalMissionEvidence(runtime, {
     completed: telemetry.status === 'completed' && audit.pipelineCompleted,
     independentlyVerified: runtime.verificationIndependent === true,
+    failureOccurred: telemetry.failureOccurred,
     recoveredAfterFailure: runtime.recoveryAutonomous === true,
     resumedWithoutHumanRestart: telemetry.resumedWithoutHumanRestart,
     outcomeQuality: telemetry.outcomeQuality,
