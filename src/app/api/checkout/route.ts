@@ -1,21 +1,14 @@
 /**
- * /api/checkout — UPGRADE #127 + #150 (Consultant Plan + Recommendations)
- * Creates a real Stripe Checkout Session for a digital product.
+ * /api/checkout — Creates a real Stripe Checkout Session for a digital product.
  *
- * POST /api/checkout
- * Body: { productId: "50-ai-tools-guide", revenueCorrelationId?: string }
- *
- * Returns: { url: "https://checkout.stripe.com/c/..." }
- *
- * Checkout remains allow-listed to prevent charging for unfinished products.
- * A checkout must be bound to an authenticated Agent007 operator so the
- * signed webhook can attribute verified revenue to a real owner. Optional
- * revenueCorrelationId links an outreach action to the processor evidence.
+ * Checkout is host-independent: public success/cancel URLs come from the
+ * configured application URL or the current trusted request origin.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { PRODUCTS, CHECKOUT_ALLOW_LIST } from '@/lib/product-fulfillment'
 import { getSessionUser } from '@/lib/session-user'
+import { getPublicBaseUrlFromRequest } from '@/lib/runtime/public-base-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,7 +28,7 @@ export async function POST(req: NextRequest) {
     if (!CHECKOUT_ALLOW_LIST.has(productId)) {
       return NextResponse.json(
         { ok: false, error: 'This product is not ready yet. We are currently only selling the 50 AI Tools Guide for Freelancers. Check back soon for the other products!', productId, availableProducts: Array.from(CHECKOUT_ALLOW_LIST) },
-        { status: 503 }
+        { status: 503 },
       )
     }
 
@@ -48,6 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const stripe = new Stripe(stripeKey, { apiVersion: '2024-12-18.acacia' as any })
+    const publicBaseUrl = getPublicBaseUrlFromRequest(req)
 
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined
     try {
@@ -68,8 +62,8 @@ export async function POST(req: NextRequest) {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `${req.headers.get('origin') || 'https://agent007-ai.vercel.app'}/success?session_id={CHECKOUT_SESSION_ID}&product=${encodeURIComponent(productId)}`,
-      cancel_url: `${req.headers.get('origin') || 'https://agent007-ai.vercel.app'}/buy/${encodeURIComponent(productId)}?canceled=true`,
+      success_url: `${publicBaseUrl}/success?session_id={CHECKOUT_SESSION_ID}&product=${encodeURIComponent(productId)}`,
+      cancel_url: `${publicBaseUrl}/buy/${encodeURIComponent(productId)}?canceled=true`,
       metadata: {
         productId,
         productName: product.name,
