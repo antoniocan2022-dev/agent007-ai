@@ -1,15 +1,15 @@
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import {
   assertCompletionEvidence,
   executionActionName,
-  type RevenueAction,
   type RevenueRequest,
   type RevenueStatus,
   validateRevenueRequest,
 } from '@/lib/revenue-execution-guard'
 
 async function writeAudit(
-  tx: typeof db,
+  tx: Prisma.TransactionClient,
   userId: string,
   action: string,
   entityId: string,
@@ -55,10 +55,7 @@ export async function prepareRevenueApproval(userId: string, request: RevenueReq
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent007:revenue:${userId}:${normalized.idempotencyKey}`}))`
 
-    const existing = await tx.pendingManageAction.findFirst({
-      where: { userId, action },
-      orderBy: { createdAt: 'desc' },
-    })
+    const existing = await tx.pendingManageAction.findFirst({ where: { userId, action }, orderBy: { createdAt: 'desc' } })
     if (existing) return existing
 
     if (normalized.customerId) {
@@ -94,14 +91,11 @@ export async function prepareRevenueApproval(userId: string, request: RevenueReq
       },
     })
 
-    await writeAudit(
-      tx,
-      userId,
-      'revenue.execution.prepared',
-      created.id,
-      'Prepared revenue action; explicit approval is required before any external execution.',
-      { action: created.action, approvalRequired: true, externalSideEffect: false },
-    )
+    await writeAudit(tx, userId, 'revenue.execution.prepared', created.id, 'Prepared revenue action; explicit approval is required before any external execution.', {
+      action: created.action,
+      approvalRequired: true,
+      externalSideEffect: false,
+    })
 
     return created
   })
@@ -117,22 +111,15 @@ export async function approveRevenueApproval(userId: string, actionId: string) {
 
     const result = await tx.pendingManageAction.updateMany({
       where: { id: actionId, userId, status: 'pending' },
-      data: {
-        status: 'approved',
-        result: JSON.stringify({ approvedAt: new Date().toISOString(), externalSideEffect: false }),
-      },
+      data: { status: 'approved', result: JSON.stringify({ approvedAt: new Date().toISOString(), externalSideEffect: false }) },
     })
     if (result.count !== 1) throw new Error('Approval state changed concurrently; no duplicate approval was issued')
 
     const updated = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
-    await writeAudit(
-      tx,
-      userId,
-      'revenue.execution.approved',
-      updated.id,
-      'Revenue action approved; this boundary performs no provider or payment call.',
-      { action: updated.action, externalSideEffect: false },
-    )
+    await writeAudit(tx, userId, 'revenue.execution.approved', updated.id, 'Revenue action approved; this boundary performs no provider or payment call.', {
+      action: updated.action,
+      externalSideEffect: false,
+    })
     return updated
   })
 }
@@ -150,14 +137,10 @@ export async function claimRevenueApproval(userId: string, actionId: string) {
     }
 
     const action = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
-    await writeAudit(
-      tx,
-      userId,
-      'revenue.execution.claimed',
-      action.id,
-      'Revenue action claimed by the authorized executor boundary; no provider call is made here.',
-      { action: action.action, externalSideEffect: false },
-    )
+    await writeAudit(tx, userId, 'revenue.execution.claimed', action.id, 'Revenue action claimed by the authorized executor boundary; no provider call is made here.', {
+      action: action.action,
+      externalSideEffect: false,
+    })
     return action
   })
 }
@@ -187,20 +170,13 @@ export async function completeRevenueApproval(
     if (result.count !== 1) throw new Error('Only executing revenue actions can be completed')
 
     const action = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
-    await writeAudit(
-      tx,
-      userId,
-      'revenue.execution.completed',
-      action.id,
-      'Revenue execution completed with explicit provider evidence.',
-      {
-        action: action.action,
-        externalSideEffect: completion.externalSideEffect,
-        provider: completion.provider?.trim() || null,
-        providerReference: completion.providerReference?.trim() || null,
-        revenueVerified: completion.revenueVerified ?? false,
-      },
-    )
+    await writeAudit(tx, userId, 'revenue.execution.completed', action.id, 'Revenue execution completed with explicit provider evidence.', {
+      action: action.action,
+      externalSideEffect: completion.externalSideEffect,
+      provider: completion.provider?.trim() || null,
+      providerReference: completion.providerReference?.trim() || null,
+      revenueVerified: completion.revenueVerified ?? false,
+    })
     return action
   })
 }
@@ -217,14 +193,9 @@ export async function cancelRevenueApproval(userId: string, actionId: string, re
     if (result.count !== 1) throw new Error('Only pending or approved revenue actions can be cancelled')
 
     const action = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
-    await writeAudit(
-      tx,
-      userId,
-      'revenue.execution.cancelled',
-      action.id,
-      'Revenue execution action cancelled before external execution.',
-      { action: action.action },
-    )
+    await writeAudit(tx, userId, 'revenue.execution.cancelled', action.id, 'Revenue execution action cancelled before external execution.', {
+      action: action.action,
+    })
     return action
   })
 }
