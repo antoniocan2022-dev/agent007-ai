@@ -66,27 +66,32 @@ export function startMissionTelemetry(goal: string): MissionTelemetry {
   }
 }
 
-export function recordAutonomyEvidence(
-  telemetry: MissionTelemetry,
-  evidence: AutonomyMissionEvidence,
-): void {
+export function recordAutonomyEvidence(telemetry: MissionTelemetry, evidence: AutonomyMissionEvidence): void {
   telemetry.autonomyEvidence = { ...evidence }
 }
 
-export function recordMissionResumption(
-  telemetry: MissionTelemetry,
-  resumedWithoutHumanRestart: boolean,
-): void {
+export function recordMissionResumption(telemetry: MissionTelemetry, resumedWithoutHumanRestart: boolean): void {
   telemetry.resumedWithoutHumanRestart = resumedWithoutHumanRestart
 }
 
-export function recordOutcomeQuality(
-  telemetry: MissionTelemetry,
-  quality: number,
-): boolean {
+export function recordOutcomeQuality(telemetry: MissionTelemetry, quality: number): boolean {
   if (!Number.isFinite(quality) || quality < 0 || quality > 100) return false
   telemetry.outcomeQuality = quality
   return true
+}
+
+/** Persist an evidence update to the existing mission row without creating a duplicate record. */
+export async function persistMissionTelemetryEvidence(telemetry: MissionTelemetry): Promise<boolean> {
+  try {
+    await db.memory.update({
+      where: { key: telemetry.missionId },
+      data: { value: JSON.stringify(telemetry) },
+    })
+    return true
+  } catch (e: any) {
+    console.error('[telemetry] Failed to persist evidence update:', e?.message)
+    return false
+  }
 }
 
 export function recordToolCall(telemetry: MissionTelemetry, toolName: string, tokensUsed = 0, cost = 0) {
@@ -95,16 +100,13 @@ export function recordToolCall(telemetry: MissionTelemetry, toolName: string, to
   telemetry.tokensUsed += tokensUsed
   telemetry.cost += cost
 }
-
 export function recordLeaderDispatch(telemetry: MissionTelemetry, leaderId: string) {
   if (!telemetry.leadersUsed.includes(leaderId)) telemetry.leadersUsed.push(leaderId)
 }
-
 export function recordMemoryOp(telemetry: MissionTelemetry, type: 'read' | 'write') {
   if (type === 'read') telemetry.memoryReads++
   else telemetry.memoryWrites++
 }
-
 export function recordRetry(telemetry: MissionTelemetry) { telemetry.retries++ }
 export function recordError(telemetry: MissionTelemetry, error: string) { telemetry.errors.push(error.slice(0, 200)) }
 export function recordVerification(telemetry: MissionTelemetry, score: number, passed: boolean) {
@@ -115,21 +117,13 @@ export function recordConfidence(telemetry: MissionTelemetry, confidence: number
 export function recordDebate(telemetry: MissionTelemetry) { telemetry.debateTriggered = true }
 export function recordExecutiveCorrection(telemetry: MissionTelemetry) { telemetry.executiveCorrections++ }
 
-export async function completeMissionTelemetry(
-  telemetry: MissionTelemetry,
-  status: 'completed' | 'failed' = 'completed',
-): Promise<MissionTelemetry> {
+export async function completeMissionTelemetry(telemetry: MissionTelemetry, status: 'completed' | 'failed' = 'completed'): Promise<MissionTelemetry> {
   telemetry.completedAt = Date.now()
   telemetry.duration = telemetry.completedAt - telemetry.startedAt
   telemetry.status = status
-
   try {
     await db.memory.create({
-      data: {
-        key: telemetry.missionId,
-        value: JSON.stringify(telemetry),
-        category: 'mission_telemetry',
-      },
+      data: { key: telemetry.missionId, value: JSON.stringify(telemetry), category: 'mission_telemetry' },
     })
   } catch (e: any) {
     console.error('[telemetry] Failed to store:', e?.message)
@@ -159,9 +153,7 @@ function evidenceFromApprovalLog(log: ApprovalLogEntry[]): AutonomyMissionEviden
 
 export async function getAutonomyTelemetrySummary(): Promise<AutonomyTelemetrySummary> {
   try {
-    const telemetryRecords = await db.memory.findMany({
-      where: { category: 'mission_telemetry' }, orderBy: { createdAt: 'desc' }, take: 500,
-    })
+    const telemetryRecords = await db.memory.findMany({ where: { category: 'mission_telemetry' }, orderBy: { createdAt: 'desc' }, take: 500 })
     const evidence: AutonomyMissionEvidence[] = []
     const explicitTelemetryMissionIds = new Set<string>()
     for (const record of telemetryRecords) {
@@ -214,10 +206,9 @@ export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
   try {
     const telemetryRecords = await db.memory.findMany({ where: { category: 'mission_telemetry' }, orderBy: { createdAt: 'desc' }, take: 500 })
     if (telemetryRecords.length === 0) return {
-      totalMissions: 0, missionSuccessRate: 0, averageLatencyMs: 0, averageDurationMs: 0,
-      verificationFailureRate: 0, leaderDebateUsage: 0, memoryHitRate: 0, averageConfidence: 0,
-      executiveCorrectionRate: 0, totalToolsCalled: 0, totalTokensUsed: 0, totalCost: 0,
-      topLeaders: [], topTools: [], recentMissions: [], autonomy: buildAutonomyTelemetrySummary([]),
+      totalMissions: 0, missionSuccessRate: 0, averageLatencyMs: 0, averageDurationMs: 0, verificationFailureRate: 0,
+      leaderDebateUsage: 0, memoryHitRate: 0, averageConfidence: 0, executiveCorrectionRate: 0, totalToolsCalled: 0,
+      totalTokensUsed: 0, totalCost: 0, topLeaders: [], topTools: [], recentMissions: [], autonomy: buildAutonomyTelemetrySummary([]),
     }
     const missions: MissionTelemetry[] = telemetryRecords.map(r => { try { return JSON.parse(r.value) } catch { return null } }).filter(Boolean)
     const total = missions.length
@@ -252,10 +243,9 @@ export async function getObservabilityMetrics(): Promise<ObservabilityMetrics> {
   } catch (e: any) {
     console.error('[observability] Failed:', e?.message)
     return {
-      totalMissions: 0, missionSuccessRate: 0, averageLatencyMs: 0, averageDurationMs: 0,
-      verificationFailureRate: 0, leaderDebateUsage: 0, memoryHitRate: 0, averageConfidence: 0,
-      executiveCorrectionRate: 0, totalToolsCalled: 0, totalTokensUsed: 0, totalCost: 0,
-      topLeaders: [], topTools: [], recentMissions: [], autonomy: buildAutonomyTelemetrySummary([]),
+      totalMissions: 0, missionSuccessRate: 0, averageLatencyMs: 0, averageDurationMs: 0, verificationFailureRate: 0,
+      leaderDebateUsage: 0, memoryHitRate: 0, averageConfidence: 0, executiveCorrectionRate: 0, totalToolsCalled: 0,
+      totalTokensUsed: 0, totalCost: 0, topLeaders: [], topTools: [], recentMissions: [], autonomy: buildAutonomyTelemetrySummary([]),
     }
   }
 }
