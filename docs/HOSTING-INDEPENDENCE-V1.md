@@ -45,18 +45,28 @@ A future Railway, DigitalOcean, Cloudflare, Docker or self-hosted deployment mus
 - Disaster recovery logic
 - database access layer
 
-## Current limitation
+## Enforced repository invariant
 
-Some legacy integrations still contain compatibility fallbacks that reference the historical Vercel deployment URL. Startup now initializes `NEXTAUTH_URL` from the canonical public URL resolver, so configured deployments do not rely on that fallback. Those legacy literals remain a separate cleanup item and must not be re-used for new code.
+Provider-specific deployment coupling is allowed only in explicit adapter/bootstrap files. Host-neutral application source is continuously checked by `scripts/hosting-independence-audit.ts`.
+
+The audit rejects, outside the explicit adapter allowlist:
+
+- `VERCEL_URL` and related Vercel public-URL environment variables;
+- hardcoded `*.vercel.app` deployment URLs;
+- direct imports of Vercel hosting/storage SDK packages;
+- direct `process.env.VERCEL` checks in application layers.
+
+This is a preventive gate, not merely documentation: changes that reintroduce host-specific coupling fail the Hosting Independence CI job.
 
 ## Verification
 
-Hosting Independence v1 is repository-complete when:
+Hosting Independence v1 hardening is repository-complete when:
 
-1. portability contract tests pass;
-2. TypeScript and targeted lint pass;
-3. core checkout/download routes contain no direct hosting SDK imports;
-4. Vercel implementations exist only under explicit adapter/bootstrap boundaries;
-5. no production deploy is required to prove the application architecture is provider-neutral.
+1. the static portability audit passes;
+2. portability contract tests pass;
+3. TypeScript and targeted lint pass;
+4. checkout/download routes contain no direct hosting SDK imports;
+5. Vercel implementations exist only under explicit adapter/bootstrap boundaries;
+6. no production deploy is required to prove the application architecture is provider-neutral.
 
-Production deployment verification is intentionally deferred while Vercel is blocked.
+Production deployment verification remains an external environment gate and is not required for the repository-side portability contract.
