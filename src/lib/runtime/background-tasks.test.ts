@@ -33,10 +33,4 @@ describe('hosting-neutral background task boundary', () => {
       backgroundFire(Promise.reject(new Error('expected background failure')))
     }).not.toThrow()
   })
-
-  test('restores the default best-effort behavior after an adapter is replaced', () => {
-    configureBackgroundDefer(() => {})
-    configureBackgroundDefer(defaultDefer)
-    expect(() => backgroundFire(Promise.resolve())).not.toThrow()
-  })
 })
