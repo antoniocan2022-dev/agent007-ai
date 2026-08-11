@@ -1,5 +1,13 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { backgroundFire, configureBackgroundDefer, type BackgroundDefer } from './background-tasks'
+
+const defaultDefer: BackgroundDefer = (task) => {
+  void Promise.resolve(task).catch(() => {})
+}
+
+afterEach(() => {
+  configureBackgroundDefer(defaultDefer)
+})
 
 describe('hosting-neutral background task boundary', () => {
   test('delegates background lifetime to the registered runtime adapter', async () => {
@@ -18,15 +26,17 @@ describe('hosting-neutral background task boundary', () => {
     expect(captured).toBeDefined()
     await captured
     expect(observed).toEqual(['executed'])
-
-    configureBackgroundDefer((task) => {
-      void Promise.resolve(task).catch(() => {})
-    })
   })
 
   test('does not throw when the delegated task rejects', () => {
     expect(() => {
       backgroundFire(Promise.reject(new Error('expected background failure')))
     }).not.toThrow()
+  })
+
+  test('restores the default best-effort behavior after an adapter is replaced', () => {
+    configureBackgroundDefer(() => {})
+    configureBackgroundDefer(defaultDefer)
+    expect(() => backgroundFire(Promise.resolve())).not.toThrow()
   })
 })
