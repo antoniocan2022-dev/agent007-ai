@@ -112,7 +112,7 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
     const output = completion?.choices?.[0]?.message?.content || ''
     finalDecision = output.match(/DECISION:\s*([\s\S]+)/)?.[1]?.trim() || output
     confidence = parseInt(output.match(/CONFIDENCE:\s*(\d+)/)?.[1] || '0', 10); recordConfidence(telemetry, confidence)
-    telemetry.autonomyEvidence = { ...telemetry.autonomyEvidence, decisionAutonomous: true }
+    telemetry.autonomyEvidence = { ...(telemetry.autonomyEvidence ?? { eligible: true }), decisionAutonomous: true }
     stages[5] = { stage: 'DECIDE', status: 'complete', output, durationMs: Date.now() - stageStart }
   } catch (e: any) { stages[5] = { stage: 'DECIDE', status: 'failed', output: e.message, durationMs: Date.now() - stageStart }; recordError(telemetry, `DECIDE: ${e.message}`) }
 
@@ -122,7 +122,7 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
     const learning = `Mission ${missionId} completed. Goal: ${goal}. Confidence: ${confidence}%. Decision: ${finalDecision.slice(0, 200)}`
     const memoryResult = await dispatchTool('memory_store', { key: `mission_${missionId}`, value: learning, category: 'mission_outcome' }, { attachments: [], language: 'en' }).catch(() => null)
     recordMemoryOp(telemetry, 'write'); recordToolCall(telemetry, 'memory_store')
-    if (memoryResult?.ok !== false) { telemetry.autonomyEvidence = { ...telemetry.autonomyEvidence, learningApplied: true }; learnings.push('Mission outcome stored in persistent memory') }
+    if (memoryResult?.ok !== false) { telemetry.autonomyEvidence = { ...(telemetry.autonomyEvidence ?? { eligible: true }), learningApplied: true }; learnings.push('Mission outcome stored in persistent memory') }
     const stagesCompleted = stages.filter(s => s.status === 'complete').map(s => s.stage)
     const stagesFailed = stages.filter(s => s.status === 'failed').map(s => s.stage)
     await completeMissionTelemetry(telemetry, stagesFailed.length === 0 ? 'completed' : 'failed')
