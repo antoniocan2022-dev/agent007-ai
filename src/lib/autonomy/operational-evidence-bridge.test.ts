@@ -7,6 +7,7 @@ import {
 const outcome = {
   completed: true,
   independentlyVerified: true,
+  failureOccurred: true,
   recoveredAfterFailure: true,
   resumedWithoutHumanRestart: true,
   outcomeQuality: 100,
@@ -55,7 +56,7 @@ describe('operational evidence bridge', () => {
     )).toBeNull()
   })
 
-  test('maps persisted telemetry only when continuity and outcome quality are explicit', () => {
+  test('maps persisted telemetry only when continuity, failure, and outcome quality are explicit', () => {
     const telemetry = {
       missionId: 'mission-test',
       goal: 'test',
@@ -84,17 +85,17 @@ describe('operational evidence bridge', () => {
         verificationIndependent: true,
         recoveryAutonomous: true,
       },
+      failureOccurred: true,
       resumedWithoutHumanRestart: true,
       outcomeQuality: 95,
     }
 
-    const audit = {
-      pipelineCompleted: true,
-    } as any
+    const audit = { pipelineCompleted: true } as any
 
     expect(buildOperationalMissionEvidenceFromTelemetry(telemetry, audit)).toEqual({
       completed: true,
       independentlyVerified: true,
+      failureOccurred: true,
       recoveredAfterFailure: true,
       resumedWithoutHumanRestart: true,
       executedAutonomously: true,
@@ -102,8 +103,20 @@ describe('operational evidence bridge', () => {
     })
   })
 
+  test('refuses telemetry without explicit failure evidence', () => {
+    const telemetry = {
+      failureOccurred: undefined,
+      resumedWithoutHumanRestart: true,
+      outcomeQuality: 95,
+      autonomyEvidence: { eligible: true, executionAutonomous: true },
+    } as any
+
+    expect(buildOperationalMissionEvidenceFromTelemetry(telemetry, { pipelineCompleted: true } as any)).toBeNull()
+  })
+
   test('refuses telemetry without explicit continuity evidence', () => {
     const telemetry = {
+      failureOccurred: false,
       resumedWithoutHumanRestart: undefined,
       outcomeQuality: 95,
       autonomyEvidence: { eligible: true, executionAutonomous: true },
