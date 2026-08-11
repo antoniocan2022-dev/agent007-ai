@@ -49,6 +49,10 @@ export interface MissionTelemetry {
   executiveCorrections: number
   /** Explicit runtime evidence used by the canonical Autonomy Index. */
   autonomyEvidence?: AutonomyMissionEvidence
+  /** Explicit evidence that this mission resumed without a human restart. */
+  resumedWithoutHumanRestart?: boolean
+  /** Explicit mission outcome quality; never inferred from confidence. */
+  outcomeQuality?: number
 }
 
 export function startMissionTelemetry(goal: string): MissionTelemetry {
@@ -86,6 +90,30 @@ export function recordAutonomyEvidence(
   evidence: AutonomyMissionEvidence,
 ): void {
   telemetry.autonomyEvidence = { ...evidence }
+}
+
+/**
+ * Record an explicit autonomous resumption event. A retry or successful
+ * completion alone is not sufficient evidence and must not call this function.
+ */
+export function recordMissionResumption(
+  telemetry: MissionTelemetry,
+  resumedWithoutHumanRestart: boolean,
+): void {
+  telemetry.resumedWithoutHumanRestart = resumedWithoutHumanRestart
+}
+
+/**
+ * Record an explicit mission outcome-quality assessment. The producer must
+ * supply the observed score; confidence and verification are not substituted.
+ */
+export function recordOutcomeQuality(
+  telemetry: MissionTelemetry,
+  quality: number,
+): boolean {
+  if (!Number.isFinite(quality) || quality < 0 || quality > 100) return false
+  telemetry.outcomeQuality = quality
+  return true
 }
 
 export function recordToolCall(telemetry: MissionTelemetry, toolName: string, tokensUsed: number = 0, cost: number = 0) {
