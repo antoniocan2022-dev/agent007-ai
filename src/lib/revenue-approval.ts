@@ -8,6 +8,26 @@ import {
   validateRevenueRequest,
 } from '@/lib/revenue-execution-guard'
 
+async function writeAudit(
+  tx: typeof db,
+  userId: string,
+  action: string,
+  entityId: string,
+  description: string,
+  metadata?: Record<string, unknown>,
+) {
+  await tx.auditLog.create({
+    data: {
+      userId,
+      action,
+      entity: 'RevenueExecution',
+      entityId,
+      description,
+      metadata: metadata ? JSON.stringify(metadata) : undefined,
+    },
+  })
+}
+
 export async function listRevenueApprovals(userId: string, statuses: RevenueStatus[] = ['pending', 'approved', 'executing']) {
   const rows = await db.pendingManageAction.findMany({
     where: { userId, status: { in: statuses } },
@@ -32,9 +52,7 @@ export async function prepareRevenueApproval(userId: string, request: RevenueReq
   const normalized = validateRevenueRequest(request)
   const action = executionActionName(normalized.action, normalized.idempotencyKey)
 
-  const created = await db.$transaction(async (tx) => {
-    // PostgreSQL transaction-scoped advisory locks give us race-free idempotency
-    // without coupling the application to a hosting provider.
+  return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent007:revenue:${userId}:${normalized.idempotencyKey}`}))`
 
     const existing = await tx.pendingManageAction.findFirst({
@@ -56,7 +74,7 @@ export async function prepareRevenueApproval(userId: string, request: RevenueReq
       if (!opportunity) throw new Error('Opportunity not found for this operator')
     }
 
-    return tx.pendingManageAction.create({
+    const created = await tx.pendingManageAction.create({
       data: {
         userId,
         action,
@@ -75,24 +93,22 @@ export async function prepareRevenueApproval(userId: string, request: RevenueReq
         status: 'pending',
       },
     })
-  })
 
-  await db.auditLog.create({
-    data: {
+    await writeAudit(
+      tx,
       userId,
-      action: 'revenue.execution.prepared',
-      entity: 'RevenueExecution',
-      entityId: created.id,
-      description: 'Prepared revenue action; explicit approval is required before any external execution.',
-      metadata: JSON.stringify({ action: created.action, approvalRequired: true, externalSideEffect: false }),
-    },
-  })
+      'revenue.execution.prepared',
+      created.id,
+      'Prepared revenue action; explicit approval is required before any external execution.',
+      { action: created.action, approvalRequired: true, externalSideEffect: false },
+    )
 
-  return created
+    return created
+  })
 }
 
 export async function approveRevenueApproval(userId: string, actionId: string) {
-  const updated = await db.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const current = await tx.pendingManageAction.findFirst({ where: { id: actionId, userId } })
     if (!current) throw new Error('Revenue approval action not found')
     if (!current.action.startsWith('revenue.')) throw new Error('Action is outside the revenue approval boundary')
@@ -107,35 +123,43 @@ export async function approveRevenueApproval(userId: string, actionId: string) {
       },
     })
     if (result.count !== 1) throw new Error('Approval state changed concurrently; no duplicate approval was issued')
-    return tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
-  })
 
-  await db.auditLog.create({
-    data: {
+    const updated = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
+    await writeAudit(
+      tx,
       userId,
-      action: 'revenue.execution.approved',
-      entity: 'RevenueExecution',
-      entityId: updated.id,
-      description: 'Revenue action approved; this boundary performs no provider or payment call.',
-      metadata: JSON.stringify({ action: updated.action, externalSideEffect: false }),
-    },
+      'revenue.execution.approved',
+      updated.id,
+      'Revenue action approved; this boundary performs no provider or payment call.',
+      { action: updated.action, externalSideEffect: false },
+    )
+    return updated
   })
-
-  return updated
 }
 
 export async function claimRevenueApproval(userId: string, actionId: string) {
-  const result = await db.pendingManageAction.updateMany({
-    where: { id: actionId, userId, status: 'approved', action: { startsWith: 'revenue.' } },
-    data: { status: 'executing', result: JSON.stringify({ claimedAt: new Date().toISOString(), externalSideEffect: false }) },
-  })
-  if (result.count !== 1) {
-    const current = await db.pendingManageAction.findFirst({ where: { id: actionId, userId } })
-    if (!current) throw new Error('Revenue approval action not found')
-    throw new Error(`Action is ${current.status}; only approved actions can be claimed.`)
-  }
+  return db.$transaction(async (tx) => {
+    const result = await tx.pendingManageAction.updateMany({
+      where: { id: actionId, userId, status: 'approved', action: { startsWith: 'revenue.' } },
+      data: { status: 'executing', result: JSON.stringify({ claimedAt: new Date().toISOString(), externalSideEffect: false }) },
+    })
+    if (result.count !== 1) {
+      const current = await tx.pendingManageAction.findFirst({ where: { id: actionId, userId } })
+      if (!current) throw new Error('Revenue approval action not found')
+      throw new Error(`Action is ${current.status}; only approved actions can be claimed.`)
+    }
 
-  return db.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
+    const action = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
+    await writeAudit(
+      tx,
+      userId,
+      'revenue.execution.claimed',
+      action.id,
+      'Revenue action claimed by the authorized executor boundary; no provider call is made here.',
+      { action: action.action, externalSideEffect: false },
+    )
+    return action
+  })
 }
 
 export async function completeRevenueApproval(
@@ -145,35 +169,64 @@ export async function completeRevenueApproval(
 ) {
   assertCompletionEvidence(completion)
 
-  const result = await db.pendingManageAction.updateMany({
-    where: { id: actionId, userId, status: 'executing', action: { startsWith: 'revenue.' } },
-    data: {
-      status: 'done',
-      result: JSON.stringify({
-        completedAt: new Date().toISOString(),
+  return db.$transaction(async (tx) => {
+    const result = await tx.pendingManageAction.updateMany({
+      where: { id: actionId, userId, status: 'executing', action: { startsWith: 'revenue.' } },
+      data: {
+        status: 'done',
+        result: JSON.stringify({
+          completedAt: new Date().toISOString(),
+          externalSideEffect: completion.externalSideEffect,
+          provider: completion.provider?.trim() || null,
+          providerReference: completion.providerReference?.trim() || null,
+          revenueVerified: completion.revenueVerified ?? false,
+          result: completion.result ?? {},
+        }),
+      },
+    })
+    if (result.count !== 1) throw new Error('Only executing revenue actions can be completed')
+
+    const action = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
+    await writeAudit(
+      tx,
+      userId,
+      'revenue.execution.completed',
+      action.id,
+      'Revenue execution completed with explicit provider evidence.',
+      {
+        action: action.action,
         externalSideEffect: completion.externalSideEffect,
         provider: completion.provider?.trim() || null,
         providerReference: completion.providerReference?.trim() || null,
         revenueVerified: completion.revenueVerified ?? false,
-        result: completion.result ?? {},
-      }),
-    },
+      },
+    )
+    return action
   })
-  if (result.count !== 1) throw new Error('Only executing revenue actions can be completed')
-
-  return db.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
 }
 
 export async function cancelRevenueApproval(userId: string, actionId: string, reason = 'Cancelled by operator') {
   const normalized = reason.trim() || 'Cancelled by operator'
   if (normalized.length > 500) throw new Error('Cancellation reason is too long')
 
-  const result = await db.pendingManageAction.updateMany({
-    where: { id: actionId, userId, status: { in: ['pending', 'approved'] }, action: { startsWith: 'revenue.' } },
-    data: { status: 'cancelled', result: JSON.stringify({ cancelledAt: new Date().toISOString(), reason: normalized }) },
+  return db.$transaction(async (tx) => {
+    const result = await tx.pendingManageAction.updateMany({
+      where: { id: actionId, userId, status: { in: ['pending', 'approved'] }, action: { startsWith: 'revenue.' } },
+      data: { status: 'cancelled', result: JSON.stringify({ cancelledAt: new Date().toISOString(), reason: normalized }) },
+    })
+    if (result.count !== 1) throw new Error('Only pending or approved revenue actions can be cancelled')
+
+    const action = await tx.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
+    await writeAudit(
+      tx,
+      userId,
+      'revenue.execution.cancelled',
+      action.id,
+      'Revenue execution action cancelled before external execution.',
+      { action: action.action },
+    )
+    return action
   })
-  if (result.count !== 1) throw new Error('Only pending or approved revenue actions can be cancelled')
-  return db.pendingManageAction.findUniqueOrThrow({ where: { id: actionId } })
 }
 
 function safeJson(value: string | null) {
