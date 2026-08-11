@@ -1,5 +1,7 @@
 import type { AutonomyMissionEvidence } from './autonomy-telemetry'
 import type { OperationalMissionEvidence } from './autonomy-scorecard'
+import type { MissionTelemetry } from '../mission-telemetry'
+import type { AuditReport } from '../executive-audit-engine'
 
 /**
  * Explicit mission outcome facts required to produce scorecard evidence.
@@ -38,4 +40,30 @@ export function buildOperationalMissionEvidence(
     executedAutonomously: runtime.executionAutonomous,
     outcomeQuality: outcome.outcomeQuality,
   }
+}
+
+/**
+ * Build operational scorecard evidence directly from persisted mission
+ * telemetry and its executive audit. This is the canonical runtime adapter.
+ *
+ * Continuity and outcome quality are required to be explicitly recorded in
+ * telemetry; the adapter never substitutes retries, confidence, or verification
+ * score for those fields.
+ */
+export function buildOperationalMissionEvidenceFromTelemetry(
+  telemetry: MissionTelemetry,
+  audit: AuditReport,
+): OperationalMissionEvidence | null {
+  const runtime = telemetry.autonomyEvidence
+  if (!runtime) return null
+  if (typeof telemetry.resumedWithoutHumanRestart !== 'boolean') return null
+  if (typeof telemetry.outcomeQuality !== 'number' || !Number.isFinite(telemetry.outcomeQuality)) return null
+
+  return buildOperationalMissionEvidence(runtime, {
+    completed: telemetry.status === 'completed' && audit.pipelineCompleted,
+    independentlyVerified: runtime.verificationIndependent === true,
+    recoveredAfterFailure: runtime.recoveryAutonomous === true,
+    resumedWithoutHumanRestart: telemetry.resumedWithoutHumanRestart,
+    outcomeQuality: telemetry.outcomeQuality,
+  })
 }
