@@ -1,12 +1,23 @@
 /**
  * Runtime adapter registration.
  *
- * The application core stays hosting-neutral. Vercel lifecycle/storage support
- * is registered only when running on Vercel; another host can register its own
- * adapters without changing Mission OS, scheduling, checkout or fulfillment.
+ * The application core stays hosting-neutral. Hosting lifecycle/storage support
+ * is registered through explicit adapters; legacy integrations receive the
+ * canonical public URL through NEXTAUTH_URL so they do not fall back to a
+ * provider-specific deployment URL.
  */
 
+import { getPublicBaseUrl } from './src/lib/runtime/public-base-url'
+
 export async function register(): Promise<void> {
+  try {
+    if (!process.env.NEXTAUTH_URL) process.env.NEXTAUTH_URL = getPublicBaseUrl()
+  } catch (error) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[instrumentation] Public application URL is not configured:', error instanceof Error ? error.message : String(error))
+    }
+  }
+
   if (process.env.VERCEL !== '1') return
 
   try {
