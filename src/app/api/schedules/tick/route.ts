@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? 'http://localhost:3000'
+    const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') || url.origin
     backgroundFire(fetch(`${baseUrl}/api/monitor/external`, { signal: AbortSignal.timeout(30000) }).catch(() => {}))
     const tickCount = (globalThis as any).__tickCount ?? 0
     ;(globalThis as any).__tickCount = tickCount + 1
