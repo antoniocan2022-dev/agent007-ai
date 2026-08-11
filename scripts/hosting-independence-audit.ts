@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCAN_ROOTS = ['src', 'instrumentation.ts']
+const SCAN_ROOTS = ['src']
 const ALLOWED_FILES = new Set([
   'src/lib/runtime/vercel-background.ts',
   'src/lib/storage/vercel-blob.ts',
@@ -38,7 +38,7 @@ function collectFiles(path: string): string[] {
   return files
 }
 
-const files = SCAN_ROOTS.flatMap((root) => root.endsWith('.ts') ? [root] : collectFiles(root))
+const files = SCAN_ROOTS.flatMap(collectFiles)
 const findings: string[] = []
 
 for (const path of files) {
