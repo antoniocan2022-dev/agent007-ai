@@ -3,7 +3,7 @@
  * Recovery evidence is recorded only when the runtime actually retries work
  * after a failed execution or verification attempt.
  */
-import { dispatchTool } from './tools'
+import { dispatchTool } from './tools-runtime'
 import { callLlmWithRetry } from './agent'
 import { recallMemories } from './memory'
 
