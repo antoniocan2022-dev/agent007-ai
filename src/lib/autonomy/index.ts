@@ -5,6 +5,7 @@ export * from './decision-score'
 export * from './autonomy-telemetry'
 export * from './autonomy-runtime'
 export * from './capability-registry'
+export * from './operational-evidence-bridge'
 
 // Keep the two evidence contracts distinct at the public barrel boundary.
 // Runtime telemetry owns AutonomyMissionEvidence; the operational scorecard
