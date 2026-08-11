@@ -3,13 +3,14 @@
  * Creates a real Stripe Checkout Session for a digital product.
  *
  * POST /api/checkout
- * Body: { productId: "50-ai-tools-guide" }
+ * Body: { productId: "50-ai-tools-guide", revenueCorrelationId?: string }
  *
  * Returns: { url: "https://checkout.stripe.com/c/..." }
  *
  * Checkout remains allow-listed to prevent charging for unfinished products.
- * Authenticated Agent007 checkouts now carry the operator identity in Stripe
- * metadata so the signed webhook can attribute verified revenue correctly.
+ * A checkout must be bound to an authenticated Agent007 operator so the
+ * signed webhook can attribute verified revenue to a real owner. Optional
+ * revenueCorrelationId links an outreach action to the processor evidence.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const productId = body.productId || '50-ai-tools-guide'
+    const revenueCorrelationId = typeof body.revenueCorrelationId === 'string' ? body.revenueCorrelationId.trim() : ''
 
     if (!CHECKOUT_ALLOW_LIST.has(productId)) {
       return NextResponse.json(
@@ -40,8 +42,12 @@ export async function POST(req: NextRequest) {
     const product = PRODUCTS[productId]
     if (!product) return NextResponse.json({ ok: false, error: `Unknown product: ${productId}.` }, { status: 400 })
 
-    const stripe = new Stripe(stripeKey, { apiVersion: '2024-12-18.acacia' as any })
     const owner = await getSessionUser()
+    if (!owner) {
+      return NextResponse.json({ ok: false, error: 'Authentication required to create an Agent007 checkout.' }, { status: 401 })
+    }
+
+    const stripe = new Stripe(stripeKey, { apiVersion: '2024-12-18.acacia' as any })
 
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined
     try {
@@ -68,7 +74,8 @@ export async function POST(req: NextRequest) {
         productId,
         productName: product.name,
         source: 'agent007-ai',
-        ...(owner ? { agent007UserId: owner.id } : {}),
+        agent007UserId: owner.id,
+        ...(revenueCorrelationId ? { revenueCorrelationId } : {}),
       },
       ...(discounts ? { discounts } : {}),
       customer_email: body.customerEmail || undefined,
@@ -83,7 +90,8 @@ export async function POST(req: NextRequest) {
       productName: product.name,
       price: `$${(product.priceCents / 100).toFixed(2)}`,
       appliedCoupon: discounts ? 'LAUNCH50' : null,
-      ownerBound: !!owner,
+      ownerBound: true,
+      revenueCorrelationBound: !!revenueCorrelationId,
     })
   } catch (e: any) {
     console.error('[checkout] Stripe error:', e?.message?.slice(0, 200))
