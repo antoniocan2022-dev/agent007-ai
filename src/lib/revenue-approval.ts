@@ -53,7 +53,7 @@ export async function prepareRevenueApproval(userId: string, request: RevenueReq
   const action = executionActionName(normalized.action, normalized.idempotencyKey)
 
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent007:revenue:${userId}:${normalized.idempotencyKey}`}))`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent007:revenue:${userId}:${normalized.idempotencyKey}`}))`
 
     const existing = await tx.pendingManageAction.findFirst({ where: { userId, action }, orderBy: { createdAt: 'desc' } })
     if (existing) return existing
