@@ -35,17 +35,9 @@ export async function runMissionPipeline(userRequest: string): Promise<MissionRe
   console.log(`[mission-os] Starting ${missionId}: "${userRequest.slice(0, 80)}..."`)
 
   const {
-    startMissionTelemetry,
-    recordToolCall,
-    recordLeaderDispatch,
-    recordMemoryOp,
-    recordRetry,
-    recordError,
-    recordVerification,
-    recordConfidence,
-    recordAutonomyEvidence,
-    recordOutcomeQuality,
-    persistMissionTelemetryEvidence,
+    startMissionTelemetry, recordToolCall, recordLeaderDispatch, recordMemoryOp,
+    recordRetry, recordError, recordVerification, recordConfidence,
+    recordAutonomyEvidence, recordOutcomeQuality, persistMissionTelemetryEvidence,
     completeMissionTelemetry,
   } = await import('./mission-telemetry')
   const telemetry = startMissionTelemetry(userRequest)
@@ -68,7 +60,6 @@ Format:
 GOAL: <text>
 TASKS: 1. <task1> 2. <task2> 3. <task3>
 LEADERS: <leader1>, <leader2>, <leader3>`
-
     const completion = await callLlmWithRetry([
       { role: 'system', content: understandPrompt },
       { role: 'user', content: userRequest },
@@ -125,10 +116,11 @@ LEADERS: <leader1>, <leader2>, <leader3>`
         recordError(telemetry, `${leaders[i]} dispatch failed`)
       }
     }
-    const dispatchOutput = dispatches
-      .map((d, i) => `${leaders[i]}: ${d.status === 'fulfilled' && d.value?.ok ? '✅ data collected' : '❌ failed'}`)
-      .join('\n')
-    stages[3] = { stage: 'DISPATCH', status: 'complete', output: dispatchOutput, durationMs: Date.now() - stageStart }
+    stages[3] = {
+      stage: 'DISPATCH', status: 'complete',
+      output: dispatches.map((d, i) => `${leaders[i]}: ${d.status === 'fulfilled' && d.value?.ok ? '✅ data collected' : '❌ failed'}`).join('\n'),
+      durationMs: Date.now() - stageStart,
+    }
   } catch (e: any) {
     stages[3] = { stage: 'DISPATCH', status: 'failed', output: e.message, durationMs: Date.now() - stageStart }
     recordError(telemetry, `DISPATCH: ${e.message}`)
@@ -151,19 +143,14 @@ LEADERS: <leader1>, <leader2>, <leader3>`
       verificationPassed = verificationScore >= 70
       recordVerification(telemetry, verificationScore, verificationPassed)
     }
-    stages[4] = {
-      stage: 'VERIFY',
-      status: 'complete',
-      output: verifyResult?.ok ? `Verification: ${verificationScore}%` : 'Verification skipped',
-      durationMs: Date.now() - stageStart,
-    }
+    stages[4] = { stage: 'VERIFY', status: 'complete', output: verifyResult?.ok ? `Verification: ${verificationScore}%` : 'Verification skipped', durationMs: Date.now() - stageStart }
   } catch (e: any) {
     stages[4] = { stage: 'VERIFY', status: 'complete', output: 'Verification unavailable', durationMs: Date.now() - stageStart }
     recordError(telemetry, `VERIFY: ${e.message}`)
   }
 
-  // Explicit runtime evidence. We record only facts directly observed by this
-  // pipeline; recovery/continuity are deliberately NOT inferred.
+  // Explicit runtime evidence only. Recovery and continuity are intentionally
+  // absent until the Mission OS actually observes a recovery/resumption event.
   recordAutonomyEvidence(telemetry, {
     eligible: true,
     goalAutonomous: true,
@@ -219,7 +206,7 @@ CONFIDENCE: <number>%`
       key: `mission_${missionId}`,
       value: learning,
       category: 'mission_outcome',
-    }).catch(() => {})
+    }, { attachments: [], language: 'en' }).catch(() => {})
     recordMemoryOp(telemetry, 'write')
     recordToolCall(telemetry, 'memory_store')
     telemetry.autonomyEvidence = { ...telemetry.autonomyEvidence, learningApplied: true }
@@ -233,9 +220,8 @@ CONFIDENCE: <number>%`
     const { generateAuditReport } = await import('./executive-audit-engine')
     const auditReport = await generateAuditReport(telemetry, stagesCompleted, stagesFailed)
 
-    // Outcome quality is the audit's computed quality score, captured only
-    // after the audit exists. It is persisted as explicit evidence rather than
-    // inferred from confidence or verification.
+    // Outcome quality is captured from the completed executive audit. It is
+    // persisted as explicit evidence and never substituted from confidence.
     recordOutcomeQuality(telemetry, auditReport.qualityScore)
     await persistMissionTelemetryEvidence(telemetry)
 
@@ -249,12 +235,7 @@ CONFIDENCE: <number>%`
     await ingestMission(telemetry)
     learnings.push('Organizational knowledge base updated')
 
-    stages[6] = {
-      stage: 'LEARN',
-      status: 'complete',
-      output: learning + '\n' + auditReport.lessonsLearned,
-      durationMs: Date.now() - stageStart,
-    }
+    stages[6] = { stage: 'LEARN', status: 'complete', output: learning + '\n' + auditReport.lessonsLearned, durationMs: Date.now() - stageStart }
   } catch (e: any) {
     stages[6] = { stage: 'LEARN', status: 'complete', output: 'Memory store failed: ' + e.message, durationMs: Date.now() - stageStart }
     recordError(telemetry, `LEARN: ${e.message}`)
