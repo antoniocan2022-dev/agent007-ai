@@ -2,25 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { isInteractiveActive } from '@/lib/load-tracker'
 import { runOrchestrator } from '@/lib/orchestrator'
-import { waitUntil } from '@vercel/functions'
+import { backgroundFire } from '@/lib/runtime/background-tasks'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-// UPGRADE #156: waitUntil keeps background work alive on Vercel.
-function backgroundFire(promise: Promise<any>) {
-  waitUntil(promise.catch(() => {}))
-}
-
 /**
- * POST /api/schedules/tick — UPGRADE #136
- * Called by: (1) dashboard polling every 60s, (2) Vercel Cron daily at 9AM
+ * POST /api/schedules/tick — scheduled mission dispatcher.
  *
- * UPGRADE #136: Now ACTUALLY EXECUTES scheduled prompts.
- * Before: found due schedules, updated timestamps, returned "dispatched" —
- *   but never ran the prompt. The schedule was a reminder that nobody acted on.
- * After: finds due schedules, updates timestamps, AND calls runOrchestrator()
- *   with the schedule's prompt. The agent actually does the work.
+ * The scheduling core is hosting-neutral. Background lifetime is provided by
+ * a runtime adapter registered during application startup.
  */
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
@@ -110,7 +102,7 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? 'https://agent007-ai.vercel.app'
+    const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? 'http://localhost:3000'
     backgroundFire(fetch(`${baseUrl}/api/monitor/external`, { signal: AbortSignal.timeout(30000) }).catch(() => {}))
     const tickCount = (globalThis as any).__tickCount ?? 0
     ;(globalThis as any).__tickCount = tickCount + 1
@@ -127,10 +119,11 @@ export async function POST(req: NextRequest) {
       nextCheck: 60,
       monitors: 'external fired, qa ' + (tickCount % 5 === 0 ? 'fired' : 'skipped'),
     })
-  } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }) }
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message }, { status: 500 })
+  }
 }
 
-/** GET handler for Vercel Cron (calls POST internally) */
 export async function GET() {
   const req = new NextRequest('http://localhost:3000/api/schedules/tick', { method: 'POST' })
   return POST(req)
