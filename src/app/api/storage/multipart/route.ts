@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { randomUUID } from 'node:crypto'
 import { authOptions } from '@/lib/auth'
+import { db } from '@/lib/db'
 import { ociStorageConfig, presignOciS3Url } from '@/lib/oci-s3-signer'
 
 export const runtime = 'nodejs'
@@ -12,18 +13,21 @@ const PART_SIZE_BYTES = 256 * 1024 * 1024
 const MAX_PARTS = 10000
 const CHECKSUM_ALGORITHM = 'SHA256'
 
-function safeObjectName(name: string) {
+function safeObjectName(name: string, userId: string) {
   const cleaned = name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'upload.bin'
-  return `uploads/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${cleaned}`
+  return `uploads/${new Date().toISOString().slice(0, 10)}/${userId}-${randomUUID()}-${cleaned}`
 }
 
-function isOwnedUploadKey(key: string) {
-  return /^uploads\/\d{4}-\d{2}-\d{2}\/[0-9a-f-]{36}-[a-zA-Z0-9._-]+$/.test(key)
+function isOwnedUploadKey(key: string, userId: string) {
+  const escapedUserId = userId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^uploads\\/\\d{4}-\\d{2}-\\d{2}\\/${escapedUserId}-[0-9a-f-]{36}-[a-zA-Z0-9._-]+$`).test(key)
 }
 
-async function requireSession() {
+async function requireSessionUser() {
   const session = await getServerSession(authOptions)
-  return session?.user?.email ? session : null
+  const email = session?.user?.email?.trim().toLowerCase()
+  if (!email) return null
+  return db.user.findUnique({ where: { email }, select: { id: true, email: true } })
 }
 
 async function readResponse(response: Response) {
@@ -33,8 +37,8 @@ async function readResponse(response: Response) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireSession()
-  if (!session) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
+  const user = await requireSessionUser()
+  if (!user) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
 
   try {
     const body = await request.json()
@@ -51,7 +55,7 @@ export async function POST(request: NextRequest) {
       const parts = Math.ceil(size / PART_SIZE_BYTES)
       if (parts > MAX_PARTS) return NextResponse.json({ error: 'File would require too many multipart parts.' }, { status: 400 })
 
-      const key = safeObjectName(name)
+      const key = safeObjectName(name, user.id)
       const url = presignOciS3Url({
         method: 'POST',
         key,
@@ -86,7 +90,7 @@ export async function POST(request: NextRequest) {
       const key = String(body.key || '')
       const uploadId = String(body.uploadId || '')
       const partNumber = Number(body.partNumber)
-      if (!isOwnedUploadKey(key) || !uploadId || !Number.isInteger(partNumber) || partNumber < 1 || partNumber > MAX_PARTS) {
+      if (!isOwnedUploadKey(key, user.id) || !uploadId || !Number.isInteger(partNumber) || partNumber < 1 || partNumber > MAX_PARTS) {
         return NextResponse.json({ error: 'Invalid multipart part request.' }, { status: 400 })
       }
       const url = presignOciS3Url({
@@ -104,7 +108,7 @@ export async function POST(request: NextRequest) {
       const uploadId = String(body.uploadId || '')
       const expectedParts = Number(body.totalParts)
       const parts = Array.isArray(body.parts) ? body.parts : []
-      if (!isOwnedUploadKey(key) || !uploadId || !Number.isInteger(expectedParts) || expectedParts < 1 || expectedParts > MAX_PARTS || parts.length !== expectedParts) {
+      if (!isOwnedUploadKey(key, user.id) || !uploadId || !Number.isInteger(expectedParts) || expectedParts < 1 || expectedParts > MAX_PARTS || parts.length !== expectedParts) {
         return NextResponse.json({ error: 'Invalid multipart completion request.' }, { status: 400 })
       }
 
@@ -146,7 +150,7 @@ export async function POST(request: NextRequest) {
     if (action === 'verify') {
       const key = String(body.key || '')
       const expectedSize = Number(body.size)
-      if (!isOwnedUploadKey(key) || !Number.isSafeInteger(expectedSize) || expectedSize <= 0 || expectedSize > MAX_FILE_BYTES) {
+      if (!isOwnedUploadKey(key, user.id) || !Number.isSafeInteger(expectedSize) || expectedSize <= 0 || expectedSize > MAX_FILE_BYTES) {
         return NextResponse.json({ error: 'Invalid verification request.' }, { status: 400 })
       }
 
@@ -197,7 +201,7 @@ export async function POST(request: NextRequest) {
     if (action === 'abort') {
       const key = String(body.key || '')
       const uploadId = String(body.uploadId || '')
-      if (!isOwnedUploadKey(key) || !uploadId) return NextResponse.json({ error: 'Invalid abort request.' }, { status: 400 })
+      if (!isOwnedUploadKey(key, user.id) || !uploadId) return NextResponse.json({ error: 'Invalid abort request.' }, { status: 400 })
       const url = presignOciS3Url({ method: 'DELETE', key, query: { uploadId }, expiresIn: 900 })
       const response = await fetch(url, { method: 'DELETE', cache: 'no-store' })
       await readResponse(response)
