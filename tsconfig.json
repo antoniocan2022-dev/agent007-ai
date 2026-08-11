@@ -24,6 +24,9 @@
       }
     ],
     "paths": {
+      "@/lib/tools": [
+        "./src/lib/tools-runtime"
+      ],
       "@/*": [
         "./src/*"
       ]

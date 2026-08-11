@@ -14,5 +14,6 @@ function authorized(req: NextRequest) {
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   const result = await sendCEOOperationsReport()
-  return NextResponse.json({ ok: result.sent || result.skipped === true, ...result, timestamp: new Date().toISOString() })
+  const skipped = 'skipped' in result && result.skipped === true
+  return NextResponse.json({ ok: result.sent || skipped, ...result, timestamp: new Date().toISOString() })
 }
