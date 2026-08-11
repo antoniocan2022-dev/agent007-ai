@@ -15,7 +15,7 @@ export interface MissionTelemetry {
   retries: number; memoryReads: number; memoryWrites: number; confidence: number; verificationScore: number
   verificationPassed: boolean; errors: string[]; cost: number; tokensUsed: number; latencyMs: number
   debateTriggered: boolean; executiveCorrections: number; autonomyEvidence?: AutonomyMissionEvidence
-  resumedWithoutHumanRestart?: boolean; outcomeQuality?: number
+  failureOccurred?: boolean; resumedWithoutHumanRestart?: boolean; outcomeQuality?: number
 }
 
 export function startMissionTelemetry(goal: string): MissionTelemetry {
@@ -28,6 +28,7 @@ export function startMissionTelemetry(goal: string): MissionTelemetry {
 }
 
 export function recordAutonomyEvidence(telemetry: MissionTelemetry, evidence: AutonomyMissionEvidence): void { telemetry.autonomyEvidence = { ...evidence } }
+export function recordFailureOccurrence(telemetry: MissionTelemetry): void { telemetry.failureOccurred = true }
 export function recordMissionResumption(telemetry: MissionTelemetry, resumedWithoutHumanRestart: boolean): void { telemetry.resumedWithoutHumanRestart = resumedWithoutHumanRestart }
 export function recordOutcomeQuality(telemetry: MissionTelemetry, quality: number): boolean {
   if (!Number.isFinite(quality) || quality < 0 || quality > 100) return false
