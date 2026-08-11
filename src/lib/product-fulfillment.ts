@@ -63,12 +63,10 @@ type DownloadTokenRecord = {
   createdAt: string
 }
 
-/** Provider-neutral storage readiness check retained for existing callers. */
 export function isBlobConfigured(): boolean {
   return Boolean(getObjectStorageAdapter()?.isConfigured())
 }
 
-/** Cryptographically secure, URL-safe token. */
 export function generateDownloadToken(): string {
   return randomBytes(32).toString('base64url')
 }
@@ -186,11 +184,13 @@ export async function revokeDownloadToken(token: string): Promise<void> {
   }
 }
 
-export async function findTokensByEmail(email: string): Promise<Array<DownloadTokenRecord>> {
+export async function findTokensByEmail(email: string, ownerUserId: string): Promise<Array<DownloadTokenRecord>> {
   const normalizedEmail = email.trim().toLowerCase()
-  if (!normalizedEmail) return []
+  if (!normalizedEmail || !ownerUserId) return []
   try {
-    const rows = await db.userSetting.findMany({ where: { key: { startsWith: TOKEN_PREFIX } } })
+    const rows = await db.userSetting.findMany({
+      where: { userId: ownerUserId, key: { startsWith: TOKEN_PREFIX } },
+    })
     const results: DownloadTokenRecord[] = []
     for (const row of rows) {
       const data = parseTokenRecord(row.value)
