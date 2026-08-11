@@ -11,16 +11,18 @@ function safeJson(value: unknown): Record<string, unknown> {
 }
 
 async function ensureIncomeEntry(opts: { amount: number; source: string; notes: string }) {
-  const existing = await db.incomeEntry.findFirst({ where: { source: opts.source, notes: opts.notes } })
-  if (existing) return { created: false, id: existing.id }
-  try {
-    const created = await db.incomeEntry.create({ data: { ...opts, date: new Date() } })
+  return db.$transaction(async (tx) => {
+    // Serialize concurrent deliveries for the same derived ledger key.
+    // This prevents duplicate IncomeEntry rows even though Stripe may retry
+    // or deliver related events concurrently.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${opts.source}\n${opts.notes}`}))`
+
+    const existing = await tx.incomeEntry.findFirst({ where: { source: opts.source, notes: opts.notes } })
+    if (existing) return { created: false, id: existing.id }
+
+    const created = await tx.incomeEntry.create({ data: { ...opts, date: new Date() } })
     return { created: true, id: created.id }
-  } catch {
-    const retry = await db.incomeEntry.findFirst({ where: { source: opts.source, notes: opts.notes } })
-    if (retry) return { created: false, id: retry.id }
-    throw new Error('Unable to establish the derived income ledger entry')
-  }
+  })
 }
 
 async function persistFulfillmentState(transactionId: string, payload: string, status: 'completed' | 'pending_retry', error?: string) {
@@ -42,9 +44,10 @@ export async function POST(req: NextRequest) {
   try {
     const stripe = new Stripe(secretKey, { apiVersion: '2024-12-18.acacia' as any })
     event = stripe.webhooks.constructEvent(payload, sig, webhookSecret)
-  } catch (e: any) {
-    console.error('[stripe-webhook] SIGNATURE VERIFICATION FAILED:', e?.message?.slice(0, 200))
-    return NextResponse.json({ error: `Signature verification failed: ${e?.message?.slice(0, 100)}` }, { status: 400 })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[stripe-webhook] SIGNATURE VERIFICATION FAILED:', message.slice(0, 200))
+    return NextResponse.json({ error: `Signature verification failed: ${message.slice(0, 100)}` }, { status: 400 })
   }
 
   try {
@@ -85,15 +88,23 @@ export async function POST(req: NextRequest) {
       if (customerEmail && productId !== 'unknown' && !hasFulfillmentCompleted(transaction.rawPayload)) {
         try {
           const { fulfillPurchase } = await import('@/lib/product-fulfillment')
-          fulfillmentResult = await fulfillPurchase({ customerEmail, productId, amount, transactionId: providerTxId })
+          fulfillmentResult = await fulfillPurchase({
+            ownerUserId: owner.id,
+            customerEmail,
+            productId,
+            amount,
+            transactionId: providerTxId,
+            checkoutSessionId,
+          })
           if (fulfillmentResult.emailSent) {
             await persistFulfillmentState(transaction.id, transaction.rawPayload, 'completed')
           } else {
             await persistFulfillmentState(transaction.id, transaction.rawPayload, 'pending_retry', 'fulfillment email was not confirmed')
           }
-        } catch (error: any) {
-          await persistFulfillmentState(transaction.id, transaction.rawPayload, 'pending_retry', error?.message || 'fulfillment failed')
-          console.error(`[stripe-webhook] Fulfillment failed for ${checkoutSessionId}:`, error?.message?.slice(0, 200))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          await persistFulfillmentState(transaction.id, transaction.rawPayload, 'pending_retry', message || 'fulfillment failed')
+          console.error(`[stripe-webhook] Fulfillment failed for ${checkoutSessionId}:`, message.slice(0, 200))
         }
       }
 
@@ -137,9 +148,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ received: true, unhandled: event.type })
-  } catch (e: any) {
-    console.error('[stripe-webhook] error:', e)
-    return NextResponse.json({ error: e?.message ?? 'Webhook failed' }, { status: 500 })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[stripe-webhook] error:', message)
+    return NextResponse.json({ error: message || 'Webhook failed' }, { status: 500 })
   }
 }
 
