@@ -10,6 +10,7 @@
 export interface OperationalMissionEvidence {
   completed: boolean
   independentlyVerified: boolean
+  failureOccurred: boolean
   recoveredAfterFailure: boolean
   resumedWithoutHumanRestart: boolean
   executedAutonomously: boolean
@@ -43,6 +44,12 @@ function rate(values: OperationalMissionEvidence[], selector: (mission: Operatio
   return Number((values.filter(selector).length / values.length * 100).toFixed(2))
 }
 
+function recoveryRate(values: OperationalMissionEvidence[]): number {
+  const failures = values.filter((mission) => mission.failureOccurred)
+  if (failures.length === 0) return 100
+  return Number((failures.filter((mission) => mission.recoveredAfterFailure).length / failures.length * 100).toFixed(2))
+}
+
 function averageQuality(values: OperationalMissionEvidence[]): number {
   if (values.length === 0) return 0
   return Number((values.reduce((sum, mission) => sum + clamp100(mission.outcomeQuality), 0) / values.length).toFixed(2))
@@ -51,9 +58,10 @@ function averageQuality(values: OperationalMissionEvidence[]): number {
 /**
  * Calculate a reproducible autonomy score from observed mission evidence.
  *
- * Owner-approved execution is deliberately excluded from the autonomous
- * execution dimension. A system cannot improve its autonomy score by asking
- * the owner to authorize more actions.
+ * Recovery is conditional: missions that never experienced an observed failure
+ * do not receive a false negative merely because no recovery was necessary.
+ * When failures are observed, every failed mission is part of the recovery
+ * denominator and must show actual recovery to score positively.
  */
 export function calculateAutonomyScorecard(missions: readonly OperationalMissionEvidence[]): AutonomyScorecard {
   const values = [...missions]
@@ -62,7 +70,7 @@ export function calculateAutonomyScorecard(missions: readonly OperationalMission
   const dimensions = {
     completion: rate(values, (mission) => mission.completed),
     verification: rate(values, (mission) => mission.independentlyVerified),
-    recovery: rate(values, (mission) => mission.recoveredAfterFailure),
+    recovery: recoveryRate(values),
     continuity: rate(values, (mission) => mission.resumedWithoutHumanRestart),
     autonomousExecution: rate(values, (mission) => mission.executedAutonomously),
     outcomeQuality: averageQuality(values),
