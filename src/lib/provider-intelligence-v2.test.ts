@@ -3,6 +3,7 @@ import { getAllGovernanceProfiles, validateBuiltinGovernanceCoverage } from './s
 import { PROVIDER_PRIORITY, getProviderTaskPolicy, rankAvailableProviders, validateProviderPriority } from './provider-intelligence-policy'
 import { selectPrimaryProvider, selectProvidersForTask } from './provider-intelligence-v2'
 import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, getProviderRuntimeConfig, runGovernedProviderChat } from './provider-runtime-v2'
+import { getModelForProvider } from './model-intelligence'
 import { SUBAGENTS } from './subagents'
 
 describe('Subagent Governance 2.0', () => {
@@ -57,7 +58,19 @@ describe('Provider Intelligence 2.0', () => {
     process.env = original
   })
 
-  test('fails over in deterministic provider order', async () => {
+  test('selects a task-aware model without changing provider priority', () => {
+    const original = { ...process.env }
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.OPENAI_API_KEY = 'test-openai'
+    try {
+      expect(getModelForProvider('groq', 'coding')).toBe('llama-3.3-70b-versatile')
+      expect(getModelForProvider('openai', 'creative')).toBe('gpt-5')
+    } finally {
+      process.env = original
+    }
+  })
+
+  test('fails over in deterministic provider order while using task-aware models', async () => {
     const originalEnv = { ...process.env }
     const originalFetch = globalThis.fetch
     process.env.GROQ_API_KEY = 'test-groq'
@@ -66,9 +79,9 @@ describe('Provider Intelligence 2.0', () => {
     delete process.env.MISTRAL_API_KEY
 
     const calls: string[] = []
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      calls.push(url)
+      calls.push(`${url}::${String(init?.body ?? '')}`)
       if (url.includes('api.groq.com')) {
         return new Response('temporary failure', { status: 503 })
       }
@@ -85,11 +98,12 @@ describe('Provider Intelligence 2.0', () => {
         timeoutMs: 5000,
       })
       expect(result.provider).toBe('openai')
+      expect(result.model).toBe('gpt-5')
       expect(result.attempts).toEqual(['groq', 'openai'])
-      expect(calls).toEqual([
-        'https://api.groq.com/openai/v1/chat/completions',
-        'https://api.openai.com/v1/chat/completions',
-      ])
+      expect(calls[0]).toContain('https://api.groq.com/openai/v1/chat/completions')
+      expect(calls[0]).toContain('llama-3.3-70b-versatile')
+      expect(calls[1]).toContain('https://api.openai.com/v1/chat/completions')
+      expect(calls[1]).toContain('gpt-5')
     } finally {
       globalThis.fetch = originalFetch
       process.env = originalEnv
