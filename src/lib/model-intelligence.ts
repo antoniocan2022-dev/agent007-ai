@@ -1,5 +1,4 @@
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
-import { PROVIDER_RUNTIME_CONFIG } from './provider-runtime-v2'
 
 export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed'
 
@@ -25,6 +24,13 @@ export const MODEL_PROFILES: readonly ModelProfile[] = [
   { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
 ]
 
+const PROVIDER_KEY_ENV: Readonly<Record<ProviderId, string>> = {
+  groq: 'GROQ_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  zai: 'ZAI_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+}
+
 const TASK_CAPABILITIES: Record<TaskType, readonly ModelCapability[]> = {
   general: ['reasoning', 'tool-use'],
   research: ['research', 'long-context'],
@@ -48,7 +54,7 @@ export interface ModelSelection {
 }
 
 function configured(provider: ProviderId): boolean {
-  return Boolean(process.env[PROVIDER_RUNTIME_CONFIG[provider].apiKeyEnv])
+  return Boolean(process.env[PROVIDER_KEY_ENV[provider]])
 }
 
 export function selectModelForTask(
@@ -79,4 +85,8 @@ export function selectModelForTask(
 
 export function getModelProfile(provider: ProviderId, model: string): ModelProfile | undefined {
   return MODEL_PROFILES.find((profile) => profile.provider === provider && profile.model === model)
+}
+
+export function getModelForProvider(provider: ProviderId, taskType: TaskType, verification?: VerificationTier): string | undefined {
+  return selectModelForTask(taskType, [provider], verification)[0]?.model
 }
