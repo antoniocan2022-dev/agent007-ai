@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getAllGovernanceProfiles, validateBuiltinGovernanceCoverage } from './subagent-governance'
 import { PROVIDER_PRIORITY, getProviderTaskPolicy, rankAvailableProviders, validateProviderPriority } from './provider-intelligence-policy'
 import { selectPrimaryProvider, selectProvidersForTask } from './provider-intelligence-v2'
-import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, getProviderRuntimeConfig } from './provider-runtime-v2'
+import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, getProviderRuntimeConfig, runGovernedProviderChat } from './provider-runtime-v2'
 import { SUBAGENTS } from './subagents'
 
 describe('Subagent Governance 2.0', () => {
@@ -55,5 +55,44 @@ describe('Provider Intelligence 2.0', () => {
     expect(getConfiguredProviders()).toEqual(['groq', 'openai', 'zai'])
     expect(getProviderRuntimeConfig('zai').defaultModel).toBe('glm-5.1')
     process.env = original
+  })
+
+  test('fails over in deterministic provider order', async () => {
+    const originalEnv = { ...process.env }
+    const originalFetch = globalThis.fetch
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.OPENAI_API_KEY = 'test-openai'
+    delete process.env.ZAI_API_KEY
+    delete process.env.MISTRAL_API_KEY
+
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('api.groq.com')) {
+        return new Response('temporary failure', { status: 503 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'governed success' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    try {
+      const result = await runGovernedProviderChat({
+        taskType: 'reasoning',
+        messages: [{ role: 'user', content: 'test' }],
+        timeoutMs: 5000,
+      })
+      expect(result.provider).toBe('openai')
+      expect(result.attempts).toEqual(['groq', 'openai'])
+      expect(calls).toEqual([
+        'https://api.groq.com/openai/v1/chat/completions',
+        'https://api.openai.com/v1/chat/completions',
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+      process.env = originalEnv
+    }
   })
 })
