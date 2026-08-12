@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getAllGovernanceProfiles, validateBuiltinGovernanceCoverage } from './subagent-governance'
 import { PROVIDER_PRIORITY, getProviderTaskPolicy, rankAvailableProviders, validateProviderPriority } from './provider-intelligence-policy'
 import { selectPrimaryProvider, selectProvidersForTask } from './provider-intelligence-v2'
+import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, getProviderRuntimeConfig, runGovernedProviderChat } from './provider-runtime-v2'
 import { SUBAGENTS } from './subagents'
 
 describe('Subagent Governance 2.0', () => {
@@ -35,5 +36,63 @@ describe('Provider Intelligence 2.0', () => {
   test('preserves fallback priority order', () => {
     expect(selectProvidersForTask('reasoning', ['mistral', 'zai', 'openai']).map((item) => item.provider))
       .toEqual(['openai', 'zai', 'mistral'])
+  })
+
+  test('has exactly one runtime descriptor for each governed provider', () => {
+    expect(Object.keys(PROVIDER_RUNTIME_CONFIG).sort()).toEqual(['groq', 'mistral', 'openai', 'zai'])
+    expect(PROVIDER_RUNTIME_CONFIG.groq.baseUrl).toBe('https://api.groq.com/openai/v1/chat/completions')
+    expect(PROVIDER_RUNTIME_CONFIG.openai.baseUrl).toBe('https://api.openai.com/v1/chat/completions')
+    expect(PROVIDER_RUNTIME_CONFIG.zai.baseUrl).toBe('https://api.z.ai/api/paas/v4/chat/completions')
+    expect(PROVIDER_RUNTIME_CONFIG.mistral.baseUrl).toBe('https://api.mistral.ai/v1/chat/completions')
+  })
+
+  test('detects configured providers without changing priority', () => {
+    const original = { ...process.env }
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.OPENAI_API_KEY = 'test-openai'
+    process.env.ZAI_API_KEY = 'test-zai'
+    delete process.env.MISTRAL_API_KEY
+    expect(getConfiguredProviders()).toEqual(['groq', 'openai', 'zai'])
+    expect(getProviderRuntimeConfig('zai').defaultModel).toBe('glm-5.1')
+    process.env = original
+  })
+
+  test('fails over in deterministic provider order', async () => {
+    const originalEnv = { ...process.env }
+    const originalFetch = globalThis.fetch
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.OPENAI_API_KEY = 'test-openai'
+    delete process.env.ZAI_API_KEY
+    delete process.env.MISTRAL_API_KEY
+
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('api.groq.com')) {
+        return new Response('temporary failure', { status: 503 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'governed success' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    try {
+      const result = await runGovernedProviderChat({
+        taskType: 'reasoning',
+        messages: [{ role: 'user', content: 'test' }],
+        timeoutMs: 5000,
+      })
+      expect(result.provider).toBe('openai')
+      expect(result.attempts).toEqual(['groq', 'openai'])
+      expect(calls).toEqual([
+        'https://api.groq.com/openai/v1/chat/completions',
+        'https://api.openai.com/v1/chat/completions',
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+      process.env = originalEnv
+    }
   })
 })
