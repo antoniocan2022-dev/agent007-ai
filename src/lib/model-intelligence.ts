@@ -1,0 +1,82 @@
+import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
+import { PROVIDER_RUNTIME_CONFIG } from './provider-runtime-v2'
+
+export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed'
+
+export interface ModelProfile {
+  provider: ProviderId
+  model: string
+  capabilities: readonly ModelCapability[]
+  quality: number
+  speed: number
+  costTier: 1 | 2 | 3
+  maxOutputTokens: number
+}
+
+/**
+ * Governance-owned model matrix. Scores are normalized engineering priors,
+ * not claims of benchmark superiority. Runtime health remains authoritative
+ * for availability; this matrix only expresses task fit and operational cost.
+ */
+export const MODEL_PROFILES: readonly ModelProfile[] = [
+  { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'openai', model: 'gpt-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 98, speed: 82, costTier: 3, maxOutputTokens: 16000 },
+  { provider: 'zai', model: 'glm-5.1', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'long-context'], quality: 92, speed: 84, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
+]
+
+const TASK_CAPABILITIES: Record<TaskType, readonly ModelCapability[]> = {
+  general: ['reasoning', 'tool-use'],
+  research: ['research', 'long-context'],
+  reasoning: ['reasoning', 'analysis'],
+  coding: ['coding', 'tool-use', 'reasoning'],
+  creative: ['creative', 'reasoning'],
+  financial: ['analysis', 'reasoning', 'long-context'],
+  security: ['reasoning', 'coding', 'analysis'],
+  operations: ['analysis', 'tool-use', 'speed'],
+  analysis: ['analysis', 'reasoning'],
+}
+
+export interface ModelSelection {
+  provider: ProviderId
+  model: string
+  fitScore: number
+  quality: number
+  speed: number
+  costTier: 1 | 2 | 3
+  rationale: string
+}
+
+function configured(provider: ProviderId): boolean {
+  return Boolean(process.env[PROVIDER_RUNTIME_CONFIG[provider].apiKeyEnv])
+}
+
+export function selectModelForTask(
+  taskType: TaskType,
+  availableProviders: readonly ProviderId[],
+  verification?: VerificationTier,
+): ModelSelection[] {
+  const required = TASK_CAPABILITIES[taskType]
+  const strict = verification === 'dual-review' || taskType === 'financial' || taskType === 'security'
+  const candidates = MODEL_PROFILES.filter((profile) => availableProviders.includes(profile.provider) && configured(profile.provider))
+
+  return candidates.map((profile) => {
+    const capabilityHits = required.filter((capability) => profile.capabilities.includes(capability)).length
+    const capabilityScore = required.length ? capabilityHits / required.length * 100 : 50
+    const riskBonus = strict && profile.quality >= 90 ? 5 : 0
+    const fitScore = Math.round(capabilityScore * 0.55 + profile.quality * 0.3 + profile.speed * 0.1 + (profile.costTier === 1 ? 5 : profile.costTier === 2 ? 3 : 0) + riskBonus)
+    return {
+      provider: profile.provider,
+      model: profile.model,
+      fitScore,
+      quality: profile.quality,
+      speed: profile.speed,
+      costTier: profile.costTier,
+      rationale: `${taskType}: ${capabilityHits}/${required.length} required capabilities; quality ${profile.quality}; speed ${profile.speed}; cost tier ${profile.costTier}${riskBonus ? '; strict-risk quality bonus' : ''}`,
+    }
+  }).sort((a, b) => b.fitScore - a.fitScore)
+}
+
+export function getModelProfile(provider: ProviderId, model: string): ModelProfile | undefined {
+  return MODEL_PROFILES.find((profile) => profile.provider === provider && profile.model === model)
+}
