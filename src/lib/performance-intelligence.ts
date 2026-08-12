@@ -1,5 +1,5 @@
 import type { ProviderId, TaskType } from './subagent-governance'
-import { getModelProfile } from './model-intelligence'
+import { getModelProfile, MODEL_PROFILES } from './model-intelligence'
 
 export interface PerformanceObservation {
   provider: ProviderId
@@ -61,15 +61,9 @@ export function getPerformanceSnapshot(provider: ProviderId, model: string, task
   const observedSpeed = avgResponseMs > 0 ? clamp(100 - Math.max(0, avgResponseMs - 500) / 45, 0, 100) : priorSpeed
   const reliability = calls ? successRate : priorQuality
   const score = Math.round(reliability * 0.5 + observedSpeed * 0.2 + priorQuality * 0.2 + priorSpeed * 0.1)
-
   return { provider, model, taskType, calls, successes, failures, successRate: Math.round(successRate), avgResponseMs, score }
 }
 
-/**
- * Produces recommendations without changing governance priority. The caller
- * may use this for model selection within an already-authorized provider.
- * Confidence grows with observations but remains capped at 95%.
- */
 export function recommendModelsForTask(taskType: TaskType, providers: readonly ProviderId[]): PerformanceRecommendation[] {
   const recommendations: PerformanceRecommendation[] = []
   for (const provider of providers) {
@@ -87,8 +81,8 @@ export function recommendModelsForTask(taskType: TaskType, providers: readonly P
 
 function getKnownModels(provider: ProviderId, taskType: TaskType): Array<{ model: string }> {
   const candidates = new Set<string>()
-  const profile = getModelProfile(provider, '')
-  if (profile) candidates.add(profile.model)
+  const canonical = MODEL_PROFILES.find((profile) => profile.provider === provider)
+  if (canonical) candidates.add(canonical.model)
   for (const k of store.keys()) {
     const [candidateProvider, candidateModel, candidateTask] = k.split(':')
     if (candidateProvider === provider && candidateTask === taskType) candidates.add(candidateModel)
@@ -107,11 +101,7 @@ export function getPerformanceSummary(taskType?: TaskType): PerformanceRecommend
     if (seen.has(id)) continue
     seen.add(id)
     const snapshot = getPerformanceSnapshot(provider, model, task)
-    output.push({
-      ...snapshot,
-      confidence: Math.round(Math.min(95, 25 + snapshot.calls * 5)),
-      reason: `${snapshot.successRate}% observed success across ${snapshot.calls} calls; ${snapshot.avgResponseMs}ms average latency.`,
-    })
+    output.push({ ...snapshot, confidence: Math.round(Math.min(95, 25 + snapshot.calls * 5)), reason: `${snapshot.successRate}% observed success across ${snapshot.calls} calls; ${snapshot.avgResponseMs}ms average latency.` })
   }
   return output.sort((a, b) => b.score - a.score)
 }
