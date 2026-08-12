@@ -65,8 +65,8 @@ jobs:
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
 
-      - name: Subagent Governance + Provider Intelligence tests
-        run: bun test src/lib/provider-intelligence-v2.test.ts
+      - name: Subagent Governance + Provider Intelligence + Model Intelligence tests
+        run: bun test src/lib/provider-intelligence-v2.test.ts src/lib/model-intelligence.test.ts src/lib/model-intelligence-runtime.test.ts
 
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
