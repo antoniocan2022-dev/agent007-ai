@@ -9,7 +9,8 @@ import { basename, extname } from 'node:path'
  *
  * Complements deep-integrity-audit.ts by protecting the repository itself
  * from rapid-upgrade drift: duplicate files, missing canonical modules/tests,
- * stale architecture claims, and accidental hosting coupling.
+ * stale architecture claims, dependency-manifest drift, and accidental
+ * hosting coupling.
  */
 
 const failures: string[] = []
@@ -35,8 +36,11 @@ const requiredFiles = [
   'src/lib/outcome-intelligence.ts',
   'src/lib/outcome-intelligence.test.ts',
   'scripts/deep-integrity-audit.ts',
+  'scripts/repository-coherence-audit.ts',
   '.github/workflows/autonomy-ci.yml',
   'prisma/schema.prisma',
+  'package.json',
+  'bun.lock',
 ]
 for (const path of requiredFiles) record(trackedSet.has(path), `Required architecture file is missing: ${path}`)
 
@@ -69,14 +73,29 @@ for (const [hash, group] of byHash) {
   }
 }
 
-// 4. Current documentation must not reintroduce historical hard-coded
+// 4. package.json and bun.lock must agree on the workspace dependency ranges.
+// This catches a particularly dangerous rapid-upgrade failure mode where the
+// manifest is edited independently from the lockfile and CI cannot install.
+try {
+  const packageJson = JSON.parse(read('package.json')) as { dependencies?: Record<string, string> }
+  const lock = JSON.parse(read('bun.lock')) as { workspaces?: { '': { dependencies?: Record<string, string> } } }
+  const manifest = packageJson.dependencies ?? {}
+  const locked = lock.workspaces?.['']?.dependencies ?? {}
+  const names = new Set([...Object.keys(manifest), ...Object.keys(locked)])
+  const mismatches = [...names].filter((name) => manifest[name] !== locked[name])
+  record(mismatches.length === 0, `package.json/bun.lock dependency drift: ${mismatches.join(', ')}`)
+} catch (error) {
+  failures.push(`Unable to validate package.json/bun.lock coherence: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+// 5. Current documentation must not reintroduce historical hard-coded
 // architecture counts. README is intentionally the stable, non-counted view.
 const readme = read('README.md')
 record(!/\b\d+\+? tools\b/i.test(readme), 'README contains a hard-coded tool count')
 record(!/\b\d+ sub-?agents?\b/i.test(readme), 'README contains a hard-coded sub-agent count')
 record(!/Prisma Models \(\d+\)/i.test(readme), 'README contains a hard-coded Prisma model count')
 
-// 5. Historical Vercel hostnames must not leak into application runtime code.
+// 6. Historical Vercel hostnames must not leak into application runtime code.
 // Deployment documentation/scripts may legitimately mention Vercel; runtime
 // source must resolve public URLs through the hosting-neutral boundary.
 const runtimePaths = tracked.filter((path) => /^src\//.test(path))
@@ -85,7 +104,7 @@ const historicalHostFiles = runtimePaths.filter((path) => {
 })
 record(historicalHostFiles.length === 0, `Historical Vercel hostname leaked into application source: ${historicalHostFiles.join(', ')}`)
 
-// 6. Intelligence layers must retain their explicit separation. Performance
+// 7. Intelligence layers must retain their explicit separation. Performance
 // evidence may feed outcome fallback, but transport success must not be called
 // a verified business outcome.
 const outcome = read('src/lib/outcome-intelligence.ts')
@@ -95,8 +114,9 @@ record(outcome.includes('verified_success') && outcome.includes('verificationPas
 record(outcome.includes('getPerformanceSnapshot'), 'Outcome Intelligence does not have a conservative performance fallback')
 record(performance.includes('recordModelPerformance'), 'Performance Intelligence recorder is missing')
 record(runtime.includes('recordModelPerformance'), 'Provider runtime is not feeding observed performance evidence')
+record(runtime.includes('outcomeEvidence') && runtime.includes('recordModelOutcome'), 'Provider runtime has no verified outcome evidence integration seam')
 
-// 7. The main merge gate must execute both repository-integrity and intelligence
+// 8. The main merge gate must execute repository-integrity and intelligence
 // contracts. This prevents future upgrades from being locally correct but
 // globally inconsistent.
 const workflow = read('.github/workflows/autonomy-ci.yml')
@@ -111,4 +131,4 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log(`Repository coherence audit PASSED: ${tracked.length} tracked files checked; architecture, duplicate-path, duplicate-content, documentation, host-boundary, and CI contracts are coherent.`)
+console.log(`Repository coherence audit PASSED: ${tracked.length} tracked files checked; architecture, duplicate-path, duplicate-content, dependency, documentation, host-boundary, intelligence, and CI contracts are coherent.`)
