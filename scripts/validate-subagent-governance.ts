@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 import { SUBAGENTS } from '../src/lib/subagents'
 import { getAllGovernanceProfiles, validateBuiltinGovernanceCoverage } from '../src/lib/subagent-governance'
-import { PROVIDER_PRIORITY, validateProviderOrder } from '../src/lib/provider-intelligence'
+import { PROVIDER_PRIORITY, validateProviderPriority } from '../src/lib/provider-intelligence-policy'
 
 const errors = [
   ...validateBuiltinGovernanceCoverage(SUBAGENTS),
-  ...validateProviderOrder(PROVIDER_PRIORITY),
+  ...validateProviderPriority(PROVIDER_PRIORITY),
 ]
 
 const builtinCount = SUBAGENTS.filter((agent) => agent.isBuiltin !== false).length
