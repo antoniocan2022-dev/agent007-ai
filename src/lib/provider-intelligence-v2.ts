@@ -12,10 +12,10 @@ export interface ProviderSelection {
 /**
  * Provider Intelligence 2 coordinator.
  *
- * This does not replace the existing provider-intelligence engine. It combines
- * its health/circuit state with the authoritative Governance 2.0 priority.
- * Health may influence selection, but priority remains the deterministic
- * tie-breaker requested for Agent007.
+ * The existing provider-intelligence engine remains responsible for health,
+ * discovery, and circuit breaking. This layer applies the authoritative
+ * Governance 2.0 provider priority and only skips providers that are not
+ * available or currently circuit-open.
  */
 export function selectProvidersForTask(
   taskType: TaskType,
@@ -33,7 +33,6 @@ export function selectProvidersForTask(
       score: getHealthScore(provider),
       priority: policy.providerOrder.indexOf(provider),
     }))
-    .sort((a, b) => b.score - a.score || a.priority - b.priority)
 }
 
 export function selectPrimaryProvider(
