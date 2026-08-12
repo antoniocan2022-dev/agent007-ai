@@ -1,5 +1,6 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
+import { getModelForProvider } from './model-intelligence'
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export interface ProviderRuntimeConfig {
@@ -79,7 +80,8 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
   const key = readEnv(config.apiKeyEnv)
   if (!key) throw new Error(`${config.label} is not configured (${config.apiKeyEnv})`)
 
-  const model = request.model || readEnv(config.modelEnv) || config.defaultModel
+  const taskType = request.taskType ?? 'general'
+  const model = request.model || getModelForProvider(provider, taskType, request.verification) || readEnv(config.modelEnv) || config.defaultModel
   const timeoutMs = Math.max(1000, request.timeoutMs ?? 60000)
   const started = Date.now()
   const controller = new AbortController()
@@ -128,9 +130,9 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
 }
 
 /**
- * Governed runtime entry point. Provider priority is always deterministic:
- * Groq → OpenAI → Z.ai → Mistral. Health is telemetry; circuit state is the
- * only runtime condition that removes a configured provider from the chain.
+ * Governed runtime entry point. Provider order remains deterministic:
+ * Groq → OpenAI → Z.ai → Mistral. Model selection is task-aware inside each
+ * provider and never reorders the governed provider failover chain.
  */
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const taskType = request.taskType ?? 'general'
