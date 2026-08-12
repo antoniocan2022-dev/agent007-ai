@@ -1,10 +1,13 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test, afterEach } from 'bun:test'
 import { getAllGovernanceProfiles, validateBuiltinGovernanceCoverage } from './subagent-governance'
 import { PROVIDER_PRIORITY, getProviderTaskPolicy, rankAvailableProviders, validateProviderPriority } from './provider-intelligence-policy'
 import { selectPrimaryProvider, selectProvidersForTask } from './provider-intelligence-v2'
 import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, getProviderRuntimeConfig, runGovernedProviderChat } from './provider-runtime-v2'
 import { getModelForProvider } from './model-intelligence'
+import { clearOutcomeIntelligenceForTests, getOutcomeSnapshot } from './outcome-intelligence'
 import { SUBAGENTS } from './subagents'
+
+afterEach(() => clearOutcomeIntelligenceForTests())
 
 describe('Subagent Governance 2.0', () => {
   test('covers every built-in subagent exactly once', () => {
@@ -104,6 +107,41 @@ describe('Provider Intelligence 2.0', () => {
       expect(calls[0]).toContain('llama-3.3-70b-versatile')
       expect(calls[1]).toContain('https://api.openai.com/v1/chat/completions')
       expect(calls[1]).toContain('gpt-5')
+    } finally {
+      globalThis.fetch = originalFetch
+      process.env = originalEnv
+    }
+  })
+
+  test('records verified outcome evidence only when the caller supplies it', async () => {
+    const originalEnv = { ...process.env }
+    const originalFetch = globalThis.fetch
+    process.env.GROQ_API_KEY = 'test-groq'
+    delete process.env.OPENAI_API_KEY
+    delete process.env.ZAI_API_KEY
+    delete process.env.MISTRAL_API_KEY
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'verified result' } }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    try {
+      await runGovernedProviderChat({
+        taskType: 'analysis',
+        messages: [{ role: 'user', content: 'test' }],
+        outcomeEvidence: {
+          status: 'verified_success',
+          qualityScore: 95,
+          businessValueScore: 93,
+          verificationPassed: true,
+        },
+      })
+      const snapshot = getOutcomeSnapshot('groq', 'llama-3.3-70b-versatile', 'analysis')
+      expect(snapshot.observations).toBe(1)
+      expect(snapshot.verifiedSuccesses).toBe(1)
+      expect(snapshot.verificationRate).toBe(100)
+      expect(snapshot.outcomeScore).toBeGreaterThanOrEqual(90)
     } finally {
       globalThis.fetch = originalFetch
       process.env = originalEnv
