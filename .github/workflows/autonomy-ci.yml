@@ -62,6 +62,12 @@ jobs:
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
+      - name: Subagent Governance validation
+        run: bun scripts/validate-subagent-governance.ts
+
+      - name: Subagent Governance + Provider Intelligence tests
+        run: bun test src/lib/provider-intelligence-v2.test.ts
+
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
