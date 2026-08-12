@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { getPerformanceSnapshot, getPerformanceSummary, recommendModelsForTask, recordModelPerformance } from './performance-intelligence'
+import { getPerformanceSnapshot, recommendModelsForTask, recordModelPerformance } from './performance-intelligence'
+import { rankAvailableProviders } from './provider-intelligence-policy'
 
 beforeEach(() => {
   const G = globalThis as any
@@ -26,11 +27,11 @@ describe('Performance Intelligence', () => {
     expect(snapshot.avgResponseMs).toBe(667)
   })
 
-  test('never changes provider governance order', () => {
+  test('keeps learned recommendations advisory to provider governance', () => {
     recordModelPerformance({ provider: 'mistral', model: 'mistral-large-latest', taskType: 'reasoning', success: true, responseMs: 100 })
     recordModelPerformance({ provider: 'groq', model: 'llama-3.3-70b-versatile', taskType: 'reasoning', success: false, responseMs: 10000 })
-    const recommendations = getPerformanceSummary('reasoning')
-    expect(recommendations[0]?.provider).toBe('mistral')
+    const recommendations = recommendModelsForTask('reasoning', ['groq', 'mistral'])
     expect(recommendations.length).toBe(2)
+    expect(rankAvailableProviders(['mistral', 'groq'])).toEqual(['groq', 'mistral'])
   })
 })
