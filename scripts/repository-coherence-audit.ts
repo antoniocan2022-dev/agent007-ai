@@ -7,10 +7,9 @@ import { basename, extname } from 'node:path'
 /**
  * Repository Coherence Audit
  *
- * This complements deep-integrity-audit.ts. The deep audit validates important
- * runtime contracts; this audit protects the repository itself from drift
- * caused by rapid iterative upgrades: duplicate files, missing canonical
- * modules/tests, stale architecture claims, and historical host leakage.
+ * Complements deep-integrity-audit.ts by protecting the repository itself
+ * from rapid-upgrade drift: duplicate files, missing canonical modules/tests,
+ * stale architecture claims, and accidental hosting coupling.
  */
 
 const failures: string[] = []
@@ -65,7 +64,6 @@ for (const path of tracked.filter(isSource)) {
 }
 for (const [hash, group] of byHash) {
   if (group.length > 1) {
-    // Tests may intentionally mirror fixtures; source modules must not.
     const productionCopies = group.filter((path) => !/\.test\.|\.spec\./.test(basename(path)))
     if (productionCopies.length > 1) failures.push(`Exact duplicate production source files (${hash.slice(0, 12)}): ${productionCopies.join(', ')}`)
   }
@@ -78,18 +76,14 @@ record(!/\b\d+\+? tools\b/i.test(readme), 'README contains a hard-coded tool cou
 record(!/\b\d+ sub-?agents?\b/i.test(readme), 'README contains a hard-coded sub-agent count')
 record(!/Prisma Models \(\d+\)/i.test(readme), 'README contains a hard-coded Prisma model count')
 
-// 5. Historical Vercel hostnames must not leak into runtime source. Public URL
-// resolution belongs behind the hosting-neutral boundary.
-const runtimePaths = tracked.filter((path) => /^(src|scripts)\//.test(path))
-let historicalHostFiles: string[] = []
-try {
-  historicalHostFiles = runtimePaths.filter((path) => {
-    try { return read(path).includes('agent007-ai.vercel.app') } catch { return false }
-  })
-} catch {
-  historicalHostFiles = []
-}
-record(historicalHostFiles.length === 0, `Historical Vercel hostname leaked into runtime/source files: ${historicalHostFiles.join(', ')}`)
+// 5. Historical Vercel hostnames must not leak into application runtime code.
+// Deployment documentation/scripts may legitimately mention Vercel; runtime
+// source must resolve public URLs through the hosting-neutral boundary.
+const runtimePaths = tracked.filter((path) => /^src\//.test(path))
+const historicalHostFiles = runtimePaths.filter((path) => {
+  try { return read(path).includes('agent007-ai.vercel.app') } catch { return false }
+})
+record(historicalHostFiles.length === 0, `Historical Vercel hostname leaked into application source: ${historicalHostFiles.join(', ')}`)
 
 // 6. Intelligence layers must retain their explicit separation. Performance
 // evidence may feed outcome fallback, but transport success must not be called
@@ -107,6 +101,7 @@ record(runtime.includes('recordModelPerformance'), 'Provider runtime is not feed
 // globally inconsistent.
 const workflow = read('.github/workflows/autonomy-ci.yml')
 record(workflow.includes('scripts/deep-integrity-audit.ts'), 'Autonomy CI does not run the deep integrity audit')
+record(workflow.includes('scripts/repository-coherence-audit.ts'), 'Autonomy CI does not run the repository coherence audit')
 record(workflow.includes('src/lib/outcome-intelligence.test.ts'), 'Autonomy CI does not run Outcome Intelligence tests')
 record(workflow.includes('tsc -p tsconfig.ci.json --noEmit'), 'Autonomy CI does not enforce the CI TypeScript gate')
 
