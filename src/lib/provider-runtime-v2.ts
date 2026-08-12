@@ -1,6 +1,7 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
 import { getModelForProvider } from './model-intelligence'
+import { recordModelPerformance } from './performance-intelligence'
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export interface ProviderRuntimeConfig {
@@ -31,22 +32,10 @@ export interface ProviderRuntimeResult {
 }
 
 export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ProviderId, ProviderRuntimeConfig>> = {
-  groq: {
-    id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
-    apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile',
-  },
-  openai: {
-    id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1/chat/completions',
-    apiKeyEnv: 'OPENAI_API_KEY', modelEnv: 'OPENAI_MODEL', defaultModel: 'gpt-5',
-  },
-  zai: {
-    id: 'zai', label: 'Z.ai', baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions',
-    apiKeyEnv: 'ZAI_API_KEY', modelEnv: 'ZAI_MODEL', defaultModel: 'glm-5.1',
-  },
-  mistral: {
-    id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions',
-    apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest',
-  },
+  groq: { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions', apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile' },
+  openai: { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1/chat/completions', apiKeyEnv: 'OPENAI_API_KEY', modelEnv: 'OPENAI_MODEL', defaultModel: 'gpt-5' },
+  zai: { id: 'zai', label: 'Z.ai', baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions', apiKeyEnv: 'ZAI_API_KEY', modelEnv: 'ZAI_MODEL', defaultModel: 'glm-5.1' },
+  mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest' },
 }
 
 function readEnv(name: string): string | undefined {
@@ -55,9 +44,7 @@ function readEnv(name: string): string | undefined {
 }
 
 export function getConfiguredProviders(): ProviderId[] {
-  return rankAvailableProviders(Object.values(PROVIDER_RUNTIME_CONFIG)
-    .filter((config) => !!readEnv(config.apiKeyEnv))
-    .map((config) => config.id))
+  return rankAvailableProviders(Object.values(PROVIDER_RUNTIME_CONFIG).filter((config) => !!readEnv(config.apiKeyEnv)).map((config) => config.id))
 }
 
 export function getProviderRuntimeConfig(provider: ProviderId): ProviderRuntimeConfig {
@@ -88,23 +75,13 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const body: Record<string, unknown> = {
-      model,
-      messages: request.messages,
-      temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 4000,
-    }
+    const body: Record<string, unknown> = { model, messages: request.messages, temperature: request.temperature ?? 0.2, max_tokens: request.maxTokens ?? 4000 }
     if (provider === 'zai') body.thinking = { type: 'enabled' }
 
     const response = await fetch(config.baseUrl, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        ...(provider === 'zai' ? { 'Accept-Language': 'en-US,en' } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(provider === 'zai' ? { 'Accept-Language': 'en-US,en' } : {}) },
+      body: JSON.stringify(body), signal: controller.signal,
     })
 
     const responseMs = Date.now() - started
@@ -120,34 +97,29 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
     if (!content) throw new Error(`${config.label}: response contained no assistant content`)
 
     recordSuccess(provider, responseMs)
+    recordModelPerformance({ provider, model, taskType, success: true, responseMs })
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
+    const responseMs = Date.now() - started
     recordFailure(provider)
+    const model = request.model || getModelForProvider(provider, taskType, request.verification) || readEnv(config.modelEnv) || config.defaultModel
+    recordModelPerformance({ provider, model, taskType, success: false, responseMs })
     throw error
   } finally {
     clearTimeout(timeout)
   }
 }
 
-/**
- * Governed runtime entry point. Provider order remains deterministic:
- * Groq → OpenAI → Z.ai → Mistral. Model selection is task-aware inside each
- * provider and never reorders the governed provider failover chain.
- */
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const taskType = request.taskType ?? 'general'
   const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification)
   const configured = getConfiguredProviders()
-  const candidates = rankAvailableProviders(configured)
-    .filter((provider) => !isCircuitOpen(provider))
+  const candidates = rankAvailableProviders(configured).filter((provider) => !isCircuitOpen(provider))
 
-  if (candidates.length === 0) {
-    throw new Error(`No governed providers available. Required priority: ${policy.providerOrder.join(' → ')}`)
-  }
+  if (candidates.length === 0) throw new Error(`No governed providers available. Required priority: ${policy.providerOrder.join(' → ')}`)
 
   const attempts: ProviderId[] = []
   let lastError: unknown
-
   for (const provider of candidates) {
     attempts.push(provider)
     try {
