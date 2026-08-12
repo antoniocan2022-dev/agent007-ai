@@ -46,13 +46,7 @@ function average(values: number[]): number {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
 }
 
-/**
- * Records verified task outcomes. This is intentionally separate from API
- * success: an HTTP-successful model call is not evidence of a good outcome.
- */
-export function recordModelOutcome(
-  observation: Omit<OutcomeObservation, 'recordedAt'>,
-): void {
+export function recordModelOutcome(observation: Omit<OutcomeObservation, 'recordedAt'>): void {
   const qualityScore = observation.qualityScore === undefined ? undefined : clamp(observation.qualityScore)
   const businessValueScore = observation.businessValueScore === undefined ? undefined : clamp(observation.businessValueScore)
   const normalized: OutcomeObservation = { ...observation, qualityScore, businessValueScore, recordedAt: Date.now() }
@@ -69,16 +63,16 @@ export function getOutcomeSnapshot(provider: ProviderId, model: string, taskType
   const partials = history.filter((item) => item.status === 'partial').length
   const failures = history.filter((item) => item.status === 'failed').length
   const verificationRate = observations ? history.filter((item) => item.verificationPassed).length / observations * 100 : 0
-  const quality = average(history.flatMap((item) => item.qualityScore === undefined ? [] : [item.qualityScore]))
-  const businessValue = average(history.flatMap((item) => item.businessValueScore === undefined ? [] : [item.businessValueScore]))
+  const qualityValues = history.flatMap((item) => item.qualityScore === undefined ? [] : [item.qualityScore])
+  const businessValues = history.flatMap((item) => item.businessValueScore === undefined ? [] : [item.businessValueScore])
+  const quality = average(qualityValues)
+  const businessValue = average(businessValues)
 
-  // Outcome evidence dominates transport performance. When no outcome data
-  // exists, fall back conservatively to the existing performance intelligence.
   const observedOutcome = observations
     ? (verifiedSuccesses * 100 + partials * 60 + failures * 0) / observations
     : getPerformanceSnapshot(provider, model, taskType).score
-  const qualityComponent = quality || observedOutcome
-  const businessComponent = businessValue || observedOutcome
+  const qualityComponent = qualityValues.length ? quality : observedOutcome
+  const businessComponent = businessValues.length ? businessValue : observedOutcome
   const verificationComponent = observations ? verificationRate : 50
   const outcomeScore = Math.round(
     clamp(observedOutcome) * 0.45 +
