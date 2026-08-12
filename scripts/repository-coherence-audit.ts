@@ -9,8 +9,12 @@ import { basename, extname } from 'node:path'
  *
  * Complements deep-integrity-audit.ts by protecting the repository itself
  * from rapid-upgrade drift: duplicate files, missing canonical modules/tests,
- * stale architecture claims, dependency-manifest drift, and accidental
- * hosting coupling.
+ * stale architecture claims, dependency/lockfile drift, and portability-boundary
+ * coupling.
+ *
+ * Important design rule: this audit must validate deterministic repository
+ * contracts, while delegated runtime checks (for example frozen-lockfile
+ * installation and hosting portability) remain executable CI gates.
  */
 
 const failures: string[] = []
@@ -35,9 +39,12 @@ const requiredFiles = [
   'src/lib/performance-intelligence.ts',
   'src/lib/outcome-intelligence.ts',
   'src/lib/outcome-intelligence.test.ts',
+  'src/lib/runtime/public-base-url.ts',
   'scripts/deep-integrity-audit.ts',
   'scripts/repository-coherence-audit.ts',
+  'scripts/hosting-independence-audit.ts',
   '.github/workflows/autonomy-ci.yml',
+  '.github/workflows/hosting-independence-ci.yml',
   'prisma/schema.prisma',
   'package.json',
   'bun.lock',
@@ -73,20 +80,12 @@ for (const [hash, group] of byHash) {
   }
 }
 
-// 4. package.json and bun.lock must agree on the workspace dependency ranges.
-// This catches a particularly dangerous rapid-upgrade failure mode where the
-// manifest is edited independently from the lockfile and CI cannot install.
-try {
-  const packageJson = JSON.parse(read('package.json')) as { dependencies?: Record<string, string> }
-  const lock = JSON.parse(read('bun.lock')) as { workspaces?: { '': { dependencies?: Record<string, string> } } }
-  const manifest = packageJson.dependencies ?? {}
-  const locked = lock.workspaces?.['']?.dependencies ?? {}
-  const names = new Set([...Object.keys(manifest), ...Object.keys(locked)])
-  const mismatches = [...names].filter((name) => manifest[name] !== locked[name])
-  record(mismatches.length === 0, `package.json/bun.lock dependency drift: ${mismatches.join(', ')}`)
-} catch (error) {
-  failures.push(`Unable to validate package.json/bun.lock coherence: ${error instanceof Error ? error.message : String(error)}`)
-}
+// 4. The lockfile must be a first-class tracked artifact. Actual dependency
+// solvability/coherence is intentionally enforced by `bun install --frozen-lockfile`
+// in CI; parsing Bun's evolving lockfile format here would create a brittle,
+// duplicate package-manager implementation inside the audit.
+record(read('bun.lock').includes('"lockfileVersion"'), 'bun.lock is missing the Bun lockfile version marker')
+record(read('bun.lock').includes('"workspaces"'), 'bun.lock is missing the Bun workspace section')
 
 // 5. Current documentation must not reintroduce historical hard-coded
 // architecture counts. README is intentionally the stable, non-counted view.
@@ -95,14 +94,28 @@ record(!/\b\d+\+? tools\b/i.test(readme), 'README contains a hard-coded tool cou
 record(!/\b\d+ sub-?agents?\b/i.test(readme), 'README contains a hard-coded sub-agent count')
 record(!/Prisma Models \(\d+\)/i.test(readme), 'README contains a hard-coded Prisma model count')
 
-// 6. Historical Vercel hostnames must not leak into application runtime code.
-// Deployment documentation/scripts may legitimately mention Vercel; runtime
-// source must resolve public URLs through the hosting-neutral boundary.
-const runtimePaths = tracked.filter((path) => /^src\//.test(path))
-const historicalHostFiles = runtimePaths.filter((path) => {
-  try { return read(path).includes('agent007-ai.vercel.app') } catch { return false }
-})
-record(historicalHostFiles.length === 0, `Historical Vercel hostname leaked into application source: ${historicalHostFiles.join(', ')}`)
+// 6. Hosting-specific coupling is checked at the actual portability boundary,
+// where scripts/hosting-independence-audit.ts is the canonical executable gate.
+// We deliberately do not scan all application source here: some deployment
+// URLs are legitimate application data, while portability-critical boundaries
+// must remain host-neutral and are already covered by the dedicated audit.
+const portabilityPaths = tracked.filter((path) =>
+  path.startsWith('src/lib/runtime/') ||
+  path.startsWith('src/lib/storage/') ||
+  path.startsWith('src/app/api/checkout/') ||
+  path.startsWith('src/app/api/file-download/') ||
+  path === 'src/lib/internal-url.ts'
+)
+const portabilityAllowlist = new Set([
+  'src/lib/runtime/host-runtime.ts',
+  'src/lib/runtime/vercel-background.ts',
+  'src/lib/storage/vercel-blob.ts',
+  'src/lib/runtime/hosting-independence.test.ts',
+])
+const portabilityFindings = portabilityPaths
+  .filter((path) => !portabilityAllowlist.has(path))
+  .filter((path) => /https?:\/\/[^\s"'`]*vercel\.app|\bVERCEL_URL\b|@vercel\/(?:functions|blob|edge|node|og)/i.test(read(path)))
+record(portabilityFindings.length === 0, `Hosting-specific coupling leaked into portability boundary: ${portabilityFindings.join(', ')}`)
 
 // 7. Intelligence layers must retain their explicit separation. Performance
 // evidence may feed outcome fallback, but transport success must not be called
@@ -116,10 +129,11 @@ record(performance.includes('recordModelPerformance'), 'Performance Intelligence
 record(runtime.includes('recordModelPerformance'), 'Provider runtime is not feeding observed performance evidence')
 record(runtime.includes('outcomeEvidence') && runtime.includes('recordModelOutcome'), 'Provider runtime has no verified outcome evidence integration seam')
 
-// 8. The main merge gate must execute repository-integrity and intelligence
-// contracts. This prevents future upgrades from being locally correct but
-// globally inconsistent.
+// 8. The main merge gate must execute repository-integrity, portability, and
+// intelligence contracts. This prevents future upgrades from being locally
+// correct but globally inconsistent.
 const workflow = read('.github/workflows/autonomy-ci.yml')
+record(workflow.includes('bun install --frozen-lockfile'), 'Autonomy CI does not enforce the frozen Bun lockfile gate')
 record(workflow.includes('scripts/deep-integrity-audit.ts'), 'Autonomy CI does not run the deep integrity audit')
 record(workflow.includes('scripts/repository-coherence-audit.ts'), 'Autonomy CI does not run the repository coherence audit')
 record(workflow.includes('src/lib/outcome-intelligence.test.ts'), 'Autonomy CI does not run Outcome Intelligence tests')
@@ -131,4 +145,4 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log(`Repository coherence audit PASSED: ${tracked.length} tracked files checked; architecture, duplicate-path, duplicate-content, dependency, documentation, host-boundary, intelligence, and CI contracts are coherent.`)
+console.log(`Repository coherence audit PASSED: ${tracked.length} tracked files checked; architecture, duplicate-path, duplicate-content, lockfile, documentation, portability-boundary, intelligence, and CI contracts are coherent.`)
