@@ -2,6 +2,7 @@ import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy 
 import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
+import { recordModelOutcome, type OutcomeStatus } from './outcome-intelligence'
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export interface ProviderRuntimeConfig {
@@ -13,6 +14,13 @@ export interface ProviderRuntimeConfig {
   defaultModel: string
 }
 
+export interface ProviderRuntimeOutcomeEvidence {
+  status: OutcomeStatus
+  qualityScore?: number
+  businessValueScore?: number
+  verificationPassed: boolean
+}
+
 export interface ProviderRuntimeRequest {
   messages: readonly Record<string, unknown>[]
   taskType?: TaskType
@@ -21,6 +29,11 @@ export interface ProviderRuntimeRequest {
   temperature?: number
   maxTokens?: number
   timeoutMs?: number
+  /**
+   * Optional verified evidence supplied by the mission/verifier layer.
+   * Transport success alone never creates an outcome observation.
+   */
+  outcomeEvidence?: ProviderRuntimeOutcomeEvidence
 }
 
 export interface ProviderRuntimeResult {
@@ -98,6 +111,14 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
 
     recordSuccess(provider, responseMs)
     recordModelPerformance({ provider, model, taskType, success: true, responseMs })
+    if (request.outcomeEvidence) {
+      recordModelOutcome({
+        provider,
+        model,
+        taskType,
+        ...request.outcomeEvidence,
+      })
+    }
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
     const responseMs = Date.now() - started
