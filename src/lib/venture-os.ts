@@ -64,13 +64,14 @@ export interface VentureOSSnapshot {
   }
   portfolio: {
     total: number
-    active: number
-    retired: number
+    nonRetired: number
     proposed: number
     validated: number
     launched: number
+    active: number
     scaling: number
     automated: number
+    retired: number
   }
   enterpriseValue: Awaited<ReturnType<typeof computeEnterpriseValue>>
   dualMissions: {
@@ -97,9 +98,31 @@ function identityKey(name: string): string {
   return `venture_identity:${normalizeVentureName(name)}`
 }
 
-/**
- * Validate cross-system invariants without mutating state.
- */
+async function findLegacyVentureByName(name: string): Promise<Business | null> {
+  const normalizedName = normalizeVentureName(name)
+  if (!normalizedName) return null
+
+  const businesses = await getPortfolio()
+  return businesses.find((business) => normalizeVentureName(business.name) === normalizedName) ?? null
+}
+
+async function repairIdentity(key: string, business: Business): Promise<void> {
+  const value = JSON.stringify({
+    status: 'created',
+    businessId: business.businessId,
+    name: business.name,
+    createdAt: business.createdAt,
+    reconciledAt: new Date().toISOString(),
+  })
+
+  await db.memory.upsert({
+    where: { key },
+    update: { value, category: 'venture_identity' },
+    create: { key, value, category: 'venture_identity' },
+  })
+}
+
+/** Validate cross-system invariants without mutating state. */
 export function validateVentureOSContracts(): VentureOSIntegrityIssue[] {
   const issues: VentureOSIntegrityIssue[] = []
   const stages = VID_WORKFLOW_STAGES
@@ -108,62 +131,30 @@ export function validateVentureOSContracts(): VentureOSIntegrityIssue[] {
   const weightsTotal = VENTURE_SCORE_CATEGORIES.reduce((total, item) => total + item.weight, 0)
 
   if (VID_MISSION.trim().length < 80) {
-    issues.push({
-      code: 'VID_MISSION_TOO_SHORT',
-      severity: 'error',
-      message: 'VID mission contract is unexpectedly short.',
-    })
+    issues.push({ code: 'VID_MISSION_TOO_SHORT', severity: 'error', message: 'VID mission contract is unexpectedly short.' })
   }
-
   if (VENTURE_SCORE_THRESHOLD < 0 || VENTURE_SCORE_THRESHOLD > 100) {
-    issues.push({
-      code: 'VENTURE_SCORE_THRESHOLD_RANGE',
-      severity: 'error',
-      message: `Venture Score threshold ${VENTURE_SCORE_THRESHOLD} is outside 0-100.`,
-    })
+    issues.push({ code: 'VENTURE_SCORE_THRESHOLD_RANGE', severity: 'error', message: `Venture Score threshold ${VENTURE_SCORE_THRESHOLD} is outside 0-100.` })
   }
-
   if (weightsTotal !== 100) {
-    issues.push({
-      code: 'VENTURE_SCORE_WEIGHTS',
-      severity: 'error',
-      message: `Venture Score category weights total ${weightsTotal}; expected 100.`,
-    })
+    issues.push({ code: 'VENTURE_SCORE_WEIGHTS', severity: 'error', message: `Venture Score category weights total ${weightsTotal}; expected 100.` })
   }
 
   const expectedSequence = stages.map((_, index) => index + 1)
   if (stageNumbers.length === 0 || stageNumbers.some((step, index) => step !== expectedSequence[index])) {
-    issues.push({
-      code: 'VID_WORKFLOW_SEQUENCE',
-      severity: 'error',
-      message: 'VID workflow steps must be contiguous and start at 1.',
-    })
+    issues.push({ code: 'VID_WORKFLOW_SEQUENCE', severity: 'error', message: 'VID workflow steps must be contiguous and start at 1.' })
   }
-
   if (new Set(stageNames).size !== stageNames.length) {
-    issues.push({
-      code: 'VID_WORKFLOW_DUPLICATE',
-      severity: 'error',
-      message: 'VID workflow contains duplicate stage names.',
-    })
+    issues.push({ code: 'VID_WORKFLOW_DUPLICATE', severity: 'error', message: 'VID workflow contains duplicate stage names.' })
   }
 
   const dualMissions = getDualMissions()
   const leaderIds = dualMissions.map((mission) => mission.leaderId.trim().toLowerCase())
   if (leaderIds.some((id) => id.length === 0)) {
-    issues.push({
-      code: 'DUAL_MISSION_EMPTY_LEADER',
-      severity: 'error',
-      message: 'Every dual mission must have a non-empty leader id.',
-    })
+    issues.push({ code: 'DUAL_MISSION_EMPTY_LEADER', severity: 'error', message: 'Every dual mission must have a non-empty leader id.' })
   }
-
   if (new Set(leaderIds).size !== leaderIds.length) {
-    issues.push({
-      code: 'DUAL_MISSION_DUPLICATE_LEADER',
-      severity: 'error',
-      message: 'Dual missions must have unique leader ids.',
-    })
+    issues.push({ code: 'DUAL_MISSION_DUPLICATE_LEADER', severity: 'error', message: 'Dual missions must have unique leader ids.' })
   }
 
   return issues
@@ -171,10 +162,8 @@ export function validateVentureOSContracts(): VentureOSIntegrityIssue[] {
 
 /**
  * Canonical venture creation gate.
- *
- * Existing portfolio data remains authoritative. A unique identity row in
- * Memory prevents two concurrent requests from registering the same normalized
- * venture name through the Venture OS boundary.
+ * Legacy portfolio rows are reconciled into the identity index before a new
+ * venture may be created, preventing duplicate names across upgrades.
  */
 export async function createVenture(input: VentureCreationInput): Promise<VentureCreationResult> {
   const normalizedName = normalizeVentureName(input.name)
@@ -185,27 +174,31 @@ export async function createVenture(input: VentureCreationInput): Promise<Ventur
   const key = identityKey(input.name)
 
   try {
+    const legacyBusiness = await findLegacyVentureByName(input.name)
+    if (legacyBusiness) {
+      await repairIdentity(key, legacyBusiness)
+      return {
+        created: false,
+        duplicate: true,
+        business: legacyBusiness,
+        reason: `Venture name already exists: ${legacyBusiness.name}`,
+      }
+    }
+
     const existingIdentity = await db.memory.findUnique({ where: { key } })
     if (existingIdentity) {
       const identity = JSON.parse(existingIdentity.value) as { businessId?: string; status?: string }
       if (identity.businessId) {
         const business = (await getPortfolio()).find((item) => item.businessId === identity.businessId) ?? null
         if (business) {
-          return {
-            created: false,
-            duplicate: true,
-            business,
-            reason: `Venture name already exists: ${business.name}`,
-          }
+          return { created: false, duplicate: true, business, reason: `Venture name already exists: ${business.name}` }
         }
       }
       return {
         created: false,
         duplicate: true,
         business: null,
-        reason: identity.status === 'creating'
-          ? 'Venture creation is already in progress for this name.'
-          : 'Venture identity is already reserved.',
+        reason: identity.status === 'creating' ? 'Venture creation is already in progress for this name.' : 'Venture identity is already reserved.',
       }
     }
 
@@ -222,40 +215,38 @@ export async function createVenture(input: VentureCreationInput): Promise<Ventur
     await db.memory.update({
       where: { key },
       data: {
-        value: JSON.stringify({
-          status: 'created',
-          businessId: business.businessId,
-          name: business.name,
-          createdAt: business.createdAt,
-        }),
+        value: JSON.stringify({ status: 'created', businessId: business.businessId, name: business.name, createdAt: business.createdAt }),
+        category: 'venture_identity',
       },
     })
 
     return { created: true, duplicate: false, business }
   } catch (error) {
-    // A unique-key race means another caller won the identity reservation.
     try {
+      const reconciledBusiness = await findLegacyVentureByName(input.name)
+      if (reconciledBusiness) {
+        await repairIdentity(key, reconciledBusiness)
+        return { created: false, duplicate: true, business: reconciledBusiness, reason: `Venture name already exists: ${reconciledBusiness.name}` }
+      }
+
       const identity = await db.memory.findUnique({ where: { key } })
       if (identity) {
         const parsed = JSON.parse(identity.value) as { businessId?: string }
         if (parsed.businessId) {
           const business = (await getPortfolio()).find((item) => item.businessId === parsed.businessId) ?? null
-          return {
-            created: false,
-            duplicate: true,
-            business,
-            reason: business ? `Venture name already exists: ${business.name}` : 'Venture identity is already reserved.',
+          if (business) {
+            return { created: false, duplicate: true, business, reason: `Venture name already exists: ${business.name}` }
           }
         }
       }
     } catch {
-      // Preserve the original failure when the reconciliation lookup also fails.
+      // Preserve the original failure when reconciliation also fails.
     }
 
     try {
       await db.memory.delete({ where: { key } })
     } catch {
-      // Best effort cleanup of an abandoned reservation.
+      // Best-effort cleanup of an abandoned reservation.
     }
 
     const message = error instanceof Error ? error.message : 'Venture creation failed.'
@@ -271,13 +262,14 @@ export async function getVentureOSSnapshot(): Promise<VentureOSSnapshot> {
 
   const lifecycleCounts = {
     total: businesses.length,
-    active: businesses.filter((business) => !TERMINAL_LIFECYCLES.has(business.lifecycle)).length,
-    retired: countLifecycle(businesses, 'retired'),
+    nonRetired: businesses.filter((business) => !TERMINAL_LIFECYCLES.has(business.lifecycle)).length,
     proposed: countLifecycle(businesses, 'proposed'),
     validated: countLifecycle(businesses, 'validated'),
     launched: countLifecycle(businesses, 'launched'),
+    active: countLifecycle(businesses, 'active'),
     scaling: countLifecycle(businesses, 'scaling'),
     automated: countLifecycle(businesses, 'automated'),
+    retired: countLifecycle(businesses, 'retired'),
   }
 
   return {
@@ -293,13 +285,7 @@ export async function getVentureOSSnapshot(): Promise<VentureOSSnapshot> {
     },
     portfolio: lifecycleCounts,
     enterpriseValue,
-    dualMissions: {
-      leaders: dualMissions.length,
-      leaderIds: dualMissions.map((mission) => mission.leaderId),
-    },
-    integrity: {
-      ok: issues.every((issue) => issue.severity !== 'error'),
-      issues,
-    },
+    dualMissions: { leaders: dualMissions.length, leaderIds: dualMissions.map((mission) => mission.leaderId) },
+    integrity: { ok: issues.every((issue) => issue.severity !== 'error'), issues },
   }
 }
