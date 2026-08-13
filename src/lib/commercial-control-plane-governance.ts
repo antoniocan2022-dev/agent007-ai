@@ -1,18 +1,22 @@
 import { db } from './db'
-import {
-  COMMERCIAL_BUSINESSES,
-  COMMERCIAL_CATEGORIES,
-  COMMERCIAL_CONTROL_PLANE_ID,
-  COMMERCIAL_CONTROL_PLANE_VERSION,
-  type AuthorityLevel,
-  type BillingRecord,
-  type CommercialAuditRecord,
-  type CommercialBusiness,
-  type CommercialControlPlaneSnapshot,
-  type CommercialEvidence,
-  type DelegatedAuthority,
-  type Entitlement,
-} from './commercial-control-plane'
+import { COMMERCIAL_BUSINESSES, COMMERCIAL_CATEGORIES, COMMERCIAL_CONTROL_PLANE_ID, COMMERCIAL_CONTROL_PLANE_VERSION, type AuthorityLevel, type BillingRecord, type CommercialAuditRecord, type CommercialBusiness, type CommercialEvidence, type DelegatedAuthority, type Entitlement } from './commercial-control-plane'
+
+export interface CommercialControlPlaneSnapshot {
+  id: typeof COMMERCIAL_CONTROL_PLANE_ID
+  version: typeof COMMERCIAL_CONTROL_PLANE_VERSION
+  tenantCount: number
+  customerCount: number
+  eventCount: number
+  workflowCount: number
+  credentialCount: number
+  billingCount: number
+  entitlementCount: number
+  evidenceCount: number
+  activeAuthorityCount: number
+  auditCount: number
+  businesses: Record<CommercialBusiness, { customers: number; events: number; workflows: number; billing: number; evidence: number }>
+  integrity: { ok: boolean; issues: string[] }
+}
 
 export async function recordBilling(input: Omit<BillingRecord, 'billingId' | 'createdAt' | 'updatedAt'> & { billingId?: string }): Promise<{ created: boolean; billing: BillingRecord }> {
   if (!input.tenantId.trim() || !COMMERCIAL_BUSINESSES.includes(input.business)) throw new Error('Valid tenantId and business are required.')
@@ -99,7 +103,7 @@ export async function getCommercialControlPlaneSnapshot(tenantId?: string): Prom
 export function validateCommercialControlPlaneContracts(): string[] {
   const errors: string[] = []
   if (COMMERCIAL_BUSINESSES.length !== 4) errors.push('Commercial taxonomy must contain three venture units plus shared-platform.')
-  if (Object.values(COMMERCIAL_CATEGORIES).length !== 10) errors.push('Commercial persistence taxonomy must contain 10 unique categories.')
+  if (Object.values(COMMERCIAL_CATEGORIES).length !== 10) errors.push('Commercial persistence taxonomy must contain 10 categories.')
   if (new Set(Object.values(COMMERCIAL_CATEGORIES)).size !== Object.values(COMMERCIAL_CATEGORIES).length) errors.push('Commercial persistence categories must be unique.')
   if (!['autonomous', 'guardrailed', 'human_approval', 'forbidden'].every((value) => (['autonomous', 'guardrailed', 'human_approval', 'forbidden'] as AuthorityLevel[]).includes(value as AuthorityLevel))) errors.push('Authority taxonomy is invalid.')
   return errors
