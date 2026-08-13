@@ -23,18 +23,18 @@ describe('Venture Scorecard', () => {
     expect(isScorecardContractValid()).toEqual([])
   })
 
-  test('strong opportunity can advance only with strong evidence', () => {
+  test('strong canonical opportunity can advance only with strong evidence', () => {
     const result = calculateOpportunityScore({
-      marketPain: 95,
-      willingnessToPay: 94,
-      competition: 82,
-      acquisitionDifficulty: 88,
+      marketDemand: 95,
+      competition: 90,
       automationPotential: 97,
-      startupCost: 95,
-      speedToMvp: 92,
+      timeToRevenue: 92,
+      scalability: 95,
+      recurringRevenue: 94,
+      aiAdvantage: 90,
       evidenceConfidence: 0.9,
       evidence: [
-        { source: 'market-research', statement: 'Observed repeated customer pain.', confidence: 0.9 },
+        { source: 'market-research', statement: 'Observed repeated customer pain and demand.', confidence: 0.9 },
         { source: 'pricing-research', statement: 'Comparable offers have paying demand.', confidence: 0.9 },
       ],
     })
@@ -46,13 +46,13 @@ describe('Venture Scorecard', () => {
 
   test('missing evidence cannot become an autonomous positive decision', () => {
     const result = calculateOpportunityScore({
-      marketPain: 100,
-      willingnessToPay: 100,
+      marketDemand: 100,
       competition: 100,
-      acquisitionDifficulty: 100,
       automationPotential: 100,
-      startupCost: 100,
-      speedToMvp: 100,
+      timeToRevenue: 100,
+      scalability: 100,
+      recurringRevenue: 100,
+      aiAdvantage: 100,
       evidenceConfidence: 1,
       evidence: [],
     })
