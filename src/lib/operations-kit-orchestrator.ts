@@ -3,5 +3,67 @@ import {recordCommercialEvidence,evaluateDelegatedAuthority,auditCommercialActio
 import {buildProcessObservation,persistProcessObservation} from './operations-kit-measurement'
 import {scoreOperationsOpportunity} from './operations-kit-rules'
 import type {ProcessObservationInput,OperationsPlan} from './operations-kit-types'
-export async function buildOperationsPlan(input:ProcessObservationInput):Promise<OperationsPlan>{const s=buildProcessObservation(input);await persistProcessObservation(s);const o=scoreOperationsOpportunity(s);const ev=await recordCommercialEvidence({tenantId:s.tenantId,business:'operations-kit',source:s.source,type:'operations',statement:o.rationale,confidence:s.confidence,verified:true,observedAt:s.observedAt,entityType:'operations_opportunity',entityId:o.opportunityId});o.evidenceId=ev.evidenceId as never;await recordCommercialEvent({tenantId:s.tenantId,business:'operations-kit',type:'operations.plan.created',source:'operations-kit',entityType:'operations_opportunity',entityId:o.opportunityId,occurredAt:new Date().toISOString(),payload:{customerId:s.customerId,priority:o.priority},idempotencyKey:`operations-plan:${s.observationId}`});return{planId:`opsp:${s.observationId}`,tenantId:s.tenantId,customerId:s.customerId,observationId:s.observationId,opportunities:[o],totalMonthlyMinutesSaved:o.estimatedMonthlyMinutesSaved,totalMonthlyValue:o.estimatedMonthlyValue,topPriority:o.priority,blockedActions:['External workflow activation requires delegated authority verification.'],createdAt:new Date().toISOString()}}
-export async function authorizeOperationsAction(x:{tenantId:string;action:string;spend?:number;channel?:string;opportunityId:string;customerId:string}){const a=await evaluateDelegatedAuthority({tenantId:x.tenantId,business:'operations-kit',action:x.action,spend:x.spend,channel:x.channel});await auditCommercialAction({tenantId:x.tenantId,business:'operations-kit',action:x.action,actor:'SMB_OPERATIONS_LEADER',entityType:'operations_opportunity',entityId:x.opportunityId,allowed:a.allowed,reason:a.reason,metadata:{customerId:x.customerId}});return a}
+
+export async function buildOperationsPlan(input: ProcessObservationInput): Promise<OperationsPlan> {
+  const observation = buildProcessObservation(input)
+  await persistProcessObservation(observation)
+  const opportunity = scoreOperationsOpportunity(observation)
+  const evidence = await recordCommercialEvidence({
+    tenantId: observation.tenantId,
+    business: 'operations-kit',
+    source: observation.source,
+    type: 'operations',
+    statement: opportunity.rationale,
+    confidence: observation.confidence,
+    verified: false,
+    observedAt: observation.observedAt,
+    entityType: 'operations_opportunity',
+    entityId: opportunity.opportunityId,
+  })
+  opportunity.evidenceId = evidence.evidenceId as never
+  await recordCommercialEvent({
+    tenantId: observation.tenantId,
+    business: 'operations-kit',
+    type: 'operations.plan.created',
+    source: 'operations-kit',
+    entityType: 'operations_opportunity',
+    entityId: opportunity.opportunityId,
+    occurredAt: new Date().toISOString(),
+    payload: { customerId: observation.customerId, priority: opportunity.priority },
+    idempotencyKey: `operations-plan:${observation.observationId}`,
+  })
+  return {
+    planId: `opsp:${observation.observationId}`,
+    tenantId: observation.tenantId,
+    customerId: observation.customerId,
+    observationId: observation.observationId,
+    opportunities: [opportunity],
+    totalMonthlyMinutesSaved: opportunity.estimatedMonthlyMinutesSaved,
+    totalMonthlyValue: opportunity.estimatedMonthlyValue,
+    topPriority: opportunity.priority,
+    blockedActions: ['External workflow activation requires delegated authority verification.'],
+    createdAt: new Date().toISOString(),
+  }
+}
+
+export async function authorizeOperationsAction(input: { tenantId: string; action: string; spend?: number; channel?: string; opportunityId: string; customerId: string }) {
+  const authority = await evaluateDelegatedAuthority({
+    tenantId: input.tenantId,
+    business: 'operations-kit',
+    action: input.action,
+    spend: input.spend,
+    channel: input.channel,
+  })
+  await auditCommercialAction({
+    tenantId: input.tenantId,
+    business: 'operations-kit',
+    action: input.action,
+    actor: 'SMB_OPERATIONS_LEADER',
+    entityType: 'operations_opportunity',
+    entityId: input.opportunityId,
+    allowed: authority.allowed,
+    reason: authority.reason,
+    metadata: { customerId: input.customerId },
+  })
+  return authority
+}
