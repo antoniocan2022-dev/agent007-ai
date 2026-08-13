@@ -1,27 +1,30 @@
 /**
- * Venture Scorecard — predictive opportunity scoring + observed health scoring.
+ * Venture Scorecard — canonical VID opportunity score + observed lifecycle health.
  *
- * Scores are pure functions. They never invent business outcomes and accept
- * only caller-supplied evidence or realized portfolio metrics.
+ * Opportunity scoring reuses the existing VID Venture Score contract so there
+ * is exactly one opportunity taxonomy. The new CEO layer adds health scoring
+ * for post-validation operation.
  */
 
-export const VENTURE_SCORECARD_VERSION = 1
+import { VENTURE_SCORE_CATEGORIES, VENTURE_SCORE_THRESHOLD } from './vid-data'
+
+export const VENTURE_SCORECARD_VERSION = 2
 
 export interface ScoreEvidence {
   source: string
   statement: string
-  confidence: number // 0..1
+  confidence: number
   observedAt?: string
 }
 
 export interface OpportunityScoreInput {
-  marketPain: number
-  willingnessToPay: number
+  marketDemand: number
   competition: number
-  acquisitionDifficulty: number
   automationPotential: number
-  startupCost: number
-  speedToMvp: number
+  timeToRevenue: number
+  scalability: number
+  recurringRevenue: number
+  aiAdvantage: number
   evidenceConfidence: number
   evidence: ScoreEvidence[]
 }
@@ -36,13 +39,13 @@ export interface OpportunityScoreResult {
 }
 
 export const OPPORTUNITY_WEIGHTS = {
-  marketPain: 20,
-  willingnessToPay: 20,
+  marketDemand: 20,
   competition: 10,
-  acquisitionDifficulty: 15,
-  automationPotential: 20,
-  startupCost: 10,
-  speedToMvp: 5,
+  automationPotential: 15,
+  timeToRevenue: 15,
+  scalability: 15,
+  recurringRevenue: 15,
+  aiAdvantage: 10,
 } as const
 
 export interface VentureHealthInput {
@@ -96,21 +99,19 @@ function weightedScore(input: Record<string, number>, weights: Record<string, nu
   return Math.round(Object.entries(weights).reduce((sum, [key, weight]) => sum + clampScore(input[key] ?? 0) * weight, 0) / totalWeight)
 }
 
-function evidenceConfidence(evidence: ScoreEvidence[]): number {
+function averageEvidenceConfidence(evidence: ScoreEvidence[]): number {
   if (evidence.length === 0) return 0
-  const valid = evidence.map((item) => clampConfidence(item.confidence)).filter((value) => value > 0)
-  if (valid.length === 0) return 0
-  return valid.reduce((sum, value) => sum + value, 0) / valid.length
+  return evidence.reduce((sum, item) => sum + clampConfidence(item.confidence), 0) / evidence.length
 }
 
 export function calculateOpportunityScore(input: OpportunityScoreInput): OpportunityScoreResult {
   const score = weightedScore(input, OPPORTUNITY_WEIGHTS)
-  const confidence = Math.min(clampConfidence(input.evidenceConfidence), evidenceConfidence(input.evidence) || clampConfidence(input.evidenceConfidence))
+  const confidence = Math.min(clampConfidence(input.evidenceConfidence), averageEvidenceConfidence(input.evidence))
   const blockingReasons: string[] = []
 
   if (input.evidence.length === 0) blockingReasons.push('No evidence supplied.')
   if (confidence < 0.75) blockingReasons.push('Evidence confidence is below the CEO validation threshold.')
-  if (score < 87) blockingReasons.push('Opportunity score is below the 87/100 advance threshold.')
+  if (score < VENTURE_SCORE_THRESHOLD) blockingReasons.push(`Opportunity score is below the ${VENTURE_SCORE_THRESHOLD}/100 advance threshold.`)
 
   return {
     score,
@@ -118,13 +119,13 @@ export function calculateOpportunityScore(input: OpportunityScoreInput): Opportu
     decisionReady: blockingReasons.length === 0,
     evidenceCount: input.evidence.length,
     breakdown: {
-      marketPain: clampScore(input.marketPain),
-      willingnessToPay: clampScore(input.willingnessToPay),
+      marketDemand: clampScore(input.marketDemand),
       competition: clampScore(input.competition),
-      acquisitionDifficulty: clampScore(input.acquisitionDifficulty),
       automationPotential: clampScore(input.automationPotential),
-      startupCost: clampScore(input.startupCost),
-      speedToMvp: clampScore(input.speedToMvp),
+      timeToRevenue: clampScore(input.timeToRevenue),
+      scalability: clampScore(input.scalability),
+      recurringRevenue: clampScore(input.recurringRevenue),
+      aiAdvantage: clampScore(input.aiAdvantage),
     },
     blockingReasons,
   }
@@ -132,7 +133,7 @@ export function calculateOpportunityScore(input: OpportunityScoreInput): Opportu
 
 export function calculateVentureHealth(input: VentureHealthInput): VentureHealthResult {
   const score = weightedScore(input, HEALTH_WEIGHTS)
-  const confidence = Math.min(clampConfidence(input.evidenceConfidence), evidenceConfidence(input.evidence) || clampConfidence(input.evidenceConfidence))
+  const confidence = Math.min(clampConfidence(input.evidenceConfidence), averageEvidenceConfidence(input.evidence))
   const blockingReasons: string[] = []
 
   if (input.evidence.length === 0) blockingReasons.push('No outcome evidence supplied.')
@@ -170,9 +171,14 @@ export function calculateVentureHealth(input: VentureHealthInput): VentureHealth
 
 export function isScorecardContractValid(): string[] {
   const errors: string[] = []
-  if (Object.values(OPPORTUNITY_WEIGHTS).reduce((a, b) => a + b, 0) !== 100) errors.push('Opportunity weights must total 100.')
-  if (Object.values(HEALTH_WEIGHTS).reduce((a, b) => a + b, 0) !== 100) errors.push('Health weights must total 100.')
+  const existingWeights = VENTURE_SCORE_CATEGORIES.reduce((sum, category) => sum + category.weight, 0)
+  const opportunityWeights = Object.values(OPPORTUNITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  const healthWeights = Object.values(HEALTH_WEIGHTS).reduce((a, b) => a + b, 0)
+  if (existingWeights !== 100) errors.push('VID Venture Score weights must total 100.')
+  if (opportunityWeights !== 100) errors.push('Opportunity weights must total 100.')
+  if (healthWeights !== 100) errors.push('Health weights must total 100.')
   if (Object.keys(OPPORTUNITY_WEIGHTS).length !== 7) errors.push('Opportunity scorecard must contain exactly 7 dimensions.')
   if (Object.keys(HEALTH_WEIGHTS).length !== 9) errors.push('Health scorecard must contain exactly 9 dimensions.')
+  if (opportunityWeights !== existingWeights) errors.push('Opportunity Scorecard weights drifted from VID Venture Score weights.')
   return errors
 }
