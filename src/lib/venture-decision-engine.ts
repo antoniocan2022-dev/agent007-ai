@@ -147,6 +147,10 @@ function deriveLifecycleDecision(business: Business, health: ReturnType<typeof c
   }
 }
 
+function evidenceKeyPrefix(businessId: string): string {
+  return `evidence_${businessId}_`
+}
+
 export async function recordVentureEvidence(input: Omit<VentureEvidenceRecord, 'evidenceId' | 'createdAt'>): Promise<VentureEvidenceRecord> {
   const confidence = clampConfidence(input.confidence)
   if (!input.businessId.trim()) throw new Error('businessId is required.')
@@ -173,7 +177,10 @@ export async function recordVentureEvidence(input: Omit<VentureEvidenceRecord, '
 export async function getVentureEvidence(businessId: string, limit: number = 50): Promise<VentureEvidenceRecord[]> {
   if (!businessId.trim()) return []
   const records = await db.memory.findMany({
-    where: { category: 'venture_evidence' },
+    where: {
+      category: 'venture_evidence',
+      key: { startsWith: evidenceKeyPrefix(businessId) },
+    },
     orderBy: { createdAt: 'desc' },
     take: Math.max(1, Math.min(100, limit)),
   })
@@ -188,7 +195,7 @@ export async function getVentureEvidence(businessId: string, limit: number = 50)
 }
 
 export async function recordLaunchVerification(businessId: string, verification: LaunchVerification): Promise<VentureEvidenceRecord> {
-  const evidence = await recordVentureEvidence({
+  return recordVentureEvidence({
     businessId,
     kind: 'launch',
     source: verification.source,
@@ -196,7 +203,6 @@ export async function recordLaunchVerification(businessId: string, verification:
     confidence: verification.confidence,
     verified: true,
   })
-  return evidence
 }
 
 export async function finalizeVerifiedLaunch(businessId: string): Promise<{ applied: boolean; message: string }> {
@@ -392,10 +398,7 @@ export async function applyAutonomousVentureDecision(result: VentureDecisionResu
   return { applied, action: result.decision, message }
 }
 
-/**
- * One autonomous portfolio pass. It reads persisted evidence, evaluates every
- * non-retired venture, and applies only decisions that satisfy the CEO mandate.
- */
+/** One autonomous portfolio pass using persisted evidence only. */
 export async function runAutonomousVentureCycle(): Promise<VentureCycleResult> {
   const businesses = (await getPortfolio()).filter((business) => business.lifecycle !== 'retired')
   const decisions: VentureDecisionResult[] = []
@@ -406,10 +409,10 @@ export async function runAutonomousVentureCycle(): Promise<VentureCycleResult> {
 
   for (const business of businesses) {
     const evidence = await getVentureEvidence(business.businessId)
-    const result = await evaluateVentureDecision({ businessId: business.businessId, health: {
-      ...deriveHealthInput(business, evidence),
-      evidence,
-    } })
+    const result = await evaluateVentureDecision({
+      businessId: business.businessId,
+      health: { ...deriveHealthInput(business, evidence), evidence },
+    })
     decisions.push(result)
 
     if (result.decision === 'hold') held++
