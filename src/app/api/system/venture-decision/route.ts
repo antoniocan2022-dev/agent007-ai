@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     health: body?.health,
     launchVerified: body?.launchVerified === true,
     requestedSpend: typeof body?.requestedSpend === 'number' ? body.requestedSpend : undefined,
-    monthlyCommittedSpend: typeof body?.monthlyCommittedSpend === 'number' ? body.requestedSpend : undefined,
+    monthlyCommittedSpend: typeof body?.monthlyCommittedSpend === 'number' ? body.monthlyCommittedSpend : undefined,
   })
   if (action === 'apply' || body?.applyAutonomous === true) {
     const applied = await applyAutonomousVentureDecision(decision)
