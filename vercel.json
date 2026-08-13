@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": false
+  },
   "installCommand": "bun install",
   "buildCommand": "bunx prisma generate && (if [[ \"$DATABASE_URL\" == postgres://* || \"$DATABASE_URL\" == postgresql://* ]]; then bunx prisma db push --accept-data-loss || true; fi) && bun run build",
   "functions": {
