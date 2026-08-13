@@ -65,6 +65,9 @@ jobs:
       - name: Repository coherence audit
         run: bun scripts/repository-coherence-audit.ts
 
+      - name: Venture architecture regression audit
+        run: bun scripts/venture-architecture-audit.ts
+
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
 
