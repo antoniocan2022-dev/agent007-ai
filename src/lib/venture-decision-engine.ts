@@ -39,6 +39,7 @@ export interface VentureEvidenceRecord extends ScoreEvidence {
   evidenceId: string
   kind: 'market' | 'customer' | 'payment' | 'analytics' | 'launch' | 'operations' | 'other'
   verified: boolean
+  createdAt: string
 }
 
 export interface LaunchVerification { source: string; statement: string; confidence: number; verifiedAt?: string }
@@ -52,14 +53,14 @@ function spendAllowed(requestedSpend = 0, monthlyCommittedSpend = 0): boolean {
 function averageEvidenceConfidence(evidence: ScoreEvidence[]): number {
   return evidence.length ? evidence.reduce((sum, item) => sum + clampConfidence(item.confidence), 0) / evidence.length : 0
 }
-function metric(evidence: ScoreEvidence[], name: string): number | null {
+function metric(evidence: VentureEvidenceRecord[], name: string): number | null {
   const matches = evidence.filter((item) => item.metric?.name === name && Number.isFinite(item.metric.value))
   if (!matches.length) return null
-  const verified = matches.filter((item) => (item as VentureEvidenceRecord).verified)
+  const verified = matches.filter((item) => item.verified)
   const source = verified.length ? verified : matches
-  return source.sort((a, b) => new Date(b.observedAt ?? 0).getTime() - new Date(a.observedAt ?? 0).getTime())[0].metric?.value ?? null
+  return source.sort((a, b) => new Date(b.observedAt ?? b.createdAt).getTime() - new Date(a.observedAt ?? a.createdAt).getTime())[0].metric?.value ?? null
 }
-function deriveHealthInput(business: Business, evidence: ScoreEvidence[]): VentureHealthInput {
+function deriveHealthInput(business: Business, evidence: VentureEvidenceRecord[]): VentureHealthInput {
   const revenue = clamp((business.monthlyRevenue / 1000) * 100)
   const margin = business.monthlyRevenue > 0 ? clamp((business.netRevenue / business.monthlyRevenue) * 100) : 0
   const demand = clamp((business.customerCount / 10) * 100)
@@ -130,17 +131,19 @@ export async function evaluateVentureDecision(input: VentureDecisionInput): Prom
     }
   }
 
-  const evidence = input.health?.evidence ?? await getVentureEvidence(input.businessId)
-  const launchEvidencePresent = evidence.some((item) => item.kind === 'launch' && item.verified && item.confidence >= CEO_VENTURE_MANDATE.validationConfidenceMinimum)
-  if (business.lifecycle === 'validated' && launchEvidencePresent) return { engineVersion: VENTURE_DECISION_ENGINE_VERSION, businessId: business.businessId, lifecycle: business.lifecycle, decision: 'launch_ready', confidence: Math.max(CEO_VENTURE_MANDATE.validationConfidenceMinimum, averageEvidenceConfidence(evidence)), autonomousEligible: mandateErrors.length === 0, irreversibleActionBlocked: true, score: null, reasons: ['Verified launch evidence is present; the commercial runtime may finalize launch.'], scorecard: {} }
+  const persistedEvidence = await getVentureEvidence(input.businessId)
+  const healthEvidence = input.health?.evidence ?? persistedEvidence
+  const launchEvidencePresent = persistedEvidence.some((item) => item.kind === 'launch' && item.verified && item.confidence >= CEO_VENTURE_MANDATE.validationConfidenceMinimum)
+  if (business.lifecycle === 'validated' && launchEvidencePresent) return { engineVersion: VENTURE_DECISION_ENGINE_VERSION, businessId: business.businessId, lifecycle: business.lifecycle, decision: 'launch_ready', confidence: Math.max(CEO_VENTURE_MANDATE.validationConfidenceMinimum, averageEvidenceConfidence(persistedEvidence)), autonomousEligible: mandateErrors.length === 0, irreversibleActionBlocked: true, score: null, reasons: ['Verified launch evidence is present; the commercial runtime may finalize launch.'], scorecard: {} }
 
-  const health = calculateVentureHealth(input.health ?? deriveHealthInput(business, evidence))
+  const health = calculateVentureHealth(input.health ?? deriveHealthInput(business, persistedEvidence))
   const decision = deriveLifecycleDecision(business, health)
   const isTerminal = business.lifecycle === 'retired'
   if (health.confidence < 0.5) reasons.push('Outcome evidence confidence is below the autonomous decision floor.')
-  if (decision === 'scale' && !scaleEvidenceComplete(evidence as VentureEvidenceRecord[])) reasons.push('Scale requires verified conversion-rate and customer-satisfaction metrics; missing metrics block autonomous scaling.')
-  const autonomousEligible = !isTerminal && mandateErrors.length === 0 && health.confidence >= 0.5 && spendAllowed(input.requestedSpend, input.monthlyCommittedSpend) && !(decision === 'scale' && !scaleEvidenceComplete(evidence as VentureEvidenceRecord[])) && (decision !== 'kill' || (health.confidence >= 0.75 && health.evidenceCount >= 2))
-  return { engineVersion: VENTURE_DECISION_ENGINE_VERSION, businessId: business.businessId, lifecycle: business.lifecycle, decision: (decision === 'scale' && !scaleEvidenceComplete(evidence as VentureEvidenceRecord[])) ? 'hold' : decision, confidence: health.confidence, autonomousEligible, irreversibleActionBlocked: decision === 'kill' || decision === 'pivot' || decision === 'launch_ready', score: health.score, reasons: [...reasons, ...health.blockingReasons], scorecard: { health } }
+  const scaleComplete = scaleEvidenceComplete(persistedEvidence)
+  if (decision === 'scale' && !scaleComplete) reasons.push('Scale requires verified conversion-rate and customer-satisfaction metrics; missing metrics block autonomous scaling.')
+  const autonomousEligible = !isTerminal && mandateErrors.length === 0 && health.confidence >= 0.5 && spendAllowed(input.requestedSpend, input.monthlyCommittedSpend) && !(decision === 'scale' && !scaleComplete) && (decision !== 'kill' || (health.confidence >= 0.75 && health.evidenceCount >= 2))
+  return { engineVersion: VENTURE_DECISION_ENGINE_VERSION, businessId: business.businessId, lifecycle: business.lifecycle, decision: (decision === 'scale' && !scaleComplete) ? 'hold' : decision, confidence: health.confidence, autonomousEligible, irreversibleActionBlocked: decision === 'kill' || decision === 'pivot' || decision === 'launch_ready', score: health.score, reasons: [...reasons, ...health.blockingReasons], scorecard: { health } }
 }
 
 export async function applyAutonomousVentureDecision(result: VentureDecisionResult): Promise<{ applied: boolean; action: VentureDecision; message: string }> {
@@ -158,18 +161,14 @@ export async function applyAutonomousVentureDecision(result: VentureDecisionResu
       if (business.lifecycle === 'scaling') { const updated = await updateBusiness(business.businessId, { lifecycle: 'active' }); applied = !!updated; message = applied ? 'Business moved from scaling to active for optimization.' : 'Optimization lifecycle update failed.' }
       else message = 'Business retained for optimization; no lifecycle mutation was required.'
       break
-    case 'experiment':
-      message = 'Business retained for another measured experiment; no lifecycle mutation was required.'; break
-    case 'kill':
-      await retireBusiness(business.businessId, 'CEO Venture Mandate: autonomous kill threshold reached with sufficient independent evidence.'); applied = true; message = 'Business retired and existing portfolio retirement learning flow invoked.'; break
-    case 'launch_ready':
-      { const finalized = await finalizeVerifiedLaunch(business.businessId); applied = finalized.applied; message = finalized.message; break }
+    case 'experiment': message = 'Business retained for another measured experiment; no lifecycle mutation was required.'; break
+    case 'kill': await retireBusiness(business.businessId, 'CEO Venture Mandate: autonomous kill threshold reached with sufficient independent evidence.'); applied = true; message = 'Business retired and existing portfolio retirement learning flow invoked.'; break
+    case 'launch_ready': { const finalized = await finalizeVerifiedLaunch(business.businessId); applied = finalized.applied; message = finalized.message; break }
     case 'pivot':
     case 'hold':
     case 'validate':
     case 'build':
-    case 'reject':
-      message = `Decision ${result.decision} requires additional planning/evidence or a separate non-destructive execution capability.`; break
+    case 'reject': message = `Decision ${result.decision} requires additional planning/evidence or a separate non-destructive execution capability.`; break
   }
 
   try { await db.memory.create({ data: { key: `venture_decision_${result.businessId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, category: 'venture_decision_audit', value: JSON.stringify({ engineVersion: result.engineVersion, businessId: result.businessId, decision: result.decision, confidence: result.confidence, applied, message, reasons: result.reasons, createdAt: new Date().toISOString() }) } }) } catch {}
