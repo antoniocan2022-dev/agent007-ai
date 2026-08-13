@@ -72,7 +72,7 @@ jobs:
         run: bun test src/lib/provider-intelligence-v2.test.ts src/lib/model-intelligence.test.ts src/lib/model-intelligence-runtime.test.ts src/lib/performance-intelligence.test.ts src/lib/outcome-intelligence.test.ts
 
       - name: Venture OS contract tests
-        run: bun test src/lib/venture-os.test.ts
+        run: bun test src/lib/venture-os.test.ts src/lib/venture-decision-engine.test.ts
 
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
