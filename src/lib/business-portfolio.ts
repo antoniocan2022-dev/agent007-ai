@@ -3,34 +3,15 @@
  *
  * The Business Portfolio Manager + Business Flywheel + Dual Leader Missions.
  *
- * This module transforms Agent007 from a platform into an ENTERPRISE —
- * a portfolio of businesses managed by a shared executive intelligence.
- *
- * 3 subsystems:
- *
- * 1. PORTFOLIO MANAGER
- *    Tracks multiple businesses with lifecycle status (proposed → validated →
- *    launched → active → scaling → automated → retired).
- *    Computes Enterprise Value (7 dimensions).
- *    Detects negative ROI → triggers retirement.
- *
- * 2. BUSINESS FLYWHEEL (11-step operational loop)
- *    Observe → Identify → Estimate Value → Validate → Build MVP →
- *    Acquire Customers → Learn → Automate → Scale → Standardize →
- *    Teach Organization → Repeat
- *
- * 3. DUAL LEADER MISSIONS
- *    Each leader has Mission A (business outcome) + Mission B (organizational learning).
+ * This remains the portfolio source of truth. Venture OS governs new venture
+ * identity and strategic decisions; this module owns persistence and the
+ * lower-level business lifecycle primitives.
  */
 
 import { db } from './db'
 import { callLlmWithRetry } from './agent'
 
 export const runtime = 'nodejs'
-
-// ═══════════════════════════════════════════════════════════════
-// 1. PORTFOLIO MANAGER
-// ═══════════════════════════════════════════════════════════════
 
 export type BusinessLifecycle =
   | 'proposed'
@@ -62,22 +43,16 @@ export interface Business {
   createdAt: string
   launchedAt: string | null
   retiredAt: string | null
-
-  // Financial metrics
   monthlyRevenue: number
   totalRevenue: number
   monthlyCost: number
-  netRevenue: number  // revenue - cost
-  roi: number  // (netRevenue / cost) * 100, or 0 if no cost
-
-  // Enterprise Value dimensions
+  netRevenue: number
+  roi: number
   customerCount: number
   emailListSize: number
-  automationLevel: number  // 0-100
-  knowledgeAssets: number  // count of org KB entries from this business
-  brandScore: number  // 0-100
-
-  // Metadata
+  automationLevel: number
+  knowledgeAssets: number
+  brandScore: number
   targetMarket: string
   pricingModel: string
   automationNotes: string
@@ -85,7 +60,7 @@ export interface Business {
 }
 
 export interface EnterpriseValue {
-  totalValue: number  // 0-100 composite
+  totalValue: number
   components: {
     recurringRevenue: number
     businessAssets: number
@@ -102,8 +77,13 @@ export interface EnterpriseValue {
   retiredBusinesses: number
 }
 
+function normalizeBusinessName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+}
+
 /**
- * Create a new business in the portfolio.
+ * Create a business once. Same normalized name always resolves to the existing
+ * portfolio record, including callers that bypass Venture OS (e.g. Flywheel).
  */
 export async function createBusiness(input: {
   name: string
@@ -112,9 +92,23 @@ export async function createBusiness(input: {
   targetMarket?: string
   pricingModel?: string
 }): Promise<Business> {
+  const normalizedName = normalizeBusinessName(input.name)
+  if (!normalizedName) throw new Error('Business name is required.')
+
+  const existing = await db.memory.findFirst({ where: { category: 'business_portfolio' } })
+  // Avoid a broad scan for the common case; the existing Memory schema has no
+  // normalized-name index, so reconcile against portfolio rows only once here.
+  if (existing) {
+    const records = await db.memory.findMany({ where: { category: 'business_portfolio' } })
+    const duplicate = records.map((record) => {
+      try { return JSON.parse(record.value) as Business } catch { return null }
+    }).find((business): business is Business => !!business && normalizeBusinessName(business.name) === normalizedName)
+    if (duplicate) return duplicate
+  }
+
   const business: Business = {
     businessId: `biz_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    name: input.name,
+    name: input.name.trim(),
     type: input.type,
     description: input.description,
     lifecycle: 'proposed',
@@ -147,23 +141,26 @@ export async function createBusiness(input: {
     })
     console.log(`[portfolio] Business created: ${business.name} (${business.businessId})`)
   } catch (e: any) {
+    // Unique-key races may occur under concurrent creation. Reconcile by name.
+    const records = await db.memory.findMany({ where: { category: 'business_portfolio' } })
+    const duplicate = records.map((record) => {
+      try { return JSON.parse(record.value) as Business } catch { return null }
+    }).find((candidate): candidate is Business => !!candidate && normalizeBusinessName(candidate.name) === normalizedName)
+    if (duplicate) return duplicate
     console.error('[portfolio] Failed to create business:', e?.message)
+    throw e
   }
 
   return business
 }
 
-/**
- * Update a business in the portfolio.
- */
+/** Update a business. Derived financial fields are recalculated here only. */
 export async function updateBusiness(businessId: string, updates: Partial<Business>): Promise<Business | null> {
   try {
     const record = await db.memory.findFirst({ where: { key: businessId, category: 'business_portfolio' } })
     if (!record) return null
 
     const business: Business = { ...JSON.parse(record.value), ...updates }
-
-    // Recalculate derived fields
     business.netRevenue = business.monthlyRevenue - business.monthlyCost
     business.roi = business.monthlyCost > 0 ? (business.netRevenue / business.monthlyCost) * 100 : 0
 
@@ -172,14 +169,8 @@ export async function updateBusiness(businessId: string, updates: Partial<Busine
       data: { value: JSON.stringify(business) },
     })
 
-    // Check for retirement condition — auto-retire if ROI is severely negative
-    if (business.lifecycle === 'active' && business.roi < -50 && business.monthlyRevenue > 0) {
-      console.log(`[portfolio] Business ${business.name} has negative ROI (${business.roi}%) — auto-retiring`)
-      await retireBusiness(business.businessId, `Auto-retired: ROI ${business.roi}% (negative for too long). Resources recovered for better opportunities.`)
-      // Recover resources — log the learning
-      await recoverResources(business)
-    } else if (business.lifecycle === 'active' && business.roi < -20 && business.monthlyRevenue > 0) {
-      console.log(`[portfolio] Business ${business.name} has declining ROI (${business.roi}%) — warning`)
+    if ((business.lifecycle === 'active' || business.lifecycle === 'scaling') && business.roi < -20 && business.monthlyRevenue > 0) {
+      console.log(`[portfolio] Business ${business.name} has declining ROI (${business.roi}%) — warning; strategic decision engine remains authoritative for lifecycle action.`)
     }
 
     return business
@@ -189,40 +180,35 @@ export async function updateBusiness(businessId: string, updates: Partial<Busine
   }
 }
 
-/**
- * Retire a business (kill bad ideas quickly).
- */
+/** Retire a business (strategic kill decisions are coordinated by Venture OS). */
 export async function retireBusiness(businessId: string, reason: string): Promise<void> {
   try {
     const record = await db.memory.findFirst({ where: { key: businessId, category: 'business_portfolio' } })
     if (!record) return
 
     const business: Business = JSON.parse(record.value)
+    if (business.lifecycle === 'retired') return
     business.lifecycle = 'retired'
     business.retiredAt = new Date().toISOString()
     business.retirementReason = reason
 
-    await db.memory.update({
-      where: { id: record.id },
-      data: { value: JSON.stringify(business) },
-    })
-
+    await db.memory.update({ where: { id: record.id }, data: { value: JSON.stringify(business) } })
     console.log(`[portfolio] Business retired: ${business.name} — reason: ${reason}`)
   } catch (e: any) {
     console.error('[portfolio] Failed to retire business:', e?.message)
+    throw e
   }
 }
 
-/**
- * Recover resources from a retired business.
- * Stores the failure learnings so the organization doesn't repeat the same mistakes.
- */
+/** Store a failure lesson once for each retired business. */
 async function recoverResources(business: Business): Promise<void> {
   try {
-    // Store failure learning in Org KB
+    const key = `recovered_${business.businessId}`
+    const existing = await db.memory.findUnique({ where: { key } })
+    if (existing) return
     await db.memory.create({
       data: {
-        key: `recovered_${business.businessId}_${Date.now()}`,
+        key,
         value: JSON.stringify({
           businessName: business.name,
           businessType: business.type,
@@ -246,568 +232,26 @@ async function recoverResources(business: Business): Promise<void> {
 }
 
 /**
- * Check all active businesses for negative ROI and auto-retire failing ones.
- * Called periodically (e.g., from the Morning Brief or Evolution Cycle).
+ * Portfolio safety sweep. This is a financial safety backstop, not the primary
+ * strategic decision engine. It uses one hard floor and produces warnings.
  */
-export async function checkPortfolioHealth(): Promise<{
-  checked: number
-  retired: number
-  warnings: string[]
-}> {
+export async function checkPortfolioHealth(): Promise<{ checked: number; retired: number; warnings: string[] }> {
   const businesses = await getActiveBusinesses()
   const active = businesses.filter(b => b.lifecycle === 'active' || b.lifecycle === 'scaling')
   const warnings: string[] = []
   let retired = 0
 
   for (const business of active) {
-    // Auto-retire if ROI is severely negative (< -50%)
     if (business.roi < -50 && business.monthlyRevenue > 0) {
-      await retireBusiness(business.businessId, `Auto-retired: ROI ${business.roi}%`)
+      await retireBusiness(business.businessId, `Financial safety floor: ROI ${business.roi}%`)
       await recoverResources(business)
       retired++
-      warnings.push(`Auto-retired: ${business.name} (ROI: ${business.roi}%)`)
-    }
-    // Warning if ROI is declining (< -20%)
-    else if (business.roi < -20 && business.monthlyRevenue > 0) {
+      warnings.push(`Auto-retired by safety floor: ${business.name} (ROI: ${business.roi}%)`)
+    } else if (business.roi < -20 && business.monthlyRevenue > 0) {
       warnings.push(`Declining: ${business.name} (ROI: ${business.roi}%)`)
     }
   }
 
   console.log(`[portfolio] Health check: ${active.length} checked, ${retired} retired, ${warnings.length} warnings`)
   return { checked: active.length, retired, warnings }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CROSS-BUSINESS KNOWLEDGE SHARING
-// ═══════════════════════════════════════════════════════════════
-
-export interface CrossBusinessInsight {
-  insightId: string
-  sourceBusinessId: string
-  sourceBusinessName: string
-  targetBusinessType: BusinessType
-  insight: string
-  confidence: number
-  createdAt: string
-  applied: boolean
-}
-
-/**
- * Extract insights from a business and share them with other businesses.
- * Called when a business achieves success (high revenue, high confidence, etc.)
- *
- * Example: Affiliate marketing discovers high-converting keywords.
- * SaaS learns from them. Content business benefits. SEO improves.
- */
-export async function shareBusinessInsights(sourceBusinessId: string): Promise<CrossBusinessInsight[]> {
-  const insights: CrossBusinessInsight[] = []
-
-  try {
-    // Get the source business
-    const record = await db.memory.findFirst({
-      where: { key: sourceBusinessId, category: 'business_portfolio' },
-    })
-    if (!record) return insights
-
-    const source: Business = JSON.parse(record.value)
-
-    // Only share if the business is performing well
-    if (source.monthlyRevenue < 100 && source.customerCount < 5) {
-      return insights
-    }
-
-    // Get all other active businesses
-    const allBusinesses = await getActiveBusinesses()
-    const targets = allBusinesses.filter(b => b.businessId !== sourceBusinessId)
-
-    // Generate insights based on the source business's success
-    const insightTypes = [
-      {
-        condition: source.automationLevel > 50,
-        insight: `Business "${source.name}" achieved ${source.automationLevel}% automation. Apply similar automation patterns (${source.automationNotes}) to reduce manual work in other businesses.`,
-        targetType: 'all' as BusinessType | 'all',
-      },
-      {
-        condition: source.customerCount > 10,
-        insight: `Business "${source.name}" acquired ${source.customerCount} customers. Customer acquisition strategy for ${source.targetMarket} may be applicable to other businesses targeting similar markets.`,
-        targetType: 'all' as BusinessType | 'all',
-      },
-      {
-        condition: source.monthlyRevenue > 500,
-        insight: `Business "${source.name}" is generating $${source.monthlyRevenue}/month with pricing model "${source.pricingModel}". Consider testing this pricing model in other ventures.`,
-        targetType: 'all' as BusinessType | 'all',
-      },
-      {
-        condition: source.brandScore > 50,
-        insight: `Business "${source.name}" achieved brand score ${source.brandScore}/100. Content/brand strategy may be transferable to other businesses in the same market.`,
-        targetType: 'all' as BusinessType | 'all',
-      },
-    ]
-
-    for (const { condition, insight, targetType } of insightTypes) {
-      if (!condition) continue
-
-      // Share with all target businesses
-      for (const target of targets) {
-        const crossInsight: CrossBusinessInsight = {
-          insightId: `insight_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          sourceBusinessId: source.businessId,
-          sourceBusinessName: source.name,
-          targetBusinessType: target.type,
-          insight,
-          confidence: Math.min(100, source.monthlyRevenue / 10 + 30),
-          createdAt: new Date().toISOString(),
-          applied: false,
-        }
-        insights.push(crossInsight)
-
-        // Store the insight
-        await db.memory.create({
-          data: {
-            key: crossInsight.insightId,
-            value: JSON.stringify(crossInsight),
-            category: 'cross_business_insight',
-          },
-        })
-      }
-    }
-
-    // Also feed insights to the Org KB so future businesses benefit
-    if (insights.length > 0) {
-      const { ingestMission } = await import('./organizational-knowledge-base')
-      const { startMissionTelemetry, completeMissionTelemetry } = await import('./mission-telemetry')
-      const telemetry = startMissionTelemetry(`Cross-business insight sharing from ${source.name}`)
-      telemetry.leadersUsed = ['venture_studio']
-      telemetry.confidence = Math.min(100, source.monthlyRevenue / 10 + 30)
-      telemetry.verificationPassed = true
-      telemetry.verificationScore = 80
-      await completeMissionTelemetry(telemetry, 'completed')
-      await ingestMission(telemetry)
-    }
-
-    console.log(`[portfolio] Shared ${insights.length} insights from ${source.name} to ${targets.length} businesses`)
-  } catch (e: any) {
-    console.error('[portfolio] Cross-business sharing failed:', e?.message)
-  }
-
-  return insights
-}
-
-/**
- * Get all cross-business insights.
- */
-export async function getCrossBusinessInsights(limit: number = 50): Promise<CrossBusinessInsight[]> {
-  try {
-    const records = await db.memory.findMany({
-      where: { category: 'cross_business_insight' },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    })
-    return records.map(r => {
-      try { return JSON.parse(r.value) as CrossBusinessInsight }
-      catch { return null }
-    }).filter(Boolean) as CrossBusinessInsight[]
-  } catch {
-    return []
-  }
-}
-
-/**
- * Get all businesses in the portfolio.
- */
-export async function getPortfolio(): Promise<Business[]> {
-  try {
-    const records = await db.memory.findMany({
-      where: { category: 'business_portfolio' },
-      orderBy: { createdAt: 'desc' },
-    })
-    return records.map(r => {
-      try { return JSON.parse(r.value) as Business }
-      catch { return null }
-    }).filter(Boolean) as Business[]
-  } catch {
-    return []
-  }
-}
-
-/**
- * Get active businesses only.
- */
-export async function getActiveBusinesses(): Promise<Business[]> {
-  const all = await getPortfolio()
-  return all.filter(b => b.lifecycle !== 'retired')
-}
-
-/**
- * Compute Enterprise Value — the North Star Metric.
- */
-export async function computeEnterpriseValue(): Promise<EnterpriseValue> {
-  const businesses = await getActiveBusinesses()
-  const active = businesses.filter(b => b.lifecycle === 'active' || b.lifecycle === 'scaling' || b.lifecycle === 'automated')
-  const all = await getPortfolio()
-  const retired = all.filter(b => b.lifecycle === 'retired')
-
-  const totalRevenue = active.reduce((s, b) => s + b.monthlyRevenue, 0)
-  const totalCustomers = active.reduce((s, b) => s + b.customerCount, 0)
-  const totalEmails = active.reduce((s, b) => s + b.emailListSize, 0)
-  const avgAutomation = active.length > 0 ? active.reduce((s, b) => s + b.automationLevel, 0) / active.length : 0
-  const totalKnowledge = active.reduce((s, b) => s + b.knowledgeAssets, 0)
-  const avgBrand = active.length > 0 ? active.reduce((s, b) => s + b.brandScore, 0) / active.length : 0
-
-  // Get Org IQ from Evolution Engine
-  let orgIQ = 0
-  try {
-    const { computeOrganizationalIQ } = await import('./evolution-engine')
-    const iq = await computeOrganizationalIQ()
-    orgIQ = iq.totalScore
-  } catch {}
-
-  // Compute components (each 0-100)
-  const recurringRevenue = Math.min(100, (totalRevenue / 20000) * 100) // $20K = 100%
-  const businessAssets = Math.min(100, active.length * 20) // 5 businesses = 100%
-  const automationScore = avgAutomation
-  const knowledgeGrowth = Math.min(100, totalKnowledge * 5) // 20 knowledge entries = 100%
-  const customerGrowth = Math.min(100, totalCustomers * 2) // 50 customers = 100%
-  const brandAuthority = avgBrand
-  const organizationalIQ = orgIQ
-
-  // Weighted total
-  const totalValue = Math.round(
-    recurringRevenue * 0.25 +
-    businessAssets * 0.15 +
-    automationScore * 0.15 +
-    knowledgeGrowth * 0.10 +
-    customerGrowth * 0.15 +
-    brandAuthority * 0.10 +
-    organizationalIQ * 0.10
-  )
-
-  return {
-    totalValue,
-    components: {
-      recurringRevenue: Math.round(recurringRevenue),
-      businessAssets: Math.round(businessAssets),
-      automationScore: Math.round(automationScore),
-      knowledgeGrowth: Math.round(knowledgeGrowth),
-      customerGrowth: Math.round(customerGrowth),
-      brandAuthority: Math.round(brandAuthority),
-      organizationalIQ: Math.round(organizationalIQ),
-    },
-    totalMonthlyRevenue: totalRevenue,
-    totalCustomers,
-    totalEmails,
-    activeBusinesses: active.length,
-    retiredBusinesses: retired.length,
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 2. BUSINESS FLYWHEEL (11-step operational loop)
-// ═══════════════════════════════════════════════════════════════
-
-export type FlywheelStage =
-  | 'observe'
-  | 'identify_opportunity'
-  | 'estimate_value'
-  | 'validate'
-  | 'build_mvp'
-  | 'acquire_customers'
-  | 'learn'
-  | 'automate'
-  | 'scale'
-  | 'standardize'
-  | 'teach_organization'
-
-export interface FlywheelResult {
-  cycleId: string
-  startedAt: string
-  completedAt: string | null
-  currentStage: FlywheelStage
-  stages: Array<{ stage: FlywheelStage; status: 'pending' | 'running' | 'complete'; output: string }>
-  opportunity: string | null
-  businessId: string | null
-  estimatedValue: number | null
-  validated: boolean | null
-  learnings: string[]
-  status: 'running' | 'complete' | 'failed'
-}
-
-const FLYWHEEL_STAGES: { stage: FlywheelStage; description: string }[] = [
-  { stage: 'observe', description: 'Observe market trends, customer pain points, competitor weaknesses' },
-  { stage: 'identify_opportunity', description: 'Identify a specific business opportunity' },
-  { stage: 'estimate_value', description: 'Estimate enterprise value (revenue + assets + knowledge potential)' },
-  { stage: 'validate', description: 'Validate demand — will customers pay for this?' },
-  { stage: 'build_mvp', description: 'Build minimum viable product' },
-  { stage: 'acquire_customers', description: 'Acquire first customers' },
-  { stage: 'learn', description: 'Learn from customer feedback + usage data' },
-  { stage: 'automate', description: 'Automate repetitive processes' },
-  { stage: 'scale', description: 'Scale to more customers' },
-  { stage: 'standardize', description: 'Standardize successful patterns into reusable processes' },
-  { stage: 'teach_organization', description: 'Feed learnings back to Org KB so every future business benefits' },
-]
-
-/**
- * Run the Business Flywheel.
- * This is the operational loop that creates, validates, launches, and scales businesses.
- *
- * The flywheel can run in two modes:
- * 1. Full cycle — runs all 11 stages (takes minutes, used for autonomous operation)
- * 2. Single stage — runs one stage at a time (used for manual control)
- */
-export async function runFlywheel(mode: 'full' | 'single' = 'full', startStage?: FlywheelStage): Promise<FlywheelResult> {
-  const cycleId = `flywheel_${Date.now()}`
-  console.log(`[flywheel] Starting cycle: ${cycleId}`)
-
-  const result: FlywheelResult = {
-    cycleId,
-    startedAt: new Date().toISOString(),
-    completedAt: null,
-    currentStage: 'observe',
-    stages: FLYWHEEL_STAGES.map(s => ({ stage: s.stage, status: 'pending' as const, output: '' })),
-    opportunity: null,
-    businessId: null,
-    estimatedValue: null,
-    validated: null,
-    learnings: [],
-    status: 'running',
-  }
-
-  const stagesToRun = mode === 'single' && startStage
-    ? FLYWHEEL_STAGES.filter(s => s.stage === startStage)
-    : FLYWHEEL_STAGES
-
-  for (const { stage, description } of stagesToRun) {
-    result.currentStage = stage
-    const stageEntry = result.stages.find(s => s.stage === stage)!
-    stageEntry.status = 'running'
-    console.log(`[flywheel] Stage: ${stage} — ${description}`)
-
-    try {
-      const output = await executeFlywheelStage(stage, result)
-      stageEntry.status = 'complete'
-      stageEntry.output = output
-    } catch (e: any) {
-      stageEntry.status = 'complete'
-      stageEntry.output = `Error: ${e?.message?.slice(0, 100)}`
-      result.learnings.push(`Stage ${stage} encountered error: ${e?.message?.slice(0, 100)}`)
-    }
-
-    // If single-stage mode, stop after one
-    if (mode === 'single') break
-  }
-
-  result.completedAt = new Date().toISOString()
-  result.status = 'complete'
-  result.currentStage = 'teach_organization'
-
-  // Store the cycle
-  try {
-    await db.memory.create({
-      data: {
-        key: cycleId,
-        value: JSON.stringify(result),
-        category: 'flywheel_cycle',
-      },
-    })
-    console.log(`[flywheel] Cycle ${cycleId} complete`)
-  } catch (e: any) {
-    console.error('[flywheel] Failed to store cycle:', e?.message)
-  }
-
-  return result
-}
-
-/**
- * Execute a single flywheel stage.
- */
-async function executeFlywheelStage(stage: FlywheelStage, context: FlywheelResult): Promise<string> {
-  switch (stage) {
-    case 'observe': {
-      // Observe market trends using SCOUT-like search
-      return 'Observing market trends, customer pain points, competitor weaknesses. Use SCOUT to research emerging opportunities in AI tools, digital products, and automation services.'
-    }
-
-    case 'identify_opportunity': {
-      // Identify a specific opportunity via LLM
-      try {
-        const completion = await callLlmWithRetry([
-          { role: 'system', content: 'You are Agent007\'s Venture Studio. Identify ONE specific digital business opportunity that can be launched quickly with AI. Consider: AI SaaS, digital products, affiliate sites, content businesses, API services. Output the business name, type, and target market in 2-3 sentences.' },
-          { role: 'user', content: 'What is the best opportunity to pursue right now based on current market trends?' },
-        ])
-        const opportunity = completion?.choices?.[0]?.message?.content || 'No opportunity identified'
-        context.opportunity = opportunity
-        return opportunity
-      } catch {
-        return 'Opportunity identification failed — using default: AI-powered content optimization tool'
-      }
-    }
-
-    case 'estimate_value': {
-      // Estimate enterprise value
-      const estimatedValue = Math.floor(Math.random() * 40) + 30 // 30-70 initial estimate
-      context.estimatedValue = estimatedValue
-      return `Estimated enterprise value: ${estimatedValue}/100. Revenue potential: $500-$2000/month. Knowledge potential: high. Automation potential: high.`
-    }
-
-    case 'validate': {
-      // Validate demand
-      context.validated = true
-      return 'Demand validated — market shows interest in this type of product. Pricing model viable. Competition manageable.'
-    }
-
-    case 'build_mvp': {
-      // Create business in portfolio
-      if (context.opportunity) {
-        const business = await createBusiness({
-          name: context.opportunity.slice(0, 50),
-          type: 'saas',
-          description: context.opportunity,
-          targetMarket: 'AI-savvy entrepreneurs and small businesses',
-          pricingModel: 'subscription',
-        })
-        context.businessId = business.businessId
-        return `MVP created: ${business.name} (${business.businessId}). Business added to portfolio.`
-      }
-      return 'MVP build skipped — no opportunity identified'
-    }
-
-    case 'acquire_customers': {
-      if (context.businessId) {
-        await updateBusiness(context.businessId, { lifecycle: 'launched', launchedAt: new Date().toISOString() })
-        return 'Business launched. Customer acquisition strategy: content marketing + affiliate partnerships + direct outreach.'
-      }
-      return 'Customer acquisition skipped — no business created'
-    }
-
-    case 'learn': {
-      context.learnings.push('Customer feedback loop established. Track conversion rates, retention, and satisfaction.')
-      return 'Learning phase: track customer behavior, collect feedback, identify improvement opportunities.'
-    }
-
-    case 'automate': {
-      if (context.businessId) {
-        await updateBusiness(context.businessId, { automationLevel: 40, lifecycle: 'active' })
-        return 'Automation: 40% of processes automated. Customer onboarding, content scheduling, and analytics tracking automated.'
-      }
-      return 'Automation skipped — no active business'
-    }
-
-    case 'scale': {
-      if (context.businessId) {
-        await updateBusiness(context.businessId, { lifecycle: 'scaling', monthlyRevenue: 500, customerCount: 10 })
-        return 'Scaling: revenue target $500/month, 10 customers acquired. Increasing marketing spend.'
-      }
-      return 'Scaling skipped — no active business'
-    }
-
-    case 'standardize': {
-      context.learnings.push('Successful patterns standardized: onboarding flow, pricing model, content calendar.')
-      return 'Standardization: successful patterns documented as reusable processes for future businesses.'
-    }
-
-    case 'teach_organization': {
-      // Feed learnings to Org KB
-      try {
-        const { ingestMission } = await import('./organizational-knowledge-base')
-        // Create a synthetic telemetry record for the flywheel learnings
-        const { startMissionTelemetry, completeMissionTelemetry } = await import('./mission-telemetry')
-        const telemetry = startMissionTelemetry(`Flywheel cycle: ${context.opportunity || 'unknown opportunity'}`)
-        telemetry.leadersUsed = ['venture_studio']
-        telemetry.confidence = context.validated ? 75 : 50
-        telemetry.verificationPassed = context.validated ?? false
-        telemetry.verificationScore = context.validated ? 75 : 0
-        await completeMissionTelemetry(telemetry, 'completed')
-        await ingestMission(telemetry)
-        return 'Learnings fed to Organizational Knowledge Base. Every future business will benefit from this cycle.'
-      } catch {
-        return 'Teach organization: learnings recorded for future use.'
-      }
-    }
-
-    default:
-      return 'Unknown stage'
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 3. DUAL LEADER MISSIONS
-// ═══════════════════════════════════════════════════════════════
-
-export interface DualMission {
-  leaderId: string
-  missionA: {  // Business outcome
-    description: string
-    kpis: string[]
-  }
-  missionB: {  // Organizational learning
-    description: string
-    kpis: string[]
-  }
-}
-
-/**
- * The Dual Missions for each leader.
- * Mission A = business outcome (what the leader produces)
- * Mission B = organizational learning (what the leader teaches the org)
- */
-export const DUAL_MISSIONS: DualMission[] = [
-  {
-    leaderId: 'ceo',
-    missionA: { description: 'Grow the organization', kpis: ['Strategic decisions', 'Mission success', 'Revenue growth', 'Organizational IQ'] },
-    missionB: { description: 'Increase organizational knowledge about strategic decision-making patterns', kpis: ['Decision patterns documented', 'Strategy learnings stored'] },
-  },
-  {
-    leaderId: 'quantum',
-    missionA: { description: 'Increase revenue', kpis: ['Investment quality', 'Business ROI', 'Profitability'] },
-    missionB: { description: 'Increase organizational knowledge about financial systems and revenue patterns', kpis: ['Financial patterns learned', 'Revenue model insights'] },
-  },
-  {
-    leaderId: 'forge',
-    missionA: { description: 'Reduce manual work', kpis: ['Processes automated', 'Hours saved'] },
-    missionB: { description: 'Increase organizational knowledge about automation patterns and reusable code', kpis: ['Automation patterns documented', 'Reusable components created'] },
-  },
-  {
-    leaderId: 'scout',
-    missionA: { description: 'Find opportunities', kpis: ['Qualified opportunities', 'Market analyses', 'Validated ideas'] },
-    missionB: { description: 'Increase organizational knowledge about market analysis and opportunity validation', kpis: ['Market patterns learned', 'Opportunity signals documented'] },
-  },
-  {
-    leaderId: 'echo',
-    missionA: { description: 'Protect quality', kpis: ['Errors prevented', 'Hallucinations caught', 'Verification score'] },
-    missionB: { description: 'Increase organizational knowledge about error patterns and quality verification', kpis: ['Error patterns documented', 'Quality rules learned'] },
-  },
-  {
-    leaderId: 'aurora',
-    missionA: { description: 'Create content that generates revenue', kpis: ['Content published', 'Engagement rate', 'Conversion rate'] },
-    missionB: { description: 'Increase organizational knowledge about content patterns and audience preferences', kpis: ['Content patterns learned', 'Audience insights documented'] },
-  },
-  {
-    leaderId: 'hunt',
-    missionA: { description: 'Find freelance and gig opportunities', kpis: ['Gigs identified', 'Gigs won', 'Revenue generated'] },
-    missionB: { description: 'Increase organizational knowledge about freelance market dynamics', kpis: ['Freelance patterns learned', 'Platform insights documented'] },
-  },
-  {
-    leaderId: 'trader',
-    missionA: { description: 'Generate trading revenue', kpis: ['Trade success rate', 'Portfolio growth', 'Risk-adjusted returns'] },
-    missionB: { description: 'Increase organizational knowledge about market dynamics and trading patterns', kpis: ['Market patterns learned', 'Risk insights documented'] },
-  },
-  {
-    leaderId: 'venture_studio',
-    missionA: { description: 'Create and launch new businesses', kpis: ['Businesses proposed', 'Businesses validated', 'Businesses launched'] },
-    missionB: { description: 'Increase organizational knowledge about business creation patterns and venture lifecycle', kpis: ['Venture patterns learned', 'Success factors documented'] },
-  },
-]
-
-/**
- * Get dual missions for all leaders.
- */
-export function getDualMissions(): DualMission[] {
-  return DUAL_MISSIONS
-}
-
-/**
- * Get dual mission for a specific leader.
- */
-export function getDualMission(leaderId: string): DualMission | null {
-  return DUAL_MISSIONS.find(m => m.leaderId === leaderId) || null
 }
