@@ -2,19 +2,20 @@
  * Venture Scorecard — canonical VID opportunity score + observed lifecycle health.
  *
  * Opportunity scoring reuses the existing VID Venture Score contract so there
- * is exactly one opportunity taxonomy. The new CEO layer adds health scoring
- * for post-validation operation.
+ * is exactly one opportunity taxonomy. The CEO layer adds health scoring for
+ * post-validation operation. Evidence may carry structured observed metrics.
  */
 
 import { VENTURE_SCORE_CATEGORIES, VENTURE_SCORE_THRESHOLD } from './vid-data'
 
-export const VENTURE_SCORECARD_VERSION = 2
+export const VENTURE_SCORECARD_VERSION = 3
 
 export interface ScoreEvidence {
   source: string
   statement: string
   confidence: number
   observedAt?: string
+  metric?: { name: string; value: number; unit?: string }
 }
 
 export interface OpportunityScoreInput {
@@ -145,9 +146,7 @@ export function calculateVentureHealth(input: VentureHealthInput): VentureHealth
   else if (score >= 50) decision = 'experiment'
   else decision = 'kill_or_pivot'
 
-  if (decision === 'kill_or_pivot' && input.evidence.length < 2) {
-    blockingReasons.push('Kill/pivot requires at least two independent evidence items.')
-  }
+  if (decision === 'kill_or_pivot' && input.evidence.length < 2) blockingReasons.push('Kill/pivot requires at least two independent evidence items.')
 
   return {
     score,
