@@ -27,7 +27,7 @@ import {
   type BusinessLifecycle,
 } from './business-portfolio'
 
-export const VENTURE_DECISION_ENGINE_VERSION = 2
+export const VENTURE_DECISION_ENGINE_VERSION = 3
 
 export type VentureDecision =
   | 'reject'
@@ -151,7 +151,7 @@ function evidenceKeyPrefix(businessId: string): string {
   return `evidence_${businessId}_`
 }
 
-export async function recordVentureEvidence(input: Omit<VentureEvidenceRecord, 'evidenceId' | 'createdAt'>): Promise<VentureEvidenceRecord> {
+export async function recordVentureEvidence(input: Omit<VentureEvidenceRecord, 'evidenceId' | 'createdAt'> & { createdAt?: string }): Promise<VentureEvidenceRecord> {
   const confidence = clampConfidence(input.confidence)
   if (!input.businessId.trim()) throw new Error('businessId is required.')
   if (!input.source.trim()) throw new Error('Evidence source is required.')
@@ -202,16 +202,17 @@ export async function recordLaunchVerification(businessId: string, verification:
     statement: verification.statement,
     confidence: verification.confidence,
     verified: true,
+    createdAt: verification.verifiedAt,
   })
 }
 
 export async function finalizeVerifiedLaunch(businessId: string): Promise<{ applied: boolean; message: string }> {
   const business = (await getPortfolio()).find((item) => item.businessId === businessId)
   if (!business) return { applied: false, message: 'Business not found.' }
+  if (business.lifecycle !== 'validated') return { applied: false, message: 'Only validated ventures can transition to launched through the verified launch gate.' }
 
   const launchEvidence = (await getVentureEvidence(businessId)).find((item) => item.kind === 'launch' && item.verified && item.confidence >= CEO_VENTURE_MANDATE.validationConfidenceMinimum)
   if (!launchEvidence) return { applied: false, message: 'No sufficiently confident verified launch evidence exists.' }
-  if (business.lifecycle === 'retired') return { applied: false, message: 'Retired ventures cannot be relaunched automatically.' }
 
   await updateBusiness(businessId, {
     lifecycle: 'launched',
@@ -292,7 +293,7 @@ export async function evaluateVentureDecision(input: VentureDecisionInput): Prom
       autonomousEligible: mandateErrors.length === 0,
       irreversibleActionBlocked: true,
       score: null,
-      reasons: ['Verified launch evidence is present; commercial runtime may finalize launch.'],
+      reasons: ['Verified launch evidence is present; the commercial runtime may finalize launch.'],
       scorecard: {},
     }
   }
@@ -363,8 +364,12 @@ export async function applyAutonomousVentureDecision(result: VentureDecisionResu
       applied = true
       message = 'Business retired and existing portfolio retirement learning flow invoked.'
       break
-    case 'launch_ready':
-      return { applied: false, action: result.decision, message: 'Launch requires a verified external launch event; the engine will not fabricate that event.' }
+    case 'launch_ready': {
+      const finalized = await finalizeVerifiedLaunch(business.businessId)
+      applied = finalized.applied
+      message = finalized.message
+      break
+    }
     case 'pivot':
     case 'hold':
     case 'validate':
