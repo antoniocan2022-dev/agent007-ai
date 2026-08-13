@@ -1,0 +1,15 @@
+import type { FunnelSnapshot, RecoveryOpportunity } from './revenue-recovery-contract'
+
+const money=(n:number)=>Math.round(Math.max(0,n)*100)/100
+const priority=(n:number):RecoveryOpportunity['priority']=>n>=5000?'critical':n>=2000?'high':n>=500?'medium':'low'
+
+export function calculateRecoveryOpportunities(s:FunnelSnapshot):RecoveryOpportunity[]{
+  const r:RecoveryOpportunity[]=[]; const close=s.closeRateAmongShows; const show=s.showRateAmongBooked; const value=s.averageTransactionValue
+  const add=(type:RecoveryOpportunity['type'],count:number,why:string,action:string)=>{const revenue=money(count*value);const confidence=Math.max(.35,Math.min(.98,s.confidence));r.push({opportunityId:`${type}:${s.snapshotId}`,tenantId:s.tenantId,customerId:s.customerId,type,priority:priority(revenue*confidence),estimatedRevenue:revenue,estimatedGrossProfit:money(revenue*Math.max(0,Math.min(1,(s.grossMarginPercent??60)/100))),confidence,evidenceIds:[],rationale:why,recommendedAction:action,authorityLevel:'guardrailed',createdAt:new Date().toISOString()})}
+  const uncontacted=Math.max(0,s.leadCount-s.contactedCount), unbooked=Math.max(0,s.contactedCount-s.bookedCount)
+  if(uncontacted>0&&close>0)add('uncontacted-leads',uncontacted*close,`${uncontacted} leads were not contacted.`,'Use approved client-authorized follow-up.')
+  if(unbooked>0&&show>0&&close>0)add('unbooked-leads',unbooked*show*close,`${unbooked} contacted leads did not book.`,'Use approved booking recovery messaging.')
+  if(s.noShowCount>0&&close>0)add('no-show-recovery',s.noShowCount*close,`${s.noShowCount} booked leads were no-shows.`,'Use an approved rebooking workflow.')
+  if(s.staleOpportunityCount>0&&close>0)add('stalled-opportunities',s.staleOpportunityCount*close,`${s.staleOpportunityCount} opportunities are stalled.`,'Use approved reactivation outreach.')
+  return r.sort((a,b)=>b.estimatedRevenue*b.confidence-a.estimatedRevenue*a.confidence)
+}
