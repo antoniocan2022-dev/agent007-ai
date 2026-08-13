@@ -1,14 +1,20 @@
 import {db} from './db'
 import {getPortfolio} from './business-portfolio'
 import {normalizeMetric,optimize} from './portfolio-intelligence-rules'
+import type {PortfolioBusiness} from './portfolio-intelligence-contract'
 import type {PortfolioMetric,PortfolioSnapshot,PortfolioDecisionRecord} from './portfolio-intelligence-types'
 
 const parse=(v:string)=>{try{return JSON.parse(v) as any}catch{return null}}
+const businessKey=(name:string):PortfolioBusiness=>{const n=name.trim().toLocaleLowerCase();if(n==='ai revenue recovery for local businesses'||n==='revenue recovery')return'revenue-recovery';if(n==='small business operations kit'||n==='operations kit')return'operations-kit';if(n==='career command center'||n==='career command')return'career-command';throw new Error(`Unknown portfolio business: ${name}`)}
 
 export async function buildPortfolioSnapshot():Promise<PortfolioSnapshot>{
- const businesses=await getPortfolio();
- const metrics:PortfolioMetric[]=businesses.filter(b=>b.lifecycle!=='retired').map(b=>normalizeMetric({business:b.name==='AI Revenue Recovery for Local Businesses'?'revenue-recovery':b.name==='Small Business Operations Kit'?'operations-kit':'career-command',revenue:b.monthlyRevenue,cost:b.monthlyCost,customers:b.customerCount,leads:0,conversions:0,automation:b.automationLevel,satisfaction:50,confidence:50,source:'portfolio',period:new Date().toISOString().slice(0,10)}))
- const revenue=metrics.reduce((s,m)=>s+m.revenue,0);const cost=metrics.reduce((s,m)=>s+m.cost,0);const customers=metrics.reduce((s,m)=>s+m.customers,0);const margin=revenue>0?(revenue-cost)/revenue*100:0;const health=metrics.length?Math.round(metrics.reduce((s,m)=>s+(optimize(m).score),0)/metrics.length):0
+ const businesses=await getPortfolio()
+ const metrics:PortfolioMetric[]=businesses.filter(b=>b.lifecycle!=='retired').map(b=>normalizeMetric({business:businessKey(b.name),revenue:b.monthlyRevenue,cost:b.monthlyCost,customers:b.customerCount,leads:0,conversions:0,automation:b.automationLevel,satisfaction:50,confidence:50,source:'portfolio',period:new Date().toISOString().slice(0,10)}))
+ const revenue=metrics.reduce((s,m)=>s+m.revenue,0)
+ const cost=metrics.reduce((s,m)=>s+m.cost,0)
+ const customers=metrics.reduce((s,m)=>s+m.customers,0)
+ const margin=revenue>0?(revenue-cost)/revenue*100:0
+ const health=metrics.length?Math.round(metrics.reduce((s,m)=>s+optimize(m).score,0)/metrics.length):0
  const snapshot:PortfolioSnapshot={snapshotId:`portfolio_snapshot_${Date.now()}`,createdAt:new Date().toISOString(),metrics,revenue,cost,netRevenue:revenue-cost,margin,customers,health}
  await db.memory.create({data:{key:snapshot.snapshotId,category:'portfolio_intelligence_snapshot',value:JSON.stringify(snapshot)}})
  return snapshot
