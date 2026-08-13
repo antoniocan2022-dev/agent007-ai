@@ -15,9 +15,9 @@ import { isScorecardContractValid, VENTURE_SCORECARD_VERSION } from './venture-s
 describe('Venture OS contracts', () => {
   test('uses one canonical identity and current contract versions', () => {
     expect(VENTURE_OS_ID).toBe('venture-os')
-    expect(VENTURE_OS_VERSION).toBe(2)
+    expect(VENTURE_OS_VERSION).toBe(3)
     expect(CEO_VENTURE_MANDATE.version).toBeGreaterThan(0)
-    expect(VENTURE_SCORECARD_VERSION).toBeGreaterThan(0)
+    expect(VENTURE_SCORECARD_VERSION).toBe(2)
   })
 
   test('legacy VID Venture Score weights total exactly 100', () => {
