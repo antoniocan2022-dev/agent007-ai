@@ -3,28 +3,10 @@ import {getPortfolio} from './business-portfolio'
 import {normalizeMetric,optimize} from './portfolio-intelligence-rules'
 import type {PortfolioBusiness} from './portfolio-intelligence-contract'
 import type {PortfolioMetric,PortfolioSnapshot,PortfolioDecisionRecord} from './portfolio-intelligence-types'
-
 const parse=(v:string)=>{try{return JSON.parse(v) as any}catch{return null}}
-const businessKey=(name:string):PortfolioBusiness=>{const n=name.trim().toLocaleLowerCase();if(n==='ai revenue recovery for local businesses'||n==='revenue recovery')return'revenue-recovery';if(n==='small business operations kit'||n==='operations kit')return'operations-kit';if(n==='career command center'||n==='career command')return'career-command';throw new Error(`Unknown portfolio business: ${name}`)}
-
-export async function buildPortfolioSnapshot():Promise<PortfolioSnapshot>{
- const businesses=await getPortfolio()
- const metrics:PortfolioMetric[]=businesses.filter(b=>b.lifecycle!=='retired').map(b=>normalizeMetric({business:businessKey(b.name),revenue:b.monthlyRevenue,cost:b.monthlyCost,customers:b.customerCount,leads:0,conversions:0,automation:b.automationLevel,satisfaction:50,confidence:50,source:'portfolio',period:new Date().toISOString().slice(0,10)}))
- const revenue=metrics.reduce((s,m)=>s+m.revenue,0)
- const cost=metrics.reduce((s,m)=>s+m.cost,0)
- const customers=metrics.reduce((s,m)=>s+m.customers,0)
- const margin=revenue>0?(revenue-cost)/revenue*100:0
- const health=metrics.length?Math.round(metrics.reduce((s,m)=>s+optimize(m).score,0)/metrics.length):0
- const snapshot:PortfolioSnapshot={snapshotId:`portfolio_snapshot_${Date.now()}`,createdAt:new Date().toISOString(),metrics,revenue,cost,netRevenue:revenue-cost,margin,customers,health}
- await db.memory.create({data:{key:snapshot.snapshotId,category:'portfolio_intelligence_snapshot',value:JSON.stringify(snapshot)}})
- return snapshot
-}
-
-export async function createOptimizationRecords(snapshot:PortfolioSnapshot):Promise<PortfolioDecisionRecord[]>{
- const records=await Promise.all(snapshot.metrics.map(async m=>{const r=optimize(m);const record:PortfolioDecisionRecord={...r,decisionId:`portfolio_decision_${m.business}_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,snapshotId:snapshot.snapshotId,evidenceIds:[],createdAt:new Date().toISOString(),status:'recommended'};await db.memory.create({data:{key:record.decisionId,category:'portfolio_intelligence_decision',value:JSON.stringify(record)}});return record}))
- return records.sort((a,b)=>b.priority-a.priority)
-}
-
-export async function runPortfolioOptimization():Promise<{snapshot:PortfolioSnapshot;decisions:PortfolioDecisionRecord[]}>{const snapshot=await buildPortfolioSnapshot();return{snapshot,decisions:await createOptimizationRecords(snapshot)}}
-
-export async function getPortfolioOptimizationHistory(limit=25):Promise<PortfolioDecisionRecord[]>{const records=await db.memory.findMany({where:{category:'portfolio_intelligence_decision'},orderBy:{createdAt:'desc'},take:Math.max(1,Math.min(100,limit))});return records.map(r=>parse(r.value)).filter(Boolean) as PortfolioDecisionRecord[]}
+const key=(n:string):PortfolioBusiness=>{const x=n.trim().toLowerCase();if(x.includes('revenue recovery'))return'revenue-recovery';if(x.includes('operations kit'))return'operations-kit';if(x.includes('career command'))return'career-command';throw new Error(`Unknown portfolio business: ${n}`)}
+const confidence=async(business:PortfolioBusiness)=>{const rows=await db.memory.findMany({where:{category:'commercial_evidence'}});const values=rows.map(r=>parse(r.value)).filter((x:any)=>x&&x.business===business) as Array<{confidence?:number;observedAt?:string}>;if(!values.length)return 0;const recent=values.filter(x=>!x.observedAt||Date.now()-new Date(x.observedAt).getTime()<7776000000);const set=recent.length?recent:values;return Math.round(set.reduce((s,x)=>s+(Number.isFinite(x.confidence)?x.confidence:0),0)/set.length*100)}
+export async function buildPortfolioSnapshot():Promise<PortfolioSnapshot>{const items=await getPortfolio();const metrics:PortfolioMetric[]=await Promise.all(items.filter(x=>x.lifecycle!=='retired').map(async x=>normalizeMetric({business:key(x.name),revenue:x.monthlyRevenue,cost:x.monthlyCost,customers:x.customerCount,leads:null,conversions:null,automation:Number.isFinite(x.automationLevel)?x.automationLevel:null,satisfaction:null,confidence:await confidence(key(x.name)),observedPeriods:1,source:'portfolio+commercial-evidence',period:new Date().toISOString().slice(0,10)})));const revenue=metrics.reduce((s,x)=>s+x.revenue,0);const cost=metrics.reduce((s,x)=>s+x.cost,0);const customers=metrics.reduce((s,x)=>s+x.customers,0);const margin=revenue>0?(revenue-cost)/revenue*100:0;const health=metrics.length?Math.round(metrics.reduce((s,x)=>s+optimize(x).score,0)/metrics.length):0;const snapshot={snapshotId:`portfolio_snapshot_${Date.now()}`,createdAt:new Date().toISOString(),metrics,revenue,cost,netRevenue:revenue-cost,margin,customers,health};await db.memory.create({data:{key:snapshot.snapshotId,category:'portfolio_intelligence_snapshot',value:JSON.stringify(snapshot)}});return snapshot}
+export async function createOptimizationRecords(snapshot:PortfolioSnapshot):Promise<PortfolioDecisionRecord[]>{return Promise.all(snapshot.metrics.map(async m=>{const r=optimize(m);const record={...r,decisionId:`portfolio_decision_${m.business}_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,snapshotId:snapshot.snapshotId,evidenceIds:[],createdAt:new Date().toISOString(),status:'recommended' as const};await db.memory.create({data:{key:record.decisionId,category:'portfolio_intelligence_decision',value:JSON.stringify(record)}});return record}))}
+export async function runPortfolioOptimization(){const snapshot=await buildPortfolioSnapshot();return{snapshot,decisions:await createOptimizationRecords(snapshot)}}
+export async function getPortfolioOptimizationHistory(limit=25):Promise<PortfolioDecisionRecord[]>{const rows=await db.memory.findMany({where:{category:'portfolio_intelligence_decision'},orderBy:{createdAt:'desc'},take:Math.max(1,Math.min(100,limit))});return rows.map(x=>parse(x.value)).filter(Boolean) as PortfolioDecisionRecord[]}
