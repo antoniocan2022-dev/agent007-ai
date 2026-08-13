@@ -147,6 +147,8 @@ export async function createVenture(input: VentureCreationInput): Promise<Ventur
   const normalizedName = normalizeVentureName(input.name)
   if (!normalizedName) return { created: false, duplicate: false, business: null, reason: 'Venture name is required.' }
   const key = identityKey(input.name)
+  const reservationToken = `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`
+  let reservationOwned = false
 
   try {
     const legacyBusiness = await findLegacyVentureByName(input.name)
@@ -168,34 +170,42 @@ export async function createVenture(input: VentureCreationInput): Promise<Ventur
     await db.memory.create({
       data: {
         key,
-        value: JSON.stringify({ status: 'creating', name: input.name, createdAt: new Date().toISOString() }),
+        value: JSON.stringify({ status: 'creating', name: input.name, reservationToken, createdAt: new Date().toISOString() }),
         category: 'venture_identity',
       },
     })
+    reservationOwned = true
 
     const business = await createBusiness(input)
     await db.memory.update({
       where: { key },
       data: { value: JSON.stringify({ status: 'created', businessId: business.businessId, name: business.name, createdAt: business.createdAt }), category: 'venture_identity' },
     })
+    reservationOwned = false
     return { created: true, duplicate: false, business }
   } catch (error) {
     try {
       const reconciledBusiness = await findLegacyVentureByName(input.name)
       if (reconciledBusiness) {
         await repairIdentity(key, reconciledBusiness)
+        reservationOwned = false
         return { created: false, duplicate: true, business: reconciledBusiness, reason: `Venture name already exists: ${reconciledBusiness.name}` }
       }
       const identity = await db.memory.findUnique({ where: { key } })
       if (identity) {
-        const parsed = JSON.parse(identity.value) as { businessId?: string }
+        const parsed = JSON.parse(identity.value) as { businessId?: string; status?: string; reservationToken?: string }
         if (parsed.businessId) {
           const business = (await getPortfolio()).find((item) => item.businessId === parsed.businessId) ?? null
-          if (business) return { created: false, duplicate: true, business, reason: `Venture name already exists: ${business.name}` }
+          if (business) {
+            reservationOwned = false
+            return { created: false, duplicate: true, business, reason: `Venture name already exists: ${business.name}` }
+          }
+        }
+        if (reservationOwned && parsed.status === 'creating' && parsed.reservationToken === reservationToken) {
+          await db.memory.delete({ where: { key } })
         }
       }
     } catch {}
-    try { await db.memory.delete({ where: { key } }) } catch {}
     return { created: false, duplicate: false, business: null, reason: error instanceof Error ? error.message : 'Venture creation failed.' }
   }
 }
