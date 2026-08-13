@@ -146,6 +146,22 @@ export interface CommercialAuditRecord {
   metadata: Record<string, unknown>
   createdAt: string
 }
+export interface CommercialControlPlaneSnapshot {
+  id: typeof COMMERCIAL_CONTROL_PLANE_ID
+  version: typeof COMMERCIAL_CONTROL_PLANE_VERSION
+  tenantCount: number
+  customerCount: number
+  eventCount: number
+  workflowCount: number
+  credentialCount: number
+  billingCount: number
+  entitlementCount: number
+  evidenceCount: number
+  activeAuthorityCount: number
+  auditCount: number
+  businesses: Record<CommercialBusiness, { customers: number; events: number; workflows: number; billing: number; evidence: number }>
+  integrity: { ok: boolean; issues: string[] }
+}
 
 export const COMMERCIAL_CATEGORIES = Object.freeze({
   tenant: 'commercial_tenant', customer: 'commercial_customer', event: 'commercial_event', workflow: 'commercial_workflow',
@@ -158,7 +174,6 @@ export const COMMERCIAL_BUSINESSES: readonly CommercialBusiness[] = ['revenue-re
 function clean(value: string): string { return value.trim().replace(/\s+/g, ' ') }
 function now(): string { return new Date().toISOString() }
 function key(kind: string, tenantId: string, id: string): string { return `${kind}:${tenantId}:${id}` }
-function clampConfidence(value: number): number { return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 }
 function normalizeEmail(value?: string | null): string | null { const v = value?.trim().toLowerCase() ?? ''; return v.includes('@') ? v : null }
 
 export function isCommercialBusiness(value: unknown): value is CommercialBusiness { return typeof value === 'string' && COMMERCIAL_BUSINESSES.includes(value as CommercialBusiness) }
