@@ -94,10 +94,14 @@ function clampConfidence(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
 
-function weightedScore(input: Record<string, number>, weights: Record<string, number>): number {
+function weightedScore(input: object, weights: Record<string, number>): number {
+  const values = input as Record<string, unknown>
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0)
   if (totalWeight <= 0) return 0
-  return Math.round(Object.entries(weights).reduce((sum, [key, weight]) => sum + clampScore(input[key] ?? 0) * weight, 0) / totalWeight)
+  return Math.round(Object.entries(weights).reduce((sum, [key, weight]) => {
+    const value = typeof values[key] === 'number' ? values[key] as number : 0
+    return sum + clampScore(value) * weight
+  }, 0) / totalWeight)
 }
 
 function averageEvidenceConfidence(evidence: ScoreEvidence[]): number {
@@ -176,7 +180,7 @@ export function isScorecardContractValid(): string[] {
   if (existingWeights !== 100) errors.push('VID Venture Score weights must total 100.')
   if (opportunityWeights !== 100) errors.push('Opportunity weights must total 100.')
   if (healthWeights !== 100) errors.push('Health weights must total 100.')
-  if (Object.keys(OPPORTUNITY_WEIGHTS).length !== 7) errors.push('Opportunity scorecard must contain exactly 7 dimensions.')
+  if (Object.keys(OPPORTUNITY_WEIGHTS).length !== VENTURE_SCORE_CATEGORIES.length) errors.push('Opportunity Scorecard dimension count drifts from VID Venture Score.')
   if (Object.keys(HEALTH_WEIGHTS).length !== 9) errors.push('Health scorecard must contain exactly 9 dimensions.')
   if (opportunityWeights !== existingWeights) errors.push('Opportunity Scorecard weights drifted from VID Venture Score weights.')
   return errors
