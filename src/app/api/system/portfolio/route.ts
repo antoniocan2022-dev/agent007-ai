@@ -1,19 +1,13 @@
 /**
- * /api/system/portfolio — UPGRADE #228
+ * /api/system/portfolio — canonical Business Portfolio endpoint.
  *
- * Business Portfolio Manager endpoint.
- *
- * GET /api/system/portfolio → all businesses
- * GET /api/system/portfolio?active=true → active businesses only
- * GET /api/system/portfolio?value=true → Enterprise Value (North Star)
- * POST /api/system/portfolio → create new business
- *   Body: { name, type, description, targetMarket, pricingModel }
- * PATCH /api/system/portfolio?id=biz_xxx → update business
- * DELETE /api/system/portfolio?id=biz_xxx → retire business
- *   Body: { reason }
+ * The Portfolio Manager remains the source of truth for business records.
+ * New venture creation is routed through Venture OS so duplicate business
+ * names cannot be registered through the public API.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { getPortfolio, getActiveBusinesses, createBusiness, updateBusiness, retireBusiness, computeEnterpriseValue, type BusinessType } from '@/lib/business-portfolio'
+import { getPortfolio, getActiveBusinesses, updateBusiness, retireBusiness, computeEnterpriseValue, type BusinessType } from '@/lib/business-portfolio'
+import { createVenture } from '@/lib/venture-os'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,8 +37,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Missing fields: name, type, description required' }, { status: 400 })
   }
 
-  const business = await createBusiness({ name, type: type as BusinessType, description, targetMarket, pricingModel })
-  return NextResponse.json({ ok: true, ...business })
+  const result = await createVenture({
+    name,
+    type: type as BusinessType,
+    description,
+    targetMarket,
+    pricingModel,
+  })
+
+  if (result.duplicate) {
+    return NextResponse.json({
+      ok: false,
+      duplicate: true,
+      error: result.reason || 'A venture with this name already exists.',
+      business: result.business,
+    }, { status: 409 })
+  }
+
+  if (!result.business) {
+    return NextResponse.json({ ok: false, error: result.reason || 'Venture creation failed.' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, created: result.created, ...result.business }, { status: 201 })
 }
 
 export async function PATCH(req: NextRequest) {
@@ -59,7 +73,7 @@ export async function PATCH(req: NextRequest) {
   catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
 
   const updated = await updateBusiness(businessId, body)
-  return NextResponse.json({ ok: !!updated, ...(updated || {}) })
+  return NextResponse.json({ ok: !!updated, ...(updated || {}) }, { status: updated ? 200 : 404 })
 }
 
 export async function DELETE(req: NextRequest) {
