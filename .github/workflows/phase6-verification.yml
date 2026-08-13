@@ -1,0 +1,47 @@
+name: Agent007 Phase 6 Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - integration/phase-6-final
+
+permissions:
+  contents: read
+
+jobs:
+  phase6:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agent007_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d agent007_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx prisma db push --skip-generate
+      - name: Phase 6 contract tests
+        run: bun test src/lib/phase6-commercial-execution.test.ts
+      - name: Commercial architecture regression tests
+        run: bun test src/lib/commercial-architecture.test.ts src/lib/commercial-control-plane.test.ts src/lib/commercial-control-plane-runtime.test.ts
+      - name: TypeScript verification
+        run: bunx tsc --noEmit
+      - name: Phase 6 lint
+        run: bunx eslint src/lib/phase6-commercial-execution.ts src/lib/phase6-resend-adapter.ts src/lib/phase6-commercial-execution.test.ts src/lib/commercial-capability-map.ts src/lib/commercial-organization.ts src/lib/commercial-specialists.ts
