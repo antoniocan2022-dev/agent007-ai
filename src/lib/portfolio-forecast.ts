@@ -1,0 +1,2 @@
+export interface PortfolioForecast{business:string;current:number;periods:number;growthRate:number;projected:number;confidence:number}
+export function forecast(current:number,growthRate:number,periods:number,confidence:number):PortfolioForecast{return{business:'',current,periods,growthRate,projected:Math.max(0,current*Math.pow(1+growthRate,periods)),confidence:Math.max(0,Math.min(100,confidence))}}
