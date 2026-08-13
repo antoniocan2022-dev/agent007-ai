@@ -3,6 +3,7 @@ import { VENTURE_OS_ID, VENTURE_OS_VERSION, validateVentureOSContracts } from '.
 import { VENTURE_SCORE_CATEGORIES, VENTURE_SCORE_THRESHOLD, VID_WORKFLOW_STAGES } from './vid-data'
 import { CEO_VENTURE_MANDATE, validateVentureMandate } from './venture-mandate'
 import { isScorecardContractValid, VENTURE_SCORECARD_VERSION } from './venture-scorecard'
+import { validateRevenueRecoveryContracts } from './revenue-recovery-contract'
 
 describe('Venture OS contracts', () => {
   test('uses one canonical identity and current contract versions', () => {
@@ -19,9 +20,10 @@ describe('Venture OS contracts', () => {
     expect(VENTURE_SCORE_THRESHOLD).toBeLessThanOrEqual(100)
   })
 
-  test('CEO mandate and scorecard contracts are valid', () => {
+  test('CEO mandate, scorecard, and Revenue Recovery contracts are valid', () => {
     expect(validateVentureMandate()).toEqual([])
     expect(isScorecardContractValid()).toEqual([])
+    expect(validateRevenueRecoveryContracts()).toEqual([])
   })
 
   test('VID workflow is contiguous and duplicate-free', () => {
