@@ -1,0 +1,9 @@
+export const CAREER_COMMAND_ID='career-command'
+export const CAREER_COMMAND_VERSION=1
+export const CAREER_COMMAND_BUSINESS='career-command' as const
+export const CAREER_COMMAND_TEAM=Object.freeze({leader:'CAREER_COMMAND_LEADER',specialists:['CAREER_STRATEGIST','JOB_INTELLIGENCE_SPECIALIST','JOB_MATCHING_SPECIALIST','RESUME_ENGINEER','ATS_OPTIMIZATION_SPECIALIST','APPLICATION_SPECIALIST','NETWORKING_SPECIALIST','INTERVIEW_COACH','COMPENSATION_INTELLIGENCE_SPECIALIST','CAREER_LEARNING_SPECIALIST','PERSONAL_BRAND_SPECIALIST','APPLICATION_ANALYTICS_SPECIALIST'] as const})
+export const CAREER_COMMAND_CAPABILITIES=Object.freeze(['career-profile-management','job-source-intelligence','job-fit-scoring','skill-gap-analysis','resume-customization','ats-optimization','application-preparation','application-tracking','networking-support','interview-preparation','compensation-intelligence','career-learning'] as const)
+export type CareerPriority='critical'|'high'|'medium'|'low'
+export type ApplicationStatus='candidate'|'prepared'|'submitted'|'interviewing'|'offer'|'rejected'|'withdrawn'
+export function getCareerCommandSnapshot(){return{id:CAREER_COMMAND_ID,version:CAREER_COMMAND_VERSION,team:CAREER_COMMAND_TEAM,capabilities:CAREER_COMMAND_CAPABILITIES,workflow:['profile','discover','match','prepare','authorize','apply','track','learn'] as const}}
+export function validateCareerCommandContracts():string[]{const e:string[]=[];if(CAREER_COMMAND_TEAM.specialists.length!==12)e.push('Career Command requires exactly 12 specialist roles.');if(CAREER_COMMAND_CAPABILITIES.length!==12)e.push('Career Command requires exactly 12 capabilities.');if(new Set(CAREER_COMMAND_TEAM.specialists).size!==CAREER_COMMAND_TEAM.specialists.length)e.push('Career Command team contains duplicate specialists.');if(new Set(CAREER_COMMAND_CAPABILITIES).size!==CAREER_COMMAND_CAPABILITIES.length)e.push('Career Command capabilities contain duplicates.');return e}
