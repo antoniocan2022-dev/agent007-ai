@@ -1,0 +1,7 @@
+import { expect, test } from 'bun:test'
+import { validateRevenueRecoveryContracts } from './revenue-recovery-contract'
+import { buildFunnelSnapshot } from './revenue-recovery-measurement'
+import { calculateRecoveryOpportunities } from './revenue-recovery-rules'
+test('Revenue Recovery contracts are internally consistent',()=>{expect(validateRevenueRecoveryContracts()).toEqual([])})
+test('funnel snapshots reject impossible stage ordering',()=>{expect(()=>buildFunnelSnapshot({tenantId:'t',customerId:'c',observedAt:'2026-08-13T00:00:00.000Z',periodStart:'2026-08-01',periodEnd:'2026-08-13',leadCount:10,contactedCount:11,bookedCount:0,showCount:0,noShowCount:0,wonCount:0,staleOpportunityCount:0,missedCallCount:0,averageResponseMinutes:10,averageTransactionValue:100,grossMarginPercent:60,source:'crm'})).toThrow()})
+test('recovery scoring is deterministic and bounded',()=>{const s=buildFunnelSnapshot({tenantId:'t',customerId:'c',observedAt:'2026-08-13T00:00:00.000Z',periodStart:'2026-08-01',periodEnd:'2026-08-13',leadCount:100,contactedCount:70,bookedCount:30,showCount:24,noShowCount:6,wonCount:6,staleOpportunityCount:8,missedCallCount:5,averageResponseMinutes:18,averageTransactionValue:500,grossMarginPercent:60,source:'crm'});const a=calculateRecoveryOpportunities(s);expect(a.length).toBeGreaterThan(0);expect(a[0]!.confidence).toBeGreaterThanOrEqual(.35);expect(a[0]!.confidence).toBeLessThanOrEqual(.98);expect(a[0]!.estimatedRevenue).toBeGreaterThan(0)})
