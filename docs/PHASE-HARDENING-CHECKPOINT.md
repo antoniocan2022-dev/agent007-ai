@@ -1,0 +1,1 @@
+Five-phase hardening checkpoint.
