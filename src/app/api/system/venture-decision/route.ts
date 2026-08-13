@@ -11,15 +11,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { CEO_VENTURE_MANDATE, validateVentureMandate } from '@/lib/venture-mandate'
 import { isScorecardContractValid, VENTURE_SCORECARD_VERSION } from '@/lib/venture-scorecard'
-import {
-  applyAutonomousVentureDecision,
-  evaluateVentureDecision,
-  finalizeVerifiedLaunch,
-  recordLaunchVerification,
-  recordVentureEvidence,
-  runAutonomousVentureCycle,
-  VENTURE_DECISION_ENGINE_VERSION,
-} from '@/lib/venture-decision-engine'
+import { applyAutonomousVentureDecision, evaluateVentureDecision, finalizeVerifiedLaunch, recordLaunchVerification, recordVentureEvidence, runAutonomousVentureCycle, VENTURE_DECISION_ENGINE_VERSION } from '@/lib/venture-decision-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,9 +26,7 @@ export async function GET() {
     scorecardVersion: VENTURE_SCORECARD_VERSION,
     mandate: CEO_VENTURE_MANDATE,
     validation: { mandateErrors, scorecardErrors },
-  }, {
-    status: mandateErrors.length === 0 && scorecardErrors.length === 0 ? 200 : 500,
-  })
+  }, { status: mandateErrors.length === 0 && scorecardErrors.length === 0 ? 200 : 500 })
 }
 
 export async function POST(req: NextRequest) {
@@ -44,17 +34,10 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   let body: any
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
-  }
-
+  try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
   const action = typeof body?.action === 'string' ? body.action : 'evaluate'
 
-  if (action === 'cycle') {
-    return NextResponse.json({ ok: true, cycle: await runAutonomousVentureCycle() })
-  }
+  if (action === 'cycle') return NextResponse.json({ ok: true, cycle: await runAutonomousVentureCycle() })
 
   const businessId = typeof body?.businessId === 'string' ? body.businessId.trim() : ''
   if (!businessId) return NextResponse.json({ ok: false, error: 'Missing businessId' }, { status: 400 })
@@ -62,6 +45,10 @@ export async function POST(req: NextRequest) {
   if (action === 'record_evidence') {
     const evidence = body?.evidence
     if (!evidence || typeof evidence !== 'object') return NextResponse.json({ ok: false, error: 'Missing evidence object' }, { status: 400 })
+    const metric = evidence.metric
+    if (metric !== undefined && (typeof metric !== 'object' || typeof metric.name !== 'string' || !metric.name.trim() || typeof metric.value !== 'number' || !Number.isFinite(metric.value))) {
+      return NextResponse.json({ ok: false, error: 'Metric must contain a non-empty name and finite numeric value.' }, { status: 400 })
+    }
     try {
       const record = await recordVentureEvidence({
         businessId,
@@ -70,6 +57,8 @@ export async function POST(req: NextRequest) {
         statement: String(evidence.statement ?? ''),
         confidence: Number(evidence.confidence ?? 0),
         verified: evidence.verified === true,
+        observedAt: typeof evidence.observedAt === 'string' ? evidence.observedAt : undefined,
+        metric: metric ? { name: metric.name.trim(), value: metric.value, unit: typeof metric.unit === 'string' ? metric.unit : undefined } : undefined,
       })
       return NextResponse.json({ ok: true, evidence: record })
     } catch (error) {
@@ -100,13 +89,11 @@ export async function POST(req: NextRequest) {
     health: body?.health,
     launchVerified: body?.launchVerified === true,
     requestedSpend: typeof body?.requestedSpend === 'number' ? body.requestedSpend : undefined,
-    monthlyCommittedSpend: typeof body?.monthlyCommittedSpend === 'number' ? body.monthlyCommittedSpend : undefined,
+    monthlyCommittedSpend: typeof body?.monthlyCommittedSpend === 'number' ? body.requestedSpend : undefined,
   })
-
   if (action === 'apply' || body?.applyAutonomous === true) {
     const applied = await applyAutonomousVentureDecision(decision)
     return NextResponse.json({ ok: true, decision, applied })
   }
-
   return NextResponse.json({ ok: true, decision })
 }
