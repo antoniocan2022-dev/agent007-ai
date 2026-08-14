@@ -15,6 +15,7 @@ permissions:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_PRODUCTION_URL: https://agent007-ai.vercel.app
 
 concurrency:
   group: vercel-production-release
@@ -38,7 +39,7 @@ jobs:
 
       - name: Assert source is main
         run: |
-          test "$(git branch --show-current)" = "main" || test "$(git symbolic-ref --short HEAD 2>/dev/null || true)" = "main"
+          test "${GITHUB_REF}" = "refs/heads/main"
           test -n "${GITHUB_SHA}"
 
       - name: Setup Bun
@@ -76,7 +77,11 @@ jobs:
         run: |
           output="$(vercel deploy --prebuilt --token "${VERCEL_TOKEN}")"
           echo "$output"
-          url="$(printf '%s\n' "$output" | tail -n 1 | tr -d '\r')"
+          raw_url="$(printf '%s\n' "$output" | tail -n 1 | tr -d '\r')"
+          case "$raw_url" in
+            https://*|http://*) url="$raw_url" ;;
+            *) url="https://$raw_url" ;;
+          esac
           test -n "$url"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           id="$(printf '%s\n' "$output" | grep -Eo 'dpl_[A-Za-z0-9]+' | tail -n 1 || true)"
@@ -84,35 +89,38 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      - name: First-request smoke test
+      - name: First-request health and cold-start test
         id: cold
         run: |
-          url="https://${{ steps.deploy.outputs.url }}"
+          url="${{ steps.deploy.outputs.url }}/api/release-health"
           start=$(date +%s%3N)
-          code=$(curl -L -sS -o /tmp/candidate-response -w '%{http_code}' --max-time 45 "$url/")
+          code=$(curl -L -sS -o /tmp/candidate-response -w '%{http_code}' --max-time 45 "$url")
           end=$(date +%s%3N)
           latency=$((end-start))
           echo "HTTP=$code latency_ms=$latency"
-          test "$code" -ge 200 && test "$code" -lt 500
+          test "$code" = "200"
+          grep -q '"ok":true' /tmp/candidate-response
           echo "latency_ms=$latency" >> "$GITHUB_OUTPUT"
 
       - name: Warm-request comparison
         id: warm
         run: |
-          url="https://${{ steps.deploy.outputs.url }}"
+          url="${{ steps.deploy.outputs.url }}/api/release-health"
           start=$(date +%s%3N)
-          code=$(curl -L -sS -o /tmp/candidate-response-warm -w '%{http_code}' --max-time 30 "$url/")
+          code=$(curl -L -sS -o /tmp/candidate-response-warm -w '%{http_code}' --max-time 30 "$url")
           end=$(date +%s%3N)
           latency=$((end-start))
           echo "HTTP=$code latency_ms=$latency"
-          test "$code" -ge 200 && test "$code" -lt 500
+          test "$code" = "200"
+          grep -q '"ok":true' /tmp/candidate-response-warm
           echo "latency_ms=$latency" >> "$GITHUB_OUTPUT"
 
       - name: Release evidence
         run: |
           cat <<EOF
           candidate_url=${{ steps.deploy.outputs.url }}
-          commit=${GITHUB_SHA}
+          deployment_id=${{ steps.deploy.outputs.id }}
+          main_commit=${GITHUB_SHA}
           cold_latency_ms=${{ steps.cold.outputs.latency_ms }}
           warm_latency_ms=${{ steps.warm.outputs.latency_ms }}
           cron_policy=daily-only
@@ -137,9 +145,12 @@ jobs:
           CANDIDATE_URL: ${{ needs.candidate.outputs.deployment_url }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      - name: Production smoke test
+      - name: Production health smoke test
         run: |
-          url="https://${{ needs.candidate.outputs.deployment_url }}"
-          code=$(curl -L -sS -o /tmp/production-response -w '%{http_code}' --max-time 45 "$url/")
-          echo "Promoted artifact smoke HTTP=$code"
-          test "$code" -ge 200 && test "$code" -lt 500
+          start=$(date +%s%3N)
+          code=$(curl -L -sS -o /tmp/production-response -w '%{http_code}' --max-time 45 "${VERCEL_PRODUCTION_URL}/api/release-health")
+          end=$(date +%s%3N)
+          latency=$((end-start))
+          echo "HTTP=$code latency_ms=$latency"
+          test "$code" = "200"
+          grep -q '"ok":true' /tmp/production-response
