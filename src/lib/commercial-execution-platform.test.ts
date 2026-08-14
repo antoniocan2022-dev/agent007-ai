@@ -11,7 +11,7 @@ describe('Phase 6', () => {
   it('extends the commercial taxonomy safely', () => {
     const values = Object.values(COMMERCIAL_CATEGORIES)
     expect(new Set(values).size).toBe(values.length)
-    expect(values.length).toBe(15)
+    expect(values.length).toBe(20)
   })
 
   it('keeps the public execution contract internally coherent', () => {
@@ -30,26 +30,14 @@ describe('Phase 6', () => {
 
   it('persists provider definitions', async () => {
     const id = `phase6-test-${Date.now()}`
-    const provider = await registerCommercialProvider({
-      providerId: id,
-      name: 'Phase6Test',
-      version: '1.0.0',
-      capabilities: ['read'],
-      businesses: ['revenue-recovery'],
-      environments: ['sandbox'],
-      webhookEvents: [],
-      status: 'enabled',
-    })
+    const provider = await registerCommercialProvider({ providerId: id, name: 'Phase6Test', version: '1.0.0', capabilities: ['read'], businesses: ['revenue-recovery'], environments: ['sandbox'], webhookEvents: [], status: 'enabled' })
     expect(provider.providerId).toBe(id)
     expect((await getCommercialProvider(id))?.version).toBe('1.0.0')
   })
 
   it('keeps adapters inspectable', () => {
     const id = `phase6-adapter-${Date.now()}`
-    registerCommercialProviderAdapter({
-      providerId: id,
-      execute: async () => ({ ok: true, observedAt: new Date().toISOString(), latencyMs: 1 }),
-    })
+    registerCommercialProviderAdapter({ providerId: id, execute: async () => ({ ok: true, observedAt: new Date().toISOString(), latencyMs: 1 }) })
     expect(listCommercialProviderAdapters()).toContain(id)
   })
 })
