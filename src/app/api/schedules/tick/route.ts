@@ -11,8 +11,10 @@ export const maxDuration = 300
 /**
  * Scheduled mission dispatcher.
  *
- * Scheduling logic is hosting-neutral. Background task lifetime is delegated
- * to the runtime adapter registered during application startup.
+ * Scheduling logic is hosting-neutral. On Vercel Hobby this endpoint is the
+ * single daily cron entry point. It dispatches enabled internal schedules and
+ * the daily governance/CEO/reconciliation jobs without requiring multiple
+ * Vercel Cron definitions.
  */
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (isInteractiveActive()) {
-      return NextResponse.json({ ok: true, dispatched: 0, skipped: 'interactive active', nextCheck: 60 })
+      return NextResponse.json({ ok: true, dispatched: 0, skipped: 'interactive active', nextCheck: 1440 })
     }
 
     const now = new Date()
@@ -108,13 +110,28 @@ export async function POST(req: NextRequest) {
     }
 
     const baseUrl = process.env.NEXTAUTH_URL?.replace(/\/$/, '') || url.origin
-    backgroundFire(fetch(`${baseUrl}/api/monitor/external`, { signal: AbortSignal.timeout(30000) }).catch(() => {}))
+    const cronSecret = process.env.CRON_SECRET?.trim()
+    const fireDaily = (path: string) => {
+      if (!cronSecret) {
+        console.warn(`[schedules/tick] CRON_SECRET missing; skipped protected daily job ${path}`)
+        return
+      }
+      backgroundFire(fetch(`${baseUrl}${path}`, {
+        headers: { authorization: `Bearer ${cronSecret}` },
+        signal: AbortSignal.timeout(30000),
+      }).catch((error) => console.error(`[schedules/tick] Daily job failed ${path}:`, error?.message?.slice(0, 150))))
+    }
+
+    // Single Hobby-compatible daily entry point for all protected periodic work.
+    fireDaily('/api/monitor/external')
+    fireDaily('/api/monitor/qa')
+    fireDaily('/api/schedules/ceo-morning-brief')
+    fireDaily('/api/schedules/ceo-operations-report')
+    fireDaily('/api/schedules/investor-intelligence-brief')
+    fireDaily('/api/revenue-reconciliation')
 
     const tickCount = (globalThis as { __tickCount?: number }).__tickCount ?? 0
     ;(globalThis as { __tickCount?: number }).__tickCount = tickCount + 1
-    if (tickCount % 5 === 0) {
-      backgroundFire(fetch(`${baseUrl}/api/monitor/qa`, { signal: AbortSignal.timeout(30000) }).catch(() => {}))
-    }
 
     return NextResponse.json({
       ok: true,
@@ -122,8 +139,8 @@ export async function POST(req: NextRequest) {
       executed,
       count: dispatched.length,
       executedCount: executed.length,
-      nextCheck: 60,
-      monitors: `external fired, qa ${tickCount % 5 === 0 ? 'fired' : 'skipped'}`,
+      nextCheck: 1440,
+      monitors: 'daily external/qa, CEO briefs, investor brief, and revenue reconciliation fired',
     })
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 })
