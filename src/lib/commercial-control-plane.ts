@@ -2,7 +2,7 @@
 import { db } from './db'
 
 export const COMMERCIAL_CONTROL_PLANE_ID = 'commercial-control-plane'
-export const COMMERCIAL_CONTROL_PLANE_VERSION = 2
+export const COMMERCIAL_CONTROL_PLANE_VERSION = 3
 
 export type CommercialBusiness = 'revenue-recovery' | 'operations-kit' | 'career-command' | 'shared-platform'
 export type CustomerStatus = 'lead' | 'prospect' | 'customer' | 'inactive' | 'churned'
@@ -24,7 +24,7 @@ export interface DelegatedAuthority { authorityId:string; tenantId:string; busin
 export interface CommercialAuditRecord { auditId:string; tenantId:string; business:CommercialBusiness; action:string; actor:string; entityType:string; entityId:string|null; allowed:boolean; reason:string; metadata:Record<string,unknown>; createdAt:string }
 export interface CommercialControlPlaneSnapshot { id:typeof COMMERCIAL_CONTROL_PLANE_ID; version:typeof COMMERCIAL_CONTROL_PLANE_VERSION; tenantCount:number; customerCount:number; eventCount:number; workflowCount:number; credentialCount:number; billingCount:number; entitlementCount:number; evidenceCount:number; activeAuthorityCount:number; auditCount:number; businesses:Record<CommercialBusiness,{customers:number;events:number;workflows:number;billing:number;evidence:number}>; integrity:{ok:boolean;issues:string[]} }
 
-export const COMMERCIAL_CATEGORIES=Object.freeze({tenant:'commercial_tenant',customer:'commercial_customer',event:'commercial_event',workflow:'commercial_workflow',credential:'commercial_credential',billing:'commercial_billing',entitlement:'commercial_entitlement',evidence:'commercial_evidence',authority:'commercial_delegated_authority',audit:'commercial_audit',provider:'commercial_provider',action:'commercial_action',webhook:'commercial_webhook',observation:'commercial_provider_observation',sandbox:'commercial_sandbox'})
+export const COMMERCIAL_CATEGORIES=Object.freeze({tenant:'commercial_tenant',customer:'commercial_customer',event:'commercial_event',workflow:'commercial_workflow',credential:'commercial_credential',billing:'commercial_billing',entitlement:'commercial_entitlement',evidence:'commercial_evidence',authority:'commercial_delegated_authority',audit:'commercial_audit',provider:'commercial_provider',action:'commercial_action',webhook:'commercial_webhook',observation:'commercial_provider_observation',sandbox:'commercial_sandbox',memory:'commercial_memory',worldEntity:'commercial_world_entity',worldRelation:'commercial_world_relation',causalObservation:'commercial_causal_observation',causalHypothesis:'commercial_causal_hypothesis'})
 export const COMMERCIAL_BUSINESSES:readonly CommercialBusiness[]=['revenue-recovery','operations-kit','career-command','shared-platform']
 
 const clean=(v:string)=>v.trim().replace(/\s+/g,' ')
