@@ -97,14 +97,13 @@ jobs:
         if: always()
         run: |
           set +e
-          test -f .vercel/.env.preview.local
-          if [ $? -eq 0 ]; then
+          if [ -f .vercel/.env.preview.local ]; then
             python3 .github/workflows/validate-preview-env.py .vercel/.env.preview.local > release-evidence/preview-env-validation.txt 2>&1
             code=$?
             echo "Preview environment validation exit code: $code"
-            exit 0
+          else
+            echo 'Preview environment file was not created.' > release-evidence/preview-env-validation.txt
           fi
-          echo 'Preview environment file was not created.' > release-evidence/preview-env-validation.txt
           exit 0
 
       - name: Deploy Candidate Preview using Vercel remote build
@@ -123,7 +122,6 @@ jobs:
           esac
           host="${url#https://}"
           host="${host#http://}"
-
           id=""
           for attempt in $(seq 1 15); do
             deployments="$(curl --fail-with-body --silent --show-error \
@@ -135,12 +133,9 @@ jobs:
               | select((.meta.RELEASE_COMMIT_SHA // .meta.releaseCommitSha // .meta.githubCommitSha // "") == $sha or (.target // "") == "preview" or (.target == null))
               | .id
             ' <<<"$deployments" | head -n 1)"
-            if [ -n "$id" ] && [ "$id" != "null" ]; then
-              break
-            fi
+            if [ -n "$id" ] && [ "$id" != "null" ]; then break; fi
             sleep 2
           done
-
           test -n "$id"
           test "$id" != "null"
           echo "id=$id" >> "$GITHUB_OUTPUT"
@@ -196,9 +191,10 @@ jobs:
           printf 'cold_seconds=%s\n' "$(cat release-evidence/cold-latency-seconds.txt)" > release-evidence/latency-summary.txt
           printf 'warm_seconds=%s\n' "$(cat release-evidence/warm-latency-seconds.txt)" >> release-evidence/latency-summary.txt
 
-      - name: Upload candidate evidence
+      - name: Upload candidate evidence (non-blocking)
         if: always()
         uses: actions/upload-artifact@v6
+        continue-on-error: true
         with:
           name: agent007-vercel-candidate-${{ github.run_id }}
           path: release-evidence
