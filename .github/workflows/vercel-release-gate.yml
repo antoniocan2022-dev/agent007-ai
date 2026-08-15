@@ -8,6 +8,10 @@ on:
         required: true
         default: true
         type: boolean
+  push:
+    branches: [main]
+    paths:
+      - release/bootstrap-two-stage-release.trigger
 
 permissions:
   contents: read
@@ -41,7 +45,7 @@ jobs:
       - name: Verify source and release controls
         id: source
         env:
-          CONFIRM_MAIN: ${{ inputs.confirm_main }}
+          CONFIRM_MAIN: ${{ inputs.confirm_main || 'true' }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
