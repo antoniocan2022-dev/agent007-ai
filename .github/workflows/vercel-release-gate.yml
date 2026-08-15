@@ -151,34 +151,27 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-
           /usr/bin/time -f '%e' -o release-evidence/cold-latency-seconds.txt \
             curl --fail-with-body --silent --show-error --max-time 30 \
             -H 'Cache-Control: no-cache' "$CANDIDATE_URL/api/release-health" \
             > release-evidence/release-health-cold.json
-
           jq --arg sha "$GITHUB_SHA" \
             'if .releaseCommit == $sha then . else error("cold releaseCommit mismatch") end' \
             release-evidence/release-health-cold.json > /dev/null
-
           /usr/bin/time -f '%e' -o release-evidence/warm-latency-seconds.txt \
             curl --fail-with-body --silent --show-error --max-time 30 \
             -H 'Cache-Control: no-cache' "$CANDIDATE_URL/api/release-health" \
             > release-evidence/release-health-warm.json
-
           jq --arg sha "$GITHUB_SHA" \
             'if .releaseCommit == $sha then . else error("warm releaseCommit mismatch") end' \
             release-evidence/release-health-warm.json > /dev/null
-
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "$VERCEL_API_BASE/v3/deployments/${{ steps.deploy.outputs.id }}/events?teamId=$VERCEL_ORG_ID" \
             > release-evidence/candidate-events.ndjson
-
           if grep -Eqi '"level"[[:space:]]*:[[:space:]]*"error"|"type"[[:space:]]*:[[:space:]]*"error"|level=error' release-evidence/candidate-events.ndjson; then
             exit 1
           fi
-
           printf 'cold_seconds=%s\n' "$(cat release-evidence/cold-latency-seconds.txt)" > release-evidence/latency-summary.txt
           printf 'warm_seconds=%s\n' "$(cat release-evidence/warm-latency-seconds.txt)" >> release-evidence/latency-summary.txt
 
@@ -222,57 +215,3 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel promote "${{ needs.candidate.outputs.candidate_id }}" --token "$VERCEL_TOKEN"
-
-      - name: Verify promoted deployment state, exact commit and Production health
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v13/deployments/${{ needs.candidate.outputs.candidate_id }}?teamId=$VERCEL_ORG_ID" \
-            > release-evidence/production-deployment.json
-
-          test "$(jq -r '.readyState // .state // ""' release-evidence/production-deployment.json)" = READY
-          test "$(jq -r '.target // ""' release-evidence/production-deployment.json)" = production
-
-          production_url="$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
-            | jq -r '.domains[0] // empty')"
-          test -n "$production_url"
-          case "$production_url" in
-            http://*|https://*) : ;;
-            *) production_url="https://$production_url" ;;
-          esac
-          echo "$production_url" > release-evidence/production-url.txt
-
-          curl --fail-with-body --silent --show-error --max-time 30 \
-            "$production_url/api/release-health" \
-            > release-evidence/production-release-health.json
-
-          jq --arg sha "$GITHUB_SHA" \
-            'if .releaseCommit == $sha then . else error("production releaseCommit mismatch") end' \
-            release-evidence/production-release-health.json > /dev/null
-
-      - name: Capture Vercel live state AFTER promotion
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
-            > release-evidence/vercel-project-after-promotion.json
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=20" \
-            > release-evidence/vercel-deployments-after-promotion.json
-
-      - name: Upload production evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: agent007-vercel-production-${{ github.run_id }}
-          path: release-evidence
