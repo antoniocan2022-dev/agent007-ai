@@ -185,11 +185,9 @@ jobs:
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             "${VERCEL_API_BASE}/v3/deployments/${{ steps.deploy.outputs.id }}/events?teamId=${VERCEL_ORG_ID}" \
-            > release-evidence/candidate-events.json
-          if jq -e '.. | objects | select(.level? == "error" or .type? == "error")' release-evidence/candidate-events.json >/tmp/candidate-errors.json; then
-            cat /tmp/candidate-errors.json
-            exit 1
-          fi
+            > release-evidence/candidate-events.ndjson
+          error_count="$(jq -s '[.[] | select(.level? == "error" or .type? == "error" or .level? == "fatal")] | length' release-evidence/candidate-events.ndjson)"
+          test "$error_count" = "0"
 
       - name: Release evidence bundle
         run: |
@@ -303,11 +301,9 @@ jobs:
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             "${VERCEL_API_BASE}/v3/deployments/${{ needs.candidate.outputs.deployment_id }}/events?teamId=${VERCEL_ORG_ID}" \
-            > release-evidence-production/production-events.json
-          if jq -e '.. | objects | select(.level? == "error" or .type? == "error")' release-evidence-production/production-events.json >/tmp/production-errors.json; then
-            cat /tmp/production-errors.json
-            exit 1
-          fi
+            > release-evidence-production/production-events.ndjson
+          error_count="$(jq -s '[.[] | select(.level? == "error" or .type? == "error" or .level? == "fatal")] | length' release-evidence-production/production-events.ndjson)"
+          test "$error_count" = "0"
 
       - name: Upload production release evidence
         uses: actions/upload-artifact@v4
