@@ -5,7 +5,7 @@
     "deploymentEnabled": false
   },
   "installCommand": "bun install",
-  "buildCommand": "if [ \"${VERCEL:-0}\" != \"1\" ]; then export DATABASE_URL=\"postgresql://build:build@127.0.0.1:5432/build?connect_timeout=1\"; export NEXTAUTH_SECRET=\"agent007-prebuilt-build-only-secret-do-not-use-at-runtime\"; export NEXTAUTH_URL=\"https://agent007-ai.vercel.app\"; fi; bunx prisma generate && bun run build",
+  "buildCommand": "bunx prisma generate && bun run build",
   "functions": {
     "src/app/api/agent/route.ts": { "maxDuration": 300 },
     "src/app/api/monitor/qa/route.ts": { "maxDuration": 60 },
