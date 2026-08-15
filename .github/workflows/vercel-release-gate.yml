@@ -86,35 +86,14 @@ jobs:
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
-      - name: Pull Production environment into ephemeral runner file
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          bunx vercel@$VERCEL_CLI_VERSION pull --yes --environment=production --token "$VERCEL_TOKEN"
-          test -s .vercel/.env.production.local
-
-      - name: Reconcile and verify Production database schema
-        run: |
-          set -euo pipefail
-          set -a
-          source .vercel/.env.production.local
-          set +a
-          case "${DATABASE_URL:-}" in
-            postgres://*|postgresql://*) ;;
-            *) echo "Production DATABASE_URL is not PostgreSQL" >&2; rm -f .vercel/.env.production.local; exit 1 ;;
-          esac
-          bun run db:reconcile
-          rm -f .vercel/.env.production.local
-
-      - name: Create staged Production artifact — no domains assigned
+      - name: Create staged Production artifact and reconcile DB only for this artifact
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         timeout-minutes: 6
         run: |
           set -euo pipefail
-          output="$(bunx vercel@$VERCEL_CLI_VERSION --prod --skip-domain --yes --token "$VERCEL_TOKEN" 2>&1)"
+          output="$(bunx vercel@$VERCEL_CLI_VERSION --prod --skip-domain --yes --build-env AGENT007_RELEASE_SCHEMA_RECONCILE=1 --token "$VERCEL_TOKEN" 2>&1)"
           echo "$output"
           staged_url="$(printf '%s\n' "$output" | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
           test -n "$staged_url"
@@ -164,14 +143,17 @@ jobs:
           test "$(jq -r '.environment' <<<"$json")" = production
           test "$(jq -r '.releaseCommit' <<<"$json")" = "$GITHUB_SHA"
 
-      - name: Check staged artifact runtime errors
+      - name: Verify staged artifact has no runtime errors
         env:
           STAGED_ID: ${{ steps.resolve.outputs.staged_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set +e
-          bunx vercel@$VERCEL_CLI_VERSION logs --deployment "$STAGED_ID" --level error --limit 50 --token "$VERCEL_TOKEN"
-          exit 0
+          set -euo pipefail
+          log_output="$(bunx vercel@$VERCEL_CLI_VERSION logs --deployment "$STAGED_ID" --level error --limit 50 --token "$VERCEL_TOKEN" 2>&1 || true)"
+          echo "$log_output"
+          if printf '%s' "$log_output" | grep -Eiq '(error|fatal)'; then
+            exit 1
+          fi
 
   promote:
     name: Stage 2 — Promote exact verified artifact to Production
@@ -242,9 +224,12 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set +e
-          bunx vercel@$VERCEL_CLI_VERSION logs --environment production --level error --since 5m --limit 50 --token "$VERCEL_TOKEN"
-          exit 0
+          set -euo pipefail
+          log_output="$(bunx vercel@$VERCEL_CLI_VERSION logs --environment production --level error --since 5m --limit 50 --token "$VERCEL_TOKEN" 2>&1 || true)"
+          echo "$log_output"
+          if printf '%s' "$log_output" | grep -Eiq '(error|fatal)'; then
+            exit 1
+          fi
 
       - name: Capture rollback reference after promotion
         env:
