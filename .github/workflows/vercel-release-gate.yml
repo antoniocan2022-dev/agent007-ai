@@ -61,6 +61,14 @@ jobs:
           test -n "$VERCEL_PROJECT_ID"
           test -n "$VERCEL_TOKEN"
 
+      - name: Link runner to exact Vercel project
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          cat > .vercel/project.json <<EOF
+          {"orgId":"$VERCEL_ORG_ID","projectId":"$VERCEL_PROJECT_ID"}
+          EOF
+
       - name: Capture current Production rollback reference
         id: before
         env:
