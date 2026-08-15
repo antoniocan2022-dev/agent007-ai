@@ -3,6 +3,8 @@ name: First Authorized Production Deploy
 on:
   push:
     branches: [main]
+    paths:
+      - release/agent007-first-production-deploy.marker
 
 permissions:
   contents: read
@@ -13,7 +15,6 @@ env:
 
 jobs:
   deploy:
-    if: contains(github.event.head_commit.message, '[agent007-first-production-deploy]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact pushed main commit
