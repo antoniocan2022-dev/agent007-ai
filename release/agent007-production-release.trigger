@@ -1,2 +1,2 @@
 Authorized second Production release retry.
-Authoritative Vercel build and runtime gates enabled.
+Vercel Git-source API deployment path enabled.
