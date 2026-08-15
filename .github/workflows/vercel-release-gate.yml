@@ -82,36 +82,53 @@ jobs:
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
       - name: Deploy exact checked-out main commit to Production
+        id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        timeout-minutes: 6
+        timeout-minutes: 5
         run: |
           set -euo pipefail
-          bun add --global vercel@59.1.3
-          timeout 300s vercel deploy --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+          payload="$(jq -n \
+            --arg name "agent007-ai" \
+            --arg project "$VERCEL_PROJECT_ID" \
+            --arg target "production" \
+            --arg org "antoniocan2022-dev" \
+            --arg repo "agent007-ai" \
+            --arg ref "main" \
+            --arg sha "$GITHUB_SHA" \
+            '{name:$name,project:$project,target:$target,withLatestCommit:false,gitSource:{type:"github",org:$org,repo:$repo,ref:$ref,sha:$sha},gitMetadata:{remoteUrl:"https://github.com/antoniocan2022-dev/agent007-ai",commitRef:$ref,commitSha:$sha,ci:"true",ciType:"github-actions"}}')"
+          response="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$VERCEL_API_BASE/v13/deployments?teamId=$VERCEL_ORG_ID&forceNew=true" \
+            --data "$payload")"
+          echo "$response" > /tmp/vercel-create.json
+          id="$(jq -r '.id // empty' /tmp/vercel-create.json)"
+          state="$(jq -r '.readyState // empty' /tmp/vercel-create.json)"
+          test -n "$id"
+          echo "deploymentId=$id"
+          echo "initialState=$state"
+          echo "PRODUCTION_DEPLOYMENT_ID=$id" >> "$GITHUB_ENV"
 
       - name: Resolve Production deployment and wait for READY
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
+          id="$PRODUCTION_DEPLOYMENT_ID"
           for attempt in $(seq 1 30); do
-            project="$(curl --fail-with-body --silent --show-error --max-time 20 \
+            deployment="$(curl --fail-with-body --silent --show-error --max-time 20 \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
-            state="$(jq -r '.latestDeployment.readyState // "UNKNOWN"' <<<"$project")"
-            target="$(jq -r '.latestDeployment.target // "null"' <<<"$project")"
-            id="$(jq -r '.latestDeployment.id // empty' <<<"$project")"
-            url="$(jq -r '.latestDeployment.url // empty' <<<"$project")"
-            echo "attempt=$attempt state=$state target=$target id=$id url=$url"
-            if [ "$state" = READY ] && [ "$target" = production ] && [ -n "$id" ]; then
-              deployment="$(curl --fail-with-body --silent --show-error --max-time 20 \
-                -H "Authorization: Bearer $VERCEL_TOKEN" \
-                "$VERCEL_API_BASE/v13/deployments/$id?teamId=$VERCEL_ORG_ID")"
-              sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
-              echo "deploymentSha=$sha"
+              "$VERCEL_API_BASE/v13/deployments/$id?teamId=$VERCEL_ORG_ID")"
+            state="$(jq -r '.readyState // "UNKNOWN"' <<<"$deployment")"
+            target="$(jq -r '.target // "null"' <<<"$deployment")"
+            sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
+            url="$(jq -r '.url // empty' <<<"$deployment")"
+            echo "attempt=$attempt state=$state target=$target sha=$sha url=$url"
+            if [ "$state" = READY ] && [ "$target" = production ]; then
               test "$sha" = "$GITHUB_SHA"
-              echo "PRODUCTION_DEPLOYMENT_ID=$id" >> "$GITHUB_ENV"
+              test -n "$url"
               echo "PRODUCTION_URL=https://$url" >> "$GITHUB_ENV"
               exit 0
             fi
@@ -122,23 +139,18 @@ jobs:
           done
           exit 1
 
-      - name: Verify production health through Vercel protection bypass
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          PRODUCTION_URL: ${{ env.PRODUCTION_URL }}
-        timeout-minutes: 4
+      - name: Verify production health through canonical production domain
         run: |
           set -euo pipefail
-          test -n "$PRODUCTION_URL"
-          bun add --global vercel@59.1.3
           for attempt in $(seq 1 10); do
-            if output="$(vercel curl "$PRODUCTION_URL/api/release-health" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" 2>/tmp/vercel-curl.err)"; then
-              printf '%s\n' "$output" | tee /tmp/release-health.txt
-              if printf '%s\n' "$output" | grep -q '"ok":true'; then
-                exit 0
-              fi
-            else
-              cat /tmp/vercel-curl.err
+            response="$(curl --silent --show-error --max-time 20 \
+              --write-out '\nHTTP_STATUS=%{http_code}' \
+              "https://agent007-ai.vercel.app/api/release-health")"
+            echo "$response"
+            body="${response%HTTP_STATUS=*}"
+            status="${response##*HTTP_STATUS=}"
+            if [ "$status" = 200 ] && printf '%s' "$body" | grep -q '"ok":true'; then
+              exit 0
             fi
             sleep 5
           done
