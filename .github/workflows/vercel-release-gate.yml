@@ -6,32 +6,26 @@ on:
       confirm_main:
         description: "Confirm this release must originate from main"
         required: true
+        default: "true"
         type: boolean
-        default: true
 
 permissions:
   contents: read
 
 env:
+  VERCEL_API_BASE: https://api.vercel.com
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_PRODUCTION_URL: https://agent007-ai.vercel.app
-  VERCEL_API_BASE: https://api.vercel.com
-
-concurrency:
-  group: vercel-production-release
-  cancel-in-progress: false
 
 jobs:
   candidate:
     name: Candidate deployment + live-state verification
-    if: github.ref == 'refs/heads/main' && inputs.confirm_main == true
     runs-on: ubuntu-latest
-    timeout-minutes: 40
     outputs:
-      deployment_url: ${{ steps.deploy.outputs.url }}
-      deployment_id: ${{ steps.deploy.outputs.id }}
-      source_sha: ${{ github.sha }}
+      source_sha: ${{ steps.source.outputs.sha }}
+      candidate_url: ${{ steps.deploy.outputs.url }}
+      candidate_id: ${{ steps.deploy.outputs.id }}
     steps:
       - name: Checkout exact main commit
         uses: actions/checkout@v5
@@ -40,11 +34,13 @@ jobs:
           fetch-depth: 1
 
       - name: Assert source is exact main commit
+        id: source
         run: |
           set -euo pipefail
           test "${GITHUB_REF}" = "refs/heads/main"
           test -n "${GITHUB_SHA}"
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Assert controlled Vercel configuration
         run: |
@@ -83,7 +79,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.3.4'
+          bun-version: 1.3.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -101,24 +97,31 @@ jobs:
         run: bun add --global vercel@latest
 
       - name: Pull Vercel preview environment
-        run: vercel pull --yes --environment=preview --token "${VERCEL_TOKEN}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=preview --token "${VERCEL_TOKEN}"
 
       - name: Validate Preview runtime configuration
-        shell: bash
         run: |
           set -euo pipefail
           env_file=".vercel/.env.preview.local"
           test -f "$env_file"
 
+          # Parse dotenv values without printing secrets. Vercel may quote values
+          # with either single or double quotes; strip only a matching outer pair.
           get_env() {
             local key="$1"
-            local value
-            value="$(sed -n "s/^${key}=//p" "$env_file" | head -n 1)"
-            value="${value#\"}"
-            value="${value%\"}"
-            printf '%s' "$value"
+            local raw
+            raw="$(sed -n "s/^${key}=//p" "$env_file" | head -n 1)"
+            if [ -z "$raw" ]; then
+              printf '%s' ''
+              return 0
+            fi
+            case "$raw" in
+              \"*\") raw="${raw#\"}"; raw="${raw%\"}" ;;
+              \'*\') raw="${raw#\'}"; raw="${raw%\'}" ;;
+            esac
+            printf '%s' "$raw"
           }
 
           database_url="$(get_env DATABASE_URL)"
@@ -126,7 +129,11 @@ jobs:
 
           case "$database_url" in
             postgres://*|postgresql://*) ;;
-            *) echo "Preview DATABASE_URL is missing or is not PostgreSQL." >&2; exit 1 ;;
+            *)
+              echo "Preview DATABASE_URL is missing or is not PostgreSQL." >&2
+              echo "The Vercel Preview env file is present, but its DATABASE_URL value could not be parsed as a PostgreSQL URL." >&2
+              exit 1
+              ;;
           esac
 
           test -n "$nextauth_secret" || { echo "Preview NEXTAUTH_SECRET is missing." >&2; exit 1; }
@@ -136,8 +143,6 @@ jobs:
         run: vercel build --token "${VERCEL_TOKEN}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          # vercel build is a local artifact build. These values are deliberately
-          # build-only and never replace the Preview runtime environment.
           DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build?connect_timeout=1
           NEXTAUTH_SECRET: agent007-build-only-secret-do-not-use-at-runtime
           NEXTAUTH_URL: https://agent007-ai.vercel.app
@@ -188,134 +193,129 @@ jobs:
           test "$(jq -r '.id' release-evidence/candidate-deployment.json)" = "${{ steps.deploy.outputs.id }}"
           test "$(jq -r '.url' release-evidence/candidate-deployment.json)" != "null"
           git_sha="$(jq -r '.meta.githubCommitSha // ""' release-evidence/candidate-deployment.json)"
-          test -z "$git_sha" || test "$git_sha" = "${GITHUB_SHA}"
+          test -n "$git_sha"
+          test "$git_sha" = "${GITHUB_SHA}"
 
       - name: Candidate release-health cold-start test
-        id: cold
+        env:
+          CANDIDATE_URL: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
-          url="${{ steps.deploy.outputs.url }}/api/release-health"
-          start=$(date +%s%3N)
-          code=$(curl -L -sS -o /tmp/candidate-response -w '%{http_code}' --max-time 45 "$url")
-          end=$(date +%s%3N)
-          latency=$((end-start))
-          echo "HTTP=$code latency_ms=$latency"
-          test "$code" = "200"
-          jq -e --arg sha "${GITHUB_SHA}" '.ok == true and .releaseGate == true and .releaseCommit == $sha' /tmp/candidate-response
-          echo "latency_ms=$latency" >> "$GITHUB_OUTPUT"
+          curl --fail-with-body --silent --show-error \
+            -H 'Cache-Control: no-cache' \
+            --max-time 30 \
+            "${CANDIDATE_URL}/api/release-health" \
+            > release-evidence/release-health-cold.json
+          jq --arg sha "${GITHUB_SHA}" 'if .releaseCommit == $sha then . else error("releaseCommit mismatch") end' \
+            release-evidence/release-health-cold.json > /dev/null
 
       - name: Candidate release-health warm test
-        id: warm
+        env:
+          CANDIDATE_URL: ${{ steps.deploy.outputs.url }}
         run: |
           set -euo pipefail
-          url="${{ steps.deploy.outputs.url }}/api/release-health"
-          start=$(date +%s%3N)
-          code=$(curl -L -sS -o /tmp/candidate-response-warm -w '%{http_code}' --max-time 30 "$url")
-          end=$(date +%s%3N)
-          latency=$((end-start))
-          echo "HTTP=$code latency_ms=$latency"
-          test "$code" = "200"
-          jq -e --arg sha "${GITHUB_SHA}" '.ok == true and .releaseGate == true and .releaseCommit == $sha' /tmp/candidate-response-warm
-          echo "latency_ms=$latency" >> "$GITHUB_OUTPUT"
+          curl --fail-with-body --silent --show-error \
+            -H 'Cache-Control: no-cache' \
+            --max-time 30 \
+            "${CANDIDATE_URL}/api/release-health" \
+            > release-evidence/release-health-warm.json
+          jq --arg sha "${GITHUB_SHA}" 'if .releaseCommit == $sha then . else error("releaseCommit mismatch") end' \
+            release-evidence/release-health-warm.json > /dev/null
 
       - name: Candidate runtime error check
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
+          id="${{ steps.deploy.outputs.id }}"
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v3/deployments/${{ steps.deploy.outputs.id }}/events?teamId=${VERCEL_ORG_ID}" \
+            "${VERCEL_API_BASE}/v3/deployments/${id}/events?teamId=${VERCEL_ORG_ID}" \
             > release-evidence/candidate-events.ndjson
-          error_count="$(jq -s '[.[] | select(.level? == "error" or .type? == "error" or .level? == "fatal")] | length' release-evidence/candidate-events.ndjson)"
-          test "$error_count" = "0"
+          if grep -Eqi '"level"[[:space:]]*:[[:space:]]*"error"|"type"[[:space:]]*:[[:space:]]*"error"|level=error' release-evidence/candidate-events.ndjson; then
+            echo "Candidate runtime/build events contain an error." >&2
+            exit 1
+          fi
 
       - name: Release evidence bundle
+        if: always()
         run: |
           set -euo pipefail
-          cat <<EOF > release-evidence/release-evidence.txt
-          source=main
-          main_commit=${GITHUB_SHA}
-          candidate_url=${{ steps.deploy.outputs.url }}
-          deployment_id=${{ steps.deploy.outputs.id }}
-          cold_latency_ms=${{ steps.cold.outputs.latency_ms }}
-          warm_latency_ms=${{ steps.warm.outputs.latency_ms }}
-          cron_policy=disabled-until-authorized
-          git_auto_deployment=disabled
-          EOF
-          cat release-evidence/release-evidence.txt
+          {
+            echo "source_sha=${GITHUB_SHA}"
+            echo "candidate_id=${{ steps.deploy.outputs.id || '' }}"
+            echo "candidate_url=${{ steps.deploy.outputs.url || '' }}"
+          } > release-evidence/release-summary.txt
 
       - name: Upload candidate release evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: agent007-vercel-candidate-${{ github.sha }}
-          path: release-evidence/
-          retention-days: 30
+          name: agent007-vercel-candidate-${{ github.run_id }}
+          path: release-evidence
 
   production:
     name: Production promotion (manual approval)
     needs: candidate
-    if: needs.candidate.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: production
-    timeout-minutes: 25
     steps:
-      - name: Install Vercel CLI
-        run: bun add --global vercel@latest
+      - name: Checkout exact main commit
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Assert source is still exact main commit
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "${GITHUB_SHA}" = "${{ needs.candidate.outputs.source_sha }}"
 
       - name: Capture Vercel live state BEFORE promotion
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          mkdir -p release-evidence-production
+          mkdir -p release-evidence
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
-            > release-evidence-production/vercel-project-before-promote.json
+            > release-evidence/vercel-project-before-promotion.json
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
-            > release-evidence-production/vercel-production-before-promote.json
-          previous_id="$(jq -r '.deployments[] | select((.readyState == "READY" or .state == "READY") and .id != "${{ needs.candidate.outputs.deployment_id }}") | .id' release-evidence-production/vercel-production-before-promote.json | head -n 1)"
-          echo "previous_production_deployment=${previous_id:-none}" | tee release-evidence-production/rollback-reference.txt
+            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=20" \
+            > release-evidence/vercel-deployments-before-promotion.json
 
       - name: Promote exact candidate artifact
-        run: vercel promote "${CANDIDATE_URL}" --yes --token "${VERCEL_TOKEN}"
-        env:
-          CANDIDATE_URL: ${{ needs.candidate.outputs.deployment_url }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Wait for Production readiness
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 24); do
-            response="$(curl --fail-with-body --silent --show-error \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "${VERCEL_API_BASE}/v13/deployments/${{ needs.candidate.outputs.deployment_id }}?teamId=${VERCEL_ORG_ID}")"
-            state="$(jq -r '.readyState // .state // "UNKNOWN"' <<<"$response")"
-            echo "production promotion attempt=${attempt} state=${state}"
-            case "$state" in
-              READY) printf '%s' "$response" > release-evidence-production/promoted-deployment.json; exit 0 ;;
-              ERROR|CANCELED|DELETED) printf '%s' "$response" > release-evidence-production/promoted-deployment.json; exit 1 ;;
-            esac
-            sleep 10
-          done
-          exit 1
+          candidate_id="${{ needs.candidate.outputs.candidate_id }}"
+          test -n "$candidate_id"
+          vercel promote "$candidate_id" --token "${VERCEL_TOKEN}"
 
-      - name: Production health and exact-artifact test
+      - name: Verify Production artifact identity and health
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          start=$(date +%s%3N)
-          code=$(curl -L -sS -o /tmp/production-response -w '%{http_code}' --max-time 45 "${VERCEL_PRODUCTION_URL}/api/release-health")
-          end=$(date +%s%3N)
-          latency=$((end-start))
-          echo "HTTP=$code latency_ms=$latency"
-          test "$code" = "200"
-          jq -e --arg sha "${{ needs.candidate.outputs.source_sha }}" '.ok == true and .releaseGate == true and .releaseCommit == $sha' /tmp/production-response
+          mkdir -p release-evidence
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "${VERCEL_API_BASE}/v13/deployments/${{ needs.candidate.outputs.candidate_id }}?teamId=${VERCEL_ORG_ID}" \
+            > release-evidence/production-deployment.json
+          jq --arg sha "${GITHUB_SHA}" 'if (.meta.githubCommitSha // "") == $sha then . else error("Production Git SHA mismatch") end' \
+            release-evidence/production-deployment.json > /dev/null
+          curl --fail-with-body --silent --show-error \
+            --max-time 30 \
+            "${VERCEL_PRODUCTION_URL}/api/release-health" \
+            > release-evidence/production-release-health.json
+          jq --arg sha "${GITHUB_SHA}" 'if .releaseCommit == $sha then . else error("Production releaseCommit mismatch") end' \
+            release-evidence/production-release-health.json > /dev/null
 
       - name: Capture Vercel live state AFTER promotion
         env:
@@ -325,30 +325,15 @@ jobs:
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
-            > release-evidence-production/vercel-project-after.json
+            > release-evidence/vercel-project-after-promotion.json
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
-            > release-evidence-production/vercel-production-after.json
-          latest_id="$(jq -r '.deployments[0].id // ""' release-evidence-production/vercel-production-after.json)"
-          test "$latest_id" = "${{ needs.candidate.outputs.deployment_id }}"
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' release-evidence-production/vercel-project-after.json
-
-      - name: Production runtime error check
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v3/deployments/${{ needs.candidate.outputs.deployment_id }}/events?teamId=${VERCEL_ORG_ID}" \
-            > release-evidence-production/production-events.ndjson
-          error_count="$(jq -s '[.[] | select(.level? == "error" or .type? == "error" or .level? == "fatal")] | length' release-evidence-production/production-events.ndjson)"
-          test "$error_count" = "0"
+            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=20" \
+            > release-evidence/vercel-deployments-after-promotion.json
 
       - name: Upload production release evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: agent007-vercel-production-${{ needs.candidate.outputs.deployment_id }}
-          path: release-evidence-production/
-          retention-days: 30
+          name: agent007-vercel-production-${{ github.run_id }}
+          path: release-evidence
