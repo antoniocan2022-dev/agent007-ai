@@ -174,22 +174,40 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Vercel CLI automatically manages Deployment Protection bypass tokens
-          # for `vercel curl`. Keep VERCEL_TOKEN in the environment for CLI auth;
-          # do not pass --token after the curl subcommand because CLI 59.x forwards
-          # that flag to the underlying system curl.
-          /usr/bin/time -f '%e' -o release-evidence/cold-latency-seconds.txt \
-            vercel curl "$CANDIDATE_URL/api/release-health" \
-            --silent --show-error \
-            > release-evidence/release-health-cold.json
+          request_release_health() {
+            local output_file="$1"
+            local latency_file="$2"
+            /usr/bin/time -f '%e' -o "$latency_file" \
+              vercel curl "$CANDIDATE_URL/api/release-health" \
+              --silent --show-error \
+              > "$output_file.raw"
+
+            python3 - "$output_file.raw" "$output_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+raw_path, json_path = sys.argv[1:]
+raw = Path(raw_path).read_text(encoding="utf-8", errors="replace")
+start = raw.find("{")
+end = raw.rfind("}")
+if start < 0 or end < start:
+    raise SystemExit("No JSON object found in vercel curl output")
+obj = json.loads(raw[start:end + 1])
+Path(json_path).write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8")
+PY
+          }
+
+          request_release_health \
+            release-evidence/release-health-cold.json \
+            release-evidence/cold-latency-seconds.txt
           jq -e --arg sha "$GITHUB_SHA" \
             'type == "object" and .releaseCommit == $sha' \
             release-evidence/release-health-cold.json > /dev/null
 
-          /usr/bin/time -f '%e' -o release-evidence/warm-latency-seconds.txt \
-            vercel curl "$CANDIDATE_URL/api/release-health" \
-            --silent --show-error \
-            > release-evidence/release-health-warm.json
+          request_release_health \
+            release-evidence/release-health-warm.json \
+            release-evidence/warm-latency-seconds.txt
           jq -e --arg sha "$GITHUB_SHA" \
             'type == "object" and .releaseCommit == $sha' \
             release-evidence/release-health-warm.json > /dev/null
