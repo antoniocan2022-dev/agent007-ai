@@ -34,7 +34,7 @@ jobs:
       source_sha: ${{ github.sha }}
     steps:
       - name: Checkout exact main commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 1
@@ -53,6 +53,15 @@ jobs:
           test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = "false"
           test -f src/app/api/release-health/route.ts
 
+      - name: Assert Vercel release credentials are configured
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_ORG_ID}" || { echo "VERCEL_ORG_ID is missing" >&2; exit 1; }
+          test -n "${VERCEL_PROJECT_ID}" || { echo "VERCEL_PROJECT_ID is missing" >&2; exit 1; }
+          test -n "${VERCEL_TOKEN}" || { echo "VERCEL_TOKEN is missing" >&2; exit 1; }
+
       - name: Capture Vercel live state BEFORE deployment
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -61,11 +70,11 @@ jobs:
           mkdir -p release-evidence
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}" \
+            "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
             > release-evidence/vercel-project-before.json
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v13/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=20" \
+            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&limit=20" \
             > release-evidence/vercel-deployments-before.json
           jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' \
             release-evidence/vercel-project-before.json > release-evidence/vercel-before-summary.json
@@ -231,11 +240,11 @@ jobs:
           mkdir -p release-evidence-production
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}" \
+            "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
             > release-evidence-production/vercel-project-before-promote.json
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v13/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
+            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
             > release-evidence-production/vercel-production-before-promote.json
           previous_id="$(jq -r '.deployments[] | select((.readyState == "READY" or .state == "READY") and .id != "${{ needs.candidate.outputs.deployment_id }}") | .id' release-evidence-production/vercel-production-before-promote.json | head -n 1)"
           echo "previous_production_deployment=${previous_id:-none}" | tee release-evidence-production/rollback-reference.txt
@@ -283,11 +292,11 @@ jobs:
           set -euo pipefail
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}" \
+            "${VERCEL_API_BASE}/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
             > release-evidence-production/vercel-project-after.json
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API_BASE}/v13/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
+            "${VERCEL_API_BASE}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
             > release-evidence-production/vercel-production-after.json
           latest_id="$(jq -r '.deployments[0].id // ""' release-evidence-production/vercel-production-after.json)"
           test "$latest_id" = "${{ needs.candidate.outputs.deployment_id }}"
