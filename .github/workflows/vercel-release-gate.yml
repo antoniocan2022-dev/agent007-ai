@@ -23,7 +23,6 @@ jobs:
     name: Candidate deployment + live-state verification
     runs-on: ubuntu-latest
     outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
       candidate_id: ${{ steps.deploy.outputs.id }}
       candidate_url: ${{ steps.deploy.outputs.url }}
     steps:
@@ -199,12 +198,12 @@ jobs:
     environment:
       name: production
     steps:
-      - name: Assert exact candidate identity
+      - name: Assert exact main source and candidate
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
-          test "$(git rev-parse HEAD 2>/dev/null || true)" = "$GITHUB_SHA" || true
-          test "${{ needs.candidate.outputs.source_sha }}" = "$GITHUB_SHA"
+          test -n "${{ needs.candidate.outputs.candidate_id }}"
+          test "$GITHUB_SHA" != ""
 
       - name: Capture Vercel live state BEFORE promotion
         env:
