@@ -100,7 +100,7 @@ jobs:
             -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
-            "$VERCEL_API_BASE/v13/deployments?teamId=$VERCEL_ORG_ID&forceNew=true" \
+            "$VERCEL_API_BASE/v13/deployments?teamId=$VERCEL_ORG_ID" \
             --data "$payload")"
           cat /tmp/vercel-create.json
           test "$http_code" -ge 200
