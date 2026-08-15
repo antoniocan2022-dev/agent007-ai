@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+env:
+  VERCEL_API_BASE: https://api.vercel.com
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
 jobs:
   repair:
     name: Add missing nullable schema columns
@@ -26,17 +31,65 @@ jobs:
           set -euo pipefail
           test "$CONFIRM_REPAIR" = true
 
+      - name: Assert Vercel credentials
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_ORG_ID"
+          test -n "$VERCEL_PROJECT_ID"
+          test -n "$VERCEL_TOKEN"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.4
 
-      - name: Apply additive PostgreSQL schema repair
+      - name: Pull Production environment from Vercel
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$DATABASE_URL"
+          bun add --global vercel@latest
+          vercel pull --yes --environment=production --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+          test -f .vercel/.env.production.local
+
+      - name: Resolve Production DATABASE_URL without exposing it
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+from pathlib import Path
+
+path = Path('.vercel/.env.production.local')
+raw = path.read_text(encoding='utf-8-sig', errors='replace')
+value = None
+for line in raw.splitlines():
+    stripped = line.strip()
+    if not stripped or stripped.startswith('#') or '=' not in stripped:
+        continue
+    key, val = stripped.split('=', 1)
+    if key.strip() != 'DATABASE_URL':
+        continue
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+        val = val[1:-1]
+    val = val.replace('\\/', '/').replace('\\:', ':').replace('\\\\', '\\')
+    if val.startswith(('postgres://', 'postgresql://')):
+        value = val
+        break
+if not value:
+    raise SystemExit('Production DATABASE_URL was not found or is not PostgreSQL-compatible')
+with open('/tmp/vercel-production-database-url', 'w', encoding='utf-8') as f:
+    f.write(value)
+with open('/tmp/database-url-env', 'w', encoding='utf-8') as f:
+    f.write(f'DATABASE_URL={value}\n')
+PY
+          cat /tmp/database-url-env >> "$GITHUB_ENV"
+          echo 'Production DATABASE_URL resolved from Vercel: yes'
+
+      - name: Apply additive PostgreSQL schema repair
+        run: |
+          set -euo pipefail
           cat > /tmp/schema-repair.sql <<'SQL'
           ALTER TABLE "PhoneConfig" ADD COLUMN IF NOT EXISTS "emailImapHost" TEXT;
           ALTER TABLE "PhoneConfig" ADD COLUMN IF NOT EXISTS "emailImapPort" TEXT;
@@ -51,8 +104,6 @@ jobs:
           bunx prisma db execute --stdin --url "$DATABASE_URL" < /tmp/schema-repair.sql
 
       - name: Verify repaired columns
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
           cat > /tmp/schema-verify.sql <<'SQL'
