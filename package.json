@@ -11,7 +11,7 @@
     "audit:coherence": "bun scripts/repository-coherence-audit.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:reconcile": "bun scripts/reconcile-production-schema.ts",
+    "db:reconcile": "bun src/lib/reconcile-production-schema.ts",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset"
   },
