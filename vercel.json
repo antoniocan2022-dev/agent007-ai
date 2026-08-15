@@ -13,8 +13,5 @@
     "src/app/api/owner-backup/route.ts": { "maxDuration": 60 },
     "src/app/api/**/route.ts": { "maxDuration": 60 }
   },
-  "regions": ["iad1"],
-  "crons": [
-    { "path": "/api/schedules/tick", "schedule": "0 5 * * *" }
-  ]
+  "regions": ["iad1"]
 }
