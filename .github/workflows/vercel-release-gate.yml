@@ -57,7 +57,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
+          curl --fail-with-body --silent --show-error --max-time 20 \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
             > /tmp/vercel-before.json
@@ -96,16 +96,20 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 30); do
-            project="$(curl --fail-with-body --silent --show-error \
+            project="$(curl --fail-with-body --silent --show-error --max-time 20 \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
               "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
             state="$(jq -r '.latestDeployment.readyState // "UNKNOWN"' <<<"$project")"
             target="$(jq -r '.latestDeployment.target // "null"' <<<"$project")"
-            sha="$(jq -r '.latestDeployment.meta.githubCommitSha // empty' <<<"$project")"
             id="$(jq -r '.latestDeployment.id // empty' <<<"$project")"
             url="$(jq -r '.latestDeployment.url // empty' <<<"$project")"
-            echo "attempt=$attempt state=$state target=$target id=$id sha=$sha url=$url"
-            if [ "$state" = READY ] && [ "$target" = production ]; then
+            echo "attempt=$attempt state=$state target=$target id=$id url=$url"
+            if [ "$state" = READY ] && [ "$target" = production ] && [ -n "$id" ]; then
+              deployment="$(curl --fail-with-body --silent --show-error --max-time 20 \
+                -H "Authorization: Bearer $VERCEL_TOKEN" \
+                "$VERCEL_API_BASE/v13/deployments/$id?teamId=$VERCEL_ORG_ID")"
+              sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
+              echo "deploymentSha=$sha"
               test "$sha" = "$GITHUB_SHA"
               echo "PRODUCTION_DEPLOYMENT_ID=$id" >> "$GITHUB_ENV"
               echo "PRODUCTION_URL=https://$url" >> "$GITHUB_ENV"
@@ -125,6 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$PRODUCTION_URL"
+          bun add --global vercel@latest
           for attempt in $(seq 1 10); do
             if output="$(vercel curl "$PRODUCTION_URL/api/release-health" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" 2>/tmp/vercel-curl.err)"; then
               printf '%s\n' "$output" | tee /tmp/release-health.txt
@@ -144,7 +149,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set +e
-          curl --silent --show-error \
+          curl --silent --show-error --max-time 20 \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
             > /tmp/vercel-after.json
