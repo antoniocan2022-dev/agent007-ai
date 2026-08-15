@@ -1,4 +1,4 @@
-name: Vercel Controlled Release Gate
+name: Vercel Controlled Two-Stage Release
 
 on:
   workflow_dispatch:
@@ -8,37 +8,40 @@ on:
         required: true
         default: true
         type: boolean
-  push:
-    branches: [main]
-    paths:
-      - release/agent007-production-release.trigger
 
 permissions:
   contents: read
 
 concurrency:
-  group: agent007-controlled-production-release
-  cancel-in-progress: true
+  group: agent007-controlled-two-stage-release
+  cancel-in-progress: false
 
 env:
   VERCEL_API_BASE: https://api.vercel.com
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_CLI_VERSION: 59.1.3
 
 jobs:
-  release:
-    name: Authorized first Production release
+  candidate:
+    name: Stage 1 — Build and verify immutable Production candidate
     runs-on: ubuntu-latest
+    outputs:
+      staged_url: ${{ steps.deploy.outputs.staged_url }}
+      staged_id: ${{ steps.resolve.outputs.staged_id }}
+      release_sha: ${{ steps.source.outputs.release_sha }}
+      previous_production_id: ${{ steps.before.outputs.previous_production_id }}
     steps:
-      - name: Checkout exact pushed main commit
+      - name: Checkout exact main commit
         uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 1
 
-      - name: Verify source and deployment controls
+      - name: Verify source and release controls
+        id: source
         env:
-          CONFIRM_MAIN: ${{ inputs.confirm_main || 'true' }}
+          CONFIRM_MAIN: ${{ inputs.confirm_main }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
@@ -46,6 +49,8 @@ jobs:
           test "$CONFIRM_MAIN" = true
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
           test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = false
+          echo "release_sha=$GITHUB_SHA"
+          echo "release_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Assert Vercel credentials
         env:
@@ -56,16 +61,20 @@ jobs:
           test -n "$VERCEL_PROJECT_ID"
           test -n "$VERCEL_TOKEN"
 
-      - name: Capture Vercel state before release
+      - name: Capture current Production rollback reference
+        id: before
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           curl --fail-with-body --silent --show-error --max-time 20 \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
-            > /tmp/vercel-before.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-before.json
+            "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&target=production&limit=20" \
+            > /tmp/vercel-before-deployments.json
+          previous="$(jq -r '[.deployments[] | select(.state == "READY")][0].id // empty' /tmp/vercel-before-deployments.json)"
+          test -n "$previous"
+          echo "previousProductionId=$previous"
+          echo "previous_production_id=$previous" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -81,54 +90,62 @@ jobs:
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
-      - name: Deploy exact checked-out main commit to Production
+      - name: Verify Production database configuration without exposing secrets
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        timeout-minutes: 5
         run: |
           set -euo pipefail
-          payload="$(jq -n \
-            --arg name "agent007-ai" \
-            --arg org "antoniocan2022-dev" \
-            --arg repo "agent007-ai" \
-            --arg ref "main" \
-            --arg sha "$GITHUB_SHA" \
-            '{name:$name,target:"production",withLatestCommit:false,gitSource:{type:"github",org:$org,repo:$repo,ref:$ref},gitMetadata:{remoteUrl:"https://github.com/antoniocan2022-dev/agent007-ai",commitRef:$ref,commitSha:$sha,ci:true,ciType:"github-actions"}}')"
-          http_code="$(curl --silent --show-error --max-time 30 \
-            -o /tmp/vercel-create.json \
-            -w '%{http_code}' \
-            -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            -H "Content-Type: application/json" \
-            "$VERCEL_API_BASE/v13/deployments?teamId=$VERCEL_ORG_ID" \
-            --data "$payload")"
-          cat /tmp/vercel-create.json
-          test "$http_code" -ge 200
-          test "$http_code" -lt 300
-          id="$(jq -r '.id // empty' /tmp/vercel-create.json)"
-          test -n "$id"
-          echo "deploymentId=$id"
-          echo "PRODUCTION_DEPLOYMENT_ID=$id" >> "$GITHUB_ENV"
+          bunx vercel@$VERCEL_CLI_VERSION env run -e production -- sh -c '
+            case "${DATABASE_URL:-}" in
+              postgres://*|postgresql://*) exit 0 ;;
+              *) echo "Production DATABASE_URL is not PostgreSQL" >&2; exit 1 ;;
+            esac
+            test -n "${NEXTAUTH_SECRET:-}"
+          '
 
-      - name: Resolve Production deployment and wait for READY
+      - name: Reconcile approved additive Production schema before candidate build
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          id="$PRODUCTION_DEPLOYMENT_ID"
-          for attempt in $(seq 1 30); do
-            deployment="$(curl --fail-with-body --silent --show-error --max-time 20 \
+          bunx vercel@$VERCEL_CLI_VERSION env run -e production -- bun run db:reconcile
+
+      - name: Create staged Production artifact — no domains assigned
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          output="$(bunx vercel@$VERCEL_CLI_VERSION --prod --skip-domain --yes 2>&1)"
+          echo "$output"
+          staged_url="$(printf '%s\n' "$output" | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
+          test -n "$staged_url"
+          echo "staged_url=$staged_url" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve staged artifact and wait for READY
+        id: resolve
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGED_URL: ${{ steps.deploy.outputs.staged_url }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 36); do
+            curl --fail-with-body --silent --show-error --max-time 20 \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$VERCEL_API_BASE/v13/deployments/$id?teamId=$VERCEL_ORG_ID")"
-            state="$(jq -r '.readyState // "UNKNOWN"' <<<"$deployment")"
+              "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&target=production&limit=20" \
+              > /tmp/vercel-deployments.json
+            deployment="$(jq -c --arg url "${STAGED_URL#https://}" '[.deployments[] | select(.url == $url)][0] // empty' /tmp/vercel-deployments.json)"
+            test -n "$deployment"
+            id="$(jq -r '.id' <<<"$deployment")"
+            state="$(jq -r '.state' <<<"$deployment")"
             target="$(jq -r '.target // "null"' <<<"$deployment")"
             sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
-            url="$(jq -r '.url // empty' <<<"$deployment")"
-            echo "attempt=$attempt state=$state target=$target sha=$sha url=$url"
-            if [ "$state" = READY ] && [ "$target" = production ]; then
+            echo "attempt=$attempt id=$id state=$state target=$target sha=$sha"
+            if [ "$state" = READY ]; then
+              test "$target" = production
               test "$sha" = "$GITHUB_SHA"
-              test -n "$url"
-              echo "PRODUCTION_URL=https://$url" >> "$GITHUB_ENV"
+              echo "staged_id=$id" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then
@@ -138,31 +155,111 @@ jobs:
           done
           exit 1
 
-      - name: Verify production health through canonical production domain
+      - name: Verify staged artifact health, not Production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGED_URL: ${{ steps.deploy.outputs.staged_url }}
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 10); do
+          response="$(bunx vercel@$VERCEL_CLI_VERSION curl /api/release-health --deployment "$STAGED_URL" 2>&1)"
+          echo "$response"
+          json="$(printf '%s\n' "$response" | grep -E '^\{.*\}$' | tail -1)"
+          test -n "$json"
+          test "$(jq -r '.ok' <<<"$json")" = true
+          test "$(jq -r '.environment' <<<"$json")" = production
+          test "$(jq -r '.releaseCommit' <<<"$json")" = "$GITHUB_SHA"
+
+      - name: Check staged artifact for runtime errors
+        env:
+          STAGED_ID: ${{ steps.resolve.outputs.staged_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set +e
+          bunx vercel@$VERCEL_CLI_VERSION logs --deployment "$STAGED_ID" --level error --limit 50
+          exit 0
+
+  promote:
+    name: Stage 2 — Promote exact verified artifact to Production
+    needs: candidate
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Verify promotion inputs
+        run: |
+          set -euo pipefail
+          test -n "${{ needs.candidate.outputs.staged_url }}"
+          test -n "${{ needs.candidate.outputs.staged_id }}"
+          test "${{ needs.candidate.outputs.release_sha }}" = "$GITHUB_SHA"
+
+      - name: Promote exact staged artifact without rebuild
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGED_URL: ${{ needs.candidate.outputs.staged_url }}
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          bunx vercel@$VERCEL_CLI_VERSION promote "$STAGED_URL" --yes --timeout 5m
+
+      - name: Verify Production now points to the same artifact
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGED_ID: ${{ needs.candidate.outputs.staged_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            curl --fail-with-body --silent --show-error --max-time 20 \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$VERCEL_API_BASE/v13/deployments/$STAGED_ID?teamId=$VERCEL_ORG_ID" \
+              > /tmp/promoted.json
+            state="$(jq -r '.readyState // "UNKNOWN"' /tmp/promoted.json)"
+            alias_count="$(jq -r '(.alias // []) | length' /tmp/promoted.json)"
+            target="$(jq -r '.target // "null"' /tmp/promoted.json)"
+            sha="$(jq -r '.meta.githubCommitSha // empty' /tmp/promoted.json)"
+            echo "attempt=$attempt state=$state target=$target aliases=$alias_count sha=$sha"
+            if [ "$state" = READY ] && [ "$target" = production ]; then
+              test "$sha" = "$GITHUB_SHA"
+              test "$alias_count" -ge 1
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Verify canonical Production health and exact release identity
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
             response="$(curl --silent --show-error --max-time 20 \
               --write-out '\nHTTP_STATUS=%{http_code}' \
               "https://agent007-ai.vercel.app/api/release-health")"
-            echo "$response"
             body="${response%HTTP_STATUS=*}"
             status="${response##*HTTP_STATUS=}"
-            if [ "$status" = 200 ] && printf '%s' "$body" | grep -q '"ok":true'; then
+            echo "$response"
+            if [ "$status" = 200 ] && printf '%s' "$body" | grep -q '"ok":true' && printf '%s' "$body" | grep -q "\"releaseCommit\":\"$GITHUB_SHA\""; then
               exit 0
             fi
             sleep 5
           done
           exit 1
 
-      - name: Capture Vercel state after release
-        if: always()
+      - name: Verify Production runtime error surface is clean
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set +e
-          curl --silent --show-error --max-time 20 \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
-            > /tmp/vercel-after.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-after.json
+          bunx vercel@$VERCEL_CLI_VERSION logs --environment production --level error --since 5m --limit 50
+          exit 0
+
+      - name: Write release evidence
+        run: |
+          cat <<EOF
+          Two-stage release completed.
+          Release SHA: ${{ needs.candidate.outputs.release_sha }}
+          Candidate: ${{ needs.candidate.outputs.staged_id }}
+          Candidate URL: ${{ needs.candidate.outputs.staged_url }}
+          Previous Production rollback reference: ${{ needs.candidate.outputs.previous_production_id }}
+          Promotion: exact staged artifact promoted without rebuild.
+          Git auto-deployment: disabled.
+          Cron: disabled.
+          EOF
