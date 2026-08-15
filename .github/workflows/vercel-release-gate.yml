@@ -92,22 +92,20 @@ jobs:
         run: |
           set -euo pipefail
           bunx vercel@$VERCEL_CLI_VERSION pull --yes --environment=production --token "$VERCEL_TOKEN"
-          test -s .env.production.local
+          test -s .vercel/.env.production.local
 
       - name: Reconcile and verify Production database schema
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           set -a
-          source .env.production.local
+          source .vercel/.env.production.local
           set +a
           case "${DATABASE_URL:-}" in
             postgres://*|postgresql://*) ;;
-            *) echo "Production DATABASE_URL is not PostgreSQL" >&2; rm -f .env.production.local; exit 1 ;;
+            *) echo "Production DATABASE_URL is not PostgreSQL" >&2; rm -f .vercel/.env.production.local; exit 1 ;;
           esac
           bun run db:reconcile
-          rm -f .env.production.local
+          rm -f .vercel/.env.production.local
 
       - name: Create staged Production artifact — no domains assigned
         id: deploy
