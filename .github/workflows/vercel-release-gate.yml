@@ -107,37 +107,45 @@ jobs:
           env_file=".vercel/.env.preview.local"
           test -f "$env_file"
 
-          # Parse dotenv values without printing secrets. Vercel may quote values
-          # with either single or double quotes; strip only a matching outer pair.
-          get_env() {
-            local key="$1"
-            local raw
-            raw="$(sed -n "s/^${key}=//p" "$env_file" | head -n 1)"
-            if [ -z "$raw" ]; then
-              printf '%s' ''
-              return 0
-            fi
-            case "$raw" in
-              \"*\") raw="${raw#\"}"; raw="${raw%\"}" ;;
-              \'*\') raw="${raw#\'}"; raw="${raw%\'}" ;;
-            esac
-            printf '%s' "$raw"
-          }
+          python3 - "$env_file" <<'PY'
+          import pathlib
+          import sys
+          from urllib.parse import urlsplit
 
-          database_url="$(get_env DATABASE_URL)"
-          nextauth_secret="$(get_env NEXTAUTH_SECRET)"
+          path = pathlib.Path(sys.argv[1])
+          try:
+              raw_text = path.read_text(encoding="utf-8-sig")
+          except UnicodeDecodeError as exc:
+              print(f"Preview env file is not valid UTF-8: {exc}", file=sys.stderr)
+              raise SystemExit(1)
 
-          case "$database_url" in
-            postgres://*|postgresql://*) ;;
-            *)
-              echo "Preview DATABASE_URL is missing or is not PostgreSQL." >&2
-              echo "The Vercel Preview env file is present, but its DATABASE_URL value could not be parsed as a PostgreSQL URL." >&2
-              exit 1
-              ;;
-          esac
+          values = {}
+          for line_no, raw_line in enumerate(raw_text.splitlines(), 1):
+              line = raw_line.strip()
+              if not line or line.startswith("#") or "=" not in line:
+                  continue
+              key, value = line.split("=", 1)
+              key = key.strip()
+              value = value.strip()
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                  value = value[1:-1]
+              values[key] = value
 
-          test -n "$nextauth_secret" || { echo "Preview NEXTAUTH_SECRET is missing." >&2; exit 1; }
-          echo "Preview runtime configuration contains a PostgreSQL DATABASE_URL and NEXTAUTH_SECRET."
+          database_url = values.get("DATABASE_URL", "").strip()
+          nextauth_secret = values.get("NEXTAUTH_SECRET", "").strip()
+
+          parsed = urlsplit(database_url)
+          if parsed.scheme not in {"postgres", "postgresql"} or not parsed.netloc or not parsed.path:
+              print("Preview DATABASE_URL is missing or is not a valid PostgreSQL URL.", file=sys.stderr)
+              print(f"Parsed metadata: present={bool(database_url)} scheme={parsed.scheme or '<none>'} has_host={bool(parsed.netloc)} has_path={bool(parsed.path)}", file=sys.stderr)
+              raise SystemExit(1)
+
+          if not nextauth_secret:
+              print("Preview NEXTAUTH_SECRET is missing.", file=sys.stderr)
+              raise SystemExit(1)
+
+          print("Preview runtime configuration is valid: DATABASE_URL=postgresql, NEXTAUTH_SECRET=present")
+          PY
 
       - name: Build Vercel candidate artifact
         run: vercel build --token "${VERCEL_TOKEN}"
@@ -249,7 +257,7 @@ jobs:
 
       - name: Upload candidate release evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agent007-vercel-candidate-${{ github.run_id }}
           path: release-evidence
@@ -333,7 +341,7 @@ jobs:
 
       - name: Upload production release evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agent007-vercel-production-${{ github.run_id }}
           path: release-evidence
