@@ -115,27 +115,33 @@ jobs:
           set -euo pipefail
           output="$(vercel deploy --yes --token "$VERCEL_TOKEN" --env RELEASE_COMMIT_SHA="$RELEASE_COMMIT_SHA")"
           printf '%s\n' "$output"
-          raw_url="$(printf '%s\n' "$output" | tail -n 1 | tr -d '\r')"
-          case "$raw_url" in
-            http://*|https://*) url="$raw_url" ;;
-            *) url="https://$raw_url" ;;
-          esac
+          url="$(printf '%s\n' "$output" | grep -Eo 'https://[^[:space:]]+vercel\.app' | tail -n 1)"
+          test -n "$url"
           host="${url#https://}"
-          host="${host#http://}"
+
           id=""
-          for attempt in $(seq 1 15); do
+          for attempt in $(seq 1 20); do
+            detail="$(curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$VERCEL_API_BASE/v13/deployments/$host?teamId=$VERCEL_ORG_ID" 2>/dev/null || true)"
+            if [ -n "$detail" ]; then
+              candidate_id="$(jq -r '.id // empty' <<<"$detail")"
+              if [ -n "$candidate_id" ]; then
+                id="$candidate_id"
+                break
+              fi
+            fi
+
             deployments="$(curl --fail-with-body --silent --show-error \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=20")"
-            id="$(jq -r --arg host "$host" --arg sha "$GITHUB_SHA" '
-              .deployments[]
-              | select(.url == $host)
-              | select((.meta.RELEASE_COMMIT_SHA // .meta.releaseCommitSha // .meta.githubCommitSha // "") == $sha or (.target // "") == "preview" or (.target == null))
-              | .id
-            ' <<<"$deployments" | head -n 1)"
-            if [ -n "$id" ] && [ "$id" != "null" ]; then break; fi
+              "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=50")"
+            id="$(jq -r --arg host "$host" '.deployments[] | select(.url == $host) | .id' <<<"$deployments" | head -n 1)"
+            if [ -n "$id" ] && [ "$id" != "null" ]; then
+              break
+            fi
             sleep 2
           done
+
           test -n "$id"
           test "$id" != "null"
           echo "id=$id" >> "$GITHUB_OUTPUT"
