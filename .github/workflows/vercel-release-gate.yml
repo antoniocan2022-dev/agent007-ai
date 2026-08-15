@@ -90,11 +90,33 @@ jobs:
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        timeout-minutes: 6
+          GIT_MESSAGE: ${{ github.event.head_commit.message || 'Controlled two-stage release' }}
+          GIT_ACTOR: ${{ github.actor }}
+        timeout-minutes: 8
         run: |
           set -euo pipefail
-          output="$(bunx vercel@$VERCEL_CLI_VERSION --prod --skip-domain --yes --build-env AGENT007_RELEASE_SCHEMA_RECONCILE=1 --token "$VERCEL_TOKEN" 2>&1)"
-          echo "$output"
+          short_msg="$(printf '%s\n' "$GIT_MESSAGE" | head -n1)"
+          set +e
+          output="$(bunx vercel@$VERCEL_CLI_VERSION deploy \
+            --prod \
+            --skip-domain \
+            --yes \
+            --token "$VERCEL_TOKEN" \
+            --build-env AGENT007_RELEASE_SCHEMA_RECONCILE=1 \
+            -m githubCommitAuthorName=antoniocan2022-dev \
+            -m githubCommitMessage="$short_msg" \
+            -m githubCommitOrg=antoniocan2022-dev \
+            -m githubCommitRef=main \
+            -m githubCommitRepo=agent007-ai \
+            -m githubCommitSha="$GITHUB_SHA" \
+            -m githubDeployment=1 \
+            -m githubOrg=antoniocan2022-dev \
+            -m githubRepo=agent007-ai \
+            -m githubCommitAuthorLogin="$GIT_ACTOR" 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 0
           staged_url="$(printf '%s\n' "$output" | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
           test -n "$staged_url"
           echo "staged_url=$staged_url" >> "$GITHUB_OUTPUT"
@@ -116,9 +138,11 @@ jobs:
             id="$(jq -r '.id' <<<"$deployment")"
             state="$(jq -r '.state' <<<"$deployment")"
             sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
-            echo "attempt=$attempt id=$id state=$state sha=$sha"
+            ref="$(jq -r '.meta.githubCommitRef // empty' <<<"$deployment")"
+            echo "attempt=$attempt id=$id state=$state ref=$ref sha=$sha"
             if [ "$state" = READY ]; then
               test "$sha" = "$GITHUB_SHA"
+              test "$ref" = main
               echo "staged_id=$id" >> "$GITHUB_OUTPUT"
               exit 0
             fi
