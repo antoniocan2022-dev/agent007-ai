@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent007-controlled-two-stage-release-v4
+  group: agent007-controlled-two-stage-release-v5
   cancel-in-progress: false
 
 env:
@@ -197,6 +197,11 @@ jobs:
           test -n "${{ needs.candidate.outputs.staged_url }}"
           test -n "${{ needs.candidate.outputs.staged_id }}"
           test "${{ needs.candidate.outputs.release_sha }}" = "$GITHUB_SHA"
+
+      - name: Setup Bun for promotion CLI
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
 
       - name: Promote exact staged artifact without rebuild
         env:
