@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = "false"
-          test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = "false"
+          test "$(jq -r 'has(\"crons\") and ((.crons // []) | length > 0)' vercel.json)" = "false"
           test -f src/app/api/release-health/route.ts
 
       - name: Assert Vercel release credentials are configured
@@ -105,10 +105,42 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
+      - name: Validate Preview runtime configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file=".vercel/.env.preview.local"
+          test -f "$env_file"
+
+          get_env() {
+            local key="$1"
+            local value
+            value="$(sed -n "s/^${key}=//p" "$env_file" | head -n 1)"
+            value="${value#\"}"
+            value="${value%\"}"
+            printf '%s' "$value"
+          }
+
+          database_url="$(get_env DATABASE_URL)"
+          nextauth_secret="$(get_env NEXTAUTH_SECRET)"
+
+          case "$database_url" in
+            postgres://*|postgresql://*) ;;
+            *) echo "Preview DATABASE_URL is missing or is not PostgreSQL." >&2; exit 1 ;;
+          esac
+
+          test -n "$nextauth_secret" || { echo "Preview NEXTAUTH_SECRET is missing." >&2; exit 1; }
+          echo "Preview runtime configuration contains a PostgreSQL DATABASE_URL and NEXTAUTH_SECRET."
+
       - name: Build Vercel candidate artifact
         run: vercel build --token "${VERCEL_TOKEN}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          # vercel build is a local artifact build. These values are deliberately
+          # build-only and never replace the Preview runtime environment.
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build?connect_timeout=1
+          NEXTAUTH_SECRET: agent007-build-only-secret-do-not-use-at-runtime
+          NEXTAUTH_URL: https://agent007-ai.vercel.app
 
       - name: Deploy candidate preview
         id: deploy
