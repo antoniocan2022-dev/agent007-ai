@@ -93,7 +93,7 @@ jobs:
             --arg repo "agent007-ai" \
             --arg ref "main" \
             --arg sha "$GITHUB_SHA" \
-            '{name:$name,target:"production",withLatestCommit:false,gitSource:{type:"github",org:$org,repo:$repo,ref:$ref},gitMetadata:{remoteUrl:"https://github.com/antoniocan2022-dev/agent007-ai",commitRef:$ref,commitSha:$sha,ci:"true",ciType:"github-actions"}}')"
+            '{name:$name,target:"production",withLatestCommit:false,gitSource:{type:"github",org:$org,repo:$repo,ref:$ref},gitMetadata:{remoteUrl:"https://github.com/antoniocan2022-dev/agent007-ai",commitRef:$ref,commitSha:$sha,ci:true,ciType:"github-actions"}}')"
           http_code="$(curl --silent --show-error --max-time 30 \
             -o /tmp/vercel-create.json \
             -w '%{http_code}' \
