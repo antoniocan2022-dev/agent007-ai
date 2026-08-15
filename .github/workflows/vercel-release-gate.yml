@@ -107,21 +107,14 @@ jobs:
           echo 'Preview environment file was not created.' > release-evidence/preview-env-validation.txt
           exit 0
 
-      - name: Build Vercel candidate artifact
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build?connect_timeout=1
-          NEXTAUTH_SECRET: agent007-build-only-secret-do-not-use-at-runtime
-          NEXTAUTH_URL: https://agent007-ai.vercel.app
-        run: vercel build --token "$VERCEL_TOKEN"
-
-      - name: Deploy candidate Preview
+      - name: Deploy Candidate Preview using Vercel remote build
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          RELEASE_COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          output="$(vercel deploy --prebuilt --token "$VERCEL_TOKEN" --env RELEASE_COMMIT_SHA="$GITHUB_SHA")"
+          output="$(vercel deploy --yes --token "$VERCEL_TOKEN" --env RELEASE_COMMIT_SHA="$RELEASE_COMMIT_SHA")"
           printf '%s\n' "$output"
           raw_url="$(printf '%s\n' "$output" | tail -n 1 | tr -d '\r')"
           case "$raw_url" in
