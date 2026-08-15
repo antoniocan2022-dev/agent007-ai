@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent007-controlled-two-stage-release
+  group: agent007-controlled-two-stage-release-v2
   cancel-in-progress: false
 
 env:
