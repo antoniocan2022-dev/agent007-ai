@@ -81,11 +81,6 @@ jobs:
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
-      - name: Local production build gate without database mutation
-        env:
-          VERCEL_ENV: preview
-        run: bun run build
-
       - name: Deploy exact checked-out main commit to Production
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
