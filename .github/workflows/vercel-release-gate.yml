@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent007-controlled-two-stage-release-v2
+  group: agent007-controlled-two-stage-release-v3
   cancel-in-progress: false
 
 env:
@@ -117,7 +117,7 @@ jobs:
           set -e
           printf '%s\n' "$output"
           test "$status" -eq 0
-          staged_url="$(printf '%s\n' "$output" | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
+          staged_url="$(printf '%s\n' "$output" | grep -E '▲ Production[[:space:]]+https://[a-zA-Z0-9._-]+\.vercel\.app' | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
           test -n "$staged_url"
           echo "staged_url=$staged_url" >> "$GITHUB_OUTPUT"
 
@@ -134,12 +134,16 @@ jobs:
               "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=50" \
               > /tmp/vercel-deployments.json
             deployment="$(jq -c --arg url "${STAGED_URL#https://}" '[.deployments[] | select(.url == $url)][0] // empty' /tmp/vercel-deployments.json)"
-            test -n "$deployment"
+            if [ -z "$deployment" ]; then
+              sleep 5
+              continue
+            fi
             id="$(jq -r '.id' <<<"$deployment")"
             state="$(jq -r '.state' <<<"$deployment")"
             sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
             ref="$(jq -r '.meta.githubCommitRef // empty' <<<"$deployment")"
-            echo "attempt=$attempt id=$id state=$state ref=$ref sha=$sha"
+            target="$(jq -r '.target // "null"' <<<"$deployment")"
+            echo "attempt=$attempt id=$id state=$state target=$target ref=$ref sha=$sha"
             if [ "$state" = READY ]; then
               test "$sha" = "$GITHUB_SHA"
               test "$ref" = main
