@@ -109,6 +109,7 @@ jobs:
 
           python3 - "$env_file" <<'PY'
           import pathlib
+          import re
           import sys
           from urllib.parse import urlsplit
 
@@ -120,24 +121,41 @@ jobs:
               raise SystemExit(1)
 
           values = {}
-          for line_no, raw_line in enumerate(raw_text.splitlines(), 1):
+          for raw_line in raw_text.splitlines():
               line = raw_line.strip()
               if not line or line.startswith("#") or "=" not in line:
                   continue
               key, value = line.split("=", 1)
               key = key.strip()
               value = value.strip()
-              if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-                  value = value[1:-1]
+              # Vercel can emit escaped outer quotes in pulled dotenv files.
+              for _ in range(2):
+                  if len(value) >= 2 and value.startswith('\\"') and value.endswith('\\"'):
+                      value = value[2:-2].strip()
+                  elif len(value) >= 2 and value.startswith("\\'") and value.endswith("\\'"):
+                      value = value[2:-2].strip()
+                  elif len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                      value = value[1:-1].strip()
+                  else:
+                      break
               values[key] = value
 
           database_url = values.get("DATABASE_URL", "").strip()
           nextauth_secret = values.get("NEXTAUTH_SECRET", "").strip()
 
+          # Accept the actual URL scheme even when an escaped wrapper remains.
+          match = re.search(r"(?:^|[^A-Za-z])((?:postgres|postgresql)://)", database_url)
+          if match:
+              database_url = database_url[match.start(1):]
+
           parsed = urlsplit(database_url)
           if parsed.scheme not in {"postgres", "postgresql"} or not parsed.netloc or not parsed.path:
               print("Preview DATABASE_URL is missing or is not a valid PostgreSQL URL.", file=sys.stderr)
-              print(f"Parsed metadata: present={bool(database_url)} scheme={parsed.scheme or '<none>'} has_host={bool(parsed.netloc)} has_path={bool(parsed.path)}", file=sys.stderr)
+              print(
+                  f"Parsed metadata: present={bool(database_url)} scheme={parsed.scheme or '<none>'} "
+                  f"has_host={bool(parsed.netloc)} has_path={bool(parsed.path)}",
+                  file=sys.stderr,
+              )
               raise SystemExit(1)
 
           if not nextauth_secret:
@@ -257,7 +275,7 @@ jobs:
 
       - name: Upload candidate release evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: agent007-vercel-candidate-${{ github.run_id }}
           path: release-evidence
@@ -341,7 +359,7 @@ jobs:
 
       - name: Upload production release evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: agent007-vercel-production-${{ github.run_id }}
           path: release-evidence
