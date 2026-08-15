@@ -82,7 +82,6 @@ jobs:
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
       - name: Deploy exact checked-out main commit to Production
-        id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         timeout-minutes: 5
@@ -90,25 +89,25 @@ jobs:
           set -euo pipefail
           payload="$(jq -n \
             --arg name "agent007-ai" \
-            --arg project "$VERCEL_PROJECT_ID" \
-            --arg target "production" \
             --arg org "antoniocan2022-dev" \
             --arg repo "agent007-ai" \
             --arg ref "main" \
             --arg sha "$GITHUB_SHA" \
-            '{name:$name,project:$project,target:$target,withLatestCommit:false,gitSource:{type:"github",org:$org,repo:$repo,ref:$ref,sha:$sha},gitMetadata:{remoteUrl:"https://github.com/antoniocan2022-dev/agent007-ai",commitRef:$ref,commitSha:$sha,ci:"true",ciType:"github-actions"}}')"
-          response="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            '{name:$name,target:"production",withLatestCommit:false,gitSource:{type:"github",org:$org,repo:$repo,ref:$ref},gitMetadata:{remoteUrl:"https://github.com/antoniocan2022-dev/agent007-ai",commitRef:$ref,commitSha:$sha,ci:"true",ciType:"github-actions"}}')"
+          http_code="$(curl --silent --show-error --max-time 30 \
+            -o /tmp/vercel-create.json \
+            -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
             "$VERCEL_API_BASE/v13/deployments?teamId=$VERCEL_ORG_ID&forceNew=true" \
             --data "$payload")"
-          echo "$response" > /tmp/vercel-create.json
+          cat /tmp/vercel-create.json
+          test "$http_code" -ge 200
+          test "$http_code" -lt 300
           id="$(jq -r '.id // empty' /tmp/vercel-create.json)"
-          state="$(jq -r '.readyState // empty' /tmp/vercel-create.json)"
           test -n "$id"
           echo "deploymentId=$id"
-          echo "initialState=$state"
           echo "PRODUCTION_DEPLOYMENT_ID=$id" >> "$GITHUB_ENV"
 
       - name: Resolve Production deployment and wait for READY
