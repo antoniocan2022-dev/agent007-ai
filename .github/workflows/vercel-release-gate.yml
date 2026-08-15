@@ -31,6 +31,7 @@ jobs:
     outputs:
       deployment_url: ${{ steps.deploy.outputs.url }}
       deployment_id: ${{ steps.deploy.outputs.id }}
+      source_sha: ${{ github.sha }}
     steps:
       - name: Checkout exact main commit
         uses: actions/checkout@v4
@@ -141,14 +142,12 @@ jobs:
           exit 1
 
       - name: Assert candidate artifact identity
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           test "$(jq -r '.id' release-evidence/candidate-deployment.json)" = "${{ steps.deploy.outputs.id }}"
           test "$(jq -r '.url' release-evidence/candidate-deployment.json)" != "null"
-          test "$(jq -r '.meta.githubCommitSha // ""' release-evidence/candidate-deployment.json)" = "" || \
-            test "$(jq -r '.meta.githubCommitSha' release-evidence/candidate-deployment.json)" = "${GITHUB_SHA}"
+          git_sha="$(jq -r '.meta.githubCommitSha // ""' release-evidence/candidate-deployment.json)"
+          test -z "$git_sha" || test "$git_sha" = "${GITHUB_SHA}"
 
       - name: Candidate release-health cold-start test
         id: cold
@@ -161,7 +160,7 @@ jobs:
           latency=$((end-start))
           echo "HTTP=$code latency_ms=$latency"
           test "$code" = "200"
-          jq -e --arg sha "${GITHUB_SHA}" '.ok == true and .releaseGate == true and (.releaseCommit == $sha or .commit == $sha)' /tmp/candidate-response
+          jq -e --arg sha "${GITHUB_SHA}" '.ok == true and .releaseGate == true and .releaseCommit == $sha' /tmp/candidate-response
           echo "latency_ms=$latency" >> "$GITHUB_OUTPUT"
 
       - name: Candidate release-health warm test
@@ -175,7 +174,7 @@ jobs:
           latency=$((end-start))
           echo "HTTP=$code latency_ms=$latency"
           test "$code" = "200"
-          jq -e --arg sha "${GITHUB_SHA}" '.ok == true and .releaseGate == true and (.releaseCommit == $sha or .commit == $sha)' /tmp/candidate-response-warm
+          jq -e --arg sha "${GITHUB_SHA}" '.ok == true and .releaseGate == true and .releaseCommit == $sha' /tmp/candidate-response-warm
           echo "latency_ms=$latency" >> "$GITHUB_OUTPUT"
 
       - name: Candidate runtime error check
@@ -240,6 +239,8 @@ jobs:
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             "${VERCEL_API_BASE}/v13/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
             > release-evidence-production/vercel-production-before-promote.json
+          previous_id="$(jq -r '.deployments[] | select((.readyState == "READY" or .state == "READY") and .id != "${{ needs.candidate.outputs.deployment_id }}") | .id' release-evidence-production/vercel-production-before-promote.json | head -n 1)"
+          echo "previous_production_deployment=${previous_id:-none}" | tee release-evidence-production/rollback-reference.txt
 
       - name: Promote exact candidate artifact
         run: vercel promote "${CANDIDATE_URL}" --yes --token "${VERCEL_TOKEN}"
@@ -275,7 +276,7 @@ jobs:
           latency=$((end-start))
           echo "HTTP=$code latency_ms=$latency"
           test "$code" = "200"
-          jq -e --arg sha "${{ needs.candidate.outputs.deployment_id }}" '.ok == true and .releaseGate == true' /tmp/production-response
+          jq -e --arg sha "${{ needs.candidate.outputs.source_sha }}" '.ok == true and .releaseGate == true and .releaseCommit == $sha' /tmp/production-response
 
       - name: Capture Vercel live state AFTER promotion
         env:
@@ -290,8 +291,9 @@ jobs:
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             "${VERCEL_API_BASE}/v13/deployments?projectId=${VERCEL_PROJECT_ID}&teamId=${VERCEL_ORG_ID}&target=production&limit=10" \
             > release-evidence-production/vercel-production-after.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' \
-            release-evidence-production/vercel-project-after.json
+          latest_id="$(jq -r '.deployments[0].id // ""' release-evidence-production/vercel-production-after.json)"
+          test "$latest_id" = "${{ needs.candidate.outputs.deployment_id }}"
+          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' release-evidence-production/vercel-project-after.json
 
       - name: Production runtime error check
         env:
