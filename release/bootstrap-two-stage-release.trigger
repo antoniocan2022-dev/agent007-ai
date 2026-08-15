@@ -1,2 +1,2 @@
 Authorized one-time bootstrap of the final true two-stage Vercel release architecture.
-Candidate identity and protected health verification hardened; rerun requested.
+Promotion stage now has its own Bun runtime; final end-to-end verification requested.
