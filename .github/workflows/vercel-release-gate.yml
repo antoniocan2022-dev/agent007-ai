@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = "false"
-          test "$(jq -r 'has(\"crons\") and ((.crons // []) | length > 0)' vercel.json)" = "false"
+          test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = "false"
           test -f src/app/api/release-health/route.ts
 
       - name: Assert Vercel release credentials are configured
