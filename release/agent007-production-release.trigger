@@ -1,2 +1,2 @@
-Authorized second Production release trigger.
-Second controlled Production artifact release.
+Authorized second Production release retry.
+Hardened release deployment timeout and concurrency controls.
