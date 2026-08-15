@@ -37,10 +37,11 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Assert source is main
+      - name: Assert source is exact main commit
         run: |
           test "${GITHUB_REF}" = "refs/heads/main"
           test -n "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -123,7 +124,7 @@ jobs:
           main_commit=${GITHUB_SHA}
           cold_latency_ms=${{ steps.cold.outputs.latency_ms }}
           warm_latency_ms=${{ steps.warm.outputs.latency_ms }}
-          cron_policy=daily-only
+          cron_policy=disabled-until-authorized
           source=main
           EOF
 
