@@ -65,13 +65,10 @@ jobs:
       - name: Verify Production DATABASE_URL exists in Vercel without exposing it
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
         run: |
           set -euo pipefail
-          output="$(vercel env ls production --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN" 2>/dev/null)"
-          printf '%s\n' "$output" | grep -q '^DATABASE_URL[[:space:]]' || {
-            echo 'Production DATABASE_URL is not configured in Vercel.'
-            exit 1
-          }
+          vercel env run -e production --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN" -- sh -lc 'test -n "$DATABASE_URL"'
           echo 'Production DATABASE_URL is configured in Vercel: yes'
 
       - name: Apply additive PostgreSQL schema repair from Vercel Production environment
