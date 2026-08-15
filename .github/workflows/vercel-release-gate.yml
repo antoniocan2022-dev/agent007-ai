@@ -118,18 +118,21 @@ jobs:
           done
           exit 1
 
-      - name: Verify production health
+      - name: Verify production health through Vercel protection bypass
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           PRODUCTION_URL: ${{ env.PRODUCTION_URL }}
         run: |
           set -euo pipefail
           test -n "$PRODUCTION_URL"
           for attempt in $(seq 1 10); do
-            status="$(curl --silent --show-error --output /tmp/release-health.txt --write-out '%{http_code}' "$PRODUCTION_URL/api/release-health" || true)"
-            echo "attempt=$attempt status=$status"
-            if [ "$status" = 200 ]; then
-              cat /tmp/release-health.txt
-              exit 0
+            if output="$(vercel curl "$PRODUCTION_URL/api/release-health" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" 2>/tmp/vercel-curl.err)"; then
+              printf '%s\n' "$output" | tee /tmp/release-health.txt
+              if printf '%s\n' "$output" | grep -q '"ok":true'; then
+                exit 0
+              fi
+            else
+              cat /tmp/vercel-curl.err
             fi
             sleep 5
           done
