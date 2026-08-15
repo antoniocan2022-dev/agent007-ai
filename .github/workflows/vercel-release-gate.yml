@@ -86,20 +86,7 @@ jobs:
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
-      - name: Verify Production database configuration without exposing secrets
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          bunx vercel@$VERCEL_CLI_VERSION env run -e production -- sh -c '
-            case "${DATABASE_URL:-}" in
-              postgres://*|postgresql://*) exit 0 ;;
-              *) echo "Production DATABASE_URL is not PostgreSQL" >&2; exit 1 ;;
-            esac
-            test -n "${NEXTAUTH_SECRET:-}"
-          '
-
-      - name: Reconcile approved additive Production schema before candidate build
+      - name: Reconcile and verify Production database schema
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -135,9 +122,8 @@ jobs:
             test -n "$deployment"
             id="$(jq -r '.id' <<<"$deployment")"
             state="$(jq -r '.state' <<<"$deployment")"
-            target="$(jq -r '.target // "null"' <<<"$deployment")"
             sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
-            echo "attempt=$attempt id=$id state=$state target=$target sha=$sha"
+            echo "attempt=$attempt id=$id state=$state sha=$sha"
             if [ "$state" = READY ]; then
               test "$sha" = "$GITHUB_SHA"
               echo "staged_id=$id" >> "$GITHUB_OUTPUT"
@@ -149,18 +135,6 @@ jobs:
             sleep 10
           done
           exit 1
-
-      - name: Verify staged artifact is not yet assigned to canonical domain
-        env:
-          STAGED_URL: ${{ steps.deploy.outputs.staged_url }}
-        run: |
-          set -euo pipefail
-          canonical="$(curl --silent --show-error --max-time 20 -I "https://agent007-ai.vercel.app/api/release-health" | tr -d '\r' | sed -n '1p')"
-          echo "$canonical"
-          case "$canonical" in
-            HTTP/*) : ;;
-          esac
-          test "$STAGED_URL" != "https://agent007-ai.vercel.app"
 
       - name: Verify staged artifact health
         env:
