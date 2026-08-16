@@ -126,11 +126,11 @@ export async function loadOperationalKpis(now = new Date()): Promise<Operational
     db.customer.count().catch(() => 0),
     db.opportunity.count({ where: { status: { in: ['new', 'open', 'qualified', 'in_progress'] } } }).catch(() => 0),
   ])
-  const missions: MissionFact[] = missionRows.map((row) => {
+  const missions: MissionFact[] = missionRows.map((row): MissionFact => {
     try {
       const parsed = JSON.parse(row.value) as { status?: string }
-      if (parsed.status === 'completed' || parsed.status === 'failed') return { status: parsed.status }
-      return { status: 'running' }
+      const status: MissionFact['status'] = parsed.status === 'completed' ? 'completed' : parsed.status === 'failed' ? 'failed' : 'running'
+      return { status }
     } catch { return { status: 'running' } }
   })
   return calculateOperationalKpis({ now, missions, businesses, incomeEntries, customerCount, opportunityCount })
