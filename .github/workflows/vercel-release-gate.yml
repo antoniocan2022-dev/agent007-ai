@@ -8,10 +8,6 @@ on:
         required: true
         default: true
         type: boolean
-  push:
-    branches: [main]
-    paths:
-      - release/bootstrap-two-stage-release.trigger
 
 permissions:
   contents: read
