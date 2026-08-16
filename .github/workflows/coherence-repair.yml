@@ -25,6 +25,8 @@ jobs:
           bun-version: latest
       - name: Verify repair script syntax
         run: python3 -m py_compile scripts/apply-coherence-fixes.py
+      - name: Prepare generated paths
+        run: mkdir -p src/app/api/system/canonical-state
       - name: Apply coherence repairs
         run: python3 scripts/apply-coherence-fixes.py
       - name: Install dependencies
