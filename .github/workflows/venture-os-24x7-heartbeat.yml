@@ -1,7 +1,7 @@
 name: Venture OS 24x7 Heartbeat
 on:
   push:
-    branches: [agent/architecture-control-plane-5-9]
+    branches: [agent/venture-os-final]
   workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'
@@ -43,4 +43,4 @@ jobs:
           fi
           bun scripts/run-venture-operation-cycle.ts
       - name: Run Venture OS contract tests
-        run: bun test tests/venture-os-v2.test.ts
+        run: bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts
