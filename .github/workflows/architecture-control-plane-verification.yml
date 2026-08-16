@@ -37,8 +37,11 @@ jobs:
           code=$?
           echo "tsc_exit=$code"
           echo "Relevant diagnostics:"
-          grep -E "src/lib/architecture-control-plane\.ts|src/lib/venture-001\.ts|src/app/api/mission-active/route\.ts" /tmp/tsc.log | head -80 || true
-          exit 0
+          if grep -E "src/lib/architecture-control-plane\.ts|src/lib/venture-001\.ts|src/app/api/mission-active/route\.ts|src/lib/orchestrator\.ts|src/lib/active-missions\.ts|src/app/api/architecture/business-outcome/route\.ts" /tmp/tsc.log; then
+            echo "Relevant TypeScript diagnostics detected."
+            exit 1
+          fi
+          echo "No TypeScript diagnostics in the five architectural integration surfaces."
 
       - name: Repository diff hygiene
         run: |
@@ -49,6 +52,7 @@ jobs:
         run: |
           test -f src/lib/architecture-control-plane.ts
           test -f tests/architecture-control-plane.test.ts
+          test -f src/app/api/architecture/business-outcome/route.ts
           grep -q "assertDelegationAllowed" src/lib/architecture-control-plane.ts
           grep -q "ArtifactRecord" src/lib/architecture-control-plane.ts
           grep -q "assertMissionTransition" src/lib/architecture-control-plane.ts
@@ -56,3 +60,5 @@ jobs:
           grep -q "VentureControlContract" src/lib/architecture-control-plane.ts
           grep -q "architecture-control-plane" src/lib/venture-001.ts
           grep -q "architecture-control-plane" src/app/api/mission-active/route.ts
+          grep -q "architecture-control-plane" src/lib/orchestrator.ts
+          grep -q "architecture-control-plane" src/lib/active-missions.ts
