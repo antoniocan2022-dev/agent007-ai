@@ -31,6 +31,8 @@ jobs:
         run: python3 scripts/run-coherence-repair.py
       - name: Final coherence pass
         run: python3 scripts/final-coherence-pass.py
+      - name: Security hardening pass
+        run: python3 scripts/final-security-pass.py
       - name: Normalize provider registries for expanded ProviderId universe
         run: |
           python3 - <<'PY'
@@ -109,7 +111,7 @@ jobs:
           from pathlib import Path
           import re
           root = Path('.')
-          required = ['src/lib/canonical-organizational-state.ts','src/lib/provider-runtime-v2.ts','src/lib/provider-intelligence-policy.ts','src/lib/subagent-governance.ts','src/lib/subagent-max-performance.ts','src/lib/model-intelligence.ts','src/app/api/system/canonical-state/route.ts','src/app/api/system/evolution/route.ts']
+          required = ['src/lib/canonical-organizational-state.ts','src/lib/provider-runtime-v2.ts','src/lib/provider-intelligence-policy.ts','src/lib/subagent-governance.ts','src/lib/subagent-max-performance.ts','src/lib/model-intelligence.ts','src/app/api/system/canonical-state/route.ts','src/app/api/system/evolution/route.ts','scripts/safe-commit.sh','scripts/verify-session-start.sh']
           missing = [p for p in required if not (root / p).exists()]
           assert not missing, f'Missing required files: {missing}'
           policy = (root / 'src/lib/provider-intelligence-policy.ts').read_text()
@@ -121,7 +123,8 @@ jobs:
           for path in ['src/app/api/health/diagnostics/route.ts','src/app/api/health/full-audit/route.ts','src/app/api/system/capabilities/route.ts','src/app/api/system/vid-kpis/route.ts','src/app/api/system/evolution/route.ts']:
               assert 'canonical-organizational-state' in (root / path).read_text(), path
           audit = (root / 'src/app/api/health/full-audit/route.ts').read_text()
-          assert '(configured)' in audit and '…' not in audit and 'slice(0, 4)' not in audit
+          assert "return key ? '(configured)' : '(not set)'" in audit
+          assert '…' not in audit
           shared = (root / 'src/lib/subagent-max-performance.ts').read_text()
           assert 'Groq → OpenAI → Z.ai → Mistral' in shared
           assert 'OpenRouter → Gemini → Brave → Cerebras' in shared
@@ -138,11 +141,14 @@ jobs:
           names = re.findall(r'^\s*TOOL_REGISTRY\.([A-Za-z0-9_]+)\s*=', text, flags=re.M)
           dupes = sorted({x for x in names if names.count(x) > 1})
           assert not dupes, dupes
+          secret_pat = re.compile(r'(ghp_|github_pat_|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9_-]{20,})')
+          for path in [root / 'scripts/safe-commit.sh', root / 'scripts/verify-session-start.sh']:
+              assert not secret_pat.search(path.read_text()), f'credential material in {path}'
           for dead in ['src/lib/safety-reliability.ts','src/lib/improvement-actions.ts','src/lib/advanced-tools.ts','src/lib/intelligence-tools.ts','src/app/login/page.tsx.bak','prisma/schema.prisma.bak']:
               assert not (root / dead).exists(), f'dead artifact resurrected: {dead}'
           for artifact in root.rglob('*.pyc'):
               assert '__pycache__' not in str(artifact), f'bytecode artifact present: {artifact}'
-          print('Canonical invariants + security + duplicates + dead-artifact guards: PASS')
+          print('Canonical + security + duplicate + dead-artifact invariants: PASS')
           PY
       - name: Commit repaired source
         run: |
