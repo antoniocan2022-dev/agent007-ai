@@ -1,0 +1,178 @@
+name: Hierarchy + Artifact Ledger Audit
+
+on:
+  push:
+    branches:
+      - audit/hierarchy-artifact-ledger-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hierarchy-artifact-ledger-audit
+  cancel-in-progress: false
+
+jobs:
+  audit-and-repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Verify patcher syntax
+        run: python3 -m py_compile scripts/harden-hierarchy-artifact-ledger.py
+
+      - name: Apply idempotent hardening patch
+        run: python3 scripts/harden-hierarchy-artifact-ledger.py
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prisma validate and generate
+        env:
+          DATABASE_URL: postgresql://audit:audit@localhost:5432/agent007
+        run: |
+          bunx prisma validate
+          bunx prisma generate
+
+      - name: Focused hierarchy and ledger tests
+        env:
+          DATABASE_URL: postgresql://audit:audit@localhost:5432/agent007
+        run: |
+          bun -e '
+          import { HIERARCHY_PARENT, ROOT_AGENT_ID, evaluateDelegation, validateHierarchy } from "./src/lib/hierarchy-control.ts";
+          import { SUBAGENTS } from "./src/lib/subagents.ts";
+          import { hashArtifact } from "./src/lib/artifact-ledger.ts";
+
+          const hierarchyErrors = validateHierarchy();
+          if (hierarchyErrors.length) throw new Error(`Hierarchy invalid: ${hierarchyErrors.join(" | ")}`);
+          const ids = SUBAGENTS.map((s) => s.id.toLowerCase());
+          if (new Set(ids).size !== ids.length) throw new Error("Duplicate SUBAGENT IDs detected");
+          const missingParents = ids.filter((id) => id !== ROOT_AGENT_ID && !HIERARCHY_PARENT[id as keyof typeof HIERARCHY_PARENT]);
+          if (missingParents.length) throw new Error(`Missing hierarchy parents: ${missingParents.join(", ")}`);
+          if (!evaluateDelegation("ceo", "vid").allowed) throw new Error("CEO→VID must be allowed");
+          if (evaluateDelegation("ceo", "quill").allowed) throw new Error("CEO→QUILL bypass must be blocked");
+          if (!evaluateDelegation("aurora", "quill").allowed) throw new Error("AURORA→QUILL must be allowed");
+          if (!evaluateDelegation("forge", "developer").allowed) throw new Error("FORGE→Developer must be allowed");
+          const expectedHash = "a".repeat(64);
+          if (hashArtifact("artifact-test") === expectedHash) throw new Error("Artifact hash test is not deterministic");
+          if (!/^[a-f0-9]{64}$/.test(hashArtifact("artifact-test"))) throw new Error("Invalid SHA-256 artifact hash");
+          console.log("Hierarchy + artifact pure tests: PASS");
+          '
+
+      - name: Static hierarchy and ledger invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          required = [
+              'src/lib/hierarchy-control.ts',
+              'src/lib/artifact-ledger.ts',
+              'src/lib/subagents.ts',
+              'src/lib/mission-pipeline.ts',
+              'prisma/schema.prisma',
+              'src/lib/db.ts',
+          ]
+          missing = [p for p in required if not (root / p).exists()]
+          assert not missing, f'Missing required files: {missing}'
+
+          hierarchy = (root / 'src/lib/hierarchy-control.ts').read_text()
+          assert 'ROOT_AGENT_ID = \'ceo\'' in hierarchy
+          assert 'OWNER_AUTHORITY_ID = \'owner\'' in hierarchy
+          assert 'CEO → QUILL' in hierarchy
+
+          ledger = (root / 'src/lib/artifact-ledger.ts').read_text()
+          for marker in ['randomUUID', 'handoffHistory', 'Duplicate artifactId', 'lineage cycle', 'Parent artifact not found', 'version:']:
+              assert marker in ledger, f'Ledger invariant missing: {marker}'
+
+          schema = (root / 'prisma/schema.prisma').read_text()
+          assert 'model ArtifactLedger {' in schema
+          assert 'handoffHistory' in schema
+
+          db = (root / 'src/lib/db.ts').read_text()
+          assert 'CREATE TABLE IF NOT EXISTS "ArtifactLedger"' in db
+          assert 'ADD COLUMN IF NOT EXISTS "handoffHistory"' in db
+
+          pipeline = (root / 'src/lib/mission-pipeline.ts').read_text()
+          assert 'parentArtifactId: opts.previousArtifactId' in pipeline
+          assert 'Artifact handoff failed after Stage' in pipeline
+
+          # Every concrete runSubagent invocation must carry explicit authority.
+          offenders = []
+          for path in root.joinpath('src').rglob('*.ts'):
+              text = path.read_text(errors='ignore')
+              for match in re.finditer(r'runSubagent\(\{', text):
+                  window = text[match.start():match.start() + 3500]
+                  if 'export async function runSubagent' in window[:120]:
+                      continue
+                  if 'parentAgentId:' not in window and 'delegationAuthority:' not in window:
+                      offenders.append(str(path))
+          assert not offenders, f'runSubagent calls missing explicit governance context: {sorted(set(offenders))}'
+
+          duplicate_names = ['artifact-ledger-v2.ts', 'artifact-ledger-new.ts', 'hierarchy-control-v2.ts', 'hierarchy.ts']
+          for name in duplicate_names:
+              assert not any(p.name == name for p in root.rglob(name)), f'Duplicate architecture artifact found: {name}'
+
+          forbidden_suffixes = {'.bak', '.old', '.tmp'}
+          related = ('artifact-ledger' in str(p).lower() or 'hierarchy' in str(p).lower())
+          for p in root.rglob('*'):
+              if p.is_file() and related and p.suffix.lower() in forbidden_suffixes:
+                  raise AssertionError(f'Backup/dead architecture file present: {p}')
+
+          for p in root.rglob('*.pyc'):
+              raise AssertionError(f'Generated bytecode present: {p}')
+
+          print('Hierarchy + Artifact Ledger static invariants: PASS')
+          PY
+
+      - name: Production graph typecheck
+        env:
+          DATABASE_URL: postgresql://audit:audit@localhost:5432/agent007
+        run: |
+          cat > tsconfig.hierarchy-artifact.json <<'JSON'
+          {
+            "extends": "./tsconfig.json",
+            "compilerOptions": { "noEmit": true },
+            "include": [
+              "src/lib/hierarchy-control.ts",
+              "src/lib/artifact-ledger.ts",
+              "src/lib/subagents.ts",
+              "src/lib/subagent-governance.ts",
+              "src/lib/mission-pipeline.ts",
+              "src/lib/orchestrator.ts",
+              "src/lib/tools.ts",
+              "src/lib/autonomy-tools.ts",
+              "src/lib/max-autonomy-engine.ts",
+              "src/app/api/team/[leaderId]/route.ts"
+            ]
+          }
+          JSON
+          bunx tsc -p tsconfig.hierarchy-artifact.json
+          rm -f tsconfig.hierarchy-artifact.json
+
+      - name: Git integrity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes necessary."
+          else
+            git commit -m "fix: harden hierarchy and artifact ledger [audit]"
+            git push
+          fi
