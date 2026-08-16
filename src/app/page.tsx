@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
 import { Loader2 } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import { Background } from '@/components/agent/background'
@@ -13,24 +12,16 @@ import { SidebarLeft } from '@/components/agent/sidebar-left'
 import { SidebarRight } from '@/components/agent/sidebar-right'
 import { NexusLogo } from '@/components/agent/nexus-logo'
 import { ChatTab } from '@/components/agent/tabs/chat-tab'
-// UPGRADE #156 Fix 4+5: Lazy-load heavy tabs to reduce initial JS bundle.
-// Before: all tabs imported eagerly → 1.5MB JS bundle loaded on every page.
-// After: only ChatTab loads immediately (primary view). Other tabs load on demand.
-// This cuts ~500-800KB from the initial bundle (recharts + framer-motion only
-// load when the Dashboard tab is opened).
 import dynamic from 'next/dynamic'
 
-// DEBUG-SLOW-TABS fix: Show a loading spinner during chunk download instead of
-// a blank screen. Before: `loading: () => null` rendered NOTHING while the JS
-// chunk (recharts + framer-motion + tab code) downloaded — users saw a blank
-// center panel for 1-5s and thought the tab was broken/slow.
-// After: a centered spinner with "Loading X…" so the user knows work is happening.
+// Show a visible loading state while lazy tab chunks download.
 const TabLoader = ({ label }: { label: string }) => (
   <div className="flex-1 flex flex-col items-center justify-center text-[#7c89b5] gap-3">
     <Loader2 className="w-6 h-6 animate-spin text-cyan-300" />
     <span className="text-xs tracking-wider">{label}</span>
   </div>
 )
+
 const DashboardTab = dynamic(() => import('@/components/agent/tabs/dashboard-tab').then(m => ({ default: m.DashboardTab })), { loading: () => <TabLoader label="Loading dashboard…" /> })
 const SchedulesTab = dynamic(() => import('@/components/agent/tabs/schedules-tab').then(m => ({ default: m.SchedulesTab })), { loading: () => <TabLoader label="Loading schedules…" /> })
 const SettingsTab = dynamic(() => import('@/components/agent/tabs/settings-tab').then(m => ({ default: m.SettingsTab })), { loading: () => <TabLoader label="Loading settings…" /> })
@@ -38,23 +29,19 @@ const MissionsTab = dynamic(() => import('@/components/agent/tabs/missions-tab')
 const PodsTab = dynamic(() => import('@/components/agent/tabs/pods-tab').then(m => ({ default: m.PodsTab })), { loading: () => <TabLoader label="Loading pods…" /> })
 const MissionActiveTab = dynamic(() => import('@/components/agent/tabs/mission-active-tab').then(m => ({ default: m.MissionActiveTab })), { loading: () => <TabLoader label="Loading active missions…" /> })
 // UPGRADE VID — Venture Intelligence Division tab. The most powerful department after the CEO.
-// Owns venture creation, scoring (Venture Score ≥ 87), portfolio management, and Knowledge Transfer Rate.
 const VidTab = dynamic(() => import('@/components/agent/tabs/vid-tab').then(m => ({ default: m.VidTab })), { loading: () => <TabLoader label="Loading Venture Intelligence Division…" /> })
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
+import { AnimatePresence } from 'framer-motion'
+import { motion as Motion } from 'framer-motion'
 
 export default function Home() {
   const { status } = useSession()
   const router = useRouter()
   const [leftOpenMobile, setLeftOpenMobile] = useState(false)
-  const [rightOpenMobile, setRightOpenMobile] = useState(false)
-  // Tablet (768-1023px): right sidebar collapses to a drawer by default
-  const [rightOpenTablet, setRightOpenTablet] = useState(false)
 
   const leftOpen = useChatStore((s) => s.leftOpen)
-  const rightOpen = useChatStore((s) => s.rightOpen)
   const toggleLeft = useChatStore((s) => s.toggleLeft)
-  const toggleRight = useChatStore((s) => s.toggleRight)
   const loadConversations = useChatStore((s) => s.loadConversations)
   const loadMemories = useChatStore((s) => s.loadMemories)
   const loadSubagentCount = useChatStore((s) => s.loadSubagentCount)
@@ -62,12 +49,8 @@ export default function Home() {
   const activeTab = useChatStore((s) => s.activeTab)
   const startAutoRefresh = useChatStore((s) => s.startAutoRefresh)
 
-  // Redirect to /login when unauthenticated.
-  // UPGRADE #90 — Immediate redirect (no loading screen flash).
-  // If status is 'unauthenticated', redirect IMMEDIATELY before rendering anything.
   useEffect(() => {
     if (status === 'unauthenticated') {
-      // Use window.location for instant redirect (no client-side router delay)
       if (typeof window !== 'undefined') {
         window.location.replace('/login')
       } else {
@@ -76,32 +59,15 @@ export default function Home() {
     }
   }, [status, router])
 
-  // Initial load (only after we know the user is authenticated)
-  // UPGRADE #90 FIX — MUST be declared BEFORE any early return to avoid
-  // "React Hook order" violation which causes client-side exception:
-  // "Application error: a client-side exception has occurred"
-  //
-  // DEBUG-SLOW-TABS fix: Removed the sequential `fetch('/api/health')` warm-up.
-  // Before: fired /api/health FIRST, then in .finally() fired the 3 real loads.
-  //   /api/health is a SEPARATE Lambda from /api/conversations — warming it does
-  //   NOTHING for the other endpoints. This added a ~0.3s sequential delay before
-  //   the real data fetches even started.
-  // After: fire the 3 real loads immediately in parallel + pre-warm the Dashboard
-  //   tab endpoints (income, settings, dashboard/widgets) in the background so
-  //   they're warm when the user clicks the Dashboard tab.
   useEffect(() => {
     if (status !== 'authenticated') return
-    // Fire the 3 primary loads in parallel immediately (no pre-warm gate).
+
     Promise.all([
       loadConversations(),
       loadMemories(),
       loadSubagentCount(),
-    ]).catch(() => {/* swallow — each function already handles errors */})
+    ]).catch(() => {})
 
-    // DEBUG-SLOW-TABS fix: Pre-warm the Dashboard tab endpoints in the background.
-    // These are DIFFERENT Lambdas from the 3 above and are NOT warmed by PreWarmDb.
-    // Without this, the first Dashboard tab click hits 3-4 COLD Lambdas (3-5s each).
-    // We fire them with `keepalive: true` so they survive page navigation.
     const dashEndpoints = [
       '/api/income?limit=1',
       '/api/settings',
@@ -109,15 +75,12 @@ export default function Home() {
     ]
     dashEndpoints.forEach((path) => {
       fetch(path, { method: 'GET', keepalive: true, signal: AbortSignal.timeout(8000) })
-        .catch(() => {/* silent — just warming */})
+        .catch(() => {})
     })
 
-    // Start the 30s auto-refresh loop (non-blocking)
     startAutoRefresh()
   }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 
-  // UPGRADE #132 — Loading screen with progress indicator
-  // Shows what's happening during cold starts instead of a blank page
   if (status === 'loading' || status === 'unauthenticated') {
     return (
       <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
@@ -129,7 +92,6 @@ export default function Home() {
             <Loader2 className="w-4 h-4 animate-spin" />
             {status === 'unauthenticated' ? 'REDIRECTING TO LOGIN…' : 'BOOTING AGENT007…'}
           </div>
-          {/* UPGRADE #132: Progress steps so user knows what's happening */}
           <div className="flex flex-col gap-1.5 text-[10px] text-[#5b6a92] tracking-wider">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -148,7 +110,6 @@ export default function Home() {
               <span>Preparing dashboard…</span>
             </div>
           </div>
-          {/* Animated progress bar */}
           <div className="mt-5 w-48 h-1 bg-white/5 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 rounded-full"
@@ -167,24 +128,6 @@ export default function Home() {
     )
   }
 
-  // (Loading/unauthenticated rendering handled above — no duplicate here)
-
-  // Decide whether the desktop right sidebar should be visible inline.
-  // - Desktop (>=1024px): use the store flag (rightOpen), inline
-  // - Tablet (768-1023px): collapse to a slide-in drawer (rightOpenTablet)
-  // - Mobile (<768px): drawer (rightOpenMobile)
-  // We achieve this by only rendering the desktop sidebar at lg+ and using
-  // the drawer markup at md and below.
-  const onToggleRight = () => {
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-      // Tablet or mobile — open the right drawer
-      if (window.innerWidth < 768) setRightOpenMobile((v) => !v)
-      else setRightOpenTablet((v) => !v)
-    } else {
-      toggleRight()
-    }
-  }
-
   return (
     <div className="relative min-h-screen flex flex-col bg-black">
       <Background />
@@ -198,11 +141,9 @@ export default function Home() {
               toggleLeft()
             }
           }}
-          onToggleRight={onToggleRight}
         />
 
         <div className="flex-1 flex min-h-0 relative">
-          {/* Left sidebar - desktop */}
           <AnimatePresenceHelper
             show={leftOpen}
             desktopKey="left-desktop"
@@ -216,9 +157,7 @@ export default function Home() {
             renderMobileContent={(onClose) => <SidebarLeft onClose={onClose} />}
           />
 
-          {/* Center column — renders the active tab */}
           <main className="flex-1 flex flex-col min-w-0 min-h-0">
-            {/* UPGRADE #63 — Real-time progress banner */}
             <AgentProgressBanner />
             {activeTab === 'chat' && <ChatTab />}
             {activeTab === 'missions' && <MissionsTab />}
@@ -236,47 +175,16 @@ export default function Home() {
             )}
           </main>
 
-          {/* Right sidebar - desktop inline (lg+ only) */}
-          <AnimatePresenceHelper
-            show={rightOpen}
-            desktopKey="right-desktop"
-            mobileKey="right-mobile"
-            mobileOpen={rightOpenMobile}
-            onMobileClose={() => setRightOpenMobile(false)}
-            mobileWidth={280}
-            desktopWidth={300}
-            side="right"
-            // Hide the desktop right sidebar on tablet (md) — only show on lg+
-            desktopClassName="hidden lg:block"
-            renderContent={() => <SidebarRight />}
-            renderMobileContent={(onClose) => <SidebarRight onClose={onClose} />}
-          />
-
-          {/* Tablet right drawer (md only, 768-1023px) */}
-          <AnimatePresenceHelper
-            show={false}
-            desktopKey="right-tablet-placeholder"
-            mobileKey="right-tablet"
-            mobileOpen={rightOpenTablet}
-            onMobileClose={() => setRightOpenTablet(false)}
-            mobileWidth={300}
-            desktopWidth={0}
-            side="right"
-            // Only render at tablet (md, not lg)
-            mobileClassName="md:block lg:hidden"
-            renderContent={() => <SidebarRight />}
-            renderMobileContent={(onClose) => <SidebarRight onClose={onClose} />}
-          />
+          {/* Static CEO history rail — always visible on tablet/desktop. */}
+          <div className="hidden md:block flex-shrink-0 w-10 sm:w-11">
+            <SidebarRight />
+          </div>
         </div>
       </div>
 
-      {/* Global Change-Password modal — mounted once, openable from anywhere */}
       <ChangePasswordModal />
-
-      {/* PWA install prompt — shows when browser fires beforeinstallprompt */}
       <PwaInstallPrompt />
 
-      {/* Hidden state-keeper so conversations load on mount even if unused */}
       <span className="hidden" aria-hidden>
         {conversations.length}
       </span>
@@ -285,12 +193,10 @@ export default function Home() {
 }
 
 /* ------------------------------------------------------------------ *
- * Local helper that mirrors the original animated sidebar markup so we
- * don't duplicate AnimatePresence boilerplate for left + right panels.
+ * Local helper for the animated left conversation panel.
+ * The CEO history rail above is intentionally static and does not use this
+ * drawer mechanism.
  * ------------------------------------------------------------------ */
-import { AnimatePresence } from 'framer-motion'
-import { motion as Motion } from 'framer-motion'
-
 function AnimatePresenceHelper({
   show,
   desktopKey,
@@ -320,7 +226,6 @@ function AnimatePresenceHelper({
 }) {
   return (
     <>
-      {/* Desktop */}
       <AnimatePresence initial={false}>
         {show && desktopWidth > 0 && (
           <Motion.aside
@@ -338,7 +243,6 @@ function AnimatePresenceHelper({
         )}
       </AnimatePresence>
 
-      {/* Mobile / tablet drawer */}
       <AnimatePresence initial={false}>
         {mobileOpen && (
           <>

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Menu,
   PanelLeft,
-  PanelRight,
   Globe,
   LogOut,
   KeyRound,
@@ -45,10 +44,8 @@ const TABS: TabDef[] = [
 
 export function ChatHeader({
   onToggleLeft,
-  onToggleRight,
 }: {
   onToggleLeft: () => void
-  onToggleRight: () => void
 }) {
   const language = useChatStore((s) => s.language)
   const setLanguage = useChatStore((s) => s.setLanguage)
@@ -128,12 +125,12 @@ export function ChatHeader({
           onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
           className="h-9 px-3 rounded-lg text-[11px] font-semibold tracking-wider glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 transition flex items-center gap-1.5"
           title="Toggle reply language"
-          aria-label="Toggle language"
+          aria-label="Toggle reply language between English and Spanish"
         >
           <Globe className="w-3.5 h-3.5" />
           <span className={language === 'en' ? 'text-cyan-300' : 'text-[#7c89b5]'}>EN</span>
           <span className="text-[#5b6a92]">/</span>
-          <span className={language === 'zh' ? 'text-purple-300' : 'text-[#7c89b5]'}>中文</span>
+          <span className={language !== 'en' ? 'text-purple-300' : 'text-[#7c89b5]'}>ES</span>
         </button>
 
         <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg glass border-cyan-400/20 text-[10px] text-[#9bb5d4]">
@@ -195,13 +192,6 @@ export function ChatHeader({
             )}
           </AnimatePresence>
         </div>
-
-        <button onClick={onToggleRight} className="hidden md:flex w-9 h-9 rounded-lg items-center justify-center text-cyan-300 hover:bg-cyan-400/10" aria-label="Toggle executive context" title="Executive context">
-          <PanelRight className="w-4 h-4" />
-        </button>
-        <button onClick={onToggleRight} className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-cyan-300 hover:bg-cyan-400/10" aria-label="Toggle executive context">
-          <PanelRight className="w-4 h-4" />
-        </button>
       </div>
 
       <div className="px-3 sm:px-4 pb-2 -mt-1">

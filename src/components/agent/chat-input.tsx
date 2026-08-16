@@ -14,7 +14,6 @@ export function ChatInput() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const recognitionRef = useRef<any>(null)
   const language = useChatStore((s) => s.language)
-  const setLanguage = useChatStore((s) => s.setLanguage)
   const attachments = useChatStore((s) => s.attachments)
   const addAttachment = useChatStore((s) => s.addAttachment)
   const removeAttachment = useChatStore((s) => s.removeAttachment)
@@ -111,7 +110,6 @@ export function ChatInput() {
           </button>
           <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/*,.txt,.md,.csv,.json,.js,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.log,.py,.go,.rs,.java,.c,.cpp,.h,.pdf,.sh,.sql" onChange={handleFile} />
           <textarea ref={textareaRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} placeholder="Ask CEO_AGENT007 anything…" rows={1} className="flex-1 bg-transparent resize-none outline-none text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] py-2 max-h-[200px] overflow-y-auto scroll-cyan" />
-          <button onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')} className="flex-shrink-0 h-9 px-2.5 rounded-lg text-[11px] font-semibold tracking-wider glass border-cyan-400/30 hover:border-cyan-400/70 text-cyan-200 transition flex items-center gap-1.5" title="Toggle CEO reply language" aria-label="Toggle language"><span className={language === 'en' ? 'text-cyan-300' : 'text-[#7c89b5]'}>EN</span><span className="text-[#5b6a92]">|</span><span className={language === 'zh' ? 'text-purple-300' : 'text-[#7c89b5]'}>ES</span></button>
           <button onClick={toggleVoice} disabled={isBusy} className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition ${listening ? 'bg-cyan-400/20 border border-cyan-400/60 text-cyan-200' : 'text-cyan-300 hover:bg-cyan-400/10'} disabled:opacity-40`} aria-label="Voice input" title="Voice input"><Mic className="w-4 h-4" /></button>
           {isBusy ? <button onClick={stopStreaming} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center bg-pink-500/20 border border-pink-400/50 text-pink-200 hover:bg-pink-500/30 transition" aria-label="Stop generation" title="Stop"><Square className="w-3.5 h-3.5" fill="currentColor" /></button> : <button onClick={handleSend} disabled={!text.trim() && attachments.length === 0} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center neon-btn-cyan disabled:cursor-not-allowed" aria-label="Send message" title="Send (Enter)"><ArrowUp className="w-4 h-4" strokeWidth={2.5} /></button>}
         </div>
