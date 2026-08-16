@@ -1,5 +1,7 @@
 name: Venture OS 24x7 Heartbeat
 on:
+  push:
+    branches: [agent/architecture-control-plane-5-9]
   workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'
@@ -19,8 +21,23 @@ jobs:
       - name: Verify operation-loop contract
         run: |
           test -f src/lib/venture-operation-loop.ts
+          test -f scripts/run-venture-operation-cycle.ts
           grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
           grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
-          grep -q 'venture-operation' .github/workflows/venture-os-24x7-heartbeat.yml || true
+      - name: Execute Venture OS operation cycle
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VENTURE_ID: venture_001
+          VENTURE_OWNER: agent007-24x7
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              echo 'DATABASE_URL is required for scheduled 24/7 operation.'
+              exit 1
+            fi
+            echo 'DATABASE_URL is not configured; branch verification is limited to static contract checks.'
+            exit 0
+          fi
+          bun scripts/run-venture-operation-cycle.ts
       - name: Run Venture OS contract tests
         run: bun test tests/venture-os-v2.test.ts
