@@ -1,19 +1,34 @@
 /**
  * Operational KPI Engine — one canonical calculation path for the executive dashboard.
  *
- * KPIs are derived from persisted operational facts only. Estimates, targets,
- * reference-venture examples, and auto-parsed income are never counted as real cash.
+ * KPIs are derived from persisted operational facts only. Transaction records are
+ * the source of truth for realized revenue; IncomeEntry is intentionally excluded
+ * because that model can contain agent-generated/auto-parsed figures.
  */
 import { db } from './db'
 import { getPortfolio, type Business, type BusinessLifecycle } from './business-portfolio'
 import { VENTURE_001_REFERENCE } from './venture-001'
 
-export const OPERATIONAL_KPI_VERSION = 1
+export const OPERATIONAL_KPI_VERSION = 2
 export const KPI_WINDOW_DAYS = 30
 
-export interface IncomeFact { amount: number; source: string; notes: string | null; date: Date }
+export interface TransactionFact {
+  amount: number
+  provider: string
+  providerTxId: string
+  status: string
+  createdAt: Date
+}
+
 export interface MissionFact { status: 'running' | 'completed' | 'failed' }
-export interface OperationalKpiInput { now: Date; missions: MissionFact[]; businesses: Business[]; incomeEntries: IncomeFact[]; customerCount: number; opportunityCount: number }
+export interface OperationalKpiInput {
+  now: Date
+  missions: MissionFact[]
+  businesses: Business[]
+  transactions: TransactionFact[]
+  customerCount: number
+  openOpportunities: number
+}
 
 export interface ReferenceVentureSnapshot {
   exists: boolean
@@ -40,11 +55,18 @@ export interface OperationalKpiSnapshot {
 
 const ACTIVE_LIFECYCLES = new Set<BusinessLifecycle>(['proposed', 'validated', 'launched', 'active', 'scaling', 'automated'])
 const LAUNCHED_LIFECYCLES = new Set<BusinessLifecycle>(['launched', 'active', 'scaling', 'automated'])
+const REAL_TRANSACTION_STATUSES = new Set(['succeeded', 'paid', 'completed', 'settled'])
+const OPEN_CRM_STATUSES = new Set(['lead', 'prospect', 'qualified', 'open', 'in_progress'])
+
 function finite(value: number | null | undefined): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null }
 function clamp(value: number, min = 0, max = 100): number { return Math.min(max, Math.max(min, value)) }
 function average(values: number[]): number | null { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null }
 function normalizedName(name: string): string { return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase() }
 export function isReferenceVenture(business: Business): boolean { return normalizedName(business.name) === normalizedName(VENTURE_001_REFERENCE.name) }
+export function isRealTransaction(transaction: Pick<TransactionFact, 'status' | 'amount' | 'providerTxId'>): boolean {
+  return REAL_TRANSACTION_STATUSES.has(transaction.status.trim().toLowerCase()) && Boolean(transaction.providerTxId.trim()) && (finite(transaction.amount) ?? 0) > 0
+}
+export function isOpenCrmStatus(status: string): boolean { return OPEN_CRM_STATUSES.has(status.trim().toLowerCase()) }
 
 export function calculateBusinessHealth(business: Business): number {
   const roiHealth = clamp((finite(business.roi) ?? 0) + 100, 0, 200) / 2
@@ -52,16 +74,6 @@ export function calculateBusinessHealth(business: Business): number {
   const brand = clamp(finite(business.brandScore) ?? 0)
   const lifecycleHealth: Record<BusinessLifecycle, number> = { proposed: 30, validated: 55, launched: 75, active: 90, scaling: 95, automated: 100, retired: 0 }
   return Math.round(automation * 0.35 + roiHealth * 0.25 + lifecycleHealth[business.lifecycle] * 0.25 + brand * 0.15)
-}
-
-/** Conservative classification: only payment/affiliate evidence counts as real cash. */
-export function isVerifiedIncomeEntry(entry: Pick<IncomeFact, 'source' | 'notes'>): boolean {
-  const source = entry.source.trim().toLowerCase()
-  const notes = (entry.notes ?? '').trim().toLowerCase()
-  if (!source && !notes) return false
-  if (/auto[-_ ]?logged|auto[-_ ]?parsed|projected|forecast|estimate/.test(`${source} ${notes}`)) return false
-  if (['stripe', 'paypal', 'affiliate', 'payment_processor'].includes(source)) return true
-  return /(?:stripe|paypal)[_:-][a-z0-9_-]+|(?:transaction|order)[_:-][a-z0-9_-]+/.test(notes)
 }
 
 export function calculateOperationalKpis(input: OperationalKpiInput): OperationalKpiSnapshot {
@@ -75,8 +87,8 @@ export function calculateOperationalKpis(input: OperationalKpiInput): Operationa
   const active = input.missions.filter((mission) => mission.status === 'running').length
   const terminal = completed + failed
   const windowStart = new Date(input.now.getTime() - KPI_WINDOW_DAYS * 24 * 60 * 60 * 1000)
-  const verifiedIncome = input.incomeEntries.filter((entry) => entry.date >= windowStart && isVerifiedIncomeEntry(entry))
-  const revenue30d = verifiedIncome.reduce((sum, entry) => sum + Math.max(0, finite(entry.amount) ?? 0), 0)
+  const verifiedTransactions = input.transactions.filter((transaction) => transaction.createdAt >= windowStart && isRealTransaction(transaction))
+  const revenue30d = verifiedTransactions.reduce((sum, transaction) => sum + Math.max(0, finite(transaction.amount) ?? 0), 0)
   const portfolioMrr = activeBusinesses.reduce((sum, business) => sum + Math.max(0, finite(business.monthlyRevenue) ?? 0), 0)
   const monthlyCost = activeBusinesses.reduce((sum, business) => sum + Math.max(0, finite(business.monthlyCost) ?? 0), 0)
   const monthlyNetRevenue = portfolioMrr - monthlyCost
@@ -102,7 +114,12 @@ export function calculateOperationalKpis(input: OperationalKpiInput): Operationa
       averageAutomation: average(automationValues) === null ? null : Number((average(automationValues) as number).toFixed(1)),
       customers,
     },
-    commercial: { revenue30d: Number(revenue30d.toFixed(2)), transactions30d: verifiedIncome.length, customers: Math.max(0, Math.floor(input.customerCount)), openOpportunities: Math.max(0, Math.floor(input.opportunityCount)) },
+    commercial: {
+      revenue30d: Number(revenue30d.toFixed(2)),
+      transactions30d: verifiedTransactions.length,
+      customers: Math.max(0, Math.floor(input.customerCount)),
+      openOpportunities: Math.max(0, Math.floor(input.openOpportunities)),
+    },
     referenceVenture001: {
       exists: Boolean(reference),
       ventureKey: VENTURE_001_REFERENCE.ventureKey,
@@ -118,13 +135,15 @@ export function calculateOperationalKpis(input: OperationalKpiInput): Operationa
   }
 }
 
-export async function loadOperationalKpis(now = new Date()): Promise<OperationalKpiSnapshot> {
-  const [missionRows, businesses, incomeEntries, customerCount, opportunityCount] = await Promise.all([
+export async function loadOperationalKpis(userId: string, now = new Date()): Promise<OperationalKpiSnapshot> {
+  if (!userId.trim()) throw new Error('Authenticated user id is required for operational KPI calculations.')
+  const windowStart = new Date(now.getTime() - KPI_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+  const [missionRows, businesses, transactions, customerCount, openOpportunities] = await Promise.all([
     db.memory.findMany({ where: { category: 'mission_telemetry' }, select: { value: true } }).catch(() => []),
     getPortfolio().catch(() => []),
-    db.incomeEntry.findMany({ where: { date: { gte: new Date(now.getTime() - KPI_WINDOW_DAYS * 24 * 60 * 60 * 1000) } }, select: { amount: true, source: true, notes: true, date: true } }).catch(() => []),
-    db.customer.count().catch(() => 0),
-    db.opportunity.count({ where: { status: { in: ['new', 'open', 'qualified', 'in_progress'] } } }).catch(() => 0),
+    db.transaction.findMany({ where: { userId, createdAt: { gte: windowStart } }, select: { amount: true, provider: true, providerTxId: true, status: true, createdAt: true } }).catch(() => []),
+    db.customer.count({ where: { userId } }).catch(() => 0),
+    db.customer.count({ where: { userId, status: { in: Array.from(OPEN_CRM_STATUSES) } } }).catch(() => 0),
   ])
   const missions: MissionFact[] = missionRows.map((row): MissionFact => {
     try {
@@ -133,5 +152,5 @@ export async function loadOperationalKpis(now = new Date()): Promise<Operational
       return { status }
     } catch { return { status: 'running' } }
   })
-  return calculateOperationalKpis({ now, missions, businesses, incomeEntries, customerCount, opportunityCount })
+  return calculateOperationalKpis({ now, missions, businesses, transactions, customerCount, openOpportunities })
 }
