@@ -1,0 +1,26 @@
+name: Venture OS 24x7 Heartbeat
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+permissions:
+  contents: read
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Verify operation-loop contract
+        run: |
+          test -f src/lib/venture-operation-loop.ts
+          grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
+          grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
+          grep -q 'venture-operation' .github/workflows/venture-os-24x7-heartbeat.yml || true
+      - name: Run Venture OS contract tests
+        run: bun test tests/venture-os-v2.test.ts
