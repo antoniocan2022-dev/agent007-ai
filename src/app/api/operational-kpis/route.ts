@@ -9,9 +9,10 @@ export const maxDuration = 30
 
 export async function GET() {
   const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  const userId = (session?.user as { id?: string } | undefined)?.id?.trim()
+  if (!userId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
-    return NextResponse.json({ ok: true, kpis: await loadOperationalKpis() })
+    return NextResponse.json({ ok: true, kpis: await loadOperationalKpis(userId) })
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : 'Unable to calculate operational KPIs.' }, { status: 500 })
   }
