@@ -3,6 +3,7 @@ name: Operational KPIs + Venture 001 Verification
 on:
   push:
     branches:
+      - main
       - 'feat/operational-kpis-venture-001'
   pull_request:
     branches:
