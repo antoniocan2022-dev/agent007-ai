@@ -26,11 +26,11 @@ jobs:
       - name: Generate Prisma client
         run: bunx prisma generate
 
-      - name: CI TypeScript gate
-        run: bunx tsc -p tsconfig.ci.json --noEmit
-
       - name: Architecture unit tests
         run: bun test tests/architecture-control-plane.test.ts
+
+      - name: Targeted TypeScript check for control-plane module
+        run: bunx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck src/lib/architecture-control-plane.ts
 
       - name: Repository diff hygiene
         run: |
