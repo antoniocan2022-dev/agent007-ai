@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_test
+      NEXTAUTH_SECRET: agent007-ci-only-test-secret
     services:
       postgres:
         image: postgres:16
