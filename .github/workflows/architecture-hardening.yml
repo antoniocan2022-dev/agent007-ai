@@ -155,6 +155,7 @@ jobs:
 
           autonomy = (root / 'src/lib/max-autonomy-engine.ts').read_text()
           assert autonomy.count("parentConversationId: 'mission',\n        parentAgentId: 'vid',") == 3
+          assert autonomy.count("parentConversationId: 'offline',\n          parentAgentId: 'vid',") == 1
 
           src_names = [p.name for p in (root / 'src/lib').iterdir() if p.is_file()]
           assert src_names.count('hierarchy-control.ts') == 1
