@@ -16,19 +16,12 @@ jobs:
       - run: bunx prisma generate
       - name: V2 architecture tests
         run: bun test tests/venture-os-v2.test.ts
-      - name: Relevant TypeScript audit
-        shell: bash
-        run: |
-          set +e
-          bunx tsc -p tsconfig.ci.json --noEmit --pretty false > /tmp/tsc.log 2>&1
-          echo "tsc_exit=$?"
-          if grep -E "src/lib/venture-autonomy-control\.ts|src/app/api/venture-os/route\.ts|tests/venture-os-v2\.test\.ts" /tmp/tsc.log; then
-            echo 'Relevant TypeScript diagnostics detected.'
-            exit 1
-          fi
+      - name: Full TypeScript audit
+        run: bunx tsc -p tsconfig.ci.json --noEmit --pretty false
       - name: Source and hygiene assertions
         run: |
           test -f src/lib/venture-autonomy-control.ts
+          test -f src/lib/venture-operation-loop.ts
           test -f src/app/api/venture-os/route.ts
           test -f tests/venture-os-v2.test.ts
           grep -q "evaluateVentureReadiness" src/lib/venture-autonomy-control.ts
@@ -38,5 +31,6 @@ jobs:
           grep -q "acquireAutonomyLease" src/lib/venture-autonomy-control.ts
           grep -q "heartbeatAutonomyLease" src/lib/venture-autonomy-control.ts
           grep -q "VENTURE_TEMPLATE_V1" src/lib/venture-autonomy-control.ts
+          grep -q "runVentureOperationCycle" src/lib/venture-operation-loop.ts
           git diff --check
           test -z "$(git status --porcelain)"
