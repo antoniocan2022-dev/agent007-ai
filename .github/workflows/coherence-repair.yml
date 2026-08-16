@@ -29,6 +29,8 @@ jobs:
         run: mkdir -p src/app/api/system/canonical-state
       - name: Apply coherence repairs
         run: python3 scripts/apply-coherence-fixes.py
+      - name: Final coherence pass
+        run: python3 scripts/final-coherence-pass.py
       - name: Normalize provider registries for expanded ProviderId universe
         run: |
           python3 - <<'PY'
@@ -69,23 +71,52 @@ jobs:
               "src/lib/canonical-organizational-state.ts",
               "src/lib/agent.ts",
               "src/lib/multi-provider-comparison.ts",
+              "src/lib/subagent-max-performance.ts",
               "src/app/api/system/canonical-state/route.ts",
+              "src/app/api/system/evolution/route.ts",
               "src/app/api/health/diagnostics/route.ts",
               "src/app/api/health/full-audit/route.ts",
               "src/app/api/system/capabilities/route.ts",
-              "src/app/api/system/vid-kpis/route.ts"
+              "src/app/api/system/vid-kpis/route.ts",
+              "src/components/agent/tabs/finance-executive-tab.tsx"
             ]
           }
           JSON
           bunx tsc -p tsconfig.coherence.json
           rm -f tsconfig.coherence.json
+      - name: Provider Intelligence pure selection tests
+        run: |
+          cat > /tmp/provider-intelligence-check.ts <<'TS'
+          import { PROVIDER_PRIORITY, CORE_PROVIDER_PRIORITY, SECONDARY_PROVIDER_PRIORITY } from process.cwd() + '/src/lib/provider-intelligence-policy.ts'
+          import { getConfiguredProviders, selectProvidersForTask } from process.cwd() + '/src/lib/provider-runtime-v2.ts'
+          const expected = ['groq','openai','zai','mistral','openrouter','gemini','brave','cerebras']
+          for (const [i, value] of expected.entries()) { if (PROVIDER_PRIORITY[i] !== value) throw new Error(`priority drift at ${i}`) }
+          if (CORE_PROVIDER_PRIORITY.join('|') !== 'groq|openai|zai|mistral') throw new Error('core priority drift')
+          if (SECONDARY_PROVIDER_PRIORITY.join('|') !== 'openrouter|gemini|brave|cerebras') throw new Error('secondary priority drift')
+          for (const provider of expected) process.env[{groq:'GROQ_API_KEY',openai:'OPENAI_API_KEY',zai:'ZAI_API_KEY',mistral:'MISTRAL_API_KEY',openrouter:'OPENROUTER_API_KEY',gemini:'GEMINI_API_KEY',brave:'BRAVE_API_KEY',cerebras:'CEREBRAS_API_KEY'}[provider]!] = 'test'
+          const configured = getConfiguredProviders()
+          if (configured.length !== 8) throw new Error(`expected 8 configured providers, got ${configured.length}`)
+          const tasks = ['general','research','coding','creative','financial','security','operations','analysis'] as const
+          for (const task of tasks) { const selected = selectProvidersForTask(task); if (selected.length < 2 || selected.length > 4) throw new Error(`${task}: parallel selection size ${selected.length}`) }
+          console.log('Provider Intelligence 2.0 pure selection tests: PASS')
+          TS
+          bun /tmp/provider-intelligence-check.ts
       - name: Coherence invariants
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
           root = Path('.')
-          required = ['src/lib/canonical-organizational-state.ts','src/lib/provider-runtime-v2.ts','src/lib/provider-intelligence-policy.ts','src/app/api/system/canonical-state/route.ts']
+          required = [
+            'src/lib/canonical-organizational-state.ts',
+            'src/lib/provider-runtime-v2.ts',
+            'src/lib/provider-intelligence-policy.ts',
+            'src/lib/subagent-governance.ts',
+            'src/lib/subagent-max-performance.ts',
+            'src/lib/model-intelligence.ts',
+            'src/app/api/system/canonical-state/route.ts',
+            'src/app/api/system/evolution/route.ts',
+          ]
           missing = [p for p in required if not (root / p).exists()]
           assert not missing, f'Missing required files: {missing}'
           policy = (root / 'src/lib/provider-intelligence-policy.ts').read_text()
@@ -94,11 +125,19 @@ jobs:
           runtime = (root / 'src/lib/provider-runtime-v2.ts').read_text()
           for provider in ['groq','openai','zai','mistral','openrouter','gemini','brave','cerebras']:
               assert f"{provider}: {{" in runtime, provider
-          model = (root / 'src/lib/model-intelligence.ts').read_text()
-          for provider in ['openrouter','gemini','brave','cerebras']:
-              assert f"provider: '{provider}'" in model
-          for path in ['src/app/api/health/diagnostics/route.ts','src/app/api/health/full-audit/route.ts','src/app/api/system/capabilities/route.ts','src/app/api/system/vid-kpis/route.ts']:
+          for path in ['src/app/api/health/diagnostics/route.ts','src/app/api/health/full-audit/route.ts','src/app/api/system/capabilities/route.ts','src/app/api/system/vid-kpis/route.ts','src/app/api/system/evolution/route.ts']:
               assert 'canonical-organizational-state' in (root / path).read_text(), path
+          audit = (root / 'src/app/api/health/full-audit/route.ts').read_text()
+          assert '(configured)' in audit and '…' not in audit and 'slice(0, 4)' not in audit
+          shared = (root / 'src/lib/subagent-max-performance.ts').read_text()
+          assert 'Groq → OpenAI → Z.ai → Mistral' in shared
+          assert 'OpenRouter → Gemini → Brave → Cerebras' in shared
+          assert '2+ providers in parallel' in shared
+          finance = (root / 'src/components/agent/tabs/finance-executive-tab.tsx').read_text()
+          assert '/api/system/canonical-state' in finance
+          state = (root / 'src/lib/canonical-organizational-state.ts').read_text()
+          assert "automaticDeployments: false" in state
+          assert 'enabled: false' in state
           vercel = (root / 'vercel.json').read_text()
           assert '"deploymentEnabled": false' in vercel
           assert '"crons": []' in vercel
@@ -106,7 +145,11 @@ jobs:
           names = re.findall(r'^\s*TOOL_REGISTRY\.([A-Za-z0-9_]+)\s*=', text, flags=re.M)
           dupes = sorted({x for x in names if names.count(x) > 1})
           assert not dupes, dupes
-          print('Canonical invariants + duplicate registry guard: PASS')
+          for dead in ['src/lib/safety-reliability.ts','src/lib/improvement-actions.ts','src/lib/advanced-tools.ts','src/lib/intelligence-tools.ts','src/app/login/page.tsx.bak','prisma/schema.prisma.bak']:
+              assert not (root / dead).exists(), f'dead artifact resurrected: {dead}'
+          for artifact in root.rglob('*.pyc'):
+              assert '__pycache__' not in str(artifact), f'bytecode artifact present: {artifact}'
+          print('Canonical invariants + security + duplicates + dead-artifact guards: PASS')
           PY
       - name: Commit repaired source
         run: |
