@@ -142,13 +142,14 @@ async function createTablesViaRawSQL() {
       `CREATE TABLE IF NOT EXISTS "Transaction" (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, provider TEXT NOT NULL, "providerTxId" TEXT NOT NULL, amount DOUBLE PRECISION NOT NULL, currency TEXT DEFAULT 'USD', status TEXT DEFAULT 'succeeded', "customerEmail" TEXT, "customerName" TEXT, "productName" TEXT, description TEXT, "rawPayload" TEXT, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, UNIQUE(provider, "providerTxId"))`,
       `CREATE TABLE IF NOT EXISTS "KnowledgeDoc" (id TEXT PRIMARY KEY, "userId" TEXT NOT NULL, filename TEXT NOT NULL, "mimeType" TEXT, size INTEGER, text TEXT, "chunkCount" INTEGER DEFAULT 0, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP)`,
       `CREATE TABLE IF NOT EXISTS "KnowledgeChunk" (id TEXT PRIMARY KEY, "docId" TEXT NOT NULL, "userId" TEXT NOT NULL, content TEXT, "chunkIndex" INTEGER, keywords TEXT DEFAULT '', "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP)`,
-      `CREATE TABLE IF NOT EXISTS "ArtifactLedger" (id TEXT PRIMARY KEY, "artifactId" TEXT UNIQUE NOT NULL, "missionId" TEXT, "ventureId" TEXT, "parentArtifactId" TEXT, "stageId" TEXT, "artifactType" TEXT NOT NULL, name TEXT NOT NULL, version INTEGER DEFAULT 1, status TEXT DEFAULT 'submitted', "producerAgentId" TEXT NOT NULL, "consumerAgentId" TEXT, "sourceRef" TEXT, "artifactValue" TEXT, "contentHash" TEXT NOT NULL, "verificationScore" DOUBLE PRECISION, "verifiedBy" TEXT, "verifiedAt" TIMESTAMP(3), metadata TEXT, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP)`,
+      `CREATE TABLE IF NOT EXISTS "ArtifactLedger" (id TEXT PRIMARY KEY, "artifactId" TEXT UNIQUE NOT NULL, "missionId" TEXT, "ventureId" TEXT, "parentArtifactId" TEXT, "stageId" TEXT, "artifactType" TEXT NOT NULL, name TEXT NOT NULL, version INTEGER DEFAULT 1, status TEXT DEFAULT 'submitted', "producerAgentId" TEXT NOT NULL, "consumerAgentId" TEXT, "sourceRef" TEXT, "artifactValue" TEXT, "contentHash" TEXT NOT NULL, "verificationScore" DOUBLE PRECISION, "verifiedBy" TEXT, "verifiedAt" TIMESTAMP(3), metadata TEXT, "handoffHistory" TEXT, "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP)`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_missionId_idx" ON "ArtifactLedger" ("missionId")`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_ventureId_idx" ON "ArtifactLedger" ("ventureId")`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_parentArtifactId_idx" ON "ArtifactLedger" ("parentArtifactId")`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_producerAgentId_idx" ON "ArtifactLedger" ("producerAgentId")`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_consumerAgentId_idx" ON "ArtifactLedger" ("consumerAgentId")`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_status_idx" ON "ArtifactLedger" (status)`,
+      `ALTER TABLE "ArtifactLedger" ADD COLUMN IF NOT EXISTS "handoffHistory" TEXT`,
 
     ]
     let created = 0

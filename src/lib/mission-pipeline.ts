@@ -402,6 +402,7 @@ RULES:
       try {
         const artifact = await registerArtifact({
           missionId, stageId: `stage_${stage.stage}`, artifactType: 'executive_report',
+          parentArtifactId: opts.previousArtifactId,
           name: stage.name, producerAgentId: 'ceo', sourceRef: `mission:${missionId}:stage:${stage.stage}`,
           content: teamOutput, artifactValue: teamOutput.slice(0, 4000), status: 'verified',
           verificationScore: 100, verifiedBy: 'ceo', verifiedAt: new Date(),
@@ -499,15 +500,15 @@ RULES:
 
   // ── Extract artifact from team output (best-effort)
   const artifactValue = extractArtifact(teamOutput, stage.artifactType)
-  const artifactVerified = artifactValue !== null && lastVerification?.approved === true
+  const artifactVerified = stage.artifactType === 'none' || (artifactValue !== null && lastVerification?.approved === true)
   let artifactId: string | undefined
   try {
     const artifact = await registerArtifact({
       missionId, stageId: `stage_${stage.stage}`, artifactType: stage.artifactType,
       name: stage.name, producerAgentId: stage.leader, sourceRef: `mission:${missionId}:stage:${stage.stage}:round:${lastRound}`,
-      artifactValue, content: teamOutput, status: lastVerification?.approved ? 'verified' : 'rejected',
-      verificationScore: lastVerification?.score ?? 0, verifiedBy: 'super_agent',
-      verifiedAt: lastVerification ? new Date() : undefined, metadata: { round: lastRound },
+      artifactValue, content: teamOutput, status: artifactVerified ? 'verified' : 'rejected',
+      verificationScore: artifactVerified ? (lastVerification?.score ?? 0) : 0, verifiedBy: artifactVerified ? 'super_agent' : undefined,
+      verifiedAt: artifactVerified && lastVerification ? new Date() : undefined, metadata: { round: lastRound },
     })
     artifactId = artifact.artifactId
     if (artifactVerified) await verifyArtifact(artifactId, lastVerification?.score ?? 0, 'super_agent', 'verified')
@@ -685,6 +686,14 @@ export async function runMissionPipeline(opts: {
   // where it left off instead of re-doing completed stages.
   let previouslyCompletedStages: Set<string> = new Set()
   try {
+    const priorArtifacts = await import('./artifact-ledger').then(({ listMissionArtifacts }) => listMissionArtifacts(missionId))
+    const latestVerifiedArtifact = [...priorArtifacts].reverse().find((artifact) => artifact.status === 'verified' || artifact.status === 'handed_off')
+    if (latestVerifiedArtifact) {
+      previousArtifactId = latestVerifiedArtifact.artifactId
+      previousTeamOutput = latestVerifiedArtifact.artifactValue ?? undefined
+    }
+  } catch {}
+  try {
     const { loadApprovalLog } = await import('./approval-audit-log')
     const priorLog = await loadApprovalLog(missionId)
     previouslyCompletedStages = new Set(
@@ -838,7 +847,18 @@ export async function runMissionPipeline(opts: {
       missionContext += `${result.artifactId ? `ARTIFACT ${result.artifactId} HANDOFF READY\n` : ""}STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:\n${result.output.slice(0, 3000)}\n\nFINAL SCORE: ${result.finalScore}/100\nVERDICT: ${result.finalVerification.verdict}\n\n---\n\n`
       if (result.artifactId && stage.stage < pipeline.stages.length && result.artifactVerified) {
         const nextStage = pipeline.stages[stage.stage]
-        if (nextStage) await handoffArtifact(result.artifactId, nextStage.leader).catch(() => {})
+        if (nextStage) {
+          try {
+            await handoffArtifact(result.artifactId, nextStage.leader)
+          } catch (handoffError: any) {
+            await logApprovalEvent({
+              missionId, stageId: `stage_${stage.stage}`, round: result.rounds,
+              agentRole: 'artifact_ledger', agentId: 'artifact_ledger',
+              action: 'handoff_failed', feedback: String(handoffError?.message ?? handoffError).slice(0, 500),
+            })
+            return { missionId, pipelineType: pipeline.type, success: false, stages, error: `Artifact handoff failed after Stage ${stage.stage}: ${String(handoffError?.message ?? handoffError).slice(0, 300)}` }
+          }
+        }
       }
       previousTeamOutput = result.output
       previousArtifactId = result.artifactId

@@ -2244,9 +2244,15 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     return { answer: `⚠️ ${err}`, steps: [] }
   }
 
-  const parentAgentId = opts.parentAgentId ?? 'ceo'
+  const delegationAuthority = opts.delegationAuthority ?? 'agent'
+  if (!opts.parentAgentId && delegationAuthority === 'agent') {
+    const err = `Delegation blocked: subagent ${sub.id} requires an explicit parentAgentId.`
+    await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
+    return { answer: `⚠️ ${err}`, steps: [] }
+  }
+  const parentAgentId = opts.parentAgentId ?? (delegationAuthority === 'owner' ? 'owner' : 'system')
   try {
-    assertDelegationAllowed(parentAgentId, sub.id, true, opts.delegationAuthority ?? 'agent')
+    assertDelegationAllowed(parentAgentId, sub.id, true, delegationAuthority)
   } catch (hierarchyError: any) {
     const err = hierarchyError?.message ?? 'Delegation blocked by hierarchy policy.'
     await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
@@ -2263,7 +2269,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // If a subagent needs a tool they don't have, the leader provides it or
   // the Super Agent dispatches differently.
   const allowed = new Set(sub.allowedTools?.length ? sub.allowedTools : [...FULL_ACCESS_TOOLS])
-  const ctx: ToolContext = { attachments: opts.attachments, language: opts.language }
+  const ctx: ToolContext = { attachments: opts.attachments, language: opts.language, parentAgentId: sub.id }
 
   const languageInstruction =
     opts.language === 'zh'

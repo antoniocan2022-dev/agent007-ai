@@ -698,6 +698,7 @@ model ArtifactLedger {
   verifiedBy        String?
   verifiedAt        DateTime?
   metadata          String?
+  handoffHistory    String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

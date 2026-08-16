@@ -875,7 +875,7 @@ ${memoryBlock}
 CURRENT UTC TIME: ${new Date().toUTCString()}`
 
   const history = await buildHistoryMessages(conversationId, userMessage, attachments)
-  const ctx: ToolContext = { attachments, language }
+  const ctx: ToolContext = { attachments, language, parentAgentId: 'ceo' }
 
   // UPGRADE #68 — Continue command support
   const continuePatterns = /^(continue|keep going|go ahead|go on|ok|okay|yes|proceed|finish|done\?|are you done\?|status|update|what's the status|keep working|don't stop|resume)\s*\.?\s*$/i

@@ -1749,6 +1749,7 @@ export async function toolParallelSubagentDispatcher(args: any, ctx?: any): Prom
     if (sub && sub.enabled !== false) valid.push({ id: sub.id, task: d.task, name: sub.name })
   }
   if (valid.length === 0) return fail('No valid subagents to dispatch.')
+  if (!ctx?.parentAgentId) return fail('Parallel dispatch blocked: missing governed parentAgentId.')
   const startTime = Date.now()
   const { runSubagent } = await import('./subagents')
   const results = await Promise.allSettled(
@@ -1756,7 +1757,7 @@ export async function toolParallelSubagentDispatcher(args: any, ctx?: any): Prom
       const r = await runSubagent({
         subagentId: d.id, task: d.task, dispatchId: `par_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         attachments: ctx?.attachments ?? [], language: ctx?.language ?? 'en',
-        emit: ctx?.emit ?? (async () => {}), parentConversationId: ctx?.conversationId ?? 'parallel', parentAgentId: ctx?.parentAgentId ?? 'vid',
+        emit: ctx?.emit ?? (async () => {}), parentConversationId: ctx?.conversationId ?? 'parallel', parentAgentId: ctx.parentAgentId,
       })
       return { id: d.id, name: d.name, task: d.task, answer: r.answer }
     })
