@@ -1,4 +1,4 @@
-import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
+import { getProviderTaskPolicy, rankAvailableProviders, PROVIDER_PARALLEL_LIMIT, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
@@ -36,6 +36,14 @@ export interface ProviderRuntimeRequest {
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
 }
 
+export interface ProviderParallelResult {
+  taskType: TaskType
+  selectedProviders: ProviderId[]
+  successful: ProviderRuntimeResult[]
+  failed: Array<{ provider: ProviderId; error: string }>
+  elapsedMs: number
+}
+
 export interface ProviderRuntimeResult {
   provider: ProviderId
   model: string
@@ -49,6 +57,10 @@ export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ProviderId, ProviderRuntim
   openai: { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1/chat/completions', apiKeyEnv: 'OPENAI_API_KEY', modelEnv: 'OPENAI_MODEL', defaultModel: 'gpt-5' },
   zai: { id: 'zai', label: 'Z.ai', baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions', apiKeyEnv: 'ZAI_API_KEY', modelEnv: 'ZAI_MODEL', defaultModel: 'glm-5.1' },
   mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest' },
+  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'openrouter/free' },
+  gemini: { id: 'gemini', label: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', apiKeyEnv: 'GEMINI_API_KEY', modelEnv: 'GEMINI_MODEL', defaultModel: 'gemini-3.5-flash' },
+  brave: { id: 'brave', label: 'Brave', baseUrl: 'https://api.search.brave.com/res/v1/chat/completions', apiKeyEnv: 'BRAVE_API_KEY', modelEnv: 'BRAVE_MODEL', defaultModel: 'brave' },
+  cerebras: { id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b' },
 }
 
 function readEnv(name: string): string | undefined {
@@ -154,4 +166,38 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   }
 
   throw new Error(`All governed providers failed (${attempts.join(' → ')}): ${lastError instanceof Error ? lastError.message : String(lastError)}`)
+}
+
+
+export function selectProvidersForTask(taskType: TaskType, count = PROVIDER_PARALLEL_LIMIT): ProviderId[] {
+  const configured = getConfiguredProviders()
+  const preferred: Record<TaskType, ProviderId[]> = {
+    general: ['groq', 'openai', 'zai', 'mistral'],
+    research: ['brave', 'gemini', 'openai', 'zai'],
+    reasoning: ['groq', 'openai', 'zai', 'mistral'],
+    coding: ['cerebras', 'groq', 'openai', 'mistral'],
+    creative: ['gemini', 'groq', 'openai', 'mistral'],
+    financial: ['openai', 'zai', 'mistral', 'cerebras'],
+    security: ['openai', 'zai', 'mistral', 'cerebras'],
+    operations: ['groq', 'openai', 'cerebras', 'zai'],
+    analysis: ['brave', 'gemini', 'openai', 'zai'],
+  }
+  const ranked = [...(preferred[taskType] ?? preferred.general), ...configured]
+  return [...new Set(ranked)].filter((provider) => configured.includes(provider)).slice(0, Math.max(2, Math.min(count, PROVIDER_PARALLEL_LIMIT)))
+}
+
+export async function runGovernedProviderParallel(request: ProviderRuntimeRequest, providers?: ProviderId[]): Promise<ProviderParallelResult> {
+  const taskType = request.taskType ?? 'general'
+  const selectedProviders = (providers?.length ? providers : selectProvidersForTask(taskType)).filter((provider) => getConfiguredProviders().includes(provider)).slice(0, PROVIDER_PARALLEL_LIMIT)
+  if (selectedProviders.length < 2) throw new Error('Parallel provider execution requires at least two configured providers')
+  const started = Date.now()
+  const settled = await Promise.allSettled(selectedProviders.map((provider) => callProvider(provider, { ...request, taskType })))
+  const successful: ProviderRuntimeResult[] = []
+  const failed: Array<{ provider: ProviderId; error: string }> = []
+  settled.forEach((result, index) => {
+    const provider = selectedProviders[index]
+    if (result.status === 'fulfilled') successful.push(result.value)
+    else failed.push({ provider, error: result.reason instanceof Error ? result.reason.message : String(result.reason) })
+  })
+  return { taskType, selectedProviders, successful, failed, elapsedMs: Date.now() - started }
 }

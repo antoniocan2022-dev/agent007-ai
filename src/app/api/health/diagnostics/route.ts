@@ -19,6 +19,7 @@
  * Public (no auth) — for external auditors.
  */
 import { NextResponse } from 'next/server'
+import { getCanonicalOrganizationalState, validateCanonicalOrganizationalState } from '@/lib/canonical-organizational-state'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,6 +28,8 @@ export const maxDuration = 30
 export async function GET() {
   const timestamp = new Date().toISOString()
   const uptime = Math.round(process.uptime())
+  const canonicalState = getCanonicalOrganizationalState()
+  const canonicalErrors = validateCanonicalOrganizationalState(canonicalState)
 
   // ═══ 1. LOADED LEADERS ═══
   let loadedLeaders: any = { count: 0, leaders: [] }
@@ -73,7 +76,7 @@ export async function GET() {
     mission_os_pipeline: true,
     leader_debate: true,
     autonomous_strategic_planning: true,
-    morning_brief_cron: true,
+    morning_brief_cron: canonicalState.cronPolicy.enabled,
     world_model: true,
     version_api: true,
     accuracy_checker_8_sources: true,
@@ -138,13 +141,8 @@ export async function GET() {
     queueStatus = {
       enabledSchedules: schedules,
       totalConversations: conversations,
-      cronsConfigured: 4,
-      cronSchedules: [
-        { path: '/api/schedules/tick', schedule: '*/30 * * * *', frequency: 'every 30 min' },
-        { path: '/api/monitor/qa', schedule: '0 * * * *', frequency: 'hourly' },
-        { path: '/api/monitor/external', schedule: '0 * * * *', frequency: 'hourly' },
-        { path: '/api/schedules/morning-brief', schedule: '0 9 * * *', frequency: 'daily 9AM UTC' },
-      ],
+      cronsConfigured: canonicalState.cronPolicy.schedules.length,
+      cronSchedules: canonicalState.cronPolicy.schedules,
     }
   } catch (e: any) {
     queueStatus = { error: e?.message }
@@ -198,6 +196,8 @@ export async function GET() {
       queueStatus,
       debateAvailability,
       missionPipelineStatus,
+      canonicalState,
+      canonicalCoherenceErrors: canonicalErrors,
     },
   })
 }

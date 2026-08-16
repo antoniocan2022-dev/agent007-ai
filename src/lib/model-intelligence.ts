@@ -21,6 +21,10 @@ export const MODEL_PROFILES: readonly ModelProfile[] = [
   { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000 },
   { provider: 'openai', model: 'gpt-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 98, speed: 82, costTier: 3, maxOutputTokens: 16000 },
   { provider: 'zai', model: 'glm-5.1', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'long-context'], quality: 92, speed: 84, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'long-context'], quality: 78, speed: 78, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'gemini', model: 'gemini-3.5-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'long-context'], quality: 90, speed: 90, costTier: 2, maxOutputTokens: 16000 },
+  { provider: 'brave', model: 'brave', capabilities: ['research', 'analysis', 'tool-use', 'speed'], quality: 84, speed: 86, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'analysis', 'tool-use', 'speed'], quality: 88, speed: 98, costTier: 1, maxOutputTokens: 16000 },
   { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
 ]
 
@@ -29,6 +33,10 @@ const PROVIDER_KEY_ENV: Readonly<Record<ProviderId, string>> = {
   openai: 'OPENAI_API_KEY',
   zai: 'ZAI_API_KEY',
   mistral: 'MISTRAL_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  brave: 'BRAVE_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
 }
 
 const TASK_CAPABILITIES: Record<TaskType, readonly ModelCapability[]> = {

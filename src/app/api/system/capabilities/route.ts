@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { getCapabilities } from '@/lib/system-functions'
 import { SUBAGENTS, FULL_ACCESS_TOOLS } from '@/lib/subagents'
+import { getCanonicalOrganizationalState } from '@/lib/canonical-organizational-state'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -26,6 +27,7 @@ export async function GET() {
 
     // ── Authoritative counts from system-functions.ts ───────────────────
     const caps = await getCapabilities()
+    const canonicalState = getCanonicalOrganizationalState()
 
     // ── Infrastructure metadata (request-scoped) ────────────────────────
     const apiRouteCount = countApiRoutes()
@@ -55,7 +57,8 @@ export async function GET() {
         total: caps.agents.total,
         builtin: caps.agents.builtin,
         custom: caps.agents.custom,
-        allHaveFullAccess: caps.agents.allHaveFullAccess,
+        allHaveFullAccess: false,
+        accessModel: canonicalState.coherence.capabilityAccessModel,
         toolsPerAgent: caps.agents.toolsPerAgent,
         fullAccessToolList: FULL_ACCESS_TOOLS,
       },
@@ -65,6 +68,7 @@ export async function GET() {
         note: caps.manageActions.note,
       },
       mission: caps.mission,
+      providerIntelligence: canonicalState.providers,
       upgrades: caps.upgrades,
       infrastructure: {
         apiRoutes: apiRouteCount,
@@ -75,6 +79,7 @@ export async function GET() {
         permanentlyDisabledOps: 13,
         protectedOps: 21,
       },
+      canonicalState,
       summary: {
         availableTools: caps.summary.availableTools,
         availableAgents: caps.summary.availableAgents,

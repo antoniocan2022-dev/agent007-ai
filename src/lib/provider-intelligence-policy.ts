@@ -11,7 +11,11 @@ import type { ProviderId, TaskType, VerificationTier } from './subagent-governan
  * Groq → OpenAI → Z.ai → Mistral.
  * "Mistral" is the provider; "Ministral" refers to Mistral's model family.
  */
-export const PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'openai', 'zai', 'mistral'] as const
+export const CORE_PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'openai', 'zai', 'mistral'] as const
+export const SECONDARY_PROVIDER_PRIORITY: readonly ProviderId[] = ['openrouter', 'gemini', 'brave', 'cerebras'] as const
+export const PROVIDER_PRIORITY: readonly ProviderId[] = [...CORE_PROVIDER_PRIORITY, ...SECONDARY_PROVIDER_PRIORITY] as const
+export const PROVIDER_PARALLEL_LIMIT = 4
+
 
 const STRICT_TASKS = new Set<TaskType>(['financial', 'security'])
 const ENHANCED_TASKS = new Set<TaskType>(['research', 'reasoning', 'coding', 'analysis', 'operations'])

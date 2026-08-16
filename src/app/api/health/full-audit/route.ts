@@ -10,6 +10,7 @@
  * GET /api/health/full-audit?deep=true    — also ping each external API
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { getCanonicalOrganizationalState, validateCanonicalOrganizationalState } from '@/lib/canonical-organizational-state'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,9 +26,7 @@ interface Check {
 }
 
 function mask(key: string | undefined): string {
-  if (!key) return '(not set)'
-  if (key.length <= 12) return `(set, len=${key.length})`
-  return `${key.slice(0, 4)}…${key.slice(-4)} (len=${key.length})`
+  return key ? `(configured, len=${key.length})` : '(not set)'
 }
 
 async function ping(url: string, opts: RequestInit = {}, timeoutMs = 8000): Promise<{ ok: boolean; status: number; body: string }> {
@@ -59,6 +58,9 @@ export async function GET(req: NextRequest) {
   // producing false negatives. The public URL gives consistent fresh hits.
   const baseUrl = 'https://agent007-ai.vercel.app'
   const checks: Check[] = []
+  const canonical = getCanonicalOrganizationalState()
+  const canonicalErrors = validateCanonicalOrganizationalState(canonical)
+  checks.push({ id: 'canonical-state', name: 'Canonical organizational state', category: 'build', status: canonicalErrors.length === 0 ? 'pass' : 'fail', detail: canonicalErrors.length === 0 ? `State ${canonical.stateVersion} coherent` : canonicalErrors.join('; ') })
 
   // ════════════════════════════════════════════════════════════════════
   // 1. LLM PROVIDERS — check which env vars are set
@@ -90,7 +92,7 @@ export async function GET(req: NextRequest) {
     name: 'LLM chain summary',
     category: 'llm',
     status: activeLlmCount >= 2 ? 'pass' : activeLlmCount === 1 ? 'warn' : 'fail',
-    detail: `${activeLlmCount}/7 LLM providers configured. Chain: OpenAI → Mistral → Groq → OpenRouter → Brave → Gemini → z.ai`,
+    detail: `${activeLlmCount}/${canonical.providers.defaultPriority.length} LLM providers configured. Chain: ${canonical.providers.defaultPriority.join(' → ')}`,
   })
 
   // ════════════════════════════════════════════════════════════════════
@@ -235,7 +237,7 @@ export async function GET(req: NextRequest) {
     category: 'agent',
     status: subagents.ok && Array.isArray(subagentData?.subagents) && (subagentData?.subagents?.length ?? 0) >= 18 ? 'pass' : 'fail',
     detail: subagents.ok
-      ? `${subagentData?.subagents?.length ?? 0} subagents registered (target: 20)`
+      ? `${subagentData?.subagents?.length ?? 0} subagents registered (canonical: ${canonical.agents.totalGovernedProfiles})`
       : `HTTP ${subagents.status}: ${subagents.body.slice(0, 200)}`,
     evidence: { httpStatus: subagents.status, bodyLength: subagents.body.length, bodyPreview: subagents.body.slice(0, 300) },
   })

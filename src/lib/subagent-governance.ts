@@ -4,7 +4,7 @@ import { PROVIDER_PRIORITY } from './provider-intelligence-policy'
 export type SubagentClass = 'director' | 'intelligence' | 'creation' | 'product-engineering' | 'revenue-market' | 'analytics-optimization' | 'governance' | 'security' | 'operations'
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical'
 export type VerificationTier = 'standard' | 'enhanced' | 'strict' | 'dual-review'
-export type ProviderId = 'groq' | 'openai' | 'zai' | 'mistral'
+export type ProviderId = 'groq' | 'openai' | 'zai' | 'mistral' | 'openrouter' | 'gemini' | 'brave' | 'cerebras'
 export type TaskType = 'general' | 'research' | 'reasoning' | 'coding' | 'creative' | 'financial' | 'security' | 'operations' | 'analysis'
 
 export interface SubagentGovernanceProfile {
