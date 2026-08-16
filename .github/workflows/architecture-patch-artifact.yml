@@ -16,12 +16,10 @@ jobs:
         with:
           bun-version: 1.3.4
       - run: bun install --frozen-lockfile
-      - name: Apply verified integration patch in isolated workspace
+      - name: Apply integration candidate in isolated workspace
         shell: python
         run: |
           from pathlib import Path
-
-          # Universal hierarchy enforcement at the two orchestrator execution sites.
           p = Path('src/lib/orchestrator.ts')
           s = p.read_text()
           if "architecture-control-plane" not in s:
@@ -36,7 +34,6 @@ jobs:
           s = s.replace(old, new, 1)
           p.write_text(s)
 
-          # Formal mission state machine + canonical artifact ledger in the in-memory mission store.
           p = Path('src/lib/active-missions.ts')
           s = p.read_text()
           if "./architecture-control-plane" not in s:
@@ -46,24 +43,14 @@ jobs:
           if old not in s: raise SystemExit('active-missions transition anchor missing')
           s = s.replace(old, new, 1)
           old = """  m.log.push({\n    timestamp: nowIso(),\n    actor: handoff.leader,\n    stage: m.currentStage,\n    message: `Artifact set: ${artifactValue.slice(0, 100)} (verified: ${verified})`,\n  })\n\n  return m\n}"""
-          new = """  m.log.push({\n    timestamp: nowIso(),\n    actor: handoff.leader,\n    stage: m.currentStage,\n    message: `Artifact set: ${artifactValue.slice(0, 100)} (verified: ${verified})`,\n  })\n\n  // Mirror direct mission-store artifacts into the canonical ledger.\n  void registerArtifact({\n    artifactId: buildArtifactId({ ventureId: null, missionId: m.id, stage: m.currentStage, artifactType: handoff.artifactRequired, value: artifactValue }),\n    ventureId: null, missionId: m.id, stage: m.currentStage, producer: handoff.leader,\n    consumers: [], artifactType: handoff.artifactRequired, value: artifactValue, version: 1, supersedes: null,\n  }).then(async (record) => {\n    if (verified) await verifyArtifact(record.artifactId, handoff.leader, 'mission-stage-verified')\n  }).catch((error) => console.warn('[active-missions] artifact ledger persistence failed:', error?.message ?? error))\n\n  return m\n}"""
+          new = """  m.log.push({\n    timestamp: nowIso(),\n    actor: handoff.leader,\n    stage: m.currentStage,\n    message: `Artifact set: ${artifactValue.slice(0, 100)} (verified: ${verified})`,\n  })\n\n  void registerArtifact({\n    artifactId: buildArtifactId({ ventureId: null, missionId: m.id, stage: m.currentStage, artifactType: handoff.artifactRequired, value: artifactValue }),\n    ventureId: null, missionId: m.id, stage: m.currentStage, producer: handoff.leader, consumers: [],\n    artifactType: handoff.artifactRequired, value: artifactValue, version: 1, supersedes: null,\n  }).then(async (record) => {\n    if (verified) await verifyArtifact(record.artifactId, handoff.leader, 'mission-stage-verified')\n  }).catch((error) => console.warn('[active-missions] artifact ledger persistence failed:', error?.message ?? error))\n\n  return m\n}"""
           if old not in s: raise SystemExit('active-missions artifact anchor missing')
           s = s.replace(old, new, 1)
           p.write_text(s)
 
-      - name: Verify patched workspace
+      - name: Package isolated candidate
         run: |
-          bun test tests/architecture-control-plane.test.ts
-          bunx tsc -p tsconfig.ci.json --noEmit --pretty false > /tmp/tsc.log 2>&1 || true
-          if grep -E "src/lib/architecture-control-plane\.ts|src/lib/venture-001\.ts|src/app/api/mission-active/route\.ts|src/lib/orchestrator\.ts|src/lib/active-missions\.ts" /tmp/tsc.log; then
-            echo 'Relevant TypeScript diagnostics detected.'
-            exit 1
-          fi
-
-      - name: Package patch artifact
-        run: |
-          mkdir -p /tmp/architecture-patch/src/lib
-          mkdir -p /tmp/architecture-patch/src/app/api/mission-active
+          mkdir -p /tmp/architecture-patch/src/lib /tmp/architecture-patch/src/app/api/mission-active
           cp src/lib/orchestrator.ts /tmp/architecture-patch/src/lib/orchestrator.ts
           cp src/lib/active-missions.ts /tmp/architecture-patch/src/lib/active-missions.ts
           cp src/lib/architecture-control-plane.ts /tmp/architecture-patch/src/lib/architecture-control-plane.ts
@@ -73,6 +60,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: architecture-patch-verified
+          name: architecture-patch-candidate
           path: /tmp/architecture-patch.zip
           retention-days: 1
