@@ -1,0 +1,94 @@
+name: Canonical Coherence Repair
+
+on:
+  push:
+    branches:
+      - 'agent/coherence-provider-canonical-fix'
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[coherence-repair]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Apply coherence repairs
+        run: python3 scripts/apply-coherence-fixes.py
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Coherence invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('.')
+          required = [
+            'src/lib/canonical-organizational-state.ts',
+            'src/lib/provider-runtime-v2.ts',
+            'src/lib/provider-intelligence-policy.ts',
+            'src/app/api/system/canonical-state/route.ts',
+          ]
+          missing = [p for p in required if not (root / p).exists()]
+          assert not missing, f'Missing required files: {missing}'
+          policy = (root / 'src/lib/provider-intelligence-policy.ts').read_text()
+          expected = "['groq', 'openai', 'zai', 'mistral']"
+          assert expected in policy, 'Core provider order missing'
+          assert "['openrouter', 'gemini', 'brave', 'cerebras']" in policy, 'Secondary provider order missing'
+          runtime = (root / 'src/lib/provider-runtime-v2.ts').read_text()
+          for provider in ['groq','openai','zai','mistral','openrouter','gemini','brave','cerebras']:
+              assert f"{provider}: {{" in runtime, f'Provider runtime missing: {provider}'
+          for path in [
+            'src/app/api/health/diagnostics/route.ts',
+            'src/app/api/health/full-audit/route.ts',
+            'src/app/api/system/capabilities/route.ts',
+            'src/app/api/system/vid-kpis/route.ts',
+          ]:
+              text = (root / path).read_text()
+              assert 'canonical-organizational-state' in text, f'Canonical state not integrated into {path}'
+          vercel = (root / 'vercel.json').read_text()
+          assert '"deploymentEnabled": false' in vercel
+          assert '"crons": []' in vercel
+          print('Canonical invariants: PASS')
+          PY
+
+      - name: Duplicate registry guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path('src/lib/tools.ts').read_text()
+          names = re.findall(r'^\s*TOOL_REGISTRY\.([A-Za-z0-9_]+)\s*=', text, flags=re.M)
+          dupes = sorted({x for x in names if names.count(x) > 1})
+          assert not dupes, f'Duplicate TOOL_REGISTRY assignments: {dupes}'
+          print('TOOL_REGISTRY duplicate guard: PASS')
+          PY
+
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes were necessary."
+          else
+            git commit -m "fix: make Agent007 internally coherent [coherence-repair]"
+            git push
+          fi
