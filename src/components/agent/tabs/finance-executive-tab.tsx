@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, CircleAlert, CircleDollarSign, RefreshCw, Target, TrendingUp } from 'lucide-react'
 import { RevenueExecutionPanel } from '@/components/agent/revenue-execution-panel'
+import { OperationalKpiPanel } from '@/components/agent/operational-kpi-panel'
 
 type Reality = {
   income?: {
@@ -95,6 +96,8 @@ export function FinanceExecutiveTab() {
         <FinancialCard label="Monthly target" value={money(targetIncome)} tone="target" hint="Strategic target, not revenue" />
       </div>
 
+      <OperationalKpiPanel />
+
       <div className="grid xl:grid-cols-[1.25fr_.75fr] gap-4">
         <div className="rounded-2xl glass border border-cyan-400/15 p-4 sm:p-5 space-y-5">
           <div className="flex items-center gap-2"><TrendingUp className="w-4 h-4 text-cyan-300" /><span className="text-sm font-semibold text-[#dfe7ff]">Revenue reality</span></div>
@@ -123,7 +126,7 @@ export function FinanceExecutiveTab() {
 
       <RevenueExecutionPanel />
 
-      <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/[0.03] p-3 text-[11px] text-[#7181aa] flex gap-2"><Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" /> Live source: existing Reality Check and Portfolio APIs. {updatedAt ? `Last updated ${updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</div>
+      <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/[0.03] p-3 text-[11px] text-[#7181aa] flex gap-2"><Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" /> Live source: Reality Check, Portfolio and Operational KPI APIs. {updatedAt ? `Last updated ${updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</div>
     </section>
   )
 }
