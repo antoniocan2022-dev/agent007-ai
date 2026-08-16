@@ -32,6 +32,7 @@ jobs:
           python3 scripts/apply-hierarchy-artifact-ledger.py
           python3 scripts/patch-max-autonomy-hierarchy.py
           python3 scripts/patch-autonomy-tools-hierarchy.py
+          python3 scripts/patch-owner-oversight.py
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -80,7 +81,9 @@ jobs:
               "src/lib/orchestrator.ts",
               "src/lib/mission-pipeline.ts",
               "src/lib/max-autonomy-engine.ts",
-              "src/lib/autonomy-tools.ts"
+              "src/lib/autonomy-tools.ts",
+              "src/app/api/mission-active/[missionId]/route.ts",
+              "src/app/api/team/[leaderId]/route.ts"
             ]
           }
           EOF
@@ -89,7 +92,7 @@ jobs:
 
       - name: Runtime hierarchy tests
         run: |
-          bun -e "import { validateHierarchy } from './src/lib/hierarchy-control.ts'; const errors = validateHierarchy(); if (errors.length) { console.error(errors.join('\\n')); process.exit(1) } console.log('Hierarchy runtime tests: PASS')"
+          bun -e "import { validateHierarchy, evaluateDelegation } from './src/lib/hierarchy-control.ts'; const errors = validateHierarchy(); if (errors.length) { console.error(errors.join('\\n')); process.exit(1) }; if (!evaluateDelegation('owner','quill',true,'owner').allowed) process.exit(1); console.log('Hierarchy runtime tests: PASS')"
 
       - name: Static architecture invariants
         run: |
@@ -99,27 +102,18 @@ jobs:
           root = Path('.')
 
           required = [
-              'src/lib/hierarchy-control.ts',
-              'src/lib/artifact-ledger.ts',
-              'src/lib/subagent-governance.ts',
-              'src/lib/subagents.ts',
-              'src/lib/orchestrator.ts',
-              'src/lib/mission-pipeline.ts',
-              'src/lib/max-autonomy-engine.ts',
-              'src/lib/autonomy-tools.ts',
-              'src/lib/tools.ts',
-              'prisma/schema.prisma',
-              'src/lib/db.ts',
+              'src/lib/hierarchy-control.ts', 'src/lib/artifact-ledger.ts', 'src/lib/subagent-governance.ts',
+              'src/lib/subagents.ts', 'src/lib/orchestrator.ts', 'src/lib/mission-pipeline.ts',
+              'src/lib/max-autonomy-engine.ts', 'src/lib/autonomy-tools.ts', 'src/lib/tools.ts',
+              'src/app/api/mission-active/[missionId]/route.ts', 'src/app/api/team/[leaderId]/route.ts',
+              'prisma/schema.prisma', 'src/lib/db.ts',
           ]
           missing = [p for p in required if not (root / p).is_file()]
           assert not missing, f'Missing required files: {missing}'
 
           hierarchy = (root / 'src/lib/hierarchy-control.ts').read_text()
-          assert "vid: 'ceo'" in hierarchy
-          assert "aurora: 'vid'" in hierarchy
-          assert "quill: 'aurora'" in hierarchy
-          assert "developer: 'forge'" in hierarchy
-          assert 'evaluateDelegation' in hierarchy
+          for token in ["vid: 'ceo'", "aurora: 'vid'", "quill: 'aurora'", "developer: 'forge'", 'evaluateDelegation', 'OWNER_AUTHORITY_ID']:
+              assert token in hierarchy, token
 
           schema = (root / 'prisma/schema.prisma').read_text()
           assert schema.count('model ArtifactLedger {') == 1
@@ -140,18 +134,12 @@ jobs:
           assert 'reportsTo: HIERARCHY_PARENT.' in governance
 
           mission = (root / 'src/lib/mission-pipeline.ts').read_text()
-          assert 'previousArtifactId' in mission
-          assert 'parentArtifactId' in mission
-          assert 'handoffArtifact' in mission
-          assert 'artifactId' in mission
-          assert 'registerArtifact' in mission
+          for token in ['previousArtifactId','parentArtifactId','handoffArtifact','artifactId','registerArtifact']:
+              assert token in mission, token
 
           subs = (root / 'src/lib/subagents.ts').read_text()
-          assert "from './hierarchy-control'" in subs
-          assert "from './artifact-ledger'" in subs
-          assert 'assertDelegationAllowed' in subs
-          assert 'registerArtifact' in subs
-          assert 'handoffArtifact' in subs
+          for token in ["from './hierarchy-control'", "from './artifact-ledger'", 'DelegationAuthority', 'assertDelegationAllowed', 'registerArtifact', 'handoffArtifact']:
+              assert token in subs, token
 
           orch = (root / 'src/lib/orchestrator.ts').read_text()
           assert "from './artifact-ledger'" in orch
@@ -162,15 +150,22 @@ jobs:
           assert autonomy.count("parentConversationId: 'offline',\n          parentAgentId: 'vid',") == 1
 
           auto_tools = (root / 'src/lib/autonomy-tools.ts').read_text()
-          assert 'parentAgentId: ctx?.parentAgentId ?? \'vid\'' in auto_tools
+          assert "parentAgentId: ctx?.parentAgentId ?? 'vid'" in auto_tools
           tools = (root / 'src/lib/tools.ts').read_text()
           assert 'parentAgentId?: string' in tools
+
+          active_route = (root / 'src/app/api/mission-active/[missionId]/route.ts').read_text()
+          assert 'getParentId' in active_route
+          assert 'parentAgentId: getParentId(leaderInfo.leaderId)' in active_route
+
+          team_route = (root / 'src/app/api/team/[leaderId]/route.ts').read_text()
+          assert 'OWNER_AUTHORITY_ID' in team_route
+          assert "delegationAuthority: 'owner'" in team_route
 
           src_names = [p.name for p in (root / 'src/lib').iterdir() if p.is_file()]
           assert src_names.count('hierarchy-control.ts') == 1
           assert src_names.count('artifact-ledger.ts') == 1
-          pyc = list(root.rglob('*.pyc'))
-          assert not pyc, f'Generated bytecode artifacts must not be committed: {pyc[:10]}'
+          assert not list(root.rglob('*.pyc')), 'Generated Python bytecode must not be committed.'
 
           production_files = [p for p in root.glob('src/**/*.ts') if p.is_file() and not p.name.endswith('.test.ts')]
           for path in production_files:
