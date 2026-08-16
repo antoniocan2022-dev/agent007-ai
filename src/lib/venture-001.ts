@@ -21,15 +21,7 @@ export const VENTURE_001_REFERENCE = {
   pricingModel: 'Validation-first: pricing is not treated as final until market evidence supports it.',
   initialMrrMilestone: 1000,
   lifecyclePolicy: ['proposed', 'validated', 'launched', 'active', 'scaling', 'automated', 'retired'] as const,
-  requiredEvidence: [
-    'market_demand',
-    'competition',
-    'automation_potential',
-    'time_to_revenue',
-    'scalability',
-    'recurring_revenue',
-    'ai_advantage',
-  ] as const,
+  requiredEvidence: ['market_demand', 'competition', 'automation_potential', 'time_to_revenue', 'scalability', 'recurring_revenue', 'ai_advantage'] as const,
 } as const
 
 export interface Venture001State {
@@ -37,11 +29,11 @@ export interface Venture001State {
   initialized: boolean
   business: Business | null
   evidenceCount: number
+  duplicateCount: number
+  integrityIssues: string[]
 }
 
-function normalize(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
-}
+function normalize(value: string): string { return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase() }
 
 export function validateVenture001Definition(): string[] {
   const issues: string[] = []
@@ -51,41 +43,51 @@ export function validateVenture001Definition(): string[] {
   if (VENTURE_SCORE_THRESHOLD !== 87) issues.push(`Venture Score threshold drifted from the canonical VID threshold: ${VENTURE_SCORE_THRESHOLD}.`)
   if (VENTURE_001_REFERENCE.initialMrrMilestone <= 0) issues.push('Initial MRR milestone must be positive.')
   if (VENTURE_001_REFERENCE.requiredEvidence.length !== 7) issues.push('Venture 001 must use all 7 canonical Venture Score dimensions.')
+  if (new Set(VENTURE_001_REFERENCE.lifecyclePolicy).size !== VENTURE_001_REFERENCE.lifecyclePolicy.length) issues.push('Venture 001 lifecycle policy contains duplicate stages.')
   return issues
 }
 
-async function findReferenceBusiness(): Promise<Business | null> {
+async function findReferenceBusinesses(): Promise<Business[]> {
   const portfolio = await getPortfolio()
-  return portfolio.find((business) => normalize(business.name) === normalize(VENTURE_001_REFERENCE.name)) ?? null
+  return portfolio.filter((business) => normalize(business.name) === normalize(VENTURE_001_REFERENCE.name))
+}
+
+async function getIdentityBusiness(): Promise<Business | null> {
+  const identity = await db.memory.findUnique({ where: { key: 'venture_reference:venture_001' } })
+  if (!identity) return null
+  try {
+    const parsed = JSON.parse(identity.value) as { businessId?: string }
+    if (!parsed.businessId) return null
+    const portfolio = await getPortfolio()
+    return portfolio.find((business) => business.businessId === parsed.businessId) ?? null
+  } catch { return null }
 }
 
 async function countEvidence(businessId: string): Promise<number> {
-  try {
-    return await db.memory.count({
-      where: { category: 'venture_evidence', key: { startsWith: `evidence_${businessId}_` } },
-    })
-  } catch {
-    return 0
-  }
+  return db.memory.count({ where: { category: 'venture_evidence', key: { startsWith: `evidence_${businessId}_` } } })
 }
 
 async function persistReferenceIdentity(business: Business): Promise<void> {
   const key = 'venture_reference:venture_001'
   const value = JSON.stringify({ ventureKey: VENTURE_001_REFERENCE.ventureKey, version: VENTURE_001_REFERENCE.version, businessId: business.businessId, name: business.name })
-  await db.memory.upsert({
-    where: { key },
-    update: { value, category: 'venture_reference' },
-    create: { key, value, category: 'venture_reference' },
-  })
+  await db.memory.upsert({ where: { key }, update: { value, category: 'venture_reference' }, create: { key, value, category: 'venture_reference' } })
 }
 
 export async function getVenture001State(): Promise<Venture001State> {
-  const business = await findReferenceBusiness()
+  const businesses = await findReferenceBusinesses()
+  const identityBusiness = await getIdentityBusiness()
+  const business = identityBusiness ?? businesses[0] ?? null
+  const duplicateCount = Math.max(0, businesses.length - 1)
+  const integrityIssues = validateVenture001Definition()
+  if (businesses.length > 1) integrityIssues.push(`Duplicate Venture 001 portfolio records detected: ${businesses.length}. Canonical state is not safe to mutate until reconciled.`)
+  if (identityBusiness && !businesses.some((candidate) => candidate.businessId === identityBusiness.businessId)) integrityIssues.push('Venture 001 identity points to a portfolio record that does not match the canonical Venture 001 name.')
   return {
     reference: VENTURE_001_REFERENCE,
     initialized: Boolean(business),
     business,
     evidenceCount: business ? await countEvidence(business.businessId) : 0,
+    duplicateCount,
+    integrityIssues,
   }
 }
 
@@ -94,10 +96,17 @@ export async function ensureVenture001(): Promise<{ created: boolean; repaired: 
   const issues = validateVenture001Definition()
   if (issues.length) throw new Error(`Venture 001 definition invalid: ${issues.join(' | ')}`)
 
-  const existing = await findReferenceBusiness()
-  if (existing) {
-    await persistReferenceIdentity(existing)
-    return { created: false, repaired: false, business: existing }
+  const existing = await findReferenceBusinesses()
+  if (existing.length > 1) throw new Error(`Venture 001 integrity failure: ${existing.length} portfolio records share the canonical name. Reconcile duplicates before mutation.`)
+
+  const identityBusiness = await getIdentityBusiness()
+  if (identityBusiness) {
+    await persistReferenceIdentity(identityBusiness)
+    return { created: false, repaired: false, business: identityBusiness }
+  }
+  if (existing[0]) {
+    await persistReferenceIdentity(existing[0])
+    return { created: false, repaired: true, business: existing[0] }
   }
 
   const created: VentureCreationResult = await createVenture({
@@ -108,7 +117,6 @@ export async function ensureVenture001(): Promise<{ created: boolean; repaired: 
     pricingModel: VENTURE_001_REFERENCE.pricingModel,
   })
   if (!created.business) throw new Error(created.reason ?? 'Unable to create Venture 001.')
-
   await persistReferenceIdentity(created.business)
   return { created: created.created, repaired: false, business: created.business }
 }
