@@ -1,0 +1,104 @@
+name: Architecture Hardening — Hierarchy + Artifact Ledger
+
+on:
+  push:
+    branches:
+      - feat/real-hierarchy-artifact-ledger
+
+permissions:
+  contents: write
+
+jobs:
+  harden-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[architecture-upgrade]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Apply idempotent architecture transformation
+        run: python3 scripts/apply-hierarchy-artifact-ledger.py
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prisma validation
+        run: bunx prisma validate
+
+      - name: Prisma client generation
+        run: bunx prisma generate
+
+      - name: TypeScript production check
+        run: bunx tsc --noEmit
+
+      - name: Runtime hierarchy tests
+        run: |
+          bun -e "import { validateHierarchy } from './src/lib/hierarchy-control.ts'; const errors = validateHierarchy(); if (errors.length) { console.error(errors.join('\\n')); process.exit(1) } console.log('Hierarchy runtime tests: PASS')"
+
+      - name: Static architecture invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('.')
+
+          hierarchy = (root / 'src/lib/hierarchy-control.ts').read_text()
+          assert "vid: 'ceo'" in hierarchy
+          assert "aurora: 'vid'" in hierarchy
+          assert "quill: 'aurora'" in hierarchy
+          assert "developer: 'forge'" in hierarchy
+          assert 'MAX_RECURSION_DEPTH' not in hierarchy or 'assertDelegationAllowed' in hierarchy
+
+          schema = (root / 'prisma/schema.prisma').read_text()
+          assert 'model ArtifactLedger {' in schema
+          for field in ['artifactId String @unique', 'contentHash String', 'producerAgentId String', 'consumerAgentId String?']:
+              assert field in schema, f'Missing schema field: {field}'
+
+          db = (root / 'src/lib/db.ts').read_text()
+          assert 'CREATE TABLE IF NOT EXISTS "ArtifactLedger"' in db
+          assert 'ArtifactLedger_missionId_idx' in db
+
+          ledger = (root / 'src/lib/artifact-ledger.ts').read_text()
+          for symbol in ['registerArtifact', 'verifyArtifact', 'handoffArtifact', 'validateArtifactChain', 'hashArtifact']:
+              assert f'export async function {symbol}' in ledger or f'export function {symbol}' in ledger, symbol
+
+          governance = (root / 'src/lib/subagent-governance.ts').read_text()
+          assert "from './hierarchy-control'" in governance
+          assert 'reportsTo: HIERARCHY_PARENT.' in governance
+
+          src = '\\n'.join(str(p.read_text()) for p in root.glob('src/**/*.ts') if p.is_file())
+          calls = len(re.findall(r'runSubagent\\(\\s*\\{', src))
+          guarded = len(re.findall(r'runSubagent\\(\\s*\\{[\\s\\S]{0,1200}?parentAgentId:', src))
+          assert calls == guarded, f'Unparented runSubagent call(s): {calls} calls, {guarded} guarded'
+
+          mission = (root / 'src/lib/mission-pipeline.ts').read_text()
+          assert "parentArtifactId" in mission
+          assert 'handoffArtifact' in mission
+          assert 'artifactId' in mission
+          assert 'registerArtifact' in mission
+          print('Static architecture invariants: PASS')
+          PY
+
+      - name: Git whitespace / diff validation
+        run: git diff --check
+
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes were necessary after transformation."
+          else
+            git commit -m "fix: make hierarchy and artifact handoffs executable [architecture-upgrade]"
+            git push origin "${GITHUB_REF_NAME}"
+          fi
