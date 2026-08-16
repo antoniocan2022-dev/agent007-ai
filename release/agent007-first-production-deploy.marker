@@ -1,1 +1,2 @@
 This marker authorizes the one-time first Production deployment workflow. It is intentionally path-scoped so ordinary main pushes cannot trigger Production deployment.
+Authorized production deployment: 2026-08-16T19:25:00-04:00
