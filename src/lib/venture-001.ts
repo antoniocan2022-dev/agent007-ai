@@ -10,6 +10,7 @@ import { db } from './db'
 import { createVenture, type VentureCreationResult } from './venture-os'
 import { getPortfolio, type Business } from './business-portfolio'
 import { VENTURE_SCORE_THRESHOLD } from './vid-data'
+import { assertVentureActionAllowed, ensureVentureControlContract } from './architecture-control-plane'
 
 export const VENTURE_001_REFERENCE = {
   ventureKey: 'venture_001',
@@ -95,6 +96,10 @@ export async function getVenture001State(): Promise<Venture001State> {
 export async function ensureVenture001(): Promise<{ created: boolean; repaired: boolean; business: Business }> {
   const issues = validateVenture001Definition()
   if (issues.length) throw new Error(`Venture 001 definition invalid: ${issues.join(' | ')}`)
+
+  // The Venture Control Contract is an execution prerequisite, not a document.
+  await ensureVentureControlContract(VENTURE_001_REFERENCE.ventureKey)
+  await assertVentureActionAllowed(VENTURE_001_REFERENCE.ventureKey, 'create_artifact')
 
   const existing = await findReferenceBusinesses()
   if (existing.length > 1) throw new Error(`Venture 001 integrity failure: ${existing.length} portfolio records share the canonical name. Reconcile duplicates before mutation.`)
