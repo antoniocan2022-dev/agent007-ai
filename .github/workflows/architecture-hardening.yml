@@ -27,10 +27,11 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Apply idempotent architecture transformation
+      - name: Apply idempotent architecture transformations
         run: |
           python3 scripts/apply-hierarchy-artifact-ledger.py
           python3 scripts/patch-max-autonomy-hierarchy.py
+          python3 scripts/patch-autonomy-tools-hierarchy.py
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -78,7 +79,8 @@ jobs:
               "src/lib/subagents.ts",
               "src/lib/orchestrator.ts",
               "src/lib/mission-pipeline.ts",
-              "src/lib/max-autonomy-engine.ts"
+              "src/lib/max-autonomy-engine.ts",
+              "src/lib/autonomy-tools.ts"
             ]
           }
           EOF
@@ -104,6 +106,8 @@ jobs:
               'src/lib/orchestrator.ts',
               'src/lib/mission-pipeline.ts',
               'src/lib/max-autonomy-engine.ts',
+              'src/lib/autonomy-tools.ts',
+              'src/lib/tools.ts',
               'prisma/schema.prisma',
               'src/lib/db.ts',
           ]
@@ -156,6 +160,11 @@ jobs:
           autonomy = (root / 'src/lib/max-autonomy-engine.ts').read_text()
           assert autonomy.count("parentConversationId: 'mission',\n        parentAgentId: 'vid',") == 3
           assert autonomy.count("parentConversationId: 'offline',\n          parentAgentId: 'vid',") == 1
+
+          auto_tools = (root / 'src/lib/autonomy-tools.ts').read_text()
+          assert 'parentAgentId: ctx?.parentAgentId ?? \'vid\'' in auto_tools
+          tools = (root / 'src/lib/tools.ts').read_text()
+          assert 'parentAgentId?: string' in tools
 
           src_names = [p.name for p in (root / 'src/lib').iterdir() if p.is_file()]
           assert src_names.count('hierarchy-control.ts') == 1
