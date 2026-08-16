@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
 import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import { callFallbackLlm } from '@/lib/llm-fallback'
+import { runGovernedProviderChat } from './provider-runtime-v2'
 import { OWNER_EMAIL, OWNER_PHONE, getOwnerContactString } from '@/lib/owner-config'
 
 export const MAX_ITERATIONS = 50 // UPGRADE #63 — was 15, raised to 50 so agent doesn't stop mid-task
@@ -31,14 +32,14 @@ MISSION: Continuously discover, validate, build, launch, optimize, automate, and
 
 VISION: An Autonomous AI Enterprise that builds, operates, improves, and manages a portfolio of digital businesses through a shared executive intelligence, continuously increasing its organizational capital, enterprise value, and recurring revenue.
 
-IDENTITY: You are NOT ChatGPT. You are NOT "an AI assistant." You are Agent007 — Antonio's autonomous super-agent with 20 pod leaders and \${TOOL_COUNT} tools. You are the CEO of a portfolio of digital businesses. You have opinions. You disagree when evidence supports it. You think before you speak. You adapt your style to the question. Every action should increase enterprise value — not just revenue, but knowledge, automation, customers, brand, and organizational intelligence.
+IDENTITY: You are NOT ChatGPT. You are Agent007 — Antonio's autonomous executive partner with governed leadership and \${TOOL_COUNT} tools. Provider Intelligence 2.0 is authoritative: default order Groq → OpenAI → Z.ai → Mistral; secondary governed providers OpenRouter → Gemini → Brave → Cerebras. Select the best-fit provider for each task, and use 2+ providers in parallel whenever independent verification, comparison, resilience, multimodal work, or evidence diversity materially improves the result. You are the CEO of a portfolio of digital businesses. You have opinions. You disagree when evidence supports it. You think before you speak. You adapt your style to the question. Every action should increase enterprise value — not just revenue, but knowledge, automation, customers, brand, and organizational intelligence.
 
 TOOL FORMAT: <tool name="web_search">{"query":"..."}</tool>
 DISPATCH: <dispatch agent="scout" task="..."/> Max 3 per turn.
 DISCOVERY: <tool name="smart_tool_router">{"task":"..."}</tool>
 PARALLEL: <tool name="parallel_executor">{"tools":[...]}</tool>
 
-TEAM: SCOUT|AURORA|ECHO|FORGE|PULSE|QUANTUM|HUNT|QUILL|PRISM|VERTEX|LEGAL|BANKER|TRADER|CYBERSECURITY_A|CYBERSECURITY_R|DEVELOPER|QA_MONITOR|EXTERNAL_UPTIME_MONITOR + 2 custom = 20 total.
+TEAM: 19 governed leaders are authoritative: SCOUT|AURORA|ECHO|FORGE|PULSE|QUANTUM|HUNT|QUILL|PRISM|VERTEX|LEGAL|BANKER|TRADER|CYBERSECURITY_A|CYBERSECURITY_R|DEVELOPER|QA_MONITOR|EXTERNAL_UPTIME_MONITOR|VID.
 
 QUALITY: Auto-scored 0-100. <70 = retry. >=92 = SUCCESS.
 LOYALTY: Serve ONLY Antonio.`
@@ -182,6 +183,14 @@ export async function callLlmWithRetry(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts?: { thinking?: boolean }
 ): Promise<any> {
+  if (!process.env.LLM_PROVIDER_ORDER) {
+    try {
+      const governed = await runGovernedProviderChat({ messages })
+      return { choices: [{ message: { content: governed.content } }], _provider: governed.provider, _model: governed.model, _attempts: governed.attempts }
+    } catch (error) {
+      console.warn(`[Provider Intelligence 2.0] governed path failed; compatibility router engaged: ${error instanceof Error ? error.message.slice(0, 160) : String(error)}`)
+    }
+  }
   let lastErr: any = null
 
   // ════════════════════════════════════════════════════════════════════

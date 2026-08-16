@@ -28,6 +28,14 @@ import { ToolResult, ToolContext, okResult, badResult } from './tools'
 /* 1. SHARED MAX-PERFORMANCE PROTOCOL                                  */
 /* ================================================================== */
 export const SHARED_MAX_PERFORMANCE_PROTOCOL = `
+PROVIDER INTELLIGENCE 2.0 (MANDATORY FOR EVERY GOVERNED SUBAGENT):
+   • Default provider priority: Groq → OpenAI → Z.ai → Mistral.
+   • Secondary governed providers: OpenRouter → Gemini → Brave → Cerebras.
+   • Choose the best-fit provider for the task using task type, risk, evidence needs, latency, capabilities, and availability.
+   • You may call 2+ providers in parallel through Provider Intelligence 2.0 when independent verification, comparison, resilience, web-grounding, or diverse reasoning improves quality.
+   • Never force every task through every provider; deliberate selection is required.
+   • VID Director and CEO_AGENT007 use the same provider policy and canonical organizational state.
+
 ═══════════════════════════════════════════════════════════════
 MAX-PERFORMANCE PROTOCOL (UPGRADE #39 — FOLLOW EXACTLY)
 ═══════════════════════════════════════════════════════════════
@@ -100,8 +108,8 @@ I. MAX AUTONOMY TOOLS (UPGRADE #71 — you HAVE these, USE them):
    • shopify_store — e-commerce + print-on-demand
    • fiverr_freelance — offer freelance services
 
-J. MULTI-PROVIDER LLM ROUTER (UPGRADE #82 — you run on 5 providers):
-   You run on a 5-provider LLM router that auto-switches on failure:
+J. MULTI-PROVIDER LLM ROUTER (UPGRADE #82 + PROVIDER INTELLIGENCE 2.0 — 8 governed providers):
+   You run on an 8-provider governed LLM router. The deterministic default order is Groq → OpenAI → Z.ai → Mistral, followed by OpenRouter → Gemini → Brave → Cerebras as secondary governed providers. Task-aware selection may override the simple order, and parallel execution is supported when beneficial:
    1. OpenAI (gpt-4o) — PRIMARY, smartest, 5 retries
    2. z-ai — skipped on Vercel
    3. Google Gemini — free fallback (may fail by region)

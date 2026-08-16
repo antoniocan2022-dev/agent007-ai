@@ -25,6 +25,7 @@
  */
 import { NextResponse } from 'next/server'
 import { getPortfolio, getActiveBusinesses, computeEnterpriseValue } from '@/lib/business-portfolio'
+import { getCanonicalOrganizationalState } from '@/lib/canonical-organizational-state'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -61,6 +62,7 @@ function lifecycleProgress(lifecycle: string | null | undefined): number {
 
 export async function GET() {
   try {
+    const canonicalState = getCanonicalOrganizationalState()
     const [allBusinesses, activeBusinesses, enterpriseValue] = await Promise.all([
       getPortfolio(),
       getActiveBusinesses(),
@@ -163,6 +165,7 @@ export async function GET() {
         retiredCount: allBusinesses.length - activeBusinesses.length,
       },
       ventures,
+      organizationState: canonicalState,
       generatedAt: new Date().toISOString(),
     })
   } catch (e: any) {

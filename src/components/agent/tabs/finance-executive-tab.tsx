@@ -11,6 +11,13 @@ type Reality = {
   }
 }
 
+type OrganizationalState = {
+  stateVersion?: string
+  agents?: { totalGovernedProfiles?: number }
+  providers?: { defaultPriority?: string[]; configured?: string[]; parallelLimit?: number }
+  cronPolicy?: { enabled?: boolean }
+}
+
 type EnterpriseValue = {
   totalValue?: number
   components?: Record<string, number>
@@ -33,6 +40,7 @@ function parseMoney(text: string | undefined, pattern: RegExp) {
 export function FinanceExecutiveTab() {
   const [reality, setReality] = useState<Reality | null>(null)
   const [enterpriseValue, setEnterpriseValue] = useState<EnterpriseValue | null>(null)
+  const [organizationState, setOrganizationState] = useState<OrganizationalState | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
@@ -41,19 +49,22 @@ export function FinanceExecutiveTab() {
     setLoading(true)
     setError(null)
     try {
-      const [realityResponse, valueResponse] = await Promise.all([
+      const [realityResponse, valueResponse, organizationResponse] = await Promise.all([
         fetch('/api/reality-check', { cache: 'no-store' }),
         fetch('/api/system/portfolio?value=true', { cache: 'no-store' }),
+        fetch('/api/system/canonical-state', { cache: 'no-store' }),
       ])
-      if (!realityResponse.ok || !valueResponse.ok) {
+      if (!realityResponse.ok || !valueResponse.ok || !organizationResponse.ok) {
         throw new Error('Finance data is temporarily unavailable.')
       }
-      const [realityData, valueData] = await Promise.all([
+      const [realityData, valueData, organizationData] = await Promise.all([
         realityResponse.json(),
         valueResponse.json(),
+        organizationResponse.json(),
       ])
       setReality(realityData && typeof realityData === 'object' ? realityData : null)
       setEnterpriseValue(valueData && typeof valueData === 'object' ? valueData : null)
+      setOrganizationState(organizationData?.state && typeof organizationData.state === 'object' ? organizationData.state : null)
       setUpdatedAt(new Date())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load finance data.')
@@ -123,7 +134,7 @@ export function FinanceExecutiveTab() {
 
       <RevenueExecutionPanel />
 
-      <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/[0.03] p-3 text-[11px] text-[#7181aa] flex gap-2"><Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" /> Live source: existing Reality Check and Portfolio APIs. {updatedAt ? `Last updated ${updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</div>
+      <div className="rounded-xl border border-cyan-400/10 bg-cyan-400/[0.03] p-3 text-[11px] text-[#7181aa] space-y-2"><div className="flex gap-2"><Activity className="w-3.5 h-3.5 text-cyan-300 shrink-0" /> Live source: Reality Check + Portfolio + Canonical Organizational State. {updatedAt ? `Last updated ${updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</div><div>State {organizationState?.stateVersion ?? '—'} · {organizationState?.agents?.totalGovernedProfiles ?? '—'} governed leaders · Provider order: {(organizationState?.providers?.defaultPriority ?? []).join(' → ') || '—'} · Parallel limit: {organizationState?.providers?.parallelLimit ?? '—'} · Cron enabled: {organizationState?.cronPolicy?.enabled ? 'yes' : 'no'}</div></div>
     </section>
   )
 }

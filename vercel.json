@@ -4,6 +4,7 @@
   "git": {
     "deploymentEnabled": false
   },
+  "crons": [],
   "installCommand": "bun install",
   "buildCommand": "bunx prisma generate && bun run build",
   "functions": {

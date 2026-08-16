@@ -1,0 +1,163 @@
+name: Canonical Coherence Repair
+
+on:
+  push:
+    branches:
+      - 'agent/coherence-provider-canonical-fix-v2'
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[coherence-repair]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Verify repair script syntax
+        run: python3 -m py_compile scripts/apply-coherence-fixes.py
+      - name: Prepare generated paths
+        run: mkdir -p src/app/api/system/canonical-state
+      - name: Apply coherence repairs
+        run: python3 scripts/run-coherence-repair.py
+      - name: Final coherence pass
+        run: python3 scripts/final-coherence-pass.py
+      - name: Security hardening pass
+        run: python3 scripts/final-security-pass.py
+      - name: Normalize provider registries for expanded ProviderId universe
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('.')
+          p = root / 'src/lib/provider-runtime-v2.ts'
+          s = p.read_text()
+          s = s.replace("import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'", "import { getProviderTaskPolicy, rankAvailableProviders, PROVIDER_PARALLEL_LIMIT, type ProviderTaskPolicy } from './provider-intelligence-policy'")
+          if 'export interface ProviderParallelResult' not in s:
+              marker = "export interface ProviderRuntimeResult {\n"
+              s = s.replace(marker, "export interface ProviderParallelResult {\n  taskType: TaskType\n  selectedProviders: ProviderId[]\n  successful: ProviderRuntimeResult[]\n  failed: Array<{ provider: ProviderId; error: string }>\n  elapsedMs: number\n}\n\n" + marker, 1)
+          p.write_text(s)
+
+          p = root / 'src/lib/canonical-organizational-state.ts'
+          p.write_text(p.read_text().replace('config.capabilityTags ?? []', '[]'))
+
+          p = root / 'src/lib/model-intelligence.ts'
+          s = p.read_text()
+          if "{ provider: 'openrouter'" not in s:
+              s = s.replace("  { provider: 'mistral', model: 'mistral-large-latest',", "  { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'long-context'], quality: 78, speed: 78, costTier: 1, maxOutputTokens: 8000 },\n  { provider: 'gemini', model: 'gemini-3.5-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'long-context'], quality: 90, speed: 90, costTier: 2, maxOutputTokens: 16000 },\n  { provider: 'brave', model: 'brave', capabilities: ['research', 'analysis', 'tool-use', 'speed'], quality: 84, speed: 86, costTier: 1, maxOutputTokens: 8000 },\n  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'analysis', 'tool-use', 'speed'], quality: 88, speed: 98, costTier: 1, maxOutputTokens: 16000 },\n  { provider: 'mistral', model: 'mistral-large-latest',", 1)
+          s = s.replace("  mistral: 'MISTRAL_API_KEY',\n}", "  mistral: 'MISTRAL_API_KEY',\n  openrouter: 'OPENROUTER_API_KEY',\n  gemini: 'GEMINI_API_KEY',\n  brave: 'BRAVE_API_KEY',\n  cerebras: 'CEREBRAS_API_KEY',\n}", 1)
+          p.write_text(s)
+          print('Provider registries normalized')
+          PY
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Focused production typecheck
+        run: |
+          cat > tsconfig.coherence.json <<'JSON'
+          {
+            "extends": "./tsconfig.json",
+            "compilerOptions": { "noEmit": true },
+            "include": [
+              "src/lib/provider-runtime-v2.ts",
+              "src/lib/provider-intelligence-policy.ts",
+              "src/lib/subagent-governance.ts",
+              "src/lib/model-intelligence.ts",
+              "src/lib/canonical-organizational-state.ts",
+              "src/lib/agent.ts",
+              "src/lib/multi-provider-comparison.ts",
+              "src/lib/subagent-max-performance.ts",
+              "src/app/api/system/canonical-state/route.ts",
+              "src/app/api/system/evolution/route.ts",
+              "src/app/api/health/diagnostics/route.ts",
+              "src/app/api/health/full-audit/route.ts",
+              "src/app/api/system/capabilities/route.ts",
+              "src/app/api/system/vid-kpis/route.ts",
+              "src/components/agent/tabs/finance-executive-tab.tsx"
+            ]
+          }
+          JSON
+          bunx tsc -p tsconfig.coherence.json
+          rm -f tsconfig.coherence.json
+      - name: Provider Intelligence pure selection tests
+        run: |
+          cat > provider-intelligence-check.ts <<'TS'
+          import { PROVIDER_PRIORITY, CORE_PROVIDER_PRIORITY, SECONDARY_PROVIDER_PRIORITY } from './src/lib/provider-intelligence-policy'
+          import { getConfiguredProviders, selectProvidersForTask } from './src/lib/provider-runtime-v2'
+          const expected = ['groq','openai','zai','mistral','openrouter','gemini','brave','cerebras']
+          for (const [i, value] of expected.entries()) { if (PROVIDER_PRIORITY[i] !== value) throw new Error(`priority drift at ${i}`) }
+          if (CORE_PROVIDER_PRIORITY.join('|') !== 'groq|openai|zai|mistral') throw new Error('core priority drift')
+          if (SECONDARY_PROVIDER_PRIORITY.join('|') !== 'openrouter|gemini|brave|cerebras') throw new Error('secondary priority drift')
+          const env = {groq:'GROQ_API_KEY',openai:'OPENAI_API_KEY',zai:'ZAI_API_KEY',mistral:'MISTRAL_API_KEY',openrouter:'OPENROUTER_API_KEY',gemini:'GEMINI_API_KEY',brave:'BRAVE_API_KEY',cerebras:'CEREBRAS_API_KEY'} as const
+          for (const provider of expected) process.env[env[provider as keyof typeof env]] = 'test'
+          const configured = getConfiguredProviders()
+          if (configured.length !== 8) throw new Error(`expected 8 configured providers, got ${configured.length}`)
+          const tasks = ['general','research','coding','creative','financial','security','operations','analysis'] as const
+          for (const task of tasks) { const selected = selectProvidersForTask(task); if (selected.length < 2 || selected.length > 4) throw new Error(`${task}: parallel selection size ${selected.length}`) }
+          console.log('Provider Intelligence 2.0 pure selection tests: PASS')
+          TS
+          bun provider-intelligence-check.ts
+          rm -f provider-intelligence-check.ts
+      - name: Coherence invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('.')
+          required = ['src/lib/canonical-organizational-state.ts','src/lib/provider-runtime-v2.ts','src/lib/provider-intelligence-policy.ts','src/lib/subagent-governance.ts','src/lib/subagent-max-performance.ts','src/lib/model-intelligence.ts','src/app/api/system/canonical-state/route.ts','src/app/api/system/evolution/route.ts','scripts/safe-commit.sh','scripts/verify-session-start.sh']
+          missing = [p for p in required if not (root / p).exists()]
+          assert not missing, f'Missing required files: {missing}'
+          policy = (root / 'src/lib/provider-intelligence-policy.ts').read_text()
+          assert "['groq', 'openai', 'zai', 'mistral']" in policy
+          assert "['openrouter', 'gemini', 'brave', 'cerebras']" in policy
+          runtime = (root / 'src/lib/provider-runtime-v2.ts').read_text()
+          for provider in ['groq','openai','zai','mistral','openrouter','gemini','brave','cerebras']:
+              assert f"{provider}: {{" in runtime, provider
+          for path in ['src/app/api/health/diagnostics/route.ts','src/app/api/health/full-audit/route.ts','src/app/api/system/capabilities/route.ts','src/app/api/system/vid-kpis/route.ts','src/app/api/system/evolution/route.ts']:
+              assert 'canonical-organizational-state' in (root / path).read_text(), path
+          audit = (root / 'src/app/api/health/full-audit/route.ts').read_text()
+          assert "return key ? '(configured)' : '(not set)'" in audit
+          assert '…' not in audit
+          shared = (root / 'src/lib/subagent-max-performance.ts').read_text()
+          assert 'Groq → OpenAI → Z.ai → Mistral' in shared
+          assert 'OpenRouter → Gemini → Brave → Cerebras' in shared
+          assert '2+ providers in parallel' in shared
+          finance = (root / 'src/components/agent/tabs/finance-executive-tab.tsx').read_text()
+          assert '/api/system/canonical-state' in finance
+          state = (root / 'src/lib/canonical-organizational-state.ts').read_text()
+          assert "automaticDeployments: false" in state
+          assert 'enabled: false' in state
+          vercel = (root / 'vercel.json').read_text()
+          assert '"deploymentEnabled": false' in vercel
+          assert '"crons": []' in vercel
+          text = (root / 'src/lib/tools.ts').read_text()
+          names = re.findall(r'^\s*TOOL_REGISTRY\.([A-Za-z0-9_]+)\s*=', text, flags=re.M)
+          dupes = sorted({x for x in names if names.count(x) > 1})
+          assert not dupes, dupes
+          secret_pat = re.compile(r'(ghp_|github_pat_|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|sk-[A-Za-z0-9_-]{20,})')
+          for path in [root / 'scripts/safe-commit.sh', root / 'scripts/verify-session-start.sh']:
+              assert not secret_pat.search(path.read_text()), f'credential material in {path}'
+          for dead in ['src/lib/safety-reliability.ts','src/lib/improvement-actions.ts','src/lib/advanced-tools.ts','src/lib/intelligence-tools.ts','src/app/login/page.tsx.bak','prisma/schema.prisma.bak']:
+              assert not (root / dead).exists(), f'dead artifact resurrected: {dead}'
+          for artifact in root.rglob('*.pyc'):
+              assert '__pycache__' not in str(artifact), f'bytecode artifact present: {artifact}'
+          print('Canonical + security + duplicate + dead-artifact invariants: PASS')
+          PY
+      - name: Commit repaired source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes were necessary."
+          else
+            git commit -m "fix: make Agent007 internally coherent [coherence-repair]"
+            git push
+          fi
