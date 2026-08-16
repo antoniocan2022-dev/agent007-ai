@@ -57,12 +57,12 @@ route = ROOT / 'src/app/api/team/[leaderId]/route.ts'
 text = route.read_text()
 text = add_import(text, "import { OWNER_AUTHORITY_ID } from '@/lib/hierarchy-control'")
 text = text.replace(
-    "parentConversationId: 'leader-chat',\n",
-    "parentConversationId: 'leader-chat',\n      parentAgentId: OWNER_AUTHORITY_ID,\n      delegationAuthority: 'owner',\n",
+    "      parentConversationId: 'leader-chat',\n",
+    "      parentConversationId: 'leader-chat',\n      parentAgentId: OWNER_AUTHORITY_ID,\n      delegationAuthority: 'owner',\n",
     1,
 )
-if "delegationAuthority: 'owner'" not in text:
-    raise RuntimeError('team route owner oversight propagation was not inserted')
+if 'OWNER_AUTHORITY_ID' not in text or "delegationAuthority: 'owner'" not in text or 'parentAgentId: OWNER_AUTHORITY_ID' not in text:
+    raise RuntimeError('team route owner oversight propagation was not inserted completely')
 route.write_text(text)
 
 mission = ROOT / 'src/app/api/mission-active/[missionId]/route.ts'
@@ -70,13 +70,13 @@ text = mission.read_text()
 text = text.replace(
     "appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)",
     "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)",
-    1,
 )
 text = text.replace(
     "appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)",
     "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)",
-    1,
 )
+if 'appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)' in text or 'appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)' in text:
+    raise RuntimeError('mission leader response still uses an invalid role value')
 route.write_text(text)
 
 print('Owner oversight authority propagated idempotently; mission leader response roles normalized.')
