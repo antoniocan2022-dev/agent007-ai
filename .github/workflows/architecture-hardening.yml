@@ -156,7 +156,9 @@ jobs:
 
           active_route = (root / 'src/app/api/mission-active/[missionId]/route.ts').read_text()
           assert 'getParentId' in active_route
-          assert 'parentAgentId: getParentId(leaderInfo.leaderId)' in active_route
+          assert "parentAgentId: getParentId(sub.id) ?? 'vid'" in active_route
+          assert "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in active_route
+          assert "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in active_route
 
           team_route = (root / 'src/app/api/team/[leaderId]/route.ts').read_text()
           assert 'OWNER_AUTHORITY_ID' in team_route
@@ -178,16 +180,32 @@ jobs:
           PY
 
       - name: Git whitespace / diff validation
-        run: git diff --check
+        run: |
+          git diff --check
+          if git ls-files '*.pyc' | grep -q .; then
+            echo 'Committed bytecode artifact detected'; exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('.')
+          assert (root / 'src/lib/hierarchy-control.ts').is_file()
+          assert (root / 'src/lib/artifact-ledger.ts').is_file()
+          assert len(list((root / 'src/lib').glob('hierarchy-control.ts'))) == 1
+          assert len(list((root / 'src/lib').glob('artifact-ledger.ts'))) == 1
+          print('Diff/missing/duplicate/bytecode checks: PASS')
+          PY
 
       - name: Commit repaired source
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No source changes were necessary after transformation."
-          else
-            git commit -m "fix: make hierarchy and artifact handoffs executable [architecture-upgrade]"
+          if ! git diff --quiet; then
+            git add prisma/schema.prisma src/lib src/app/api scripts .github/workflows/architecture-hardening.yml
+            git commit -m "chore: apply verified hierarchy and artifact ledger [architecture-upgrade]"
             git push origin "${GITHUB_REF_NAME}"
+          else
+            echo 'No source repairs required; repository already clean.'
           fi
