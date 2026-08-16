@@ -1,7 +1,7 @@
 name: Venture OS v2 Verification
 on:
   push:
-    branches: [agent/architecture-control-plane-5-9]
+    branches: [agent/venture-os-final]
   workflow_dispatch:
 permissions:
   contents: read
