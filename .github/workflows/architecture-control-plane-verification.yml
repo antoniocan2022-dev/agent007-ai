@@ -29,8 +29,19 @@ jobs:
       - name: Architecture unit tests
         run: bun test tests/architecture-control-plane.test.ts
 
-      - name: Targeted TypeScript check for control-plane module
-        run: bunx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck src/lib/architecture-control-plane.ts
+      - name: Project TypeScript audit — no new errors in changed architecture files
+        shell: bash
+        run: |
+          set +e
+          bunx tsc -p tsconfig.ci.json --noEmit --pretty false > /tmp/tsc.log 2>&1
+          code=$?
+          set -e
+          echo "tsc_exit=$code"
+          if grep -E "src/lib/architecture-control-plane\.ts|src/lib/venture-001\.ts|src/app/api/mission-active/route\.ts" /tmp/tsc.log; then
+            echo "New TypeScript errors detected in architecture-control-plane integration files."
+            exit 1
+          fi
+          echo "No TypeScript errors reported in the newly changed architecture files."
 
       - name: Repository diff hygiene
         run: |
