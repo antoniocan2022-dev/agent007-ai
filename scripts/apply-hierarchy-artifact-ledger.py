@@ -4,19 +4,6 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def replace_once(path: str, old: str, new: str, label: str) -> None:
-    p = ROOT / path
-    text = p.read_text()
-    count = text.count(old)
-    if count == 1:
-        p.write_text(text.replace(old, new))
-    elif count == 0:
-        if new not in text:
-            raise RuntimeError(f'{label}: expected anchor missing: {old[:100]!r}')
-    else:
-        raise RuntimeError(f'{label}: ambiguous anchor count={count}')
-
-
 def patch_schema() -> None:
     p = ROOT / 'prisma/schema.prisma'
     text = p.read_text()
@@ -31,8 +18,7 @@ def patch_db() -> None:
     text = p.read_text()
     if 'CREATE TABLE IF NOT EXISTS "ArtifactLedger"' in text:
         return
-    marker = 'const statements = ['
-    start = text.find(marker)
+    start = text.find('const statements = [')
     if start < 0:
         raise RuntimeError('db.ts: statements array not found')
     close = text.find('\n    ]', start)
@@ -44,13 +30,27 @@ def patch_db() -> None:
     p.write_text(text)
 
 
+def ensure_import(text: str, anchor: str, import_text: str, label: str) -> str:
+    if import_text in text:
+        return text
+    if anchor not in text:
+        raise RuntimeError(f'{label}: import anchor missing')
+    updated = text.replace(anchor, anchor + '\n' + import_text, 1)
+    if import_text not in updated:
+        raise RuntimeError(f'{label}: import insertion failed')
+    return updated
+
+
 def patch_governance() -> None:
     p = ROOT / 'src/lib/subagent-governance.ts'
     text = p.read_text()
-    if "from './hierarchy-control'" not in text:
-        text = text.replace("import { PROVIDER_PRIORITY } from './provider-intelligence-policy'", "import { PROVIDER_PRIORITY } from './provider-intelligence-policy'\nimport { HIERARCHY_PARENT } from './hierarchy-control'")
+    text = ensure_import(
+        text,
+        "import { PROVIDER_PRIORITY } from './provider-intelligence-policy'",
+        "import { HIERARCHY_PARENT } from './hierarchy-control'",
+        'governance',
+    )
     mapping = {
-        'vid': 'ceo',
         'aurora': 'vid', 'vertex': 'vid', 'quantum': 'vid', 'scout': 'vid',
         'hunt': 'scout', 'forge': 'vid', 'quill': 'aurora', 'prism': 'aurora',
         'pulse': 'vid', 'echo': 'vid', 'legal': 'cybersecurity_r', 'banker': 'vid',
@@ -64,15 +64,21 @@ def patch_governance() -> None:
             text = text2
         elif f"{agent}: {{" not in text:
             raise RuntimeError(f'governance profile missing: {agent}')
+    # Root executive is intentionally a literal root identifier, not a key in HIERARCHY_PARENT.
+    text = re.sub(r"(vid: \{.*?reportsTo:\s*)HIERARCHY_PARENT\.[A-Za-z0-9_]+", r"\1'ceo'", text, count=1)
     p.write_text(text)
 
 
 def patch_subagents() -> None:
     p = ROOT / 'src/lib/subagents.ts'
     text = p.read_text()
-    if "from './hierarchy-control'" not in text:
-        anchor = "import { SHARED_MAX_PERFORMANCE_PROTOCOL } from './subagent-max-performance'"
-        text = text.replace(anchor, anchor + "\nimport { assertDelegationAllowed } from './hierarchy-control'\nimport { registerArtifact, handoffArtifact } from './artifact-ledger'")
+    text = ensure_import(
+        text,
+        "import { SHARED_MAX_PERFORMANCE_PROTOCOL } from './subagent-max-performance'",
+        "import { assertDelegationAllowed } from './hierarchy-control'\nimport { registerArtifact, handoffArtifact } from './artifact-ledger'",
+        'subagents',
+    )
+    original = text
     text = text.replace('  recursionDepth?: number\n}', '  recursionDepth?: number\n  parentAgentId?: string\n  missionId?: string\n  ventureId?: string\n  parentArtifactId?: string\n}', 1)
     guard = '''  const parentAgentId = opts.parentAgentId ?? 'ceo'\n  try {\n    assertDelegationAllowed(parentAgentId, sub.id, true)\n  } catch (hierarchyError: any) {\n    const err = hierarchyError?.message ?? 'Delegation blocked by hierarchy policy.'\n    await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })\n    return { answer: `⚠️ ${err}`, steps: [] }\n  }\n\n'''
     anchor = '  // UPGRADE #98 — TOOL RESTRICTION: Use the subagent\'s specialized allowedTools'
@@ -80,7 +86,8 @@ def patch_subagents() -> None:
         if anchor not in text:
             raise RuntimeError('subagents.ts: hierarchy insertion anchor missing')
         text = text.replace(anchor, guard + anchor, 1)
-    text = text.replace('export interface RunSubagentResult {\n  answer: string\n', 'export interface RunSubagentResult {\n  answer: string\n  artifactId?: string\n', 1)
+    if 'artifactId?: string' not in text.split('export interface RunSubagentResult {', 1)[1].split('}', 1)[0]:
+        text = text.replace('export interface RunSubagentResult {\n  answer: string\n', 'export interface RunSubagentResult {\n  answer: string\n  artifactId?: string\n', 1)
     old_call = '''          parentConversationId: opts.parentConversationId,\n          recursionDepth: currentDepth + 1,\n        })'''
     new_call = '''          parentConversationId: opts.parentConversationId,\n          parentAgentId: sub.id,\n          missionId: opts.missionId,\n          ventureId: opts.ventureId,\n          parentArtifactId: opts.parentArtifactId,\n          recursionDepth: currentDepth + 1,\n        })'''
     if old_call in text:
@@ -90,65 +97,80 @@ def patch_subagents() -> None:
     handoff = '''        if (specialistResult.artifactId) {\n          await handoffArtifact(specialistResult.artifactId, sub.id).catch(() => {})\n        }\n'''
     target = '        // Feed the specialist\'s result back to the leader\n'
     if handoff not in text:
+        if target not in text:
+            raise RuntimeError('subagents.ts: specialist handoff anchor missing')
         text = text.replace(target, handoff + target, 1)
     return_marker = '  return { answer: finalAnswer, steps }'
-    if return_marker in text and 'const artifact = await registerArtifact' not in text:
+    if return_marker in text and 'artifactType: \'subagent_result\'' not in text:
         replacement = '''  let artifactId: string | undefined\n  try {\n    const artifact = await registerArtifact({\n      missionId: opts.missionId,\n      ventureId: opts.ventureId,\n      parentArtifactId: opts.parentArtifactId,\n      stageId: opts.dispatchId,\n      artifactType: 'subagent_result',\n      name: `${sub.name} result`,\n      producerAgentId: sub.id,\n      sourceRef: `dispatch:${opts.dispatchId}`,\n      content: finalAnswer,\n      artifactValue: finalAnswer.slice(0, 4000),\n      status: 'submitted',\n    })\n    artifactId = artifact.artifactId\n  } catch (artifactError: any) {\n    console.warn('[artifact-ledger] subagent result registration failed:', artifactError?.message)\n  }\n\n  return { answer: finalAnswer, steps, artifactId }'''
         text = text.replace(return_marker, replacement, 1)
+    if 'assertDelegationAllowed' not in text or 'registerArtifact' not in text or 'handoffArtifact' not in text:
+        raise RuntimeError('subagents.ts: required architecture symbols were not integrated')
+    if text == original:
+        raise RuntimeError('subagents.ts: transformation made no changes')
     p.write_text(text)
 
 
 def patch_orchestrator() -> None:
     p = ROOT / 'src/lib/orchestrator.ts'
     text = p.read_text()
-    if "from './artifact-ledger'" not in text:
-        anchor = "import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'"
-        text = text.replace(anchor, anchor + "\nimport { handoffArtifact } from './artifact-ledger'")
-    # Every orchestrator dispatch originates at CEO level.
+    text = ensure_import(
+        text,
+        "import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'",
+        "import { handoffArtifact } from './artifact-ledger'",
+        'orchestrator',
+    )
     text = re.sub(r"(runSubagent\(\{\s*\n\s*subagentId:\s*sub\.id,\s*task:\s*d\.task,\s*dispatchId,\s*\n\s*attachments,\s*language,\s*emit,\s*parentConversationId:\s*conversationId,)(\s*\n\s*\})", r"\1\n              parentAgentId: 'ceo',\n              \2", text, count=1)
     text = re.sub(r"(runSubagent\(\{\s*\n\s*subagentId:\s*sub\.id,\s*\n\s*task:\s*enhancedTask,)(\s*\n\s*attachments,)\s*(language,\s*\n\s*parentConversationId:\s*conversationId,)", r"\1\n          parentAgentId: 'ceo',\n          \2\n          \3", text, count=1)
-    # Add explicit CEO handoff records.
     single_anchor = '        subAnswer = result.answer\n        // UPGRADE #169 C3:'
-    if 'handoffArtifact(result.artifactId, \'ceo\')' not in text and single_anchor in text:
+    if "handoffArtifact(result.artifactId, 'ceo')" not in text:
+        if single_anchor not in text:
+            raise RuntimeError('orchestrator: CEO handoff anchor missing')
         text = text.replace(single_anchor, "        subAnswer = result.answer\n        if (result.artifactId) await handoffArtifact(result.artifactId, 'ceo').catch(() => {})\n        // UPGRADE #169 C3:", 1)
+    if 'parentAgentId' not in text or 'handoffArtifact' not in text:
+        raise RuntimeError('orchestrator: required hierarchy/artifact integration missing')
     p.write_text(text)
 
 
 def patch_mission_pipeline() -> None:
     p = ROOT / 'src/lib/mission-pipeline.ts'
     text = p.read_text()
-    if "from './artifact-ledger'" not in text:
-        anchor = "import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'"
-        text = text.replace(anchor, anchor + "\nimport { registerArtifact, verifyArtifact, handoffArtifact } from './artifact-ledger'\nimport { getParentId } from './hierarchy-control'")
-    text = text.replace('  artifactVerified: boolean\n}> {', '  artifactVerified: boolean\n  artifactId?: string\n}> {', 1)
-    # Pass hierarchy + mission context into leader execution.
+    text = ensure_import(
+        text,
+        "import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'",
+        "import { registerArtifact, verifyArtifact, handoffArtifact } from './artifact-ledger'\nimport { getParentId } from './hierarchy-control'",
+        'mission-pipeline',
+    )
+    if '  previousArtifactId?: string\n}): Promise<' not in text:
+        text = text.replace('  previousTeamOutput?: string\n}): Promise<{', '  previousTeamOutput?: string\n  previousArtifactId?: string\n}): Promise<{', 1)
     old = '''        parentConversationId: `mission_${missionId}`,\n        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,\n      })'''
-    new = '''        parentConversationId: `mission_${missionId}`,\n        parentAgentId: getParentId(stage.leader) ?? 'vid',\n        missionId,\n        parentArtifactId: opts.previousArtifactId,\n        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,\n      })'''
-    # The helper needs previousArtifactId in its opts; add it if absent.
-    text = text.replace('  previousTeamOutput?: string\n}): Promise<{', '  previousTeamOutput?: string\n  previousArtifactId?: string\n}): Promise<{', 1)
     if old in text:
+        new = '''        parentConversationId: `mission_${missionId}`,\n        parentAgentId: getParentId(stage.leader) ?? 'vid',\n        missionId,\n        ventureId: undefined,\n        parentArtifactId: opts.previousArtifactId,\n        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,\n      })'''
         text = text.replace(old, new, 1)
     elif 'parentAgentId: getParentId(stage.leader)' not in text:
-        raise RuntimeError('mission-pipeline.ts: leader run anchor missing')
-    # CEO stage: register the executive report as an artifact before return.
+        raise RuntimeError('mission-pipeline: leader run anchor missing')
     ceo_return = '''      return {\n        output: teamOutput,\n        rounds: round,\n        finalScore: 100,'''
-    ceo_repl = '''      let ceoArtifactId: string | undefined\n      try {\n        const artifact = await registerArtifact({\n          missionId, stageId: `stage_${stage.stage}`, artifactType: 'executive_report',\n          name: stage.name, producerAgentId: 'ceo', sourceRef: `mission:${missionId}:stage:${stage.stage}`,\n          content: teamOutput, artifactValue: teamOutput.slice(0, 4000), status: 'verified',\n          verificationScore: 100, verifiedBy: 'ceo', verifiedAt: new Date(),\n        })\n        ceoArtifactId = artifact.artifactId\n      } catch {}\n\n      return {\n        output: teamOutput,\n        rounds: round,\n        finalScore: 100,'''
-    if ceo_return in text and 'let ceoArtifactId' not in text:
+    if 'let ceoArtifactId: string | undefined' not in text:
+        ceo_repl = '''      let ceoArtifactId: string | undefined\n      try {\n        const artifact = await registerArtifact({\n          missionId, stageId: `stage_${stage.stage}`, artifactType: 'executive_report',\n          name: stage.name, producerAgentId: 'ceo', sourceRef: `mission:${missionId}:stage:${stage.stage}`,\n          content: teamOutput, artifactValue: teamOutput.slice(0, 4000), status: 'verified',\n          verificationScore: 100, verifiedBy: 'ceo', verifiedAt: new Date(),\n        })\n        ceoArtifactId = artifact.artifactId\n      } catch {}\n\n      return {\n        output: teamOutput,\n        rounds: round,\n        finalScore: 100,'''
+        if ceo_return not in text:
+            raise RuntimeError('mission-pipeline: CEO artifact anchor missing')
         text = text.replace(ceo_return, ceo_repl, 1)
         text = text.replace('        artifactVerified: true,\n      }\n    }', '        artifactVerified: true,\n        artifactId: ceoArtifactId,\n      }\n    }', 1)
-    # Register/verify subagent artifact once verification is known.
-    old_extract = '''  const artifactValue = extractArtifact(teamOutput, stage.artifactType)\n  const artifactVerified = artifactValue !== null && lastVerification?.approved === true\n\n  // UPGRADE #146'''
-    new_extract = '''  const artifactValue = extractArtifact(teamOutput, stage.artifactType)\n  const artifactVerified = artifactValue !== null && lastVerification?.approved === true\n  let artifactId: string | undefined\n  try {\n    const artifact = await registerArtifact({\n      missionId, stageId: `stage_${stage.stage}`, artifactType: stage.artifactType,\n      name: stage.name, producerAgentId: stage.leader, sourceRef: `mission:${missionId}:stage:${stage.stage}:round:${lastRound}`,\n      artifactValue, content: teamOutput, status: lastVerification?.approved ? 'verified' : 'rejected',\n      verificationScore: lastVerification?.score ?? 0, verifiedBy: 'super_agent',\n      verifiedAt: lastVerification ? new Date() : undefined, metadata: { round: lastRound },\n    })\n    artifactId = artifact.artifactId\n    if (artifactVerified) await verifyArtifact(artifactId, lastVerification?.score ?? 0, 'super_agent', 'verified')\n  } catch {}\n\n  // UPGRADE #146'''
-    if old_extract in text and 'let artifactId: string | undefined' not in text:
+    if "artifactType: stage.artifactType" not in text:
+        old_extract = '''  const artifactValue = extractArtifact(teamOutput, stage.artifactType)\n  const artifactVerified = artifactValue !== null && lastVerification?.approved === true\n\n  // UPGRADE #146'''
+        new_extract = '''  const artifactValue = extractArtifact(teamOutput, stage.artifactType)\n  const artifactVerified = artifactValue !== null && lastVerification?.approved === true\n  let artifactId: string | undefined\n  try {\n    const artifact = await registerArtifact({\n      missionId, stageId: `stage_${stage.stage}`, artifactType: stage.artifactType,\n      name: stage.name, producerAgentId: stage.leader, sourceRef: `mission:${missionId}:stage:${stage.stage}:round:${lastRound}`,\n      artifactValue, content: teamOutput, status: lastVerification?.approved ? 'verified' : 'rejected',\n      verificationScore: lastVerification?.score ?? 0, verifiedBy: 'super_agent',\n      verifiedAt: lastVerification ? new Date() : undefined, metadata: { round: lastRound },\n    })\n    artifactId = artifact.artifactId\n    if (artifactVerified) await verifyArtifact(artifactId, lastVerification?.score ?? 0, 'super_agent', 'verified')\n  } catch {}\n\n  // UPGRADE #146'''
+        if old_extract not in text:
+            raise RuntimeError('mission-pipeline: artifact extraction anchor missing')
         text = text.replace(old_extract, new_extract, 1)
         text = text.replace('    artifactVerified,\n  }\n}\n\n/**\n * Best-effort extract', '    artifactVerified,\n    artifactId,\n  }\n}\n\n/**\n * Best-effort extract', 1)
-    # carry previous artifact ID across stages and hand it off to next leader.
     text = text.replace('  let previousTeamOutput: string | undefined\n', '  let previousTeamOutput: string | undefined\n  let previousArtifactId: string | undefined\n', 1)
-    call_anchor = '''        objective,\n        missionContext,\n        previousTeamOutput,\n      })'''
-    call_repl = '''        objective,\n        missionContext,\n        previousTeamOutput,\n        previousArtifactId,\n      })'''
-    text = text.replace(call_anchor, call_repl, 1)
-    text = text.replace('      previousTeamOutput = result.output\n', '''      if (result.artifactId && stage.stage < pipeline.stages.length && result.artifactVerified) {\n        const nextStage = pipeline.stages[stage.stage]\n        if (nextStage) await handoffArtifact(result.artifactId, nextStage.leader).catch(() => {})\n      }\n      previousTeamOutput = result.output\n      previousArtifactId = result.artifactId\n''', 1)
-    text = text.replace('      missionContext += `STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:', '      missionContext += `${result.artifactId ? `ARTIFACT ${result.artifactId} HANDOFF READY\n` : \'\'}STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:', 1)
+    text = text.replace('        previousTeamOutput,\n      })', '        previousTeamOutput,\n        previousArtifactId,\n      })', 1)
+    if 'previousArtifactId = result.artifactId' not in text:
+        text = text.replace('      previousTeamOutput = result.output\n', '''      if (result.artifactId && stage.stage < pipeline.stages.length && result.artifactVerified) {\n        const nextStage = pipeline.stages[stage.stage]\n        if (nextStage) await handoffArtifact(result.artifactId, nextStage.leader).catch(() => {})\n      }\n      previousTeamOutput = result.output\n      previousArtifactId = result.artifactId\n''', 1)
+    if 'ARTIFACT ${result.artifactId} HANDOFF READY' not in text:
+        text = text.replace('      missionContext += `STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:', '      missionContext += `${result.artifactId ? `ARTIFACT ${result.artifactId} HANDOFF READY\\n` : \"\"}STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:', 1)
+    if 'registerArtifact' not in text or 'handoffArtifact' not in text or 'getParentId' not in text:
+        raise RuntimeError('mission-pipeline: required artifact/hierarchy integration missing')
     p.write_text(text)
 
 
@@ -160,7 +182,6 @@ def main() -> None:
     patch_orchestrator()
     patch_mission_pipeline()
 
-    # Hard invariant checks after transformation.
     required = [
         'src/lib/hierarchy-control.ts',
         'src/lib/artifact-ledger.ts',
@@ -174,7 +195,6 @@ def main() -> None:
     for rel in required:
         if not (ROOT / rel).exists():
             raise RuntimeError(f'Missing required file after repair: {rel}')
-
     print('Architecture transformation complete: hierarchy + artifact ledger')
 
 if __name__ == '__main__':
