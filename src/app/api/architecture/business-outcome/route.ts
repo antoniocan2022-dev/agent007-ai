@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { assertVentureActionAllowed, recordBusinessOutcome } from '@/lib/architecture-control-plane'
+import {
+  assertVentureActionAllowed,
+  recordBusinessOutcome,
+  type BusinessOutcomeType,
+} from '@/lib/architecture-control-plane'
 
 export const dynamic = 'force-dynamic'
+
+const OUTCOME_TYPES = new Set<BusinessOutcomeType>([
+  'TRANSACTION',
+  'CUSTOMER_ACQUIRED',
+  'REVENUE_RECOGNIZED',
+  'REFUND',
+  'COST_RECORDED',
+  'KPI_SNAPSHOT',
+])
 
 /**
  * Canonical business-outcome ingestion endpoint.
@@ -25,13 +38,16 @@ export async function POST(req: NextRequest) {
   if (!ventureId || !type || !source) {
     return NextResponse.json({ ok: false, error: 'ventureId, type and source are required' }, { status: 400 })
   }
+  if (!OUTCOME_TYPES.has(type as BusinessOutcomeType)) {
+    return NextResponse.json({ ok: false, error: `Unsupported business outcome type: ${type}` }, { status: 400 })
+  }
 
   try {
     await assertVentureActionAllowed(ventureId, 'record_outcome')
     const outcome = await recordBusinessOutcome({
       ventureId,
       missionId: typeof body.missionId === 'string' ? body.missionId : null,
-      type,
+      type: type as BusinessOutcomeType,
       transactionId: typeof body.transactionId === 'string' ? body.transactionId : null,
       customerId: typeof body.customerId === 'string' ? body.customerId : null,
       amount: typeof body.amount === 'number' ? body.amount : null,
@@ -39,7 +55,7 @@ export async function POST(req: NextRequest) {
       source,
       occurredAt,
       metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata : {},
-    } as any)
+    })
     return NextResponse.json({ ok: true, outcome })
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message ?? 'Business outcome rejected' }, { status: 400 })
