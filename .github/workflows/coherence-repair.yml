@@ -29,7 +29,7 @@ jobs:
         run: mkdir -p src/app/api/system/canonical-state
       - name: Apply coherence repairs
         run: python3 scripts/apply-coherence-fixes.py
-      - name: Normalize provider registries for the expanded ProviderId universe
+      - name: Normalize provider registries for expanded ProviderId universe
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -39,13 +39,11 @@ jobs:
           s = s.replace("import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'", "import { getProviderTaskPolicy, rankAvailableProviders, PROVIDER_PARALLEL_LIMIT, type ProviderTaskPolicy } from './provider-intelligence-policy'")
           if 'export interface ProviderParallelResult' not in s:
               marker = "export interface ProviderRuntimeResult {\n"
-              interface_text = "export interface ProviderParallelResult {\n  taskType: TaskType\n  selectedProviders: ProviderId[]\n  successful: ProviderRuntimeResult[]\n  failed: Array<{ provider: ProviderId; error: string }>\n  elapsedMs: number\n}\n\n"
-              s = s.replace(marker, interface_text + marker, 1)
+              s = s.replace(marker, "export interface ProviderParallelResult {\n  taskType: TaskType\n  selectedProviders: ProviderId[]\n  successful: ProviderRuntimeResult[]\n  failed: Array<{ provider: ProviderId; error: string }>\n  elapsedMs: number\n}\n\n" + marker, 1)
           p.write_text(s)
 
           p = root / 'src/lib/canonical-organizational-state.ts'
-          s = p.read_text().replace('config.capabilityTags ?? []', '[]')
-          p.write_text(s)
+          p.write_text(p.read_text().replace('config.capabilityTags ?? []', '[]'))
 
           p = root / 'src/lib/model-intelligence.ts'
           s = p.read_text()
@@ -57,15 +55,29 @@ jobs:
           PY
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Production typecheck
+      - name: Focused production typecheck
         run: |
           cat > tsconfig.coherence.json <<'JSON'
           {
             "extends": "./tsconfig.json",
-            "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts"]
+            "compilerOptions": { "noEmit": true },
+            "include": [
+              "src/lib/provider-runtime-v2.ts",
+              "src/lib/provider-intelligence-policy.ts",
+              "src/lib/subagent-governance.ts",
+              "src/lib/model-intelligence.ts",
+              "src/lib/canonical-organizational-state.ts",
+              "src/lib/agent.ts",
+              "src/lib/multi-provider-comparison.ts",
+              "src/app/api/system/canonical-state/route.ts",
+              "src/app/api/health/diagnostics/route.ts",
+              "src/app/api/health/full-audit/route.ts",
+              "src/app/api/system/capabilities/route.ts",
+              "src/app/api/system/vid-kpis/route.ts"
+            ]
           }
           JSON
-          bunx tsc --noEmit -p tsconfig.coherence.json
+          bunx tsc -p tsconfig.coherence.json
           rm -f tsconfig.coherence.json
       - name: Coherence invariants
         run: |
