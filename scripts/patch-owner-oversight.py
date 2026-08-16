@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,12 +57,13 @@ tools.write_text(text)
 route = ROOT / 'src/app/api/team/[leaderId]/route.ts'
 text = route.read_text()
 text = add_import(text, "import { OWNER_AUTHORITY_ID } from '@/lib/hierarchy-control'")
-text = text.replace(
-    "      parentConversationId: 'leader-chat',\n",
-    "      parentConversationId: 'leader-chat',\n      parentAgentId: OWNER_AUTHORITY_ID,\n      delegationAuthority: 'owner',\n",
-    1,
+text = re.sub(
+    r"parentConversationId\s*:\s*'leader-chat',\s*",
+    "parentConversationId: 'leader-chat',\n      parentAgentId: OWNER_AUTHORITY_ID,\n      delegationAuthority: 'owner',\n",
+    text,
+    count=1,
 )
-if 'OWNER_AUTHORITY_ID' not in text or "delegationAuthority: 'owner'" not in text or 'parentAgentId: OWNER_AUTHORITY_ID' not in text:
+if not all(token in text for token in ['OWNER_AUTHORITY_ID', 'parentAgentId: OWNER_AUTHORITY_ID', "delegationAuthority: 'owner'"]):
     raise RuntimeError('team route owner oversight propagation was not inserted completely')
 route.write_text(text)
 
