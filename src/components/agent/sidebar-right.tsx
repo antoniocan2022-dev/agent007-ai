@@ -59,6 +59,7 @@ export function SidebarRight() {
                     <button
                       type="button"
                       onClick={() => scrollToMessage(message.id)}
+                      title={preview}
                       className="relative h-5 w-full flex items-center justify-center rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-300/80"
                       aria-label={`Go to message ${index + 1}: ${preview}`}
                     >
