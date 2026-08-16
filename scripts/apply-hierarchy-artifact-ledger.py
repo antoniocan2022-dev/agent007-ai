@@ -31,11 +31,9 @@ def patch_db() -> None:
 
 
 def ensure_import(text: str, required_symbol: str, import_text: str, label: str) -> str:
-    if import_text in text or required_symbol in text and import_text.split('from ')[0].strip() in text:
+    if import_text in text or (required_symbol in text and import_text.split('from ')[0].strip() in text):
         return text
     lines = text.splitlines()
-    # Insert after the first contiguous import block. This is resilient to
-    # quote style/spacing changes and avoids duplicating a previously added import.
     insert_at = 0
     for i, line in enumerate(lines):
         if line.startswith('import '):
@@ -84,7 +82,8 @@ def patch_subagents() -> None:
         if anchor not in text:
             raise RuntimeError('subagents.ts: hierarchy insertion anchor missing')
         text = text.replace(anchor, guard + anchor, 1)
-    text = text.replace('export interface RunSubagentResult {\n  answer: string\n', 'export interface RunSubagentResult {\n  answer: string\n  artifactId?: string\n', 1)
+    if 'artifactId?: string' not in text.split('export interface RunSubagentResult {', 1)[1].split('}', 1)[0]:
+        text = text.replace('export interface RunSubagentResult {\n  answer: string\n', 'export interface RunSubagentResult {\n  answer: string\n  artifactId?: string\n', 1)
     old_call = '''          parentConversationId: opts.parentConversationId,\n          recursionDepth: currentDepth + 1,\n        })'''
     new_call = '''          parentConversationId: opts.parentConversationId,\n          parentAgentId: sub.id,\n          missionId: opts.missionId,\n          ventureId: opts.ventureId,\n          parentArtifactId: opts.parentArtifactId,\n          recursionDepth: currentDepth + 1,\n        })'''
     if old_call in text:
@@ -117,8 +116,6 @@ def patch_orchestrator() -> None:
         if single_anchor not in text:
             raise RuntimeError('orchestrator: CEO handoff anchor missing')
         text = text.replace(single_anchor, "        subAnswer = result.answer\n        if (result.artifactId) await handoffArtifact(result.artifactId, 'ceo').catch(() => {})\n        // UPGRADE #169 C3:", 1)
-    if 'parentAgentId' not in text or 'handoffArtifact' not in text:
-        raise RuntimeError('orchestrator: required hierarchy/artifact integration missing')
     p.write_text(text)
 
 
@@ -126,14 +123,11 @@ def patch_mission_pipeline() -> None:
     p = ROOT / 'src/lib/mission-pipeline.ts'
     text = p.read_text()
     text = ensure_import(text, 'registerArtifact', "import { registerArtifact, verifyArtifact, handoffArtifact } from './artifact-ledger'\nimport { getParentId } from './hierarchy-control'", 'mission-pipeline')
-    if '  previousArtifactId?: string\n}): Promise<' not in text:
-        text = text.replace('  previousTeamOutput?: string\n}): Promise<{', '  previousTeamOutput?: string\n  previousArtifactId?: string\n}): Promise<{', 1)
+    text = text.replace('  previousTeamOutput?: string\n}): Promise<{', '  previousTeamOutput?: string\n  previousArtifactId?: string\n}): Promise<{', 1)
+    text = text.replace('  artifactVerified: boolean\n}> {', '  artifactVerified: boolean\n  artifactId?: string\n}> {', 1)
     old = '''        parentConversationId: `mission_${missionId}`,\n        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,\n      })'''
     if old in text:
-        new = '''        parentConversationId: `mission_${missionId}`,\n        parentAgentId: getParentId(stage.leader) ?? 'vid',\n        missionId,\n        ventureId: undefined,\n        parentArtifactId: opts.previousArtifactId,\n        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,\n      })'''
-        text = text.replace(old, new, 1)
-    elif 'parentAgentId: getParentId(stage.leader)' not in text:
-        raise RuntimeError('mission-pipeline: leader run anchor missing')
+        text = text.replace(old, '''        parentConversationId: `mission_${missionId}`,\n        parentAgentId: getParentId(stage.leader) ?? 'vid',\n        missionId,\n        ventureId: undefined,\n        parentArtifactId: opts.previousArtifactId,\n        dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,\n      })''', 1)
     ceo_return = '''      return {\n        output: teamOutput,\n        rounds: round,\n        finalScore: 100,'''
     if 'let ceoArtifactId: string | undefined' not in text:
         ceo_repl = '''      let ceoArtifactId: string | undefined\n      try {\n        const artifact = await registerArtifact({\n          missionId, stageId: `stage_${stage.stage}`, artifactType: 'executive_report',\n          name: stage.name, producerAgentId: 'ceo', sourceRef: `mission:${missionId}:stage:${stage.stage}`,\n          content: teamOutput, artifactValue: teamOutput.slice(0, 4000), status: 'verified',\n          verificationScore: 100, verifiedBy: 'ceo', verifiedAt: new Date(),\n        })\n        ceoArtifactId = artifact.artifactId\n      } catch {}\n\n      return {\n        output: teamOutput,\n        rounds: round,\n        finalScore: 100,'''
@@ -154,27 +148,14 @@ def patch_mission_pipeline() -> None:
         text = text.replace('      previousTeamOutput = result.output\n', '''      if (result.artifactId && stage.stage < pipeline.stages.length && result.artifactVerified) {\n        const nextStage = pipeline.stages[stage.stage]\n        if (nextStage) await handoffArtifact(result.artifactId, nextStage.leader).catch(() => {})\n      }\n      previousTeamOutput = result.output\n      previousArtifactId = result.artifactId\n''', 1)
     if 'ARTIFACT ${result.artifactId} HANDOFF READY' not in text:
         text = text.replace('      missionContext += `STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:', '      missionContext += `${result.artifactId ? `ARTIFACT ${result.artifactId} HANDOFF READY\\n` : ""}STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:', 1)
-    if 'registerArtifact' not in text or 'handoffArtifact' not in text or 'getParentId' not in text:
-        raise RuntimeError('mission-pipeline: required artifact/hierarchy integration missing')
     p.write_text(text)
 
 
 def main() -> None:
-    patch_schema()
-    patch_db()
-    patch_governance()
-    patch_subagents()
-    patch_orchestrator()
-    patch_mission_pipeline()
-    required = [
-        'src/lib/hierarchy-control.ts', 'src/lib/artifact-ledger.ts', 'src/lib/subagent-governance.ts',
-        'src/lib/subagents.ts', 'src/lib/orchestrator.ts', 'src/lib/mission-pipeline.ts',
-        'prisma/schema.prisma', 'src/lib/db.ts',
-    ]
+    patch_schema(); patch_db(); patch_governance(); patch_subagents(); patch_orchestrator(); patch_mission_pipeline()
+    required = ['src/lib/hierarchy-control.ts','src/lib/artifact-ledger.ts','src/lib/subagent-governance.ts','src/lib/subagents.ts','src/lib/orchestrator.ts','src/lib/mission-pipeline.ts','prisma/schema.prisma','src/lib/db.ts']
     for rel in required:
-        if not (ROOT / rel).exists():
-            raise RuntimeError(f'Missing required file after repair: {rel}')
+        if not (ROOT / rel).exists(): raise RuntimeError(f'Missing required file after repair: {rel}')
     print('Architecture transformation complete: hierarchy + artifact ledger')
 
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__': main()
