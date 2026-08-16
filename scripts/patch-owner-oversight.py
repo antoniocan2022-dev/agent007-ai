@@ -57,6 +57,9 @@ tools.write_text(text)
 team_route = ROOT / 'src/app/api/team/[leaderId]/route.ts'
 team_text = team_route.read_text()
 team_text = add_import(team_text, "import { OWNER_AUTHORITY_ID } from '@/lib/hierarchy-control'")
+# Canonicalize the owner-controlled dispatch metadata before inserting it exactly once.
+team_text = re.sub(r"\n\s*parentAgentId:\s*OWNER_AUTHORITY_ID,", "", team_text)
+team_text = re.sub(r"\n\s*delegationAuthority:\s*'owner',", "", team_text)
 team_text = re.sub(
     r"parentConversationId\s*:\s*'leader-chat',\s*",
     "parentConversationId: 'leader-chat',\n      parentAgentId: OWNER_AUTHORITY_ID,\n      delegationAuthority: 'owner',\n",
@@ -81,15 +84,15 @@ if 'appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName,
     raise RuntimeError('mission leader response still uses an invalid role value')
 mission_route.write_text(mission_text)
 
-# Final postconditions must inspect the actual persisted files, catching accidental cross-file writes.
+# Final postconditions must inspect the actual persisted files, catching accidental cross-file writes or duplicates.
 final_team = team_route.read_text()
 final_mission = mission_route.read_text()
 assert 'OWNER_AUTHORITY_ID' in final_team
-assert 'parentAgentId: OWNER_AUTHORITY_ID' in final_team
-assert "delegationAuthority: 'owner'" in final_team
+assert final_team.count('parentAgentId: OWNER_AUTHORITY_ID') == 1
+assert final_team.count("delegationAuthority: 'owner'") == 1
 assert 'getParentId' in final_mission
 assert "parentAgentId: getParentId(sub.id) ?? 'vid'" in final_mission
 assert "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in final_mission
 assert "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in final_mission
 
-print('Owner oversight authority propagated idempotently; mission leader response roles normalized; cross-route overwrite guard: PASS.')
+print('Owner oversight authority propagated idempotently; mission leader response roles normalized; cross-route and duplicate-field guards: PASS.')
