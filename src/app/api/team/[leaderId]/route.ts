@@ -16,6 +16,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { runSubagent, getAllSubagents } from '@/lib/subagents'
+import { OWNER_AUTHORITY_ID } from '@/lib/hierarchy-control'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -115,7 +116,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ lea
 
   const pod = POD_STRUCTURE[leaderId]
 
-  // Dispatch to the leader subagent
+  // Owner oversight is a first-class authority above the agent hierarchy.
+  // It is explicit, auditable, and cannot be mistaken for CEO delegation.
   try {
     const allSubs = await getAllSubagents({ includeDisabled: false })
     const sub = allSubs.find((s: any) =>
@@ -137,6 +139,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ lea
       language: 'en',
       emit: async () => {},
       parentConversationId: 'leader-chat',
+      parentAgentId: OWNER_AUTHORITY_ID,
+      delegationAuthority: 'owner',
     })
 
     return NextResponse.json({
