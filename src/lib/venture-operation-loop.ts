@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { db } from './db'
 import { acquireAutonomyLease, heartbeatAutonomyLease, type AutonomyMode, type ReadinessStatus, evaluateVentureReadiness } from './venture-autonomy-control'
 import { calculateOperationalKpis, persistOperationalKpiSnapshot, type OperationalKpiSnapshot } from './operational-kpi-engine'
+import { assertDelegationAllowed } from './architecture-control-plane'
 
 export interface VentureOperationCycle {
   cycleId: string
@@ -29,6 +30,11 @@ function cycleId(ventureId: string) {
 
 export async function runVentureOperationCycle(ventureId = 'venture_001', owner = 'agent007'): Promise<VentureOperationCycle> {
   const findings: string[] = []
+  // The runtime operation loop is a CEO-owned control action. Its internal
+  // operational handoff is explicitly CEO → VID → PULSE; no hierarchy bypass.
+  assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: owner })
+  assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'pulse', targetLevel: 'LEADER', delegatedBy: 'agent007' })
+
   const readiness = await evaluateVentureReadiness(ventureId)
   const mode: AutonomyMode = readiness.status === 'READY' ? 'AUTONOMOUS' : 'SUPERVISED'
   const lease = await acquireAutonomyLease(ventureId, mode, owner)
