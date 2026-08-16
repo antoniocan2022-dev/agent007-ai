@@ -28,7 +28,7 @@ jobs:
       - name: Prepare generated paths
         run: mkdir -p src/app/api/system/canonical-state
       - name: Apply coherence repairs
-        run: python3 scripts/apply-coherence-fixes.py
+        run: python3 scripts/run-coherence-repair.py
       - name: Final coherence pass
         run: python3 scripts/final-coherence-pass.py
       - name: Normalize provider registries for expanded ProviderId universe
@@ -86,37 +86,30 @@ jobs:
           rm -f tsconfig.coherence.json
       - name: Provider Intelligence pure selection tests
         run: |
-          cat > /tmp/provider-intelligence-check.ts <<'TS'
-          import { PROVIDER_PRIORITY, CORE_PROVIDER_PRIORITY, SECONDARY_PROVIDER_PRIORITY } from process.cwd() + '/src/lib/provider-intelligence-policy.ts'
-          import { getConfiguredProviders, selectProvidersForTask } from process.cwd() + '/src/lib/provider-runtime-v2.ts'
+          cat > provider-intelligence-check.ts <<'TS'
+          import { PROVIDER_PRIORITY, CORE_PROVIDER_PRIORITY, SECONDARY_PROVIDER_PRIORITY } from './src/lib/provider-intelligence-policy'
+          import { getConfiguredProviders, selectProvidersForTask } from './src/lib/provider-runtime-v2'
           const expected = ['groq','openai','zai','mistral','openrouter','gemini','brave','cerebras']
           for (const [i, value] of expected.entries()) { if (PROVIDER_PRIORITY[i] !== value) throw new Error(`priority drift at ${i}`) }
           if (CORE_PROVIDER_PRIORITY.join('|') !== 'groq|openai|zai|mistral') throw new Error('core priority drift')
           if (SECONDARY_PROVIDER_PRIORITY.join('|') !== 'openrouter|gemini|brave|cerebras') throw new Error('secondary priority drift')
-          for (const provider of expected) process.env[{groq:'GROQ_API_KEY',openai:'OPENAI_API_KEY',zai:'ZAI_API_KEY',mistral:'MISTRAL_API_KEY',openrouter:'OPENROUTER_API_KEY',gemini:'GEMINI_API_KEY',brave:'BRAVE_API_KEY',cerebras:'CEREBRAS_API_KEY'}[provider]!] = 'test'
+          const env = {groq:'GROQ_API_KEY',openai:'OPENAI_API_KEY',zai:'ZAI_API_KEY',mistral:'MISTRAL_API_KEY',openrouter:'OPENROUTER_API_KEY',gemini:'GEMINI_API_KEY',brave:'BRAVE_API_KEY',cerebras:'CEREBRAS_API_KEY'} as const
+          for (const provider of expected) process.env[env[provider as keyof typeof env]] = 'test'
           const configured = getConfiguredProviders()
           if (configured.length !== 8) throw new Error(`expected 8 configured providers, got ${configured.length}`)
           const tasks = ['general','research','coding','creative','financial','security','operations','analysis'] as const
           for (const task of tasks) { const selected = selectProvidersForTask(task); if (selected.length < 2 || selected.length > 4) throw new Error(`${task}: parallel selection size ${selected.length}`) }
           console.log('Provider Intelligence 2.0 pure selection tests: PASS')
           TS
-          bun /tmp/provider-intelligence-check.ts
+          bun provider-intelligence-check.ts
+          rm -f provider-intelligence-check.ts
       - name: Coherence invariants
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
           root = Path('.')
-          required = [
-            'src/lib/canonical-organizational-state.ts',
-            'src/lib/provider-runtime-v2.ts',
-            'src/lib/provider-intelligence-policy.ts',
-            'src/lib/subagent-governance.ts',
-            'src/lib/subagent-max-performance.ts',
-            'src/lib/model-intelligence.ts',
-            'src/app/api/system/canonical-state/route.ts',
-            'src/app/api/system/evolution/route.ts',
-          ]
+          required = ['src/lib/canonical-organizational-state.ts','src/lib/provider-runtime-v2.ts','src/lib/provider-intelligence-policy.ts','src/lib/subagent-governance.ts','src/lib/subagent-max-performance.ts','src/lib/model-intelligence.ts','src/app/api/system/canonical-state/route.ts','src/app/api/system/evolution/route.ts']
           missing = [p for p in required if not (root / p).exists()]
           assert not missing, f'Missing required files: {missing}'
           policy = (root / 'src/lib/provider-intelligence-policy.ts').read_text()
