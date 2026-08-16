@@ -34,6 +34,27 @@ jobs:
           python3 scripts/patch-autonomy-tools-hierarchy.py
           python3 scripts/patch-owner-oversight.py
 
+      - name: Verify transformed control-plane sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          team = Path('src/app/api/team/[leaderId]/route.ts').read_text()
+          active = Path('src/app/api/mission-active/[missionId]/route.ts').read_text()
+          print('TEAM owner marker:', 'OWNER_AUTHORITY_ID' in team)
+          print('TEAM owner mode:', "delegationAuthority: 'owner'" in team)
+          print('TEAM parent marker:', 'parentAgentId: OWNER_AUTHORITY_ID' in team)
+          print('ACTIVE parent helper:', 'getParentId' in active)
+          print('ACTIVE parent propagation:', "parentAgentId: getParentId(sub.id) ?? 'vid'" in active)
+          if not all([
+              'OWNER_AUTHORITY_ID' in team,
+              "delegationAuthority: 'owner'" in team,
+              'parentAgentId: OWNER_AUTHORITY_ID' in team,
+              'getParentId' in active,
+              "parentAgentId: getParentId(sub.id) ?? 'vid'" in active,
+          ]):
+              raise SystemExit('Control-plane transformation did not materialize all required authority markers.')
+          PY
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -155,18 +176,19 @@ jobs:
           assert 'parentAgentId?: string' in tools
 
           active_route = (root / 'src/app/api/mission-active/[missionId]/route.ts').read_text()
-          assert 'getParentId' in active_route
-          assert "parentAgentId: getParentId(sub.id) ?? 'vid'" in active_route
-          assert "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in active_route
-          assert "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in active_route
+          assert 'getParentId' in active_route, 'ACTIVE_ROUTE missing getParentId'
+          assert "parentAgentId: getParentId(sub.id) ?? 'vid'" in active_route, 'ACTIVE_ROUTE missing governed parent propagation'
+          assert "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in active_route, 'ACTIVE_ROUTE invalid DB leader role'
+          assert "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in active_route, 'ACTIVE_ROUTE invalid memory leader role'
 
           team_route = (root / 'src/app/api/team/[leaderId]/route.ts').read_text()
-          assert 'OWNER_AUTHORITY_ID' in team_route
-          assert "delegationAuthority: 'owner'" in team_route
+          assert 'OWNER_AUTHORITY_ID' in team_route, 'TEAM_ROUTE missing owner authority id'
+          assert "parentAgentId: OWNER_AUTHORITY_ID" in team_route, 'TEAM_ROUTE missing owner parent propagation'
+          assert "delegationAuthority: 'owner'" in team_route, 'TEAM_ROUTE missing owner delegation mode'
 
           src_names = [p.name for p in (root / 'src/lib').iterdir() if p.is_file()]
-          assert src_names.count('hierarchy-control.ts') == 1
-          assert src_names.count('artifact-ledger.ts') == 1
+          assert src_names.count('hierarchy-control.ts') == 1, 'Duplicate hierarchy-control.ts'
+          assert src_names.count('artifact-ledger.ts') == 1, 'Duplicate artifact-ledger.ts'
           assert not list(root.rglob('*.pyc')), 'Generated Python bytecode must not be committed.'
 
           production_files = [p for p in root.glob('src/**/*.ts') if p.is_file() and not p.name.endswith('.test.ts')]
