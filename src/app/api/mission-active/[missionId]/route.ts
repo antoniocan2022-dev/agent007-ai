@@ -20,6 +20,7 @@ import {
   getLeaderForCurrentStageDB,
 } from '@/lib/active-missions-db'
 import { runSubagent, getAllSubagents } from '@/lib/subagents'
+import { getParentId } from '@/lib/hierarchy-control'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -199,6 +200,8 @@ Be concise (max 300 words) and actionable. Do NOT call any tools — just give a
       language: 'en',
       emit: async () => {},
       parentConversationId: `mission_${missionId}`,
+      parentAgentId: getParentId(leaderInfo.leaderId) ?? 'vid',
+      missionId,
     })
     return result.answer || `[${leaderInfo!.leaderName} returned no response]`
   })()
@@ -238,20 +241,15 @@ Your message has been logged to the audit trail. Once a provider is configured, 
   // UPGRADE #143 — Persist the leader's response to DB (survives cold starts!)
   // Only persist if it's a REAL leader response, not a system timeout/error notice.
   if (!isSystemNotice) {
-    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse).catch(() => {})
-    appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)
-  } else {
-    // Log system notices to the audit log instead of the leader thread
-    console.warn(`[mission-active/${missionId}] Leader dispatch notice: ${leaderResponse.slice(0, 150)}`)
+    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse).catch(() => {})
+    appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)
   }
 
-  // Return the full updated mission so the UI can re-render
-  const updated = await getActiveMissionDB(missionId).catch(() => null) ?? getActiveMission(missionId)
   return NextResponse.json({
-    ok: true,
-    mission: updated,
-    leaderResponse,
-    isSystemNotice,  // UPGRADE #146 — UI can render notices differently
+    ok: !isSystemNotice,
+    response: leaderResponse,
+    leader: leaderInfo,
+    missionId,
+    systemNotice: isSystemNotice,
   })
 }
-
