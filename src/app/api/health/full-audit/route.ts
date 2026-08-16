@@ -26,7 +26,7 @@ interface Check {
 }
 
 function mask(key: string | undefined): string {
-  return key ? `(configured, len=${key.length})` : '(not set)'
+  return key ? '(configured)' : '(not set)'
 }
 
 async function ping(url: string, opts: RequestInit = {}, timeoutMs = 8000): Promise<{ ok: boolean; status: number; body: string }> {
