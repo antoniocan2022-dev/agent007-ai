@@ -59,8 +59,7 @@ export function authorityLevelFor(id: string): AuthorityLevel {
 /**
  * Enforce the enterprise chain of command.
  * CEO may only delegate to VID; VID may delegate to leaders; leaders may
- * delegate to specialists/tools. A caller may also act on a request that was
- * explicitly delegated by its parent, represented by delegatedBy.
+ * delegate to specialists/tools.
  */
 export function assertDelegationAllowed(request: DelegationRequest): void {
   const actor = normalizeId(request.actorId)
@@ -173,7 +172,7 @@ export async function registerArtifact(input: Omit<ArtifactRecord, 'artifactId' 
     createdAt: input.createdAt ?? new Date().toISOString(),
     supersedes: input.supersedes ?? null,
   }
-  await db.memory.create({ key, value: JSON.stringify(record), category: 'architecture_artifact' })
+  await db.memory.create({ data: { key, value: JSON.stringify(record), category: 'architecture_artifact' } })
   const event: ArtifactLedgerEvent = {
     eventId: artifactEventKey(artifactId),
     artifactId,
@@ -181,7 +180,7 @@ export async function registerArtifact(input: Omit<ArtifactRecord, 'artifactId' 
     actor: input.producer,
     timestamp: record.createdAt,
   }
-  await db.memory.create({ key: event.eventId, value: JSON.stringify(event), category: 'architecture_artifact_event' })
+  await db.memory.create({ data: { key: event.eventId, value: JSON.stringify(event), category: 'architecture_artifact_event' } })
   return record
 }
 
@@ -202,7 +201,7 @@ export async function verifyArtifact(artifactId: string, actor: string, source: 
     timestamp: record.verifiedAt,
     metadata: { source },
   }
-  await db.memory.create({ key: event.eventId, value: JSON.stringify(event), category: 'architecture_artifact_event' })
+  await db.memory.create({ data: { key: event.eventId, value: JSON.stringify(event), category: 'architecture_artifact_event' } })
   return record
 }
 
@@ -274,8 +273,17 @@ export async function recordBusinessOutcome(input: Omit<BusinessOutcomeRecord, '
   const key = outcomeKey(outcomeId)
   const existing = await db.memory.findUnique({ where: { key } })
   if (existing) return JSON.parse(existing.value) as BusinessOutcomeRecord
-  const record: BusinessOutcomeRecord = { ...input, outcomeId, missionId: input.missionId ?? null, transactionId: input.transactionId ?? null, customerId: input.customerId ?? null, amount: input.amount ?? null, currency: input.currency ?? null, metadata: input.metadata ?? {} }
-  await db.memory.create({ key, value: JSON.stringify(record), category: 'architecture_business_outcome' })
+  const record: BusinessOutcomeRecord = {
+    ...input,
+    outcomeId,
+    missionId: input.missionId ?? null,
+    transactionId: input.transactionId ?? null,
+    customerId: input.customerId ?? null,
+    amount: input.amount ?? null,
+    currency: input.currency ?? null,
+    metadata: input.metadata ?? {},
+  }
+  await db.memory.create({ data: { key, value: JSON.stringify(record), category: 'architecture_business_outcome' } })
   return record
 }
 
@@ -324,7 +332,7 @@ export async function ensureVentureControlContract(ventureId: string): Promise<V
   if (ventureId !== 'venture_001') throw new Error(`No canonical Venture Control Contract exists for ${ventureId}. Create one before execution.`)
   const now = new Date().toISOString()
   const contract: VentureControlContract = { ...VENTURE_001_CONTRACT, createdAt: now, updatedAt: now }
-  await db.memory.create({ key, value: JSON.stringify(contract), category: 'venture_control_contract' })
+  await db.memory.create({ data: { key, value: JSON.stringify(contract), category: 'venture_control_contract' } })
   return contract
 }
 
