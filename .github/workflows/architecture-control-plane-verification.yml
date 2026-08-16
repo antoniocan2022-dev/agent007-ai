@@ -42,7 +42,7 @@ jobs:
 
       - name: Repository diff hygiene
         run: |
-          git diff --check HEAD~1..HEAD
+          git diff --check
           test -z "$(git status --porcelain)"
 
       - name: Control-plane source assertions
