@@ -31,6 +31,8 @@ export interface ToolContext {
   // need to log per-conversation context (e.g. multi-search-comparison).
   // Was passed before by some callers but not declared in the interface.
   conversationId?: string
+  /** Immediate governed parent for delegated subagent work. */
+  parentAgentId?: string
 }
 
 export interface ToolResult {

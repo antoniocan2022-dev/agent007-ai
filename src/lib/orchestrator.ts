@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { internalUrl } from "./internal-url"
 import { runSystemAudit, getCapabilities, getManifest, testCommunication, runSelfHeal } from "./system-functions"
 import { verifyToolAction } from "./tool-action-verification"
+import { handoffArtifact } from './artifact-ledger'
 
 // Helper: fetch internal URL with better error handling for Vercel
 async function internalFetch(url: string, options?: any): Promise<any> {
@@ -1372,6 +1373,8 @@ The system is working correctly — the keys just need to be refreshed.`
               subagentId: sub.id, task: d.task, dispatchId,
               attachments, language, emit,
               parentConversationId: conversationId,
+              parentAgentId: 'ceo',
+
             })
             return { id: sub.id, name: sub.name, answer: result.answer }
           })
@@ -1501,6 +1504,8 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
         const result = await runSubagent({
           subagentId: sub.id,
           task: enhancedTask,
+          parentAgentId: 'ceo',
+
           attachments,
           language,
           parentConversationId: conversationId,
@@ -1513,6 +1518,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
           },
         })
         subAnswer = result.answer
+        if (result.artifactId) await handoffArtifact(result.artifactId, 'ceo').catch(() => {})
         // UPGRADE #169 C3: Capture the subagent's OWN steps so the
         // tool_boundary_audit below audits the subagent's tools, not the
         // super-agent's steps. Before this fix, the audit used `steps`

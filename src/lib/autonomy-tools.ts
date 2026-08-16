@@ -1756,7 +1756,7 @@ export async function toolParallelSubagentDispatcher(args: any, ctx?: any): Prom
       const r = await runSubagent({
         subagentId: d.id, task: d.task, dispatchId: `par_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         attachments: ctx?.attachments ?? [], language: ctx?.language ?? 'en',
-        emit: ctx?.emit ?? (async () => {}), parentConversationId: ctx?.conversationId ?? 'parallel',
+        emit: ctx?.emit ?? (async () => {}), parentConversationId: ctx?.conversationId ?? 'parallel', parentAgentId: ctx?.parentAgentId ?? 'vid',
       })
       return { id: d.id, name: d.name, task: d.task, answer: r.answer }
     })

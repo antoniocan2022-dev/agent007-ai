@@ -121,6 +121,7 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
         language: 'en',
         emit: async () => {},
         parentConversationId: 'mission',
+        parentAgentId: 'vid',
       })
       actions.push(`Scout: DISPATCHED — found opportunities: ${scoutResult.answer.slice(0, 200)}`)
       // Store the opportunity in mission state
@@ -146,6 +147,7 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
         language: 'en',
         emit: async () => {},
         parentConversationId: 'mission',
+        parentAgentId: 'vid',
       })
       actions.push(`Aurora: DISPATCHED — created monetization strategy: ${auroraResult.answer.slice(0, 200)}`)
     } catch (e: any) {
@@ -195,6 +197,7 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
           language: 'en',
           emit: async () => {},
           parentConversationId: 'mission',
+        parentAgentId: 'vid',
         })
         actions.push(`🔄 STRATEGY PIVOT: QUANTUM dispatched — ${pivotResult.answer.slice(0, 200)}`)
 
@@ -1675,6 +1678,7 @@ export async function toolOfflineAutonomyEngine(args: any): Promise<ToolResult> 
           language: 'en',
           emit: async () => {},
           parentConversationId: 'offline',
+          parentAgentId: 'vid',
         })
         task.result = result.answer.slice(0, 2000)
         task.status = 'completed'

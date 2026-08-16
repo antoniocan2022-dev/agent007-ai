@@ -32,6 +32,8 @@ import {
   notifyOwnerApprovalRequired,
 } from './mission-notifier'
 import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
+import { registerArtifact, verifyArtifact, handoffArtifact } from './artifact-ledger'
+import { getParentId } from './hierarchy-control'
 
 // ──────────────────────────────────────────────────────────────────
 // PIPELINE DEFINITIONS
@@ -275,6 +277,7 @@ async function runTeamWithVerificationLoop(opts: {
   objective: string
   missionContext: string
   previousTeamOutput?: string
+  previousArtifactId?: string
 }): Promise<{
   output: string
   rounds: number
@@ -282,6 +285,7 @@ async function runTeamWithVerificationLoop(opts: {
   finalVerification: VerificationResult
   artifactValue: string | null
   artifactVerified: boolean
+  artifactId?: string
 }> {
   const { missionId, stage, objective, missionContext, previousTeamOutput } = opts
   let currentPrompt = stage.promptTemplate(objective)
@@ -373,6 +377,10 @@ RULES:
         language: 'en',
         emit: async () => {},  // silent — pipeline runs in background
         parentConversationId: `mission_${missionId}`,
+        parentAgentId: getParentId(stage.leader) ?? 'vid',
+        missionId,
+        ventureId: undefined,
+        parentArtifactId: opts.previousArtifactId,
         dispatchId: `pipeline_${missionId}_stage${stage.stage}_round${round}`,
       })
       teamOutput = result.answer
@@ -390,6 +398,17 @@ RULES:
         feedback: teamOutput.slice(0, 500),
         score: 100,
       })
+      let ceoArtifactId: string | undefined
+      try {
+        const artifact = await registerArtifact({
+          missionId, stageId: `stage_${stage.stage}`, artifactType: 'executive_report',
+          name: stage.name, producerAgentId: 'ceo', sourceRef: `mission:${missionId}:stage:${stage.stage}`,
+          content: teamOutput, artifactValue: teamOutput.slice(0, 4000), status: 'verified',
+          verificationScore: 100, verifiedBy: 'ceo', verifiedAt: new Date(),
+        })
+        ceoArtifactId = artifact.artifactId
+      } catch {}
+
       return {
         output: teamOutput,
         rounds: round,
@@ -405,6 +424,7 @@ RULES:
         },
         artifactValue: null,
         artifactVerified: true,
+        artifactId: ceoArtifactId,
       }
     }
 
@@ -480,6 +500,18 @@ RULES:
   // ── Extract artifact from team output (best-effort)
   const artifactValue = extractArtifact(teamOutput, stage.artifactType)
   const artifactVerified = artifactValue !== null && lastVerification?.approved === true
+  let artifactId: string | undefined
+  try {
+    const artifact = await registerArtifact({
+      missionId, stageId: `stage_${stage.stage}`, artifactType: stage.artifactType,
+      name: stage.name, producerAgentId: stage.leader, sourceRef: `mission:${missionId}:stage:${stage.stage}:round:${lastRound}`,
+      artifactValue, content: teamOutput, status: lastVerification?.approved ? 'verified' : 'rejected',
+      verificationScore: lastVerification?.score ?? 0, verifiedBy: 'super_agent',
+      verifiedAt: lastVerification ? new Date() : undefined, metadata: { round: lastRound },
+    })
+    artifactId = artifact.artifactId
+    if (artifactVerified) await verifyArtifact(artifactId, lastVerification?.score ?? 0, 'super_agent', 'verified')
+  } catch {}
 
   // UPGRADE #146 (Warning fix) — `rounds` should report the ACTUAL round count,
   // not "1 if approved, MAX if not". The previous logic reported 1 even when
@@ -502,6 +534,7 @@ RULES:
     },
     artifactValue,
     artifactVerified,
+    artifactId,
   }
 }
 
@@ -643,6 +676,7 @@ export async function runMissionPipeline(opts: {
   // Build mission context (grows as stages complete)
   let missionContext = `MISSION OBJECTIVE: ${objective}\n\n`
   let previousTeamOutput: string | undefined
+  let previousArtifactId: string | undefined
 
   // ── Run each stage sequentially
   // UPGRADE #147 (Rec A — Resume) — Load the audit log ONCE at the start so we
@@ -748,6 +782,7 @@ export async function runMissionPipeline(opts: {
         objective,
         missionContext,
         previousTeamOutput,
+        previousArtifactId,
       })
 
       const stageSummary: MissionStageSummary = {
@@ -800,8 +835,13 @@ export async function runMissionPipeline(opts: {
       } catch {}
 
       // Update mission context with this stage's output
-      missionContext += `STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:\n${result.output.slice(0, 3000)}\n\nFINAL SCORE: ${result.finalScore}/100\nVERDICT: ${result.finalVerification.verdict}\n\n---\n\n`
+      missionContext += `${result.artifactId ? `ARTIFACT ${result.artifactId} HANDOFF READY\n` : ""}STAGE ${stage.stage} (${stage.team}/${stage.leader}) OUTPUT:\n${result.output.slice(0, 3000)}\n\nFINAL SCORE: ${result.finalScore}/100\nVERDICT: ${result.finalVerification.verdict}\n\n---\n\n`
+      if (result.artifactId && stage.stage < pipeline.stages.length && result.artifactVerified) {
+        const nextStage = pipeline.stages[stage.stage]
+        if (nextStage) await handoffArtifact(result.artifactId, nextStage.leader).catch(() => {})
+      }
       previousTeamOutput = result.output
+      previousArtifactId = result.artifactId
 
       // If stage is the CEO (final), capture the report
       if (stage.team === 'ceo') {

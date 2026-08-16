@@ -141,7 +141,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ lea
       parentConversationId: 'leader-chat',
       parentAgentId: OWNER_AUTHORITY_ID,
       delegationAuthority: 'owner',
-    })
+})
 
     return NextResponse.json({
       ok: true,

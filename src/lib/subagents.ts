@@ -2,6 +2,8 @@ import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
 import { parseAssistant, callLlmWithRetry, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
 import { SHARED_MAX_PERFORMANCE_PROTOCOL } from '@/lib/subagent-max-performance'
+import { assertDelegationAllowed, type DelegationAuthority } from './hierarchy-control'
+import { registerArtifact, handoffArtifact } from './artifact-ledger'
 
 /* ------------------------------------------------------------------ *
  * Sub-agent registry — 20 specialists (12 built-in + 8 custom) orchestrated by Agent007 (Super)
@@ -2153,6 +2155,11 @@ export interface RunSubagentOptions {
   // reactivated the recursive dispatch block that was previously dead
   // code due to the missing Parsed.dispatch field).
   recursionDepth?: number
+  parentAgentId?: string
+  delegationAuthority?: DelegationAuthority
+  missionId?: string
+  ventureId?: string
+  parentArtifactId?: string
 }
 
 // UPGRADE #170 fix: Hard cap on hierarchical recursion. 3 levels:
@@ -2166,6 +2173,7 @@ const MAX_RECURSION_DEPTH = 3
 
 export interface RunSubagentResult {
   answer: string
+  artifactId?: string
   steps: Array<{
     id: string
     thought?: string
@@ -2232,6 +2240,15 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   }
   if (sub.enabled === false) {
     const err = `Sub-agent "${sub.name}" is currently disabled. Re-enable it in Settings → Sub-Agents.`
+    await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
+    return { answer: `⚠️ ${err}`, steps: [] }
+  }
+
+  const parentAgentId = opts.parentAgentId ?? 'ceo'
+  try {
+    assertDelegationAllowed(parentAgentId, sub.id, true, opts.delegationAuthority ?? 'agent')
+  } catch (hierarchyError: any) {
+    const err = hierarchyError?.message ?? 'Delegation blocked by hierarchy policy.'
     await opts.emit('subagent_complete', { dispatchId: opts.dispatchId, answer: `⚠️ ${err}` })
     return { answer: `⚠️ ${err}`, steps: [] }
   }
@@ -2448,8 +2465,15 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
           language: opts.language,
           emit: opts.emit,
           parentConversationId: opts.parentConversationId,
+          parentAgentId: sub.id,
+          missionId: opts.missionId,
+          ventureId: opts.ventureId,
+          parentArtifactId: opts.parentArtifactId,
           recursionDepth: currentDepth + 1,
         })
+        if (specialistResult.artifactId) {
+          await handoffArtifact(specialistResult.artifactId, sub.id).catch(() => {})
+        }
         // Feed the specialist's result back to the leader
         conversationMessages.push({ role: 'assistant', content })
         conversationMessages.push({
@@ -2735,7 +2759,27 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     /* non-fatal — learning is best-effort */
   }
 
-  return { answer: finalAnswer, steps }
+  let artifactId: string | undefined
+  try {
+    const artifact = await registerArtifact({
+      missionId: opts.missionId,
+      ventureId: opts.ventureId,
+      parentArtifactId: opts.parentArtifactId,
+      stageId: opts.dispatchId,
+      artifactType: 'subagent_result',
+      name: `${sub.name} result`,
+      producerAgentId: sub.id,
+      sourceRef: `dispatch:${opts.dispatchId}`,
+      content: finalAnswer,
+      artifactValue: finalAnswer.slice(0, 4000),
+      status: 'submitted',
+    })
+    artifactId = artifact.artifactId
+  } catch (artifactError: any) {
+    console.warn('[artifact-ledger] subagent result registration failed:', artifactError?.message)
+  }
+
+  return { answer: finalAnswer, steps, artifactId }
 }
 
 /* For client-side reference: the full list with safe serializable fields */

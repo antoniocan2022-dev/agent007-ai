@@ -676,3 +676,35 @@ model SentimentLog {
   @@index([userId])
   @@index([source])
 }
+
+
+model ArtifactLedger {
+  id                String    @id @default(cuid())
+  artifactId        String    @unique
+  missionId         String?
+  ventureId         String?
+  parentArtifactId  String?
+  stageId           String?
+  artifactType      String
+  name              String
+  version           Int       @default(1)
+  status            String    @default("submitted")
+  producerAgentId   String
+  consumerAgentId   String?
+  sourceRef         String?
+  artifactValue     String?
+  contentHash       String
+  verificationScore Float?
+  verifiedBy        String?
+  verifiedAt        DateTime?
+  metadata          String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([missionId])
+  @@index([ventureId])
+  @@index([parentArtifactId])
+  @@index([producerAgentId])
+  @@index([consumerAgentId])
+  @@index([status])
+}
