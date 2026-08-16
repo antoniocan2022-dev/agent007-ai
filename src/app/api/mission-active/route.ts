@@ -4,14 +4,18 @@
  *
  * GET  /api/mission-active                       — list all active missions
  * POST /api/mission-active                       — create new mission { title, description, revenueTarget, priority, category }
- * POST /api/mission-active?action=advance        — advance a mission to next stage { missionId } (BLOCKED if artifact not verified)
+ * POST /api/mission-active?action=advance        — advance a mission to next stage (formal state-machine gate)
  * POST /api/mission-active?action=approve        — owner approves mission { missionId }
- * POST /api/mission-active?action=set-artifact   — set artifact for current stage { missionId, artifactValue }
- * POST /api/mission-active?action=verify-artifact — verify artifact for current stage { missionId }
+ * POST /api/mission-active?action=set-artifact   — set artifact for current stage { missionId, artifactValue, ventureId? }
+ * POST /api/mission-active?action=verify-artifact — verify artifact for current stage { missionId, ventureId? }
  *
  * UPGRADE #143 — All reads/writes now go through DB-persisted store
  * (active-missions-db.ts). Previously used in-memory store which lost
  * leader messages on every Vercel cold start.
+ *
+ * Architecture changes 6–7 integration:
+ * - every artifact write is mirrored into the canonical Artifact Ledger
+ * - DB-backed stage advancement is guarded by the formal Mission State Machine
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -21,6 +25,7 @@ import {
   advanceMissionStage,
   setStageArtifact,
   approveMission,
+  STAGE_ORDER,
 } from '@/lib/active-missions'
 import {
   listActiveMissionsDB,
@@ -29,11 +34,17 @@ import {
   saveActiveMissionDB,
 } from '@/lib/active-missions-db'
 import { verifyStageArtifact } from '@/lib/active-missions'
+import {
+  assertMissionTransition,
+  buildArtifactId,
+  registerArtifact,
+  verifyArtifact,
+} from '@/lib/architecture-control-plane'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   // UPGRADE #143 — Try DB first; fall back to in-memory seeds for first-run UX.
   try {
     const dbMissions = await listActiveMissionsDB()
@@ -43,13 +54,11 @@ export async function GET(req: NextRequest) {
   } catch (e: any) {
     console.warn('[mission-active GET] DB list failed, falling back to in-memory:', e?.message?.slice(0, 80))
   }
-  // First-run fallback: in-memory seeds (these will be persisted on next create)
   const missions = listActiveMissions()
   return NextResponse.json({ ok: true, count: missions.length, missions })
 }
 
 export async function POST(req: NextRequest) {
-  // Auth: only owner can create / advance / approve
   const session = await getServerSession()
   if (!session?.user) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
@@ -63,7 +72,6 @@ export async function POST(req: NextRequest) {
     if (!body.title || !body.description) {
       return NextResponse.json({ ok: false, error: 'title and description required' }, { status: 400 })
     }
-    // UPGRADE #143 — Create in DB (persists across cold starts)
     const dbMission = await createActiveMissionDB({
       title: body.title,
       description: body.description,
@@ -71,10 +79,8 @@ export async function POST(req: NextRequest) {
       priority: body.priority,
       category: body.category,
     }).catch(() => null)
-    if (dbMission) {
-      return NextResponse.json({ ok: true, mission: dbMission })
-    }
-    // Fallback to in-memory if DB write fails
+    if (dbMission) return NextResponse.json({ ok: true, mission: dbMission })
+
     const mission = createActiveMission({
       title: body.title,
       description: body.description,
@@ -89,13 +95,8 @@ export async function POST(req: NextRequest) {
     if (!body.missionId) {
       return NextResponse.json({ ok: false, error: 'missionId required' }, { status: 400 })
     }
-    // UPGRADE #143 — Load from DB, advance via in-memory logic, save back
     const dbMission = await getActiveMissionDB(body.missionId)
     if (dbMission) {
-      // Use in-memory advance logic by injecting into the in-memory store
-      // then re-persisting. This avoids duplicating the chain logic.
-      // (active-missions.ts advanceMissionStage mutates an in-memory store —
-      //  we replicate the artifact-gate check inline for DB missions.)
       const currentHandoff = dbMission.chain.find((c) => c.stage === dbMission.currentStage)
       if (currentHandoff && currentHandoff.artifactRequired !== 'none') {
         if (!currentHandoff.artifactValue || !currentHandoff.artifactVerified) {
@@ -107,15 +108,16 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true, mission: dbMission })
         }
       }
-      // Artifact OK → advance
-      const { STAGE_ORDER } = await import('@/lib/active-missions')
+
       const currentIdx = STAGE_ORDER.indexOf(dbMission.currentStage)
       if (currentIdx < STAGE_ORDER.length - 1) {
+        const nextStage = STAGE_ORDER[currentIdx + 1]
+        // Formal Mission State Machine — no route may bypass the canonical transition graph.
+        assertMissionTransition(dbMission.currentStage, nextStage)
         if (currentHandoff) {
           currentHandoff.status = 'done'
           currentHandoff.completedAt = new Date().toISOString()
         }
-        const nextStage = STAGE_ORDER[currentIdx + 1]
         dbMission.currentStage = nextStage
         const nextHandoff = dbMission.chain.find((c) => c.stage === nextStage)
         if (nextHandoff) {
@@ -133,11 +135,9 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ ok: true, mission: dbMission })
     }
-    // Fallback to in-memory
+
     const mission = advanceMissionStage(body.missionId)
-    if (!mission) {
-      return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
-    }
+    if (!mission) return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
     return NextResponse.json({ ok: true, mission })
   }
 
@@ -153,6 +153,8 @@ export async function POST(req: NextRequest) {
         handoff.completedAt = new Date().toISOString()
         handoff.notes = 'Owner approved. Mission complete.'
       }
+      // Formal state machine: only OWNER_APPROVAL may become COMPLETED.
+      assertMissionTransition(dbMission.currentStage, 'COMPLETED')
       dbMission.currentStage = 'COMPLETED'
       dbMission.updatedAt = new Date().toISOString()
       dbMission.log.push({
@@ -165,13 +167,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, mission: dbMission })
     }
     const mission = approveMission(body.missionId)
-    if (!mission) {
-      return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
-    }
+    if (!mission) return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
     return NextResponse.json({ ok: true, mission })
   }
 
-  // UPGRADE #120 — Set artifact for current stage
   if (action === 'set-artifact') {
     if (!body.missionId || !body.artifactValue) {
       return NextResponse.json({ ok: false, error: 'missionId and artifactValue required' }, { status: 400 })
@@ -187,26 +186,61 @@ export async function POST(req: NextRequest) {
         if (body.verified && handoff.status === 'blocked') handoff.status = 'active'
         dbMission.updatedAt = new Date().toISOString()
         await saveActiveMissionDB(dbMission)
-        return NextResponse.json({ ok: true, mission: dbMission })
+
+        const artifact = await registerArtifact({
+          artifactId: buildArtifactId({
+            ventureId: body.ventureId ?? null,
+            missionId: dbMission.id,
+            stage: dbMission.currentStage,
+            artifactType: handoff.artifactRequired,
+            value: body.artifactValue,
+          }),
+          ventureId: body.ventureId ?? null,
+          missionId: dbMission.id,
+          stage: dbMission.currentStage,
+          producer: handoff.leader,
+          consumers: [],
+          artifactType: handoff.artifactRequired,
+          value: body.artifactValue,
+          version: 1,
+          supersedes: null,
+        })
+        if (body.verified) await verifyArtifact(artifact.artifactId, handoff.leader, 'mission-active-api')
+        return NextResponse.json({ ok: true, mission: dbMission, artifact })
       }
     }
+
     const mission = setStageArtifact(body.missionId, body.artifactValue, !!body.verified)
-    if (!mission) {
-      return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
-    }
-    return NextResponse.json({ ok: true, mission })
+    if (!mission) return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
+    const handoff = mission.chain.find((c) => c.stage === mission.currentStage)
+    const artifact = handoff ? await registerArtifact({
+      artifactId: buildArtifactId({
+        ventureId: body.ventureId ?? null,
+        missionId: mission.id,
+        stage: mission.currentStage,
+        artifactType: handoff.artifactRequired,
+        value: body.artifactValue,
+      }),
+      ventureId: body.ventureId ?? null,
+      missionId: mission.id,
+      stage: mission.currentStage,
+      producer: handoff.leader,
+      consumers: [],
+      artifactType: handoff.artifactRequired,
+      value: body.artifactValue,
+      version: 1,
+      supersedes: null,
+    }) : null
+    if (artifact && body.verified) await verifyArtifact(artifact.artifactId, handoff!.leader, 'mission-active-api')
+    return NextResponse.json({ ok: true, mission, artifact })
   }
 
-  // UPGRADE #120 — Verify artifact for current stage
   if (action === 'verify-artifact') {
     if (!body.missionId) {
       return NextResponse.json({ ok: false, error: 'missionId required' }, { status: 400 })
     }
     const dbMission = await getActiveMissionDB(body.missionId)
     if (dbMission) {
-      // Run the in-memory verifyStageArtifact logic against the DB mission
-      // by injecting it into the in-memory store, verifying, then reading back.
-      // Simpler: do the verification inline.
       const handoff = dbMission.chain.find((c) => c.stage === dbMission.currentStage)
       if (handoff && handoff.artifactValue) {
         let verified = false
@@ -226,16 +260,36 @@ export async function POST(req: NextRequest) {
         }
         handoff.artifactVerified = verified
         handoff.artifactVerifiedAt = verified ? new Date().toISOString() : null
+        handoff.artifactVerifyError = verified ? null : 'Artifact verification failed.'
         if (verified && handoff.status === 'blocked') handoff.status = 'active'
         dbMission.updatedAt = new Date().toISOString()
         await saveActiveMissionDB(dbMission)
-        return NextResponse.json({ ok: true, mission: dbMission })
+
+        const artifact = await registerArtifact({
+          artifactId: buildArtifactId({
+            ventureId: body.ventureId ?? null,
+            missionId: dbMission.id,
+            stage: dbMission.currentStage,
+            artifactType: handoff.artifactRequired,
+            value: handoff.artifactValue,
+          }),
+          ventureId: body.ventureId ?? null,
+          missionId: dbMission.id,
+          stage: dbMission.currentStage,
+          producer: handoff.leader,
+          consumers: [],
+          artifactType: handoff.artifactRequired,
+          value: handoff.artifactValue,
+          version: 1,
+          supersedes: null,
+        })
+        if (verified) await verifyArtifact(artifact.artifactId, 'SYSTEM', 'mission-active-verifier')
+        return NextResponse.json({ ok: true, mission: dbMission, artifact })
       }
     }
+
     const mission = await verifyStageArtifact(body.missionId)
-    if (!mission) {
-      return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
-    }
+    if (!mission) return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
     return NextResponse.json({ ok: true, mission })
   }
 
