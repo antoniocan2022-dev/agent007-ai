@@ -7,6 +7,8 @@ def replace_once(path: str, old: str, new: str, *, required: bool = True) -> Non
     p = ROOT / path
     text = p.read_text()
     count = text.count(old)
+    if count == 0 and new in text:
+        return  # already hardened; idempotent success
     if required and count != 1:
         raise SystemExit(f'{path}: expected exactly one match for patch, got {count}: {old[:100]!r}')
     if count:
