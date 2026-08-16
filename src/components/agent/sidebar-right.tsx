@@ -71,7 +71,7 @@ export function SidebarRight() {
 
                     <div
                       role="tooltip"
-                      className="pointer-events-none invisible absolute right-full top-1/2 z-50 mr-2 w-72 -translate-y-1/2 rounded-lg border border-cyan-400/25 bg-[#07101d]/95 px-3 py-2 text-left opacity-0 shadow-[0_8px_30px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-150 group-hover:visible group-hover:opacity-100"
+                      className="pointer-events-none invisible absolute right-full top-1/2 z-50 mr-2 w-80 -translate-y-1/2 rounded-lg border border-cyan-400/25 bg-[#07101d]/95 px-3 py-2 text-left opacity-0 shadow-[0_8px_30px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-150 group-hover:visible group-hover:opacity-100"
                     >
                       <div className="mb-1 text-[8px] font-semibold tracking-[0.18em] text-cyan-300/70">
                         MESSAGE {index + 1}
