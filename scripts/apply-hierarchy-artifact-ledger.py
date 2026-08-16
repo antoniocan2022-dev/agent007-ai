@@ -116,6 +116,8 @@ def patch_orchestrator() -> None:
         if single_anchor not in text:
             raise RuntimeError('orchestrator: CEO handoff anchor missing')
         text = text.replace(single_anchor, "        subAnswer = result.answer\n        if (result.artifactId) await handoffArtifact(result.artifactId, 'ceo').catch(() => {})\n        // UPGRADE #169 C3:", 1)
+    # Canonicalize all trailing whitespace so git diff --check is deterministic.
+    text = '\n'.join(line.rstrip() for line in text.splitlines()) + '\n'
     p.write_text(text)
 
 
