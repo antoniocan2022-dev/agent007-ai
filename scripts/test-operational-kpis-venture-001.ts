@@ -1,4 +1,4 @@
-import { calculateBusinessHealth, calculateOperationalKpis, isVerifiedIncomeEntry } from '../src/lib/operational-kpis'
+import { calculateBusinessHealth, calculateOperationalKpis, isOpenCrmStatus, isRealTransaction } from '../src/lib/operational-kpis'
 import { validateVenture001Definition, VENTURE_001_REFERENCE } from '../src/lib/venture-001'
 import type { Business } from '../src/lib/business-portfolio'
 
@@ -15,23 +15,25 @@ const business = (overrides: Partial<Business> = {}): Business => ({
 
 assert(validateVenture001Definition().length === 0, 'Venture 001 definition contract is invalid.')
 assert(VENTURE_001_REFERENCE.name === 'AI Book Business', 'Venture 001 identity drifted.')
-assert(isVerifiedIncomeEntry({ source: 'stripe', notes: 'processor-confirmed' }), 'Stripe income should count as verified.')
-assert(isVerifiedIncomeEntry({ source: 'affiliate', notes: 'network-confirmed' }), 'Affiliate income should count as verified.')
-assert(!isVerifiedIncomeEntry({ source: 'aurora', notes: 'Auto-logged from subagent answer: $1000/mo' }), 'Auto-parsed income must not count as real.')
-assert(!isVerifiedIncomeEntry({ source: 'projection', notes: 'forecast $1000' }), 'Forecast income must not count as real.')
+assert(isRealTransaction({ amount: 1000, status: 'succeeded', providerTxId: 'txn_123' }), 'Succeeded transaction should count as real revenue.')
+assert(isRealTransaction({ amount: 250, status: 'settled', providerTxId: 'order_456' }), 'Settled transaction should count as real revenue.')
+assert(!isRealTransaction({ amount: 500, status: 'succeeded', providerTxId: '' }), 'Transaction without provider identity must not count.')
+assert(!isRealTransaction({ amount: 500, status: 'pending', providerTxId: 'txn_pending' }), 'Pending transaction must not count as realized revenue.')
+assert(isOpenCrmStatus('lead'), 'Lead must count as an open CRM opportunity.')
+assert(!isOpenCrmStatus('customer'), 'Customer must not count as an open CRM opportunity.')
 
 const snapshot = calculateOperationalKpis({
   now,
   missions: [{ status: 'running' }, { status: 'completed' }, { status: 'failed' }, { status: 'completed' }],
   businesses: [business(), business({ businessId: 'biz-ref', name: VENTURE_001_REFERENCE.name, lifecycle: 'proposed', monthlyRevenue: 0, customerCount: 0, automationLevel: 0, brandScore: 0, roi: 0 })],
-  incomeEntries: [
-    { amount: 1000, source: 'stripe', notes: 'txn_123', date: new Date('2026-08-10T00:00:00.000Z') },
-    { amount: 250, source: 'affiliate', notes: 'order_456', date: new Date('2026-08-01T00:00:00.000Z') },
-    { amount: 500, source: 'aurora', notes: 'Auto-logged from aurora sub-agent answer: $500/mo', date: new Date('2026-08-05T00:00:00.000Z') },
-    { amount: 300, source: 'stripe', notes: 'txn_old', date: new Date('2026-07-01T00:00:00.000Z') },
+  transactions: [
+    { amount: 1000, provider: 'stripe', providerTxId: 'txn_123', status: 'succeeded', createdAt: new Date('2026-08-10T00:00:00.000Z') },
+    { amount: 250, provider: 'paypal', providerTxId: 'order_456', status: 'settled', createdAt: new Date('2026-08-01T00:00:00.000Z') },
+    { amount: 500, provider: 'stripe', providerTxId: 'txn_pending', status: 'pending', createdAt: new Date('2026-08-05T00:00:00.000Z') },
+    { amount: 300, provider: 'stripe', providerTxId: 'txn_old', status: 'succeeded', createdAt: new Date('2026-07-01T00:00:00.000Z') },
   ],
   customerCount: 12,
-  opportunityCount: 5,
+  openOpportunities: 5,
 })
 
 assert(snapshot.missions.total === 4, 'Mission total calculation failed.')
@@ -41,10 +43,10 @@ assert(snapshot.missions.successRate === 66.7, 'Mission success rate calculation
 assert(snapshot.ventures.active === 1, 'Reference venture leaked into active portfolio count.')
 assert(snapshot.ventures.portfolioMrr === 1000, 'Reference venture leaked into portfolio MRR.')
 assert(snapshot.ventures.customers === 7, 'Reference venture leaked into portfolio customer count.')
-assert(snapshot.commercial.revenue30d === 1250, '30-day verified revenue calculation failed.')
-assert(snapshot.commercial.transactions30d === 2, '30-day verified transaction count failed.')
+assert(snapshot.commercial.revenue30d === 1250, '30-day realized revenue calculation failed.')
+assert(snapshot.commercial.transactions30d === 2, '30-day realized transaction count failed.')
 assert(snapshot.commercial.customers === 12, 'Commercial customer count calculation failed.')
-assert(snapshot.commercial.openOpportunities === 5, 'Opportunity KPI calculation failed.')
+assert(snapshot.commercial.openOpportunities === 5, 'Open CRM opportunity calculation failed.')
 assert(snapshot.referenceVenture001.exists, 'Venture 001 reference detection failed.')
 assert(snapshot.referenceVenture001.lifecycle === 'proposed', 'Venture 001 must initialize as proposed.')
 assert(snapshot.referenceVenture001.monthlyRevenue === 0, 'Venture 001 must not seed revenue.')
