@@ -1,0 +1,46 @@
+name: Venture OS 24x7 Heartbeat
+on:
+  push:
+    branches: [agent/venture-os-final]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: venture-os-24x7
+  cancel-in-progress: false
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Verify operation-loop contract
+        run: |
+          test -f src/lib/venture-operation-loop.ts
+          test -f scripts/run-venture-operation-cycle.ts
+          grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
+          grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
+      - name: Execute Venture OS operation cycle
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VENTURE_ID: venture_001
+          VENTURE_OWNER: agent007-24x7
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              echo 'DATABASE_URL is required for scheduled 24/7 operation.'
+              exit 1
+            fi
+            echo 'DATABASE_URL is not configured; branch verification is limited to static contract checks.'
+            exit 0
+          fi
+          bun scripts/run-venture-operation-cycle.ts
+      - name: Run Venture OS contract tests
+        run: bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts

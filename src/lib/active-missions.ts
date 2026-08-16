@@ -1,3 +1,4 @@
+import { assertMissionTransition, buildArtifactId, registerArtifact, verifyArtifact } from './architecture-control-plane'
 /**
  * active-missions.ts — UPGRADE #111
  * ===================================================================
@@ -349,8 +350,9 @@ export function advanceMissionStage(missionId: string): ActiveMission | null {
     currentHandoff.completedAt = nowIso()
   }
 
-  // Advance to next stage
+  // Advance through the formal mission state machine.
   const nextStage = STAGE_ORDER[currentIdx + 1]
+  assertMissionTransition(m.currentStage, nextStage)
   m.currentStage = nextStage
   const nextHandoff = m.chain.find((c) => c.stage === nextStage)
   if (nextHandoff) {
@@ -497,6 +499,14 @@ export function setStageArtifact(
     stage: m.currentStage,
     message: `Artifact set: ${artifactValue.slice(0, 100)} (verified: ${verified})`,
   })
+
+  void registerArtifact({
+    artifactId: buildArtifactId({ ventureId: null, missionId: m.id, stage: m.currentStage, artifactType: handoff.artifactRequired, value: artifactValue }),
+    ventureId: null, missionId: m.id, stage: m.currentStage, producer: handoff.leader, consumers: [],
+    artifactType: handoff.artifactRequired, value: artifactValue, version: 1, supersedes: null,
+  }).then(async (record) => {
+    if (verified) await verifyArtifact(record.artifactId, handoff.leader, 'mission-stage-verified')
+  }).catch((error) => console.warn('[active-missions] artifact ledger persistence failed:', error?.message ?? error))
 
   return m
 }

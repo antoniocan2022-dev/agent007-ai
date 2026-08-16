@@ -1,0 +1,43 @@
+name: Venture OS v2 Verification
+on:
+  push:
+    branches: [agent/venture-os-final]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3.4 }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Closed-loop architecture tests
+        run: bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts
+      - name: Full TypeScript audit
+        run: bunx tsc -p tsconfig.ci.json --noEmit --pretty false
+      - name: Source and hygiene assertions
+        run: |
+          test -f src/lib/venture-autonomy-control.ts
+          test -f src/lib/venture-operation-loop.ts
+          test -f src/lib/operational-kpi-engine.ts
+          test -f src/lib/artifact-verifier.ts
+          test -f src/app/api/venture-os/route.ts
+          test -f src/app/api/venture-os/book/route.ts
+          test -f src/app/api/venture-os/commercial/route.ts
+          test -f src/app/api/venture-os/kpi/route.ts
+          test -f tests/venture-os-integration.test.ts
+          grep -q "evaluateVentureReadiness" src/lib/venture-autonomy-control.ts
+          grep -q "startV001BookProduction" src/lib/venture-autonomy-control.ts
+          grep -q "advanceCommercialOrder" src/lib/venture-autonomy-control.ts
+          grep -q "runV001EvidenceTest" src/lib/venture-autonomy-control.ts
+          grep -q "acquireAutonomyLease" src/lib/venture-autonomy-control.ts
+          grep -q "heartbeatAutonomyLease" src/lib/venture-autonomy-control.ts
+          grep -q "VENTURE_TEMPLATE_V1" src/lib/venture-autonomy-control.ts
+          grep -q "runVentureOperationCycle" src/lib/venture-operation-loop.ts
+          grep -q "calculateOperationalKpis" src/lib/operational-kpi-engine.ts
+          grep -q "verifyCanonicalArtifact" src/lib/artifact-verifier.ts
+          git diff --check
+          test -z "$(git status --porcelain)"
