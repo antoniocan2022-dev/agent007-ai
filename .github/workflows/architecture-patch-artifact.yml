@@ -48,6 +48,19 @@ jobs:
           s = s.replace(old, new, 1)
           p.write_text(s)
 
+          # Correct Prisma create() calls in the control-plane ledger.
+          p = Path('src/lib/architecture-control-plane.ts')
+          s = p.read_text()
+          replacements = {
+            "db.memory.create({ key, value: JSON.stringify(record), category: 'architecture_artifact' })": "db.memory.create({ data: { key, value: JSON.stringify(record), category: 'architecture_artifact' } })",
+            "db.memory.create({ key: event.eventId, value: JSON.stringify(event), category: 'architecture_artifact_event' })": "db.memory.create({ data: { key: event.eventId, value: JSON.stringify(event), category: 'architecture_artifact_event' } })",
+            "db.memory.create({ key: outcomeKey(outcomeId), value: JSON.stringify(record), category: 'architecture_business_outcome' })": "db.memory.create({ data: { key: outcomeKey(outcomeId), value: JSON.stringify(record), category: 'architecture_business_outcome' } })",
+            "db.memory.create({ key, value: JSON.stringify(contract), category: 'venture_control_contract' })": "db.memory.create({ data: { key, value: JSON.stringify(contract), category: 'venture_control_contract' } })",
+          }
+          for old, new in replacements.items():
+              if old in s: s = s.replace(old, new)
+          p.write_text(s)
+
       - name: Package isolated candidate
         run: |
           mkdir -p /tmp/architecture-patch/src/lib /tmp/architecture-patch/src/app/api/mission-active
