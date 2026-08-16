@@ -30,12 +30,10 @@ export async function GET(
   { params }: { params: Promise<{ missionId: string }> }
 ) {
   const { missionId } = await params
-  // UPGRADE #143 — Try DB first (survives cold starts)
   const dbMission = await getActiveMissionDB(missionId).catch(() => null)
   if (dbMission) {
     return NextResponse.json({ ok: true, mission: dbMission })
   }
-  // Fallback to in-memory (first-run seeds)
   const mission = getActiveMission(missionId)
   if (!mission) {
     return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
@@ -57,7 +55,6 @@ export async function POST(
   const action = url.searchParams.get('action') ?? 'ask'
   const body = await req.json().catch(() => ({}))
 
-  // UPGRADE #143 — Load from DB first
   let mission = await getActiveMissionDB(missionId).catch(() => null)
   if (!mission) {
     mission = getActiveMission(missionId) as any
@@ -75,7 +72,6 @@ export async function POST(
     return NextResponse.json({ ok: false, error: 'message required' }, { status: 400 })
   }
 
-  // Find the leader currently in charge
   let leaderInfo = await getLeaderForCurrentStageDB(missionId).catch(() => null)
   if (!leaderInfo) {
     leaderInfo = getLeaderForCurrentStage(missionId)
@@ -84,21 +80,13 @@ export async function POST(
     return NextResponse.json({ ok: false, error: 'No active leader for this mission' }, { status: 400 })
   }
 
-  // UPGRADE #143 — Persist the owner's question to DB
   await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'OWNER', message).catch(() => {})
-  // Also mirror to in-memory store (for backward compat with any callers that read it)
   appendLeaderMessage(missionId, leaderInfo.leaderId, 'OWNER', message)
 
-  // UPGRADE #115 — Wrap leader dispatch in a hard 45s timeout.
   let leaderResponse = ''
   const LEADER_TIMEOUT_MS = 45_000
 
   const dispatchPromise = (async () => {
-    // UPGRADE #148 (Issue 3c fix) — Special-case the CEO stage.
-    // The CEO is not a subagent — it's the apex LLM that aggregates everything
-    // into an executive report. Before: trying to find a 'ceo' subagent always
-    // failed with "unavailable" because no such subagent exists. After: route
-    // CEO questions directly through callLlmWithRetry with the CEO system prompt.
     if (leaderInfo!.leaderId === 'ceo' || leaderInfo!.leaderName.toLowerCase() === 'ceo') {
       try {
         const { callLlmWithRetry } = await import('@/lib/agent')
@@ -143,18 +131,6 @@ Respond as the CEO.`
     }
 
     const allSubs = await getAllSubagents({ includeDisabled: false })
-
-    // UPGRADE #148 (Issue 3a fix) — Strict id-based matching only.
-    // Before: 3-way OR with fuzzy name matching:
-    //   s.id === leaderId || s.name === leaderName || s.name.includes(leaderName.split(' ')[0])
-    // The name-based fallbacks caused two real bugs:
-    //   (1) 'Cybersecurity R' leaderName matched BOTH 'Cybersecurity A' AND
-    //       'Cybersecurity R' subagents (first wins) — wrong agent dispatched.
-    //   (2) 'revenue' pod leaderName 'QUANTUM + AURORA' matched QUANTUM
-    //       (incorrect — revenue is a 2-agent pod with no single subagent).
-    // After: id-only match. If no agent has the exact id, return a clear
-    // error so the owner knows to fix POD_LEADERS rather than seeing a
-    // wrong agent respond.
     const sub = allSubs.find((s: any) => s.id === leaderInfo!.leaderId)
 
     if (!sub) {
@@ -200,25 +176,14 @@ Be concise (max 300 words) and actionable. Do NOT call any tools — just give a
       language: 'en',
       emit: async () => {},
       parentConversationId: `mission_${missionId}`,
-      parentAgentId: getParentId(leaderInfo.leaderId) ?? 'vid',
-      missionId,
+      parentAgentId: getParentId(sub.id) ?? 'vid',
     })
     return result.answer || `[${leaderInfo!.leaderName} returned no response]`
   })()
 
   const timeoutPromise = new Promise<string>((resolve) => {
     setTimeout(() => {
-      resolve(`[${leaderInfo!.leaderName} timed out after 45s.
-
-This means all LLM providers failed or were rate-limited. To diagnose:
-
-1. Open /api/health/llm-providers in your browser (sign in first)
-2. Check the "activeChain" field — if it's empty, NO providers will run
-3. Check "skippedProviders" — these are misconfigured (missing API key, wrong base URL, etc.)
-4. Add the missing API keys in Vercel → Settings → Environment Variables
-5. Common providers to enable: MISTRAL_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY
-
-Your message has been logged to the audit trail. Once a provider is configured, ask again or wait for the next mission tick.]`)
+      resolve(`[${leaderInfo!.leaderName} timed out after 45s.`)
     }, LEADER_TIMEOUT_MS)
   })
 
@@ -228,21 +193,15 @@ Your message has been logged to the audit trail. Once a provider is configured, 
     leaderResponse = `[${leaderInfo!.leaderName} dispatch failed: ${e?.message?.slice(0, 200) || 'unknown error'}. Check /api/health/llm-providers to see which LLM providers are configured.]`
   }
 
-  // UPGRADE #146 (Warning fix) — Don't persist timeout/error responses to DB
-  // as if they were real leader messages. They're system notices, not leader
-  // replies. Mark them clearly so the dashboard can render them differently.
-  // UPGRADE #148 — updated detection patterns to match the new detailed messages.
   const isTimeoutResponse = leaderResponse.includes('timed out after 45s')
   const isDispatchError = leaderResponse.includes('dispatch failed')
   const isUnavailable = leaderResponse.includes('unavailable — no subagent with id')
   const isCeoError = leaderResponse.includes('CEO LLM call failed')
   const isSystemNotice = isTimeoutResponse || isDispatchError || isUnavailable || isCeoError
 
-  // UPGRADE #143 — Persist the leader's response to DB (survives cold starts!)
-  // Only persist if it's a REAL leader response, not a system timeout/error notice.
   if (!isSystemNotice) {
-    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse).catch(() => {})
-    appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)
+    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse).catch(() => {})
+    appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)
   }
 
   return NextResponse.json({
@@ -250,6 +209,5 @@ Your message has been logged to the audit trail. Once a provider is configured, 
     response: leaderResponse,
     leader: leaderInfo,
     missionId,
-    systemNotice: isSystemNotice,
   })
 }
