@@ -50,7 +50,18 @@ jobs:
       - name: Focused operational tests
         run: bun scripts/test-operational-kpis-venture-001.ts
       - name: TypeScript gate
-        run: bunx tsc -p tsconfig.ci.json --noEmit
+        run: |
+          set +e
+          bunx tsc -p tsconfig.ci.json --noEmit > /tmp/tsc.log 2>&1
+          code=$?
+          cat /tmp/tsc.log
+          exit $code
+      - name: Upload TypeScript diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operational-kpis-tsc-diagnostics
+          path: /tmp/tsc.log
       - name: Lint gate
         run: bun run lint
       - name: Repository coherence gate
