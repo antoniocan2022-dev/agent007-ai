@@ -1,0 +1,28 @@
+name: architecture-diagnostics
+on:
+  push:
+    branches: [agent/architecture-control-plane-5-9]
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    if: ${{ !startsWith(github.event.head_commit.message, '[architecture-diagnostics]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Capture TypeScript errors
+        run: |
+          set +e
+          bunx tsc --noEmit --pretty false > /tmp/tsc.log 2>&1
+          code=$?
+          sed -n '1,240p' /tmp/tsc.log > architecture-tsc-errors.txt
+          git config user.name "Agent007 Diagnostics"
+          git config user.email "agent007@local"
+          git add architecture-tsc-errors.txt
+          git commit -m "[architecture-diagnostics] capture TypeScript verification output" || true
+          git push origin HEAD:${GITHUB_REF_NAME} || true
+          exit $code
