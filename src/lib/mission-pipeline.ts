@@ -408,7 +408,9 @@ RULES:
           verificationScore: 100, verifiedBy: 'ceo', verifiedAt: new Date(),
         })
         ceoArtifactId = artifact.artifactId
-      } catch {}
+      } catch (artifactError: any) {
+        throw new Error(`CEO artifact registration failed: ${String(artifactError?.message ?? artifactError).slice(0, 300)}`)
+      }
 
       return {
         output: teamOutput,
@@ -512,7 +514,9 @@ RULES:
     })
     artifactId = artifact.artifactId
     if (artifactVerified) await verifyArtifact(artifactId, lastVerification?.score ?? 0, 'super_agent', 'verified')
-  } catch {}
+  } catch (artifactError: any) {
+    throw new Error(`Artifact ledger registration failed for stage ${stage.stage}: ${String(artifactError?.message ?? artifactError).slice(0, 300)}`)
+  }
 
   // UPGRADE #146 (Warning fix) — `rounds` should report the ACTUAL round count,
   // not "1 if approved, MAX if not". The previous logic reported 1 even when

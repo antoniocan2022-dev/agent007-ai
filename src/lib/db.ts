@@ -150,6 +150,7 @@ async function createTablesViaRawSQL() {
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_consumerAgentId_idx" ON "ArtifactLedger" ("consumerAgentId")`,
       `CREATE INDEX IF NOT EXISTS "ArtifactLedger_status_idx" ON "ArtifactLedger" (status)`,
       `ALTER TABLE "ArtifactLedger" ADD COLUMN IF NOT EXISTS "handoffHistory" TEXT`,
+      `ALTER TABLE "ArtifactLedger" ADD COLUMN IF NOT EXISTS "handoffHistory" TEXT`,
 
     ]
     let created = 0
