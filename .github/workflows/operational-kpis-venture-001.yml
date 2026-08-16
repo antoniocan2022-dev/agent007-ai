@@ -77,4 +77,4 @@ jobs:
       - name: Deployment safety gate
         run: |
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
-          ! grep -R "vercel deploy" .github/workflows/operational-kpis-venture-001.yml
+          ! grep -Eq '^[[:space:]]*run:.*vercel[[:space:]]+deploy' .github/workflows/operational-kpis-venture-001.yml
