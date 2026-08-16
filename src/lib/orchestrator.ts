@@ -1370,7 +1370,11 @@ The system is working correctly — the keys just need to be refreshed.`
             const dispatchId = `par_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
             try { await emit('subagent_dispatch', { dispatchId, agentId: sub.id, agentName: sub.name, color: sub.color, icon: sub.icon, task: d.task, stepNumber: iter }) } catch {}
             const targetLevel = authorityLevelFor(sub.id)
-            assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: targetLevel === 'LEADER' ? 'vid' : sub.id, targetLevel: targetLevel === 'LEADER' ? 'VID' : targetLevel })
+            if (targetLevel === 'LEADER') {
+              assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: sub.id, targetLevel: 'LEADER', delegatedBy: 'ceo' })
+            } else {
+              assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: sub.id, targetLevel })
+            }
             const result = await runSubagent({
               subagentId: sub.id, task: d.task, dispatchId,
               attachments, language, emit,
@@ -1502,7 +1506,11 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       let subagentSteps: Array<{ id: string; thought?: string; toolName?: string; toolArgs?: any; toolResult?: any; startedAt: number; finishedAt?: number }> = []
       try {
         const targetLevel = authorityLevelFor(sub.id)
-        assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: targetLevel === 'LEADER' ? 'vid' : sub.id, targetLevel: targetLevel === 'LEADER' ? 'VID' : targetLevel })
+        if (targetLevel === 'LEADER') {
+          assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: sub.id, targetLevel: 'LEADER', delegatedBy: 'ceo' })
+        } else {
+          assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: sub.id, targetLevel })
+        }
         const result = await runSubagent({
           subagentId: sub.id,
           task: enhancedTask,
