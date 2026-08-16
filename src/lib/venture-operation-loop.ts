@@ -1,13 +1,13 @@
 /** Provider-neutral continuous-operation boundary for Venture OS. */
 import { db } from './db'
-import { acquireAutonomyLease, heartbeatAutonomyLease, type AutonomyMode } from './venture-autonomy-control'
+import { acquireAutonomyLease, heartbeatAutonomyLease, type AutonomyMode, type ReadinessStatus } from './venture-autonomy-control'
 import { evaluateVentureReadiness } from './venture-autonomy-control'
 
 export interface VentureOperationCycle {
   ventureId: string
   leaseId: string
   mode: AutonomyMode
-  readiness: 'READY' | 'NOT_READY'
+  readiness: ReadinessStatus
   heartbeatAt: string
   recoveredStaleRecords: number
   ok: boolean
