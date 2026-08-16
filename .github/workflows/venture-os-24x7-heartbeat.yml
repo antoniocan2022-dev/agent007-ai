@@ -1,7 +1,7 @@
 name: Venture OS 24x7 Heartbeat
 on:
   push:
-    branches: [agent/venture-os-final]
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'
@@ -33,13 +33,10 @@ jobs:
           VENTURE_ID: venture_001
           VENTURE_OWNER: agent007-24x7
         run: |
+          set -euo pipefail
           if [ -z "$DATABASE_URL" ]; then
-            if [ "${{ github.event_name }}" = "schedule" ]; then
-              echo 'DATABASE_URL is required for scheduled 24/7 operation.'
-              exit 1
-            fi
-            echo 'DATABASE_URL is not configured; branch verification is limited to static contract checks.'
-            exit 0
+            echo 'DATABASE_URL is required for supervised Venture OS evidence collection.' >&2
+            exit 1
           fi
           bun scripts/run-venture-operation-cycle.ts
       - name: Run Venture OS contract tests
