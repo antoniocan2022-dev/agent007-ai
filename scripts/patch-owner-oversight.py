@@ -54,31 +54,42 @@ if 'parentAgentId?: string' not in text.split('export interface ToolContext {', 
     text = text.replace('  conversationId?: string\n', '  conversationId?: string\n  /** Immediate governed parent for delegated subagent work. */\n  parentAgentId?: string\n', 1)
 tools.write_text(text)
 
-route = ROOT / 'src/app/api/team/[leaderId]/route.ts'
-text = route.read_text()
-text = add_import(text, "import { OWNER_AUTHORITY_ID } from '@/lib/hierarchy-control'")
-text = re.sub(
+team_route = ROOT / 'src/app/api/team/[leaderId]/route.ts'
+team_text = team_route.read_text()
+team_text = add_import(team_text, "import { OWNER_AUTHORITY_ID } from '@/lib/hierarchy-control'")
+team_text = re.sub(
     r"parentConversationId\s*:\s*'leader-chat',\s*",
     "parentConversationId: 'leader-chat',\n      parentAgentId: OWNER_AUTHORITY_ID,\n      delegationAuthority: 'owner',\n",
-    text,
+    team_text,
     count=1,
 )
-if not all(token in text for token in ['OWNER_AUTHORITY_ID', 'parentAgentId: OWNER_AUTHORITY_ID', "delegationAuthority: 'owner'"]):
+if not all(token in team_text for token in ['OWNER_AUTHORITY_ID', 'parentAgentId: OWNER_AUTHORITY_ID', "delegationAuthority: 'owner'"]):
     raise RuntimeError('team route owner oversight propagation was not inserted completely')
-route.write_text(text)
+team_route.write_text(team_text)
 
-mission = ROOT / 'src/app/api/mission-active/[missionId]/route.ts'
-text = mission.read_text()
-text = text.replace(
+mission_route = ROOT / 'src/app/api/mission-active/[missionId]/route.ts'
+mission_text = mission_route.read_text()
+mission_text = mission_text.replace(
     "appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)",
     "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)",
 )
-text = text.replace(
+mission_text = mission_text.replace(
     "appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)",
     "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)",
 )
-if 'appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)' in text or 'appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)' in text:
+if 'appendLeaderMessageDB(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)' in mission_text or 'appendLeaderMessage(missionId, leaderInfo.leaderId, leaderInfo.leaderName, leaderResponse)' in mission_text:
     raise RuntimeError('mission leader response still uses an invalid role value')
-route.write_text(text)
+mission_route.write_text(mission_text)
 
-print('Owner oversight authority propagated idempotently; mission leader response roles normalized.')
+# Final postconditions must inspect the actual persisted files, catching accidental cross-file writes.
+final_team = team_route.read_text()
+final_mission = mission_route.read_text()
+assert 'OWNER_AUTHORITY_ID' in final_team
+assert 'parentAgentId: OWNER_AUTHORITY_ID' in final_team
+assert "delegationAuthority: 'owner'" in final_team
+assert 'getParentId' in final_mission
+assert "parentAgentId: getParentId(sub.id) ?? 'vid'" in final_mission
+assert "appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in final_mission
+assert "appendLeaderMessage(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)" in final_mission
+
+print('Owner oversight authority propagated idempotently; mission leader response roles normalized; cross-route overwrite guard: PASS.')
