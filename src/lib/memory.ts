@@ -30,7 +30,11 @@ type MemoryHexRow = {
 }
 
 function decodeUtf8Hex(hex: string): string {
-  return Buffer.from(hex, 'hex').toString('utf8')
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 function toSafeRecord(row: MemoryRecord): MemoryRecord {
