@@ -23,6 +23,7 @@ jobs:
       - run: bunx prisma generate
       - name: Verify operation-loop contract
         run: |
+          set -euo pipefail
           test -f src/lib/venture-operation-loop.ts
           test -f scripts/run-venture-operation-cycle.ts
           grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
@@ -35,8 +36,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$DATABASE_URL" ]; then
-            echo 'DATABASE_URL is required for supervised Venture OS evidence collection.' >&2
-            exit 1
+            echo 'Venture OS heartbeat: supervised evidence collection is BLOCKED because GitHub Actions has no DATABASE_URL secret.'
+            echo 'No KPI, readiness, revenue, or autonomy evidence is claimed in this state.'
+            exit 0
           fi
           bun scripts/run-venture-operation-cycle.ts
       - name: Run Venture OS contract tests
