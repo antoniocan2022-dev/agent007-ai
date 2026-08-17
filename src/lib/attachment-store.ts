@@ -16,7 +16,7 @@ export interface AttachmentAssetRecord {
   kind: AttachmentKind
   size: number
   storageKey: string
-  storageProvider: 's3-compatible'
+  storageProvider: 'oracle-object-storage'
   status: AttachmentStatus
   multipartUploadId: string | null
   partSize: number
@@ -77,13 +77,13 @@ export async function initiateAttachment(input: { userId: string; conversationId
   const timestamp = now()
   const record: AttachmentAssetRecord = {
     id, userId: input.userId, conversationId: input.conversationId ?? null, originalName: input.filename, safeName: validated.filename, mimeType: validated.mimeType,
-    kind: validated.kind, size: validated.size, storageKey, storageProvider: 's3-compatible', status: 'UPLOADING', multipartUploadId: uploadId,
+    kind: validated.kind, size: validated.size, storageKey, storageProvider: 'oracle-object-storage', status: 'UPLOADING', multipartUploadId: uploadId,
     partSize: partSizeForSize(validated.size), partCount: validated.partCount, completedParts: 0, etag: null, contentTypeVerified: false,
     downloadOnly: validated.downloadOnly, checksumSha256: null, quarantineReason: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null,
   }
   await saveRecord(record)
   if (clientRequestId) await db.memory.upsert({ where: { key: idempotencyKey(input.userId, clientRequestId) }, update: { value: id, category: 'attachment_idempotency' }, create: { key: idempotencyKey(input.userId, clientRequestId), value: id, category: 'attachment_idempotency' } })
-  return { asset: record, reused: false, objectStorage: { region: objectStorage.region, bucketConfigured: true } }
+  return { asset: record, reused: false, objectStorage: { provider: record.storageProvider, region: objectStorage.region, bucketConfigured: true } }
 }
 
 export async function presignAttachmentPart(id: string, userId: string, partNumber: number): Promise<{ url: string; partNumber: number; expiresIn: number }> {
@@ -114,12 +114,16 @@ export async function completeAttachment(id: string, userId: string, parts: Mult
   for (const part of parts) {
     const actual = actualByPart.get(part.partNumber)
     if (!actual || actual.etag.replace(/\"/g, '') !== part.etag.replace(/\"/g, '')) throw new Error(`Uploaded part ${part.partNumber} is not present with the expected ETag.`)
+    if (part.size != null && actual.size != null && Number(part.size) !== Number(actual.size)) throw new Error(`Uploaded part ${part.partNumber} size verification failed.`)
   }
   const etag = await completeMultipartUpload(record.storageKey, record.multipartUploadId, parts)
   const head = await headObject(record.storageKey)
-  if (head.size !== record.size) {
+  const normalizedContentType = head.contentType?.toLowerCase().split(';', 1)[0] ?? null
+  if (head.size !== record.size || normalizedContentType !== record.mimeType) {
     record.status = 'QUARANTINED'
-    record.quarantineReason = `Storage object size mismatch: expected ${record.size}, got ${head.size}.`
+    record.quarantineReason = head.size !== record.size
+      ? `Storage object size mismatch: expected ${record.size}, got ${head.size}.`
+      : `Storage object content type mismatch: expected ${record.mimeType}, got ${normalizedContentType ?? 'unknown'}.`
     record.updatedAt = now()
     await saveRecord(record)
     throw new Error(record.quarantineReason)
@@ -127,7 +131,7 @@ export async function completeAttachment(id: string, userId: string, parts: Mult
   record.status = 'UPLOADED'
   record.completedParts = record.partCount
   record.etag = etag ?? head.etag
-  record.contentTypeVerified = Boolean(head.contentType && head.contentType.toLowerCase().split(';', 1)[0] === record.mimeType)
+  record.contentTypeVerified = true
   record.updatedAt = now()
   record.completedAt = record.updatedAt
   await saveRecord(record)
