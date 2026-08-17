@@ -8,6 +8,7 @@ on:
       - 'feat/**'
       - 'fix/**'
       - 'integration/**'
+      - 'arch/**'
   pull_request:
     branches:
       - main
@@ -67,6 +68,9 @@ jobs:
 
       - name: Venture architecture regression audit
         run: bun scripts/venture-architecture-audit.ts
+
+      - name: Architecture 5-13 integration contract
+        run: bun test src/lib/venture-foundation-contract.test.ts
 
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
