@@ -4,12 +4,12 @@ import { runVentureFoundationContractAudit } from './venture-foundation-contract
 import { validateVenture001Definition } from './venture-001'
 import { canAdvanceBookStage, canAdvanceCommercial, validateV001BookSpecification } from './venture-autonomy-control'
 
-
 describe('Venture OS architecture 5–13', () => {
   test('universal hierarchy rejects CEO bypasses and accepts governed chain', () => {
     expect(() => assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'aurora', targetLevel: 'LEADER' })).toThrow(/only to VID/)
     expect(() => assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'aurora', targetLevel: 'LEADER' })).not.toThrow()
     expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'quill', targetLevel: 'SPECIALIST' })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'prism', targetLevel: 'SPECIALIST' })).not.toThrow()
   })
 
   test('mission state machine has no terminal-state bypass', () => {
