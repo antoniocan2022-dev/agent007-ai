@@ -35,6 +35,7 @@ export interface AttachmentAssetRecord {
 function assetKey(id: string) { return `${PREFIX}${id}` }
 function idempotencyKey(userId: string, key: string) { return `${idempotencyPrefix}${userId}:${key}` }
 function now() { return new Date().toISOString() }
+function safeDispositionName(name: string) { return name.replace(/[\r\n\"\\]/g, '_').slice(0, 180) }
 
 function parseRecord(value: string): AttachmentAssetRecord {
   const record = JSON.parse(value) as AttachmentAssetRecord
@@ -55,21 +56,10 @@ export async function getAttachmentAsset(id: string, userId: string): Promise<At
 }
 
 async function saveRecord(record: AttachmentAssetRecord) {
-  await db.memory.upsert({
-    where: { key: assetKey(record.id) },
-    update: { value: JSON.stringify(record), category: 'attachment_asset' },
-    create: { key: assetKey(record.id), value: JSON.stringify(record), category: 'attachment_asset' },
-  })
+  await db.memory.upsert({ where: { key: assetKey(record.id) }, update: { value: JSON.stringify(record), category: 'attachment_asset' }, create: { key: assetKey(record.id), value: JSON.stringify(record), category: 'attachment_asset' } })
 }
 
-export async function initiateAttachment(input: {
-  userId: string
-  conversationId?: string | null
-  filename: string
-  mimeType?: string | null
-  size: number
-  clientRequestId?: string | null
-}) {
+export async function initiateAttachment(input: { userId: string; conversationId?: string | null; filename: string; mimeType?: string | null; size: number; clientRequestId?: string | null }) {
   const validated = validateAttachmentRequest({ filename: input.filename, mimeType: input.mimeType, size: input.size })
   if (validated.size > MAX_ATTACHMENT_BYTES) throw new Error('Attachment exceeds the configured maximum.')
   const objectStorage = getObjectStorageConfig()
@@ -81,44 +71,18 @@ export async function initiateAttachment(input: {
       if (existing) return { asset: existing, reused: true }
     }
   }
-
   const id = randomUUID()
   const storageKey = `agent007/private/${input.userId}/${id}/${validated.filename.replace(/[^A-Za-z0-9._ -]/g, '_')}`
   const uploadId = await createMultipartUpload(storageKey, validated.mimeType)
   const timestamp = now()
   const record: AttachmentAssetRecord = {
-    id,
-    userId: input.userId,
-    conversationId: input.conversationId ?? null,
-    originalName: input.filename,
-    safeName: validated.filename,
-    mimeType: validated.mimeType,
-    kind: validated.kind,
-    size: validated.size,
-    storageKey,
-    storageProvider: 's3-compatible',
-    status: 'UPLOADING',
-    multipartUploadId: uploadId,
-    partSize: partSizeForSize(validated.size),
-    partCount: Math.ceil(validated.size / partSizeForSize(validated.size)),
-    completedParts: 0,
-    etag: null,
-    contentTypeVerified: false,
-    downloadOnly: validated.downloadOnly,
-    checksumSha256: null,
-    quarantineReason: null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    completedAt: null,
+    id, userId: input.userId, conversationId: input.conversationId ?? null, originalName: input.filename, safeName: validated.filename, mimeType: validated.mimeType,
+    kind: validated.kind, size: validated.size, storageKey, storageProvider: 's3-compatible', status: 'UPLOADING', multipartUploadId: uploadId,
+    partSize: partSizeForSize(validated.size), partCount: validated.partCount, completedParts: 0, etag: null, contentTypeVerified: false,
+    downloadOnly: validated.downloadOnly, checksumSha256: null, quarantineReason: null, createdAt: timestamp, updatedAt: timestamp, completedAt: null,
   }
   await saveRecord(record)
-  if (clientRequestId) {
-    await db.memory.upsert({
-      where: { key: idempotencyKey(input.userId, clientRequestId) },
-      update: { value: id, category: 'attachment_idempotency' },
-      create: { key: idempotencyKey(input.userId, clientRequestId), value: id, category: 'attachment_idempotency' },
-    })
-  }
+  if (clientRequestId) await db.memory.upsert({ where: { key: idempotencyKey(input.userId, clientRequestId) }, update: { value: id, category: 'attachment_idempotency' }, create: { key: idempotencyKey(input.userId, clientRequestId), value: id, category: 'attachment_idempotency' } })
   return { asset: record, reused: false, objectStorage: { region: objectStorage.region, bucketConfigured: true } }
 }
 
@@ -128,15 +92,12 @@ export async function presignAttachmentPart(id: string, userId: string, partNumb
   if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > record.partCount) throw new Error('Invalid multipart part number.')
   if (!record.multipartUploadId) throw new Error('Multipart upload session is missing.')
   const expiresIn = 900
-  const url = presignObjectPart('PUT', record.storageKey, { partNumber: String(partNumber), uploadId: record.multipartUploadId }, expiresIn)
-  return { url, partNumber, expiresIn }
+  return { url: presignObjectPart('PUT', record.storageKey, { partNumber: String(partNumber), uploadId: record.multipartUploadId }, expiresIn), partNumber, expiresIn }
 }
 
 export async function attachmentStatus(id: string, userId: string) {
   const record = await getAttachmentAsset(id, userId)
-  const parts = record.multipartUploadId && record.status === 'UPLOADING'
-    ? await listMultipartParts(record.storageKey, record.multipartUploadId)
-    : []
+  const parts = record.multipartUploadId && record.status === 'UPLOADING' ? await listMultipartParts(record.storageKey, record.multipartUploadId) : []
   return { asset: { ...record, size: Number(record.size) }, parts }
 }
 
@@ -144,7 +105,7 @@ export async function completeAttachment(id: string, userId: string, parts: Mult
   const record = await getAttachmentAsset(id, userId)
   if (!record.multipartUploadId) throw new Error('Multipart upload session is missing.')
   if (record.status !== 'UPLOADING') {
-    if (record.status === 'UPLOADED' || record.status === 'PROCESSING' || record.status === 'READY') return record
+    if (['UPLOADED', 'PROCESSING', 'READY'].includes(record.status)) return record
     throw new Error(`Attachment cannot be completed from state ${record.status}.`)
   }
   if (parts.length !== record.partCount) throw new Error(`Expected ${record.partCount} uploaded parts, received ${parts.length}.`)
@@ -157,7 +118,6 @@ export async function completeAttachment(id: string, userId: string, parts: Mult
   const etag = await completeMultipartUpload(record.storageKey, record.multipartUploadId, parts)
   const head = await headObject(record.storageKey)
   if (head.size !== record.size) {
-    // The object exists, but its size is not the requested size. Never mark it ready.
     record.status = 'QUARANTINED'
     record.quarantineReason = `Storage object size mismatch: expected ${record.size}, got ${head.size}.`
     record.updatedAt = now()
@@ -186,5 +146,7 @@ export async function abortAttachment(id: string, userId: string) {
 export async function signedAttachmentDownload(id: string, userId: string): Promise<string> {
   const record = await getAttachmentAsset(id, userId)
   if (!['UPLOADED', 'PROCESSING', 'READY'].includes(record.status)) throw new Error(`Attachment is not downloadable in state ${record.status}.`)
-  return presignObjectPart('GET', record.storageKey, {}, 600)
+  const filename = safeDispositionName(record.safeName)
+  const query: Record<string, string> = { 'response-content-disposition': `${record.downloadOnly ? 'attachment' : 'inline'}; filename="${filename}"`, 'response-content-type': record.downloadOnly ? 'application/octet-stream' : record.mimeType }
+  return presignObjectPart('GET', record.storageKey, query, 600)
 }
