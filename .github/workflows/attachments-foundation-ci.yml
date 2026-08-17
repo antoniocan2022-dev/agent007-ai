@@ -45,5 +45,9 @@ jobs:
           test -f src/app/api/attachments/[assetId]/download/route.ts
           grep -q '10_000_000_000' src/lib/attachment-policy.ts
           grep -q 'multipart' src/lib/object-storage.ts
+          grep -q 'OCI_OBJECT_STORAGE_ENDPOINT' src/lib/object-storage.ts
+          grep -q 'oracle-object-storage' src/lib/attachment-store.ts
           grep -q 'attachmentId' src/app/api/agent/route.ts
           grep -q '10 GiB' src/components/agent/chat-input.tsx
+          grep -q 'Neon PostgreSQL + Prisma' docs/ATTACHMENTS-10GB.md
+          grep -q 'Oracle Cloud Infrastructure Object Storage' docs/ATTACHMENTS-10GB.md
