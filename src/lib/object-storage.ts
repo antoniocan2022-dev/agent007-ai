@@ -37,17 +37,17 @@ const awsEncode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/
 function canonicalUri(config: ObjectStorageConfig, key: string): string {
   const encodedKey = key.split('/').map(awsEncode).join('/')
   if (config.forcePathStyle) return `/${awsEncode(config.bucket)}/${encodedKey}`
-  const url = new URL(config.endpoint)
   return `/${encodedKey}`
 }
 
 function requestUrl(config: ObjectStorageConfig, key: string): URL {
   const base = new URL(config.endpoint)
+  const encodedPath = key.split('/').map(encodeURIComponent).join('/')
   if (config.forcePathStyle) {
-    base.pathname = `${base.pathname.replace(/\/$/, '')}/${config.bucket}/${key.split('/').map(encodeURIComponent).join('/')}`
+    base.pathname = `${base.pathname.replace(/\/$/, '')}/${encodeURIComponent(config.bucket)}/${encodedPath}`
   } else {
     base.hostname = `${config.bucket}.${base.hostname}`
-    base.pathname = `${base.pathname.replace(/\/$/, '')}/${key.split('/').map(encodeURIComponent).join('/')}`
+    base.pathname = `${base.pathname.replace(/\/$/, '')}/${encodedPath}`
   }
   return base
 }
@@ -75,9 +75,7 @@ function signingKey(secret: string, dateStamp: string, region: string, service =
   return hmac(kService, 'aws4_request')
 }
 
-function isoNow() {
-  return new Date().toISOString().replace(/[:-]|\.\d{3}/g, '')
-}
+function isoNow() { return new Date().toISOString().replace(/[:-]|\.\d{3}/g, '') }
 
 async function signedRequest(input: { method: string; key: string; query?: Record<string, string>; body?: string; contentType?: string; responseType?: 'text' | 'empty' }) {
   const config = getObjectStorageConfig()
@@ -87,30 +85,18 @@ async function signedRequest(input: { method: string; key: string; query?: Recor
   const host = url.host
   const payload = input.body ?? ''
   const payloadHash = sha256(payload)
-  const headers: Record<string, string> = {
-    host,
-    'x-amz-content-sha256': payloadHash,
-    'x-amz-date': amzDate,
-  }
+  const headers: Record<string, string> = { host, 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate }
   if (input.contentType) headers['content-type'] = input.contentType
   const { canonical, signed } = canonicalHeaders(headers)
   const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`
   const params = input.query ?? {}
-  const canonicalRequest = [
-    input.method.toUpperCase(),
-    canonicalUri(config, input.key),
-    canonicalQuery(params),
-    canonical,
-    signed,
-    payloadHash,
-  ].join('\n')
+  const canonicalRequest = [input.method.toUpperCase(), canonicalUri(config, input.key), canonicalQuery(params), canonical, signed, payloadHash].join('\n')
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256(canonicalRequest)].join('\n')
   const signature = createHmac('sha256', signingKey(config.secretAccessKey, dateStamp, config.region)).update(stringToSign).digest('hex')
   const authorization = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signed}, Signature=${signature}`
-  const requestHeaders: Record<string, string> = { ...headers, authorization }
-  const response = await fetch(`${url.origin}${canonicalUri(config, input.key)}${params && Object.keys(params).length ? `?${canonicalQuery(params)}` : ''}`, {
+  const response = await fetch(`${url.origin}${requestUrl(config, input.key).pathname}${params && Object.keys(params).length ? `?${canonicalQuery(params)}` : ''}`, {
     method: input.method,
-    headers: requestHeaders,
+    headers: { ...headers, authorization },
     body: input.method === 'GET' || input.method === 'HEAD' || input.method === 'DELETE' ? undefined : payload,
     redirect: 'follow',
     signal: AbortSignal.timeout(60_000),
@@ -126,14 +112,10 @@ function parseUploadId(xml: string): string {
   return match[1]
 }
 
-function parseCompleteEtag(xml: string): string | null {
-  return xml.match(/<ETag>\"?([^<\"]+)\"?<\/ETag>/i)?.[1] ?? null
-}
+function parseCompleteEtag(xml: string): string | null { return xml.match(/<ETag>\"?([^<\"]+)\"?<\/ETag>/i)?.[1] ?? null }
 
-export async function createMultipartUpload(key: string, contentType: string, metadata: Record<string, string> = {}): Promise<string> {
-  const headersXml = Object.entries(metadata).map(([k, v]) => `<x-amz-meta-${escapeXml(k)}>${escapeXml(v)}</x-amz-meta-${escapeXml(k)}>`).join('')
-  const body = `<?xml version="1.0" encoding="UTF-8"?><CreateMultipartUploadConfiguration>${headersXml}</CreateMultipartUploadConfiguration>`
-  const { text } = await signedRequest({ method: 'POST', key, query: { uploads: '' }, body, contentType, responseType: 'text' })
+export async function createMultipartUpload(key: string, contentType: string): Promise<string> {
+  const { text } = await signedRequest({ method: 'POST', key, query: { uploads: '' }, body: '', contentType, responseType: 'text' })
   return parseUploadId(text)
 }
 
@@ -146,17 +128,11 @@ export async function completeMultipartUpload(key: string, uploadId: string, par
   return parseCompleteEtag(text)
 }
 
-export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
-  await signedRequest({ method: 'DELETE', key, query: { uploadId }, responseType: 'empty' })
-}
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> { await signedRequest({ method: 'DELETE', key, query: { uploadId }, responseType: 'empty' }) }
 
 export async function headObject(key: string): Promise<{ size: number; etag: string | null; contentType: string | null }> {
   const { response } = await signedRequest({ method: 'HEAD', key, responseType: 'empty' })
-  return {
-    size: Number(response.headers.get('content-length') ?? 0),
-    etag: response.headers.get('etag'),
-    contentType: response.headers.get('content-type'),
-  }
+  return { size: Number(response.headers.get('content-length') ?? 0), etag: response.headers.get('etag'), contentType: response.headers.get('content-type') }
 }
 
 export async function listMultipartParts(key: string, uploadId: string): Promise<MultipartPart[]> {
@@ -175,21 +151,18 @@ export function presignObjectPart(method: 'PUT' | 'GET', key: string, extraQuery
   const dateStamp = amzDate.slice(0, 8)
   const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`
   const host = url.host
-  const signedHeaders = 'host'
   const params: Record<string, string> = {
     ...extraQuery,
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
     'X-Amz-Credential': `${config.accessKeyId}/${credentialScope}`,
     'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(Math.min(Math.max(Math.floor(expiresSeconds), 1), 3600)),
-    'X-Amz-SignedHeaders': signedHeaders,
+    'X-Amz-SignedHeaders': 'host',
   }
-  const canonicalRequest = [method, canonicalUri(config, key), canonicalQuery(params), `host:${host}\n`, signedHeaders, 'UNSIGNED-PAYLOAD'].join('\n')
+  const canonicalRequest = [method, canonicalUri(config, key), canonicalQuery(params), `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n')
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256(canonicalRequest)].join('\n')
   params['X-Amz-Signature'] = createHmac('sha256', signingKey(config.secretAccessKey, dateStamp, config.region)).update(stringToSign).digest('hex')
-  return `${url.origin}${canonicalUri(config, key)}?${canonicalQuery(params)}`
+  return `${url.origin}${url.pathname}?${canonicalQuery(params)}`
 }
 
-function escapeXml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&apos;')
-}
+function escapeXml(value: string): string { return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&apos;') }
