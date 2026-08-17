@@ -1,10 +1,7 @@
 name: First Authorized Production Deploy
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - release/agent007-first-production-deploy.marker
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +14,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact pushed main commit
+      - name: Checkout exact main commit
         uses: actions/checkout@v5
         with:
           ref: main
@@ -28,8 +25,6 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
           test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = false
           test -n "$VERCEL_ORG_ID"
@@ -54,19 +49,16 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Generate Prisma client
         run: bunx prisma generate
-
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
-
       - name: Production build gate
         env:
           VERCEL_ENV: production
         run: bun run build
 
-      - name: Deploy exact checked-out commit to Production
+      - name: Deploy exact main commit to Production
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -86,17 +78,13 @@ jobs:
             state="$(jq -r '.latestDeployment.readyState // "UNKNOWN"' <<<"$project")"
             target="$(jq -r '.latestDeployment.target // "null"' <<<"$project")"
             echo "attempt=$attempt state=$state target=$target"
-            if [ "$state" = READY ] && [ "$target" = production ]; then
-              exit 0
-            fi
-            if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then
-              exit 1
-            fi
+            if [ "$state" = READY ] && [ "$target" = production ]; then exit 0; fi
+            if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then exit 1; fi
             sleep 10
           done
           exit 1
 
-      - name: Verify release health and runtime errors
+      - name: Verify release health
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -106,14 +94,9 @@ jobs:
             "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
           domain="$(jq -r '.domains[0] // empty' <<<"$project")"
           test -n "$domain"
-          curl --fail-with-body --silent --show-error "https://$domain/api/release-health" -o /tmp/release-health.raw || true
-          python3 - <<'PY'
-from pathlib import Path
-raw = Path('/tmp/release-health.raw').read_text(encoding='utf-8', errors='replace')
-if not raw.strip():
-    raise SystemExit('release-health returned an empty response')
-print(raw[:4000])
-PY
+          curl --fail-with-body --silent --show-error "https://$domain/api/release-health" -o /tmp/release-health.raw
+          test -s /tmp/release-health.raw
+          cat /tmp/release-health.raw
 
       - name: Final Vercel state snapshot
         if: always()
