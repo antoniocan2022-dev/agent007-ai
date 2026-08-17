@@ -1,5 +1,12 @@
 import { createHash, createHmac } from 'node:crypto'
 
+/**
+ * Oracle Cloud Infrastructure Object Storage via its Amazon S3 Compatibility API.
+ *
+ * Prisma/Neon remains the authoritative metadata store; OCI Object Storage is
+ * used only for large binary payloads. The browser receives short-lived signed
+ * URLs and never receives the OCI secret key.
+ */
 export interface ObjectStorageConfig {
   endpoint: string
   bucket: string
@@ -13,19 +20,26 @@ export interface MultipartPart { partNumber: number; etag: string; size?: number
 
 function required(name: string): string {
   const value = process.env[name]?.trim()
-  if (!value) throw new Error(`Missing required object-storage configuration: ${name}`)
+  if (!value) throw new Error(`Missing required OCI Object Storage configuration: ${name}`)
   return value
 }
 
 export function getObjectStorageConfig(): ObjectStorageConfig {
-  const endpoint = required('ATTACHMENT_S3_ENDPOINT').replace(/\/+$/, '')
+  const endpoint = required('OCI_OBJECT_STORAGE_ENDPOINT').replace(/\/+$/, '')
+  const parsed = new URL(endpoint)
+  const hostname = parsed.hostname.toLowerCase()
+  if (!hostname.includes('compat.objectstorage.') && !hostname.includes('vhcompat.objectstorage.')) {
+    throw new Error('OCI_OBJECT_STORAGE_ENDPOINT must be an Oracle Object Storage S3 Compatibility API endpoint.')
+  }
   return {
     endpoint,
-    bucket: required('ATTACHMENT_S3_BUCKET'),
-    region: process.env.ATTACHMENT_S3_REGION?.trim() || 'us-east-1',
-    accessKeyId: required('ATTACHMENT_S3_ACCESS_KEY_ID'),
-    secretAccessKey: required('ATTACHMENT_S3_SECRET_ACCESS_KEY'),
-    forcePathStyle: process.env.ATTACHMENT_S3_FORCE_PATH_STYLE !== 'false',
+    bucket: required('OCI_OBJECT_STORAGE_BUCKET'),
+    region: required('OCI_OBJECT_STORAGE_REGION'),
+    accessKeyId: required('OCI_OBJECT_STORAGE_ACCESS_KEY_ID'),
+    secretAccessKey: required('OCI_OBJECT_STORAGE_SECRET_ACCESS_KEY'),
+    // Oracle supports path-style S3 compatibility endpoints. Keep this safe
+    // default unless the configured endpoint explicitly requires virtual-hosting.
+    forcePathStyle: process.env.OCI_OBJECT_STORAGE_FORCE_PATH_STYLE !== 'false',
   }
 }
 
@@ -61,7 +75,9 @@ function canonicalQuery(params: Record<string, string>): string {
 }
 
 function canonicalHeaders(headers: Record<string, string>): { canonical: string; signed: string } {
-  const entries = Object.entries(headers).map(([k, v]) => [k.toLowerCase().trim(), v.trim().replace(/\s+/g, ' ')] as const).sort(([a], [b]) => a.localeCompare(b))
+  const entries = Object.entries(headers)
+    .map(([k, v]) => [k.toLowerCase().trim(), v.trim().replace(/\s+/g, ' ')] as const)
+    .sort(([a], [b]) => a.localeCompare(b))
   return {
     canonical: entries.map(([k, v]) => `${k}:${v}\n`).join(''),
     signed: entries.map(([k]) => k).join(';'),
@@ -94,7 +110,7 @@ async function signedRequest(input: { method: string; key: string; query?: Recor
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256(canonicalRequest)].join('\n')
   const signature = createHmac('sha256', signingKey(config.secretAccessKey, dateStamp, config.region)).update(stringToSign).digest('hex')
   const authorization = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signed}, Signature=${signature}`
-  const response = await fetch(`${url.origin}${requestUrl(config, input.key).pathname}${params && Object.keys(params).length ? `?${canonicalQuery(params)}` : ''}`, {
+  const response = await fetch(`${url.origin}${url.pathname}${Object.keys(params).length ? `?${canonicalQuery(params)}` : ''}`, {
     method: input.method,
     headers: { ...headers, authorization },
     body: input.method === 'GET' || input.method === 'HEAD' || input.method === 'DELETE' ? undefined : payload,
@@ -102,13 +118,13 @@ async function signedRequest(input: { method: string; key: string; query?: Recor
     signal: AbortSignal.timeout(60_000),
   })
   const text = input.responseType === 'empty' ? '' : await response.text()
-  if (!response.ok) throw new Error(`Object storage ${input.method} ${response.status}: ${text.slice(0, 500)}`)
+  if (!response.ok) throw new Error(`OCI Object Storage ${input.method} ${response.status}: ${text.slice(0, 500)}`)
   return { response, text }
 }
 
 function parseUploadId(xml: string): string {
   const match = xml.match(/<UploadId>([^<]+)<\/UploadId>/i)
-  if (!match) throw new Error('Object storage did not return a multipart upload id.')
+  if (!match) throw new Error('OCI Object Storage did not return a multipart upload id.')
   return match[1]
 }
 
@@ -122,17 +138,25 @@ export async function createMultipartUpload(key: string, contentType: string): P
 export async function completeMultipartUpload(key: string, uploadId: string, parts: MultipartPart[]): Promise<string | null> {
   if (!parts.length) throw new Error('At least one multipart part is required.')
   const ordered = [...parts].sort((a, b) => a.partNumber - b.partNumber)
-  for (let i = 0; i < ordered.length; i++) if (ordered[i].partNumber !== i + 1 || !ordered[i].etag) throw new Error('Multipart parts must be contiguous and have ETags.')
+  for (let i = 0; i < ordered.length; i++) {
+    if (ordered[i].partNumber !== i + 1 || !ordered[i].etag) throw new Error('Multipart parts must be contiguous and have ETags.')
+  }
   const body = `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUpload>${ordered.map((p) => `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>${escapeXml(p.etag)}</ETag></Part>`).join('')}</CompleteMultipartUpload>`
   const { text } = await signedRequest({ method: 'POST', key, query: { uploadId }, body, contentType: 'application/xml', responseType: 'text' })
   return parseCompleteEtag(text)
 }
 
-export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> { await signedRequest({ method: 'DELETE', key, query: { uploadId }, responseType: 'empty' }) }
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  await signedRequest({ method: 'DELETE', key, query: { uploadId }, responseType: 'empty' })
+}
 
 export async function headObject(key: string): Promise<{ size: number; etag: string | null; contentType: string | null }> {
   const { response } = await signedRequest({ method: 'HEAD', key, responseType: 'empty' })
-  return { size: Number(response.headers.get('content-length') ?? 0), etag: response.headers.get('etag'), contentType: response.headers.get('content-type') }
+  return {
+    size: Number(response.headers.get('content-length') ?? 0),
+    etag: response.headers.get('etag'),
+    contentType: response.headers.get('content-type'),
+  }
 }
 
 export async function listMultipartParts(key: string, uploadId: string): Promise<MultipartPart[]> {
@@ -165,4 +189,6 @@ export function presignObjectPart(method: 'PUT' | 'GET', key: string, extraQuery
   return `${url.origin}${url.pathname}?${canonicalQuery(params)}`
 }
 
-function escapeXml(value: string): string { return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&apos;') }
+function escapeXml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&apos;')
+}
