@@ -6,10 +6,22 @@ export interface DelegationRequest { actorId: string; actorLevel: AuthorityLevel
 
 const CEO_IDS = new Set(['ceo', 'agent007', 'super-agent', 'super_agent', 'owner'])
 const VID_IDS = new Set(['vid', 'vid_director'])
-const LEADERS = new Set(['scout', 'aurora', 'vertex', 'quantum', 'echo', 'forge', 'pulse', 'quill', 'prism', 'legal', 'banker', 'hunt', 'developer', 'cybersecurity_a', 'cybersecurity_r', 'trader', 'revenue', 'external_uptime_monitor', 'qa_monitor'])
+// Canonical pod/functional leaders in the current built-in registry.
+const LEADERS = new Set(['scout', 'aurora', 'vertex', 'quantum', 'echo', 'forge', 'pulse', 'legal', 'banker', 'hunt', 'cybersecurity_a', 'cybersecurity_r', 'trader', 'revenue', 'external_uptime_monitor', 'qa_monitor'])
+// Built-in team specialists explicitly used by leader prompts as downstream workers.
+const SPECIALISTS = new Set(['quill', 'prism', 'developer'])
 const normalizeId = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '_')
 
-export function authorityLevelFor(id: string): AuthorityLevel { const normalized = normalizeId(id); if (CEO_IDS.has(normalized)) return 'CEO'; if (VID_IDS.has(normalized)) return 'VID'; if (LEADERS.has(normalized)) return 'LEADER'; return 'SPECIALIST' }
+export function authorityLevelFor(id: string): AuthorityLevel {
+  const normalized = normalizeId(id)
+  if (CEO_IDS.has(normalized)) return 'CEO'
+  if (VID_IDS.has(normalized)) return 'VID'
+  if (LEADERS.has(normalized)) return 'LEADER'
+  if (SPECIALISTS.has(normalized)) return 'SPECIALIST'
+  // Runtime-created specialist overlays remain supported by the existing
+  // subagent registry contract. Explicit built-in roles above take priority.
+  return 'SPECIALIST'
+}
 
 export function assertDelegationAllowed(request: DelegationRequest): void {
   const actor = normalizeId(request.actorId); const target = normalizeId(request.targetId)
@@ -57,18 +69,8 @@ export async function verifyArtifact(artifactId: string, actor: string, source: 
   return record
 }
 
-export async function rejectArtifact(artifactId: string, actor: string, reason: string): Promise<ArtifactRecord> {
-  if (!actor.trim() || !reason.trim()) throw new Error('Artifact rejection actor and reason are required.')
-  const row = await db.memory.findUnique({ where: { key: artifactKey(artifactId) } }); if (!row) throw new Error(`Artifact not found: ${artifactId}`)
-  const record = JSON.parse(row.value) as ArtifactRecord; if (record.status === 'VERIFIED') throw new Error('Verified artifacts cannot be rejected; create a superseding version instead.'); if (record.status === 'SUPERSEDED') throw new Error('Superseded artifacts cannot be rejected.')
-  record.status = 'REJECTED'; await db.memory.update({ where: { key: artifactKey(artifactId) }, data: { value: JSON.stringify(record) } }); await writeArtifactEvent({ eventId: artifactEventKey(artifactId, 'REJECTED', actor, reason), artifactId, type: 'REJECTED', actor: actor.trim(), timestamp: new Date().toISOString(), metadata: { reason: reason.trim() } }); return record
-}
-
-export async function supersedeArtifact(artifactId: string, actor: string, successorId: string): Promise<ArtifactRecord> {
-  const row = await db.memory.findUnique({ where: { key: artifactKey(artifactId) } }); if (!row) throw new Error(`Artifact not found: ${artifactId}`); const record = JSON.parse(row.value) as ArtifactRecord; if (record.status === 'SUPERSEDED') return record; if (!successorId.trim() || successorId === artifactId) throw new Error('A distinct successor artifact id is required.')
-  record.status = 'SUPERSEDED'; await db.memory.update({ where: { key: artifactKey(artifactId) }, data: { value: JSON.stringify(record) } }); await writeArtifactEvent({ eventId: artifactEventKey(artifactId, 'SUPERSEDED', actor, successorId), artifactId, type: 'SUPERSEDED', actor: actor.trim(), timestamp: new Date().toISOString(), metadata: { successorId } }); return record
-}
-
+export async function rejectArtifact(artifactId: string, actor: string, reason: string): Promise<ArtifactRecord> { if (!actor.trim() || !reason.trim()) throw new Error('Artifact rejection actor and reason are required.'); const row = await db.memory.findUnique({ where: { key: artifactKey(artifactId) } }); if (!row) throw new Error(`Artifact not found: ${artifactId}`); const record = JSON.parse(row.value) as ArtifactRecord; if (record.status === 'VERIFIED') throw new Error('Verified artifacts cannot be rejected; create a superseding version instead.'); if (record.status === 'SUPERSEDED') throw new Error('Superseded artifacts cannot be rejected.'); record.status = 'REJECTED'; await db.memory.update({ where: { key: artifactKey(artifactId) }, data: { value: JSON.stringify(record) } }); await writeArtifactEvent({ eventId: artifactEventKey(artifactId, 'REJECTED', actor, reason), artifactId, type: 'REJECTED', actor: actor.trim(), timestamp: new Date().toISOString(), metadata: { reason: reason.trim() } }); return record }
+export async function supersedeArtifact(artifactId: string, actor: string, successorId: string): Promise<ArtifactRecord> { const row = await db.memory.findUnique({ where: { key: artifactKey(artifactId) } }); if (!row) throw new Error(`Artifact not found: ${artifactId}`); const record = JSON.parse(row.value) as ArtifactRecord; if (record.status === 'SUPERSEDED') return record; if (!successorId.trim() || successorId === artifactId) throw new Error('A distinct successor artifact id is required.'); record.status = 'SUPERSEDED'; await db.memory.update({ where: { key: artifactKey(artifactId) }, data: { value: JSON.stringify(record) } }); await writeArtifactEvent({ eventId: artifactEventKey(artifactId, 'SUPERSEDED', actor, successorId), artifactId, type: 'SUPERSEDED', actor: actor.trim(), timestamp: new Date().toISOString(), metadata: { successorId } }); return record }
 export async function getArtifact(artifactId: string): Promise<ArtifactRecord | null> { const row = await db.memory.findUnique({ where: { key: artifactKey(artifactId) } }); return row ? JSON.parse(row.value) as ArtifactRecord : null }
 export async function listArtifacts(input?: { ventureId?: string; missionId?: string; status?: ArtifactStatus; limit?: number }): Promise<ArtifactRecord[]> { const rows = await db.memory.findMany({ where: { category: 'architecture_artifact' }, orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(input?.limit ?? 100, 1), 5000) }); return rows.map((row) => { try { return JSON.parse(row.value) as ArtifactRecord } catch { return null } }).filter((artifact): artifact is ArtifactRecord => Boolean(artifact)).filter((artifact) => !input?.ventureId || artifact.ventureId === input.ventureId).filter((artifact) => !input?.missionId || artifact.missionId === input.missionId).filter((artifact) => !input?.status || artifact.status === input.status) }
 
