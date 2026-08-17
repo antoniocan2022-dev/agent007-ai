@@ -1,0 +1,49 @@
+name: Universal Attachments Foundation CI
+
+on:
+  push:
+    branches:
+      - feat/universal-10gb-attachments
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  attachments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate Prisma client
+        run: bunx prisma generate
+      - name: Attachment foundation tests
+        run: bun test tests/attachments-foundation.test.ts
+      - name: TypeScript audit
+        run: bunx tsc -p tsconfig.ci.json --noEmit --pretty false
+      - name: Diff hygiene
+        run: git diff --check
+      - name: Canonical attachment source assertions
+        run: |
+          test -f src/lib/attachment-policy.ts
+          test -f src/lib/attachment-store.ts
+          test -f src/lib/object-storage.ts
+          test -f src/app/api/attachments/initiate/route.ts
+          test -f src/app/api/attachments/[assetId]/part/route.ts
+          test -f src/app/api/attachments/[assetId]/parts/route.ts
+          test -f src/app/api/attachments/[assetId]/complete/route.ts
+          test -f src/app/api/attachments/[assetId]/route.ts
+          test -f src/app/api/attachments/[assetId]/download/route.ts
+          grep -q '10_000_000_000' src/lib/attachment-policy.ts
+          grep -q 'multipart' src/lib/object-storage.ts
+          grep -q 'attachmentId' src/app/api/agent/route.ts
+          grep -q '10 GiB' src/components/agent/chat-input.tsx
