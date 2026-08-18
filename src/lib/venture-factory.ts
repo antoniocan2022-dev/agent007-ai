@@ -2,15 +2,15 @@
  * Venture OS Venture Factory — Upgrade 17.
  *
  * The factory generates deterministic structural venture blueprints only.
- * It never creates portfolio records, customers, revenue, payments, or launch
- * evidence. Every generated venture starts proposed and must pass the same
- * canonical 5–16 governance chain as Venture 001 before execution.
+ * It creates a DRAFT Venture Control Contract for each future shell so the
+ * object is structurally governable, but it never creates readiness evidence,
+ * customers, revenue, payments, or launch authorization.
  */
 
 import { createHash } from 'node:crypto'
 import { db } from './db'
 import { buildVentureBlueprint, CANONICAL_VENTURE_TEMPLATE, validateCanonicalVentureTemplate, type VentureBlueprint } from './venture-template'
-import { ensureVentureControlContract } from './architecture-control-plane'
+import { createVentureControlContract } from './architecture-control-plane'
 
 const FACTORY_CATEGORY = 'venture_factory_blueprint'
 const FACTORY_PREFIX = 'venture-os:factory:'
@@ -72,7 +72,8 @@ export async function buildVentureShell(specInput: VentureFactorySpec): Promise<
     if (blueprint.templateKey !== CANONICAL_VENTURE_TEMPLATE.templateKey || blueprint.templateVersion !== CANONICAL_VENTURE_TEMPLATE.version) {
       throw new Error(`Factory blueprint ${spec.ventureId} uses a non-canonical template version and cannot be silently repaired.`)
     }
-    await ensureVentureControlContract(spec.ventureId)
+    const contract = await createVentureControlContract(spec.ventureId)
+    if (contract.status !== 'DRAFT') throw new Error(`Future venture ${spec.ventureId} must retain a DRAFT control contract.`)
     return { created: false, repaired: false, blueprint }
   }
 
@@ -87,15 +88,18 @@ export async function buildVentureShell(specInput: VentureFactorySpec): Promise<
     realRevenuePresent: false,
     realCustomersPresent: false,
     launchAuthorized: false,
+    readinessStatus: 'BLOCKED',
   })
 
   await db.memory.create({ data: { key, value, category: FACTORY_CATEGORY } }).catch(() => {})
   const confirmed = await db.memory.findUnique({ where: { key } })
   if (!confirmed) throw new Error(`Factory could not persist ${spec.ventureId}.`)
 
-  await ensureVentureControlContract(spec.ventureId)
-  const persisted = JSON.parse(confirmed.value) as VentureBlueprint & { launchAuthorized?: boolean }
+  const contract = await createVentureControlContract(spec.ventureId)
+  if (contract.status !== 'DRAFT') throw new Error(`Future venture ${spec.ventureId} must start with a DRAFT control contract.`)
+  const persisted = JSON.parse(confirmed.value) as VentureBlueprint & { launchAuthorized?: boolean; readinessStatus?: string }
   if (persisted.launchAuthorized !== false) throw new Error(`Factory safety invariant failed for ${spec.ventureId}: launch cannot be authorized by factory generation.`)
+  if (persisted.readinessStatus !== 'BLOCKED') throw new Error(`Factory safety invariant failed for ${spec.ventureId}: future ventures must begin BLOCKED.`)
 
   return { created: true, repaired: false, blueprint: persisted }
 }
