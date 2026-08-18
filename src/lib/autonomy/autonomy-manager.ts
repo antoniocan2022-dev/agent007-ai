@@ -224,6 +224,7 @@ export async function runAutonomyManagerTick(options: AutonomyManagerOptions = {
           run.workClaimed++
         }
       } catch (error: any) {
+        run.status = 'FAILED'
         run.errors.push(`${ventureId}: ${error?.message ?? String(error)}`)
       }
     }
@@ -239,13 +240,6 @@ export async function runAutonomyManagerTick(options: AutonomyManagerOptions = {
   return run
 }
 
-export async function getAutonomyManagerStatus(): Promise<{ managerVersion: number; lease: unknown; recentRuns: AutonomyManagerRun[] }> {
-  const leaseRow = await db.memory.findUnique({ where: { key: LEASE_KEY } })
-  const rows = await db.memory.findMany({ where: { category: RUN_CATEGORY }, orderBy: { updatedAt: 'desc' }, take: 20 })
-  const recentRuns = rows.map((row) => parseJson<AutonomyManagerRun>(row.value)).filter((value): value is AutonomyManagerRun => Boolean(value))
-  return { managerVersion: MANAGER_VERSION, lease: leaseRow ? parseJson(leaseRow.value) : null, recentRuns }
-}
-
 function cryptoSafeRunNonce(): string {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
