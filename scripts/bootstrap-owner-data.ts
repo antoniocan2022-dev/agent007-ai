@@ -3,13 +3,34 @@ import { db } from '@/lib/db'
 import { injectCharterIntoKB } from '@/lib/charter-injector'
 import { OWNER_PHONE, SEED_EMAIL } from '@/lib/owner-config'
 
+const BOOTSTRAP_PASSWORD_ENV = 'OWNER_BOOTSTRAP_PASSWORD'
+
+async function getBootstrapPassword(existingUser: { passwordHash: string } | null) {
+  const configuredPassword = process.env[BOOTSTRAP_PASSWORD_ENV]
+
+  if (!existingUser && !configuredPassword) {
+    throw new Error(`${BOOTSTRAP_PASSWORD_ENV} must be set when creating the owner account.`)
+  }
+
+  // Accounts created by the previous implementation used the email address as
+  // the password. If such an account exists, require an explicit replacement
+  // password before repairing it; never silently preserve the predictable one.
+  if (existingUser && configuredPassword) {
+    const legacyPassword = await bcrypt.compare(SEED_EMAIL, existingUser.passwordHash)
+    if (legacyPassword) return bcrypt.hash(configuredPassword, 12)
+  }
+
+  return configuredPassword ? bcrypt.hash(configuredPassword, 12) : null
+}
+
 async function main() {
-  const passwordHash = await bcrypt.hash(SEED_EMAIL, 10)
+  const existingUser = await db.user.findUnique({ where: { email: SEED_EMAIL } })
+  const passwordHash = await getBootstrapPassword(existingUser)
 
   const user = await db.user.upsert({
     where: { email: SEED_EMAIL },
-    update: { name: 'Agent007 Operator' },
-    create: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' },
+    update: passwordHash ? { name: 'Agent007 Operator', passwordHash } : { name: 'Agent007 Operator' },
+    create: { email: SEED_EMAIL, passwordHash: passwordHash!, name: 'Agent007 Operator' },
   })
 
   const phoneConfig = await db.phoneConfig.findFirst({ where: { userId: user.id } })
@@ -28,17 +49,24 @@ async function main() {
     })
   }
 
+  // Provisioning a 2FA record is not the same as verifying ownership. Never
+  // mark an unverified bootstrap record as enabled/verified.
   const twoFactor = await db.twoFactorSecret.findFirst({ where: { userId: user.id, enabled: true } })
   if (!twoFactor) {
-    await db.twoFactorSecret.create({
-      data: {
-        userId: user.id,
-        method: 'email',
-        email: SEED_EMAIL,
-        enabled: true,
-        verifiedAt: new Date(),
-      },
+    const existingPending = await db.twoFactorSecret.findFirst({
+      where: { userId: user.id, method: 'email', enabled: false },
     })
+    if (!existingPending) {
+      await db.twoFactorSecret.create({
+        data: {
+          userId: user.id,
+          method: 'email',
+          email: SEED_EMAIL,
+          enabled: false,
+          verifiedAt: null,
+        },
+      })
+    }
   }
 
   await db.userSetting.upsert({
