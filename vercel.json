@@ -6,6 +6,12 @@
   },
   "installCommand": "bun install",
   "buildCommand": "bunx prisma generate && bun run build",
+  "crons": [
+    {
+      "path": "/api/autonomy/heartbeat",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "functions": {
     "src/app/api/agent/route.ts": { "maxDuration": 300 },
     "src/app/api/monitor/qa/route.ts": { "maxDuration": 60 },
