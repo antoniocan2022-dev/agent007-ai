@@ -68,6 +68,9 @@ jobs:
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
+      - name: Release architecture invariants
+        run: bun test tests/release-architecture.test.ts
+
       - name: Venture OS heartbeat contract gate
         env:
           DATABASE_URL: ''
