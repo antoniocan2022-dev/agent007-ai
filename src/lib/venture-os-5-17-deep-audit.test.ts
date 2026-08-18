@@ -64,7 +64,16 @@ describe('Venture OS 5–17 deep integrity audit', () => {
     const first = await recordBusinessOutcome({ ...base, outcomeId: 'deep-audit:outcome:1' })
     expect(await recordBusinessOutcome({ ...base, outcomeId: 'deep-audit:outcome:1' })).toEqual(first)
     await expect(recordBusinessOutcome({ ...base, outcomeId: 'deep-audit:outcome:1', amount: 30 })).rejects.toThrow(/identity collision/i)
-    expect(buildOutcomeId(base)).not.toBe(buildOutcomeId({ ...base, occurredAt: '2026-08-17T20:00:01.000Z' }))
+
+    const costBase = {
+      ventureId: 'venture_001', missionId: 'deep-audit:cost', type: 'COST_RECORDED' as const,
+      transactionId: null, customerId: null, amount: 25, currency: 'USD', source: 'deep-audit',
+      occurredAt: '2026-08-17T20:00:00.000Z', metadata: {},
+    }
+    expect(buildOutcomeId(costBase)).not.toBe(buildOutcomeId({
+      ...costBase,
+      occurredAt: '2026-08-17T20:00:01.000Z',
+    }))
   })
 
   test('9: active future venture contracts cannot drift from the canonical evidence contract', async () => {
