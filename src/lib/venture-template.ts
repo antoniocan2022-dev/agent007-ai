@@ -54,23 +54,23 @@ export const CANONICAL_VENTURE_TEMPLATE: VentureTemplate = Object.freeze({
   lifecyclePolicy: VENTURE_LIFECYCLE_POLICY,
   requiredEvidence: VENTURE_EVIDENCE_TYPES,
   readiness: {
-    contractRequired: true,
-    verifiedEvidenceRequired: true,
-    ownerApprovalRequiredForLaunch: true,
-    syntheticOutcomesForbidden: true,
+    contractRequired: true as const,
+    verifiedEvidenceRequired: true as const,
+    ownerApprovalRequiredForLaunch: true as const,
+    syntheticOutcomesForbidden: true as const,
   },
   commercial: {
-    paymentEvidenceRequired: true,
-    refundEvidenceRequired: true,
-    customerEvidenceRequired: true,
+    paymentEvidenceRequired: true as const,
+    refundEvidenceRequired: true as const,
+    customerEvidenceRequired: true as const,
   },
   artifact: {
-    canonicalLedgerRequired: true,
-    verificationRequiredBeforeRelease: true,
-    supersessionRequiredForReplacement: true,
+    canonicalLedgerRequired: true as const,
+    verificationRequiredBeforeRelease: true as const,
+    supersessionRequiredForReplacement: true as const,
   },
   referenceVenture: VENTURE_001_REFERENCE,
-})
+} as VentureTemplate)
 
 export function validateCanonicalVentureTemplate(): string[] {
   const errors: string[] = []
@@ -108,10 +108,10 @@ type VentureBlueprintInput = Omit<
 export function buildVentureBlueprint(input: VentureBlueprintInput): VentureBlueprint {
   const values = [input.ventureId, input.name, input.type, input.description, input.targetMarket, input.pricingModel]
   if (values.some((value) => !String(value).trim())) throw new Error('Venture blueprint requires ventureId, name, type, description, targetMarket, and pricingModel.')
-  if (input.ventureId.trim() === 'venture_001') throw new Error('Venture 001 is canonical and cannot be regenerated from the factory.')
+  if (input.ventureId.trim().toLowerCase() === 'venture_001') throw new Error('Venture 001 is canonical and cannot be regenerated from the factory.')
   return {
     ...input,
-    ventureId: input.ventureId.trim(),
+    ventureId: input.ventureId.trim().toLowerCase(),
     name: input.name.trim(),
     description: input.description.trim(),
     targetMarket: input.targetMarket.trim(),
