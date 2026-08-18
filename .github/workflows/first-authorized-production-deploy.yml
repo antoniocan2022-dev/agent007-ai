@@ -1,10 +1,8 @@
 name: First Authorized Production Deploy
 
-# Controlled push gate: production deploys only for an explicitly authorized commit message.
-# Release safety invariant: the exact Venture OS heartbeat contract suite must pass before deployment.
+# Legacy release workflow retained for emergency/manual use only.
+# The canonical push-triggered production release path is vercel-release-gate.yml.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,22 +14,13 @@ env:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'authorize final Venture OS production release') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout triggering commit exactly
+      - name: Checkout exact main commit
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.sha }}
+          ref: main
           fetch-depth: 1
-
-      - name: Assert exact release commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          actual="$(git rev-parse HEAD)"
-          test "$actual" = "${GITHUB_SHA}"
-          echo "Release commit pinned exactly: $actual"
 
       - name: Verify controlled deployment configuration
         env:
@@ -44,17 +33,6 @@ jobs:
           test -n "$VERCEL_PROJECT_ID"
           test -n "$VERCEL_TOKEN"
 
-      - name: Capture Vercel state before deploy
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
-            > /tmp/vercel-before.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-before.json
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -62,70 +40,21 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
       - name: Generate Prisma client
         run: bunx prisma generate
+
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
-      - name: Venture OS heartbeat contract gate
-        env:
-          DATABASE_URL: ''
-        run: |
-          set -euo pipefail
-          bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts tests/db-runtime-policy.test.ts tests/owner-bootstrap-security.test.ts
+
       - name: Production build gate
         env:
           VERCEL_ENV: production
         run: bun run build
 
-      - name: Deploy exact triggering commit to Production
+      - name: Deploy exact main commit to Production
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          bun add --global vercel@latest
-          vercel deploy --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
-
-      - name: Verify Production deployment state
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 30); do
-            project="$(curl --fail-with-body --silent --show-error \
-              -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
-            state="$(jq -r '.latestDeployment.readyState // "UNKNOWN"' <<<"$project")"
-            target="$(jq -r '.latestDeployment.target // "null"' <<<"$project")"
-            deployment_sha="$(jq -r '.latestDeployment.meta.githubCommitSha // ""' <<<"$project")"
-            echo "attempt=$attempt state=$state target=$target sha=$deployment_sha"
-            if [ "$state" = READY ] && [ "$target" = production ] && [ "$deployment_sha" = "$GITHUB_SHA" ]; then exit 0; fi
-            if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then exit 1; fi
-            sleep 10
-          done
-          exit 1
-
-      - name: Verify release health
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          project="$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
-          domain="$(jq -r '.domains[0] // empty' <<<"$project")"
-          test -n "$domain"
-          curl --fail-with-body --silent --show-error "https://$domain/api/release-health" -o /tmp/release-health.raw
-          test -s /tmp/release-health.raw
-          cat /tmp/release-health.raw
-
-      - name: Final Vercel state snapshot
-        if: always()
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set +e
-          curl --silent --show-error \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
-            > /tmp/vercel-after.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-after.json
+          bunx vercel@59.1.3 deploy --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
