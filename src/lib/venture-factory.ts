@@ -9,12 +9,7 @@
 
 import { createHash } from 'node:crypto'
 import { db } from './db'
-import {
-  buildVentureBlueprint,
-  CANONICAL_VENTURE_TEMPLATE,
-  validateCanonicalVentureTemplate,
-  type VentureBlueprint,
-} from './venture-template'
+import { buildVentureBlueprint, CANONICAL_VENTURE_TEMPLATE, validateCanonicalVentureTemplate, type VentureBlueprint } from './venture-template'
 import { ensureVentureControlContract } from './architecture-control-plane'
 
 const FACTORY_CATEGORY = 'venture_factory_blueprint'
@@ -43,8 +38,9 @@ function deterministicFactoryId(ventureId: string): string {
 
 export function validateVentureFactorySpec(spec: VentureFactorySpec): string[] {
   const errors = validateCanonicalVentureTemplate()
-  if (!/^venture_00[23]$/.test(spec.ventureId.trim())) errors.push('Factory currently supports only venture_002 and venture_003 structural shells.')
-  if (spec.ventureId.trim() === 'venture_001') errors.push('Venture 001 is canonical and is not a factory target.')
+  const ventureId = spec.ventureId.trim().toLowerCase()
+  if (!/^venture_00[23]$/.test(ventureId)) errors.push('Factory currently supports only venture_002 and venture_003 structural shells.')
+  if (ventureId === 'venture_001') errors.push('Venture 001 is canonical and is not a factory target.')
   if (!spec.name.trim()) errors.push('Venture name is required.')
   if (!spec.description.trim()) errors.push('Venture description is required.')
   if (!spec.targetMarket.trim()) errors.push('Venture target market is required.')
@@ -93,7 +89,7 @@ export async function buildVentureShell(specInput: VentureFactorySpec): Promise<
     launchAuthorized: false,
   })
 
-  await db.memory.create({ key, value, category: FACTORY_CATEGORY }).catch(async () => {})
+  await db.memory.create({ data: { key, value, category: FACTORY_CATEGORY } }).catch(() => {})
   const confirmed = await db.memory.findUnique({ where: { key } })
   if (!confirmed) throw new Error(`Factory could not persist ${spec.ventureId}.`)
 
@@ -107,7 +103,7 @@ export async function buildVentureShell(specInput: VentureFactorySpec): Promise<
 /** Generate both future shells using explicit specs; no implicit business assumptions are invented. */
 export async function buildV002V003Factory(specs: [VentureFactorySpec, VentureFactorySpec]): Promise<VentureFactoryResult[]> {
   const ids = specs.map((spec) => spec.ventureId.trim().toLowerCase())
-  if (ids.includes('venture_001')) throw new Error('V001 is canonical and cannot be included in the future venture factory.')
+  if (ids.includes('venture_001')) throw new Error('Venture 001 is canonical and cannot be included in the future venture factory.')
   if (new Set(ids).size !== 2 || !ids.includes('venture_002') || !ids.includes('venture_003')) throw new Error('The factory requires exactly one V002 specification and one V003 specification.')
   return Promise.all(specs.map((spec) => buildVentureShell(spec)))
 }
