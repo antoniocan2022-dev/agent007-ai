@@ -1,0 +1,62 @@
+name: Temporary DB Raw SQL Repair
+
+on:
+  push:
+    branches:
+      - arch/venture-control-plane-5-13
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, 'fix: repair db raw sql batching') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair batched PostgreSQL DDL execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('src/lib/db.ts')
+          text = path.read_text()
+          pattern = re.compile(r'''    // UPGRADE #142 — BATCH CREATE TABLE STATEMENTS \(Issue A fix\).*?    console\.log\(`\[db\] Tables ensured via raw SQL \(batched\).*?    return failed === 0\n''', re.S)
+          replacement = '''    // Execute each DDL statement independently. PostgreSQL prepared statements
+    // reject multiple SQL commands in one statement; one-by-one execution keeps
+    // the safety-net deterministic and prevents noisy false DB errors.
+    for (const sql of statements) {
+      try {
+        await (db as any).$executeRawUnsafe(sql)
+        created++
+      } catch (e: any) {
+        const msg = e?.message ?? ''
+        if (msg.includes('already exists')) {
+          alreadyExisted++
+        } else {
+          failed++
+          console.error('[db] SQL failed:', msg.slice(0, 240), '— statement:', sql.slice(0, 120))
+        }
+      }
+    }
+    console.log(`[db] Tables ensured via raw SQL — ${created} created, ${alreadyExisted} already existed, ${failed} failed (out of ${statements.length} statements)`)
+    return failed === 0
+'''
+          new_text, count = pattern.subn(replacement, text)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one DB batch block, found {count}')
+          path.write_text(new_text)
+          PY
+          git diff --check
+      - name: Commit repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Agent007 Repair Bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/db.ts
+          git diff --cached --check
+          git commit -m 'fix: repair db raw sql batching'
+          git push origin HEAD:arch/venture-control-plane-5-13
