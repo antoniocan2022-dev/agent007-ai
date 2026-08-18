@@ -57,6 +57,12 @@ jobs:
         run: bunx prisma generate
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
+      - name: Venture OS heartbeat contract gate
+        env:
+          DATABASE_URL: ''
+        run: |
+          set -euo pipefail
+          bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts tests/db-runtime-policy.test.ts tests/owner-bootstrap-security.test.ts
       - name: Production build gate
         env:
           VERCEL_ENV: production
