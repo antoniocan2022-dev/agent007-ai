@@ -1,26 +1,49 @@
 name: Venture OS 24x7 Heartbeat
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'
+
 permissions:
   contents: read
+
 concurrency:
   group: venture-os-24x7
   cancel-in-progress: false
+
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # GitHub intentionally exposes an empty string when the optional secret is absent.
+      # The value itself is never printed; only a boolean gate is emitted below.
+      VENTURE_DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
+      - name: Determine database availability
+        id: database-gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${VENTURE_DATABASE_URL:-}" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'Venture OS heartbeat: DATABASE_URL is configured; production evidence cycle is enabled.'
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Venture OS heartbeat: DATABASE_URL is not configured; production evidence cycle will be skipped safely.'
+            echo 'Contract verification will run in deterministic no-production-DB mode.'
+          fi
+
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.4
       - run: bun install --frozen-lockfile
       - run: bunx prisma generate
+
       - name: Verify operation-loop and autonomy contracts
         run: |
           set -euo pipefail
@@ -30,18 +53,31 @@ jobs:
           grep -q 'runAutonomyManagerTick' scripts/run-venture-operation-cycle.ts
           grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
           grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
+
       - name: Execute Venture OS operation cycle
+        if: ${{ steps.database-gate.outputs.available == 'true' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           VENTURE_ID: venture_001
           VENTURE_OWNER: agent007-24x7
         run: |
           set -euo pipefail
-          if [ -z "$DATABASE_URL" ]; then
-            echo 'Venture OS heartbeat: supervised evidence collection is BLOCKED because GitHub Actions has no DATABASE_URL secret.'
-            echo 'No KPI, readiness, revenue, or autonomy evidence is claimed in this state.'
-            exit 0
-          fi
           bun scripts/run-venture-operation-cycle.ts
+
+      - name: Record safe no-database state
+        if: ${{ steps.database-gate.outputs.available != 'true' }}
+        run: |
+          set -euo pipefail
+          echo 'Venture OS heartbeat: BLOCKED/SAFE — no DATABASE_URL is available to GitHub Actions.'
+          echo 'No KPI, readiness, revenue, or autonomy evidence is claimed.'
+          echo 'This is an expected supervised state, not a workflow failure.'
+
       - name: Run Venture OS contract tests
-        run: bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts
+        env:
+          # These tests are intentionally deterministic and must never depend on a
+          # production database being reachable. This prevents a paused/unavailable
+          # Postgres service from turning static contract verification into a false CI failure.
+          DATABASE_URL: ''
+        run: |
+          set -euo pipefail
+          bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts
