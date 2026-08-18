@@ -1,5 +1,5 @@
 import { db } from './db'
-import { recordBusinessOutcome } from './architecture-control-plane'
+import { listArtifacts, recordBusinessOutcome } from './architecture-control-plane'
 import { COMMERCIAL_CATEGORIES, type CommercialBusiness, type CommercialEvent, type CommercialWorkflow, type EventStatus, type WorkflowStatus } from './commercial-control-plane'
 
 function key(kind: string, tenantId: string, id: string): string { return `${kind}:${tenantId}:${id}` }
@@ -13,6 +13,19 @@ function lifecycleOutput(input: Record<string, unknown> | null, current: Commerc
   return input ?? current.output ?? {}
 }
 
+async function requireVerifiedPaymentArtifact(ventureId: string, transactionId: string): Promise<{ artifactId: string; value: string }> {
+  const artifacts = await listArtifacts({ ventureId, status: 'VERIFIED', limit: 5000 })
+  const matches = artifacts.filter((artifact) => artifact.artifactType === 'transaction_id' && artifact.value.trim() === transactionId.trim())
+  if (matches.length === 0) {
+    throw new Error(`Commercial payment ${transactionId} lacks a VERIFIED transaction artifact for ${ventureId}; business outcome was not recorded.`)
+  }
+  if (matches.length > 1) {
+    const ids = matches.map((artifact) => artifact.artifactId).sort()
+    throw new Error(`Commercial payment ${transactionId} has ambiguous VERIFIED transaction artifacts: ${ids.join(', ')}`)
+  }
+  return { artifactId: matches[0].artifactId, value: matches[0].value }
+}
+
 async function recordVerifiedBusinessOutcome(current: CommercialWorkflow, output: Record<string, unknown>, status: WorkflowStatus): Promise<void> {
   const lifecycleState = typeof output.lifecycleState === 'string' ? output.lifecycleState : null
   if (!lifecycleState || !['PAID', 'REFUNDED'].includes(lifecycleState)) return
@@ -23,8 +36,9 @@ async function recordVerifiedBusinessOutcome(current: CommercialWorkflow, output
   const amount = typeof current.input.amount === 'number' ? current.input.amount : Number(current.input.amount)
   const currency = typeof current.input.currency === 'string' ? current.input.currency : null
   if (!ventureId || !customerId || !transactionId || !provider || !Number.isFinite(amount) || amount <= 0 || !currency) {
-    throw new Error(`Commercial ${lifecycleState} state lacks verified payment evidence; business outcome was not recorded.`)
+    throw new Error(`Commercial ${lifecycleState} state lacks complete payment evidence; business outcome was not recorded.`)
   }
+  const paymentArtifact = await requireVerifiedPaymentArtifact(ventureId, transactionId)
   const type = lifecycleState === 'PAID' ? 'TRANSACTION' : 'REFUND'
   await recordBusinessOutcome({
     ventureId,
@@ -36,7 +50,7 @@ async function recordVerifiedBusinessOutcome(current: CommercialWorkflow, output
     currency,
     source: `${provider}:${status}:commercial-control-plane`,
     occurredAt: new Date().toISOString(),
-    metadata: { commercialWorkflowId: current.workflowId, provider, business: current.business },
+    metadata: { commercialWorkflowId: current.workflowId, provider, business: current.business, paymentEvidenceArtifactId: paymentArtifact.artifactId },
   })
 }
 
@@ -59,10 +73,6 @@ export async function transitionCommercialWorkflow(input: { tenantId: string; wo
   const record = await db.memory.findUnique({ where: { key: key('workflow', input.tenantId, current.idempotencyKey) } })
   if (!record) throw new Error('Workflow persistence record is missing.')
 
-  // Business outcomes are derived only from verified payment identifiers and
-  // become part of the same atomic application transition boundary as the
-  // commercial workflow update. Repeated lifecycle transitions remain
-  // idempotent because the canonical outcome ID derives from the transaction.
   if (['PAID', 'REFUNDED'].includes(String(output.lifecycleState)) && current.output?.lifecycleState !== output.lifecycleState) {
     await recordVerifiedBusinessOutcome(current, output, input.status)
   }
