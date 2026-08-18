@@ -1,5 +1,6 @@
 name: First Authorized Production Deploy
 
+# Controlled push gate: production deploys only for an explicitly authorized commit message.
 on:
   push:
     branches: [main]
