@@ -14,16 +14,26 @@ env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
+autoskip: false
+
 jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'authorize final Venture OS production release') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact main commit
+      - name: Checkout triggering commit exactly
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
+
+      - name: Assert exact release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "${GITHUB_SHA}"
+          echo "Release commit pinned exactly: $actual"
 
       - name: Verify controlled deployment configuration
         env:
@@ -69,7 +79,7 @@ jobs:
           VERCEL_ENV: production
         run: bun run build
 
-      - name: Deploy exact main commit to Production
+      - name: Deploy exact triggering commit to Production
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -88,8 +98,9 @@ jobs:
               "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
             state="$(jq -r '.latestDeployment.readyState // "UNKNOWN"' <<<"$project")"
             target="$(jq -r '.latestDeployment.target // "null"' <<<"$project")"
-            echo "attempt=$attempt state=$state target=$target"
-            if [ "$state" = READY ] && [ "$target" = production ]; then exit 0; fi
+            deployment_sha="$(jq -r '.latestDeployment.meta.githubCommitSha // ""' <<<"$project")"
+            echo "attempt=$attempt state=$state target=$target sha=$deployment_sha"
+            if [ "$state" = READY ] && [ "$target" = production ] && [ "$deployment_sha" = "$GITHUB_SHA" ]; then exit 0; fi
             if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then exit 1; fi
             sleep 10
           done
