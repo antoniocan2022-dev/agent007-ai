@@ -1,5 +1,6 @@
 name: Vercel Controlled Two-Stage Release
 
+# Canonical authorized production release path. Git auto-deployment remains disabled.
 on:
   push:
     branches: [main]
