@@ -21,11 +21,13 @@ jobs:
           bun-version: 1.3.4
       - run: bun install --frozen-lockfile
       - run: bunx prisma generate
-      - name: Verify operation-loop contract
+      - name: Verify operation-loop and autonomy contracts
         run: |
           set -euo pipefail
+          test -f src/lib/autonomy/autonomy-manager.ts
           test -f src/lib/venture-operation-loop.ts
           test -f scripts/run-venture-operation-cycle.ts
+          grep -q 'runAutonomyManagerTick' scripts/run-venture-operation-cycle.ts
           grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
           grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
       - name: Execute Venture OS operation cycle

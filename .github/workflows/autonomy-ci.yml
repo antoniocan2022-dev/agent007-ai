@@ -8,10 +8,15 @@ on:
       - 'feat/**'
       - 'fix/**'
       - 'integration/**'
+      - 'arch/**'
   pull_request:
     branches:
       - main
       - 'development/**'
+      - 'feat/**'
+      - 'fix/**'
+      - 'integration/**'
+      - 'arch/**'
 
 permissions:
   contents: read
@@ -67,6 +72,15 @@ jobs:
 
       - name: Venture architecture regression audit
         run: bun scripts/venture-architecture-audit.ts
+
+      - name: Architecture 5-13 integration contract
+        run: bun test src/lib/venture-foundation-contract.test.ts
+
+      - name: Venture OS upgrades 14-17 contract
+        run: bun test src/lib/venture-autonomy-14-17.test.ts
+
+      - name: Venture OS 5-17 deep audit
+        run: bun test src/lib/venture-os-5-17-deep-audit.test.ts
 
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
