@@ -100,7 +100,12 @@ export interface VentureBlueprint {
   createdAt: string
 }
 
-export function buildVentureBlueprint(input: Omit<VentureBlueprint, 'lifecycleStage' | 'templateKey' | 'templateVersion' | 'readinessRequired' | 'commercialEvidenceRequired'>): VentureBlueprint {
+type VentureBlueprintInput = Omit<
+  VentureBlueprint,
+  'lifecycleStage' | 'templateKey' | 'templateVersion' | 'readinessRequired' | 'commercialEvidenceRequired' | 'createdAt'
+>
+
+export function buildVentureBlueprint(input: VentureBlueprintInput): VentureBlueprint {
   const values = [input.ventureId, input.name, input.type, input.description, input.targetMarket, input.pricingModel]
   if (values.some((value) => !String(value).trim())) throw new Error('Venture blueprint requires ventureId, name, type, description, targetMarket, and pricingModel.')
   if (input.ventureId.trim() === 'venture_001') throw new Error('Venture 001 is canonical and cannot be regenerated from the factory.')
@@ -116,5 +121,6 @@ export function buildVentureBlueprint(input: Omit<VentureBlueprint, 'lifecycleSt
     templateVersion: CANONICAL_VENTURE_TEMPLATE.version,
     readinessRequired: true,
     commercialEvidenceRequired: true,
+    createdAt: new Date().toISOString(),
   }
 }
