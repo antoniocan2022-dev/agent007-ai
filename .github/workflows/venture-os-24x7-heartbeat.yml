@@ -54,6 +54,9 @@ jobs:
           grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
           grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
 
+      - name: Run release architecture invariants
+        run: bun test tests/release-architecture.test.ts
+
       - name: Execute Venture OS operation cycle
         if: ${{ steps.database-gate.outputs.available == 'true' }}
         env:
