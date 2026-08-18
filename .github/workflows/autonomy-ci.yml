@@ -51,10 +51,20 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Repair PostgreSQL raw-SQL safety net
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
         shell: bash
         run: |
           set -euo pipefail
+          TARGET_BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if [ -z "$TARGET_BRANCH" ]; then
+            echo 'Cannot determine target branch for safe DB repair.'
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = 'pull_request' ]; then
+            git fetch origin "$TARGET_BRANCH"
+            git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          fi
+
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -87,13 +97,16 @@ jobs:
           elif count != 1:
               raise SystemExit(f'Expected exactly one DB raw-SQL batch block, found {count}')
           PY
-          if ! git diff --quiet -- src/lib/db.ts; then
+
+          if git diff --quiet -- src/lib/db.ts; then
+            echo 'DB raw-SQL repair already present.'
+          else
             git diff --check
             git config user.name 'Agent007 CI Repair'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add src/lib/db.ts
             git commit -m 'fix: repair db raw sql batching'
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push origin "HEAD:$TARGET_BRANCH"
           fi
 
       - name: Setup Bun
