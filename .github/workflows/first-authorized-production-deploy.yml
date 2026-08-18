@@ -2,7 +2,7 @@ name: First Authorized Production Deploy
 
 # Canonical controlled production release path.
 # Automatic Vercel Git deployment remains disabled; only an explicitly authorized main push can release.
-# Release gate includes the repaired Venture OS heartbeat/security suite before Vercel deploy.
+# Release architecture is self-protected by permanent invariants and the repaired Venture OS heartbeat/security suite.
 on:
   push:
     branches: [main]
