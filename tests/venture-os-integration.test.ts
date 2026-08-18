@@ -57,6 +57,7 @@ describe('Venture OS closed-loop integration invariants', () => {
     const result = await runV001EvidenceTest()
     expect(result.ventureId).toBe('venture_001')
     expect(result.checks.sevenEvidenceDimensions).toBe(true)
+    expect(result.checks.readinessGatePolicy).toBe(true)
     expect(result.checks.bookSpecification).toBe(true)
     expect(result.checks.commercialLifecycle).toBe(true)
     expect(result.checks.noSyntheticRevenue).toBe(true)
