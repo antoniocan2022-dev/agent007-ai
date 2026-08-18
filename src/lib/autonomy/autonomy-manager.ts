@@ -9,11 +9,7 @@
 
 import { createHash } from 'node:crypto'
 import { db } from '../db'
-import {
-  assertDelegationAllowed,
-  authorityLevelFor,
-  ensureVentureControlContract,
-} from '../architecture-control-plane'
+import { assertDelegationAllowed, authorityLevelFor, ensureVentureControlContract } from '../architecture-control-plane'
 import { evaluateVentureReadiness, type VentureReadinessResult } from '../venture-autonomy-control'
 
 const MANAGER_VERSION = 1
@@ -168,7 +164,7 @@ export async function enqueueAutonomyWork(input: {
     createdAt: now,
     updatedAt: now,
   }
-  await db.memory.create({ key: `${WORK_CATEGORY}:${workId}`, value: JSON.stringify(item), category: WORK_CATEGORY }).catch(async () => {})
+  await db.memory.create({ data: { key: `${WORK_CATEGORY}:${workId}`, value: JSON.stringify(item), category: WORK_CATEGORY } }).catch(() => {})
   const confirmed = await db.memory.findUnique({ where: { key: `${WORK_CATEGORY}:${workId}` } })
   if (!confirmed) throw new Error('Autonomy work item could not be persisted.')
   return JSON.parse(confirmed.value) as AutonomyWorkItem
@@ -182,7 +178,7 @@ export async function enqueueAutonomyWork(input: {
  */
 export async function runAutonomyManagerTick(options: AutonomyManagerOptions = {}): Promise<AutonomyManagerRun> {
   const started = options.now ? new Date(options.now) : new Date()
-  const runId = stableId('autorun', started.toISOString(), String(Math.random()))
+  const runId = stableId('autorun', started.toISOString(), cryptoSafeRunNonce())
   const actorId = (options.actorId ?? 'vid').trim().toLowerCase()
   const actorLevel = authorityLevelFor(actorId)
   const run: AutonomyManagerRun = {
@@ -190,8 +186,6 @@ export async function runAutonomyManagerTick(options: AutonomyManagerOptions = {
     venturesChecked: 0, venturesReady: 0, venturesBlocked: 0, workClaimed: 0, workCompleted: 0, workBlocked: 0, workFailed: 0, errors: [],
   }
 
-  // The manager is a VID-level governance loop; this prevents a heartbeat
-  // from becoming an accidental CEO bypass if invoked from another surface.
   if (actorLevel !== 'VID') throw new Error(`Autonomy Manager requires VID authority; received ${actorId} (${actorLevel}).`)
 
   run.leaseAcquired = await acquireLease(started, runId)
@@ -207,7 +201,6 @@ export async function runAutonomyManagerTick(options: AutonomyManagerOptions = {
     for (const ventureId of ventureIds) {
       run.venturesChecked++
       try {
-        // Explicitly exercise the 5→14 authority route for every heartbeat.
         assertDelegationAllowed({ actorId, actorLevel: 'VID', targetId: 'aurora', targetLevel: 'LEADER' })
         await ensureVentureControlContract(ventureId)
         const readiness: VentureReadinessResult = await evaluateVentureReadiness(ventureId)
@@ -251,4 +244,8 @@ export async function getAutonomyManagerStatus(): Promise<{ managerVersion: numb
   const rows = await db.memory.findMany({ where: { category: RUN_CATEGORY }, orderBy: { updatedAt: 'desc' }, take: 20 })
   const recentRuns = rows.map((row) => parseJson<AutonomyManagerRun>(row.value)).filter((value): value is AutonomyManagerRun => Boolean(value))
   return { managerVersion: MANAGER_VERSION, lease: leaseRow ? parseJson(leaseRow.value) : null, recentRuns }
+}
+
+function cryptoSafeRunNonce(): string {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 }
