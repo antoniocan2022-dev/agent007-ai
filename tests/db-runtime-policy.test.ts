@@ -18,6 +18,12 @@ describe('production database runtime policy', () => {
     expect(dbSource).toContain("url.searchParams.set('pool_timeout', '20')")
   })
 
+  test('serverless runtime reuses one Prisma client per warm function instance', () => {
+    expect(dbSource).toContain('globalForPrisma.prisma ??')
+    expect(dbSource).toContain('globalForPrisma.prisma = db')
+    expect(dbSource).not.toContain("if (process.env.NODE_ENV !== 'production')")
+  })
+
   test('schema reconciliation is release-time only', () => {
     const pkg = JSON.parse(packageSource) as { scripts: Record<string, string> }
     expect(pkg.scripts['db:reconcile']).toBe('bun src/lib/reconcile-production-schema.ts')
