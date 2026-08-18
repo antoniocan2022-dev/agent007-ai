@@ -72,6 +72,9 @@ jobs:
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
 
+      - name: Venture OS upgrades 14-17 contract
+        run: bun test src/lib/venture-autonomy-14-17.test.ts
+
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
 
