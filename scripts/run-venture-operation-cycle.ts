@@ -1,6 +1,7 @@
 import { runAutonomyManagerTick } from '../src/lib/autonomy/autonomy-manager'
 import { runVentureOperationCycle } from '../src/lib/venture-operation-loop'
 
+// The operation cycle always enters through the governed Autonomy Manager.
 const ventureId = process.env.VENTURE_ID?.trim() || 'venture_001'
 const owner = process.env.VENTURE_OWNER?.trim() || 'agent007-24x7'
 
