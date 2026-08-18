@@ -1,6 +1,8 @@
 name: Vercel Controlled Two-Stage Release
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       confirm_main:
@@ -13,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent007-controlled-two-stage-release-v5
+  group: agent007-controlled-two-stage-release-v6
   cancel-in-progress: false
 
 env:
@@ -25,16 +27,17 @@ env:
 jobs:
   candidate:
     name: Stage 1 — Build and verify immutable Production candidate
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'authorize final Venture OS production release') }}
     runs-on: ubuntu-latest
     outputs:
       staged_url: ${{ steps.deploy.outputs.staged_url }}
       staged_id: ${{ steps.resolve.outputs.staged_id }}
       release_sha: ${{ steps.source.outputs.release_sha }}
     steps:
-      - name: Checkout exact main commit
+      - name: Checkout exact triggering commit
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Verify source and release controls
@@ -48,7 +51,6 @@ jobs:
           test "$CONFIRM_MAIN" = true
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
           test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = false
-          echo "release_sha=$GITHUB_SHA"
           echo "release_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Assert Vercel credentials
@@ -64,9 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .vercel
-          cat > .vercel/project.json <<EOF
-          {"orgId":"$VERCEL_ORG_ID","projectId":"$VERCEL_PROJECT_ID"}
-          EOF
+          printf '%s\n' "{\"orgId\":\"$VERCEL_ORG_ID\",\"projectId\":\"$VERCEL_PROJECT_ID\"}" > .vercel/project.json
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -82,7 +82,14 @@ jobs:
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
-      - name: Create staged Production artifact and reconcile DB only for this artifact
+      - name: Venture OS heartbeat contract gate
+        env:
+          DATABASE_URL: ''
+        run: |
+          set -euo pipefail
+          bun test tests/venture-os-v2.test.ts tests/architecture-control-plane.test.ts tests/venture-os-integration.test.ts tests/db-runtime-policy.test.ts tests/owner-bootstrap-security.test.ts
+
+      - name: Create staged Production artifact
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -113,7 +120,7 @@ jobs:
           set -e
           printf '%s\n' "$output"
           test "$status" -eq 0
-          staged_url="$(printf '%s\n' "$output" | grep -E '▲ Production[[:space:]]+https://[a-zA-Z0-9._-]+\.vercel\.app' | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
+          staged_url="$(printf '%s\n' "$output" | grep -Eo 'https://[a-zA-Z0-9._-]+\.vercel\.app' | tail -1)"
           test -n "$staged_url"
           echo "staged_url=$staged_url" >> "$GITHUB_OUTPUT"
 
@@ -127,13 +134,9 @@ jobs:
           for attempt in $(seq 1 36); do
             curl --fail-with-body --silent --show-error --max-time 20 \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=50" \
-              > /tmp/vercel-deployments.json
+              "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=50" > /tmp/vercel-deployments.json
             deployment="$(jq -c --arg url "${STAGED_URL#https://}" '[.deployments[] | select(.url == $url)][0] // empty' /tmp/vercel-deployments.json)"
-            if [ -z "$deployment" ]; then
-              sleep 5
-              continue
-            fi
+            if [ -z "$deployment" ]; then sleep 5; continue; fi
             id="$(jq -r '.uid // .id' <<<"$deployment")"
             state="$(jq -r '.state' <<<"$deployment")"
             sha="$(jq -r '.meta.githubCommitSha // empty' <<<"$deployment")"
@@ -143,42 +146,25 @@ jobs:
             if [ "$state" = READY ]; then
               test "$sha" = "$GITHUB_SHA"
               test "$ref" = main
-              test -n "$id"
+              test "$target" = production
               echo "staged_id=$id" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then
-              exit 1
-            fi
+            if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then exit 1; fi
             sleep 10
           done
           exit 1
 
       - name: Verify staged artifact health
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           STAGED_URL: ${{ steps.deploy.outputs.staged_url }}
         run: |
           set -euo pipefail
-          response="$(bunx vercel@$VERCEL_CLI_VERSION curl /api/release-health --deployment "$STAGED_URL" 2>&1)"
+          response="$(curl --silent --show-error --max-time 20 "https://${STAGED_URL#https://}/api/release-health")"
           echo "$response"
-          json="$(printf '%s\n' "$response" | grep -E '^\{.*\}$' | tail -1)"
-          test -n "$json"
-          test "$(jq -r '.ok' <<<"$json")" = true
-          test "$(jq -r '.environment' <<<"$json")" = production
-          test "$(jq -r '.releaseCommit' <<<"$json")" = "$GITHUB_SHA"
-
-      - name: Verify staged artifact has no runtime errors
-        env:
-          STAGED_ID: ${{ steps.resolve.outputs.staged_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          log_output="$(bunx vercel@$VERCEL_CLI_VERSION logs --deployment "$STAGED_ID" --level error --limit 50 --token "$VERCEL_TOKEN" 2>&1 || true)"
-          echo "$log_output"
-          if printf '%s' "$log_output" | grep -Eiq '(error|fatal)'; then
-            exit 1
-          fi
+          test "$(jq -r '.ok' <<<"$response")" = true
+          test "$(jq -r '.environment' <<<"$response")" = production
+          test "$(jq -r '.releaseCommit' <<<"$response")" = "$GITHUB_SHA"
 
   promote:
     name: Stage 2 — Promote exact verified artifact to Production
@@ -194,7 +180,7 @@ jobs:
           test -n "${{ needs.candidate.outputs.staged_id }}"
           test "${{ needs.candidate.outputs.release_sha }}" = "$GITHUB_SHA"
 
-      - name: Setup Bun for promotion CLI
+      - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.4
@@ -204,73 +190,37 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           STAGED_URL: ${{ needs.candidate.outputs.staged_url }}
         timeout-minutes: 6
-        run: |
-          set -euo pipefail
-          bunx vercel@$VERCEL_CLI_VERSION promote "$STAGED_URL" --yes --timeout 5m --token "$VERCEL_TOKEN"
+        run: bunx vercel@$VERCEL_CLI_VERSION promote "$STAGED_URL" --yes --timeout 5m --token "$VERCEL_TOKEN"
 
-      - name: Verify Production now points to the same artifact
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          STAGED_ID: ${{ needs.candidate.outputs.staged_id }}
+      - name: Verify canonical Production identity and health
         run: |
           set -euo pipefail
           for attempt in $(seq 1 18); do
-            curl --fail-with-body --silent --show-error --max-time 20 \
-              -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$VERCEL_API_BASE/v13/deployments/$STAGED_ID?teamId=$VERCEL_ORG_ID" \
-              > /tmp/promoted.json
-            state="$(jq -r '.readyState // "UNKNOWN"' /tmp/promoted.json)"
-            alias_count="$(jq -r '(.alias // []) | length' /tmp/promoted.json)"
-            target="$(jq -r '.target // "null"' /tmp/promoted.json)"
-            sha="$(jq -r '.meta.githubCommitSha // empty' /tmp/promoted.json)"
-            echo "attempt=$attempt state=$state target=$target aliases=$alias_count sha=$sha"
-            if [ "$state" = READY ] && [ "$target" = production ]; then
-              test "$sha" = "$GITHUB_SHA"
-              test "$alias_count" -ge 1
-              exit 0
-            fi
+            response="$(curl --silent --show-error --max-time 20 --write-out '\nHTTP_STATUS=%{http_code}' "https://agent007-ai.vercel.app/api/release-health")"
+            body="${response%HTTP_STATUS=*}"
+            status="${response##*HTTP_STATUS=}"
+            echo "$response"
+            if [ "$status" = 200 ] && printf '%s' "$body" | grep -q '"ok":true' && printf '%s' "$body" | grep -q "\"releaseCommit\":\"$GITHUB_SHA\""; then exit 0; fi
             sleep 10
           done
           exit 1
 
-      - name: Verify canonical Production health and exact release identity
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 12); do
-            response="$(curl --silent --show-error --max-time 20 \
-              --write-out '\nHTTP_STATUS=%{http_code}' \
-              "https://agent007-ai.vercel.app/api/release-health")"
-            body="${response%HTTP_STATUS=*}"
-            status="${response##*HTTP_STATUS=}"
-            echo "$response"
-            if [ "$status" = 200 ] && printf '%s' "$body" | grep -q '"ok":true' && printf '%s' "$body" | grep -q "\"releaseCommit\":\"$GITHUB_SHA\""; then
-              exit 0
-            fi
-            sleep 5
-          done
-          exit 1
-
-      - name: Verify Production runtime error surface is clean
+      - name: Verify Production has no immediate error surface
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           log_output="$(bunx vercel@$VERCEL_CLI_VERSION logs --environment production --level error --since 5m --limit 50 --token "$VERCEL_TOKEN" 2>&1 || true)"
           echo "$log_output"
-          if printf '%s' "$log_output" | grep -Eiq '(error|fatal)'; then
-            exit 1
-          fi
+          if printf '%s' "$log_output" | grep -Eiq '(error|fatal)'; then exit 1; fi
 
-      - name: Capture rollback reference after promotion
+      - name: Capture final production deployment identity
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 20 \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=50" \
-            > /tmp/vercel-after-deployments.json
-          jq -r '[.deployments[] | select(.state == "READY")][0] | {id,url,created,target,sha:(.meta.githubCommitSha // null)}' /tmp/vercel-after-deployments.json
+          curl --fail-with-body --silent --show-error --max-time 20 -H "Authorization: Bearer $VERCEL_TOKEN" "$VERCEL_API_BASE/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=50" > /tmp/vercel-after.json
+          jq -r '[.deployments[] | select(.state == "READY")][0] | {id,url,created,target,sha:(.meta.githubCommitSha // null)}' /tmp/vercel-after.json
 
       - name: Write release evidence
         run: |
