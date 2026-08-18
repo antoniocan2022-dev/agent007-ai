@@ -50,9 +50,10 @@ export const db =
       : {}),
   })
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = db
-}
+// Reuse the Prisma client in both development and serverless production
+// runtimes. A Vercel function instance can serve multiple requests; retaining
+// the client avoids creating a fresh connection pool on every invocation.
+globalForPrisma.prisma = db
 
 /**
  * Kept for compatibility with existing callers. Database readiness is now a
