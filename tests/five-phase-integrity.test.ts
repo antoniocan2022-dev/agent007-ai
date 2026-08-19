@@ -34,10 +34,10 @@ describe('Five-phase integrity contract', () => {
     expect(validateBusinessOutcome({ ventureId: 'venture_001', missionId: 'm1', type: 'REVENUE_RECOGNIZED', transactionId: 'txn_1', customerId: null, amount: 25, currency: 'USD', source: 'provider:test', occurredAt: new Date().toISOString(), metadata: {} })).toEqual([])
   })
 
-  test('Phase 4 governance retains explicit forbidden and owner-approval boundaries', () => {
+  test('Phase 4 governance retains explicit forbidden and owner-approval boundaries', async () => {
     expect(VENTURE_TEMPLATE_V1.safety.forbiddenActions).toContain('transfer_funds')
     expect(VENTURE_TEMPLATE_V1.safety.ownerApprovalActions).toContain('production_deploy')
-    expect(() => assertVentureActionAllowed('venture_001', 'transfer_funds')).toThrow()
+    await expect(assertVentureActionAllowed('venture_001', 'transfer_funds')).rejects.toThrow()
     expect(canAdvanceBookStage('PUBLISHED', 'BRIEF')).toBe(false)
     expect(canAdvanceCommercial('REFUNDED', 'PAID')).toBe(false)
   })
