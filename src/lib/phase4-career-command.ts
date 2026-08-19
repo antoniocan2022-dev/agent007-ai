@@ -73,10 +73,12 @@ export interface CareerApproval {
   applicationId: string
   tenantId: string
   userId: string
-  approvedByUserId: string
-  approvedAt: string
+  requestedByUserId: string
+  approvedByUserId: string | null
+  requestedAt: string
+  approvedAt: string | null
   expiresAt: string | null
-  status: 'active' | 'consumed' | 'revoked' | 'expired'
+  status: 'pending' | 'active' | 'consumed' | 'revoked' | 'expired'
   action: 'submit_external_application'
   createdAt: string
 }
@@ -99,6 +101,24 @@ function parse<T>(value: string, key: string): T {
   } catch {
     throw new Error(`Corrupt Phase 4 record: ${key}`)
   }
+}
+
+async function findApplicationById(applicationId: string): Promise<{ key: string; application: CareerApplication }> {
+  const records = await db.memory.findMany({ where: { category: 'phase4_career_application' }, take: 5000 })
+  for (const record of records) {
+    const application = parse<CareerApplication>(record.value, record.key)
+    if (application.applicationId === applicationId) return { key: record.key, application }
+  }
+  throw new Error(`Career application ${applicationId} was not found`)
+}
+
+async function findApprovalById(approvalId: string): Promise<{ key: string; approval: CareerApproval }> {
+  const records = await db.memory.findMany({ where: { category: 'phase4_career_approval' }, take: 5000 })
+  for (const record of records) {
+    const approval = parse<CareerApproval>(record.value, record.key)
+    if (approval.approvalId === approvalId) return { key: record.key, approval }
+  }
+  throw new Error(`Approval ${approvalId} was not found`)
 }
 
 export function validateCareerStageTransition(from: CareerStage, to: CareerStage): boolean {
@@ -181,11 +201,8 @@ export async function requestCareerApplicationApproval(applicationId: string, te
   const tenant = clean(tenantId)
   const owner = clean(userId)
   if (!id || !tenant || !owner) throw new Error('applicationId, tenantId, and userId are required')
-
-  const records = await db.memory.findMany({ where: { category: 'phase4_career_application' }, take: 5000 })
-  const applicationRecord = records.find((record) => parse<CareerApplication>(record.value, record.key).applicationId === id)
-  if (!applicationRecord) throw new Error(`Career application ${id} was not found`)
-  const application = parse<CareerApplication>(applicationRecord.value, applicationRecord.key)
+  const found = await findApplicationById(id)
+  const application = found.application
   if (application.tenantId !== tenant || application.userId !== owner) throw new Error('Career application owner mismatch')
   if (!validateCareerApplicationTransition(application.status, 'approval_pending')) throw new Error(`Cannot request approval from status ${application.status}`)
 
@@ -195,10 +212,12 @@ export async function requestCareerApplicationApproval(applicationId: string, te
     applicationId: application.applicationId,
     tenantId: application.tenantId,
     userId: application.userId,
-    approvedByUserId: application.userId,
-    approvedAt: now,
+    requestedByUserId: application.userId,
+    approvedByUserId: null,
+    requestedAt: now,
+    approvedAt: null,
     expiresAt: null,
-    status: 'active',
+    status: 'pending',
     action: 'submit_external_application',
     createdAt: now,
   }
@@ -206,8 +225,13 @@ export async function requestCareerApplicationApproval(applicationId: string, te
   application.stage = 'user-approval'
   application.updatedAt = now
 
-  await db.memory.create({ data: { key: approvalKey(application.applicationId, approval.approvalId), category: 'phase4_career_approval', value: JSON.stringify(approval) } })
-  await db.memory.update({ where: { key: applicationRecord.key }, data: { value: JSON.stringify(application) } })
+  try {
+    await db.memory.create({ data: { key: approvalKey(application.applicationId, approval.approvalId), category: 'phase4_career_approval', value: JSON.stringify(approval) } })
+    await db.memory.update({ where: { key: found.key }, data: { value: JSON.stringify(application) } })
+  } catch (error) {
+    const existing = await db.memory.findMany({ where: { category: 'phase4_career_approval' }, take: 5000 })
+    if (!existing.some((record) => parse<CareerApproval>(record.value, record.key).applicationId === application.applicationId && parse<CareerApproval>(record.value, record.key).status === 'pending')) throw error
+  }
   await recordCommercialEvent({
     tenantId: application.tenantId,
     business: PHASE4_BUSINESS,
@@ -222,38 +246,30 @@ export async function requestCareerApplicationApproval(applicationId: string, te
   return { application, approval }
 }
 
-/**
- * Records an explicit user authorization. This is the only path that may make
- * an external application eligible for submission.
- */
+/** Records the explicit user approval. A request itself is never approval. */
 export async function approveCareerApplication(approvalId: string, tenantId: string, userId: string): Promise<CareerApproval> {
   const id = clean(approvalId)
   const tenant = clean(tenantId)
   const owner = clean(userId)
   if (!id || !tenant || !owner) throw new Error('approvalId, tenantId, and userId are required')
+  const foundApproval = await findApprovalById(id)
+  const approval = foundApproval.approval
+  if (approval.tenantId !== tenant || approval.userId !== owner || approval.requestedByUserId !== owner) throw new Error('Career approval owner mismatch')
+  if (approval.status !== 'pending') throw new Error(`Approval is ${approval.status}`)
 
-  const record = await db.memory.findFirst({ where: { category: 'phase4_career_approval' }, take: 5000 })
-  const records = record ? await db.memory.findMany({ where: { category: 'phase4_career_approval' }, take: 5000 }) : []
-  const matching = records.find((item) => parse<CareerApproval>(item.value, item.key).approvalId === id)
-  if (!matching) throw new Error(`Approval ${id} was not found`)
-  const approval = parse<CareerApproval>(matching.value, matching.key)
-  if (approval.tenantId !== tenant || approval.userId !== owner || approval.approvedByUserId !== owner) throw new Error('Career approval owner mismatch')
-  if (approval.status !== 'active') throw new Error(`Approval is ${approval.status}`)
-  approval.approvedAt = new Date().toISOString()
-  approval.status = 'active'
-  await db.memory.update({ where: { key: matching.key }, data: { value: JSON.stringify(approval) } })
-
-  const applicationRecords = await db.memory.findMany({ where: { category: 'phase4_career_application' }, take: 5000 })
-  const applicationRecord = applicationRecords.find((item) => parse<CareerApplication>(item.value, item.key).applicationId === approval.applicationId)
-  if (!applicationRecord) throw new Error(`Career application ${approval.applicationId} was not found`)
-  const application = parse<CareerApplication>(applicationRecord.value, applicationRecord.key)
+  const foundApplication = await findApplicationById(approval.applicationId)
+  const application = foundApplication.application
   if (application.tenantId !== tenant || application.userId !== owner) throw new Error('Career application owner mismatch')
   if (!validateCareerApplicationTransition(application.status, 'approved')) throw new Error(`Cannot approve application from status ${application.status}`)
 
   const now = new Date().toISOString()
+  approval.approvedByUserId = owner
+  approval.approvedAt = now
+  approval.status = 'active'
   application.status = 'approved'
   application.updatedAt = now
-  await db.memory.update({ where: { key: applicationRecord.key }, data: { value: JSON.stringify(application) } })
+  await db.memory.update({ where: { key: foundApproval.key }, data: { value: JSON.stringify(approval) } })
+  await db.memory.update({ where: { key: foundApplication.key }, data: { value: JSON.stringify(application) } })
   await recordCommercialEvent({
     tenantId: application.tenantId,
     business: PHASE4_BUSINESS,
@@ -274,10 +290,8 @@ export async function prepareCareerApplication(applicationId: string, tenantId: 
   const owner = clean(userId)
   const resume = clean(resumeRef)
   if (!id || !tenant || !owner || !resume) throw new Error('applicationId, tenantId, userId, and resumeRef are required')
-  const records = await db.memory.findMany({ where: { category: 'phase4_career_application' }, take: 5000 })
-  const record = records.find((item) => parse<CareerApplication>(item.value, item.key).applicationId === id)
-  if (!record) throw new Error(`Career application ${id} was not found`)
-  const application = parse<CareerApplication>(record.value, record.key)
+  const found = await findApplicationById(id)
+  const application = found.application
   if (application.tenantId !== tenant || application.userId !== owner) throw new Error('Career application owner mismatch')
   if (!['draft', 'ready'].includes(application.status)) throw new Error(`Cannot prepare application from status ${application.status}`)
   application.resumeRef = resume
@@ -285,7 +299,7 @@ export async function prepareCareerApplication(applicationId: string, tenantId: 
   application.status = 'ready'
   application.stage = 'prepare'
   application.updatedAt = new Date().toISOString()
-  await db.memory.update({ where: { key: record.key }, data: { value: JSON.stringify(application) } })
+  await db.memory.update({ where: { key: found.key }, data: { value: JSON.stringify(application) } })
   return application
 }
 
@@ -294,17 +308,15 @@ export async function submitCareerApplication(applicationId: string, tenantId: s
   const tenant = clean(tenantId)
   const owner = clean(userId)
   if (!id || !tenant || !owner) throw new Error('applicationId, tenantId, and userId are required')
-  const applications = await db.memory.findMany({ where: { category: 'phase4_career_application' }, take: 5000 })
-  const record = applications.find((item) => parse<CareerApplication>(item.value, item.key).applicationId === id)
-  if (!record) throw new Error(`Career application ${id} was not found`)
-  const application = parse<CareerApplication>(record.value, record.key)
+  const foundApplication = await findApplicationById(id)
+  const application = foundApplication.application
   if (application.tenantId !== tenant || application.userId !== owner) throw new Error('Career application owner mismatch')
   if (application.status !== 'approved') throw new Error('External application submission requires active user approval')
 
   const approvals = await db.memory.findMany({ where: { category: 'phase4_career_approval' }, take: 5000 })
   const approvalRecord = approvals.find((item) => {
     const approval = parse<CareerApproval>(item.value, item.key)
-    return approval.applicationId === application.applicationId && approval.status === 'active' && approval.tenantId === tenant && approval.userId === owner && approval.approvedByUserId === owner && approval.action === 'submit_external_application'
+    return approval.applicationId === application.applicationId && approval.status === 'active' && approval.tenantId === tenant && approval.userId === owner && approval.approvedByUserId === owner && approval.action === 'submit_external_application' && (!approval.expiresAt || approval.expiresAt > new Date().toISOString())
   })
   if (!approvalRecord) throw new Error('No active durable user approval exists for external submission')
 
@@ -312,9 +324,9 @@ export async function submitCareerApplication(applicationId: string, tenantId: s
   application.status = 'submitted'
   application.stage = 'submit'
   application.updatedAt = now
-  await db.memory.update({ where: { key: record.key }, data: { value: JSON.stringify(application) } })
   const approval = parse<CareerApproval>(approvalRecord.value, approvalRecord.key)
   approval.status = 'consumed'
+  await db.memory.update({ where: { key: foundApplication.key }, data: { value: JSON.stringify(application) } })
   await db.memory.update({ where: { key: approvalRecord.key }, data: { value: JSON.stringify(approval) } })
   await recordCommercialEvent({
     tenantId: application.tenantId,
