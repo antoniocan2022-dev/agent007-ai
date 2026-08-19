@@ -1,12 +1,20 @@
 name: First Authorized Production Deploy
 
 # Canonical controlled production release path.
-# Automatic Vercel Git deployment remains disabled; only an explicitly authorized main push can release.
+# Automatic Vercel Git deployment remains disabled; only an explicitly authorized main push or manual release can deploy.
+# Release gate includes the repaired Venture OS heartbeat/security suite before Vercel deploy.
 # Release architecture is self-protected by permanent invariants and the repaired Venture OS heartbeat/security suite.
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      authorize_production:
+        description: Explicitly authorize the production deployment
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -18,7 +26,7 @@ env:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'authorize final Venture OS production release') }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.authorize_production == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, 'authorize final Venture OS production release')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact triggering commit
