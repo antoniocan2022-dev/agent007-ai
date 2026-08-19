@@ -43,7 +43,7 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
-          test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = false
+          jq -e '((.crons // []) | length == 0)' vercel.json >/dev/null
 
       - name: Verify Vercel credentials
         env:
@@ -62,7 +62,7 @@ jobs:
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" > /tmp/vercel-before.json
-          jq '{id,name,live,domains,framework,nodeVersion}' /tmp/vercel-before.json
+          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-before.json
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -191,4 +191,4 @@ jobs:
           curl --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" > /tmp/vercel-after.json
-          jq '{id,name,live,domains,framework,nodeVersion}' /tmp/vercel-after.json
+          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-after.json
