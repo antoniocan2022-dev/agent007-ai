@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const WORKFLOWS_DIR = join(process.cwd(), ".github", "workflows");
@@ -15,8 +14,13 @@ function workflowContent(name: string): string {
 }
 
 function isProductionDeployer(content: string): boolean {
-  return /vercel(?:@|\s+deploy|\s+promote)|vercel\.com\/.*deployments/i.test(content)
-    && /--prod|target\s*[:=]\s*["']?production|production/i.test(content);
+  // Detect actual Vercel deployment operations, not ordinary CLI usage such as
+  // `vercel env run` or `vercel link` used by DB/admin workflows.
+  const deployCommand = /\bvercel(?:@[^\s]+)?\s+(?:deploy|promote)\b/i.test(content);
+  const apiDeployment = /POST[\s\S]{0,500}\/v\d+\/deployments(?:\?|\s|["'])/i.test(content);
+  const productionTarget = /--prod\b|target\s*[:=]\s*["']?production\b/i.test(content);
+
+  return (deployCommand || apiDeployment) && productionTarget;
 }
 
 describe("release architecture invariants", () => {
