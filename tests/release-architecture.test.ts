@@ -48,6 +48,8 @@ describe("release architecture invariants", () => {
     expect(content).toContain("tests/owner-bootstrap-security.test.ts");
     expect(content).toContain("tests/db-runtime-policy.test.ts");
     expect(content).toContain("release-health");
+    expect(content).toContain("/v13/deployments/");
+    expect(content).toContain("teamId=$VERCEL_ORG_ID");
     // Keep this test intentionally triggerable by a normal main push.
     expect(content).toContain("on:\n  push:\n    branches: [main]");
     // Authorized release execution marker: normal main push path.
