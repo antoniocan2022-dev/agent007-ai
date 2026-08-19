@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import { db } from '@/lib/db'
 import { persistEvidenceLedger, recordExecutionReceipt, verifyEvidenceLedger } from '@/lib/proof-ledger'
+import { executeVerificationOfficerChallenge } from '@/lib/verification-officer'
 
 const databaseConfigured = Boolean(process.env.DATABASE_URL?.trim())
 const missionId = `proof-ci-${randomUUID()}`
@@ -23,6 +24,28 @@ describe.skipIf(!databaseConfigured)('proof ledger database integration', () => 
     expect(first.receipt.recordHash).toMatch(/^[a-f0-9]{64}$/)
     await expect(recordExecutionReceipt({ ...input, outputReference: 'evidence://raw/other' })).rejects.toThrow(/idempotency conflict/)
     expect(await db.executionReceipt.count({ where: { missionId, idempotencyKey: input.idempotencyKey } })).toBe(1)
+  })
+
+  it('persists an independent Verification Officer challenge as a Phase-1 execution receipt', async () => {
+    const result = await executeVerificationOfficerChallenge({
+      missionId,
+      subject: 'Montreal restaurant evidence challenge',
+      producerId: 'research_agent',
+      requiredClaimKeys: ['address'],
+      sources: [
+        { sourceId: 'a', provider: 'ProviderA', sourceUrl: 'https://example.test/a', retrievedAt: '2026-08-19T22:00:00.000Z' },
+        { sourceId: 'b', provider: 'ProviderB', sourceUrl: 'https://example.test/b', retrievedAt: '2026-08-19T22:01:00.000Z' },
+      ],
+      claims: [{ claimKey: 'address', value: '150 Saint-Zotique Street East, Montreal', claimType: 'FACT', confidence: 0.99, sourceIds: ['a', 'b'], critical: true }],
+    }, 'verification-officer-001')
+
+    expect(result.result.decision).toBe('PASS')
+    expect(result.receipt.created).toBe(true)
+    expect(result.receipt.actorId).toBe('verification_officer')
+    expect(result.receipt.action).toBe('verification_officer.challenge')
+    expect(result.receipt.status).toBe('PASS')
+    expect(result.receipt.outputReference).toContain('verification-proof-sha256:')
+    expect(await db.executionReceipt.count({ where: { missionId, idempotencyKey: 'verification-officer-001' } })).toBe(1)
   })
 
   it('persists evidence provenance atomically, is order-independent, and verifies its hash', async () => {
