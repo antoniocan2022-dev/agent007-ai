@@ -79,6 +79,9 @@ jobs:
       - name: Proof infrastructure database integration
         run: bun test tests/proof-ledger.integration.test.ts
 
+      - name: Five-phase integrity and duplicate-file audit
+        run: bun test tests/five-phase-integrity.test.ts
+
       - name: Phase 5 independent verification officer
         run: bun test tests/verification-officer.test.ts
 
