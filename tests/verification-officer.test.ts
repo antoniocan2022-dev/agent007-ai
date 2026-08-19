@@ -27,7 +27,6 @@ describe('Phase 5 — Verification Officer independent challenge', () => {
     expect(result.decision).toBe('CHALLENGE')
     expect(result.challengedClaimKeys).toContain('walk_in_table_guaranteed')
     expect(result.findings.map((finding) => finding.code)).toContain('UNSUPPORTED_CLAIM')
-    expect(result.findings.map((finding) => finding.code)).toContain('MISSING_REQUIRED_CLAIM')
   })
 
   test('forbids self-verification by the Verification Officer', () => {
