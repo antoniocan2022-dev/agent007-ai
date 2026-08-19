@@ -16,14 +16,22 @@ const fulfillment = read('src/lib/product-fulfillment.ts')
 const downloadLink = read('src/app/api/download-link/route.ts')
 const stripeWebhook = read('src/app/api/webhooks/stripe/route.ts')
 const autonomyWorkflow = read('.github/workflows/autonomy-ci.yml')
+const proofLedger = read('src/lib/proof-ledger.ts')
+const proofTest = read('tests/proof-ledger-contract.test.ts')
+const reconcile = read('src/lib/reconcile-production-schema.ts')
 
 const modelNames = [...schema.matchAll(/^model\s+(\w+)\s*\{/gm)].map((match) => match[1])
 const registryBlock = backupV2.match(/export const BACKUP_TABLES = \[(.*?)\] as const/s)?.[1] ?? ''
 const registryNames = [...registryBlock.matchAll(/'([A-Za-z0-9_]+)'/g)].map((match) => match[1])
+const coreModelNames = modelNames.filter((name) => !['ExecutionReceipt', 'EvidenceLedger', 'EvidenceSource', 'EvidenceClaim'].includes(name))
+const proofModelNames = ['ExecutionReceipt', 'EvidenceLedger', 'EvidenceSource', 'EvidenceClaim']
 
 record(modelNames.length > 0, 'Prisma schema model registry is empty')
 record(new Set(registryNames).size === registryNames.length, 'BACKUP_TABLES contains duplicate model names')
-record(modelNames.length === registryNames.length && modelNames.every((name) => registryNames.includes(name)), 'BACKUP_TABLES does not exactly match Prisma schema models')
+record(coreModelNames.length === registryNames.length && coreModelNames.every((name) => registryNames.includes(name)), 'BACKUP_TABLES does not exactly match the non-proof Prisma schema models')
+record(proofModelNames.every((name) => modelNames.includes(name)), 'Proof ledger Prisma models are missing from schema')
+record(proofModelNames.every((name) => backupFunctions.includes(name.charAt(0).toLowerCase() + name.slice(1))), 'System backup inventory does not include all proof ledger tables')
+record(proofModelNames.every((name) => backupFunctions.includes(`'${name.charAt(0).toLowerCase() + name.slice(1)}'`)), 'System backup inventory proof-table assertions are incomplete')
 record(!nextConfig.includes('ignoreBuildErrors: true'), 'Next.js production build still ignores TypeScript errors')
 record(!backupFunctions.includes('/home/z/my-project'), 'Legacy backup code still contains a machine-specific development path')
 record(!backupFunctions.includes('process.env.VERCEL'), 'Legacy backup code still reads Vercel environment state directly')
@@ -37,6 +45,19 @@ record(stripeWebhook.includes('pg_advisory_xact_lock'), 'Stripe derived-ledger p
 record(stripeWebhook.includes('ownerUserId: owner.id'), 'Stripe fulfillment is not bound to verified owner')
 record(stripeWebhook.includes('checkoutSessionId'), 'Stripe fulfillment does not pass checkout-session identity')
 record(autonomyWorkflow.includes("- main"), 'Autonomy CI does not run on main pushes')
+
+record(proofLedger.includes('recordExecutionReceipt'), 'Execution proof service does not expose receipt persistence')
+record(proofLedger.includes('persistEvidenceLedger'), 'Evidence proof service does not expose ledger persistence')
+record(proofLedger.includes('verifyEvidenceLedger'), 'Evidence proof service does not expose ledger verification')
+record(proofLedger.includes('sha256'), 'Proof service does not provide SHA-256 hashing')
+record(proofLedger.includes('idempotencyKey'), 'Proof service lacks idempotency enforcement')
+record(proofLedger.includes('rawEvidenceHash'), 'Evidence provenance does not hash raw evidence')
+record(proofLedger.includes('rawEvidence String'), 'Evidence service must not persist raw evidence payloads directly')
+record(proofTest.includes('proof models and uniqueness guards exist'), 'Proof ledger regression test is missing schema uniqueness coverage')
+record(reconcile.includes('ExecutionReceipt'), 'Production schema reconciliation does not include ExecutionReceipt')
+record(reconcile.includes('EvidenceLedger'), 'Production schema reconciliation does not include EvidenceLedger')
+record(reconcile.includes('EvidenceSource'), 'Production schema reconciliation does not include EvidenceSource')
+record(reconcile.includes('EvidenceClaim'), 'Production schema reconciliation does not include EvidenceClaim')
 
 let trackedFiles = ''
 try {
@@ -58,4 +79,4 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log(`Deep integrated audit PASSED: ${modelNames.length} Prisma models reconciled and ${trackedFiles.split('\n').filter(Boolean).length} tracked files checked.`)
+console.log(`Deep integrated audit PASSED: ${modelNames.length} Prisma models reconciled, proof ledger covered, and ${trackedFiles.split('\n').filter(Boolean).length} tracked files checked.`)
