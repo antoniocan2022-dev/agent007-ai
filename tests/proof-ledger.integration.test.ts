@@ -35,7 +35,12 @@ describe.skipIf(!databaseConfigured)('proof ledger database integration', () => 
       { claimKey: 'restaurant-style', claimText: 'The test provider reported modern cuisine.', classification: 'FACT' as const, confidence: 0.95, verificationStatus: 'VERIFIED' as const, sourceIndex: 1 },
     ] }
     const first = await persistEvidenceLedger(input)
-    const reordered = await persistEvidenceLedger({ ...input, sources: [...sources].reverse(), claims: [input.claims[1], input.claims[0]], idempotencyKey: input.idempotencyKey })
+    const reorderedSources = [...sources].reverse()
+    const reorderedClaims = [
+      { ...input.claims[0], sourceIndex: 1 },
+      { ...input.claims[1], sourceIndex: 0 },
+    ]
+    const reordered = await persistEvidenceLedger({ ...input, sources: reorderedSources, claims: reorderedClaims })
     expect(first.created).toBe(true)
     expect(reordered.created).toBe(false)
     expect(reordered.ledger.id).toBe(first.ledger.id)
