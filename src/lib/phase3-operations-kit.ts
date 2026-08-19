@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { db } from './db'
 import {
   COMMERCIAL_CONTROL_PLANE_ID,
@@ -168,7 +169,7 @@ export async function recordOperationsObservation(input: OperationsObservationIn
 
   const createdAt = new Date().toISOString()
   const observation: OperationsObservation = {
-    observationId: `opsobs_${crypto.randomUUID()}`,
+    observationId: `opsobs_${randomUUID()}`,
     tenantId,
     business: PHASE3_BUSINESS,
     processKey,
@@ -197,8 +198,14 @@ export async function recordOperationsObservation(input: OperationsObservationIn
     occurredAt: createdAt,
     idempotencyKey,
   })
-  await db.memory.create({ data: { key, category: 'phase3_operations_observation', value: JSON.stringify(observation) } })
-  return { created: true, observation }
+  try {
+    await db.memory.create({ data: { key, category: 'phase3_operations_observation', value: JSON.stringify(observation) } })
+    return { created: true, observation }
+  } catch (error) {
+    const concurrent = await db.memory.findUnique({ where: { key } })
+    if (concurrent) return { created: false, observation: JSON.parse(concurrent.value) as OperationsObservation }
+    throw error
+  }
 }
 
 export async function createOperationsPlan(input: OperationsPlanInput): Promise<{ created: boolean; plan: OperationsPlan }> {
@@ -223,7 +230,7 @@ export async function createOperationsPlan(input: OperationsPlanInput): Promise<
 
   const createdAt = new Date().toISOString()
   const plan: OperationsPlan = {
-    planId: `opsplan_${crypto.randomUUID()}`,
+    planId: `opsplan_${randomUUID()}`,
     tenantId,
     business: PHASE3_BUSINESS,
     stage: 'design',
@@ -262,8 +269,14 @@ export async function createOperationsPlan(input: OperationsPlanInput): Promise<
     nextRunAt: createdAt,
     idempotencyKey: `ops-workflow:${idempotencyKey}`,
   })
-  await db.memory.create({ data: { key, category: 'phase3_operations_plan', value: JSON.stringify(plan) } })
-  return { created: true, plan }
+  try {
+    await db.memory.create({ data: { key, category: 'phase3_operations_plan', value: JSON.stringify(plan) } })
+    return { created: true, plan }
+  } catch (error) {
+    const concurrent = await db.memory.findUnique({ where: { key } })
+    if (concurrent) return { created: false, plan: JSON.parse(concurrent.value) as OperationsPlan }
+    throw error
+  }
 }
 
 export function validatePhase3Contracts(): string[] {
