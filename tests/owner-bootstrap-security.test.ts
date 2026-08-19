@@ -5,9 +5,11 @@ const source = readFileSync('scripts/bootstrap-owner-data.ts', 'utf8')
 
 describe('owner bootstrap security invariants', () => {
   test('never derives a password from the owner email', () => {
-    expect(source).not.toContain("bcrypt.hash(SEED_EMAIL, 10)")
-    expect(source).toContain("process.env[BOOTSTRAP_PASSWORD_ENV]")
-    expect(source).toContain('OWNER_BOOTSTRAP_PASSWORD must be set when creating the owner account.')
+    expect(source).not.toContain('bcrypt.hash(SEED_EMAIL, 10)')
+    expect(source).not.toContain('passwordHash: SEED_EMAIL')
+    expect(source).toContain("const BOOTSTRAP_PASSWORD_ENV = 'OWNER_BOOTSTRAP_PASSWORD'")
+    expect(source).toContain('process.env[BOOTSTRAP_PASSWORD_ENV]')
+    expect(source).toContain('${BOOTSTRAP_PASSWORD_ENV} must be set when creating the owner account.')
   })
 
   test('legacy predictable passwords require explicit replacement', () => {
