@@ -6,7 +6,6 @@ name: First Authorized Production Deploy
 # Release architecture is self-protected by permanent invariants and the repaired Venture OS heartbeat/security suite.
 # Release-architecture invariant distinguishes real deploy/promote operations from Vercel CLI admin/DB usage.
 # Owner-bootstrap security invariant is validated before deployment.
-
 on:
   push:
     branches: [main]
@@ -43,7 +42,7 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
-          test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = false
+          test "$(jq -r 'has(\"crons\") and ((.crons // []) | length > 0)' vercel.json)" = false
 
       - name: Verify Vercel credentials
         env:
@@ -62,7 +61,7 @@ jobs:
           curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" > /tmp/vercel-before.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-before.json
+          jq '{id,name,live,domains,framework,nodeVersion}' /tmp/vercel-before.json
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -94,6 +93,7 @@ jobs:
         run: bun run build
 
       - name: Deploy exact triggering commit to Production
+        id: vercel-deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           GIT_MESSAGE: ${{ github.event.head_commit.message || 'Controlled production release' }}
@@ -105,7 +105,6 @@ jobs:
           set +e
           output="$(bunx vercel@$VERCEL_CLI_VERSION deploy \
             --prod \
-            --skip-domain \
             --yes \
             --token "$VERCEL_TOKEN" \
             --build-env AGENT007_RELEASE_SCHEMA_RECONCILE=1 \
@@ -124,21 +123,38 @@ jobs:
           printf '%s\n' "$output"
           test "$status" -eq 0
 
-      - name: Verify Production deployment identity
+          deployment_url="$(printf '%s\n' "$output" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1)"
+          test -n "$deployment_url"
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "Deployed exact release to: $deployment_url"
+
+      - name: Verify exact Vercel deployment directly
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.vercel-deploy.outputs.deployment_url }}
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 30); do
-            project="$(curl --fail-with-body --silent --show-error \
-              -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID")"
-            state="$(jq -r '.latestDeployment.readyState // "UNKNOWN"' <<<"$project")"
-            target="$(jq -r '.latestDeployment.target // "null"' <<<"$project")"
-            deployment_sha="$(jq -r '.latestDeployment.meta.githubCommitSha // ""' <<<"$project")"
-            echo "attempt=$attempt state=$state target=$target sha=$deployment_sha"
-            if [ "$state" = READY ] && [ "$target" = production ] && [ "$deployment_sha" = "$GITHUB_SHA" ]; then exit 0; fi
-            if [ "$state" = ERROR ] || [ "$state" = CANCELED ]; then exit 1; fi
+          deployment_json="$(bunx vercel@$VERCEL_CLI_VERSION inspect "$DEPLOYMENT_URL" --token "$VERCEL_TOKEN" --json)"
+          printf '%s\n' "$deployment_json"
+          state="$(jq -r '.readyState // .state // "UNKNOWN"' <<<"$deployment_json")"
+          target="$(jq -r '.target // .targets[0] // "null"' <<<"$deployment_json")"
+          deployment_sha="$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")"
+          echo "state=$state target=$target sha=$deployment_sha"
+          test "$state" = READY
+          test "$target" = production
+          test "$deployment_sha" = "$GITHUB_SHA"
+
+      - name: Verify deployed artifact health
+        env:
+          DEPLOYMENT_URL: ${{ steps.vercel-deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            response="$(curl --silent --show-error --max-time 20 --write-out '\nHTTP_STATUS=%{http_code}' "${DEPLOYMENT_URL}/api/release-health")"
+            body="${response%HTTP_STATUS=*}"
+            status="${response##*HTTP_STATUS=}"
+            echo "$response"
+            if [ "$status" = 200 ] && printf '%s' "$body" | grep -q '"ok":true' && printf '%s' "$body" | grep -q "\"releaseCommit\":\"$GITHUB_SHA\""; then exit 0; fi
             sleep 10
           done
           exit 1
@@ -174,4 +190,4 @@ jobs:
           curl --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" > /tmp/vercel-after.json
-          jq '{id,name,live,latestDeployment,domains,framework,nodeVersion}' /tmp/vercel-after.json
+          jq '{id,name,live,domains,framework,nodeVersion}' /tmp/vercel-after.json
