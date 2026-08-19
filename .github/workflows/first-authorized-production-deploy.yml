@@ -6,6 +6,7 @@ name: First Authorized Production Deploy
 # Release architecture is self-protected by permanent invariants and the repaired Venture OS heartbeat/security suite.
 # Release-architecture invariant distinguishes real deploy/promote operations from Vercel CLI admin/DB usage.
 # Owner-bootstrap security invariant is validated before deployment.
+# Deployment verification inspects the exact Vercel deployment returned by the CLI.
 on:
   push:
     branches: [main]
