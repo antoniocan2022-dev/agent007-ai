@@ -72,7 +72,7 @@ model BusinessStrategy {
   completedAt DateTime?
   metadata    String?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime @updatedAt @default(now())
+  updatedAt   DateTime  @updatedAt @default(now())
 
   @@index([status])
   @@index([phase])
@@ -110,14 +110,10 @@ model ContractDraft {
 
 model Conversation {
   id        String    @id @default(cuid())
-  // UPGRADE #173 fix #7: userId field — referenced by src/app/api/users/
-  // [id]/route.ts:22,23 + src/lib/self-repair.ts:227,233 (5 errors). The
-  // table didn't have this column — the routes that filter by user had
-  // to scan all conversations instead. Now it's indexed and filterable.
   userId    String?
   title     String    @default("New Conversation")
   createdAt DateTime  @default(now())
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt DateTime  @updatedAt @default(now())
   Message   Message[]
 
   @@index([userId])
@@ -224,7 +220,7 @@ model MLModel {
   trainSamples Int       @default(0)
   lastTrained  DateTime?
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime @updatedAt @default(now())
+  updatedAt    DateTime  @updatedAt @default(now())
 
   @@index([userId])
 }
@@ -244,7 +240,7 @@ model MarketingCampaign {
   endDate        DateTime?
   metadata       String?
   createdAt      DateTime  @default(now())
-  updatedAt      DateTime @updatedAt @default(now())
+  updatedAt      DateTime  @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -312,10 +308,7 @@ model Opportunity {
   category    String?
   potential   Float?
   status      String   @default("new")
-  // UPGRADE #173 fix #7: Added source field — used by
-  // src/app/api/opportunities/route.ts:15
   source      String?
-  // UPGRADE #173 fix #7: extra fields used by opportunities/route.ts:15
   url         String?
   riskScore   Int?
   estIncome   Float?
@@ -389,20 +382,12 @@ model PhoneConfig {
   baileysSessionStatus String?
   baileysLinkedNumber  String?
   baileysLinkedAt      DateTime?
-  // UPGRADE #173 fix #2: Added emailImap* fields so phone-config POST
-  // can write IMAP settings and commands/poll-email can read them.
-  // Before: phone-config route.ts:42 listed these 4 fields as writable,
-  // but Prisma schema didn't have them → runtime error
-  // "Unknown field emailImapHost" when saving IMAP settings.
-  // After: schema matches the route's expected fields. The poll-email
-  // route reads them to connect to IMAP servers for inbound email
-  // commands.
-  emailImapHost         String?
-  emailImapPort         String?
-  emailImapUser         String?
-  emailImapPassword     String?
+  emailImapHost        String?
+  emailImapPort        String?
+  emailImapUser        String?
+  emailImapPassword    String?
   createdAt            DateTime  @default(now())
-  updatedAt            DateTime @updatedAt @default(now())
+  updatedAt            DateTime  @updatedAt @default(now())
 
   @@index([userId])
 }
@@ -450,7 +435,7 @@ model Schedule {
   nextRunAt   DateTime?
   lastConvId  String?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime @updatedAt @default(now())
+  updatedAt   DateTime  @updatedAt @default(now())
   User        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -516,7 +501,7 @@ model TwoFactorSecret {
   enabled     Boolean   @default(false)
   verifiedAt  DateTime?
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime @updatedAt @default(now())
+  updatedAt   DateTime  @updatedAt @default(now())
 
   @@index([method])
   @@index([userId])
@@ -528,7 +513,7 @@ model User {
   passwordHash    String
   name            String?
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime @updatedAt @default(now())
+  updatedAt       DateTime          @updatedAt @default(now())
   CustomSubagent  CustomSubagent[]
   NotificationLog NotificationLog[]
   Schedule        Schedule[]
@@ -545,26 +530,12 @@ model UserSetting {
   @@unique([userId, key])
 }
 
-// ════════════════════════════════════════════════════════════════
-// UPGRADE #173 fix #7: Add missing models so the 63 pre-existing TS
-// errors (which were silently ignored by next.config.ts:
-// ignoreBuildErrors=true) become actual code that compiles. These
-// models are referenced by routes that were built before the schema
-// was finalized. They're minimal models — only the fields the routes
-// actually use. Each one is used by at least one route or lib file.
-// ════════════════════════════════════════════════════════════════
-
-// Referenced by:
-//   src/app/api/experiments/route.ts (3 places)
-//   src/app/api/risk-profile/route.ts (uses riskProfile, but we add
-//     this generic Experiment model too)
 model Experiment {
   id          String   @id @default(cuid())
   userId      String
   name        String
   status      String   @default("pending")
   hypothesis  String?
-  // UPGRADE #173 fix #7: extra fields used by experiments/route.ts:15
   variable    String?
   control     String?
   variant     String?
@@ -577,12 +548,6 @@ model Experiment {
   @@index([userId])
 }
 
-// Referenced by:
-//   src/app/api/payment-accounts/route.ts (4 places)
-//   src/app/api/payment-accounts/verify/route.ts (2 places)
-//   src/app/api/platforms/route.ts (3 places)
-//   src/app/api/users/[id]/route.ts (1 place)
-//   src/lib/improvement-actions.ts (referenced indirectly)
 model PlatformConnection {
   id            String   @id @default(cuid())
   userId        String
@@ -590,7 +555,6 @@ model PlatformConnection {
   accountName   String
   apiKey        String?
   apiSecret     String?
-  // UPGRADE #173 fix #7: accessToken field used by platforms/route.ts:11,18
   accessToken   String?
   connected     Boolean  @default(false)
   metadata      String?
@@ -601,15 +565,11 @@ model PlatformConnection {
   @@index([platform])
 }
 
-// Referenced by:
-//   src/app/api/risk-profile/route.ts (5 places)
-//   src/lib/improvement-actions.ts (1 place)
 model RiskProfile {
   id                String   @id @default(cuid())
   userId            String
   riskTolerance     String   @default("moderate")
   investmentHorizon String?
-  // UPGRADE #173 fix #7: extra fields used by risk-profile/route.ts:17,18
   maxInvestment     Float?
   timeHorizon       String?
   preferredMarkets  String?
@@ -623,56 +583,126 @@ model RiskProfile {
   @@index([userId])
 }
 
-// Referenced by:
-//   src/app/api/scaling/route.ts (3 places)
 model ScalingPlan {
-  id              String   @id @default(cuid())
-  userId          String
-  // UPGRADE #173 fix #7: extra fields used by scaling/route.ts:15
-  name            String?
-  asset           String?
-  currentLevel     String?
-  targetLevel      String?
-  strategy        String?
-  timeline        String?
-  estimatedCost   Float?
-  estimatedReturn Float?
-  riskLevel       String?
-  status          String?
-  bottlenecks      String?
-  strategies       String?
+  id                String   @id @default(cuid())
+  userId            String
+  name              String?
+  asset             String?
+  currentLevel      String?
+  targetLevel       String?
+  strategy          String?
+  timeline          String?
+  estimatedCost     Float?
+  estimatedReturn   Float?
+  riskLevel         String?
+  status            String?
+  bottlenecks       String?
+  strategies        String?
   projectedTimeline String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt @default(now())
   @@index([userId])
 }
 
-// Referenced by:
-//   src/lib/advanced-capabilities.ts (1 place)
-//   src/lib/advanced-tools.ts (1 place)
-//   src/lib/intelligence-tools.ts (1 place)
 model SentimentLog {
-  id          String   @id @default(cuid())
-  userId      String?
-  // UPGRADE #173 fix #7: source + sentiment made optional — the 3 callers
-  // (advanced-capabilities.ts, advanced-tools.ts, intelligence-tools.ts)
-  // don't always provide them (they only log mood+confidence+trigger+context).
-  // Was required in the original #52 schema, but never enforced by callers.
-  source      String?
-  sentiment   String?
-  score       Float?
-  // UPGRADE #173 fix #7: mood field used by advanced-capabilities.ts:312,
-  // advanced-tools.ts:478, intelligence-tools.ts:223
-  mood        String?
-  // UPGRADE #173 fix #7: confidence field used by same 3 files.
-  confidence  Float?
-  // UPGRADE #173 fix #7: trigger field used by same 3 files (line 312/480/225)
-  trigger     String?
-  // UPGRADE #173 fix #7: context field used by same 3 files (line 312/481/226)
-  context     String?
-  text        String?
-  url         String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String?
+  source     String?
+  sentiment  String?
+  score      Float?
+  mood       String?
+  confidence Float?
+  trigger    String?
+  context    String?
+  text       String?
+  url        String?
+  createdAt  DateTime @default(now())
   @@index([userId])
   @@index([source])
+}
+
+/// Immutable proof of a meaningful autonomous execution.
+model ExecutionReceipt {
+  id               String   @id @default(cuid())
+  missionId        String
+  userId           String?
+  actorId          String
+  actorType        String
+  action           String
+  status           String
+  idempotencyKey   String
+  requestHash      String?
+  inputReference   String?
+  outputReference  String?
+  errorCode        String?
+  startedAt        DateTime
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  recordHash       String
+  metadata         String?
+
+  @@unique([missionId, idempotencyKey])
+  @@index([missionId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// Versioned, append-only evidence bundle for a mission.
+model EvidenceLedger {
+  id             String   @id @default(cuid())
+  missionId      String
+  userId         String?
+  idempotencyKey String
+  version        Int
+  title          String
+  status         String   @default("draft")
+  previousHash   String?
+  contentHash    String
+  createdAt      DateTime @default(now())
+  Source         EvidenceSource[]
+  Claim          EvidenceClaim[]
+
+  @@unique([missionId, idempotencyKey])
+  @@unique([missionId, version])
+  @@index([missionId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// Provenance record for an externally retrieved evidence payload.
+model EvidenceSource {
+  id             String         @id @default(cuid())
+  ledgerId       String
+  provider       String
+  sourceUrl      String
+  retrievedAt    DateTime
+  rawEvidenceRef String
+  rawEvidenceHash String
+  requestHash    String?
+  createdAt      DateTime       @default(now())
+  Ledger         EvidenceLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  Claim          EvidenceClaim[]
+
+  @@index([ledgerId, retrievedAt])
+  @@index([provider, retrievedAt])
+  @@unique([ledgerId, sourceUrl, rawEvidenceHash])
+}
+
+/// Atomic claim record linked to evidence provenance and confidence.
+model EvidenceClaim {
+  id               String          @id @default(cuid())
+  ledgerId         String
+  sourceId         String?
+  claimKey         String
+  claimText        String
+  classification   String
+  confidence       Float
+  verificationStatus String
+  notes            String?
+  createdAt        DateTime        @default(now())
+  Ledger           EvidenceLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  Source           EvidenceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@unique([ledgerId, claimKey])
+  @@index([ledgerId, verificationStatus])
+  @@index([sourceId])
 }
