@@ -79,6 +79,9 @@ jobs:
       - name: Proof infrastructure database integration
         run: bun test tests/proof-ledger.integration.test.ts
 
+      - name: Phase 5 independent verification officer
+        run: bun test tests/verification-officer.test.ts
+
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
 
