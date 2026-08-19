@@ -72,6 +72,7 @@ function assertConfidence(value: number): void {
 
 /** Deterministic JSON serialization used by every proof hash. */
 export function canonicalJson(value: unknown): string {
+  if (value === undefined) return 'null'
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (value instanceof Date) return JSON.stringify(value.toISOString())
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
@@ -115,10 +116,7 @@ function executionReceiptHash(input: {
   })
 }
 
-/**
- * Creates an append-only execution receipt. Repeating the same idempotency key
- * returns the original receipt instead of creating a duplicate.
- */
+/** Creates an append-only execution receipt with durable idempotency. */
 export async function recordExecutionReceipt(input: ExecutionReceiptInput) {
   assertNonEmpty('missionId', input.missionId)
   assertNonEmpty('actorId', input.actorId)
@@ -156,8 +154,6 @@ export async function recordExecutionReceipt(input: ExecutionReceiptInput) {
     const receipt = await db.executionReceipt.create({ data })
     return { receipt, created: true }
   } catch (error) {
-    // A concurrent caller may win the unique idempotency race. Re-read and
-    // return the canonical receipt instead of exposing a duplicate error.
     const concurrent = await db.executionReceipt.findUnique({
       where: { missionId_idempotencyKey: { missionId: input.missionId, idempotencyKey: input.idempotencyKey } },
     })
@@ -187,7 +183,6 @@ function ledgerContentHash(input: {
     confidence: number
     verificationStatus: string
     sourceIndex?: number
-    sourceId?: string
     notes?: string
   }>
 }): string {
@@ -212,17 +207,15 @@ function ledgerContentHash(input: {
       confidence: claim.confidence,
       verificationStatus: claim.verificationStatus,
       sourceIndex: claim.sourceIndex ?? null,
-      sourceId: claim.sourceId ?? null,
       notes: claim.notes ?? null,
     })),
   })
 }
 
 /**
- * Persists an immutable evidence-ledger version and its provenance records in
- * one transaction. The caller must supply the actual raw provider response;
- * only its SHA-256 digest is persisted, keeping potentially sensitive payloads
- * out of the ledger while retaining verifiable provenance.
+ * Persists one immutable evidence-ledger version and all provenance records in
+ * a single transaction. Raw provider payloads are never stored; only a digest
+ * and an application-level reference are persisted.
  */
 export async function persistEvidenceLedger(input: EvidenceLedgerInput) {
   assertNonEmpty('missionId', input.missionId)
@@ -366,7 +359,6 @@ export async function verifyEvidenceLedger(ledgerId: string): Promise<EvidenceLe
       confidence: claim.confidence,
       verificationStatus: claim.verificationStatus,
       sourceIndex: claim.sourceId ? sourceIndexById.get(claim.sourceId) : undefined,
-      sourceId: claim.sourceId ?? undefined,
       notes: claim.notes ?? undefined,
     })),
   })
