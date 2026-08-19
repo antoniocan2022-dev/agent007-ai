@@ -1,10 +1,9 @@
 /**
  * Canonical tool-dispatch boundary for Agent007.
  *
- * `src/lib/tools.ts` remains the implementation/registry module. This wrapper
- * is intentionally thin and is selected only for the `@/lib/tools` import
- * alias, so the authoritative orchestrator path cannot bypass the Autonomy
- * Governor accidentally.
+ * `src/lib/tools.ts` remains the implementation/registry module. The `@/lib/tools`
+ * TypeScript path resolves here, so governed callers enter through this boundary
+ * without duplicating the canonical registry.
  *
  * Safety rule: LLM-provided arguments never count as authorization evidence.
  * Capability metadata is the source of autonomous eligibility; unknown tools
@@ -41,18 +40,19 @@ async function recordToolExecution(
   result?: ToolResult,
   errorCode?: string,
 ): Promise<void> {
-  // Proof records are mission-scoped by design. Until an orchestrator provides
-  // a missionId, do not invent a fake mission identity or pollute the ledger.
   const missionId = context.missionId
+  // Do not fabricate mission identity. Non-mission tool calls remain backward
+  // compatible and simply do not produce mission-scoped execution receipts.
   if (!missionId) return
 
   const requestHash = sha256({ tool: name, args: args ?? {} })
-  const outputHash = result ? sha256({ ok: result.ok, result: result.result, preview: result.preview }) : undefined
+  const outputHash = result
+    ? sha256({ ok: result.ok, result: result.result, preview: result.preview })
+    : undefined
   const idempotencyKey = context.executionIdempotencyKey ?? `attempt_${randomUUID()}`
 
   await recordExecutionReceipt({
     missionId,
-    userId: undefined,
     actorId: context.actorId ?? name,
     actorType: context.actorType ?? 'tool',
     action: `tool.${name}`,
@@ -64,27 +64,29 @@ async function recordToolExecution(
     errorCode,
     startedAt,
     completedAt: new Date(),
-    metadata: { tool: name, conversationId: context.conversationId ?? null },
+    metadata: {
+      tool: name,
+      conversationId: context.conversationId ?? null,
+    },
   })
 }
 
 export async function dispatchTool(
   name: string,
   args: any,
-  ctx: ToolContext,
+  ctx: AuthorizedToolContext,
 ): Promise<ToolResult> {
-  const authorizedContext = ctx as AuthorizedToolContext
   const startedAt = new Date()
 
-  let ownerAuthorization = isVerifiedOwnerAuthorization(authorizedContext.ownerAuthorization)
-    ? authorizedContext.ownerAuthorization
+  let ownerAuthorization = isVerifiedOwnerAuthorization(ctx.ownerAuthorization)
+    ? ctx.ownerAuthorization
     : null
   if (!ownerAuthorization) {
     try {
       ownerAuthorization = await getVerifiedOwnerAuthorization()
     } catch {
-      // A missing/unavailable session must fail closed; autonomous-safe actions
-      // can still proceed because they do not require owner authorization.
+      // Missing/unavailable session fails closed; autonomous-safe actions can
+      // still proceed because they do not require owner authorization.
       ownerAuthorization = null
     }
   }
@@ -96,16 +98,24 @@ export async function dispatchTool(
 
   if (!decision.authorizedForExecution) {
     const denied = badResult(autonomyDenialMessage(name, decision))
-    await recordToolExecution(authorizedContext, name, args, 'DENIED', startedAt, denied, 'AUTONOMY_DENIED')
+    await recordToolExecution(ctx, name, args, 'DENIED', startedAt, denied, 'AUTONOMY_DENIED')
     return denied
   }
 
   try {
     const result = await rawDispatchTool(name, args, ctx)
-    await recordToolExecution(authorizedContext, name, args, result.ok ? 'SUCCESS' : 'FAILED', startedAt, result, result.ok ? undefined : 'TOOL_FAILED')
+    await recordToolExecution(
+      ctx,
+      name,
+      args,
+      result.ok ? 'SUCCESS' : 'FAILED',
+      startedAt,
+      result,
+      result.ok ? undefined : 'TOOL_FAILED',
+    )
     return result
   } catch (error) {
-    await recordToolExecution(authorizedContext, name, args, 'FAILED', startedAt, undefined, 'TOOL_THROW')
+    await recordToolExecution(ctx, name, args, 'FAILED', startedAt, undefined, 'TOOL_THROW')
     throw error
   }
 }
