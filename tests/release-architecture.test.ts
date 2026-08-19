@@ -48,5 +48,7 @@ describe("release architecture invariants", () => {
     expect(content).toContain("tests/owner-bootstrap-security.test.ts");
     expect(content).toContain("tests/db-runtime-policy.test.ts");
     expect(content).toContain("release-health");
+    // Keep this test intentionally triggerable by a normal main push.
+    expect(content).toContain("on:\n  push:\n    branches: [main]");
   });
 });
