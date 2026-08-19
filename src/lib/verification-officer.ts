@@ -1,4 +1,4 @@
-import { sha256 } from './proof-ledger'
+import { sha256, recordExecutionReceipt } from './proof-ledger'
 
 export const VERIFICATION_OFFICER_ID = 'verification_officer'
 export const VERIFICATION_OFFICER_VERSION = 1
@@ -42,6 +42,7 @@ export interface VerificationFinding {
     | 'CONFLICTING_CLAIMS'
     | 'MISSING_REQUIRED_CLAIM'
     | 'UNSUPPORTED_CLAIM'
+    | 'DUPLICATE_SOURCE'
   claimKey?: string
   message: string
 }
@@ -57,7 +58,7 @@ export interface VerificationOfficerResult {
   proofHash: string
 }
 
-const clean = (value: string): string => value.trim().replace(/\\s+/g, ' ')
+const clean = (value: string): string => value.trim().replace(/\s+/g, ' ')
 const normalizeValue = (value: string): string => clean(value).toLowerCase()
 
 function addFinding(findings: VerificationFinding[], finding: VerificationFinding): void {
@@ -84,7 +85,7 @@ export function runVerificationOfficerChallenge(input: VerificationOfficerInput)
     addFinding(findings, { code: 'INVALID_INPUT', message: 'At least one claim is required.' })
   }
   if (!Array.isArray(input.sources) || input.sources.length === 0) {
-    addFinding(findings, { code: 'INVALID_INPUT', message: 'At least one independent evidence source is required.' })
+    addFinding(findings, { code: 'INVALID_INPUT', message: 'At least one evidence source is required.' })
   }
 
   const sources = new Map<string, VerificationSource>()
@@ -97,7 +98,7 @@ export function runVerificationOfficerChallenge(input: VerificationOfficerInput)
       continue
     }
     if (sources.has(sourceId)) {
-      addFinding(findings, { code: 'CONFLICTING_CLAIMS', message: `Duplicate evidence source id: ${sourceId}.` })
+      addFinding(findings, { code: 'DUPLICATE_SOURCE', message: `Duplicate evidence source id: ${sourceId}.` })
       continue
     }
     sources.set(sourceId, { ...source, sourceId, provider, sourceUrl })
@@ -118,13 +119,20 @@ export function runVerificationOfficerChallenge(input: VerificationOfficerInput)
     }
 
     const usableSources = sourceIds.map((sourceId) => sources.get(sourceId)).filter((source): source is VerificationSource => Boolean(source))
-    const independentGroups = new Set(usableSources.map((source) => clean(source.independentGroup || source.provider).toLowerCase()))
+    if (usableSources.length === 0) {
+      addFinding(findings, { code: 'UNSUPPORTED_CLAIM', claimKey, message: `Claim ${claimKey} has no usable evidence source.` })
+    }
+
+    // Independence is based on provider identity. An optional independentGroup
+    // can strengthen classification, but cannot manufacture independence between
+    // two sources returned by the same provider.
+    const independentProviders = new Set(usableSources.map((source) => normalizeValue(source.provider)))
     const minimumIndependentSources = rawClaim.critical ? 2 : 1
-    if (independentGroups.size < minimumIndependentSources) {
+    if (independentProviders.size < minimumIndependentSources) {
       addFinding(findings, {
         code: 'INSUFFICIENT_INDEPENDENCE',
         claimKey,
-        message: `Claim ${claimKey} requires at least ${minimumIndependentSources} independent evidence source group(s), found ${independentGroups.size}.`,
+        message: `Claim ${claimKey} requires at least ${minimumIndependentSources} independent provider(s), found ${independentProviders.size}.`,
       })
     }
 
@@ -150,16 +158,19 @@ export function runVerificationOfficerChallenge(input: VerificationOfficerInput)
   }
 
   const challengedClaimKeys = [...new Set(findings.filter((finding) => finding.claimKey).map((finding) => finding.claimKey as string))]
-  const fatalCodes = new Set<VerificationFinding['code']>([
+  const challengeCodes = new Set<VerificationFinding['code']>([
     'INVALID_INPUT',
     'SELF_VERIFICATION',
     'MISSING_SOURCE',
+    'UNSUPPORTED_CLAIM',
     'INSUFFICIENT_INDEPENDENCE',
     'CONFLICTING_CLAIMS',
     'MISSING_REQUIRED_CLAIM',
+    'DUPLICATE_SOURCE',
   ])
-  const hasFatal = findings.some((finding) => fatalCodes.has(finding.code))
-  const decision: VerificationDecision = hasFatal ? 'CHALLENGE' : findings.length > 0 ? 'CHALLENGE' : 'PASS'
+  const hasChallenge = findings.some((finding) => challengeCodes.has(finding.code))
+  const hasOnlyLowConfidence = findings.length > 0 && findings.every((finding) => finding.code === 'LOW_CONFIDENCE')
+  const decision: VerificationDecision = hasChallenge ? 'CHALLENGE' : hasOnlyLowConfidence ? 'CHALLENGE' : findings.length > 0 ? 'CHALLENGE' : 'PASS'
 
   return {
     decision,
@@ -181,4 +192,33 @@ export function runVerificationOfficerChallenge(input: VerificationOfficerInput)
       findings,
     }),
   }
+}
+
+/**
+ * Executes the independent challenge and records an immutable Phase-1 receipt.
+ * The default idempotency key is derived from the challenge proof, so the same
+ * challenge cannot silently create duplicate execution receipts.
+ */
+export async function executeVerificationOfficerChallenge(
+  input: VerificationOfficerInput,
+  idempotencyKey?: string,
+) {
+  const result = runVerificationOfficerChallenge(input)
+  const receipt = await recordExecutionReceipt({
+    missionId: result.missionId,
+    actorId: VERIFICATION_OFFICER_ID,
+    actorType: 'verification_officer',
+    action: 'verification_officer.challenge',
+    status: result.decision,
+    idempotencyKey: idempotencyKey?.trim() || `verification:${result.proofHash}`,
+    requestHash: sha256(input),
+    outputReference: `verification-proof-sha256:${result.proofHash}`,
+    metadata: {
+      subject: result.subject,
+      decision: result.decision,
+      challengedClaimKeys: result.challengedClaimKeys,
+      findingCount: result.findings.length,
+    },
+  })
+  return { result, receipt }
 }
