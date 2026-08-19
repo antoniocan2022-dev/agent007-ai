@@ -50,5 +50,7 @@ describe("release architecture invariants", () => {
     expect(content).toContain("release-health");
     // Keep this test intentionally triggerable by a normal main push.
     expect(content).toContain("on:\n  push:\n    branches: [main]");
+    // Authorized release execution marker: normal main push path.
+    expect(content).toContain("authorize final Venture OS production release");
   });
 });
