@@ -43,7 +43,7 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
-          test "$(jq -r 'has(\"crons\") and ((.crons // []) | length > 0)' vercel.json)" = false
+          test "$(jq -r 'has("crons") and ((.crons // []) | length > 0)' vercel.json)" = false
 
       - name: Verify Vercel credentials
         env:
