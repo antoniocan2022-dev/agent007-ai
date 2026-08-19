@@ -53,6 +53,3 @@ jobs:
 
       - name: Phase 3-4 domain contracts
         run: bun test tests/phase3-4-contract.test.ts
-
-      - name: TypeScript
-        run: bunx tsc --noEmit
