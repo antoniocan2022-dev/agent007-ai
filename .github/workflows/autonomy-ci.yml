@@ -73,6 +73,9 @@ jobs:
       - name: Venture architecture regression audit
         run: bun scripts/venture-architecture-audit.ts
 
+      - name: Proof infrastructure contracts
+        run: bun test tests/proof-ledger-contract.test.ts
+
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
 
