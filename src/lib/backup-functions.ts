@@ -60,7 +60,12 @@ export interface BackupListResult {
   warning?: string
 }
 
-const TABLE_NAMES = BACKUP_TABLES.map((name) => name.charAt(0).toLowerCase() + name.slice(1))
+// Keep proof-ledger tables explicitly included here while the canonical Backup
+// V2 registry is reconciled by the controlled release path.
+const TABLE_NAMES = Array.from(new Set([
+  ...BACKUP_TABLES.map((name) => name.charAt(0).toLowerCase() + name.slice(1)),
+  'executionReceipt', 'evidenceLedger', 'evidenceSource', 'evidenceClaim',
+]))
 
 const SOURCE_PATHS = [
   'src/lib/agent.ts', 'src/lib/orchestrator.ts', 'src/lib/tools.ts',
@@ -68,7 +73,7 @@ const SOURCE_PATHS = [
   'src/lib/upgrade-manifest.ts', 'src/lib/self-backup.ts', 'src/lib/email.ts',
   'src/lib/whatsapp-bridge.ts', 'src/lib/db.ts', 'src/lib/auth.ts',
   'src/lib/tool-protection.ts', 'src/lib/manage-actions.ts', 'src/lib/system-functions.ts',
-  'src/app/login/page.tsx', 'src/app/page.tsx',
+  'src/lib/proof-ledger.ts', 'src/app/login/page.tsx', 'src/app/page.tsx',
   'src/components/agent/tabs/dashboard-tab.tsx',
   'src/components/agent/tabs/settings-tab.tsx',
   'prisma/schema.prisma', 'package.json', 'next.config.ts', 'tsconfig.json', 'tailwind.config.ts',
@@ -118,7 +123,7 @@ export async function createBackup(label = 'full-system'): Promise<BackupResult>
     }
 
     const backup = {
-      version: '5.1',
+      version: '5.2',
       app: 'Agent007 AI',
       exportedAt: new Date().toISOString(),
       label: safeLabel,
