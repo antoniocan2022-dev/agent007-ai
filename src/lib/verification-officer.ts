@@ -194,6 +194,13 @@ export function runVerificationOfficerChallenge(input: VerificationOfficerInput)
   }
 }
 
+export function assertVerificationPass(result: VerificationOfficerResult): void {
+  if (result.decision !== 'PASS') {
+    const details = result.findings.slice(0, 5).map((finding) => finding.message).join(' | ')
+    throw new Error(`VERIFICATION_GATE_BLOCKED: Verification Officer decision=${result.decision}.${details ? ` ${details}` : ''}`)
+  }
+}
+
 /**
  * Executes the independent challenge and records an immutable Phase-1 receipt.
  * The default idempotency key is derived from the challenge proof, so the same
