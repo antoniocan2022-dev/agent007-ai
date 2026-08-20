@@ -89,6 +89,9 @@ jobs:
       - name: Five-phase integrity and duplicate-file audit
         run: bun test tests/five-phase-integrity.test.ts
 
+      - name: CEO verification hard gate
+        run: bun test tests/ceo-verification-gate.test.ts
+
       - name: CEO static shell and message navigation contract
         run: bun test tests/chat-layout-integrity.test.ts
 
