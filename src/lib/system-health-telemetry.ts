@@ -1,6 +1,6 @@
 import { db } from './db'
 import { RATE_LIMIT_INFO } from './agent'
-import { getSystemManifest } from './system-manifest'
+import { getSystemManifest, type SystemManifest } from './system-manifest'
 
 export type HealthStatus = 'healthy' | 'degraded' | 'failed'
 
@@ -15,7 +15,7 @@ export type HealthCheck = {
 export type SystemHealthReport = {
   generatedAt: string
   overall: HealthStatus
-  release: ReturnType<typeof getSystemManifest>
+  release: SystemManifest
   checks: HealthCheck[]
 }
 
@@ -23,13 +23,7 @@ async function timedCheck(component: string, fn: () => Promise<Record<string, un
   const started = Date.now()
   try {
     const details = await fn()
-    return {
-      component,
-      status: 'healthy',
-      checkedAt: new Date().toISOString(),
-      latencyMs: Date.now() - started,
-      details,
-    }
+    return { component, status: 'healthy', checkedAt: new Date().toISOString(), latencyMs: Date.now() - started, details }
   } catch (error) {
     return {
       component,
@@ -46,8 +40,7 @@ export async function getLiveSystemHealth(): Promise<SystemHealthReport> {
   const checks = await Promise.all([
     timedCheck('database', async () => {
       await db.$queryRaw`SELECT 1`
-      const [userCount] = await db.$queryRaw<Array<{ count: bigint }>>`SELECT COUNT(*)::bigint AS count FROM "User"`
-      return { reachable: true, operatorAccounts: Number(userCount?.count ?? 0) }
+      return { reachable: true }
     }),
     timedCheck('llm-rate-limit', async () => ({
       retryingNow: RATE_LIMIT_INFO.retryingNow,
