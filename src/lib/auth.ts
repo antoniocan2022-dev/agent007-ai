@@ -1,14 +1,10 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
+import crypto from 'node:crypto'
 import { db } from '@/lib/db'
 import { SEED_EMAIL } from '@/lib/owner-config'
 
-/**
- * The single authorized operator of Agent007 AI.
- * Owner/bootstrap data is provisioned by the controlled bootstrap script.
- * Runtime authentication never creates a predictable-password account.
- */
 export { SEED_EMAIL }
 
 export async function hashPassword(pw: string): Promise<string> {
@@ -17,36 +13,21 @@ export async function hashPassword(pw: string): Promise<string> {
 }
 
 export async function verifyPassword(pw: string, hash: string): Promise<boolean> {
-  try {
-    return await bcrypt.compare(pw, hash)
-  } catch {
-    return false
-  }
+  try { return await bcrypt.compare(pw, hash) } catch { return false }
 }
 
 let seedPromise: Promise<void> | null = null
 
-/**
- * Compatibility hook used by existing auth callers.
- *
- * Runtime authentication never creates an account with a default/password-equals-email
- * credential. Account creation belongs to scripts/bootstrap-owner-data.ts and requires
- * OWNER_BOOTSTRAP_PASSWORD explicitly.
- */
 export function ensureSeedUser(): Promise<void> {
   if (!seedPromise) {
     seedPromise = (async () => {
       try {
         const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } })
         if (existing) return
-
         const configuredPassword = process.env.OWNER_BOOTSTRAP_PASSWORD?.trim()
         if (!configuredPassword) return
-
         const passwordHash = await hashPassword(configuredPassword)
-        await db.user.create({
-          data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' },
-        })
+        await db.user.create({ data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' } })
       } catch (e: any) {
         console.error('[auth] ensureSeedUser failed:', e?.message ?? String(e))
       }
@@ -72,48 +53,43 @@ export async function resetPassword(email: string, newPassword: string): Promise
 function getNextAuthSecret(): string {
   const configured = process.env.NEXTAUTH_SECRET?.trim()
   if (configured) return configured
-
-  if (process.env.NEXT_PHASE === 'phase-production-build') {
-    return 'agent007-build-only-placeholder-secret-do-not-use-at-runtime'
-  }
-
+  if (process.env.NEXT_PHASE === 'phase-production-build') return 'agent007-build-only-placeholder-secret-do-not-use-at-runtime'
   throw new Error('NEXTAUTH_SECRET is required at runtime. Configure it in Vercel for Preview and Production.')
+}
+
+function verifyTwoFactorLoginProof(userId: string, token: string, expiresAtInput: number): boolean {
+  const secret = process.env.NEXTAUTH_SECRET?.trim()
+  if (!secret || !token || !Number.isFinite(expiresAtInput) || Date.now() >= expiresAtInput) return false
+  if (expiresAtInput - Date.now() > 60 * 1000) return false
+
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8')
+    const parts = decoded.split(':')
+    if (parts.length !== 5) return false
+    const [proofUserId, purpose, proofExpiresAtRaw, nonce, signature] = parts
+    const proofExpiresAt = Number(proofExpiresAtRaw)
+    if (proofUserId !== userId || purpose !== '2fa' || proofExpiresAt !== expiresAtInput || !nonce || !Number.isFinite(proofExpiresAt)) return false
+    const payload = `${proofUserId}:${purpose}:${proofExpiresAt}:${nonce}`
+    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex')
+    if (signature.length !== expected.length) return false
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  } catch {
+    return false
+  }
 }
 
 export const authOptions: NextAuthOptions = {
   secret: getNextAuthSecret(),
-  session: {
-    strategy: 'jwt',
-    maxAge: 60 * 60 * 24 * 30,
-  },
-  pages: {
-    signIn: '/login',
-  },
-  ...(typeof window === 'undefined' && process.env.ENABLE_IFRAME_COOKIES === 'true'
-    ? {
-        cookies: {
-          sessionToken: {
-            name: 'next-auth.session-token',
-            options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
-          },
-          callbackUrl: {
-            name: 'next-auth.callback-url',
-            options: { sameSite: 'none', path: '/', secure: true },
-          },
-          csrfToken: {
-            name: 'next-auth.csrf-token',
-            options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
-          },
-        },
-      }
-    : {}),
+  session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 30 },
+  pages: { signIn: '/login' },
   providers: [
     CredentialsProvider({
       name: 'Credentials',
       credentials: {
         email: { label: 'Email', type: 'email', placeholder: 'operator@example.com' },
         password: { label: 'Password', type: 'password' },
-        twofaVerified: { label: '2FA verified', type: 'text' },
+        twofaProof: { label: '2FA proof', type: 'text' },
+        twofaProofExpiresAt: { label: '2FA proof expiry', type: 'text' },
       },
       async authorize(credentials) {
         await ensureSeedUser()
@@ -128,23 +104,11 @@ export const authOptions: NextAuthOptions = {
         const valid = await verifyPassword(password, user.passwordHash)
         if (!valid) return null
 
-        const twofaVerified = credentials?.twofaVerified === 'true'
-        if (!twofaVerified) {
-          try {
-            const enabledTwoFactor = await db.twoFactorSecret.findFirst({
-              where: { userId: user.id, enabled: true },
-            })
-            if (enabledTwoFactor) {
-              const err = new Error('2FA_REQUIRED') as any
-              err.code = '2FA_REQUIRED'
-              err.userId = user.id
-              throw err
-            }
-          } catch (e: any) {
-            if (e?.code === '2FA_REQUIRED') throw e
-            console.error('[auth] 2FA check failed:', e?.message)
-            return null
-          }
+        const enabledTwoFactor = await db.twoFactorSecret.findFirst({ where: { userId: user.id, enabled: true } })
+        if (enabledTwoFactor) {
+          const proof = credentials?.twofaProof?.toString() ?? ''
+          const proofExpiresAt = Number(credentials?.twofaProofExpiresAt?.toString() ?? '')
+          if (!verifyTwoFactorLoginProof(user.id, proof, proofExpiresAt)) return null
         }
 
         return { id: user.id, email: user.email, name: user.name ?? user.email }
