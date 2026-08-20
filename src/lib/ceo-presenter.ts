@@ -9,6 +9,7 @@ import { db } from './db'
 import { executeVerificationOfficerChallenge, type VerificationOfficerResult } from './verification-officer'
 import { enforceVerifiedArtifactEvidence, verifyArtifactEvidence } from './artifact-contract'
 import { evaluateCeoDecision, type CeoDecisionKernelResult } from './ceo-decision-kernel'
+import { recordModelOutcome } from './outcome-intelligence'
 
 export interface MissionStageSummary {
   stage: number
@@ -165,6 +166,18 @@ export async function ceoGenerateReport(opts: {
     : someApproved
       ? 'partial'
       : 'failed'
+
+  if (provider && model) {
+    recordModelOutcome({
+      provider: provider as any,
+      model,
+      taskType: 'reasoning',
+      status: outcome === 'success' && verification.decision === 'PASS' ? 'verified_success' : outcome === 'partial' ? 'partial' : 'failed',
+      qualityScore: Math.round(stages.length ? stages.reduce((sum, stage) => sum + stage.finalScore, 0) / stages.length : 0),
+      businessValueScore: outcome === 'success' ? 100 : outcome === 'partial' ? 60 : 0,
+      verificationPassed: verification.decision === 'PASS' && decisionKernel.decision === 'PROCEED',
+    })
+  }
 
   const keyDeliverables = stages
     .filter((stage) => stage.artifactValue)
