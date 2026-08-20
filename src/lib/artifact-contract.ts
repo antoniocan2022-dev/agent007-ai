@@ -1,4 +1,4 @@
-""import type { MissionStageSummary } from './ceo-presenter'
+import type { MissionStageSummary } from './ceo-presenter'
 
 export type ArtifactExpectation = 'url' | 'transaction_id' | 'message_id' | 'file_path' | 'data' | 'none'
 
@@ -23,6 +23,16 @@ const TX_RE = /\b(?:ch|pi|txn|sub|in)_[A-Za-z0-9]{10,}\b/
 const MESSAGE_RE = /\bmsg[_-]?(?:\d{6,})\b|\b\d{10,}\b/i
 const FILE_RE = /(?:^|\s)(?:\.?\.?\/|\/)[\w./-]+\.[A-Za-z0-9]+|\b[\w-]+\.(?:js|ts|tsx|jsx|py|md|json|html|css|pdf|csv)\b/i
 
+export function inferArtifactType(value: string | null | undefined, explicit?: ArtifactExpectation): ArtifactExpectation {
+  if (explicit) return explicit
+  const artifact = value?.trim() ?? ''
+  if (URL_RE.test(artifact)) return 'url'
+  if (TX_RE.test(artifact)) return 'transaction_id'
+  if (MESSAGE_RE.test(artifact)) return 'message_id'
+  if (FILE_RE.test(artifact)) return 'file_path'
+  return 'data'
+}
+
 export function validateArtifactValue(type: ArtifactExpectation, value: string | null | undefined): ArtifactValidation {
   if (type === 'none') return { valid: true, reason: 'No artifact is required for this stage.' }
   const artifact = value?.trim()
@@ -37,17 +47,11 @@ export function validateArtifactValue(type: ArtifactExpectation, value: string |
   return { valid: true, reason: 'Artifact reference is structurally valid.' }
 }
 
-/**
- * Evidence-level verification. URL artifacts are probed from the server and
- * must resolve to an HTTP success or redirect. Other artifact classes require
- * the producing stage to have a verified execution receipt; this function does
- * not invent verification from the artifact text alone.
- */
 export async function verifyArtifactEvidence(stages: MissionStageSummary[]): Promise<VerifiedArtifact[]> {
   const results: VerifiedArtifact[] = []
   for (const stage of stages) {
     if (stage.team === 'ceo' || stage.artifactType === 'none') continue
-    const type = stage.artifactType ?? 'data'
+    const type = inferArtifactType(stage.artifactValue, stage.artifactType)
     const value = stage.artifactValue?.trim() ?? ''
     const structural = validateArtifactValue(type, value)
     if (!structural.valid) {
@@ -86,9 +90,6 @@ export async function verifyArtifactEvidence(stages: MissionStageSummary[]): Pro
   return results
 }
 
-/**
- * Final mission gate: every non-CEO stage must contain a verified artifact.
- */
 export function enforceCompletedArtifacts(stages: MissionStageSummary[]): { valid: boolean; failures: string[] } {
   const failures: string[] = []
   for (const stage of stages) {
@@ -100,10 +101,7 @@ export function enforceCompletedArtifacts(stages: MissionStageSummary[]): { vali
   return { valid: failures.length === 0, failures }
 }
 
-export function enforceVerifiedArtifactEvidence(
-  stages: MissionStageSummary[],
-  verifiedArtifacts: VerifiedArtifact[],
-): { valid: boolean; failures: string[] } {
+export function enforceVerifiedArtifactEvidence(stages: MissionStageSummary[], verifiedArtifacts: VerifiedArtifact[]): { valid: boolean; failures: string[] } {
   const failures = [...enforceCompletedArtifacts(stages).failures]
   const byStage = new Map(verifiedArtifacts.map((artifact) => [artifact.stage, artifact]))
   for (const stage of stages) {
@@ -113,4 +111,3 @@ export function enforceVerifiedArtifactEvidence(
   }
   return { valid: failures.length === 0, failures }
 }
-""
