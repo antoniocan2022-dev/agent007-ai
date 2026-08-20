@@ -1,8 +1,8 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
-import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
+import { getHealthScore, isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
-import { recordModelOutcome, type OutcomeStatus } from './outcome-intelligence'
+import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export interface ProviderRuntimeConfig {
@@ -29,10 +29,7 @@ export interface ProviderRuntimeRequest {
   temperature?: number
   maxTokens?: number
   timeoutMs?: number
-  /**
-   * Optional verified evidence supplied by the mission/verifier layer.
-   * Transport success alone never creates an outcome observation.
-   */
+  /** Verified mission evidence. Transport success alone never creates outcome intelligence. */
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
 }
 
@@ -75,13 +72,17 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500
 }
 
+function modelFor(provider: ProviderId, taskType: TaskType, verification?: VerificationTier): string {
+  return getModelForProvider(provider, taskType, verification) || readEnv(PROVIDER_RUNTIME_CONFIG[provider].modelEnv) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel
+}
+
 async function callProvider(provider: ProviderId, request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   const key = readEnv(config.apiKeyEnv)
   if (!key) throw new Error(`${config.label} is not configured (${config.apiKeyEnv})`)
 
   const taskType = request.taskType ?? 'general'
-  const model = request.model || getModelForProvider(provider, taskType, request.verification) || readEnv(config.modelEnv) || config.defaultModel
+  const model = request.model || modelFor(provider, taskType, request.verification)
   const timeoutMs = Math.max(1000, request.timeoutMs ?? 60000)
   const started = Date.now()
   const controller = new AbortController()
@@ -112,18 +113,12 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
     recordSuccess(provider, responseMs)
     recordModelPerformance({ provider, model, taskType, success: true, responseMs })
     if (request.outcomeEvidence) {
-      recordModelOutcome({
-        provider,
-        model,
-        taskType,
-        ...request.outcomeEvidence,
-      })
+      recordModelOutcome({ provider, model, taskType, ...request.outcomeEvidence })
     }
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
     const responseMs = Date.now() - started
     recordFailure(provider)
-    const model = request.model || getModelForProvider(provider, taskType, request.verification) || readEnv(config.modelEnv) || config.defaultModel
     recordModelPerformance({ provider, model, taskType, success: false, responseMs })
     throw error
   } finally {
@@ -131,11 +126,32 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
   }
 }
 
+function rankCandidates(candidates: ProviderId[], taskType: TaskType, verification?: VerificationTier): ProviderId[] {
+  const policyOrder = new Map(candidates.map((provider, index) => [provider, index]))
+  const outcomeSnapshots = recommendByVerifiedOutcome(
+    taskType,
+    candidates.map((provider) => ({ provider, model: modelFor(provider, taskType, verification) })),
+  )
+  const trusted = outcomeSnapshots.filter((snapshot) => snapshot.confidence >= 40 && snapshot.observations > 0)
+  if (!trusted.length) return candidates
+
+  const outcomeRank = new Map(trusted.map((snapshot, index) => [snapshot.provider, index]))
+  return [...candidates].sort((a, b) => {
+    const ar = outcomeRank.get(a)
+    const br = outcomeRank.get(b)
+    if (ar !== undefined && br !== undefined) return ar - br
+    if (ar !== undefined) return -1
+    if (br !== undefined) return 1
+    return (policyOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (policyOrder.get(b) ?? Number.MAX_SAFE_INTEGER)
+  })
+}
+
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const taskType = request.taskType ?? 'general'
   const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification)
   const configured = getConfiguredProviders()
-  const candidates = rankAvailableProviders(configured).filter((provider) => !isCircuitOpen(provider))
+  const available = rankAvailableProviders(configured).filter((provider) => !isCircuitOpen(provider))
+  const candidates = rankCandidates(available, taskType, request.verification)
 
   if (candidates.length === 0) throw new Error(`No governed providers available. Required priority: ${policy.providerOrder.join(' → ')}`)
 
