@@ -1,16 +1,12 @@
 import { TOOL_REGISTRY } from './tools'
-import { SUBAGENTS } from './subagents'
+import { SUBAGENTS, getAllSubagents } from './subagents'
 import type { ProviderId } from './subagent-governance'
+import { getCanonicalProviderTelemetry } from './canonical-llm-router'
 
-export const SYSTEM_MANIFEST_VERSION = 1
+export const SYSTEM_MANIFEST_VERSION = 2
 export const SYSTEM_MANIFEST_ID = 'agent007-system'
 
-const CANONICAL_PROVIDER_COUNT: Record<ProviderId, true> = {
-  groq: true,
-  openai: true,
-  zai: true,
-  mistral: true,
-}
+const CANONICAL_PROVIDER_COUNT: Record<ProviderId, true> = { groq: true, openai: true, zai: true, mistral: true }
 
 export type SystemManifest = {
   manifestId: string
@@ -28,11 +24,16 @@ export type SystemManifest = {
   organization: {
     specialistCount: number
     builtInSpecialistCount: number
-    customSpecialistCount: number | null
+    customSpecialistCount: number
+    enabledSpecialistCount: number
+    disabledSpecialistCount: number
   }
   capabilities: {
     toolCount: number
     providerCount: number
+    configuredProviderCount: number
+    healthyProviderCount: number
+    availableProviderCount: number
   }
   proof: {
     executionReceipts: true
@@ -45,11 +46,11 @@ export type SystemManifest = {
   }
 }
 
-export function getSystemManifest(): SystemManifest {
+function baseManifest(): SystemManifest {
   const environment = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
   const deploymentTarget: SystemManifest['infrastructure']['deploymentTarget'] =
     environment === 'production' ? 'production' : environment === 'preview' ? 'preview' : 'development'
-
+  const providerTelemetry = getCanonicalProviderTelemetry()
   return {
     manifestId: SYSTEM_MANIFEST_ID,
     manifestVersion: SYSTEM_MANIFEST_VERSION,
@@ -58,28 +59,46 @@ export function getSystemManifest(): SystemManifest {
     environment,
     framework: 'nextjs',
     runtime: process.version,
-    infrastructure: {
-      database: 'postgresql',
-      hosting: 'vercel',
-      deploymentTarget,
-    },
+    infrastructure: { database: 'postgresql', hosting: 'vercel', deploymentTarget },
     organization: {
       specialistCount: SUBAGENTS.length,
       builtInSpecialistCount: SUBAGENTS.filter((agent) => agent.isBuiltin !== false).length,
-      customSpecialistCount: null,
+      customSpecialistCount: 0,
+      enabledSpecialistCount: SUBAGENTS.filter((agent) => agent.enabled !== false).length,
+      disabledSpecialistCount: SUBAGENTS.filter((agent) => agent.enabled === false).length,
     },
     capabilities: {
       toolCount: Object.keys(TOOL_REGISTRY).length,
       providerCount: Object.keys(CANONICAL_PROVIDER_COUNT).length,
+      configuredProviderCount: providerTelemetry.configuredCount,
+      healthyProviderCount: providerTelemetry.healthyCount,
+      availableProviderCount: providerTelemetry.availableCount,
     },
-    proof: {
-      executionReceipts: true,
-      evidenceLedger: true,
-      verificationOfficer: true,
-    },
-    governance: {
-      truthfulExecutionContract: true,
-      ownerApprovalForProtectedActions: true,
-    },
+    proof: { executionReceipts: true, evidenceLedger: true, verificationOfficer: true },
+    governance: { truthfulExecutionContract: true, ownerApprovalForProtectedActions: true },
   }
+}
+
+export function getSystemManifest(): SystemManifest {
+  return baseManifest()
+}
+
+/** Resolve DB overlays/custom agents so the manifest represents the effective runtime organization. */
+export async function getLiveSystemManifest(): Promise<SystemManifest> {
+  const manifest = baseManifest()
+  try {
+    const effective = await getAllSubagents({ includeDisabled: true })
+    const builtInCount = effective.filter((agent) => agent.isBuiltin !== false).length
+    const customCount = effective.filter((agent) => agent.isBuiltin === false).length
+    manifest.organization = {
+      specialistCount: effective.length,
+      builtInSpecialistCount: builtInCount,
+      customSpecialistCount: customCount,
+      enabledSpecialistCount: effective.filter((agent) => agent.enabled !== false).length,
+      disabledSpecialistCount: effective.filter((agent) => agent.enabled === false).length,
+    }
+  } catch {
+    // Fail closed to canonical code-defined inventory rather than inventing DB state.
+  }
+  return { ...manifest, generatedAt: new Date().toISOString() }
 }
