@@ -31,10 +31,12 @@ export interface CeoReport {
   nextSteps: string[]
   fullReport: string
   generatedAt: string
-  verificationDecision: 'PASS' | 'CHALLENGE' | 'FAIL'
-  verificationProofHash: string | null
-  artifactGatePassed: boolean
-  artifactGateFailures: string[]
+  /** Present for reports produced by the current verification-aware presenter. */
+  verificationDecision?: 'PASS' | 'CHALLENGE' | 'FAIL'
+  verificationProofHash?: string | null
+  /** Present for reports produced by the current artifact-aware presenter. */
+  artifactGatePassed?: boolean
+  artifactGateFailures?: string[]
 }
 
 const CEO_SYSTEM_PROMPT = `You are the CEO of Agent007.
@@ -164,6 +166,10 @@ export async function ceoGenerateReport(opts: {
 
 export async function ceoPersistReport(report: CeoReport): Promise<void> {
   try {
+    if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true)) {
+      console.warn('[ceo-presenter] Refusing to persist unproven success report.')
+      return
+    }
     const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
     if (!user) return
     const key = `ceo_report_${report.missionId}`
@@ -178,11 +184,11 @@ export async function ceoPersistReport(report: CeoReport): Promise<void> {
 
 export async function ceoSendTelegram(report: CeoReport): Promise<void> {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return
+  if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true)) return
   try {
-    const text = `🎯 MISSION REPORT — ${report.outcome.toUpperCase()}\n\n${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision}\n— Agent007 CEO`
+    const text = `🎯 MISSION REPORT — ${report.outcome.toUpperCase()}\n\n${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed === true ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision ?? 'UNVERIFIED'}\n— Agent007 CEO`
     await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text, disable_web_page_preview: true }),
       signal: AbortSignal.timeout(15000),
     })
@@ -193,12 +199,13 @@ export async function ceoSendTelegram(report: CeoReport): Promise<void> {
 
 export async function ceoSendEmail(report: CeoReport): Promise<void> {
   if (!process.env.OWNER_EMAIL) return
+  if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true)) return
   try {
     const { sendEmail } = await import('./email')
     await sendEmail({
       to: process.env.OWNER_EMAIL,
       subject: `Mission ${report.outcome}: ${report.missionTitle}`,
-      body: `${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision}`,
+      body: `${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed === true ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision ?? 'UNVERIFIED'}`,
     })
   } catch (error) {
     console.warn('[ceo-presenter] Email failed:', error instanceof Error ? error.message.slice(0, 100) : String(error))
