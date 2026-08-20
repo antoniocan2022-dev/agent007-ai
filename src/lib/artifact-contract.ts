@@ -1,12 +1,7 @@
 import type { MissionStageSummary } from './ceo-presenter'
 
 export type ArtifactExpectation = 'url' | 'transaction_id' | 'message_id' | 'file_path' | 'data' | 'none'
-
-export type ArtifactValidation = {
-  valid: boolean
-  reason: string
-}
-
+export type ArtifactValidation = { valid: boolean; reason: string }
 export type VerifiedArtifact = {
   stage: number
   type: ArtifactExpectation
@@ -43,8 +38,6 @@ async function assertSafePublicUrl(raw: string): Promise<URL> {
     throw new Error('Private or local artifact targets are not permitted.')
   }
 
-  // Resolve hostnames before the request to reject DNS names that point directly
-  // at private infrastructure. The subsequent fetch still uses the URL host.
   try {
     const { lookup } = await import('node:dns/promises')
     const addresses = await lookup(hostname, { all: true, verbatim: true })
@@ -53,9 +46,7 @@ async function assertSafePublicUrl(raw: string): Promise<URL> {
     }
   } catch (error) {
     if (error instanceof Error && /private address|local artifact/i.test(error.message)) throw error
-    // DNS resolution failure is handled as an ordinary unreachable artifact by
-    // the caller; do not turn public hosts with temporary DNS failures into a
-    // false success.
+    throw new Error('Artifact hostname could not be safely resolved for verification.')
   }
   return url
 }
