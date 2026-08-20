@@ -32,3 +32,5 @@ describe('CEO chat layout integrity', () => {
     expect(sidebarRight).toContain('USER')
   })
 })
+
+// Production-release trigger: preserve the exact tested UI commit while allowing the authorized controlled Vercel release workflow to run.
