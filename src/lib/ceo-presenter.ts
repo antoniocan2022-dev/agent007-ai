@@ -1,13 +1,14 @@
-/**
+""/**
  * CEO Final Presenter.
  *
  * A successful mission is publishable only when the required artifacts exist,
  * are marked verified, and the independent Verification Officer passes.
  */
-import { callLlmWithRetry } from './agent'
+import { runCanonicalLlm } from './canonical-llm-router'
 import { db } from './db'
 import { executeVerificationOfficerChallenge, type VerificationOfficerResult } from './verification-officer'
 import { enforceCompletedArtifacts } from './artifact-contract'
+import { evaluateCeoDecision, type CeoDecisionKernelResult } from './ceo-decision-kernel'
 
 export interface MissionStageSummary {
   stage: number
@@ -18,6 +19,7 @@ export interface MissionStageSummary {
   finalScore: number
   rounds: number
   approvedAt: string | null
+  artifactType?: 'url' | 'transaction_id' | 'message_id' | 'file_path' | 'data' | 'none'
 }
 
 export interface CeoReport {
@@ -31,12 +33,13 @@ export interface CeoReport {
   nextSteps: string[]
   fullReport: string
   generatedAt: string
-  /** Present for reports produced by the current verification-aware presenter. */
   verificationDecision?: 'PASS' | 'CHALLENGE' | 'FAIL'
   verificationProofHash?: string | null
-  /** Present for reports produced by the current artifact-aware presenter. */
   artifactGatePassed?: boolean
   artifactGateFailures?: string[]
+  decisionKernel?: CeoDecisionKernelResult
+  provider?: string
+  model?: string
 }
 
 const CEO_SYSTEM_PROMPT = `You are the CEO of Agent007.
@@ -47,7 +50,11 @@ real IDs/URLs. A mission is successful only when BOTH the artifact-completion ga
 AND the independent verification gate pass.
 
 Never claim an action was executed, persisted, delivered, or verified unless the
-input contains the corresponding proof.`
+input contains the corresponding proof.
+
+The Decision Kernel is authoritative. You may explain its decision but you may not
+override a BLOCK, HOLD, REJECT, missing evidence, missing artifacts, or an unresolved
+verification challenge.`
 
 async function verifyMissionEvidence(missionId: string, missionTitle: string): Promise<VerificationOfficerResult> {
   const ledger = await db.evidenceLedger.findFirst({
@@ -103,32 +110,97 @@ export async function ceoGenerateReport(opts: {
   const { missionId, missionTitle, objective, stages } = opts
   const verification = await verifyMissionEvidence(missionId, missionTitle)
   const artifactGate = enforceCompletedArtifacts(stages)
+  const criticalConflictCount = verification.findings.filter((finding) => finding.code === 'CONFLICTING_EVIDENCE').length
+  const decisionKernel = evaluateCeoDecision({
+    missionId,
+    objective,
+    artifactGatePassed: artifactGate.valid,
+    verificationDecision: verification.decision,
+    evidenceCount: verification.findings.some((finding) => finding.code === 'MISSING_REQUIRED_CLAIM') ? 0 : verification.findings.length === 0 ? 1 : 0,
+    criticalConflictCount,
+    protectedActionRequested: false,
+    verificationTier: verification.decision === 'PASS' ? 'enhanced' : 'strict',
+  })
 
   const stagesBlock = stages.map((stage) =>
-    `Stage ${stage.stage} (${stage.team}/${stage.leader}):\n` +
-    `  - Artifact: ${stage.artifactValue ?? '(none)'}\n` +
-    `  - Verified: ${stage.artifactVerified ? 'YES' : 'NO'}\n` +
-    `  - Final score: ${stage.finalScore}/100 (after ${stage.rounds} round(s))\n` +
+    `Stage ${stage.stage} (${stage.team}/${stage.leader}):
+` +
+    `  - Artifact: ${stage.artifactValue ?? '(none)'}
+` +
+    `  - Type: ${stage.artifactType ?? 'unspecified'}
+` +
+    `  - Verified: ${stage.artifactVerified ? 'YES' : 'NO'}
+` +
+    `  - Final score: ${stage.finalScore}/100 (after ${stage.rounds} round(s))
+` +
     `  - Approved at: ${stage.approvedAt ?? '(not approved)'}`,
-  ).join('\n\n')
+  ).join('
 
-  const gateBlock = `ARTIFACT COMPLETION GATE:\n- Passed: ${artifactGate.valid}\n- Failures: ${artifactGate.failures.join(' | ') || 'None'}\n\nVERIFICATION OFFICER:\n- Decision: ${verification.decision}\n- Proof: ${verification.proofHash}\n- Findings: ${verification.findings.map((finding) => finding.message).join(' | ') || 'None'}`
-  const userPrompt = `MISSION TITLE: ${missionTitle}\nMISSION OBJECTIVE: ${objective}\n\nSTAGES:\n${stagesBlock}\n\n${gateBlock}\n\nGenerate the executive report.`
+')
+
+  const gateBlock = `ARTIFACT COMPLETION GATE:
+- Passed: ${artifactGate.valid}
+- Failures: ${artifactGate.failures.join(' | ') || 'None'}
+
+VERIFICATION OFFICER:
+- Decision: ${verification.decision}
+- Proof: ${verification.proofHash}
+- Findings: ${verification.findings.map((finding) => finding.message).join(' | ') || 'None'}
+
+CEO DECISION KERNEL:
+- Decision: ${decisionKernel.decision}
+- Confidence: ${decisionKernel.confidence}/100
+- Evidence gate: ${decisionKernel.gates.evidence}
+- Artifact gate: ${decisionKernel.gates.artifact}
+- Verification gate: ${decisionKernel.gates.verification}
+- Governance gate: ${decisionKernel.gates.governance}
+- Next action: ${decisionKernel.nextAction}
+- Rationale: ${decisionKernel.rationale.join(' | ')}`
+
+  const userPrompt = `MISSION TITLE: ${missionTitle}
+MISSION OBJECTIVE: ${objective}
+
+STAGES:
+${stagesBlock}
+
+${gateBlock}
+
+Generate the executive report. Do not claim success unless the Decision Kernel says PROCEED.`
 
   let fullReport: string
+  let provider: string | undefined
+  let model: string | undefined
   try {
-    const response = await callLlmWithRetry([
-      { role: 'system', content: CEO_SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ], { thinking: false })
-    fullReport = typeof response === 'string' ? response : (response?.content ?? response?.message?.content ?? '')
+    const response = await runCanonicalLlm({
+      taskType: 'reasoning',
+      verification: verification.decision === 'PASS' ? 'enhanced' : 'strict',
+      messages: [
+        { role: 'system', content: CEO_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+      thinking: false,
+    })
+    fullReport = response.content
+    provider = response.provider
+    model = response.model
   } catch {
-    fullReport = `🎯 MISSION: ${missionTitle}\n📊 OUTCOME: partial (CEO LLM unavailable)\n✅ ARTIFACT GATE: ${artifactGate.valid ? 'PASS' : 'BLOCKED'}\n✅ VERIFICATION OFFICER: ${verification.decision}\n⚠️ RISKS/NOTES:\n   - ${[...artifactGate.failures, ...verification.findings.map((finding) => finding.message)].join('\n   - ') || 'None'}\n📈 NEXT STEPS:\n   1. Review evidence and artifacts.\n   2. Resolve blocked gates.\n   3. Re-run the mission.`
+    fullReport = `🎯 MISSION: ${missionTitle}
+📊 OUTCOME: partial (CEO LLM unavailable)
+✅ ARTIFACT GATE: ${artifactGate.valid ? 'PASS' : 'BLOCKED'}
+✅ VERIFICATION OFFICER: ${verification.decision}
+🧠 DECISION KERNEL: ${decisionKernel.decision} (${decisionKernel.confidence}/100)
+⚠️ RISKS/NOTES:
+   - ${[...artifactGate.failures, ...verification.findings.map((finding) => finding.message), ...decisionKernel.rationale].join('
+   - ') || 'None'}
+📈 NEXT STEPS:
+   1. Review evidence and artifacts.
+   2. Resolve blocked gates.
+   3. Re-run the mission.`
   }
 
   const allApproved = stages.length > 0 && stages.every((stage) => stage.artifactVerified && stage.finalScore >= 70)
   const someApproved = stages.some((stage) => stage.artifactVerified)
-  const outcome: CeoReport['outcome'] = allApproved && artifactGate.valid && verification.decision === 'PASS'
+  const outcome: CeoReport['outcome'] = allApproved && artifactGate.valid && verification.decision === 'PASS' && decisionKernel.decision === 'PROCEED'
     ? 'success'
     : someApproved
       ? 'partial'
@@ -141,6 +213,7 @@ export async function ceoGenerateReport(opts: {
   const risksNotes = [
     ...(artifactGate.valid ? [] : [`Artifact completion gate blocked success: ${artifactGate.failures.join(' | ')}`]),
     ...(verification.decision === 'PASS' ? [] : [`Verification Officer gate: ${verification.decision}. ${verification.findings.map((finding) => finding.message).join(' | ')}`]),
+    ...(decisionKernel.decision === 'PROCEED' ? [] : [`CEO Decision Kernel: ${decisionKernel.decision}. ${decisionKernel.rationale.join(' | ')}`]),
     ...(outcome === 'success' ? [] : ['A successful outcome is blocked until every required gate passes.']),
   ]
 
@@ -161,12 +234,15 @@ export async function ceoGenerateReport(opts: {
     verificationProofHash: verification.proofHash === 'NO_EVIDENCE_LEDGER' ? null : verification.proofHash,
     artifactGatePassed: artifactGate.valid,
     artifactGateFailures: artifactGate.failures,
+    decisionKernel,
+    provider,
+    model,
   }
 }
 
 export async function ceoPersistReport(report: CeoReport): Promise<void> {
   try {
-    if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true)) {
+    if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true || report.decisionKernel?.decision !== 'PROCEED')) {
       console.warn('[ceo-presenter] Refusing to persist unproven success report.')
       return
     }
@@ -184,9 +260,17 @@ export async function ceoPersistReport(report: CeoReport): Promise<void> {
 
 export async function ceoSendTelegram(report: CeoReport): Promise<void> {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return
-  if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true)) return
+  if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true || report.decisionKernel?.decision !== 'PROCEED')) return
   try {
-    const text = `🎯 MISSION REPORT — ${report.outcome.toUpperCase()}\n\n${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed === true ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision ?? 'UNVERIFIED'}\n— Agent007 CEO`
+    const text = `🎯 MISSION REPORT — ${report.outcome.toUpperCase()}
+
+${report.fullReport}
+
+Artifact Gate: ${report.artifactGatePassed === true ? 'PASS' : 'BLOCKED'}
+Verification Officer: ${report.verificationDecision ?? 'UNVERIFIED'}
+CEO Decision Kernel: ${report.decisionKernel?.decision ?? 'UNAVAILABLE'}
+Provider: ${report.provider ?? 'UNAVAILABLE'} / ${report.model ?? 'UNAVAILABLE'}
+— Agent007 CEO`
     await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text, disable_web_page_preview: true }),
@@ -199,13 +283,18 @@ export async function ceoSendTelegram(report: CeoReport): Promise<void> {
 
 export async function ceoSendEmail(report: CeoReport): Promise<void> {
   if (!process.env.OWNER_EMAIL) return
-  if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true)) return
+  if (report.outcome === 'success' && (report.verificationDecision !== 'PASS' || report.artifactGatePassed !== true || report.decisionKernel?.decision !== 'PROCEED')) return
   try {
     const { sendEmail } = await import('./email')
     await sendEmail({
       to: process.env.OWNER_EMAIL,
       subject: `Mission ${report.outcome}: ${report.missionTitle}`,
-      body: `${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed === true ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision ?? 'UNVERIFIED'}`,
+      body: `${report.fullReport}
+
+Artifact Gate: ${report.artifactGatePassed === true ? 'PASS' : 'BLOCKED'}
+Verification Officer: ${report.verificationDecision ?? 'UNVERIFIED'}
+CEO Decision Kernel: ${report.decisionKernel?.decision ?? 'UNAVAILABLE'}
+Provider: ${report.provider ?? 'UNAVAILABLE'} / ${report.model ?? 'UNAVAILABLE'}`,
     })
   } catch (error) {
     console.warn('[ceo-presenter] Email failed:', error instanceof Error ? error.message.slice(0, 100) : String(error))
@@ -229,3 +318,4 @@ export async function ceoLoadReport(missionId: string): Promise<CeoReport | null
     return null
   }
 }
+""
