@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { callLlmWithRetry } from '@/lib/agent'
 import { getCanonicalProviderTelemetry, inferTaskType } from '@/lib/canonical-llm-router'
 import { getSystemManifest, SYSTEM_MANIFEST_ID } from '@/lib/system-manifest'
 import { validateProviderPriority } from '@/lib/provider-intelligence-policy'
@@ -24,6 +25,7 @@ describe('Canonical runtime architecture', () => {
     expect(tsconfig.compilerOptions.paths['@/lib/agent']).toEqual(['./src/lib/agent-canonical-bridge'])
     expect(bridge).toContain('runCanonicalLlm')
     expect(bridge).toContain("export * from './agent'")
+    expect(typeof callLlmWithRetry).toBe('function')
   })
 
   test('runtime code does not directly import the legacy agent module', () => {
