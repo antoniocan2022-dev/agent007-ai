@@ -23,6 +23,17 @@ export type AuthorizedToolContext = ToolContext & {
   executionIdempotencyKey?: string
 }
 
+type ProvenToolResult = ToolResult & {
+  executionProof?: {
+    receiptId: string
+    missionId: string
+    scope: 'mission' | 'unscoped'
+    status: 'SUCCESS' | 'FAILED' | 'DENIED'
+    requestHash: string
+    outputReference?: string
+  }
+}
+
 function buildIdempotencyKey(context: AuthorizedToolContext, toolName: string): string {
   return context.executionIdempotencyKey?.trim() || `tool:${context.missionId ?? 'unscoped'}:${toolName}:${randomUUID()}`
 }
@@ -31,7 +42,7 @@ export async function dispatchTool(
   name: string,
   args: any,
   ctx: AuthorizedToolContext,
-): Promise<ToolResult> {
+): Promise<ProvenToolResult> {
   const startedAt = new Date()
   const execution = await startMandatoryExecution({
     missionId: ctx.missionId,
@@ -48,7 +59,7 @@ export async function dispatchTool(
     output: unknown,
     errorCode?: string,
   ) => {
-    await completeMandatoryExecution({
+    const completed = await completeMandatoryExecution({
       receiptId: execution.receipt.id,
       missionId: execution.scope.missionId,
       status,
@@ -62,6 +73,14 @@ export async function dispatchTool(
         startedAt: startedAt.toISOString(),
       },
     })
+    return {
+      receiptId: execution.receipt.id,
+      missionId: execution.scope.missionId,
+      scope: execution.scope.scope,
+      status,
+      requestHash: execution.requestHash,
+      outputReference: completed.outputReference,
+    } as const
   }
 
   let ownerAuthorization = isVerifiedOwnerAuthorization(ctx.ownerAuthorization)
@@ -82,21 +101,21 @@ export async function dispatchTool(
 
   if (!decision.authorizedForExecution) {
     const denied = badResult(autonomyDenialMessage(name, decision))
-    await finish('DENIED', { ok: denied.ok, result: denied.result, preview: denied.preview }, 'AUTONOMY_DENIED')
-    return denied
+    const executionProof = await finish('DENIED', { ok: denied.ok, result: denied.result, preview: denied.preview }, 'AUTONOMY_DENIED')
+    return { ...denied, executionProof }
   }
 
   try {
     const result = await rawDispatchTool(name, args, ctx)
-    await finish(
+    const executionProof = await finish(
       result.ok ? 'SUCCESS' : 'FAILED',
-      { ok: result.ok, result: result.result, preview: result.preview },
+      { ok: result.ok, result: result.result, preview: result.preview, artifacts: result.artifacts ?? null },
       result.ok ? undefined : 'TOOL_FAILED',
     )
-    return result
+    return { ...result, executionProof }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    await finish('FAILED', { error: message.slice(0, 500) }, 'TOOL_THROW')
-    throw error
+    const executionProof = await finish('FAILED', { error: message.slice(0, 500) }, 'TOOL_THROW')
+    throw Object.assign(error instanceof Error ? error : new Error(message), { executionProof })
   }
 }
