@@ -1,18 +1,18 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
-import { db, ensureDbReady } from '@/lib/db'
+import { db } from '@/lib/db'
 import { SEED_EMAIL } from '@/lib/owner-config'
 
 /**
  * The single authorized operator of Agent007 AI.
- * The account is auto-seeded on first server start with password === email.
- * UPGRADE #120: SEED_EMAIL now reads from OWNER_EMAIL env var (no hardcoded PII).
+ * Owner/bootstrap data is provisioned by the controlled bootstrap script.
+ * Runtime authentication never creates a predictable-password account.
  */
 export { SEED_EMAIL }
 
 export async function hashPassword(pw: string): Promise<string> {
-  const salt = await bcrypt.genSalt(10)
+  const salt = await bcrypt.genSalt(12)
   return bcrypt.hash(pw, salt)
 }
 
@@ -26,18 +26,27 @@ export async function verifyPassword(pw: string, hash: string): Promise<boolean>
 
 let seedPromise: Promise<void> | null = null
 
+/**
+ * Compatibility hook used by existing auth callers.
+ *
+ * Runtime authentication never creates an account with a default/password-equals-email
+ * credential. Account creation belongs to scripts/bootstrap-owner-data.ts and requires
+ * OWNER_BOOTSTRAP_PASSWORD explicitly.
+ */
 export function ensureSeedUser(): Promise<void> {
   if (!seedPromise) {
     seedPromise = (async () => {
       try {
-        await ensureDbReady()
         const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } })
-        if (!existing) {
-          const passwordHash = await hashPassword(SEED_EMAIL)
-          await db.user.create({
-            data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' },
-          })
-        }
+        if (existing) return
+
+        const configuredPassword = process.env.OWNER_BOOTSTRAP_PASSWORD?.trim()
+        if (!configuredPassword) return
+
+        const passwordHash = await hashPassword(configuredPassword)
+        await db.user.create({
+          data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' },
+        })
       } catch (e: any) {
         console.error('[auth] ensureSeedUser failed:', e?.message ?? String(e))
       }
@@ -64,9 +73,6 @@ function getNextAuthSecret(): string {
   const configured = process.env.NEXTAUTH_SECRET?.trim()
   if (configured) return configured
 
-  // Next.js evaluates some server modules during production builds. A build
-  // must not need a live session secret, but runtime must never silently use a
-  // per-instance secret because that invalidates sessions after cold starts.
   if (process.env.NEXT_PHASE === 'phase-production-build') {
     return 'agent007-build-only-placeholder-secret-do-not-use-at-runtime'
   }
@@ -87,15 +93,15 @@ export const authOptions: NextAuthOptions = {
     ? {
         cookies: {
           sessionToken: {
-            name: `next-auth.session-token`,
+            name: 'next-auth.session-token',
             options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
           },
           callbackUrl: {
-            name: `next-auth.callback-url`,
+            name: 'next-auth.callback-url',
             options: { sameSite: 'none', path: '/', secure: true },
           },
           csrfToken: {
-            name: `next-auth.csrf-token`,
+            name: 'next-auth.csrf-token',
             options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
           },
         },
@@ -107,23 +113,23 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: 'Email', type: 'email', placeholder: 'operator@example.com' },
         password: { label: 'Password', type: 'password' },
+        twofaVerified: { label: '2FA verified', type: 'text' },
       },
       async authorize(credentials) {
         await ensureSeedUser()
 
         const email = credentials?.email?.trim().toLowerCase()
         const password = credentials?.password ?? ''
-        if (!email) return null
+        if (!email || !password) return null
 
-        const twofaVerified = (credentials as any)?.twofaVerified === 'true'
         const user = await db.user.findUnique({ where: { email } })
         if (!user) return null
 
-        if (!twofaVerified) {
-          if (!password) return null
-          const valid = await verifyPassword(password, user.passwordHash)
-          if (!valid) return null
+        const valid = await verifyPassword(password, user.passwordHash)
+        if (!valid) return null
 
+        const twofaVerified = credentials?.twofaVerified === 'true'
+        if (!twofaVerified) {
           try {
             const enabledTwoFactor = await db.twoFactorSecret.findFirst({
               where: { userId: user.id, enabled: true },
@@ -137,6 +143,7 @@ export const authOptions: NextAuthOptions = {
           } catch (e: any) {
             if (e?.code === '2FA_REQUIRED') throw e
             console.error('[auth] 2FA check failed:', e?.message)
+            return null
           }
         }
 
