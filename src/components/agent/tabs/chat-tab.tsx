@@ -1,26 +1,19 @@
 'use client'
 
-import { useLayoutEffect } from 'react'
 import { ChatThread } from '@/components/agent/chat-thread'
 import { ChatInput } from '@/components/agent/chat-input'
 import { RateLimitBanner } from '@/components/agent/rate-limit-banner'
-import { useChatStore } from '@/store/chat-store'
 
+/**
+ * Chat remains inside the fixed application shell. Both history rails are
+ * controlled by the shell rather than being toggled as a side effect of
+ * mounting the chat tab, so changing tabs cannot unexpectedly move the layout.
+ */
 export function ChatTab() {
-  const setLeft = useChatStore((s) => s.setLeft)
-  const setRight = useChatStore((s) => s.setRight)
-
-  // CEO chat keeps the left history drawer closed but keeps the
-  // conversation-outline rail visible, like a ChatGPT-style context column.
-  useLayoutEffect(() => {
-    setLeft(false)
-    setRight(true)
-  }, [setLeft, setRight])
-
   return (
-    <main className="flex-1 flex flex-col min-w-0 min-h-0">
+    <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
       <ChatThread />
-      <div className="sticky bottom-0 z-30">
+      <div className="flex-shrink-0 z-30">
         <RateLimitBanner />
         <ChatInput />
       </div>
