@@ -31,6 +31,7 @@ jobs:
       NEXTAUTH_SECRET: ci-only-agent007-nextauth-secret
       OWNER_EMAIL: ci-owner@example.com
       SEED_EMAIL: ci-owner@example.com
+      OWNER_BOOTSTRAP_PASSWORD: ci-only-strong-bootstrap-password
     services:
       postgres:
         image: postgres:16
@@ -73,6 +74,12 @@ jobs:
       - name: Venture architecture regression audit
         run: bun scripts/venture-architecture-audit.ts
 
+      - name: Authentication integrity contract
+        run: bun test tests/auth-login-integrity.test.ts
+
+      - name: Truthful execution contract
+        run: bun test tests/execution-contract.test.ts
+
       - name: Proof infrastructure contracts
         run: bun test tests/proof-ledger-contract.test.ts
 
@@ -86,7 +93,7 @@ jobs:
         run: bun test tests/chat-layout-integrity.test.ts
 
       - name: Phase 5 independent verification officer
-        run: bun test tests/verification-officer.test.ts
+        run: bun test tests/verification-officer.test.ts tests/verification-gate.test.ts
 
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
