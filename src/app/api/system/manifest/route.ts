@@ -23,7 +23,7 @@ export async function GET(req: Request) {
       totalUpgrades: upgrades.length,
       totalTools: system.capabilities.toolCount,
       totalSubagents: system.organization.specialistCount,
-      totalProviders: null,
+      totalProviders: system.capabilities.providerCount,
       timestamp: system.generatedAt,
     }, { headers: { 'cache-control': 'no-store' } })
   }
