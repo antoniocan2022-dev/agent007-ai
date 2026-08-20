@@ -42,6 +42,29 @@ function LoginInner() {
     field?.focus()
   }, [requires2FA])
 
+  const startTwoFactorChallenge = async (normalizedEmail: string, rawPassword: string) => {
+    const response = await fetch('/api/2fa/challenge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: normalizedEmail, password: rawPassword }),
+    })
+    const data = await response.json().catch(() => ({}))
+
+    if (response.ok && data?.requiresTwoFactor) {
+      setRequires2FA(true)
+      setTwofaUserId(data.userId ?? '')
+      setTwofaMethod(data.method ?? 'email')
+      setTwofaMessage(data.message ?? `Verification code sent via ${data.method ?? 'email'}.`)
+      setTwofaToken(data.token ?? '')
+      setTwofaExpiresAt(Number(data.expiresAt ?? 0))
+      setTwofaWaLink(data.waLink ?? '')
+      setTwofaCode('')
+      setResendCooldown(30)
+      return true
+    }
+    return false
+  }
+
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (submitting) return
@@ -55,22 +78,10 @@ function LoginInner() {
 
     setSubmitting(true)
     try {
-      const challengeResponse = await fetch('/api/2fa/challenge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail }),
-      })
-      const challenge = await challengeResponse.json().catch(() => ({}))
-
-      if (challengeResponse.ok && challenge?.requiresTwoFactor) {
-        setRequires2FA(true)
-        setTwofaUserId(challenge.userId ?? '')
-        setTwofaMethod(challenge.method ?? 'email')
-        setTwofaMessage(challenge.message ?? `Verification code sent via ${challenge.method ?? 'email'}.`)
-        setTwofaToken(challenge.token ?? '')
-        setTwofaExpiresAt(challenge.expiresAt ?? 0)
-        setTwofaWaLink(challenge.waLink ?? '')
-        setResendCooldown(30)
+      // The challenge endpoint verifies the password before issuing any 2FA code.
+      // This preserves the established flow: valid password + enabled 2FA -> email code.
+      const requires2FA = await startTwoFactorChallenge(normalizedEmail, password)
+      if (requires2FA) {
         setSubmitting(false)
         return
       }
@@ -83,7 +94,6 @@ function LoginInner() {
       })
 
       // Never reset or change a password after a failed login attempt.
-      // A wrong password must remain a failed authentication attempt.
       if (!result || result.error) {
         setError('Invalid email or password.')
         setSubmitting(false)
@@ -151,21 +161,11 @@ function LoginInner() {
     if (resendCooldown > 0 || submitting) return
     setError('')
     try {
-      const response = await fetch('/api/2fa/challenge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || !data.requiresTwoFactor) {
-        setError(data.error ?? 'Could not resend the verification code.')
+      const sent = await startTwoFactorChallenge(email.trim().toLowerCase(), password)
+      if (!sent) {
+        setError('Could not resend the verification code. Please sign in again.')
         return
       }
-      setTwofaMessage(data.message ?? 'New verification code sent.')
-      setTwofaToken(data.token ?? '')
-      setTwofaExpiresAt(data.expiresAt ?? 0)
-      setTwofaWaLink(data.waLink ?? '')
-      setResendCooldown(30)
     } catch {
       setError('Could not resend the verification code.')
     }
@@ -189,7 +189,7 @@ function LoginInner() {
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold tracking-tight text-cyan-300">Agent007 AI</h1>
           <p className="mt-1 text-xs text-[#7c89b5]">
-            {requires2FA ? 'Verify your identity' : 'Sign in to your executive system'}
+            {requires2FA ? 'Two-Factor Verification' : 'Sign in to your executive system'}
           </p>
         </div>
 
@@ -202,7 +202,7 @@ function LoginInner() {
             className="space-y-4"
           >
             <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-xs text-cyan-100">
-              {twofaMessage || `Verification code sent via ${twofaMethod}.`}
+              {twofaMessage || 'Verification code sent to your email.'}
             </div>
 
             {twofaWaLink && (
@@ -261,16 +261,16 @@ function LoginInner() {
               </button>
               <button
                 type="button"
+                disabled={resendCooldown > 0 || submitting}
                 onClick={() => void resend2FA()}
-                disabled={resendCooldown > 0}
-                className="text-cyan-300 disabled:opacity-40"
+                className="text-cyan-300 hover:text-cyan-200 disabled:opacity-40"
               >
                 {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
               </button>
             </div>
           </form>
         ) : (
-          <form onSubmit={(event) => void onSubmit(event)} className="space-y-4" noValidate>
+          <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label htmlFor="agent007-email" className="mb-1.5 block text-xs font-medium text-[#9aa7cc]">Email</label>
               <div className="relative">
@@ -278,12 +278,9 @@ function LoginInner() {
                 <input
                   id="agent007-email"
                   type="email"
-                  autoComplete="username"
+                  autoComplete="email"
                   value={email}
-                  onChange={(event) => {
-                    setEmail(event.target.value)
-                    setError('')
-                  }}
+                  onChange={(event) => setEmail(event.target.value)}
                   className="w-full rounded-lg border border-white/10 bg-black/30 py-3 pl-9 pr-3 text-sm outline-none focus:border-cyan-400/60"
                   placeholder="you@example.com"
                   required
@@ -300,12 +297,9 @@ function LoginInner() {
                   type="password"
                   autoComplete="current-password"
                   value={password}
-                  onChange={(event) => {
-                    setPassword(event.target.value)
-                    setError('')
-                  }}
+                  onChange={(event) => setPassword(event.target.value)}
                   className="w-full rounded-lg border border-white/10 bg-black/30 py-3 pl-9 pr-3 text-sm outline-none focus:border-cyan-400/60"
-                  placeholder="Password"
+                  placeholder="Your password"
                   required
                 />
               </div>
@@ -323,7 +317,7 @@ function LoginInner() {
               disabled={submitting}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-400 py-3 text-sm font-bold text-black disabled:opacity-50"
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {submitting ? 'SIGNING IN…' : 'SIGN IN'}
             </button>
           </form>
@@ -335,7 +329,7 @@ function LoginInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-black" />}>
+    <Suspense fallback={null}>
       <LoginInner />
     </Suspense>
   )
