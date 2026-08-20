@@ -53,7 +53,6 @@ export function ChatThread() {
               id={`chat-message-${m.id}`}
               data-chat-message-id={m.id}
               className="scroll-mt-24"
-              style={{ contentVisibility: 'auto', containIntrinsicSize: '120px' }}
             >
               <MessageBubble message={m} />
             </div>
