@@ -92,6 +92,9 @@ jobs:
       - name: CEO verification hard gate
         run: bun test tests/ceo-verification-gate.test.ts
 
+      - name: System proof, context, health and artifact contracts
+        run: bun test tests/system-proof-and-context-contract.test.ts
+
       - name: CEO static shell and message navigation contract
         run: bun test tests/chat-layout-integrity.test.ts
 
