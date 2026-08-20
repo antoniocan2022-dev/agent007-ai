@@ -1,9 +1,20 @@
-import type { MissionStageSummary } from './ceo-presenter'
+""import type { MissionStageSummary } from './ceo-presenter'
 
 export type ArtifactExpectation = 'url' | 'transaction_id' | 'message_id' | 'file_path' | 'data' | 'none'
 
 export type ArtifactValidation = {
   valid: boolean
+  reason: string
+}
+
+export type VerifiedArtifact = {
+  stage: number
+  type: ArtifactExpectation
+  value: string
+  verified: boolean
+  status?: number
+  contentType?: string | null
+  checkedAt: string
   reason: string
 }
 
@@ -27,17 +38,79 @@ export function validateArtifactValue(type: ArtifactExpectation, value: string |
 }
 
 /**
+ * Evidence-level verification. URL artifacts are probed from the server and
+ * must resolve to an HTTP success or redirect. Other artifact classes require
+ * the producing stage to have a verified execution receipt; this function does
+ * not invent verification from the artifact text alone.
+ */
+export async function verifyArtifactEvidence(stages: MissionStageSummary[]): Promise<VerifiedArtifact[]> {
+  const results: VerifiedArtifact[] = []
+  for (const stage of stages) {
+    if (stage.team === 'ceo' || stage.artifactType === 'none') continue
+    const type = stage.artifactType ?? 'data'
+    const value = stage.artifactValue?.trim() ?? ''
+    const structural = validateArtifactValue(type, value)
+    if (!structural.valid) {
+      results.push({ stage: stage.stage, type, value, verified: false, checkedAt: new Date().toISOString(), reason: structural.reason })
+      continue
+    }
+
+    if (type === 'url') {
+      try {
+        const response = await fetch(value, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(10000) })
+        results.push({
+          stage: stage.stage,
+          type,
+          value,
+          verified: response.status >= 200 && response.status < 400,
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+          checkedAt: new Date().toISOString(),
+          reason: response.status >= 200 && response.status < 400 ? 'URL reached successfully.' : `URL returned HTTP ${response.status}.`,
+        })
+      } catch (error) {
+        results.push({ stage: stage.stage, type, value, verified: false, checkedAt: new Date().toISOString(), reason: `URL verification failed: ${error instanceof Error ? error.message : String(error)}` })
+      }
+      continue
+    }
+
+    results.push({
+      stage: stage.stage,
+      type,
+      value,
+      verified: stage.artifactVerified,
+      checkedAt: new Date().toISOString(),
+      reason: stage.artifactVerified ? 'Upstream governed execution marked the artifact verified.' : 'Artifact lacks an upstream verification proof.',
+    })
+  }
+  return results
+}
+
+/**
  * Final mission gate: every non-CEO stage must contain a verified artifact.
- * We intentionally do not infer the exact pipeline type here; this gate checks
- * the durable stage result and prevents a polished report from converting a
- * missing deliverable into mission success.
  */
 export function enforceCompletedArtifacts(stages: MissionStageSummary[]): { valid: boolean; failures: string[] } {
   const failures: string[] = []
   for (const stage of stages) {
     if (stage.team === 'ceo') continue
-    if (!stage.artifactVerified) failures.push(`Stage ${stage.stage} (${stage.team}) artifact is not verified.`)
     if (!stage.artifactValue?.trim()) failures.push(`Stage ${stage.stage} (${stage.team}) artifact is missing.`)
+    if (stage.artifactType === 'none') continue
+    if (!stage.artifactVerified) failures.push(`Stage ${stage.stage} (${stage.team}) artifact is not verified.`)
   }
   return { valid: failures.length === 0, failures }
 }
+
+export function enforceVerifiedArtifactEvidence(
+  stages: MissionStageSummary[],
+  verifiedArtifacts: VerifiedArtifact[],
+): { valid: boolean; failures: string[] } {
+  const failures = [...enforceCompletedArtifacts(stages).failures]
+  const byStage = new Map(verifiedArtifacts.map((artifact) => [artifact.stage, artifact]))
+  for (const stage of stages) {
+    if (stage.team === 'ceo' || stage.artifactType === 'none') continue
+    const evidence = byStage.get(stage.stage)
+    if (!evidence?.verified) failures.push(`Stage ${stage.stage} (${stage.team}) lacks evidentiary artifact verification.`)
+  }
+  return { valid: failures.length === 0, failures }
+}
+""
