@@ -7,7 +7,7 @@
 import { runCanonicalLlm } from './canonical-llm-router'
 import { db } from './db'
 import { executeVerificationOfficerChallenge, type VerificationOfficerResult } from './verification-officer'
-import { enforceCompletedArtifacts } from './artifact-contract'
+import { enforceCompletedArtifacts, enforceVerifiedArtifactEvidence, verifyArtifactEvidence } from './artifact-contract'
 import { evaluateCeoDecision, type CeoDecisionKernelResult } from './ceo-decision-kernel'
 
 export interface MissionStageSummary {
@@ -40,6 +40,7 @@ export interface CeoReport {
   decisionKernel?: CeoDecisionKernelResult
   provider?: string
   model?: string
+  artifactEvidence?: Awaited<ReturnType<typeof verifyArtifactEvidence>>
 }
 
 const CEO_SYSTEM_PROMPT = `You are the CEO of Agent007.
@@ -109,7 +110,8 @@ export async function ceoGenerateReport(opts: {
 }): Promise<CeoReport> {
   const { missionId, missionTitle, objective, stages } = opts
   const verification = await verifyMissionEvidence(missionId, missionTitle)
-  const artifactGate = enforceCompletedArtifacts(stages)
+  const verifiedArtifacts = await verifyArtifactEvidence(stages)
+  const artifactGate = enforceVerifiedArtifactEvidence(stages, verifiedArtifacts)
   const criticalConflictCount = verification.findings.filter((finding) => finding.code === 'CONFLICTING_EVIDENCE').length
   const decisionKernel = evaluateCeoDecision({
     missionId,
@@ -130,6 +132,8 @@ export async function ceoGenerateReport(opts: {
     `  - Type: ${stage.artifactType ?? 'unspecified'}
 ` +
     `  - Verified: ${stage.artifactVerified ? 'YES' : 'NO'}
+` +
+    `  - Evidence verification: ${verifiedArtifacts.find((artifact) => artifact.stage === stage.stage)?.reason ?? 'not checked'}
 ` +
     `  - Final score: ${stage.finalScore}/100 (after ${stage.rounds} round(s))
 ` +
@@ -237,6 +241,7 @@ Generate the executive report. Do not claim success unless the Decision Kernel s
     decisionKernel,
     provider,
     model,
+    artifactEvidence: verifiedArtifacts,
   }
 }
 
