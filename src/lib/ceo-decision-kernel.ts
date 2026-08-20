@@ -1,3 +1,5 @@
+import type { VerificationTier } from './subagent-governance'
+
 export type DecisionGate = 'PASS' | 'BLOCK'
 
 export type CeoDecisionKernelInput = {
@@ -8,6 +10,7 @@ export type CeoDecisionKernelInput = {
   evidenceCount: number
   criticalConflictCount?: number
   protectedActionRequested?: boolean
+  verificationTier?: VerificationTier
 }
 
 export type CeoDecisionKernelResult = {
