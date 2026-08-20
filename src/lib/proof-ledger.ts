@@ -26,7 +26,7 @@ export type EvidenceLedgerVerification = { valid:boolean; ledgerId:string; missi
 type StoredSource = { id:string; provider:string; sourceUrl:string; retrievedAt:Date; rawEvidenceRef:string; rawEvidenceHash:string; requestHash:string|null }
 type HashClaim = { claimKey:string; claimText:string; classification:string; confidence:number; verificationStatus:string; sourceKey:string|null; notes:string|null }
 
-afunction assertNonEmpty(name:string,value:string):void { if(!value.trim()) throw new Error(`${name} must not be empty`) }
+function assertNonEmpty(name:string,value:string):void { if(!value.trim()) throw new Error(`${name} must not be empty`) }
 function assertConfidence(value:number):void { if(!Number.isFinite(value)||value<0||value>1) throw new Error('confidence must be a finite number between 0 and 1') }
 
 export function canonicalJson(value:unknown):string {
