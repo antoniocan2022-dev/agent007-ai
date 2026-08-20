@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { getCanonicalProviderTelemetry, inferTaskType } from '@/lib/canonical-llm-router'
 import { getSystemManifest, SYSTEM_MANIFEST_ID } from '@/lib/system-manifest'
 import { validateProviderPriority } from '@/lib/provider-intelligence-policy'
@@ -7,11 +8,34 @@ import { validateProviderPriority } from '@/lib/provider-intelligence-policy'
 const tsconfig = JSON.parse(readFileSync(new URL('../tsconfig.json', import.meta.url), 'utf8'))
 const bridge = readFileSync(new URL('../src/lib/agent-canonical-bridge.ts', import.meta.url), 'utf8')
 
+function walk(dir: string): string[] {
+  const files: string[] = []
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    const stat = statSync(full)
+    if (stat.isDirectory()) files.push(...walk(full))
+    else if (/\.(ts|tsx)$/.test(entry)) files.push(full)
+  }
+  return files
+}
+
 describe('Canonical runtime architecture', () => {
   test('the @/lib/agent import resolves through the governed bridge', () => {
     expect(tsconfig.compilerOptions.paths['@/lib/agent']).toEqual(['./src/lib/agent-canonical-bridge'])
-    expect(bridge).toContain("runCanonicalLlm")
+    expect(bridge).toContain('runCanonicalLlm')
     expect(bridge).toContain("export * from './agent'")
+  })
+
+  test('runtime code does not directly import the legacy agent module', () => {
+    const srcRoot = new URL('../src', import.meta.url).pathname
+    const offenders = walk(srcRoot)
+      .filter((file) => !file.endsWith('/src/lib/agent-canonical-bridge.ts'))
+      .filter((file) => !file.endsWith('/src/lib/agent.ts'))
+      .filter((file) => {
+        const content = readFileSync(file, 'utf8')
+        return /from\s+['"](?:\.\.\/|\.\/)*agent['"]|import\(['"](?:\.\.\/|\.\/)*agent['"]\)/.test(content)
+      })
+    expect(offenders).toEqual([])
   })
 
   test('provider governance has one canonical order', () => {
