@@ -23,7 +23,7 @@ export async function callLlmWithRetry(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts?: CanonicalBridgeOptions,
 ): Promise<any> {
-  return runCanonicalLlm({
+  const result = await runCanonicalLlm({
     messages,
     taskType: opts?.taskType,
     verification: opts?.verification,
@@ -33,4 +33,19 @@ export async function callLlmWithRetry(
     maxTokens: opts?.maxTokens,
     timeoutMs: opts?.timeoutMs,
   })
+
+  // Preserve the legacy completion shape consumed by orchestrator/subagent
+  // parsing while adding canonical provider provenance for observability.
+  return {
+    choices: [{
+      message: { content: result.content },
+      finish_reason: 'stop',
+    }],
+    content: result.content,
+    provider: result.provider,
+    model: result.model,
+    attempts: result.attempts,
+    responseMs: result.responseMs,
+    policy: result.policy,
+  }
 }
