@@ -1,22 +1,21 @@
 import { NextResponse } from 'next/server'
 import { getAllUpgrades, getUpgradeCounts, verifyIntegrity } from '@/lib/upgrade-manifest'
-import { getSystemManifest } from '@/lib/system-manifest'
+import { getLiveSystemManifest } from '@/lib/system-manifest'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/system/manifest
- * Combines the permanent upgrade catalog with the canonical live system manifest.
- * `?summary=true` intentionally returns only machine-relevant live counts.
+ * Returns the canonical code manifest plus the effective runtime organization.
  */
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const summaryOnly = url.searchParams.get('summary') === 'true'
-  const system = getSystemManifest()
+  const system = await getLiveSystemManifest()
+  const upgrades = getAllUpgrades()
 
   if (summaryOnly) {
-    const upgrades = getAllUpgrades()
     return NextResponse.json({
       ok: true,
       manifest: system,
@@ -24,21 +23,19 @@ export async function GET(req: Request) {
       totalTools: system.capabilities.toolCount,
       totalSubagents: system.organization.specialistCount,
       totalProviders: system.capabilities.providerCount,
+      configuredProviders: system.capabilities.configuredProviderCount,
+      healthyProviders: system.capabilities.healthyProviderCount,
       timestamp: system.generatedAt,
     }, { headers: { 'cache-control': 'no-store' } })
   }
-
-  const upgrades = getAllUpgrades()
-  const counts = getUpgradeCounts()
-  const integrity = verifyIntegrity()
 
   return NextResponse.json({
     ok: true,
     manifest: system,
     totalUpgrades: upgrades.length,
     upgrades,
-    countsByCategory: counts,
-    integrity,
+    countsByCategory: getUpgradeCounts(),
+    integrity: verifyIntegrity(),
     permanent: true,
     timestamp: system.generatedAt,
   }, { headers: { 'cache-control': 'no-store' } })
