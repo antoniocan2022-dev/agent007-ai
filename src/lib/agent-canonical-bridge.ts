@@ -1,12 +1,11 @@
-""import { runCanonicalLlm } from './canonical-llm-router'
+import { runCanonicalLlm } from './canonical-llm-router'
 import type { TaskType, VerificationTier } from './subagent-governance'
 
 /**
  * Canonical compatibility bridge.
- *
- * Existing Agent007 modules can continue importing the parsing, prompt, memory,
- * and orchestration helpers they need from `@/lib/agent`, while the actual LLM
- * transport is replaced by the governed provider-runtime-v2 engine.
+ * Existing modules can continue importing parsing, prompt, memory, and
+ * orchestration helpers from `@/lib/agent`, while LLM transport is routed
+ * through the governed provider-runtime-v2 engine.
  */
 export * from './agent'
 
@@ -35,4 +34,3 @@ export async function callLlmWithRetry(
     timeoutMs: opts?.timeoutMs,
   })
 }
-""
