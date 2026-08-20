@@ -27,4 +27,19 @@ describe('Artifact evidence verification', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('blocks private and metadata URL targets before fetch', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => { throw new Error('fetch must not be called') }) as typeof fetch
+    try {
+      const stages = [
+        { stage: 1, team: 'scout', leader: 'scout', artifactValue: 'http://127.0.0.1/admin', artifactVerified: true, finalScore: 95, rounds: 1, approvedAt: new Date().toISOString(), artifactType: 'url' as const },
+        { stage: 2, team: 'scout', leader: 'scout', artifactValue: 'http://169.254.169.254/latest/meta-data', artifactVerified: true, finalScore: 95, rounds: 1, approvedAt: new Date().toISOString(), artifactType: 'url' as const },
+      ]
+      const evidence = await verifyArtifactEvidence(stages)
+      expect(evidence.every((item) => item.verified === false)).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
