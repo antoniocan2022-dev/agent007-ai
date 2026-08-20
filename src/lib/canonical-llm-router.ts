@@ -1,4 +1,4 @@
-""import {
+import {
   getProviderTaskPolicy,
   type TaskType,
   type VerificationTier,
@@ -66,8 +66,9 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
 }
 
 export function getCanonicalProviderTelemetry() {
+  const configuredSet = new Set(getConfiguredProviders())
   const providers = (Object.keys(PROVIDER_RUNTIME_CONFIG) as ProviderId[]).map((provider) => {
-    const configured = getConfiguredProviders().includes(provider)
+    const configured = configuredSet.has(provider)
     const circuitOpen = isCircuitOpen(provider)
     const healthScore = getHealthScore(provider)
     return {
@@ -97,4 +98,3 @@ export function assertCanonicalProviderSet(): void {
   const expected = ['groq', 'mistral', 'openai', 'zai'].sort().join(',')
   if (actual !== expected) throw new Error(`CANONICAL_PROVIDER_DRIFT: ${actual}`)
 }
-""
