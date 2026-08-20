@@ -6,10 +6,12 @@ import { MessageBubble } from './message-bubble'
 import { EmptyState } from './empty-state'
 import { ScrollArrows } from './scroll-arrows'
 
-// UPGRADE #131: Removed broken virtualization (was causing blank messages + scroll jumps)
-// Instead: cap at last 50 messages (enough for any conversation, no perf issues with memo)
-const MAX_MESSAGES = 50
-
+/**
+ * The chat viewport owns vertical scrolling. The shell intentionally never
+ * scrolls, which keeps both history rails anchored while this content moves.
+ * Every loaded message stays mounted so the history rail can jump to any
+ * message, including the first one in a long conversation.
+ */
 export function ChatThread() {
   const messages = useChatStore((s) => s.messages)
   const status = useChatStore((s) => s.status)
@@ -28,20 +30,31 @@ export function ChatThread() {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto scroll-cyan">
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-cyan">
         <EmptyState onPick={(text) => { sendMessage(text) }} />
       </div>
     )
   }
 
-  const displayMessages = messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages
-
   return (
-    <div className="flex-1 relative min-h-0">
-      <div ref={containerRef} className="h-full overflow-y-auto scroll-cyan" role="log" aria-live="polite" aria-busy={status !== 'idle'}>
+    <div className="flex-1 relative min-h-0 overflow-hidden">
+      <div
+        ref={containerRef}
+        data-chat-scroll-container="true"
+        className="h-full overflow-y-auto overflow-x-hidden scroll-cyan overscroll-contain"
+        role="log"
+        aria-live="polite"
+        aria-busy={status !== 'idle'}
+      >
         <div className="max-w-[820px] mx-auto px-4 sm:px-6 py-6">
-          {displayMessages.map((m) => (
-            <div key={m.id} id={`chat-message-${m.id}`} className="scroll-mt-24">
+          {messages.map((m) => (
+            <div
+              key={m.id}
+              id={`chat-message-${m.id}`}
+              data-chat-message-id={m.id}
+              className="scroll-mt-24"
+              style={{ contentVisibility: 'auto', containIntrinsicSize: '120px' }}
+            >
               <MessageBubble message={m} />
             </div>
           ))}
