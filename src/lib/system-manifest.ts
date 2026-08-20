@@ -1,8 +1,16 @@
 import { TOOL_REGISTRY } from './tools'
 import { SUBAGENTS } from './subagents'
+import type { ProviderId } from './subagent-governance'
 
 export const SYSTEM_MANIFEST_VERSION = 1
 export const SYSTEM_MANIFEST_ID = 'agent007-system'
+
+const CANONICAL_PROVIDER_COUNT: Record<ProviderId, true> = {
+  groq: true,
+  openai: true,
+  zai: true,
+  mistral: true,
+}
 
 export type SystemManifest = {
   manifestId: string
@@ -24,6 +32,7 @@ export type SystemManifest = {
   }
   capabilities: {
     toolCount: number
+    providerCount: number
   }
   proof: {
     executionReceipts: true
@@ -61,6 +70,7 @@ export function getSystemManifest(): SystemManifest {
     },
     capabilities: {
       toolCount: Object.keys(TOOL_REGISTRY).length,
+      providerCount: Object.keys(CANONICAL_PROVIDER_COUNT).length,
     },
     proof: {
       executionReceipts: true,
