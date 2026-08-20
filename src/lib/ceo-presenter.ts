@@ -1,14 +1,13 @@
 /**
  * CEO Final Presenter.
  *
- * The CEO may summarize completed work, but a successful outcome is only
- * publishable when the independent Verification Officer passes the mission's
- * latest evidence ledger. A polished LLM response is never sufficient proof.
+ * A successful mission is publishable only when the required artifacts exist,
+ * are marked verified, and the independent Verification Officer passes.
  */
-
 import { callLlmWithRetry } from './agent'
 import { db } from './db'
 import { executeVerificationOfficerChallenge, type VerificationOfficerResult } from './verification-officer'
+import { enforceCompletedArtifacts } from './artifact-contract'
 
 export interface MissionStageSummary {
   stage: number
@@ -34,30 +33,19 @@ export interface CeoReport {
   generatedAt: string
   verificationDecision: 'PASS' | 'CHALLENGE' | 'FAIL'
   verificationProofHash: string | null
+  artifactGatePassed: boolean
+  artifactGateFailures: string[]
 }
 
 const CEO_SYSTEM_PROMPT = `You are the CEO of Agent007.
 
 You may report only what the mission actually delivered. Do not convert hypotheses,
 LLM-generated prose, or unverified claims into facts. Concrete artifacts require
-real IDs/URLs. A mission is successful only when its independent verification gate
-passes.
-
-FORMAT:
-🎯 MISSION: [one-line description]
-📊 OUTCOME: [success/partial/failed]
-💰 REVENUE IMPACT: [if applicable, otherwise N/A]
-✅ KEY DELIVERABLES:
-   - [real IDs/URLs/artifacts only]
-⚠️ RISKS/NOTES:
-   - [verification status and material risks]
-📈 NEXT STEPS:
-   1. [action]
-   2. [action]
-   3. [action]
+real IDs/URLs. A mission is successful only when BOTH the artifact-completion gate
+AND the independent verification gate pass.
 
 Never claim an action was executed, persisted, delivered, or verified unless the
-input contains an execution/evidence/verification proof for it.`
+input contains the corresponding proof.`
 
 async function verifyMissionEvidence(missionId: string, missionTitle: string): Promise<VerificationOfficerResult> {
   const ledger = await db.evidenceLedger.findFirst({
@@ -73,10 +61,7 @@ async function verifyMissionEvidence(missionId: string, missionTitle: string): P
       version: 1,
       missionId,
       subject: missionTitle,
-      findings: [{
-        code: 'MISSING_REQUIRED_CLAIM',
-        message: 'No evidence ledger exists for this mission; independent verification cannot pass.',
-      }],
+      findings: [{ code: 'MISSING_REQUIRED_CLAIM', message: 'No evidence ledger exists for this mission; independent verification cannot pass.' }],
       challengedClaimKeys: [],
       proofHash: 'NO_EVIDENCE_LEDGER',
     }
@@ -115,6 +100,7 @@ export async function ceoGenerateReport(opts: {
 }): Promise<CeoReport> {
   const { missionId, missionTitle, objective, stages } = opts
   const verification = await verifyMissionEvidence(missionId, missionTitle)
+  const artifactGate = enforceCompletedArtifacts(stages)
 
   const stagesBlock = stages.map((stage) =>
     `Stage ${stage.stage} (${stage.team}/${stage.leader}):\n` +
@@ -124,8 +110,8 @@ export async function ceoGenerateReport(opts: {
     `  - Approved at: ${stage.approvedAt ?? '(not approved)'}`,
   ).join('\n\n')
 
-  const verificationBlock = `VERIFICATION OFFICER:\n- Decision: ${verification.decision}\n- Proof: ${verification.proofHash}\n- Findings: ${verification.findings.map((finding) => finding.message).join(' | ') || 'None'}`
-  const userPrompt = `MISSION TITLE: ${missionTitle}\nMISSION OBJECTIVE: ${objective}\n\nSTAGES:\n${stagesBlock}\n\n${verificationBlock}\n\nGenerate the executive report. Follow the format exactly.`
+  const gateBlock = `ARTIFACT COMPLETION GATE:\n- Passed: ${artifactGate.valid}\n- Failures: ${artifactGate.failures.join(' | ') || 'None'}\n\nVERIFICATION OFFICER:\n- Decision: ${verification.decision}\n- Proof: ${verification.proofHash}\n- Findings: ${verification.findings.map((finding) => finding.message).join(' | ') || 'None'}`
+  const userPrompt = `MISSION TITLE: ${missionTitle}\nMISSION OBJECTIVE: ${objective}\n\nSTAGES:\n${stagesBlock}\n\n${gateBlock}\n\nGenerate the executive report.`
 
   let fullReport: string
   try {
@@ -135,12 +121,12 @@ export async function ceoGenerateReport(opts: {
     ], { thinking: false })
     fullReport = typeof response === 'string' ? response : (response?.content ?? response?.message?.content ?? '')
   } catch {
-    fullReport = `🎯 MISSION: ${missionTitle}\n📊 OUTCOME: partial (CEO LLM unavailable)\n💰 REVENUE IMPACT: N/A\n✅ KEY DELIVERABLES:\n${stages.map((stage) => `   - Stage ${stage.stage}: ${stage.artifactValue ?? '(none)'}`).join('\n')}\n⚠️ RISKS/NOTES:\n   - Independent Verification Officer: ${verification.decision}.\n   - CEO LLM unavailable; no success claim is authorized.\n📈 NEXT STEPS:\n   1. Review evidence.\n   2. Resolve verification findings.\n   3. Re-run the mission gate.`
+    fullReport = `🎯 MISSION: ${missionTitle}\n📊 OUTCOME: partial (CEO LLM unavailable)\n✅ ARTIFACT GATE: ${artifactGate.valid ? 'PASS' : 'BLOCKED'}\n✅ VERIFICATION OFFICER: ${verification.decision}\n⚠️ RISKS/NOTES:\n   - ${[...artifactGate.failures, ...verification.findings.map((finding) => finding.message)].join('\n   - ') || 'None'}\n📈 NEXT STEPS:\n   1. Review evidence and artifacts.\n   2. Resolve blocked gates.\n   3. Re-run the mission.`
   }
 
   const allApproved = stages.length > 0 && stages.every((stage) => stage.artifactVerified && stage.finalScore >= 70)
   const someApproved = stages.some((stage) => stage.artifactVerified)
-  const outcome: CeoReport['outcome'] = allApproved && verification.decision === 'PASS'
+  const outcome: CeoReport['outcome'] = allApproved && artifactGate.valid && verification.decision === 'PASS'
     ? 'success'
     : someApproved
       ? 'partial'
@@ -151,8 +137,9 @@ export async function ceoGenerateReport(opts: {
     .map((stage) => `Stage ${stage.stage} (${stage.team}): ${stage.artifactValue}`)
 
   const risksNotes = [
+    ...(artifactGate.valid ? [] : [`Artifact completion gate blocked success: ${artifactGate.failures.join(' | ')}`]),
     ...(verification.decision === 'PASS' ? [] : [`Verification Officer gate: ${verification.decision}. ${verification.findings.map((finding) => finding.message).join(' | ')}`]),
-    ...(outcome === 'success' ? [] : ['A successful outcome is blocked until every required governance gate passes.']),
+    ...(outcome === 'success' ? [] : ['A successful outcome is blocked until every required gate passes.']),
   ]
 
   return {
@@ -163,11 +150,15 @@ export async function ceoGenerateReport(opts: {
     revenueImpact: 'See verified deliverables above',
     keyDeliverables,
     risksNotes,
-    nextSteps: ['Review the verification result', 'Resolve outstanding evidence/governance findings', 'Re-run the mission when ready'],
+    nextSteps: outcome === 'success'
+      ? ['Review the verified CEO report', 'Approve any protected follow-up actions', 'Schedule the next mission']
+      : ['Review the blocked gates', 'Resolve outstanding evidence/artifact issues', 'Re-run the mission when ready'],
     fullReport,
     generatedAt: new Date().toISOString(),
     verificationDecision: verification.decision,
     verificationProofHash: verification.proofHash === 'NO_EVIDENCE_LEDGER' ? null : verification.proofHash,
+    artifactGatePassed: artifactGate.valid,
+    artifactGateFailures: artifactGate.failures,
   }
 }
 
@@ -178,11 +169,8 @@ export async function ceoPersistReport(report: CeoReport): Promise<void> {
     const key = `ceo_report_${report.missionId}`
     const value = JSON.stringify(report)
     const existing = await db.userSetting.findFirst({ where: { userId: user.id, key } })
-    if (existing) {
-      await db.userSetting.update({ where: { id: existing.id }, data: { value } })
-    } else {
-      await db.userSetting.create({ data: { userId: user.id, key, value } })
-    }
+    if (existing) await db.userSetting.update({ where: { id: existing.id }, data: { value } })
+    else await db.userSetting.create({ data: { userId: user.id, key, value } })
   } catch (error) {
     console.warn('[ceo-presenter] Failed to persist report:', error instanceof Error ? error.message.slice(0, 100) : String(error))
   }
@@ -191,7 +179,7 @@ export async function ceoPersistReport(report: CeoReport): Promise<void> {
 export async function ceoSendTelegram(report: CeoReport): Promise<void> {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return
   try {
-    const text = `🎯 MISSION REPORT — ${report.outcome.toUpperCase()}\n\n${report.fullReport}\n\nVerification Officer: ${report.verificationDecision}\n— Agent007 CEO`
+    const text = `🎯 MISSION REPORT — ${report.outcome.toUpperCase()}\n\n${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision}\n— Agent007 CEO`
     await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -210,25 +198,16 @@ export async function ceoSendEmail(report: CeoReport): Promise<void> {
     await sendEmail({
       to: process.env.OWNER_EMAIL,
       subject: `Mission ${report.outcome}: ${report.missionTitle}`,
-      body: `${report.fullReport}\n\nVerification Officer: ${report.verificationDecision}`,
+      body: `${report.fullReport}\n\nArtifact Gate: ${report.artifactGatePassed ? 'PASS' : 'BLOCKED'}\nVerification Officer: ${report.verificationDecision}`,
     })
   } catch (error) {
     console.warn('[ceo-presenter] Email failed:', error instanceof Error ? error.message.slice(0, 100) : String(error))
   }
 }
 
-export async function ceoPresentToOwner(opts: {
-  missionId: string
-  missionTitle: string
-  objective: string
-  stages: MissionStageSummary[]
-}): Promise<CeoReport> {
+export async function ceoPresentToOwner(opts: { missionId: string; missionTitle: string; objective: string; stages: MissionStageSummary[] }): Promise<CeoReport> {
   const report = await ceoGenerateReport(opts)
-  await Promise.allSettled([
-    ceoPersistReport(report),
-    ceoSendTelegram(report),
-    ceoSendEmail(report),
-  ])
+  await Promise.allSettled([ceoPersistReport(report), ceoSendTelegram(report), ceoSendEmail(report)])
   return report
 }
 
