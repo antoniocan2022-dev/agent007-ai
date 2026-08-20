@@ -14,7 +14,6 @@ import { NexusLogo } from '@/components/agent/nexus-logo'
 import { ChatTab } from '@/components/agent/tabs/chat-tab'
 import dynamic from 'next/dynamic'
 
-// Show a visible loading state while lazy tab chunks download.
 const TabLoader = ({ label }: { label: string }) => (
   <div className="flex-1 flex flex-col items-center justify-center text-[#7c89b5] gap-3">
     <Loader2 className="w-6 h-6 animate-spin text-cyan-300" />
@@ -28,7 +27,6 @@ const SettingsTab = dynamic(() => import('@/components/agent/tabs/settings-tab')
 const MissionsTab = dynamic(() => import('@/components/agent/tabs/missions-tab').then(m => ({ default: m.MissionsTab })), { loading: () => <TabLoader label="Loading missions…" /> })
 const PodsTab = dynamic(() => import('@/components/agent/tabs/pods-tab').then(m => ({ default: m.PodsTab })), { loading: () => <TabLoader label="Loading pods…" /> })
 const MissionActiveTab = dynamic(() => import('@/components/agent/tabs/mission-active-tab').then(m => ({ default: m.MissionActiveTab })), { loading: () => <TabLoader label="Loading active missions…" /> })
-// UPGRADE VID — Venture Intelligence Division tab. The most powerful department after the CEO.
 const VidTab = dynamic(() => import('@/components/agent/tabs/vid-tab').then(m => ({ default: m.VidTab })), { loading: () => <TabLoader label="Loading Venture Intelligence Division…" /> })
 import { ChangePasswordModal } from '@/components/agent/change-password-modal'
 import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
@@ -51,31 +49,18 @@ export default function Home() {
 
   useEffect(() => {
     if (status === 'unauthenticated') {
-      if (typeof window !== 'undefined') {
-        window.location.replace('/login')
-      } else {
-        router.replace('/login')
-      }
+      if (typeof window !== 'undefined') window.location.replace('/login')
+      else router.replace('/login')
     }
   }, [status, router])
 
   useEffect(() => {
     if (status !== 'authenticated') return
+    Promise.all([loadConversations(), loadMemories(), loadSubagentCount()]).catch(() => {})
 
-    Promise.all([
-      loadConversations(),
-      loadMemories(),
-      loadSubagentCount(),
-    ]).catch(() => {})
-
-    const dashEndpoints = [
-      '/api/income?limit=1',
-      '/api/settings',
-      '/api/dashboard/widgets',
-    ]
+    const dashEndpoints = ['/api/income?limit=1', '/api/settings', '/api/dashboard/widgets']
     dashEndpoints.forEach((path) => {
-      fetch(path, { method: 'GET', keepalive: true, signal: AbortSignal.timeout(8000) })
-        .catch(() => {})
+      fetch(path, { method: 'GET', keepalive: true, signal: AbortSignal.timeout(8000) }).catch(() => {})
     })
 
     startAutoRefresh()
@@ -85,65 +70,41 @@ export default function Home() {
     return (
       <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
         <div className="relative z-10 flex flex-col items-center">
-          <div className="hex-pulse mb-5">
-            <NexusLogo size={72} />
-          </div>
+          <div className="hex-pulse mb-5"><NexusLogo size={72} /></div>
           <div className="flex items-center gap-2 text-cyan-300 text-sm tracking-[0.25em] font-semibold mb-4">
             <Loader2 className="w-4 h-4 animate-spin" />
             {status === 'unauthenticated' ? 'REDIRECTING TO LOGIN…' : 'BOOTING AGENT007…'}
           </div>
           <div className="flex flex-col gap-1.5 text-[10px] text-[#5b6a92] tracking-wider">
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-              <span>Initializing system…</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" />
-              <span>Loading 6 LLM providers…</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" />
-              <span>Connecting 20 subagents…</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" />
-              <span>Preparing dashboard…</span>
-            </div>
+            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /><span>Initializing system…</span></div>
+            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Loading 6 LLM providers…</span></div>
+            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Connecting 20 subagents…</span></div>
+            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Preparing dashboard…</span></div>
           </div>
           <div className="mt-5 w-48 h-1 bg-white/5 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 rounded-full"
-              style={{ animation: 'loadingBar 2s ease-in-out infinite' }}
-            />
+            <div className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 rounded-full" style={{ animation: 'loadingBar 2s ease-in-out infinite' }} />
           </div>
         </div>
-        <style jsx>{`
-          @keyframes loadingBar {
-            0% { width: 0%; transform: translateX(-100%); }
-            50% { width: 60%; }
-            100% { width: 100%; transform: translateX(100%); }
-          }
-        `}</style>
+        <style jsx>{`@keyframes loadingBar { 0% { width: 0%; transform: translateX(-100%); } 50% { width: 60%; } 100% { width: 100%; transform: translateX(100%); } }`}</style>
       </div>
     )
   }
 
   return (
-    <div className="relative min-h-screen flex flex-col bg-black">
+    <div className="relative h-dvh overflow-hidden flex flex-col bg-black">
       <Background />
 
-      <div className="relative z-10 flex-1 flex flex-col min-h-0">
-        <ChatHeader
-          onToggleLeft={() => {
-            if (typeof window !== 'undefined' && window.innerWidth < 768) {
-              setLeftOpenMobile((v) => !v)
-            } else {
-              toggleLeft()
-            }
-          }}
-        />
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-shrink-0">
+          <ChatHeader
+            onToggleLeft={() => {
+              if (typeof window !== 'undefined' && window.innerWidth < 768) setLeftOpenMobile((v) => !v)
+              else toggleLeft()
+            }}
+          />
+        </div>
 
-        <div className="flex-1 flex min-h-0 relative">
+        <div className="flex-1 min-h-0 flex relative overflow-hidden">
           <AnimatePresenceHelper
             show={leftOpen}
             desktopKey="left-desktop"
@@ -157,7 +118,7 @@ export default function Home() {
             renderMobileContent={(onClose) => <SidebarLeft onClose={onClose} />}
           />
 
-          <main className="flex-1 flex flex-col min-w-0 min-h-0">
+          <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
             <AgentProgressBanner />
             {activeTab === 'chat' && <ChatTab />}
             {activeTab === 'missions' && <MissionsTab />}
@@ -167,16 +128,11 @@ export default function Home() {
             {activeTab === 'dashboard' && <DashboardTab />}
             {activeTab === 'schedules' && <SchedulesTab />}
             {activeTab === 'settings' && (
-              <SettingsTab
-                onOpenChangePassword={() =>
-                  useChatStore.getState().setChangePasswordOpen(true)
-                }
-              />
+              <SettingsTab onOpenChangePassword={() => useChatStore.getState().setChangePasswordOpen(true)} />
             )}
           </main>
 
-          {/* Static CEO history rail — always visible on tablet/desktop. */}
-          <div className="hidden md:block flex-shrink-0 w-10 sm:w-11">
+          <div className="hidden md:block h-full flex-shrink-0 w-10 sm:w-11 overflow-hidden">
             <SidebarRight />
           </div>
         </div>
@@ -185,18 +141,11 @@ export default function Home() {
       <ChangePasswordModal />
       <PwaInstallPrompt />
 
-      <span className="hidden" aria-hidden>
-        {conversations.length}
-      </span>
+      <span className="hidden" aria-hidden>{conversations.length}</span>
     </div>
   )
 }
 
-/* ------------------------------------------------------------------ *
- * Local helper for the animated left conversation panel.
- * The CEO history rail above is intentionally static and does not use this
- * drawer mechanism.
- * ------------------------------------------------------------------ */
 function AnimatePresenceHelper({
   show,
   desktopKey,
@@ -234,7 +183,7 @@ function AnimatePresenceHelper({
             animate={{ width: desktopWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: 'easeInOut' }}
-            className={`flex-shrink-0 overflow-hidden ${desktopClassName ?? 'hidden md:block'}`}
+            className={`h-full flex-shrink-0 overflow-hidden ${desktopClassName ?? 'hidden md:block'}`}
           >
             <div style={{ width: desktopWidth }} className="h-full">
               {renderContent()}
