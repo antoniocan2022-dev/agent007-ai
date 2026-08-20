@@ -23,6 +23,14 @@ function verifySignedToken(userId: string, code: string, token: string, expiresA
   }
 }
 
+function createLoginProof(userId: string): { token: string; expiresAt: number } {
+  const expiresAt = Date.now() + 60 * 1000
+  const nonce = crypto.randomBytes(16).toString('hex')
+  const payload = `${userId}:2fa:${expiresAt}:${nonce}`
+  const signature = crypto.createHmac('sha256', getAuthSecret()).update(payload).digest('hex')
+  return { token: Buffer.from(`${payload}:${signature}`).toString('base64url'), expiresAt }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -49,6 +57,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Verification code has already been used. Request a new code.' }, { status: 400 })
     }
 
+    const proof = createLoginProof(userId)
+
     await db.auditLog.create({
       data: {
         userId,
@@ -58,7 +68,7 @@ export async function POST(req: NextRequest) {
       },
     }).catch(() => {})
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, proofToken: proof.token, proofExpiresAt: proof.expiresAt })
   } catch (error) {
     console.error('[2fa/verify-login] failed:', error instanceof Error ? error.message : String(error))
     return NextResponse.json({ error: 'Unable to verify code.' }, { status: 500 })
