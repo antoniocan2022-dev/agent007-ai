@@ -95,6 +95,15 @@ jobs:
       - name: System proof, context, health and artifact contracts
         run: bun test tests/system-proof-and-context-contract.test.ts
 
+      - name: Canonical runtime architecture
+        run: bun test tests/canonical-runtime-integrity.test.ts
+
+      - name: CEO Decision Kernel
+        run: bun test tests/ceo-decision-kernel.test.ts
+
+      - name: Artifact evidence verification
+        run: bun test tests/artifact-evidence.test.ts
+
       - name: CEO static shell and message navigation contract
         run: bun test tests/chat-layout-integrity.test.ts
 
