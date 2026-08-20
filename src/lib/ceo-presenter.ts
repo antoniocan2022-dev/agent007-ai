@@ -1,15 +1,10 @@
-/**
- * CEO Final Presenter.
- *
- * A successful mission is publishable only when the required artifacts exist,
- * are marked verified, and the independent Verification Officer passes.
- */
 import { runCanonicalLlm } from './canonical-llm-router'
 import { db } from './db'
 import { executeVerificationOfficerChallenge, type VerificationOfficerResult } from './verification-officer'
 import { enforceVerifiedArtifactEvidence, verifyArtifactEvidence } from './artifact-contract'
 import { evaluateCeoDecision, type CeoDecisionKernelResult } from './ceo-decision-kernel'
 import { recordModelOutcome } from './outcome-intelligence'
+import type { ProviderId } from './subagent-governance'
 
 export interface MissionStageSummary {
   stage: number
@@ -140,7 +135,7 @@ export async function ceoGenerateReport(opts: {
   const userPrompt = `MISSION TITLE: ${missionTitle}\nMISSION OBJECTIVE: ${objective}\n\nSTAGES:\n${stagesBlock}\n\n${gateBlock}\n\nGenerate the executive report. Do not claim success unless the Decision Kernel says PROCEED.`
 
   let fullReport: string
-  let provider: string | undefined
+  let provider: ProviderId | undefined
   let model: string | undefined
   try {
     const response = await runCanonicalLlm({
@@ -169,7 +164,7 @@ export async function ceoGenerateReport(opts: {
 
   if (provider && model) {
     recordModelOutcome({
-      provider: provider as any,
+      provider,
       model,
       taskType: 'reasoning',
       status: outcome === 'success' && verification.decision === 'PASS' ? 'verified_success' : outcome === 'partial' ? 'partial' : 'failed',
