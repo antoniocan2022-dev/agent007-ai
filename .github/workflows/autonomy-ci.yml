@@ -75,7 +75,7 @@ jobs:
         run: bun scripts/venture-architecture-audit.ts
 
       - name: Authentication integrity contract
-        run: bun test tests/auth-login-integrity.test.ts
+        run: bun test tests/auth-login-integrity.test.ts tests/owner-bootstrap-login-contract.test.ts
 
       - name: Truthful execution contract
         run: bun test tests/execution-contract.test.ts
@@ -98,9 +98,6 @@ jobs:
       - name: Canonical runtime architecture
         run: bun test tests/canonical-runtime-integrity.test.ts
 
-      - name: Canonical five-provider selection
-        run: bun test tests/provider-selection-contract.test.ts
-
       - name: Adaptive execution architecture
         run: bun test tests/adaptive-execution.test.ts
 
@@ -115,6 +112,9 @@ jobs:
 
       - name: Phase 5 independent verification officer
         run: bun test tests/verification-officer.test.ts tests/verification-gate.test.ts
+
+      - name: Provider selection integrity
+        run: bun test tests/provider-selection-contract.test.ts
 
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
