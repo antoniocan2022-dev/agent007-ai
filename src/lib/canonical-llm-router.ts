@@ -38,6 +38,12 @@ export type CanonicalLlmResult = {
   adaptivePlan: AdaptiveExecutionPlan
 }
 
+export type ParallelCanonicalResult = {
+  index: number
+  result?: CanonicalLlmResult
+  error?: unknown
+}
+
 const TASK_HINTS: Array<[TaskType, RegExp]> = [
   ['coding', /\b(code|coding|bug|typescript|javascript|python|refactor|implement|patch|compile|build)\b/i],
   ['financial', /\b(finance|financial|investment|revenue|margin|cash|bank|trade|portfolio|payment)\b/i],
@@ -84,6 +90,31 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
     outcomeEvidence: request.outcomeEvidence,
   })
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
+}
+
+/**
+ * Execute independent deep/mission work concurrently while keeping each call
+ * inside the same governed provider runtime. The four-call cap prevents the
+ * adaptive layer from creating an unbounded provider fan-out.
+ */
+export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmRequest[], concurrency = 4): Promise<ParallelCanonicalResult[]> {
+  if (requests.length === 0) return []
+  const limit = Math.min(Math.max(Math.trunc(concurrency), 1), 4)
+  const results: ParallelCanonicalResult[] = []
+  for (let start = 0; start < requests.length; start += limit) {
+    const batch = requests.slice(start, start + limit)
+    const batchResults = await Promise.all(batch.map(async (request, offset) => {
+      try {
+        const plan = explicitPlan(request)
+        if (!plan.parallelizable) throw new Error('Adaptive execution rejected parallel fan-out for a fast lane request.')
+        return { index: start + offset, result: await runCanonicalLlm(request) }
+      } catch (error) {
+        return { index: start + offset, error }
+      }
+    }))
+    results.push(...batchResults)
+  }
+  return results
 }
 
 export function getCanonicalProviderTelemetry() {
