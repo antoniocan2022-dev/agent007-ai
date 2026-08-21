@@ -29,6 +29,7 @@ export interface ProviderRuntimeRequest {
   temperature?: number
   maxTokens?: number
   timeoutMs?: number
+  maxProviderAttempts?: number
   /** Verified mission evidence. Transport success alone never creates outcome intelligence. */
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
 }
@@ -152,12 +153,13 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   const configured = getConfiguredProviders()
   const available = rankAvailableProviders(configured).filter((provider) => !isCircuitOpen(provider))
   const candidates = rankCandidates(available, taskType, request.verification)
+  const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
 
   if (candidates.length === 0) throw new Error(`No governed providers available. Required priority: ${policy.providerOrder.join(' → ')}`)
 
   const attempts: ProviderId[] = []
   let lastError: unknown
-  for (const provider of candidates) {
+  for (const provider of candidates.slice(0, maxAttempts)) {
     attempts.push(provider)
     try {
       const result = await callProvider(provider, request)
