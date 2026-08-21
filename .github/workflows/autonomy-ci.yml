@@ -1,5 +1,7 @@
 name: Agent007 Autonomy CI
 
+# Final release-validation gate for the current production candidate.
+
 on:
   push:
     branches:
