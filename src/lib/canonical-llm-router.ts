@@ -60,8 +60,8 @@ function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
   const overrides: Record<ExecutionClass, AdaptiveExecutionPlan> = {
     fast: { ...inferred, executionClass: 'fast', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false, reason: 'Caller explicitly selected the fast governed lane.' },
     standard: { ...inferred, executionClass: 'standard', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true, reason: 'Caller explicitly selected the standard governed lane.' },
-    deep: { ...inferred, executionClass: 'deep', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the deep governed lane.' },
-    mission: { ...inferred, executionClass: 'mission', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the mission governed lane.' },
+    deep: { ...inferred, executionClass: 'deep', maxProviderAttempts: 5, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the deep governed lane.' },
+    mission: { ...inferred, executionClass: 'mission', maxProviderAttempts: 5, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the mission governed lane.' },
   }
   return overrides[request.executionClass]
 }
@@ -106,7 +106,7 @@ export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmReq
 
 export function getCanonicalProviderTelemetry() {
   const configuredSet = new Set(getConfiguredProviders())
-  const providers = (Object.keys(PROVIDER_RUNTIME_CONFIG) as ProviderId[]).map((provider) => {
+  const providers = (Object.keys(PROVIDER_RUNTIME_CONFIG) as Exclude<ProviderId, 'openai'>[]).map((provider) => {
     const configured = configuredSet.has(provider)
     const circuitOpen = isCircuitOpen(provider)
     const healthScore = getHealthScore(provider)
@@ -128,6 +128,6 @@ export function getCanonicalProviderTelemetry() {
 
 export function assertCanonicalProviderSet(): void {
   const actual = Object.keys(PROVIDER_RUNTIME_CONFIG).sort().join(',')
-  const expected = ['groq', 'mistral', 'openai', 'zai'].sort().join(',')
+  const expected = ['cerebras', 'gemini', 'groq', 'mistral', 'zai'].sort().join(',')
   if (actual !== expected) throw new Error(`CANONICAL_PROVIDER_DRIFT: ${actual}`)
 }
