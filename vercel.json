@@ -5,7 +5,7 @@
     "deploymentEnabled": true
   },
   "installCommand": "bun install",
-  "buildCommand": "bunx prisma generate && AGENT007_RELEASE_SCHEMA_RECONCILE=1 bun run build",
+  "buildCommand": "bash scripts/vercel-build.sh",
   "functions": {
     "src/app/api/agent/route.ts": { "maxDuration": 300 },
     "src/app/api/monitor/qa/route.ts": { "maxDuration": 60 },
