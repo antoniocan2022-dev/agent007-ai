@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { classifyExecution } from '@/lib/adaptive-execution'
+import { runCanonicalLlmParallel } from '@/lib/canonical-llm-router'
 
 const user = (content: string) => [{ role: 'user', content }]
 
@@ -16,6 +17,11 @@ describe('Adaptive Execution Architecture', () => {
     const plan = classifyExecution(user('What is a database connection pool?'))
     expect(plan.executionClass).toBe('fast')
     expect(plan.maxTokens).toBe(1200)
+  })
+
+  test('does not over-classify a simple revenue question as a mission', () => {
+    const plan = classifyExecution(user('What is revenue?'))
+    expect(plan.executionClass).toBe('fast')
   })
 
   test('preserves the deep path for complex research', () => {
@@ -39,5 +45,14 @@ describe('Adaptive Execution Architecture', () => {
       { role: 'user', content: 'Hi' },
     ])
     expect(plan.executionClass).toBe('fast')
+  })
+
+  test('parallel execution is blocked for the fast lane before any provider call', async () => {
+    const results = await runCanonicalLlmParallel([
+      { messages: user('Hi!'), executionClass: 'fast' },
+    ])
+    expect(results).toHaveLength(1)
+    expect(results[0]?.error).toBeInstanceOf(Error)
+    expect((results[0]?.error as Error)?.message).toContain('fast lane request')
   })
 })
