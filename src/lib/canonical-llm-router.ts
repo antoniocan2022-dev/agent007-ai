@@ -11,6 +11,7 @@ import {
 } from './provider-runtime-v2'
 import { getHealthScore, isCircuitOpen } from './provider-intelligence'
 import type { ProviderId } from './subagent-governance'
+import { classifyExecution, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
 
 export type CanonicalLlmRequest = {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -21,7 +22,9 @@ export type CanonicalLlmRequest = {
   temperature?: number
   maxTokens?: number
   timeoutMs?: number
+  maxProviderAttempts?: number
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
+  executionClass?: ExecutionClass
 }
 
 export type CanonicalLlmResult = {
@@ -31,6 +34,8 @@ export type CanonicalLlmResult = {
   attempts: ProviderId[]
   responseMs: number
   policy: ReturnType<typeof getProviderTaskPolicy>
+  executionClass: ExecutionClass
+  adaptivePlan: AdaptiveExecutionPlan
 }
 
 const TASK_HINTS: Array<[TaskType, RegExp]> = [
@@ -44,12 +49,27 @@ const TASK_HINTS: Array<[TaskType, RegExp]> = [
 ]
 
 export function inferTaskType(messages: readonly { role: string; content: string }[]): TaskType {
-  const text = messages.map((message) => message.content).join('\n')
+  const latestUser = [...messages].reverse().find((message) => message.role === 'user')
+  const text = latestUser?.content ?? messages[messages.length - 1]?.content ?? ''
   for (const [taskType, pattern] of TASK_HINTS) if (pattern.test(text)) return taskType
   return 'reasoning'
 }
 
+function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
+  const inferred = classifyExecution(request.messages)
+  if (!request.executionClass) return inferred
+  if (request.executionClass === inferred.executionClass) return inferred
+  const overrides: Record<ExecutionClass, AdaptiveExecutionPlan> = {
+    fast: { ...inferred, executionClass: 'fast', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false, reason: 'Caller explicitly selected the fast governed lane.' },
+    standard: { ...inferred, executionClass: 'standard', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true, reason: 'Caller explicitly selected the standard governed lane.' },
+    deep: { ...inferred, executionClass: 'deep', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the deep governed lane.' },
+    mission: { ...inferred, executionClass: 'mission', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the mission governed lane.' },
+  }
+  return overrides[request.executionClass]
+}
+
 export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<CanonicalLlmResult> {
+  const adaptivePlan = explicitPlan(request)
   const taskType = request.taskType ?? inferTaskType(request.messages)
   const policy = getProviderTaskPolicy(taskType, request.verification)
   const result = await runGovernedProviderChat({
@@ -58,11 +78,12 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
     verification: request.verification,
     model: request.model,
     temperature: request.temperature ?? (request.thinking === false ? 0.2 : 0.35),
-    maxTokens: request.maxTokens ?? 8000,
-    timeoutMs: request.timeoutMs ?? 60000,
+    maxTokens: request.maxTokens ?? adaptivePlan.maxTokens,
+    timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs,
+    maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts,
     outcomeEvidence: request.outcomeEvidence,
   })
-  return { ...result, policy }
+  return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
 
 export function getCanonicalProviderTelemetry() {
