@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../src/lib/ceo-presenter.ts', import.meta.url), 'utf8')
 
 describe('CEO verification hard gate', () => {
-  test('CEO success requires an independent PASS decision', () => {
-    expect(source).toContain("allApproved && verification.decision === 'PASS'")
+  test('CEO success requires independent PASS plus the authoritative Decision Kernel', () => {
+    expect(source).toContain("verification.decision === 'PASS'")
+    expect(source).toContain("decisionKernel.decision === 'PROCEED'")
     expect(source).toContain('No evidence ledger exists for this mission')
     expect(source).toContain('executeVerificationOfficerChallenge')
   })
