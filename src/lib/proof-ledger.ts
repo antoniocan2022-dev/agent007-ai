@@ -60,15 +60,9 @@ function claimHash(c:EvidenceClaimInput,prepared:StoredSource[]):HashClaim {
   return {claimKey:c.claimKey,claimText:c.claimText,classification:c.classification,confidence:c.confidence,verificationStatus:c.verificationStatus,sourceKey:c.sourceIndex===undefined?null:sourceKey(prepared[c.sourceIndex]),notes:c.notes??null}
 }
 function hashClaimsFromInput(input:EvidenceLedgerInput,prepared:StoredSource[]):HashClaim[]{return input.claims.map((c)=>claimHash(c,prepared)).sort((a,b)=>a.claimKey.localeCompare(b.claimKey))}
-function normalizedSourceHash(sources:StoredSource[]):Array<Record<string,unknown>> {
-  return sources.map((s)=>({key:sourceKey(s),provider:s.provider,sourceUrl:s.sourceUrl,rawEvidenceRef:s.rawEvidenceRef,rawEvidenceHash:s.rawEvidenceHash,requestHash:s.requestHash??null})).sort((a,b)=>String(a.key).localeCompare(String(b.key)))
-}
-function logicalLedgerHash(missionId:string,title:string,status:string,previousHash:string|null,sources:Array<Record<string,unknown>>,claims:HashClaim[]):string {
-  return sha256({missionId,title,status,previousHash,sources:[...sources].sort((a,b)=>String(a.key).localeCompare(String(b.key))),claims:[...claims].sort((a,b)=>a.claimKey.localeCompare(b.claimKey))})
-}
-function ledgerContentHash(input:{missionId:string;version:number;title:string;status:string;previousHash:string|null;sources:StoredSource[];claims:HashClaim[]}):string {
-  return sha256({missionId:input.missionId,version:input.version,title:input.title,status:input.status,previousHash:input.previousHash,sources:normalizedSourceHash(input.sources),claims:input.claims})
-}
+function normalizedSourceHash(sources:StoredSource[]):Array<Record<string,unknown>> { return sources.map((s)=>({key:sourceKey(s),provider:s.provider,sourceUrl:s.sourceUrl,rawEvidenceRef:s.rawEvidenceRef,rawEvidenceHash:s.rawEvidenceHash,requestHash:s.requestHash??null})).sort((a,b)=>String(a.key).localeCompare(String(b.key))) }
+function logicalLedgerHash(missionId:string,title:string,status:string,previousHash:string|null,sources:Array<Record<string,unknown>>,claims:HashClaim[]):string { return sha256({missionId,title,status,previousHash,sources:[...sources].sort((a,b)=>String(a.key).localeCompare(String(b.key))),claims:[...claims].sort((a,b)=>a.claimKey.localeCompare(b.claimKey))}) }
+function ledgerContentHash(input:{missionId:string;version:number;title:string;status:string;previousHash:string|null;sources:StoredSource[];claims:HashClaim[]}):string { return sha256({missionId:input.missionId,version:input.version,title:input.title,status:input.status,previousHash:input.previousHash,sources:normalizedSourceHash(input.sources),claims:input.claims}) }
 function prepareSources(input:EvidenceSourceInput[]):StoredSource[]{return input.map((s,i)=>({id:`input-${i}`,provider:s.provider,sourceUrl:s.sourceUrl,retrievedAt:s.retrievedAt??new Date(),rawEvidenceRef:s.rawEvidenceRef,rawEvidenceHash:sha256(s.rawEvidence),requestHash:s.requestHash??null}))}
 function validateLedgerInput(input:EvidenceLedgerInput):void {
   assertNonEmpty('missionId',input.missionId);assertNonEmpty('title',input.title);assertNonEmpty('idempotencyKey',input.idempotencyKey)
@@ -82,7 +76,12 @@ function storedLogicalIdentity(existing:{missionId:string;title:string;status:st
 function assertLedgerCompatible(existing:Parameters<typeof storedLogicalIdentity>[0],input:EvidenceLedgerInput):void {const prepared=prepareSources(input.sources);const status=input.status??existing.status;const previousHash=input.previousHash??existing.previousHash??null;if(input.previousHash&&input.previousHash!==existing.previousHash)throw new Error(`Evidence ledger idempotency conflict for ${input.missionId}:${input.idempotencyKey}: previousHash differs.`);if(inputLogicalIdentity(input,status,previousHash,prepared)!==storedLogicalIdentity(existing))throw new Error(`Evidence ledger idempotency conflict for ${input.missionId}:${input.idempotencyKey}.`)}
 
 export async function persistEvidenceLedger(input:EvidenceLedgerInput){
-  validateLedgerInput(input);const status=input.status??'draft';const prepared=prepareSources(input.sources)
+  validateLedgerInput(input)
+  const claimKeys=input.claims.map((claim)=>claim.claimKey)
+  if(new Set(claimKeys).size!==claimKeys.length) throw new Error('Duplicate evidence claim key: duplicate claim keys are not allowed.')
+  const sourceKeys=input.sources.map((source)=>sourceKey({provider:source.provider,sourceUrl:source.sourceUrl,rawEvidenceRef:source.rawEvidenceRef,rawEvidenceHash:sha256(source.rawEvidence),requestHash:source.requestHash??null}))
+  if(new Set(sourceKeys).size!==sourceKeys.length) throw new Error('Duplicate evidence source provenance: duplicate source identities are not allowed.')
+  const status=input.status??'draft';const prepared=prepareSources(input.sources)
   const existing=await db.evidenceLedger.findUnique({where:{missionId_idempotencyKey:{missionId:input.missionId,idempotencyKey:input.idempotencyKey}},include:{Source:true,Claim:true}})
   if(existing){assertLedgerCompatible(existing,input);return{ledger:existing,created:false}}
   const latest=await db.evidenceLedger.findFirst({where:{missionId:input.missionId},orderBy:{version:'desc'}})
