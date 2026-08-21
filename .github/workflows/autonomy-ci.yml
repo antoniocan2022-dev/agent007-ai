@@ -75,7 +75,7 @@ jobs:
         run: bun scripts/venture-architecture-audit.ts
 
       - name: Authentication integrity contract
-        run: bun test tests/auth-login-integrity.test.ts tests/owner-bootstrap-login-contract.test.ts
+        run: bun test tests/auth-login-integrity.test.ts tests/owner-bootstrap-login-contract.test.ts tests/login-2fa-flow-contract.test.ts
 
       - name: Truthful execution contract
         run: bun test tests/execution-contract.test.ts
