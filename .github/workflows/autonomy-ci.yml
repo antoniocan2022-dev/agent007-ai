@@ -1,5 +1,7 @@
 name: Agent007 Autonomy CI
 
+# Final validation replay for the current main release candidate.
+
 on:
   push:
     branches:
@@ -46,96 +48,66 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.4'
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Generate Prisma client
         run: bunx prisma generate
-
       - name: Prepare test database
         run: bunx prisma db push --skip-generate
-
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
-
       - name: Repository coherence audit
         run: bun scripts/repository-coherence-audit.ts
-
       - name: Venture architecture regression audit
         run: bun scripts/venture-architecture-audit.ts
-
       - name: Authentication integrity contract
         run: bun test tests/auth-login-integrity.test.ts
-
       - name: Truthful execution contract
         run: bun test tests/execution-contract.test.ts
-
       - name: Proof infrastructure contracts
         run: bun test tests/proof-ledger-contract.test.ts
-
       - name: Proof infrastructure database integration
         run: bun test tests/proof-ledger.integration.test.ts
-
       - name: Five-phase integrity and duplicate-file audit
         run: bun test tests/five-phase-integrity.test.ts
-
       - name: CEO verification hard gate
         run: bun test tests/ceo-verification-gate.test.ts
-
       - name: System proof, context, health and artifact contracts
         run: bun test tests/system-proof-and-context-contract.test.ts
-
       - name: Canonical runtime architecture
         run: bun test tests/canonical-runtime-integrity.test.ts
-
       - name: Adaptive execution architecture
         run: bun test tests/adaptive-execution.test.ts
-
       - name: CEO Decision Kernel
         run: bun test tests/ceo-decision-kernel.test.ts
-
       - name: Artifact evidence verification
         run: bun test tests/artifact-evidence.test.ts
-
       - name: CEO static shell and message navigation contract
         run: bun test tests/chat-layout-integrity.test.ts
-
       - name: Phase 5 independent verification officer
         run: bun test tests/verification-officer.test.ts tests/verification-gate.test.ts
-
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
-
       - name: Venture OS upgrades 14-17 contract
         run: bun test src/lib/venture-autonomy-14-17.test.ts
-
       - name: Venture OS 5-17 deep audit
         run: bun test src/lib/venture-os-5-17-deep-audit.test.ts
-
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
-
       - name: Governance + Provider + Model + Performance + Outcome Intelligence tests
         run: bun test src/lib/provider-intelligence-v2.test.ts src/lib/model-intelligence.test.ts src/lib/model-intelligence-runtime.test.ts src/lib/performance-intelligence.test.ts src/lib/outcome-intelligence.test.ts
-
       - name: Venture OS contract tests
         run: bun test src/lib/venture-os.test.ts src/lib/venture-decision-engine.test.ts
-
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
-
       - name: Autonomy domain tests
         run: bun test src/lib/autonomy/autonomy.test.ts src/lib/autonomy/autonomy-runtime.test.ts src/lib/autonomy/autonomy-runtime.integration.test.ts src/lib/autonomy/capability-registry.test.ts src/lib/autonomy/owner-authorization.test.ts src/lib/autonomy/autonomy-scorecard.test.ts src/lib/autonomy/operational-evidence-bridge.test.ts src/lib/tools-runtime.test.ts src/lib/mission-telemetry.autonomy.test.ts src/lib/runtime/background-tasks.test.ts
-
       - name: Lint
         run: bun run lint
