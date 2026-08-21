@@ -1,18 +1,12 @@
-# .vercelignore — exclude large/unnecessary root directories without masking application routes.
-
-# Large root directories not needed in production
+# .vercelignore — exclude large/unnecessary root directories without masking application routes or the deployment build script.
 download/
 skills/
 /audit/
 tool-results/
-examples/
+/examples/
 
-# Dev-only files
-dev.log
+# Dev-only logs
 *.log
-
-# Scripts not required by the Vercel build command
-scripts/
 
 # Documentation
 worklog.md
