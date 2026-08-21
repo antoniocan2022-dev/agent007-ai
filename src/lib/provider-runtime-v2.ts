@@ -14,6 +14,8 @@ export interface ProviderRuntimeConfig {
   apiKeyEnv: string
   modelEnv: string
   defaultModel: string
+  modelsUrl?: string
+  preferredModels?: readonly string[]
 }
 
 export interface ProviderRuntimeOutcomeEvidence {
@@ -43,14 +45,73 @@ export interface ProviderRuntimeResult {
   responseMs: number
 }
 
+export interface ProviderRuntimeProbeResult {
+  provider: ActiveProviderId
+  configured: boolean
+  success: boolean
+  model: string | null
+  responseMs: number | null
+  error?: string
+}
+
 /** OpenAI is intentionally absent: it is disabled by governance and cannot be selected or called. */
 export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, ProviderRuntimeConfig>> = {
-  groq: { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions', apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile' },
-  zai: { id: 'zai', label: 'Z.AI', baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions', apiKeyEnv: 'ZAI_API_KEY', modelEnv: 'ZAI_MODEL', defaultModel: 'glm-5.1' },
-  mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest' },
-  gemini: { id: 'gemini', label: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', apiKeyEnv: 'GEMINI_API_KEY', modelEnv: 'GEMINI_MODEL', defaultModel: 'gemini-3.7-flash' },
-  cerebras: { id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b' },
+  groq: {
+    id: 'groq',
+    label: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+    apiKeyEnv: 'GROQ_API_KEY',
+    modelEnv: 'GROQ_MODEL',
+    defaultModel: 'llama-3.3-70b-versatile',
+    modelsUrl: 'https://api.groq.com/openai/v1/models',
+    preferredModels: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'],
+  },
+  zai: {
+    id: 'zai',
+    label: 'Z.AI',
+    baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions',
+    apiKeyEnv: 'ZAI_API_KEY',
+    modelEnv: 'ZAI_MODEL',
+    defaultModel: 'glm-5.1',
+    preferredModels: ['glm-5.1', 'glm-5', 'glm-4.5-air', 'glm-4.5-flash'],
+  },
+  mistral: {
+    id: 'mistral',
+    label: 'Mistral',
+    baseUrl: 'https://api.mistral.ai/v1/chat/completions',
+    apiKeyEnv: 'MISTRAL_API_KEY',
+    modelEnv: 'MISTRAL_MODEL',
+    defaultModel: 'mistral-large-latest',
+    modelsUrl: 'https://api.mistral.ai/v1/models',
+    preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
+  },
+  gemini: {
+    id: 'gemini',
+    label: 'Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    apiKeyEnv: 'GEMINI_API_KEY',
+    modelEnv: 'GEMINI_MODEL',
+    defaultModel: 'gemini-3.7-flash',
+    modelsUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
+    preferredModels: ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'],
+  },
+  cerebras: {
+    id: 'cerebras',
+    label: 'Cerebras',
+    baseUrl: 'https://api.cerebras.ai/v1/chat/completions',
+    apiKeyEnv: 'CEREBRAS_API_KEY',
+    modelEnv: 'CEREBRAS_MODEL',
+    defaultModel: 'gpt-oss-120b',
+    modelsUrl: 'https://api.cerebras.ai/v1/models',
+    preferredModels: ['gpt-oss-120b', 'llama-3.3-70b', 'llama-3.1-70b'],
+  },
 }
+
+interface ModelCacheEntry { model: string; expiresAt: number }
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000
+const GLOBAL = globalThis as typeof globalThis & { __agent007ProviderModelCache?: Partial<Record<ActiveProviderId, ModelCacheEntry>> }
+if (!GLOBAL.__agent007ProviderModelCache) GLOBAL.__agent007ProviderModelCache = {}
+const providerModelCache = GLOBAL.__agent007ProviderModelCache
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name]
@@ -84,13 +145,46 @@ function modelFor(provider: ActiveProviderId, taskType: TaskType, verification?:
   return getModelForProvider(provider, taskType, verification) || readEnv(PROVIDER_RUNTIME_CONFIG[provider].modelEnv) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel
 }
 
+function extractModelIds(data: any): string[] {
+  if (Array.isArray(data?.data)) return data.data.map((model: any) => model?.id).filter((id: unknown): id is string => typeof id === 'string')
+  if (Array.isArray(data?.models)) return data.models.map((model: any) => typeof model?.name === 'string' ? model.name.replace(/^models\//, '') : model?.baseModelId).filter((id: unknown): id is string => typeof id === 'string')
+  return []
+}
+
+async function resolveAccessibleModel(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): Promise<string> {
+  const config = PROVIDER_RUNTIME_CONFIG[provider]
+  const preferred = readEnv(config.modelEnv) || modelFor(provider, taskType, verification) || config.defaultModel
+  const cached = providerModelCache[provider]
+  if (cached && cached.expiresAt > Date.now()) return cached.model
+  if (!config.modelsUrl) return preferred
+
+  const key = readEnv(config.apiKeyEnv)
+  if (!key) return preferred
+  try {
+    const response = await fetch(config.modelsUrl, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) return preferred
+    const ids = extractModelIds(await response.json())
+    if (!ids.length) return preferred
+    const candidateOrder = [preferred, ...(config.preferredModels ?? []), ...ids]
+    const selected = candidateOrder.find((candidate) => ids.includes(candidate)) ?? ids[0]
+    providerModelCache[provider] = { model: selected, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }
+    return selected
+  } catch {
+    return preferred
+  }
+}
+
 async function callProvider(provider: ActiveProviderId, request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   const key = readEnv(config.apiKeyEnv)
   if (!key) throw new Error(`${config.label} is not configured (${config.apiKeyEnv})`)
 
   const taskType = request.taskType ?? 'general'
-  const model = request.model || modelFor(provider, taskType, request.verification)
+  const model = request.model || await resolveAccessibleModel(provider, taskType, request.verification)
   const timeoutMs = Math.max(1000, request.timeoutMs ?? 60000)
   const started = Date.now()
   const controller = new AbortController()
@@ -146,6 +240,33 @@ function rankCandidates(candidates: ActiveProviderId[], taskType: TaskType, veri
     if (br !== undefined) return 1
     return (policyOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (policyOrder.get(b) ?? Number.MAX_SAFE_INTEGER)
   })
+}
+
+export async function probeProvider(provider: ActiveProviderId, request?: Partial<ProviderRuntimeRequest>): Promise<ProviderRuntimeProbeResult> {
+  const config = PROVIDER_RUNTIME_CONFIG[provider]
+  if (!readEnv(config.apiKeyEnv)) return { provider, configured: false, success: false, model: null, responseMs: null, error: `${config.apiKeyEnv} is not configured` }
+  try {
+    const started = Date.now()
+    const result = await callProvider(provider, {
+      messages: request?.messages ?? [
+        { role: 'system', content: 'You are a production health probe. Reply with exactly: OK' },
+        { role: 'user', content: 'Say OK' },
+      ],
+      taskType: request?.taskType ?? 'operations',
+      verification: request?.verification ?? 'standard',
+      temperature: 0,
+      maxTokens: 8,
+      timeoutMs: request?.timeoutMs ?? 10000,
+    })
+    return { provider, configured: true, success: result.content.trim().toUpperCase().startsWith('OK'), model: result.model, responseMs: Date.now() - started, error: result.content.trim().toUpperCase().startsWith('OK') ? undefined : `Unexpected probe response: ${result.content.slice(0, 80)}` }
+  } catch (error) {
+    return { provider, configured: true, success: false, model: providerModelCache[provider]?.model ?? readEnv(config.modelEnv) ?? config.defaultModel, responseMs: null, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }
+  }
+}
+
+export async function probeAllConfiguredProviders(): Promise<ProviderRuntimeProbeResult[]> {
+  const providers = Object.keys(PROVIDER_RUNTIME_CONFIG) as ActiveProviderId[]
+  return Promise.all(providers.map((provider) => probeProvider(provider)))
 }
 
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
