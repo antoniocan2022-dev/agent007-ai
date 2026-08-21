@@ -16,6 +16,16 @@ bunx prisma generate
 if [[ "${DATABASE_URL:-}" == postgres://* ]] || [[ "${DATABASE_URL:-}" == postgresql://* ]]; then
   echo "=== Step 2: Postgres detected — prisma db push ==="
   bunx prisma db push --accept-data-loss 2>&1 | tail -15
+
+  # Controlled owner bootstrap: only a release build with an explicitly
+  # configured OWNER_BOOTSTRAP_PASSWORD may reconcile the owner credential.
+  # This never runs during normal request handling and never exposes the secret.
+  if [[ -n "${OWNER_BOOTSTRAP_PASSWORD:-}" ]]; then
+    echo "=== Step 2b: Owner credential bootstrap ==="
+    bun run db:bootstrap
+  else
+    echo "=== Step 2b: Owner credential bootstrap skipped (secret not configured) ==="
+  fi
 else
   echo "=== Step 2: WARNING — DATABASE_URL is not a PostgreSQL URL ==="
   echo "Skipping database reconciliation during this build."
