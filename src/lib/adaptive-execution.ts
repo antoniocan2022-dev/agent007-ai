@@ -36,13 +36,8 @@ export function classifyExecution(messages: readonly { role: string; content: st
   const text = latestUserMessage(messages)
   const normalized = text.replace(/\s+/g, ' ').trim()
 
-  if (!normalized) {
-    return { executionClass: 'fast', reason: 'No substantive user request detected.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
-  }
-
-  if (GREETING_RE.test(normalized)) {
-    return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
-  }
+  if (!normalized) return { executionClass: 'fast', reason: 'No substantive user request detected.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
+  if (GREETING_RE.test(normalized)) return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
 
   const missionContext = MISSION_CONTEXT_RE.test(normalized)
   const missionAction = MISSION_ACTION_RE.test(normalized)
@@ -54,8 +49,8 @@ export function classifyExecution(messages: readonly { role: string; content: st
     return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
   }
 
-  if (CONTEXT_DEPENDENT_RE.test(normalized) && messages.filter((message) => message.role === 'user').length > 1) {
-    return { executionClass: 'standard', reason: 'Short request depends on prior conversation context; preserve the standard contextual path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
+  if (CONTEXT_DEPENDENT_RE.test(normalized)) {
+    return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
   }
 
   if (normalized.length <= 220 && FAST_RE.test(normalized)) {
