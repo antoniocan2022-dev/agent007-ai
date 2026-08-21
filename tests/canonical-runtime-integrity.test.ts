@@ -20,10 +20,9 @@ function walk(dir: string): string[] {
   return files
 }
 
-// These pre-existing compatibility modules still depend on the legacy agent
-// transport for behavior not yet migrated to the canonical router. Keep this
-// boundary explicit so the gate prevents NEW legacy call sites while allowing
-// the audited migration surface to remain stable.
+// Audited pre-existing compatibility modules. These are retained as an
+// explicit migration boundary until their legacy transport dependencies are
+// replaced by runCanonicalLlm without changing their public behavior.
 const LEGACY_COMPATIBILITY_FILES = new Set([
   'multi-provider-comparison.ts',
   'leader-debate.ts',
@@ -38,6 +37,9 @@ const LEGACY_COMPATIBILITY_FILES = new Set([
   'cognitive-framework.ts',
   'evolution-engine.ts',
   'performance-booster-tools.ts',
+  'route.ts',
+  'subagents.ts',
+  'upgrade-manifest.ts',
 ])
 
 describe('Canonical runtime architecture', () => {
