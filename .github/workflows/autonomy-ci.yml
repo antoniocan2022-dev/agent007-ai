@@ -98,6 +98,9 @@ jobs:
       - name: Canonical runtime architecture
         run: bun test tests/canonical-runtime-integrity.test.ts
 
+      - name: Adaptive execution architecture
+        run: bun test tests/adaptive-execution.test.ts
+
       - name: CEO Decision Kernel
         run: bun test tests/ceo-decision-kernel.test.ts
 
