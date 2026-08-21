@@ -1,5 +1,5 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
-import { getHealthScore, isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
+import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
 import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
@@ -91,9 +91,9 @@ export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, Provider
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     apiKeyEnv: 'GEMINI_API_KEY',
     modelEnv: 'GEMINI_MODEL',
-    defaultModel: 'gemini-3.7-flash',
+    defaultModel: 'gemini-3.6-flash',
     modelsUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
-    preferredModels: ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'],
+    preferredModels: ['gemini-3.6-flash'],
   },
   cerebras: {
     id: 'cerebras',
@@ -153,7 +153,8 @@ function extractModelIds(data: any): string[] {
 
 async function resolveAccessibleModel(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): Promise<string> {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
-  const preferred = readEnv(config.modelEnv) || modelFor(provider, taskType, verification) || config.defaultModel
+  const configuredOverride = readEnv(config.modelEnv)
+  const preferred = configuredOverride || modelFor(provider, taskType, verification) || config.defaultModel
   const cached = providerModelCache[provider]
   if (cached && cached.expiresAt > Date.now()) return cached.model
   if (!config.modelsUrl) return preferred
@@ -169,8 +170,15 @@ async function resolveAccessibleModel(provider: ActiveProviderId, taskType: Task
     if (!response.ok) return preferred
     const ids = extractModelIds(await response.json())
     if (!ids.length) return preferred
-    const candidateOrder = [preferred, ...(config.preferredModels ?? []), ...ids]
-    const selected = candidateOrder.find((candidate) => ids.includes(candidate)) ?? ids[0]
+
+    // Do not select an arbitrary catalog entry. Prefer the configured model only when
+    // the provider explicitly exposes it; otherwise use the governed preferred list.
+    const candidateOrder = configuredOverride
+      ? [configuredOverride]
+      : [config.defaultModel, ...(config.preferredModels ?? []), ...ids]
+    const selected = candidateOrder.find((candidate) => ids.includes(candidate))
+    if (!selected) return preferred
+
     providerModelCache[provider] = { model: selected, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }
     return selected
   } catch {
@@ -255,10 +263,12 @@ export async function probeProvider(provider: ActiveProviderId, request?: Partia
       taskType: request?.taskType ?? 'operations',
       verification: request?.verification ?? 'standard',
       temperature: 0,
-      maxTokens: 8,
+      maxTokens: Math.max(128, request?.maxTokens ?? 128),
       timeoutMs: request?.timeoutMs ?? 10000,
     })
-    return { provider, configured: true, success: result.content.trim().toUpperCase().startsWith('OK'), model: result.model, responseMs: Date.now() - started, error: result.content.trim().toUpperCase().startsWith('OK') ? undefined : `Unexpected probe response: ${result.content.slice(0, 80)}` }
+    const content = result.content.trim()
+    const success = /(^|\b)OK(\b|$)/i.test(content)
+    return { provider, configured: true, success, model: result.model, responseMs: Date.now() - started, error: success ? undefined : `Unexpected probe response: ${content.slice(0, 120)}` }
   } catch (error) {
     return { provider, configured: true, success: false, model: providerModelCache[provider]?.model ?? readEnv(config.modelEnv) ?? config.defaultModel, responseMs: null, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }
   }
