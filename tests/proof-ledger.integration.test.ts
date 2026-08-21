@@ -40,7 +40,7 @@ describe.skipIf(!databaseConfigured)('proof ledger database integration', () => 
     }, 'verification-officer-001')
 
     expect(result.result.decision).toBe('PASS')
-    expect(result.receipt.created).toBe(true)
+    expect(result.created).toBe(true)
     expect(result.receipt.actorId).toBe('verification_officer')
     expect(result.receipt.action).toBe('verification_officer.challenge')
     expect(result.receipt.status).toBe('PASS')
@@ -86,5 +86,7 @@ describe.skipIf(!databaseConfigured)('proof ledger database integration', () => 
       { claimKey: 'same', claimText: 'second', classification: 'FACT', confidence: 0.9, verificationStatus: 'UNVERIFIED' },
     ] })).rejects.toThrow(/Duplicate evidence claim key/)
     await expect(persistEvidenceLedger({ missionId, title: 'duplicate-sources', idempotencyKey: 'duplicate-sources', sources: [source, source], claims: [] })).rejects.toThrow(/Duplicate evidence source provenance/)
+    expect(await db.evidenceLedger.count({ where: { missionId, idempotencyKey: 'duplicate-claims' } })).toBe(0)
+    expect(await db.evidenceLedger.count({ where: { missionId, idempotencyKey: 'duplicate-sources' } })).toBe(0)
   })
 })
