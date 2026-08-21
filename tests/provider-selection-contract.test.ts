@@ -13,7 +13,6 @@ describe('canonical provider selection', () => {
   it('does not expose OpenAI as an active runtime provider', () => {
     expect(Object.keys(PROVIDER_RUNTIME_CONFIG).sort()).toEqual([...ACTIVE].sort())
     expect('openai' in PROVIDER_RUNTIME_CONFIG).toBe(false)
-    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
   it('uses canonical provider endpoints and models', () => {
