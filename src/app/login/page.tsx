@@ -5,6 +5,11 @@ import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, Loader2, Lock, Mail, MessageCircle, ShieldCheck, Smartphone } from 'lucide-react'
 
+type TwoFactorChallengeResult =
+  | { status: 'required' }
+  | { status: 'not-required' }
+  | { status: 'error'; message: string }
+
 function LoginInner() {
   const router = useRouter()
   const search = useSearchParams()
@@ -41,7 +46,7 @@ function LoginInner() {
     field?.focus()
   }, [requires2FA])
 
-  const startTwoFactorChallenge = async (normalizedEmail: string, rawPassword: string) => {
+  const startTwoFactorChallenge = async (normalizedEmail: string, rawPassword: string): Promise<TwoFactorChallengeResult> => {
     const response = await fetch('/api/2fa/challenge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -59,9 +64,14 @@ function LoginInner() {
       setTwofaWaLink(data.waLink ?? '')
       setTwofaCode('')
       setResendCooldown(30)
-      return true
+      return { status: 'required' }
     }
-    return false
+
+    if (!response.ok && response.status !== 401) {
+      return { status: 'error', message: data?.error ?? 'Unable to start two-factor verification.' }
+    }
+
+    return { status: 'not-required' }
   }
 
   const onSubmit = async (event: React.FormEvent) => {
@@ -77,8 +87,13 @@ function LoginInner() {
 
     setSubmitting(true)
     try {
-      const requires2FA = await startTwoFactorChallenge(normalizedEmail, password)
-      if (requires2FA) {
+      const challenge = await startTwoFactorChallenge(normalizedEmail, password)
+      if (challenge.status === 'required') {
+        setSubmitting(false)
+        return
+      }
+      if (challenge.status === 'error') {
+        setError(challenge.message)
         setSubmitting(false)
         return
       }
@@ -147,8 +162,9 @@ function LoginInner() {
     if (resendCooldown > 0 || submitting) return
     setError('')
     try {
-      const sent = await startTwoFactorChallenge(email.trim().toLowerCase(), password)
-      if (!sent) setError('Could not resend the verification code. Please sign in again.')
+      const result = await startTwoFactorChallenge(email.trim().toLowerCase(), password)
+      if (result.status === 'error') setError(result.message)
+      else if (result.status !== 'required') setError('Could not resend the verification code. Please sign in again.')
     } catch {
       setError('Could not resend the verification code.')
     }
