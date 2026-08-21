@@ -106,7 +106,7 @@ jobs:
       - name: Venture OS contract tests
         run: bun test src/lib/venture-os.test.ts src/lib/venture-decision-engine.test.ts
       - name: TypeScript check
-        run: bunx tsc -p tsconfig.ci.tsconfig.ci.json --noEmit
+        run: bunx tsc -p tsconfig.ci.json --noEmit
       - name: Autonomy domain tests
         run: bun test src/lib/autonomy/autonomy.test.ts src/lib/autonomy/autonomy-runtime.test.ts src/lib/autonomy/autonomy-runtime.integration.test.ts src/lib/autonomy/capability-registry.test.ts src/lib/autonomy/owner-authorization.test.ts src/lib/autonomy/autonomy-scorecard.test.ts src/lib/autonomy/operational-evidence-bridge.test.ts src/lib/tools-runtime.test.ts src/lib/mission-telemetry.autonomy.test.ts src/lib/runtime/background-tasks.test.ts
       - name: Lint
