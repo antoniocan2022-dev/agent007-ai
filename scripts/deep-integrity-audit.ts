@@ -19,6 +19,7 @@ const autonomyWorkflow = read('.github/workflows/autonomy-ci.yml')
 const proofLedger = read('src/lib/proof-ledger.ts')
 const proofTest = read('tests/proof-ledger-contract.test.ts')
 const reconcile = read('src/lib/reconcile-production-schema.ts')
+const evidenceSourceModel = schema.match(/model\s+EvidenceSource\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
 
 const modelNames = [...schema.matchAll(/^model\s+(\w+)\s*\{/gm)].map((match) => match[1])
 const registryBlock = backupV2.match(/export const BACKUP_TABLES = \[(.*?)\] as const/s)?.[1] ?? ''
@@ -52,7 +53,8 @@ record(proofLedger.includes('verifyEvidenceLedger'), 'Evidence proof service doe
 record(proofLedger.includes('sha256'), 'Proof service does not provide SHA-256 hashing')
 record(proofLedger.includes('idempotencyKey'), 'Proof service lacks idempotency enforcement')
 record(proofLedger.includes('rawEvidenceHash'), 'Evidence provenance does not hash raw evidence')
-record(proofLedger.includes('rawEvidence String'), 'Evidence service must not persist raw evidence payloads directly')
+record(!/\brawEvidence\s+(String|Text|Json)\b/i.test(evidenceSourceModel), 'EvidenceSource Prisma model must not persist raw evidence payloads directly')
+record(!/data:\s*\{[^}]*rawEvidence\s*:/s.test(proofLedger), 'Evidence persistence path must not write a rawEvidence field to the database')
 record(proofTest.includes('proof models and uniqueness guards exist'), 'Proof ledger regression test is missing schema uniqueness coverage')
 record(reconcile.includes('ExecutionReceipt'), 'Production schema reconciliation does not include ExecutionReceipt')
 record(reconcile.includes('EvidenceLedger'), 'Production schema reconciliation does not include EvidenceLedger')
