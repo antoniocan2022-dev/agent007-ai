@@ -1,5 +1,7 @@
 name: Agent007 Autonomy CI
 
+# Canonical gate: Adaptive Execution Architecture is validated before release/deploy.
+
 on:
   push:
     branches:
