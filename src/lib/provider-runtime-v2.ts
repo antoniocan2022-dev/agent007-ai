@@ -124,7 +124,7 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
     const responseMs = Date.now() - started
-    recordFailure(provider, responseMs)
+    recordFailure(provider)
     recordModelPerformance({ provider, model, taskType, success: false, responseMs })
     throw error
   } finally {
