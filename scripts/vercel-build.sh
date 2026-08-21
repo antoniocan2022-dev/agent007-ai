@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
 set -e
-cd /home/z/my-project
-echo "=== Vercel Build (Upgrade #60 — Postgres) ==="
-echo "DATABASE_URL: ${DATABASE_URL:0:30}..."
 
-# Step 1: Prisma generate (schema is now provider = "postgresql" — no more swap)
+# Vercel invokes this script from the project root. Never depend on a
+# developer-specific absolute filesystem path.
+echo "=== Vercel Build — Postgres ==="
+echo "Working directory: $(pwd)"
+echo "DATABASE_URL configured: $([[ -n \"${DATABASE_URL:-}\" ]] && echo yes || echo no)"
+
+# Step 1: Generate the Prisma client from the canonical PostgreSQL schema.
 echo "=== Step 1: prisma generate ==="
 bunx prisma generate
 
-# Step 2: If Postgres URL is set, push schema to create/update tables
-if [[ "$DATABASE_URL" == postgres://* ]] || [[ "$DATABASE_URL" == postgresql://* ]]; then
-  echo "=== Postgres detected — running prisma db push ==="
-  bunx prisma db push --accept-data-loss 2>&1 | tail -15 || echo "prisma db push failed (continuing — tables will be created via raw SQL at runtime)"
+# Step 2: Reconcile schema only during the controlled release build.
+# Runtime request handlers do not create tables or seed production data.
+if [[ "${DATABASE_URL:-}" == postgres://* ]] || [[ "${DATABASE_URL:-}" == postgresql://* ]]; then
+  echo "=== Step 2: Postgres detected — prisma db push ==="
+  bunx prisma db push --accept-data-loss 2>&1 | tail -15
 else
-  echo "=== WARNING: DATABASE_URL is not set to Postgres ==="
-  echo "DATABASE_URL = ${DATABASE_URL:-(not set)}"
-  echo "Schema is provider = postgresql, so Prisma will fail at runtime."
-  echo "Set DATABASE_URL to a Postgres connection string on Vercel."
-  # Continue with build anyway — the app will boot but DB queries will fail
+  echo "=== Step 2: WARNING — DATABASE_URL is not a PostgreSQL URL ==="
+  echo "Skipping database reconciliation during this build."
 fi
 
-# Step 3: Build
+# Step 3: Build the application.
 echo "=== Step 3: next build ==="
 bun run build
 echo "=== Build complete ==="
