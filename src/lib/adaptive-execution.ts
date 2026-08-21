@@ -23,6 +23,7 @@ const MISSION_ACTION_RE = /\b(deploy|production\s+change|launch|publish|send|buy
 const MISSION_CONTEXT_RE = /\b(mission|autonom(?:y|ous)|venture|revenue|customer|transaction|production)\b/i
 const DEEP_RE = /\b(deep|detailed|comprehensive|compare|comparison|strategy|strategic|architecture|analyze|analysis|diagnose|research|evidence|verify|verification|evaluate|plan|design|security|financial|legal|optimi[sz]e|root\s+cause)\b/i
 const FAST_RE = /\b(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate|can you|could you|is it|are you)\b/i
+const CONTEXT_DEPENDENT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 
 function latestUserMessage(messages: readonly { role: string; content: string }[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -53,6 +54,10 @@ export function classifyExecution(messages: readonly { role: string; content: st
     return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
   }
 
+  if (CONTEXT_DEPENDENT_RE.test(normalized) && messages.filter((message) => message.role === 'user').length > 1) {
+    return { executionClass: 'standard', reason: 'Short request depends on prior conversation context; preserve the standard contextual path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
+  }
+
   if (normalized.length <= 220 && FAST_RE.test(normalized)) {
     return { executionClass: 'fast', reason: 'Short informational request can use the low-overhead governed lane.', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false }
   }
@@ -62,6 +67,10 @@ export function classifyExecution(messages: readonly { role: string; content: st
   }
 
   return { executionClass: 'standard', reason: 'Normal request requiring standard governed model execution.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true }
+}
+
+export function shouldUseFastLane(plan: AdaptiveExecutionPlan, attachmentsCount: number): boolean {
+  return plan.executionClass === 'fast' && attachmentsCount === 0
 }
 
 export function isDeepExecution(executionClass: ExecutionClass): boolean {
