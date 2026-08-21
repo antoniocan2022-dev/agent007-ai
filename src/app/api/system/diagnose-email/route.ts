@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { isEmailConfigured, isResendConfigured, sendEmail } from '@/lib/email'
 import { db, ensureDbReady } from '@/lib/db'
 
@@ -8,8 +8,9 @@ export const dynamic = 'force-dynamic'
 /**
  * GET /api/system/diagnose-email
  *
- * Diagnoses why 2FA emails might not be arriving.
- * Returns Resend + SMTP config + sends a test email + reports the result.
+ * Diagnoses why authentication emails might not be arriving.
+ * The test message is sent to the actual seeded owner account email — never
+ * to a literal placeholder string such as "OWNER_EMAIL".
  */
 export async function GET() {
   try {
@@ -18,43 +19,42 @@ export async function GET() {
     const resendConfigured = isResendConfigured()
     const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS)
     const overallConfigured = isEmailConfigured()
+    const owner = await db.user.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true, email: true } })
+    const testRecipient = owner?.email ?? ''
 
     const smtpHost = process.env.SMTP_HOST ?? '(not set)'
     const smtpPort = process.env.SMTP_PORT ?? '(not set)'
     const smtpUser = process.env.SMTP_USER ?? '(not set)'
     const smtpFrom = process.env.SMTP_FROM ?? '(not set)'
     const hasSmtpPassword = !!process.env.SMTP_PASS
-
     const resendFrom = process.env.RESEND_FROM ?? 'Agent007 AI <onboarding@resend.dev>'
     const hasResendKey = !!process.env.RESEND_API_KEY
 
-    // Try sending a test email
     let sendResult: any = { attempted: false }
-    if (overallConfigured) {
+    if (overallConfigured && testRecipient) {
       try {
-        const userId = (await db.user.findFirst({ orderBy: { createdAt: 'asc' } }))?.id
         const r = await sendEmail({
-          to: 'OWNER_EMAIL',
+          to: testRecipient,
           subject: 'Agent007 Email Diagnostic Test',
           body: `This is a diagnostic test email from Agent007 AI.\n\nSent at: ${new Date().toISOString()}\n\nEmail Provider: ${resendConfigured ? 'Resend.com' : 'SMTP'}\n${resendConfigured ? `Resend From: ${resendFrom}` : `SMTP Host: ${smtpHost}\nSMTP Port: ${smtpPort}\nSMTP User: ${smtpUser}\nSMTP From: ${smtpFrom}`}\n\nIf you received this email, email delivery is working correctly!\n\n— Agent007 AI`,
-          userId: userId ?? '',
+          userId: owner?.id,
           type: 'diagnostic',
         })
         sendResult = { attempted: true, sent: r.sent, error: r.error, message: r.message, provider: resendConfigured ? 'Resend' : 'SMTP' }
       } catch (e: any) {
         sendResult = { attempted: true, sent: false, error: e?.message }
       }
+    } else if (overallConfigured && !testRecipient) {
+      sendResult = { attempted: false, sent: false, error: 'No owner account exists to test email delivery.' }
     }
 
     return NextResponse.json({
       ok: true,
       timestamp: new Date().toISOString(),
       provider: resendConfigured ? 'resend' : smtpConfigured ? 'smtp' : 'none',
-      resend: {
-        configured: resendConfigured,
-        hasApiKey: hasResendKey,
-        from: resendFrom,
-      },
+      testRecipientConfigured: !!testRecipient,
+      testRecipientMasked: testRecipient ? `${testRecipient.slice(0, 2)}***${testRecipient.includes('@') ? testRecipient.slice(testRecipient.indexOf('@')) : ''}` : null,
+      resend: { configured: resendConfigured, hasApiKey: hasResendKey, from: resendFrom },
       smtp: {
         configured: smtpConfigured,
         host: smtpHost,
@@ -67,20 +67,12 @@ export async function GET() {
       sendResult,
       recommendations: resendConfigured
         ? [
-            'Resend is configured! Check your inbox at OWNER_EMAIL',
-            'If using onboarding@resend.dev, you can ONLY send to the email you signed up with',
-            'To send to any address: verify your own domain in Resend dashboard',
+            'Resend is configured. The diagnostic now sends to the real owner account email.',
+            'If onboarding@resend.dev rejects the recipient, verify the recipient email in the Resend account or configure RESEND_FROM with a verified domain.',
+            'Outlook basic SMTP authentication is not a valid production fallback; use Resend with a verified sender domain.',
           ]
         : [
-            'Resend not configured. To fix email delivery:',
-            '1. Sign up at https://resend.com (free)',
-            '2. Get API key from https://resend.com/api-keys',
-            '3. Set RESEND_API_KEY env var in Vercel',
-            '4. (Optional) Set RESEND_FROM to your verified domain',
-            '5. Redeploy',
-            '',
-            'Note: The on-screen FALLBACK CODE always works for login',
-            'Note: WhatsApp wa.me link is always available',
+            'Resend not configured. Set RESEND_API_KEY in Vercel and configure RESEND_FROM with a verified sender when sending outside the Resend test recipient.',
           ],
     })
   } catch (e: any) {
