@@ -4,32 +4,15 @@ import { runCanonicalLlm, getCanonicalProviderTelemetry } from '@/lib/canonical-
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/**
- * GET /api/system/diagnose-llm
- *
- * Diagnoses the canonical governed AI runtime and performs one minimal live
- * provider call. This endpoint must never use the retired legacy provider
- * router, otherwise diagnostics can disagree with the runtime that serves
- * real CEO/subagent requests.
- */
+/** Live production probe for the complete canonical five-provider chain. */
 export async function GET() {
   const telemetry = getCanonicalProviderTelemetry()
   const configured = telemetry.providers.filter((provider) => provider.configured)
   const activeChain = configured.map((provider) => provider.label)
-
   const diagnosis: any = {
     timestamp: new Date().toISOString(),
-    provider: activeChain.length > 0
-      ? `Canonical governed chain: ${activeChain.join(' → ')}`
-      : 'No canonical providers configured',
-    providers: telemetry.providers.map((provider) => ({
-      provider: provider.provider,
-      configured: provider.configured,
-      status: provider.status,
-      healthScore: provider.healthScore,
-      circuitOpen: provider.circuitOpen,
-      model: provider.model,
-    })),
+    provider: activeChain.length > 0 ? `Canonical governed chain: ${activeChain.join(' → ')}` : 'No canonical providers configured',
+    providers: telemetry.providers.map((provider) => ({ provider: provider.provider, configured: provider.configured, status: provider.status, healthScore: provider.healthScore, circuitOpen: provider.circuitOpen, model: provider.model })),
     configuredCount: telemetry.configuredCount,
     healthyCount: telemetry.healthyCount,
     availableCount: telemetry.availableCount,
@@ -46,33 +29,24 @@ export async function GET() {
 
   try {
     const result = await runCanonicalLlm({
-      executionClass: 'fast',
-      taskType: 'general',
+      executionClass: 'standard',
+      taskType: 'operations',
       messages: [
         { role: 'system', content: 'You are a production health probe. Reply with exactly: OK' },
         { role: 'user', content: 'Say OK' },
       ],
       maxTokens: 16,
       timeoutMs: 10000,
-      maxProviderAttempts: Math.min(2, configured.length),
+      maxProviderAttempts: configured.length,
       thinking: false,
     })
-
-    diagnosis.testResult = {
-      success: true,
-      provider: result.provider,
-      model: result.model,
-      response: result.content.slice(0, 20),
-      attempts: result.attempts,
-      responseMs: result.responseMs,
-      executionClass: result.executionClass,
-    }
+    diagnosis.testResult = { success: true, provider: result.provider, model: result.model, response: result.content.slice(0, 20), attempts: result.attempts, responseMs: result.responseMs, executionClass: result.executionClass }
     diagnosis.overallStatus = '✅ WORKING'
     diagnosis.message = `Canonical AI runtime is working through ${result.provider} (${result.model}).`
     return NextResponse.json(diagnosis, { status: 200 })
-  } catch (e: any) {
-    const rawError = e?.message ?? String(e)
-    diagnosis.testResult = { success: false, rawError: rawError.slice(0, 500), status: e?.status }
+  } catch (error: any) {
+    const rawError = error?.message ?? String(error)
+    diagnosis.testResult = { success: false, rawError: rawError.slice(0, 500) }
     diagnosis.error = rawError.slice(0, 500)
     diagnosis.overallStatus = '❌ FAILED'
     diagnosis.message = 'All currently eligible canonical providers failed the production health probe.'
