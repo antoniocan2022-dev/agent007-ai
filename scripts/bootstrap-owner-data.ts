@@ -6,21 +6,18 @@ import { OWNER_PHONE, SEED_EMAIL } from '@/lib/owner-config'
 const BOOTSTRAP_PASSWORD_ENV = 'OWNER_BOOTSTRAP_PASSWORD'
 
 async function getBootstrapPassword(existingUser: { passwordHash: string } | null) {
-  const configuredPassword = process.env[BOOTSTRAP_PASSWORD_ENV]
+  const configuredPassword = process.env[BOOTSTRAP_PASSWORD_ENV]?.trim()
 
   if (!existingUser && !configuredPassword) {
     throw new Error(`${BOOTSTRAP_PASSWORD_ENV} must be set when creating the owner account.`)
   }
 
-  // Accounts created by the previous implementation used the email address as
-  // the password. If such an account exists, require an explicit replacement
-  // password before repairing it; never silently preserve the predictable one.
-  if (existingUser && configuredPassword) {
-    const legacyPassword = await bcrypt.compare(SEED_EMAIL, existingUser.passwordHash)
-    if (legacyPassword) return bcrypt.hash(configuredPassword, 12)
-  }
-
-  return configuredPassword ? bcrypt.hash(configuredPassword, 12) : null
+  // Controlled-release bootstrap is the single place where the owner password
+  // may be reconciled from Vercel's OWNER_BOOTSTRAP_PASSWORD secret. Runtime
+  // authentication never mutates passwords. This fixes stale DB credentials
+  // after a secret rotation without creating a request-time reset path.
+  if (configuredPassword) return bcrypt.hash(configuredPassword, 12)
+  return null
 }
 
 async function main() {
@@ -78,20 +75,6 @@ async function main() {
       value: JSON.stringify({ monthlyGoal: 20000, dailyGrowthTarget: 20, currencySymbol: '$', displayMode: 'detailed' }),
     },
   })
-
-  if (process.env.OPENAI_API_KEY) {
-    const existingKey = await db.apiKey.findFirst({ where: { userId: user.id, service: 'openai' } })
-    if (!existingKey) {
-      await db.apiKey.create({
-        data: {
-          userId: user.id,
-          name: 'OpenAI (env var)',
-          service: 'openai',
-          key: process.env.OPENAI_API_KEY,
-        },
-      })
-    }
-  }
 
   const schedules = [
     { name: 'Auto-Check Inbound Commands', prompt: 'Check for inbound commands from owner (OWNER_PHONE). Execute + reply.', intervalMin: 5 },
