@@ -73,6 +73,10 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500
 }
 
+function isProviderConfigurationError(status: number): boolean {
+  return status === 401 || status === 403
+}
+
 function modelFor(provider: ProviderId, taskType: TaskType, verification?: VerificationTier): string {
   return getModelForProvider(provider, taskType, verification) || readEnv(PROVIDER_RUNTIME_CONFIG[provider].modelEnv) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel
 }
@@ -113,9 +117,7 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
 
     recordSuccess(provider, responseMs)
     recordModelPerformance({ provider, model, taskType, success: true, responseMs })
-    if (request.outcomeEvidence) {
-      recordModelOutcome({ provider, model, taskType, ...request.outcomeEvidence })
-    }
+    if (request.outcomeEvidence) recordModelOutcome({ provider, model, taskType, ...request.outcomeEvidence })
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
     const responseMs = Date.now() - started
@@ -129,13 +131,9 @@ async function callProvider(provider: ProviderId, request: ProviderRuntimeReques
 
 function rankCandidates(candidates: ProviderId[], taskType: TaskType, verification?: VerificationTier): ProviderId[] {
   const policyOrder = new Map(candidates.map((provider, index) => [provider, index]))
-  const outcomeSnapshots = recommendByVerifiedOutcome(
-    taskType,
-    candidates.map((provider) => ({ provider, model: modelFor(provider, taskType, verification) })),
-  )
+  const outcomeSnapshots = recommendByVerifiedOutcome(taskType, candidates.map((provider) => ({ provider, model: modelFor(provider, taskType, verification) })))
   const trusted = outcomeSnapshots.filter((snapshot) => snapshot.confidence >= 40 && snapshot.observations > 0)
   if (!trusted.length) return candidates
-
   const outcomeRank = new Map(trusted.map((snapshot, index) => [snapshot.provider, index]))
   return [...candidates].sort((a, b) => {
     const ar = outcomeRank.get(a)
@@ -167,6 +165,10 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
     } catch (error) {
       lastError = error
       const status = Number((error as any)?.status)
+      // A configured-but-invalid/unauthorized key is provider-local failure,
+      // not a mission failure. Skip it and continue through the governed chain.
+      // This prevents one stale secret from blocking a healthy fallback.
+      if (Number.isFinite(status) && isProviderConfigurationError(status)) continue
       if (Number.isFinite(status) && !isRetryableStatus(status)) throw error
     }
   }
