@@ -3,7 +3,7 @@ import { SUBAGENTS, getAllSubagents } from './subagents'
 import type { ProviderId } from './subagent-governance'
 import { getCanonicalProviderTelemetry } from './canonical-llm-router'
 
-export const SYSTEM_MANIFEST_VERSION = 2
+export const SYSTEM_MANIFEST_VERSION = 3
 export const SYSTEM_MANIFEST_ID = 'agent007-system'
 
 const CANONICAL_PROVIDER_COUNT: Record<ProviderId, true> = { groq: true, openai: true, zai: true, mistral: true }
@@ -34,6 +34,12 @@ export type SystemManifest = {
     configuredProviderCount: number
     healthyProviderCount: number
     availableProviderCount: number
+  }
+  adaptiveExecution: {
+    enabled: true
+    classes: readonly ['fast', 'standard', 'deep', 'mission']
+    parallelPlanning: true
+    governedProviderFallback: true
   }
   proof: {
     executionReceipts: true
@@ -73,6 +79,12 @@ function baseManifest(): SystemManifest {
       configuredProviderCount: providerTelemetry.configuredCount,
       healthyProviderCount: providerTelemetry.healthyCount,
       availableProviderCount: providerTelemetry.availableCount,
+    },
+    adaptiveExecution: {
+      enabled: true,
+      classes: ['fast', 'standard', 'deep', 'mission'],
+      parallelPlanning: true,
+      governedProviderFallback: true,
     },
     proof: { executionReceipts: true, evidenceLedger: true, verificationOfficer: true },
     governance: { truthfulExecutionContract: true, ownerApprovalForProtectedActions: true },
