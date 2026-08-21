@@ -17,7 +17,7 @@ export const MODEL_PROFILES: readonly ModelProfile[] = [
   { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000 },
   { provider: 'zai', model: 'glm-5.1', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'long-context'], quality: 92, speed: 84, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
-  { provider: 'gemini', model: 'gemini-3.7-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 93, speed: 91, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'gemini', model: 'gemini-3.6-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 93, speed: 91, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
 ]
 
