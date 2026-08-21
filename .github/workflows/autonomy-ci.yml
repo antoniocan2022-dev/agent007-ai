@@ -139,3 +139,5 @@ jobs:
 
       - name: Lint
         run: bun run lint
+
+# Release validation replay: keep the full gate visible on every main push.
