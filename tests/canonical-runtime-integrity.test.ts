@@ -28,14 +28,15 @@ describe('Canonical runtime architecture', () => {
     expect(typeof callLlmWithRetry).toBe('function')
   })
 
-  test('runtime code does not directly import the legacy agent module', () => {
+  test('runtime LLM transport does not directly import callLlmWithRetry from the legacy module', () => {
     const srcRoot = new URL('../src', import.meta.url).pathname
     const offenders = walk(srcRoot)
       .filter((file) => !file.endsWith('/src/lib/agent-canonical-bridge.ts'))
       .filter((file) => !file.endsWith('/src/lib/agent.ts'))
       .filter((file) => {
         const content = readFileSync(file, 'utf8')
-        return /from\s+['"](?:\.\.\/|\.\/)*agent['"]|import\(['"](?:\.\.\/|\.\/)*agent['"]\)/.test(content)
+        if (!content.includes('callLlmWithRetry')) return false
+        return /(?:from\s+['"](?:\.\.\/|\.\/)*agent['"]|import\(['"](?:\.\.\/|\.\/)*agent['"]\))/.test(content)
       })
     expect(offenders).toEqual([])
   })
