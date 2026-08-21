@@ -98,6 +98,9 @@ jobs:
       - name: Canonical runtime architecture
         run: bun test tests/canonical-runtime-integrity.test.ts
 
+      - name: Canonical five-provider selection
+        run: bun test tests/provider-selection-contract.test.ts
+
       - name: Adaptive execution architecture
         run: bun test tests/adaptive-execution.test.ts
 
