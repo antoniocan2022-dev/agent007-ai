@@ -1,8 +1,4 @@
-import {
-  getProviderTaskPolicy,
-  type TaskType,
-  type VerificationTier,
-} from './provider-intelligence-policy'
+import { getProviderTaskPolicy, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import {
   PROVIDER_RUNTIME_CONFIG,
   getConfiguredProviders,
@@ -10,7 +6,7 @@ import {
   type ProviderRuntimeOutcomeEvidence,
 } from './provider-runtime-v2'
 import { getHealthScore, isCircuitOpen } from './provider-intelligence'
-import type { ProviderId } from './subagent-governance'
+import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 import { classifyExecution, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
 
 export type CanonicalLlmRequest = {
@@ -33,16 +29,12 @@ export type CanonicalLlmResult = {
   content: string
   attempts: ProviderId[]
   responseMs: number
-  policy: ReturnType<typeof getProviderTaskPolicy>
+  policy: ProviderTaskPolicy
   executionClass: ExecutionClass
   adaptivePlan: AdaptiveExecutionPlan
 }
 
-export type ParallelCanonicalResult = {
-  index: number
-  result?: CanonicalLlmResult
-  error?: unknown
-}
+export type ParallelCanonicalResult = { index: number; result?: CanonicalLlmResult; error?: unknown }
 
 const TASK_HINTS: Array<[TaskType, RegExp]> = [
   ['coding', /\b(code|coding|bug|typescript|javascript|python|refactor|implement|patch|compile|build)\b/i],
@@ -92,11 +84,6 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
 
-/**
- * Execute independent deep/mission work concurrently while keeping each call
- * inside the same governed provider runtime. The four-call cap prevents the
- * adaptive layer from creating an unbounded provider fan-out.
- */
 export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmRequest[], concurrency = 4): Promise<ParallelCanonicalResult[]> {
   if (requests.length === 0) return []
   const limit = Math.min(Math.max(Math.trunc(concurrency), 1), 4)
@@ -136,13 +123,7 @@ export function getCanonicalProviderTelemetry() {
   const configured = providers.filter((provider) => provider.configured)
   const healthy = configured.filter((provider) => provider.status === 'healthy')
   const available = configured.filter((provider) => provider.status !== 'rate_limited')
-  return {
-    providerCount: providers.length,
-    configuredCount: configured.length,
-    healthyCount: healthy.length,
-    availableCount: available.length,
-    providers,
-  }
+  return { providerCount: providers.length, configuredCount: configured.length, healthyCount: healthy.length, availableCount: available.length, providers }
 }
 
 export function assertCanonicalProviderSet(): void {
