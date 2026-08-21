@@ -1,0 +1,66 @@
+/**
+ * Adaptive Execution Architecture.
+ *
+ * Classifies the latest user intent into a latency profile without reducing
+ * governance, model quality, evidence requirements, or provider safeguards.
+ * The profile only removes unnecessary orchestration overhead for simple work
+ * and preserves the deep path for complex or mission-level work.
+ */
+
+export type ExecutionClass = 'fast' | 'standard' | 'deep' | 'mission'
+
+export interface AdaptiveExecutionPlan {
+  executionClass: ExecutionClass
+  reason: string
+  maxProviderAttempts: number
+  maxTokens: number
+  timeoutMs: number
+  parallelizable: boolean
+}
+
+const GREETING_RE = /^(hi|hello|hey|good\s+(morning|afternoon|evening)|thanks|thank\s+you|thx|ok|okay|great|perfect|goodbye|bye)[!.?\s]*$/i
+const MISSION_RE = /\b(mission|autonom(?:y|ous)|venture|deploy|production|revenue|customer|transaction|execute|launch|publish|send|buy|sell|invest|transfer|commit|implement|fix|refactor|audit|deep\s+audit|investigate)\b/i
+const DEEP_RE = /\b(deep|detailed|comprehensive|compare|comparison|strategy|strategic|architecture|analyze|analysis|diagnose|research|evidence|verify|verification|evaluate|plan|design|security|financial|legal|optimi[sz]e|root\s+cause)\b/i
+const FAST_RE = /\b(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate|can you|could you|is it|are you)\b/i
+
+function latestUserMessage(messages: readonly { role: string; content: string }[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') return String(messages[index].content ?? '').trim()
+  }
+  return ''
+}
+
+export function classifyExecution(messages: readonly { role: string; content: string }[]): AdaptiveExecutionPlan {
+  const text = latestUserMessage(messages)
+  const normalized = text.replace(/\s+/g, ' ').trim()
+
+  if (!normalized) {
+    return { executionClass: 'fast', reason: 'No substantive user request detected.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
+  }
+
+  if (GREETING_RE.test(normalized)) {
+    return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
+  }
+
+  if (MISSION_RE.test(normalized)) {
+    return { executionClass: 'mission', reason: 'Mission, external action, production, business, or governed execution request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
+  }
+
+  if (normalized.length > 800 || DEEP_RE.test(normalized)) {
+    return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
+  }
+
+  if (normalized.length <= 220 && FAST_RE.test(normalized)) {
+    return { executionClass: 'fast', reason: 'Short informational request can use the low-overhead governed lane.', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false }
+  }
+
+  if (normalized.length <= 280) {
+    return { executionClass: 'fast', reason: 'Short request without deep-work indicators.', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false }
+  }
+
+  return { executionClass: 'standard', reason: 'Normal request requiring standard governed model execution.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true }
+}
+
+export function isDeepExecution(executionClass: ExecutionClass): boolean {
+  return executionClass === 'deep' || executionClass === 'mission'
+}
