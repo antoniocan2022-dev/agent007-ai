@@ -19,7 +19,8 @@ export interface AdaptiveExecutionPlan {
 }
 
 const GREETING_RE = /^(hi|hello|hey|good\s+(morning|afternoon|evening)|thanks|thank\s+you|thx|ok|okay|great|perfect|goodbye|bye)[!.?\s]*$/i
-const MISSION_RE = /\b(mission|autonom(?:y|ous)|venture|deploy|production|revenue|customer|transaction|execute|launch|publish|send|buy|sell|invest|transfer|commit|implement|fix|refactor|audit|deep\s+audit|investigate)\b/i
+const MISSION_ACTION_RE = /\b(deploy|production\s+change|launch|publish|send|buy|sell|invest|transfer|commit|execute|run|implement|fix|refactor|create\s+(a|an)\s+(mission|venture|artifact|campaign)|start\s+(a|the)\s+mission)\b/i
+const MISSION_CONTEXT_RE = /\b(mission|autonom(?:y|ous)|venture|revenue|customer|transaction|production)\b/i
 const DEEP_RE = /\b(deep|detailed|comprehensive|compare|comparison|strategy|strategic|architecture|analyze|analysis|diagnose|research|evidence|verify|verification|evaluate|plan|design|security|financial|legal|optimi[sz]e|root\s+cause)\b/i
 const FAST_RE = /\b(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate|can you|could you|is it|are you)\b/i
 
@@ -42,8 +43,10 @@ export function classifyExecution(messages: readonly { role: string; content: st
     return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
   }
 
-  if (MISSION_RE.test(normalized)) {
-    return { executionClass: 'mission', reason: 'Mission, external action, production, business, or governed execution request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
+  const missionContext = MISSION_CONTEXT_RE.test(normalized)
+  const missionAction = MISSION_ACTION_RE.test(normalized)
+  if (missionAction || (missionContext && DEEP_RE.test(normalized))) {
+    return { executionClass: 'mission', reason: 'Governed external, business, production, or mission execution request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
   }
 
   if (normalized.length > 800 || DEEP_RE.test(normalized)) {
