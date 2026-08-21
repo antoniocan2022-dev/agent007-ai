@@ -1,5 +1,7 @@
 name: Agent007 Autonomy CI
 
+# Final validation replay against current main after the provider/type/proof fixes.
+
 on:
   push:
     branches:
