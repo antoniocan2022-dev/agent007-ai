@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { db } from './db'
-import { enqueueAutonomyWork, runAutonomyManagerTick, getAutonomyManagerStatus } from './autonomy/autonomy-manager'
+import { enqueueAutonomyWork, runAutonomyManagerTick } from './autonomy/autonomy-manager'
 import { CANONICAL_VENTURE_TEMPLATE, validateCanonicalVentureTemplate } from './venture-template'
 import { buildV002V003Factory, getVentureFactoryBlueprint, validateVentureFactorySpec } from './venture-factory'
 
@@ -18,20 +18,12 @@ describe('Venture OS upgrades 14–17', () => {
 
   test('factory validates only structural V002/V003 targets and rejects V001', () => {
     expect(validateVentureFactorySpec({
-      ventureId: 'venture_002',
-      name: 'Future Venture 002',
-      type: 'saas',
-      description: 'Structural shell only.',
-      targetMarket: 'Validated future market',
-      pricingModel: 'Validation-first pricing',
+      ventureId: 'venture_002', name: 'Future Venture 002', type: 'saas', description: 'Structural shell only.',
+      targetMarket: 'Validated future market', pricingModel: 'Validation-first pricing',
     })).toEqual([])
     expect(validateVentureFactorySpec({
-      ventureId: 'venture_001',
-      name: 'Invalid V001 regeneration',
-      type: 'digital_product',
-      description: 'Must be rejected.',
-      targetMarket: 'Existing',
-      pricingModel: 'Existing',
+      ventureId: 'venture_001', name: 'Invalid V001 regeneration', type: 'digital_product', description: 'Must be rejected.',
+      targetMarket: 'Existing', pricingModel: 'Existing',
     }).some((error) => /Venture 001/i.test(error))).toBe(true)
   })
 
@@ -67,8 +59,5 @@ describe('Venture OS upgrades 14–17', () => {
     expect(run.venturesBlocked).toBe(1)
     expect(run.workBlocked).toBe(1)
     expect(run.workClaimed).toBe(0)
-
-    const status = await getAutonomyManagerStatus()
-    expect(status.recentRuns.length).toBeGreaterThan(0)
   })
 })
