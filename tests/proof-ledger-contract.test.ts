@@ -26,17 +26,17 @@ describe('proof ledger contracts', () => {
 
   it('proof storage keeps raw evidence out of the database contract', () => {
     const sourceBlock = schema.match(/model EvidenceSource \{([\s\S]*?)\n\}/)?.[1] ?? ''
-    expect(sourceBlock).toContain('rawEvidenceRef     String')
-    expect(sourceBlock).toContain('rawEvidenceHash    String')
-    expect(sourceBlock).not.toMatch(/rawEvidence\s+String/) 
+    expect(sourceBlock).toMatch(/rawEvidenceRef\s+String/)
+    expect(sourceBlock).toMatch(/rawEvidenceHash\s+String/)
+    expect(sourceBlock).not.toMatch(/\brawEvidence\s+(String|Text|Json)\b/)
   })
 
   it('proof records have explicit audit identity and integrity fields', () => {
     const receiptBlock = schema.match(/model ExecutionReceipt \{([\s\S]*?)\n\}/)?.[1] ?? ''
     const ledgerBlock = schema.match(/model EvidenceLedger \{([\s\S]*?)\n\}/)?.[1] ?? ''
-    expect(receiptBlock).toContain('recordHash       String')
-    expect(receiptBlock).toContain('idempotencyKey   String')
-    expect(ledgerBlock).toContain('contentHash      String')
-    expect(ledgerBlock).toContain('previousHash     String?')
+    expect(receiptBlock).toMatch(/recordHash\s+String/)
+    expect(receiptBlock).toMatch(/idempotencyKey\s+String/)
+    expect(ledgerBlock).toMatch(/contentHash\s+String/)
+    expect(ledgerBlock).toMatch(/previousHash\s+String\?/) 
   })
 })
