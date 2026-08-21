@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { classifyExecution } from '@/lib/adaptive-execution'
+import { classifyExecution, shouldUseFastLane } from '@/lib/adaptive-execution'
 import { runCanonicalLlmParallel } from '@/lib/canonical-llm-router'
 
 const user = (content: string) => [{ role: 'user', content }]
@@ -11,17 +11,30 @@ describe('Adaptive Execution Architecture', () => {
     expect(plan.maxProviderAttempts).toBe(1)
     expect(plan.timeoutMs).toBe(8000)
     expect(plan.parallelizable).toBe(false)
+    expect(shouldUseFastLane(plan, 0)).toBe(true)
   })
 
   test('keeps short informational questions fast', () => {
     const plan = classifyExecution(user('What is a database connection pool?'))
     expect(plan.executionClass).toBe('fast')
     expect(plan.maxTokens).toBe(1200)
+    expect(shouldUseFastLane(plan, 0)).toBe(true)
   })
 
   test('does not over-classify a simple revenue question as a mission', () => {
     const plan = classifyExecution(user('What is revenue?'))
     expect(plan.executionClass).toBe('fast')
+  })
+
+  test('preserves context for short follow-ups instead of using the fast lane', () => {
+    const plan = classifyExecution(user('What about that?'))
+    expect(plan.executionClass).toBe('standard')
+    expect(shouldUseFastLane(plan, 0)).toBe(false)
+  })
+
+  test('attachments disable the fast lane', () => {
+    const plan = classifyExecution(user('Summarize this'))
+    expect(shouldUseFastLane(plan, 1)).toBe(false)
   })
 
   test('preserves the deep path for complex research', () => {
@@ -38,7 +51,7 @@ describe('Adaptive Execution Architecture', () => {
     expect(plan.parallelizable).toBe(true)
   })
 
-  test('classification uses the latest user request instead of the entire conversation history', () => {
+  test('classification uses the latest user request instead of earlier conversation complexity', () => {
     const plan = classifyExecution([
       { role: 'user', content: 'Perform a deep security audit of the entire system and compare the providers.' },
       { role: 'assistant', content: 'Understood.' },
