@@ -2,32 +2,34 @@ import { NextRequest } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
+import { runCanonicalLlm } from '@/lib/canonical-llm-router'
+import { classifyExecution, shouldUseFastLane } from '@/lib/adaptive-execution'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 // UPGRADE #161: Increased to 300s — owner confirmed Vercel Pro is active.
-// Pro plan allows up to 300s per function. This gives the orchestrator enough
-// time to complete full missions (6 stages × 3 iterations × 5-15s = 90-270s).
 export const maxDuration = 300
+
+const FAST_LANE_SYSTEM_PROMPT = `You are Agent007, the CEO and executive intelligence of a governed AI organization.
+Answer the user's simple request directly, naturally, and accurately.
+Do not claim to have executed tools, changed data, contacted anyone, or verified facts unless those operations actually occurred.
+Use the shortest useful answer while preserving professional judgment and truthfulness.`
 
 function sse(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
 export async function POST(req: NextRequest) {
-  // Ensure DB tables exist before any query (critical for Vercel serverless)
   await ensureDbReady().catch(() => {})
 
   let body: any
   try {
     body = await req.json()
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
+
   const { message, conversationId, attachments, language } = body as {
     message?: string
     conversationId?: string
@@ -36,35 +38,20 @@ export async function POST(req: NextRequest) {
   }
 
   if (!message || typeof message !== 'string') {
-    return new Response(JSON.stringify({ error: 'Missing "message"' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return new Response(JSON.stringify({ error: 'Missing "message"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
   if (!conversationId || typeof conversationId !== 'string') {
-    return new Response(JSON.stringify({ error: 'Missing "conversationId"' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return new Response(JSON.stringify({ error: 'Missing "conversationId"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
 
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
+  const adaptivePlan = classifyExecution([{ role: 'user', content: message }])
+  const useFastLane = shouldUseFastLane(adaptivePlan, atts.length)
 
-  // UPGRADE #129: Wrap ALL pre-stream DB calls in try/catch
-  // If these crash (DB unreachable on Vercel cold start), the user gets NOTHING —
-  // no SSE stream, no error message, just a 500 HTML page that the client
-  // can't parse. NOW: if DB fails, we still start the SSE stream and send
-  // an error event the client can display.
-  let dbReady = true
   try {
-    // Verify the conversation exists; if not, create it
     let conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (!conv) {
-      conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50) } })
-    }
-
-    // Persist user message
+    if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50) } })
     await db.message.create({
       data: {
         conversationId,
@@ -74,10 +61,7 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (dbErr: any) {
-    console.warn('[api/agent] Pre-stream DB call failed, continuing without persistence:', dbErr?.message?.slice(0, 150))
-    dbReady = false
-    // Don't return an error — we'll still try to run the agent
-    // The user will get a response, just won't have their message saved to DB
+    console.warn('[api/agent] Pre-stream DB persistence failed:', dbErr?.message?.slice(0, 150))
   }
 
   const encoder = new TextEncoder()
@@ -92,43 +76,68 @@ export async function POST(req: NextRequest) {
           closed = true
         }
       }
-      const emit: OrchestratorEventEmit = async (event: string, data: any) => {
-        safeEnqueue(sse(event, data))
-      }
+      const emit: OrchestratorEventEmit = async (event: string, data: any) => safeEnqueue(sse(event, data))
+      const heartbeat = setInterval(() => safeEnqueue(sse('ping', { ts: Date.now() })), 5000)
 
-      // SSE HEARTBEAT — keeps connection alive during long LLM calls
-      const heartbeat = setInterval(() => {
-        safeEnqueue(sse('ping', { ts: Date.now() }))
-      }, 5000)
-      // Mark this request as "interactive" so the /api/schedules/tick endpoint
-      // defers any scheduled runs until we're done. User-initiated chats always
-      // get priority over scheduled autonomous missions.
       beginInteractive()
       try {
-        const result = await runOrchestrator({
-          conversationId,
-          userMessage: message,
-          attachments: atts,
-          language: lang,
-          emit,
-        })
-        safeEnqueue(sse('done', { messageId: result.persistedAssistantMessageId, steps: result.steps.length }))
+        if (useFastLane) {
+          safeEnqueue(sse('progress', {
+            phase: 'fast_lane',
+            executionClass: adaptivePlan.executionClass,
+            reason: adaptivePlan.reason,
+          }))
+
+          const response = await runCanonicalLlm({
+            messages: [
+              { role: 'system', content: FAST_LANE_SYSTEM_PROMPT },
+              { role: 'user', content: message },
+            ],
+            taskType: 'reasoning',
+            verification: 'standard',
+            thinking: false,
+            maxTokens: adaptivePlan.maxTokens,
+            timeoutMs: adaptivePlan.timeoutMs,
+            maxProviderAttempts: adaptivePlan.maxProviderAttempts,
+            executionClass: adaptivePlan.executionClass,
+          })
+
+          let persistedAssistantMessageId: string | null = null
+          try {
+            const assistant = await db.message.create({ data: { conversationId, role: 'assistant', content: response.content } })
+            persistedAssistantMessageId = assistant.id
+          } catch (persistErr: any) {
+            console.warn('[api/agent] Fast-lane assistant persistence failed:', persistErr?.message?.slice(0, 150))
+          }
+
+          safeEnqueue(sse('answer', {
+            content: response.content,
+            provider: response.provider,
+            model: response.model,
+            executionClass: response.executionClass,
+            responseMs: response.responseMs,
+          }))
+          safeEnqueue(sse('done', {
+            messageId: persistedAssistantMessageId,
+            steps: 1,
+            executionClass: response.executionClass,
+            provider: response.provider,
+            model: response.model,
+          }))
+        } else {
+          const result = await runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit })
+          safeEnqueue(sse('done', { messageId: result.persistedAssistantMessageId, steps: result.steps.length, executionClass: adaptivePlan.executionClass }))
+        }
       } catch (e: any) {
-        safeEnqueue(sse('error', { message: e?.message ?? String(e) }))
+        safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: adaptivePlan.executionClass }))
       } finally {
         clearInterval(heartbeat)
         endInteractive()
-        try {
-          controller.close()
-        } catch {
-          /* ignore */
-        }
+        try { controller.close() } catch { /* ignore */ }
         closed = true
       }
     },
-    cancel() {
-      /* client aborted; nothing to do */
-    },
+    cancel() { /* client aborted; nothing to do */ },
   })
 
   return new Response(stream, {
@@ -142,7 +151,6 @@ export async function POST(req: NextRequest) {
 }
 
 function stripDataUrl(a: AttachmentMeta) {
-  // Don't store huge data URLs in DB; keep just metadata + textContent (truncated)
   return {
     filename: a.filename,
     originalName: a.originalName,
