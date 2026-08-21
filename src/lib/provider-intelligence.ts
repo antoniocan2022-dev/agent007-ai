@@ -1,13 +1,14 @@
 /** Canonical provider health, discovery, circuit breaking, and tool-discovery metadata. */
 interface ProviderHealth { name: string; totalCalls: number; successCount: number; failCount: number; lastSuccessAt: number | null; lastFailAt: number | null; avgResponseMs: number; currentModel: string | null; circuitOpen: boolean; circuitOpenUntil: number; recentFailures: number[] }
 export interface ProviderDiscoveryResult { name: string; discovered: boolean; model: string | null; error?: string; responseMs?: number }
-const ACTIVE_PROVIDERS = [
+interface ProviderDefinition { name: string; env: string; modelEnv: string; defaultModel: string; modelsUrl?: string }
+const ACTIVE_PROVIDERS: readonly ProviderDefinition[] = [
   { name: 'Groq', env: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile', modelsUrl: 'https://api.groq.com/openai/v1/models' },
   { name: 'Z.AI', env: 'ZAI_API_KEY', modelEnv: 'ZAI_MODEL', defaultModel: 'glm-5.1' },
   { name: 'Mistral', env: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest' },
   { name: 'Gemini', env: 'GEMINI_API_KEY', modelEnv: 'GEMINI_MODEL', defaultModel: 'gemini-3.7-flash' },
   { name: 'Cerebras', env: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b', modelsUrl: 'https://api.cerebras.ai/v1/models' },
-] as const
+]
 const G = globalThis as any
 if (!G.__providerHealth) G.__providerHealth = {} as Record<string, ProviderHealth>
 if (!G.__providerDiscoveryDone) G.__providerDiscoveryDone = false
