@@ -3,10 +3,16 @@ import { SUBAGENTS, getAllSubagents } from './subagents'
 import type { ProviderId } from './subagent-governance'
 import { getCanonicalProviderTelemetry } from './canonical-llm-router'
 
-export const SYSTEM_MANIFEST_VERSION = 3
+export const SYSTEM_MANIFEST_VERSION = 4
 export const SYSTEM_MANIFEST_ID = 'agent007-system'
 
-const CANONICAL_PROVIDER_COUNT: Record<ProviderId, true> = { groq: true, openai: true, zai: true, mistral: true }
+const CANONICAL_PROVIDER_COUNT: Record<Exclude<ProviderId, 'openai'>, true> = {
+  groq: true,
+  zai: true,
+  mistral: true,
+  gemini: true,
+  cerebras: true,
+}
 
 export type SystemManifest = {
   manifestId: string
