@@ -50,6 +50,121 @@ export async function resetPassword(email: string, newPassword: string): Promise
   }
 }
 
+const PASSWORD_RESET_KEY_PREFIX = 'password_reset:'
+const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000
+const PASSWORD_RESET_RESEND_COOLDOWN_MS = 60 * 1000
+const MIN_PASSWORD_LENGTH = 8
+
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+export function isStrongEnoughPassword(password: string): boolean {
+  return password.length >= MIN_PASSWORD_LENGTH
+}
+
+function hashResetCode(code: string): string {
+  return crypto.createHash('sha256').update(code).digest('hex')
+}
+
+function passwordResetKey(userId: string): string {
+  return `${PASSWORD_RESET_KEY_PREFIX}${userId}`
+}
+
+export async function requestPasswordReset(email: string): Promise<{ sent: boolean; retryAfterSeconds?: number }> {
+  const normalized = normalizeEmail(email)
+  if (!normalized) return { sent: true }
+
+  const user = await db.user.findUnique({ where: { email: normalized } })
+  if (!user) {
+    // Deliberately do not reveal whether the account exists.
+    return { sent: true }
+  }
+
+  const key = passwordResetKey(user.id)
+  const existing = await db.userSetting.findFirst({ where: { userId: user.id, key } })
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing.value) as { issuedAt?: number }
+      const issuedAt = Number(parsed.issuedAt ?? 0)
+      const remaining = PASSWORD_RESET_RESEND_COOLDOWN_MS - (Date.now() - issuedAt)
+      if (remaining > 0) {
+        return { sent: false, retryAfterSeconds: Math.ceil(remaining / 1000) }
+      }
+    } catch {
+      // Ignore malformed stale state and replace it below.
+    }
+  }
+
+  const code = crypto.randomInt(100000, 1000000).toString()
+  const issuedAt = Date.now()
+  const expiresAt = issuedAt + PASSWORD_RESET_TTL_MS
+  const value = JSON.stringify({ codeHash: hashResetCode(code), issuedAt, expiresAt })
+
+  await db.userSetting.upsert({
+    where: { userId_key: { userId: user.id, key } },
+    update: { value },
+    create: { userId: user.id, key, value },
+  })
+
+  const { sendEmail } = await import('@/lib/email')
+  const result = await sendEmail({
+    to: user.email,
+    subject: 'Agent007 password reset code',
+    body: `Your Agent007 password reset code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you did not request a password reset, you can safely ignore this email.`,
+    userId: user.id,
+    type: 'password_reset',
+  })
+
+  if (!result.sent) {
+    await db.userSetting.deleteMany({ where: { userId: user.id, key } }).catch(() => {})
+  }
+
+  return { sent: result.sent }
+}
+
+export async function confirmPasswordReset(email: string, code: string, newPassword: string): Promise<{ ok: boolean; error?: string }> {
+  const normalized = normalizeEmail(email)
+  if (!normalized || !/^\d{6}$/.test(code)) return { ok: false, error: 'Invalid reset code.' }
+  if (!isStrongEnoughPassword(newPassword)) return { ok: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` }
+
+  const user = await db.user.findUnique({ where: { email: normalized } })
+  if (!user) return { ok: false, error: 'Invalid reset code.' }
+
+  const key = passwordResetKey(user.id)
+  const stored = await db.userSetting.findFirst({ where: { userId: user.id, key } })
+  if (!stored) return { ok: false, error: 'Invalid or expired reset code.' }
+
+  try {
+    const parsed = JSON.parse(stored.value) as { codeHash?: string; expiresAt?: number }
+    const expiresAt = Number(parsed.expiresAt ?? 0)
+    const storedHash = typeof parsed.codeHash === 'string' ? parsed.codeHash : ''
+    const suppliedHash = hashResetCode(code)
+    if (!storedHash || Date.now() >= expiresAt || storedHash.length !== suppliedHash.length || !crypto.timingSafeEqual(Buffer.from(storedHash), Buffer.from(suppliedHash))) {
+      return { ok: false, error: 'Invalid or expired reset code.' }
+    }
+
+    const passwordHash = await hashPassword(newPassword)
+    await db.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash } })
+      await tx.userSetting.deleteMany({ where: { userId: user.id, key } })
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'password_reset',
+          entity: 'auth',
+          description: 'Password reset successfully with one-time email code',
+        },
+      })
+    })
+
+    return { ok: true }
+  } catch (error) {
+    console.error('[auth] confirmPasswordReset failed:', error)
+    return { ok: false, error: 'Unable to reset password right now.' }
+  }
+}
+
 function getNextAuthSecret(): string {
   const configured = process.env.NEXTAUTH_SECRET?.trim()
   if (configured) return configured
