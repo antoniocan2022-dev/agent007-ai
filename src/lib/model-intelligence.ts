@@ -12,23 +12,22 @@ export interface ModelProfile {
   maxOutputTokens: number
 }
 
-/**
- * Governance-owned model matrix. Scores are normalized engineering priors,
- * not claims of benchmark superiority. Runtime health remains authoritative
- * for availability; this matrix only expresses task fit and operational cost.
- */
 export const MODEL_PROFILES: readonly ModelProfile[] = [
   { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'openai', model: 'gpt-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 98, speed: 82, costTier: 3, maxOutputTokens: 16000 },
   { provider: 'zai', model: 'glm-5.1', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'long-context'], quality: 92, speed: 84, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'gemini', model: 'gemini-3.7-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 93, speed: 91, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
+  /** Legacy compatibility profile. OpenAI is disabled and never returned by the active runtime. */
+  { provider: 'openai', model: 'gpt-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 98, speed: 82, costTier: 3, maxOutputTokens: 16000 },
 ]
 
-const PROVIDER_KEY_ENV: Readonly<Record<ProviderId, string>> = {
+const PROVIDER_KEY_ENV: Readonly<Partial<Record<ProviderId, string>>> = {
   groq: 'GROQ_API_KEY',
-  openai: 'OPENAI_API_KEY',
   zai: 'ZAI_API_KEY',
   mistral: 'MISTRAL_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
 }
 
 const TASK_CAPABILITIES: Record<TaskType, readonly ModelCapability[]> = {
@@ -54,7 +53,8 @@ export interface ModelSelection {
 }
 
 function configured(provider: ProviderId): boolean {
-  return Boolean(process.env[PROVIDER_KEY_ENV[provider]])
+  const envName = PROVIDER_KEY_ENV[provider]
+  return envName ? Boolean(process.env[envName]) : false
 }
 
 export function selectModelForTask(
