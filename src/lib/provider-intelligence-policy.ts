@@ -1,17 +1,11 @@
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 /**
- * Provider Intelligence 2.0 policy layer.
- *
- * The existing provider-intelligence.ts remains responsible for discovery,
- * health scoring, and circuit breaking. This module is the authoritative
- * policy layer for provider priority and task/risk requirements.
- *
- * Priority requested for Agent007:
- * Groq → OpenAI → Z.ai → Mistral.
- * "Mistral" is the provider; "Ministral" refers to Mistral's model family.
+ * Authoritative Agent007 provider policy.
+ * OpenAI is intentionally disabled; it remains a legacy type only.
+ * Active order requested by the owner: Groq → Z.AI → Mistral → Gemini → Cerebras.
  */
-export const PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'openai', 'zai', 'mistral'] as const
+export const PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as const
 
 const STRICT_TASKS = new Set<TaskType>(['financial', 'security'])
 const ENHANCED_TASKS = new Set<TaskType>(['research', 'reasoning', 'coding', 'analysis', 'operations'])
@@ -50,6 +44,7 @@ export function validateProviderPriority(order: readonly ProviderId[] = PROVIDER
   PROVIDER_PRIORITY.forEach((provider, index) => {
     if (order[index] !== provider) errors.push(`Provider priority mismatch at position ${index + 1}: expected ${provider}`)
   })
+  if (order.includes('openai')) errors.push('OpenAI is disabled and must not appear in provider priority')
   return errors
 }
 
