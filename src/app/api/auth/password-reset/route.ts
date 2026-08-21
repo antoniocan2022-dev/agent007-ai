@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { confirmPasswordReset, requestPasswordReset } from '@/lib/auth'
+import { checkRateLimitAsync, getClientIP } from '@/lib/rate-limiter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,14 @@ const genericSuccess = () => NextResponse.json({
 
 export async function POST(req: NextRequest) {
   try {
+    const limit = await checkRateLimitAsync(getClientIP(req), '/api/auth/password-reset')
+    if (limit.limited) {
+      return NextResponse.json(
+        { ok: false, error: 'Too many password-reset requests. Please wait before trying again.' },
+        { status: 429, headers: { 'Retry-After': String(Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000))) } },
+      )
+    }
+
     const body = await req.json().catch(() => ({}))
     const action = body?.action?.toString() ?? 'request'
     const email = body?.email?.toString() ?? ''
