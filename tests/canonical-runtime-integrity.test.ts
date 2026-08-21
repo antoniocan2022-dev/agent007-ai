@@ -24,22 +24,13 @@ function walk(dir: string): string[] {
 // explicit migration boundary until their legacy transport dependencies are
 // replaced by runCanonicalLlm without changing their public behavior.
 const LEGACY_COMPATIBILITY_FILES = new Set([
-  'multi-provider-comparison.ts',
-  'leader-debate.ts',
-  'super-agent-verifier.ts',
-  'mission-os.ts',
-  'orchestrator.ts',
-  'predicted-iq.ts',
-  'business-portfolio.ts',
-  'self-healing-engine.ts',
-  'real-intelligence-tools.ts',
-  'mission-pipeline.ts',
-  'cognitive-framework.ts',
-  'evolution-engine.ts',
-  'performance-booster-tools.ts',
-  'route.ts',
-  'subagents.ts',
-  'upgrade-manifest.ts',
+  'multi-provider-comparison.ts', 'leader-debate.ts', 'super-agent-verifier.ts', 'mission-os.ts',
+  'orchestrator.ts', 'predicted-iq.ts', 'business-portfolio.ts', 'self-healing-engine.ts',
+  'real-intelligence-tools.ts', 'mission-pipeline.ts', 'cognitive-framework.ts',
+  'evolution-engine.ts', 'performance-booster-tools.ts',
+  'src/app/api/mission-active/[missionId]/route.ts',
+  'src/app/api/system/diagnose-llm/route.ts',
+  'src/lib/subagents.ts', 'src/lib/upgrade-manifest.ts',
 ])
 
 describe('Canonical runtime architecture', () => {
@@ -55,11 +46,11 @@ describe('Canonical runtime architecture', () => {
     const offenders = walk(srcRoot)
       .filter((file) => !file.endsWith('/src/lib/agent-canonical-bridge.ts'))
       .filter((file) => !file.endsWith('/src/lib/agent.ts'))
-      .filter((file) => !LEGACY_COMPATIBILITY_FILES.has(file.split('/').pop() ?? ''))
       .filter((file) => {
-        const content = readFileSync(file, 'utf8')
-        return /\bcallLlmWithRetry\s*\(/.test(content)
+        const relative = file.slice(srcRoot.length + 1)
+        return !LEGACY_COMPATIBILITY_FILES.has(relative) && !LEGACY_COMPATIBILITY_FILES.has(file.split('/').pop() ?? '')
       })
+      .filter((file) => /\bcallLlmWithRetry\s*\(/.test(readFileSync(file, 'utf8')))
     expect(offenders).toEqual([])
   })
 
