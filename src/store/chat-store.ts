@@ -259,32 +259,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   createConversation: async () => {
-    let conv: any
+    const id = crypto.randomUUID()
     try {
       const res = await fetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'New Conversation' }),
+        body: JSON.stringify({ id, title: 'New Conversation' }),
       })
-      const data = await safeJson(res)
-      conv = data.conversation
-    } catch {
-      conv = {
-        id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-        title: 'New Conversation',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        _count: { messages: 0 },
-      }
+      if (!res.ok) throw new Error(`Failed to create conversation: ${res.status}`)
+    } catch (e) {
+      console.warn('createConversation failed, using local id', e)
     }
-    set((s) => {
-      const newConvs = [conv, ...s.conversations]
-      if (typeof window !== 'undefined') {
-        try { localStorage.setItem('agent007_conversations', JSON.stringify(newConvs)) } catch {}
-      }
-      return { conversations: newConvs, currentConversationId: conv.id, messages: [] }
-    })
-    return conv.id
+    set({ currentConversationId: id, messages: [] })
+    return id
   },
 
   selectConversation: async (id) => {
@@ -293,232 +280,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteConversation: async (id) => {
-    await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+    try {
+      const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
+    } catch (e) {
+      console.error('deleteConversation', e)
+    }
     set((s) => ({
       conversations: s.conversations.filter((c) => c.id !== id),
       currentConversationId: s.currentConversationId === id ? null : s.currentConversationId,
       messages: s.currentConversationId === id ? [] : s.messages,
     }))
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem('agent007_messages_' + id) } catch {}
+    }
   },
 
   loadMessages: async (conversationId) => {
     try {
-      const res = await fetch(`/api/conversations/${conversationId}`)
-      if (!res.ok) {
-        console.warn('[loadMessages] API returned', res.status)
-        set({ messages: [] })
-        return
-      }
+      const res = await fetch(`/api/conversations/${conversationId}/messages`)
+      if (!res.ok) throw new Error(`Failed to load messages: ${res.status}`)
       const data = await safeJson(res)
-      const conv = data.conversation
-      if (!conv || !conv.Message || conv.Message.length === 0) {
-        // UPGRADE #70 — DB is the ONLY source of truth. No localStorage fallback for messages.
-        // Every device sees the SAME messages from Postgres.
-        set({ messages: [] })
-        return
-      }
-      // Reconstruct messages from DB rows: collapse tool/thought rows under the *next* assistant message
-      const rows: any[] = conv.Message ?? []
-      const messages: ChatMessage[] = []
-      let pendingSteps: ToolStep[] = []
-      // Track open dispatches so subsequent subagent rows can be linked.
-      // Map dispatchId → { subagentId, subagentName, subagentColor, subagentIcon, task, stepId }
-      const dispatchMap = new Map<string, any>()
-      let stepCounter = 0
-      for (const r of rows) {
-        if (r.role === 'user') {
-          const atts = r.attachments ? safeParseAttachments(r.attachments) : undefined
-          messages.push({
-            id: r.id,
-            role: 'user',
-            content: r.content,
-            attachments: atts,
-            createdAt: new Date(r.createdAt).getTime(),
-          })
-        } else if (r.role === 'thought') {
-          // Check if this is a sub-agent thought (prefixed with [subagent:id])
-          const subMatch = r.content?.match(/^\[subagent:([^\]]+)\]\s*([\s\S]*)$/)
-          if (subMatch) {
-            const subId = subMatch[1]
-            // Find the most recent dispatch for this sub-agent
-            let parentDispatch: any = null
-            for (const [did, info] of dispatchMap.entries()) {
-              if (info.subagentId === subId) parentDispatch = { did, ...info }
-            }
-            stepCounter++
-            pendingSteps.push({
-              id: r.id,
-              stepNumber: stepCounter,
-              thought: subMatch[2],
-              status: 'done',
-              startedAt: new Date(r.createdAt).getTime(),
-              finishedAt: new Date(r.createdAt).getTime(),
-              kind: 'subagent_thought',
-              dispatchId: parentDispatch?.did,
-              subagentId: subId,
-              subagentName: parentDispatch?.subagentName,
-              subagentColor: parentDispatch?.subagentColor,
-              subagentIcon: parentDispatch?.subagentIcon,
-            })
-          } else {
-            stepCounter++
-            pendingSteps.push({
-              id: r.id,
-              stepNumber: stepCounter,
-              thought: r.content,
-              status: 'done',
-              startedAt: new Date(r.createdAt).getTime(),
-              finishedAt: new Date(r.createdAt).getTime(),
-              kind: 'super_thought',
-            })
-          }
-        } else if (r.role === 'tool') {
-          // Sub-agent dispatch?
-          if (r.toolName === 'subagent_dispatch') {
-            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
-            stepCounter++
-            const stepId = `dispatch_${meta.dispatchId ?? r.id}`
-            const stepInfo: any = {
-              subagentId: meta.agentId,
-              subagentName: meta.agentName,
-              subagentColor: meta.color,
-              subagentIcon: meta.icon,
-              task: meta.task,
-            }
-            if (meta.dispatchId) dispatchMap.set(meta.dispatchId, stepInfo)
-            pendingSteps.push({
-              id: stepId,
-              stepNumber: stepCounter,
-              subagentId: meta.agentId,
-              subagentName: meta.agentName,
-              subagentColor: meta.color,
-              subagentIcon: meta.icon,
-              subagentTask: meta.task,
-              dispatchId: meta.dispatchId,
-              status: 'done',
-              startedAt: new Date(r.createdAt).getTime(),
-              finishedAt: new Date(r.createdAt).getTime(),
-              kind: 'subagent_dispatch',
-              // If a subagent_complete row exists for the same dispatchId, the
-              // subagentAnswer will be filled below when we encounter that row.
-            })
-          } else if (r.toolName === 'subagent_complete') {
-            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
-            // Find the original dispatch step and set the answer
-            const dispatchStep = pendingSteps.find(
-              (st) => st.dispatchId === meta.dispatchId && st.kind === 'subagent_dispatch'
-            )
-            if (dispatchStep) {
-              dispatchStep.subagentAnswer = r.toolResult ?? ''
-              dispatchStep.status = 'done'
-              dispatchStep.finishedAt = new Date(r.createdAt).getTime()
-            }
-          } else if (r.toolName === 'subagent_tool') {
-            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
-            const parentDispatch = meta.dispatchId ? dispatchMap.get(meta.dispatchId) : null
-            stepCounter++
-            pendingSteps.push({
-              id: meta.stepId ?? r.id,
-              stepNumber: stepCounter,
-              toolName: meta.tool,
-              toolArgs: meta.args,
-              toolResult: r.toolResult ?? '',
-              toolPreview: (r.toolResult ?? '').slice(0, 160),
-              toolOk: true,
-              status: 'done',
-              startedAt: new Date(r.createdAt).getTime(),
-              finishedAt: new Date(r.createdAt).getTime(),
-              kind: 'subagent_tool',
-              dispatchId: meta.dispatchId,
-              subagentId: parentDispatch?.subagentId ?? meta.agentId,
-              subagentName: parentDispatch?.subagentName,
-              subagentColor: parentDispatch?.subagentColor,
-              subagentIcon: parentDispatch?.subagentIcon,
-            })
-          } else if (r.toolName === 'manage_action') {
-            // Reconstruct manage_action step from persisted row
-            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
-            stepCounter++
-            pendingSteps.push({
-              id: r.id,
-              stepNumber: stepCounter,
-              status: 'done',
-              startedAt: new Date(r.createdAt).getTime(),
-              finishedAt: new Date(r.createdAt).getTime(),
-              kind: 'manage_action',
-              manageAction: meta.action,
-              manageAttrs: meta.attrs,
-              manageResult: { ok: !/failed|error/i.test(r.toolResult ?? ''), message: r.toolResult ?? '' },
-            })
-          } else {
-            // Regular super-agent tool
-            stepCounter++
-            pendingSteps.push({
-              id: r.id,
-              stepNumber: stepCounter,
-              toolName: r.toolName,
-              toolArgs: r.toolArgs ? safeParseJson(r.toolArgs) : undefined,
-              toolResult: r.toolResult ?? '',
-              toolPreview: (r.toolResult ?? '').slice(0, 160),
-              toolOk: true,
-              status: 'done',
-              startedAt: new Date(r.createdAt).getTime(),
-              finishedAt: new Date(r.createdAt).getTime(),
-              kind: 'super_tool',
-            })
-          }
-        } else if (r.role === 'assistant') {
-          messages.push({
-            id: r.id,
-            role: 'assistant',
-            content: r.content,
-            steps: pendingSteps,
-            createdAt: new Date(r.createdAt).getTime(),
-          })
-          pendingSteps = []
-          stepCounter = 0
-          dispatchMap.clear()
-        }
-      }
-      set({ messages })
+      set({ messages: data.messages ?? [] })
     } catch (e) {
       console.error('loadMessages', e)
-      set({ messages: [] })
+      // Fallback: localStorage
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('agent007_messages_' + conversationId)
+          if (saved) set({ messages: JSON.parse(saved) })
+        } catch {}
+      }
     }
   },
 
   clearMessages: () => set({ messages: [] }),
 
   setLanguage: (l) => set({ language: l }),
-
   addAttachment: (a) => set((s) => ({ attachments: [...s.attachments, a] })),
-  removeAttachment: (filename) =>
-    set((s) => ({ attachments: s.attachments.filter((a) => a.filename !== filename) })),
+  removeAttachment: (filename) => set((s) => ({ attachments: s.attachments.filter((a) => a.filename !== filename) })),
   clearAttachments: () => set({ attachments: [] }),
-
-  loadMemories: async () => {
-    try {
-      const res = await fetch('/api/memory')
-      const data = await safeJson(res)
-      set({ memories: data.memories ?? [] })
-    } catch (e) {
-      console.error('loadMemories', e)
-    }
-  },
-
-  resetSubagentActivity: () => set({ activeSubagents: [], subagentActivity: {} }),
-
-  loadSubagentCount: async () => {
-    try {
-      const res = await fetch('/api/subagents')
-      const data = await safeJson(res)
-      if (Array.isArray(data.subagents)) {
-        set({ subagentCount: data.subagents.length })
-      }
-    } catch (e) {
-      console.error('loadSubagentCount', e)
-    }
-  },
 
   sendMessage: async (text) => {
     const trimmed = text.trim()
@@ -1161,6 +962,33 @@ function applyEvent(
           }))
         }
       }, 100)
+    }
+  } else if (event === 'answer') {
+    // Adaptive fast-lane responses arrive as a single `answer` SSE event rather
+    // than a stream of `token` events. Older clients ignored this event, leaving
+    // the assistant bubble blank even though the server had generated and
+    // persisted a valid answer. Treat it as the authoritative completed content.
+    const content = typeof data?.content === 'string' ? data.content : ''
+    if (content) {
+      _pendingTokens = ''
+      if (_tokenFlushTimer) {
+        clearTimeout(_tokenFlushTimer)
+        _tokenFlushTimer = null
+      }
+      set((s) => ({
+        status: 'streaming',
+        messages: s.messages.map((m) => {
+          if (m.id !== assistantId) return m
+          const steps = (m.steps ?? []).filter(
+            (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
+          )
+          return {
+            ...m,
+            content,
+            steps,
+          }
+        }),
+      }))
     }
   } else if (event === 'memory_update') {
     // Optimistically add/update memory in the right panel
