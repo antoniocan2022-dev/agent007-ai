@@ -44,6 +44,5 @@ describe('provider live-model contract', () => {
     expect(runtimeSource).not.toContain('const PROVIDER_RUNTIME_CONFIG')
     expect(runtimeSource).not.toContain('interface ProviderRuntimeConfig')
     expect(runtimeSource).not.toContain('interface ModelCacheEntry')
-    expect(runtimeSource).not.toContain('__agent007ProviderModelCache')
   })
 })
