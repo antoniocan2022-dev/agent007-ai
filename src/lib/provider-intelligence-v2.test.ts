@@ -62,9 +62,9 @@ describe('Provider Intelligence 2.0', () => {
       expect(getProviderRuntimeConfig('zai').defaultModel).toBe('glm-5.1')
     } finally { process.env = original }
   })
-  test('selects task-aware governed models', () => {
+  test('selects task-aware governed models only for supported task capabilities', () => {
     expect(['llama-3.3-70b-versatile', 'openai/gpt-oss-120b']).toContain(getModelForProvider('groq', 'coding'))
-    expect(getModelForProvider('zai', 'creative')).toBe('glm-5.1')
+    expect(getModelForProvider('zai', 'reasoning')).toBe('glm-5.1')
     expect(getModelForProvider('gemini', 'reasoning')).toBe('gemini-3.7-flash')
   })
   test('fails over after live catalog resolution and a provider request failure', async () => {
@@ -81,7 +81,6 @@ describe('Provider Intelligence 2.0', () => {
       calls.push(`${url}::${method}`)
       if (url.includes('api.groq.com') && method === 'GET') return new Response(JSON.stringify({ data: [{ id: 'llama-3.3-70b-versatile' }, { id: 'openai/gpt-oss-120b' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       if (url.includes('api.groq.com') && method === 'POST') return new Response('temporary failure', { status: 503 })
-      if (url.includes('api.z.ai') && method === 'GET') return new Response(JSON.stringify({ data: [{ id: 'glm-5.1' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       if (url.includes('api.z.ai') && method === 'POST') return new Response(JSON.stringify({ choices: [{ message: { content: 'governed success' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
@@ -92,7 +91,6 @@ describe('Provider Intelligence 2.0', () => {
       expect(result.attempts).toEqual(['groq', 'zai'])
       expect(calls).toContain('https://api.groq.com/openai/v1/models::GET')
       expect(calls).toContain('https://api.groq.com/openai/v1/chat/completions::POST')
-      expect(calls).toContain('https://api.z.ai/api/paas/v4/models::GET')
       expect(calls).toContain('https://api.z.ai/api/paas/v4/chat/completions::POST')
     } finally { process.env = originalEnv }
   })
