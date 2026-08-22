@@ -7,7 +7,7 @@ import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } fr
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export type { ActiveProviderId }
-export { PROVIDER_RUNTIME_CONFIG }
+export { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders }
 
 export interface ProviderRuntimeOutcomeEvidence {
   status: OutcomeStatus
