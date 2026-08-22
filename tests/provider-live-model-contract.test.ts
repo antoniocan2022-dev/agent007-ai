@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders } from '../src/lib/provider-runtime-v2'
 
 const EXPECTED_PROVIDERS = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as const
 const PROVIDER_ENV = ['GROQ_API_KEY', 'ZAI_API_KEY', 'MISTRAL_API_KEY', 'GEMINI_API_KEY', 'CEREBRAS_API_KEY'] as const
+const runtimeSource = readFileSync('src/lib/provider-runtime-v2.ts', 'utf8')
 
 describe('provider live-model contract', () => {
   it('keeps exactly five governed providers and no OpenAI runtime entry', () => {
@@ -29,5 +31,11 @@ describe('provider live-model contract', () => {
         else process.env[env] = value
       }
     }
+  })
+
+  it('validates model overrides against the live catalog before using them', () => {
+    expect(runtimeSource).toContain('if (configuredOverride && ids.includes(configuredOverride))')
+    expect(runtimeSource).toContain('const candidateOrder = [governedPreferred, config.defaultModel')
+    expect(runtimeSource).not.toContain('const candidateOrder = configuredOverride')
   })
 })
