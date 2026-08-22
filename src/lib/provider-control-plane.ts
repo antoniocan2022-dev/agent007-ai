@@ -99,11 +99,11 @@ export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
   { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'mistral', model: 'mistral-medium-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 88, speed: 84, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'mistral', model: 'mistral-small-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 84, speed: 92, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'gemini', model: 'gemini-3.7-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 96, speed: 91, costTier: 2, maxOutputTokens: 64000 },
-  { provider: 'gemini', model: 'gemini-3.6-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 93, speed: 91, costTier: 2, maxOutputTokens: 12000 },
-  { provider: 'gemini', model: 'gemini-3.5-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 90, speed: 90, costTier: 2, maxOutputTokens: 12000 },
-  { provider: 'gemini', model: 'gemini-3.5-flash-lite', capabilities: ['reasoning', 'research', 'analysis', 'tool-use', 'speed'], quality: 84, speed: 96, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'gemini', model: 'gemini-2.5-flash', capabilities: ['reasoning', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 87, speed: 92, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'gemini', model: 'gemini-3.7-flash', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 96, speed: 91, costTier: 2, maxOutputTokens: 64000 },
+  { provider: 'gemini', model: 'gemini-3.6-flash', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 93, speed: 91, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'gemini', model: 'gemini-3.5-flash', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 90, speed: 90, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'gemini', model: 'gemini-3.5-flash-lite', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 84, speed: 96, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'gemini', model: 'gemini-2.5-flash', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'speed'], quality: 87, speed: 92, costTier: 1, maxOutputTokens: 8000 },
   { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
   { provider: 'cerebras', model: 'llama-3.3-70b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 99, costTier: 1, maxOutputTokens: 12000 },
 ]
@@ -114,13 +114,13 @@ const TASK_CAPABILITIES: Record<TaskType, readonly ModelCapability[]> = {
 
 function configured(provider: ActiveProviderId): boolean { return Boolean(process.env[PROVIDER_RUNTIME_CONFIG[provider].apiKeyEnv]?.trim()) }
 
+export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'zai', 'mistral', 'gemini', 'cerebras']
+
 export function getConfiguredProviders(): ActiveProviderId[] {
   return Object.keys(PROVIDER_RUNTIME_CONFIG).filter((provider) => configured(provider as ActiveProviderId)).sort(
     (a, b) => PROVIDER_ORDER.indexOf(a as ActiveProviderId) - PROVIDER_ORDER.indexOf(b as ActiveProviderId),
   ) as ActiveProviderId[]
 }
-
-export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'zai', 'mistral', 'gemini', 'cerebras']
 
 export function getGovernedCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
   const required = TASK_CAPABILITIES[taskType]
