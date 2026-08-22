@@ -44,10 +44,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout exact main release source
+      - name: Checkout exact triggering release source
         uses: actions/checkout@v5
         with:
-          ref: main
+          # Pushes are pinned to the triggering SHA; manual runs intentionally
+          # resolve the current main branch so an operator can release main.
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
           fetch-depth: 1
 
       - name: Setup Node.js 24 for release tooling
@@ -63,7 +65,7 @@ jobs:
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Exact main release SHA: $sha"
+          echo "Exact triggering/main release SHA: $sha"
 
       - name: Verify required release credentials
         shell: bash
