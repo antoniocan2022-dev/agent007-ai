@@ -3,7 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import { db } from '@/lib/db'
-import { SEED_EMAIL } from '@/lib/owner-config'
+import { SEED_EMAIL, getOwnerBootstrapPassword } from '@/lib/owner-config'
 
 export { SEED_EMAIL }
 
@@ -24,7 +24,7 @@ export function ensureSeedUser(): Promise<void> {
       try {
         const existing = await db.user.findUnique({ where: { email: SEED_EMAIL } })
         if (existing) return
-        const configuredPassword = process.env.OWNER_BOOTSTRAP_PASSWORD?.trim()
+        const configuredPassword = getOwnerBootstrapPassword()
         if (!configuredPassword) return
         const passwordHash = await hashPassword(configuredPassword)
         await db.user.create({ data: { email: SEED_EMAIL, passwordHash, name: 'Agent007 Operator' } })
@@ -34,20 +34,6 @@ export function ensureSeedUser(): Promise<void> {
     })()
   }
   return seedPromise
-}
-
-export async function resetPassword(email: string, newPassword: string): Promise<boolean> {
-  try {
-    const normalized = email.trim().toLowerCase()
-    const user = await db.user.findUnique({ where: { email: normalized } })
-    if (!user) return false
-    const passwordHash = await hashPassword(newPassword)
-    await db.user.update({ where: { id: user.id }, data: { passwordHash } })
-    return true
-  } catch (e) {
-    console.error('[auth] resetPassword failed:', e)
-    return false
-  }
 }
 
 const PASSWORD_RESET_KEY_PREFIX = 'password_reset:'
