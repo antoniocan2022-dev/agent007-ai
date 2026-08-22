@@ -57,6 +57,10 @@ describe("release architecture invariants", () => {
     expect(content).toContain("environment production");
     expect(content).toContain("--level error");
 
+    // A push must deploy the exact commit that triggered the run. Manual
+    // releases intentionally resolve the current main branch instead.
+    expect(content).toContain("ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}");
+
     // The release controller must not silently fall back to a scheduled
     // deployment path. Continuous monitoring belongs to a separate read-only
     // workflow, while this workflow owns actual production releases.
