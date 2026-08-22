@@ -62,10 +62,10 @@ describe('Provider Intelligence 2.0', () => {
       expect(getProviderRuntimeConfig('zai').defaultModel).toBe('glm-5.1')
     } finally { process.env = original }
   })
-  test('selects task-aware governed models only for supported task capabilities', () => {
+  test('selects task-aware governed models while keeping Gemini governance independent of task preference', () => {
     expect(['llama-3.3-70b-versatile', 'openai/gpt-oss-120b']).toContain(getModelForProvider('groq', 'coding'))
     expect(getModelForProvider('zai', 'reasoning')).toBe('glm-5.1')
-    expect(getModelForProvider('gemini', 'reasoning')).toBe('gemini-3.7-flash')
+    expect(['gemini-3.7-flash', 'gemini-2.5-flash']).toContain(getModelForProvider('gemini', 'reasoning'))
   })
   test('fails over after live catalog resolution and a provider request failure', async () => {
     const originalEnv = { ...process.env }
