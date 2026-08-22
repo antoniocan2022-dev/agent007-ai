@@ -33,9 +33,10 @@ describe('provider live-model contract', () => {
     }
   })
 
-  it('validates model overrides against the live catalog before using them', () => {
-    expect(runtimeSource).toContain('if (configuredOverride && ids.includes(configuredOverride))')
-    expect(runtimeSource).toContain('const candidateOrder = [governedPreferred, config.defaultModel')
-    expect(runtimeSource).not.toContain('const candidateOrder = configuredOverride')
+  it('never lets mutable model env vars override the governed model matrix', () => {
+    expect(runtimeSource).not.toContain('if (configuredOverride && ids.includes(configuredOverride))')
+    expect(runtimeSource).toContain('const governedCandidates = [governedPreferred, config.defaultModel')
+    expect(runtimeSource).not.toContain('...ids]')
+    expect(runtimeSource).toContain('return governedPreferred')
   })
 })
