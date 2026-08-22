@@ -15,6 +15,7 @@ on:
       - 'tests/provider-control-plane.integration.test.ts'
       - 'tests/provider-live-model-contract.test.ts'
       - 'src/lib/model-intelligence-runtime.test.ts'
+      - 'scripts/provider-control-plane-audit.ts'
       - '.github/workflows/provider-control-plane-ci.yml'
 
 permissions:
@@ -39,16 +40,11 @@ jobs:
         run: bunx prisma generate
       - name: TypeScript gate
         run: bunx tsc -p tsconfig.ci.json --noEmit
+      - name: Provider control-plane integrity audit
+        run: bun scripts/provider-control-plane-audit.ts
       - name: Provider governance unit and integration matrix
         run: bun test tests/provider-live-model-contract.test.ts src/lib/model-intelligence-runtime.test.ts tests/provider-control-plane.integration.test.ts
       - name: Repository hygiene
         run: |
           git diff --check
           test -z "$(git status --porcelain)"
-      - name: Duplicate provider-source audit
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(grep -RIl "PROVIDER_RUNTIME_CONFIG" src/lib --include='*.ts' | wc -l | tr -d ' ')" -ge 2
-          test "$(grep -RIl "GOVERNED_MODEL_PROFILES" src/lib --include='*.ts' | wc -l | tr -d ' ')" -ge 2
-          ! grep -R "__providerDiscoveryDone\|__agent007ProviderModelCache" src/lib --include='*.ts'
