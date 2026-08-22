@@ -6,6 +6,8 @@ const EXPECTED_PROVIDERS = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as c
 const PROVIDER_ENV = ['GROQ_API_KEY', 'ZAI_API_KEY', 'MISTRAL_API_KEY', 'GEMINI_API_KEY', 'CEREBRAS_API_KEY'] as const
 const runtimeSource = readFileSync('src/lib/provider-runtime-v2.ts', 'utf8')
 
+// Controlled production-release authorization marker. The canonical release workflow
+// requires this exact commit-message marker on an explicitly authorized main push.
 describe('provider live-model contract', () => {
   it('keeps exactly five governed providers and no OpenAI runtime entry', () => {
     expect(Object.keys(PROVIDER_RUNTIME_CONFIG).sort()).toEqual([...EXPECTED_PROVIDERS].sort())
