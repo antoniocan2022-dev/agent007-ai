@@ -1,4 +1,5 @@
 name: First Authorized Production Deploy
+run-name: Controlled production release · ${{ github.sha }}
 
 # Canonical controlled production release path.
 # Automatic Vercel Git deployment remains disabled; only an explicitly authorized
