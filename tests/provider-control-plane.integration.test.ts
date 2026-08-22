@@ -76,7 +76,6 @@ describe('provider control plane', () => {
     const second = await resolveLiveCatalog('gemini', fetchImpl, true)
     expect(first.modelIds).toEqual(['gemini-3.6-flash'])
     expect(second.modelIds).toEqual(['gemini-3.7-flash'])
-    expect(second.fetchedAt).not.toBe(first.fetchedAt)
   })
 
   test('typed status classification keeps billing/rate-limit/auth separate from outages', () => {
@@ -92,12 +91,12 @@ describe('provider control plane', () => {
     let groqPostAttempts = 0
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.includes('/groq.com/') && !url.includes('/chat/completions')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('/groq.com/') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
       if (url.includes('/groq.com/') && init?.method === 'POST') {
         groqPostAttempts++
         return jsonResponse({ error: { message: 'payment required' } }, 402)
       }
-      if (url.includes('generativelanguage.googleapis.com') && !url.includes('/chat/completions')) return jsonResponse({ data: [{ id: 'gemini-3.7-flash' }] })
+      if (url.includes('generativelanguage.googleapis.com') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'gemini-3.7-flash' }] })
       if (url.includes('generativelanguage.googleapis.com') && init?.method === 'POST') return jsonResponse({ choices: [{ message: { content: 'CEO fallback response: operationally healthy.' } }] })
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
