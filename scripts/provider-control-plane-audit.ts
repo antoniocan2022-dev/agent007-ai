@@ -29,16 +29,15 @@ if (runtimeConfigDefs.length !== 1 || runtimeConfigDefs[0] !== 'src/lib/provider
   violations.push(`Expected exactly one canonical PROVIDER_RUNTIME_CONFIG in src/lib/provider-control-plane.ts; found ${runtimeConfigDefs.join(', ') || 'none'}`)
 }
 
-const modelMatrixDefs = contents
-  .filter(([, content]) => governedModelPattern.test(content) || legacyModelPattern.test(content))
-  .map(([path, content]) => `${path}:${governedModelPattern.test(content) ? 'GOVERNED_MODEL_PROFILES' : 'MODEL_PROFILES'}`)
-
-if (!modelMatrixDefs.includes('src/lib/provider-control-plane.ts:GOVERNED_MODEL_PROFILES')) {
-  violations.push('Canonical GOVERNED_MODEL_PROFILES is missing from provider-control-plane.ts')
+const canonicalModelDefs = contents.filter(([, content]) => governedModelPattern.test(content)).map(([path]) => path)
+if (canonicalModelDefs.length !== 1 || canonicalModelDefs[0] !== 'src/lib/provider-control-plane.ts') {
+  violations.push(`Expected exactly one canonical GOVERNED_MODEL_PROFILES in src/lib/provider-control-plane.ts; found ${canonicalModelDefs.join(', ') || 'none'}`)
 }
-for (const entry of modelMatrixDefs) {
-  if (entry !== 'src/lib/provider-control-plane.ts:GOVERNED_MODEL_PROFILES') {
-    violations.push(`Duplicate or legacy provider model matrix found: ${entry}`)
+
+for (const [path, content] of contents) {
+  if (legacyModelPattern.test(content)) {
+    const isApprovedCompatibilityAlias = path === 'src/lib/model-intelligence.ts' && /export const MODEL_PROFILES\s*:\s*readonly GovernedModelProfile\[\]\s*=\s*GOVERNED_MODEL_PROFILES/.test(content)
+    if (!isApprovedCompatibilityAlias) violations.push(`Duplicate or legacy provider model matrix found: ${path}`)
   }
 }
 
