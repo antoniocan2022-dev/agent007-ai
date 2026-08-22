@@ -33,10 +33,13 @@ describe('provider live-model contract', () => {
     }
   })
 
-  it('never lets mutable model env vars override the governed model matrix', () => {
+  it('never lets mutable model env vars or arbitrary request models override the governed live model matrix', () => {
     expect(runtimeSource).not.toContain('if (configuredOverride && ids.includes(configuredOverride))')
     expect(runtimeSource).toContain('const governedCandidates = [governedPreferred, config.defaultModel')
+    expect(runtimeSource).toContain('const requestedIsGoverned = !!requestedModel && governedCandidates.includes(requestedModel)')
+    expect(runtimeSource).toContain('const model = await resolveAccessibleModel(provider, taskType, request.verification, request.model)')
+    expect(runtimeSource).toContain('const candidateOrder = [requestedIsGoverned ? requestedModel! : undefined, ...governedCandidates]')
+    expect(runtimeSource).not.toContain('const model = request.model || await resolveAccessibleModel')
     expect(runtimeSource).not.toContain('...ids]')
-    expect(runtimeSource).toContain('return governedPreferred')
   })
 })
