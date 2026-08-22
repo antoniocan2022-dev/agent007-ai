@@ -5,6 +5,7 @@ const loginSource = readFileSync(new URL('../src/app/login/page.tsx', import.met
 const challengeSource = readFileSync(new URL('../src/app/api/2fa/challenge/route.ts', import.meta.url), 'utf8')
 const verifySource = readFileSync(new URL('../src/app/api/2fa/verify-login/route.ts', import.meta.url), 'utf8')
 const authSource = readFileSync(new URL('../src/lib/auth.ts', import.meta.url), 'utf8')
+const ownerConfigSource = readFileSync(new URL('../src/lib/owner-config.ts', import.meta.url), 'utf8')
 
 describe('authentication hardening', () => {
   test('wrong-password fallback reset is impossible from the login page', () => {
@@ -43,12 +44,15 @@ describe('authentication hardening', () => {
     expect(verifySource).toContain('proofExpiresAt: proof.expiresAt')
   })
 
-  test('runtime auth requires signed proof when 2FA is enabled', () => {
+  test('runtime auth requires signed proof when 2FA is enabled and bootstrap secret access is centralized', () => {
     expect(authSource).not.toContain("twofaVerified = credentials?.twofaVerified")
     expect(authSource).toContain('verifyTwoFactorLoginProof')
     expect(authSource).toContain('twofaProofExpiresAt')
     expect(authSource).toContain('timingSafeEqual')
     expect(authSource).not.toContain('hashPassword(SEED_EMAIL)')
-    expect(authSource).toContain('OWNER_BOOTSTRAP_PASSWORD')
+    expect(authSource).toContain('getOwnerBootstrapPassword')
+    expect(authSource).not.toContain('process.env.OWNER_BOOTSTRAP_PASSWORD')
+    expect(ownerConfigSource).toContain('getOwnerBootstrapPassword')
+    expect(ownerConfigSource).toContain('OWNER_BOOTSTRAP_PASSWORD')
   })
 })
