@@ -69,31 +69,37 @@ function extractModelIds(data: any): string[] {
   return []
 }
 
-async function resolveAccessibleModel(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): Promise<string> {
+async function resolveAccessibleModel(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier, requestedModel?: string): Promise<string> {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   const governedPreferred = governedModelFor(provider, taskType, verification)
+  const governedCandidates = [governedPreferred, config.defaultModel, ...(config.preferredModels ?? [])]
+  const requestedIsGoverned = !!requestedModel && governedCandidates.includes(requestedModel)
   const cached = providerModelCache[provider]
-  if (cached && cached.expiresAt > Date.now()) return cached.model
-  if (!config.modelsUrl) return governedPreferred
+  if (cached && cached.expiresAt > Date.now()) {
+    // A cached model has already passed the live catalog check. Explicit model
+    // requests are still restricted to the governed matrix and never bypass it.
+    return requestedIsGoverned && requestedModel === cached.model ? requestedModel : cached.model
+  }
+  if (!config.modelsUrl) return requestedIsGoverned ? requestedModel! : governedPreferred
   const key = readEnv(config.apiKeyEnv)
-  if (!key) return governedPreferred
+  if (!key) return requestedIsGoverned ? requestedModel! : governedPreferred
   try {
     const response = await fetch(config.modelsUrl, { method: 'GET', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000) })
-    if (!response.ok) return governedPreferred
+    if (!response.ok) return requestedIsGoverned ? requestedModel! : governedPreferred
     const ids = extractModelIds(await response.json())
-    if (!ids.length) return governedPreferred
+    if (!ids.length) return requestedIsGoverned ? requestedModel! : governedPreferred
 
-    // Model environment variables are deliberately advisory only. Never allow
-    // a stale/retired value to override the governed model matrix, even when
-    // the provider's catalog still advertises that obsolete value.
-    const governedCandidates = [governedPreferred, config.defaultModel, ...(config.preferredModels ?? [])]
-    const selected = governedCandidates.find((candidate) => ids.includes(candidate))
+    // Never trust mutable model environment variables or arbitrary request model
+    // values. An explicit model is usable only when it belongs to the governed
+    // model matrix AND is present in the provider's live catalog.
+    const candidateOrder = [requestedIsGoverned ? requestedModel! : undefined, ...governedCandidates].filter((candidate): candidate is string => Boolean(candidate))
+    const selected = candidateOrder.find((candidate) => ids.includes(candidate))
     if (!selected) throw new Error(`${config.label}: no governed model is available in the live provider catalog`)
     providerModelCache[provider] = { model: selected, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }
     return selected
   } catch (error) {
     if (error instanceof Error && /no governed model is available/.test(error.message)) throw error
-    return governedPreferred
+    return requestedIsGoverned ? requestedModel! : governedPreferred
   }
 }
 
@@ -102,7 +108,7 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
   const key = readEnv(config.apiKeyEnv)
   if (!key) throw new Error(`${config.label} is not configured (${config.apiKeyEnv})`)
   const taskType = request.taskType ?? 'general'
-  const model = request.model || await resolveAccessibleModel(provider, taskType, request.verification)
+  const model = await resolveAccessibleModel(provider, taskType, request.verification, request.model)
   const timeoutMs = Math.max(1000, request.timeoutMs ?? 60000)
   const started = Date.now()
   const controller = new AbortController()
