@@ -259,19 +259,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   createConversation: async () => {
-    const id = crypto.randomUUID()
+    let conv: any
     try {
       const res = await fetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, title: 'New Conversation' }),
+        body: JSON.stringify({ title: 'New Conversation' }),
       })
-      if (!res.ok) throw new Error(`Failed to create conversation: ${res.status}`)
-    } catch (e) {
-      console.warn('createConversation failed, using local id', e)
+      const data = await safeJson(res)
+      conv = data.conversation
+    } catch {
+      conv = {
+        id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        title: 'New Conversation',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        _count: { messages: 0 },
+      }
     }
-    set({ currentConversationId: id, messages: [] })
-    return id
+    set((s) => {
+      const newConvs = [conv, ...s.conversations]
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem('agent007_conversations', JSON.stringify(newConvs)) } catch {}
+      }
+      return { conversations: newConvs, currentConversationId: conv.id, messages: [] }
+    })
+    return conv.id
   },
 
   selectConversation: async (id) => {
@@ -280,46 +293,224 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteConversation: async (id) => {
-    try {
-      const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
-    } catch (e) {
-      console.error('deleteConversation', e)
-    }
+    await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
     set((s) => ({
       conversations: s.conversations.filter((c) => c.id !== id),
       currentConversationId: s.currentConversationId === id ? null : s.currentConversationId,
       messages: s.currentConversationId === id ? [] : s.messages,
     }))
-    if (typeof window !== 'undefined') {
-      try { localStorage.removeItem('agent007_messages_' + id) } catch {}
-    }
   },
 
   loadMessages: async (conversationId) => {
     try {
-      const res = await fetch(`/api/conversations/${conversationId}/messages`)
-      if (!res.ok) throw new Error(`Failed to load messages: ${res.status}`)
+      const res = await fetch(`/api/conversations/${conversationId}`)
+      if (!res.ok) {
+        console.warn('[loadMessages] API returned', res.status)
+        set({ messages: [] })
+        return
+      }
       const data = await safeJson(res)
-      set({ messages: data.messages ?? [] })
+      const conv = data.conversation
+      if (!conv || !conv.Message || conv.Message.length === 0) {
+        // UPGRADE #70 — DB is the ONLY source of truth. No localStorage fallback for messages.
+        // Every device sees the SAME messages from Postgres.
+        set({ messages: [] })
+        return
+      }
+      // Reconstruct messages from DB rows: collapse tool/thought rows under the *next* assistant message
+      const rows: any[] = conv.Message ?? []
+      const messages: ChatMessage[] = []
+      let pendingSteps: ToolStep[] = []
+      // Track open dispatches so subsequent subagent rows can be linked.
+      // Map dispatchId → { subagentId, subagentName, subagentColor, subagentIcon, task, stepId }
+      const dispatchMap = new Map<string, any>()
+      let stepCounter = 0
+      for (const r of rows) {
+        if (r.role === 'user') {
+          const atts = r.attachments ? safeParseAttachments(r.attachments) : undefined
+          messages.push({
+            id: r.id,
+            role: 'user',
+            content: r.content,
+            attachments: atts,
+            createdAt: new Date(r.createdAt).getTime(),
+          })
+        } else if (r.role === 'thought') {
+          const subMatch = r.content?.match(/^\[subagent:([^\]]+)\]\s*([\s\S]*)$/)
+          if (subMatch) {
+            const subId = subMatch[1]
+            let parentDispatch: any = null
+            for (const [did, info] of dispatchMap.entries()) {
+              if (info.subagentId === subId) parentDispatch = { did, ...info }
+            }
+            stepCounter++
+            pendingSteps.push({
+              id: r.id,
+              stepNumber: stepCounter,
+              thought: subMatch[2],
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'subagent_thought',
+              dispatchId: parentDispatch?.did,
+              subagentId: subId,
+              subagentName: parentDispatch?.subagentName,
+              subagentColor: parentDispatch?.subagentColor,
+              subagentIcon: parentDispatch?.subagentIcon,
+            })
+          } else {
+            stepCounter++
+            pendingSteps.push({
+              id: r.id,
+              stepNumber: stepCounter,
+              thought: r.content,
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'super_thought',
+            })
+          }
+        } else if (r.role === 'tool') {
+          if (r.toolName === 'subagent_dispatch') {
+            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+            stepCounter++
+            const stepId = `dispatch_${meta.dispatchId ?? r.id}`
+            const stepInfo: any = {
+              subagentId: meta.agentId,
+              subagentName: meta.agentName,
+              subagentColor: meta.color,
+              subagentIcon: meta.icon,
+              task: meta.task,
+            }
+            if (meta.dispatchId) dispatchMap.set(meta.dispatchId, stepInfo)
+            pendingSteps.push({
+              id: stepId,
+              stepNumber: stepCounter,
+              subagentId: meta.agentId,
+              subagentName: meta.agentName,
+              subagentColor: meta.color,
+              subagentIcon: meta.icon,
+              subagentTask: meta.task,
+              dispatchId: meta.dispatchId,
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'subagent_dispatch',
+            })
+          } else if (r.toolName === 'subagent_complete') {
+            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+            const dispatchStep = pendingSteps.find(
+              (st) => st.dispatchId === meta.dispatchId && st.kind === 'subagent_dispatch'
+            )
+            if (dispatchStep) {
+              dispatchStep.subagentAnswer = r.toolResult ?? ''
+              dispatchStep.status = 'done'
+              dispatchStep.finishedAt = new Date(r.createdAt).getTime()
+            }
+          } else if (r.toolName === 'subagent_tool') {
+            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+            const parentDispatch = meta.dispatchId ? dispatchMap.get(meta.dispatchId) : null
+            stepCounter++
+            pendingSteps.push({
+              id: meta.stepId ?? r.id,
+              stepNumber: stepCounter,
+              toolName: meta.tool,
+              toolArgs: meta.args,
+              toolResult: r.toolResult ?? '',
+              toolPreview: (r.toolResult ?? '').slice(0, 160),
+              toolOk: true,
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'subagent_tool',
+              dispatchId: meta.dispatchId,
+              subagentId: parentDispatch?.subagentId ?? meta.agentId,
+              subagentName: parentDispatch?.subagentName,
+              subagentColor: parentDispatch?.subagentColor,
+              subagentIcon: parentDispatch?.subagentIcon,
+            })
+          } else if (r.toolName === 'manage_action') {
+            const meta = r.toolArgs ? safeParseJson(r.toolArgs) : {}
+            stepCounter++
+            pendingSteps.push({
+              id: r.id,
+              stepNumber: stepCounter,
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'manage_action',
+              manageAction: meta.action,
+              manageAttrs: meta.attrs,
+              manageResult: { ok: !/failed|error/i.test(r.toolResult ?? ''), message: r.toolResult ?? '' },
+            })
+          } else {
+            stepCounter++
+            pendingSteps.push({
+              id: r.id,
+              stepNumber: stepCounter,
+              toolName: r.toolName,
+              toolArgs: r.toolArgs ? safeParseJson(r.toolArgs) : undefined,
+              toolResult: r.toolResult ?? '',
+              toolPreview: (r.toolResult ?? '').slice(0, 160),
+              toolOk: true,
+              status: 'done',
+              startedAt: new Date(r.createdAt).getTime(),
+              finishedAt: new Date(r.createdAt).getTime(),
+              kind: 'super_tool',
+            })
+          }
+        } else if (r.role === 'assistant') {
+          messages.push({
+            id: r.id,
+            role: 'assistant',
+            content: r.content,
+            steps: pendingSteps,
+            createdAt: new Date(r.createdAt).getTime(),
+          })
+          pendingSteps = []
+          stepCounter = 0
+          dispatchMap.clear()
+        }
+      }
+      set({ messages })
     } catch (e) {
       console.error('loadMessages', e)
-      // Fallback: localStorage
-      if (typeof window !== 'undefined') {
-        try {
-          const saved = localStorage.getItem('agent007_messages_' + conversationId)
-          if (saved) set({ messages: JSON.parse(saved) })
-        } catch {}
-      }
+      set({ messages: [] })
     }
   },
 
   clearMessages: () => set({ messages: [] }),
 
   setLanguage: (l) => set({ language: l }),
+
   addAttachment: (a) => set((s) => ({ attachments: [...s.attachments, a] })),
-  removeAttachment: (filename) => set((s) => ({ attachments: s.attachments.filter((a) => a.filename !== filename) })),
+  removeAttachment: (filename) =>
+    set((s) => ({ attachments: s.attachments.filter((a) => a.filename !== filename) })),
   clearAttachments: () => set({ attachments: [] }),
+
+  loadMemories: async () => {
+    try {
+      const res = await fetch('/api/memory')
+      const data = await safeJson(res)
+      set({ memories: data.memories ?? [] })
+    } catch (e) {
+      console.error('loadMemories', e)
+    }
+  },
+
+  resetSubagentActivity: () => set({ activeSubagents: [], subagentActivity: {} }),
+
+  loadSubagentCount: async () => {
+    try {
+      const res = await fetch('/api/subagents')
+      const data = await safeJson(res)
+      if (Array.isArray(data.subagents)) {
+        set({ subagentCount: data.subagents.length })
+      }
+    } catch (e) {
+      console.error('loadSubagentCount', e)
+    }
+  },
 
   sendMessage: async (text) => {
     const trimmed = text.trim()
@@ -350,12 +541,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     set((s) => {
       const newMessages = [...s.messages, userMsg, assistantMsg]
-      // UPGRADE #125 — Rec 2C: Skip localStorage write during streaming (debounced to done/error)
-      // Previously wrote to localStorage on EVERY token, causing synchronous blocking
       if (typeof window !== 'undefined') {
         try {
           const convId = s.currentConversationId
-          // Only update conversation title in localStorage (lightweight)
           const saved = localStorage.getItem('agent007_conversations')
           if (saved) {
             const convs = JSON.parse(saved)
@@ -381,9 +569,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const abortFlag = get().abortFlag
     try {
-      // UPGRADE #161: Increased to 180s (server maxDuration is now 300s on Vercel Pro).
-      // Before: 90s timeout (server was 60s). After: 180s gives the agent
-      // enough time to complete complex missions with subagent dispatches.
       const res = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -393,17 +578,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           attachments: userMsg.attachments ?? [],
           language: state.language,
         }),
-        // UPGRADE #169 H2: Bumped from 180_000 → 290_000 to match Vercel Pro
-        // maxDuration=300. The old 180s timeout was shorter than the server's
-        // 300s budget — long missions (200-280s) would abort on the client
-        // while the server was still working. 290s gives 10s buffer for the
-        // final response stream to flush.
         signal: AbortSignal.timeout(290_000),
       })
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => '')
-        // UPGRADE #129: If we got an HTML page (not JSON), it's a server crash
-        // — show a clear message instead of the raw HTML
         if (errText.includes('<!DOCTYPE') || errText.includes('<html')) {
           throw new Error('The server encountered an error. This is usually a temporary database connectivity issue on Vercel. Please wait 10 seconds and try again.')
         }
@@ -413,7 +591,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      // Track which step is "in progress" so we can mark it done
       let currentStepId: string | null = null
 
       while (true) {
@@ -422,7 +599,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (done) break
         buffer += decoder.decode(value, { stream: true })
 
-        // SSE messages separated by \n\n
         let idx: number
         while ((idx = buffer.indexOf('\n\n')) >= 0) {
           const rawEvent = buffer.slice(0, idx)
@@ -433,11 +609,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
             currentStepId = evt.data?.stepId ?? currentStepId
           })
           if (evt.event === 'done' || evt.event === 'error') {
-            // UPGRADE #163: Flush ANY remaining pending tokens before breaking.
-            // The applyEvent('done') handler flushes, but the outer loop also
-            // needs to flush in case the 'done' event and the stream close
-            // arrive in the same chunk (the applyEvent flush might not have
-            // fired yet because React batches state updates).
             if (_pendingTokens) {
               const remaining = _pendingTokens
               _pendingTokens = ''
@@ -452,7 +623,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 }),
               }))
             }
-            // finish
           }
         }
       }
@@ -461,7 +631,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const newMessages = s.messages.map((m) =>
           m.id === assistantId ? { ...m, isStreaming: false } : m
         )
-        // Save messages to localStorage for persistence
         if (typeof window !== 'undefined') {
           try {
             const convId = get().currentConversationId
@@ -474,13 +643,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           messages: newMessages,
           status: 'idle',
           currentTool: null,
-          heartbeat: null, // UPGRADE #63 — clear heartbeat on done
+          heartbeat: null,
           activeSubagents: [],
         }
       })
-      // Refresh conversation list (title may have changed) + memories
       get().loadConversations()
-      // Update conversation title in localStorage
       if (typeof window !== 'undefined') {
         try {
           const convId = get().currentConversationId
@@ -506,11 +673,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().loadMemories()
     } catch (e: any) {
       console.error('sendMessage error', e)
-      // UPGRADE #152: Distinguish timeout from network errors for clearer UX
       let errMsg = e?.message ?? String(e)
       if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
-        // UPGRADE #170 fix: H2 bumped client timeout 180→290s — keep the
-        // error message in sync.
         errMsg = 'The request timed out after 290 seconds. This usually means the LLM providers are slow or the mission is very complex. Click Retry to try again.'
       } else if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html')) {
         errMsg = 'The server encountered an error. This is usually a temporary database connectivity issue. Please wait 10 seconds and try again.'
@@ -553,14 +717,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   retryLastMessage: async () => {
     const state = get()
     if (state.status !== 'idle') return
-    // Find the most recent user message in the current messages list
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')
     if (!lastUser) return
-    // Clear rate-limit flag so the banner hides immediately
     set({ rateLimitedUntil: null })
-    // Put the original attachments back into the store so sendMessage picks
-    // them up. Note: data URLs were stripped at upload time, but textContent
-    // is preserved so text files still work on retry.
     const atts: AttachmentMeta[] = (lastUser.attachments ?? []).map((a) => ({
       filename: a.filename,
       originalName: a.originalName,
@@ -569,8 +728,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       dataUrl: a.dataUrl,
       textContent: a.textContent,
     }))
-    // Drop the last user message + the failed assistant reply that followed
-    // so sendMessage can re-add both cleanly.
     const msgs = state.messages
     const idx = msgs.lastIndexOf(lastUser)
     if (idx >= 0) {
@@ -586,10 +743,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   startAutoRefresh: () => {
     if (typeof window === 'undefined') return
-    // Avoid double-starting
     const _g: any = globalThis as any
     if (_g.__agent007AutoRefreshInterval) return
-    // Initial poll after 3s (lets page stabilize)
     const poll = async () => {
       const state = get()
       if (!state.autoRefreshEnabled) return
@@ -598,20 +753,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (!res.ok) return
         const data = await res.json().catch(() => null)
         if (!data) return
-        // Check refresh signal
         const serverLastRefresh = data.lastRefresh as string | undefined
         if (serverLastRefresh && serverLastRefresh !== state.lastRefreshTs) {
           set({ lastRefreshTs: serverLastRefresh, refreshVersion: state.refreshVersion + 1 })
         }
-        // Check reload signal
         const custom = data.custom ?? {}
         const reloadInfo = custom.__lastReload
         const serverLastReload = reloadInfo?.ts as string | undefined
         if (serverLastReload && serverLastReload !== state.lastReloadTs) {
           set({ lastReloadTs: serverLastReload, reloadVersion: state.reloadVersion + 1 })
-          // Do a full page reload on next tick (let state settle)
           if (state.lastReloadTs !== null) {
-            // Only reload if we've seen a previous value (don't reload on first poll)
             setTimeout(() => {
               if (typeof window !== 'undefined') window.location.reload()
             }, 200)
@@ -621,11 +772,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // Silent — polling failure is OK
       }
     }
-    // UPGRADE #115 — Initial poll after 5s (was 3s, gives page more time to stabilize).
-    // Then poll every 30s (was 15s — owner complained dashboard feels sluggish,
-    // 15s polling was contributing to the constant background network noise).
     setTimeout(poll, 5000)
-    const interval = setInterval(poll, 30000) // poll every 30s (was 15s)
+    const interval = setInterval(poll, 30000)
     _g.__agent007AutoRefreshInterval = interval
   },
 }))
@@ -647,7 +795,6 @@ function safeParseAttachments(s: string): AttachmentMeta[] | undefined {
   return undefined
 }
 
-// UPGRADE #125 — Rec 2A: Token batching buffers (throttle state updates during streaming)
 let _pendingTokens = ''
 let _tokenFlushTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -674,20 +821,13 @@ function applyEvent(
   get: () => ChatState,
   _track: () => void
 ) {
-  // UPGRADE #119 — Handle 'reasoning' event (LLM chain-of-thought)
-  // Store the reasoning on the assistant message so the UI can display it
-  // in a collapsible "Show reasoning" section.
   if (event === 'reasoning') {
     set((s) => ({
       status: 'thinking',
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
-        // Append reasoning (there may be multiple reasoning chunks if the
-        // agent does multiple iterations — concatenate them)
         const existingReasoning = m.reasoning || ''
-        const newReasoning = existingReasoning
-          ? `${existingReasoning}\n\n${data.content}`
-          : data.content
+        const newReasoning = existingReasoning ? `${existingReasoning}\n\n${data.content}` : data.content
         return { ...m, reasoning: newReasoning }
       }),
     }))
@@ -699,17 +839,8 @@ function applyEvent(
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
         const steps = [...(m.steps ?? [])]
-        // create a "thinking-only" step so users see the reasoning
         const stepId = `thought_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        steps.push({
-          id: stepId,
-          stepNumber: steps.length + 1,
-          thought: data.content,
-          status: 'done',
-          startedAt: Date.now(),
-          finishedAt: Date.now(),
-          kind: 'super_thought',
-        })
+        steps.push({ id: stepId, stepNumber: steps.length + 1, thought: data.content, status: 'done', startedAt: Date.now(), finishedAt: Date.now(), kind: 'super_thought' })
         return { ...m, steps }
       }),
     }))
@@ -721,47 +852,19 @@ function applyEvent(
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
         const steps = [...(m.steps ?? [])]
-        steps.push({
-          id: stepId,
-          stepNumber: data.stepNumber ?? steps.length + 1,
-          thought: data.thought,
-          toolName: data.name,
-          toolArgs: data.args,
-          status: 'running',
-          startedAt: Date.now(),
-          kind: 'super_tool',
-        })
+        steps.push({ id: stepId, stepNumber: data.stepNumber ?? steps.length + 1, thought: data.thought, toolName: data.name, toolArgs: data.args, status: 'running', startedAt: Date.now(), kind: 'super_tool' })
         return { ...m, steps }
       }),
     }))
   } else if (event === 'tool_result') {
     const stepId = data.stepId
-    // UPGRADE #124 — Verify tool action (check for real artifact)
-    const verification = data.verified !== undefined ? {
-      verified: data.verified,
-      verificationWarning: data.verificationWarning,
-    } : undefined
+    const verification = data.verified !== undefined ? { verified: data.verified, verificationWarning: data.verificationWarning } : undefined
     set((s) => ({
       status: 'thinking',
       currentTool: null,
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
-        const steps = (m.steps ?? []).map((st): ToolStep =>
-          st.id === stepId
-            ? {
-                ...st,
-                status: data.ok === false ? 'error' : 'done',
-                toolResult: data.result,
-                toolPreview: data.preview,
-                toolOk: data.ok,
-                artifacts: data.artifacts,
-                finishedAt: Date.now(),
-                // UPGRADE #124 — include verification result
-                verified: verification?.verified,
-                verificationWarning: verification?.verificationWarning,
-              }
-            : st
-        )
+        const steps = (m.steps ?? []).map((st): ToolStep => st.id === stepId ? { ...st, status: data.ok === false ? 'error' : 'done', toolResult: data.result, toolPreview: data.preview, toolOk: data.ok, artifacts: data.artifacts, finishedAt: Date.now(), verified: verification?.verified, verificationWarning: verification?.verificationWarning } : st)
         return { ...m, steps }
       }),
     }))
@@ -769,63 +872,25 @@ function applyEvent(
     const dispatchId = data.dispatchId
     const agentId = data.agentId
     set((s) => {
-      const activeSubagents = s.activeSubagents.includes(dispatchId)
-        ? s.activeSubagents
-        : [...s.activeSubagents, dispatchId]
+      const activeSubagents = s.activeSubagents.includes(dispatchId) ? s.activeSubagents : [...s.activeSubagents, dispatchId]
       const subagentActivity = { ...s.subagentActivity, [agentId]: 'working' as const }
-      return {
-        status: 'thinking',
-        activeSubagents,
-        subagentActivity,
-        messages: s.messages.map((m) => {
-          if (m.id !== assistantId) return m
-          const steps = [...(m.steps ?? [])]
-          const stepId = `dispatch_${dispatchId}`
-          steps.push({
-            id: stepId,
-            stepNumber: data.stepNumber ?? steps.length + 1,
-            subagentId: agentId,
-            subagentName: data.agentName,
-            subagentColor: data.color,
-            subagentIcon: data.icon,
-            subagentTask: data.task,
-            dispatchId,
-            status: 'running',
-            startedAt: Date.now(),
-            kind: 'subagent_dispatch',
-          })
-          return { ...m, steps }
-        }),
-      }
+      return { status: 'thinking', activeSubagents, subagentActivity, messages: s.messages.map((m) => {
+        if (m.id !== assistantId) return m
+        const steps = [...(m.steps ?? [])]
+        steps.push({ id: `dispatch_${dispatchId}`, stepNumber: data.stepNumber ?? steps.length + 1, subagentId: agentId, subagentName: data.agentName, subagentColor: data.color, subagentIcon: data.icon, subagentTask: data.task, dispatchId, status: 'running', startedAt: Date.now(), kind: 'subagent_dispatch' })
+        return { ...m, steps }
+      }) }
     })
   } else if (event === 'subagent_thought') {
     const dispatchId = data.dispatchId
-    set((s) => ({
-      messages: s.messages.map((m) => {
-        if (m.id !== assistantId) return m
-        const steps = [...(m.steps ?? [])]
-        // Find the dispatch step for this dispatchId to get sub-agent info
-        const dispatchStep = steps.find(
-          (st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch'
-        )
-        const stepId = `subthought_${dispatchId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        steps.push({
-          id: stepId,
-          stepNumber: steps.length + 1,
-          thought: data.content,
-          status: 'done',
-          startedAt: Date.now(),
-          finishedAt: Date.now(),
-          kind: 'subagent_thought',
-          dispatchId,
-          subagentId: dispatchStep?.subagentId,
-          subagentName: dispatchStep?.subagentName,
-          subagentColor: dispatchStep?.subagentColor,
-          subagentIcon: dispatchStep?.subagentIcon,
-        })
-        return { ...m, steps }
-      }),
-    }))
+    set((s) => ({ messages: s.messages.map((m) => {
+      if (m.id !== assistantId) return m
+      const steps = [...(m.steps ?? [])]
+      const dispatchStep = steps.find((st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch')
+      const stepId = `subthought_${dispatchId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      steps.push({ id: stepId, stepNumber: steps.length + 1, thought: data.content, status: 'done', startedAt: Date.now(), finishedAt: Date.now(), kind: 'subagent_thought', dispatchId, subagentId: dispatchStep?.subagentId, subagentName: dispatchStep?.subagentName, subagentColor: dispatchStep?.subagentColor, subagentIcon: dispatchStep?.subagentIcon })
+      return { ...m, steps }
+    }) }))
   } else if (event === 'subagent_tool_call') {
     const dispatchId = data.dispatchId
     const stepId = data.stepId
@@ -835,320 +900,125 @@ function applyEvent(
       messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
         const steps = [...(m.steps ?? [])]
-        const dispatchStep = steps.find(
-          (st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch'
-        )
-        steps.push({
-          id: stepId,
-          stepNumber: data.stepNumber ?? steps.length + 1,
-          thought: data.thought,
-          toolName: data.name,
-          toolArgs: data.args,
-          status: 'running',
-          startedAt: Date.now(),
-          kind: 'subagent_tool',
-          dispatchId,
-          subagentId: dispatchStep?.subagentId,
-          subagentName: dispatchStep?.subagentName,
-          subagentColor: dispatchStep?.subagentColor,
-          subagentIcon: dispatchStep?.subagentIcon,
-        })
+        const dispatchStep = steps.find((st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch')
+        steps.push({ id: stepId, stepNumber: data.stepNumber ?? steps.length + 1, thought: data.thought, toolName: data.name, toolArgs: data.args, status: 'running', startedAt: Date.now(), kind: 'subagent_tool', dispatchId, subagentId: dispatchStep?.subagentId, subagentName: dispatchStep?.subagentName, subagentColor: dispatchStep?.subagentColor, subagentIcon: dispatchStep?.subagentIcon })
         return { ...m, steps }
       }),
     }))
   } else if (event === 'subagent_tool_result') {
     const stepId = data.stepId
-    set((s) => ({
-      status: 'thinking',
-      currentTool: null,
-      messages: s.messages.map((m) => {
-        if (m.id !== assistantId) return m
-        const steps = (m.steps ?? []).map((st): ToolStep =>
-          st.id === stepId
-            ? {
-                ...st,
-                status: data.ok === false ? 'error' : 'done',
-                toolResult: data.result,
-                toolPreview: data.preview,
-                toolOk: data.ok,
-                artifacts: data.artifacts,
-                finishedAt: Date.now(),
-              }
-            : st
-        )
-        return { ...m, steps }
-      }),
-    }))
+    set((s) => ({ status: 'thinking', currentTool: null, messages: s.messages.map((m) => {
+      if (m.id !== assistantId) return m
+      const steps = (m.steps ?? []).map((st): ToolStep => st.id === stepId ? { ...st, status: data.ok === false ? 'error' : 'done', toolResult: data.result, toolPreview: data.preview, toolOk: data.ok, artifacts: data.artifacts, finishedAt: Date.now() } : st)
+      return { ...m, steps }
+    }) }))
   } else if (event === 'subagent_complete') {
     const dispatchId = data.dispatchId
     set((s) => {
       const activeSubagents = s.activeSubagents.filter((id) => id !== dispatchId)
-      // Mark the sub-agent activity as done (find which agent this dispatchId was for)
       const messages = s.messages.map((m) => {
         if (m.id !== assistantId) return m
-        const steps = (m.steps ?? []).map((st): ToolStep => {
-          if (st.dispatchId === dispatchId && st.kind === 'subagent_dispatch') {
-            const subagentActivity = { ...s.subagentActivity }
-            if (st.subagentId) subagentActivity[st.subagentId] = 'done'
-            // Update via the outer set below (this closure can't return both)
-            return {
-              ...st,
-              status: 'done' as const,
-              subagentAnswer: data.answer,
-              finishedAt: Date.now(),
-            }
-          }
-          return st
-        })
+        const steps = (m.steps ?? []).map((st): ToolStep => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch' ? { ...st, status: 'done' as const, subagentAnswer: data.answer, finishedAt: Date.now() } : st)
         return { ...m, steps }
       })
-      // Determine subagent id for activity update
       let agentId: string | undefined
       for (const m of s.messages) {
         if (m.id !== assistantId) continue
-        const ds = (m.steps ?? []).find(
-          (st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch'
-        )
-        if (ds?.subagentId) {
-          agentId = ds.subagentId
-          break
-        }
+        const ds = (m.steps ?? []).find((st) => st.dispatchId === dispatchId && st.kind === 'subagent_dispatch')
+        if (ds?.subagentId) { agentId = ds.subagentId; break }
       }
       const subagentActivity = { ...s.subagentActivity }
       if (agentId) subagentActivity[agentId] = 'done'
       return { activeSubagents, subagentActivity, messages }
     })
   } else if (event === 'synthesis') {
-    set((s) => ({
-      status: 'streaming',
-      messages: s.messages.map((m) => {
-        if (m.id !== assistantId) return m
-        const steps = [...(m.steps ?? [])]
-        // Push a "synthesizing" marker step (only if not already present)
-        const hasSynth = steps.some((st) => st.kind === ('super_thought' as any) && st.thought === '__synthesizing__')
-        if (!hasSynth) {
-          steps.push({
-            id: `synth_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            stepNumber: steps.length + 1,
-            thought: '__synthesizing__',
-            status: 'thinking',
-            startedAt: Date.now(),
-            kind: 'super_thought',
-          })
-        }
-        return { ...m, steps }
-      }),
-    }))
+    set((s) => ({ status: 'streaming', messages: s.messages.map((m) => {
+      if (m.id !== assistantId) return m
+      const steps = [...(m.steps ?? [])]
+      const hasSynth = steps.some((st) => st.kind === ('super_thought' as any) && st.thought === '__synthesizing__')
+      if (!hasSynth) steps.push({ id: `synth_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, stepNumber: steps.length + 1, thought: '__synthesizing__', status: 'thinking', startedAt: Date.now(), kind: 'super_thought' })
+      return { ...m, steps }
+    }) }))
   } else if (event === 'token') {
-    // UPGRADE #125 — Rec 2A: Batch token updates (throttle to 100ms)
-    // Instead of updating state on EVERY token (which causes re-renders 100+ times/sec),
-    // accumulate tokens in a buffer and flush to state every 100ms.
     _pendingTokens += (data.content ?? '')
     if (!_tokenFlushTimer) {
       _tokenFlushTimer = setTimeout(() => {
         const tokensToAdd = _pendingTokens
         _pendingTokens = ''
         _tokenFlushTimer = null
-        if (tokensToAdd) {
-          set((s) => ({
-            status: 'streaming',
-            messages: s.messages.map((m) => {
-              if (m.id !== assistantId) return m
-              const steps = (m.steps ?? []).filter(
-                (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
-              )
-              return { ...m, content: m.content + tokensToAdd, steps }
-            }),
-          }))
-        }
+        if (tokensToAdd) set((s) => ({ status: 'streaming', messages: s.messages.map((m) => {
+          if (m.id !== assistantId) return m
+          const steps = (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__'))
+          return { ...m, content: m.content + tokensToAdd, steps }
+        }) }))
       }, 100)
     }
   } else if (event === 'answer') {
-    // Adaptive fast-lane responses arrive as a single `answer` SSE event rather
-    // than a stream of `token` events. Older clients ignored this event, leaving
-    // the assistant bubble blank even though the server had generated and
-    // persisted a valid answer. Treat it as the authoritative completed content.
+    // Fast-lane responses are delivered as one authoritative answer event.
+    // The previous client handled only token events, so fast-lane responses
+    // were generated and persisted server-side but rendered as an empty bubble.
     const content = typeof data?.content === 'string' ? data.content : ''
     if (content) {
       _pendingTokens = ''
-      if (_tokenFlushTimer) {
-        clearTimeout(_tokenFlushTimer)
-        _tokenFlushTimer = null
-      }
-      set((s) => ({
-        status: 'streaming',
-        messages: s.messages.map((m) => {
-          if (m.id !== assistantId) return m
-          const steps = (m.steps ?? []).filter(
-            (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
-          )
-          return {
-            ...m,
-            content,
-            steps,
-          }
-        }),
-      }))
+      if (_tokenFlushTimer) { clearTimeout(_tokenFlushTimer); _tokenFlushTimer = null }
+      set((s) => ({ status: 'streaming', messages: s.messages.map((m) => {
+        if (m.id !== assistantId) return m
+        const steps = (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__'))
+        return { ...m, content, steps }
+      }) }))
     }
   } else if (event === 'memory_update') {
-    // Optimistically add/update memory in the right panel
     set((s) => {
       const exists = s.memories.find((m) => m.key === data.key)
-      const item: MemoryItem = {
-        id: exists?.id ?? `tmp_${Date.now()}`,
-        key: data.key,
-        value: data.value,
-        category: data.category ?? 'general',
-        updatedAt: new Date().toISOString(),
-      }
-      const memories = exists
-        ? s.memories.map((m) => (m.key === data.key ? item : m))
-        : [item, ...s.memories]
+      const item: MemoryItem = { id: exists?.id ?? `tmp_${Date.now()}`, key: data.key, value: data.value, category: data.category ?? 'general', updatedAt: new Date().toISOString() }
+      const memories = exists ? s.memories.map((m) => (m.key === data.key ? item : m)) : [item, ...s.memories]
       return { memories }
     })
   } else if (event === 'manage_action') {
-    // Two-phase event: status='running' pushes a new step; status='done'|'error'
-    // updates that step with the result.
     const stepId = data.stepId
     if (data.status === 'running') {
-      set((s) => ({
-        status: 'tool_running',
-        currentTool: `manage:${data.action}`,
-        messages: s.messages.map((m) => {
-          if (m.id !== assistantId) return m
-          const steps = [...(m.steps ?? [])]
-          steps.push({
-            id: stepId,
-            stepNumber: data.stepNumber ?? steps.length + 1,
-            thought: data.thought,
-            status: 'running',
-            startedAt: Date.now(),
-            kind: 'manage_action',
-            manageAction: data.action,
-            manageAttrs: data.attrs,
-          })
-          return { ...m, steps }
-        }),
-      }))
+      set((s) => ({ status: 'tool_running', currentTool: `manage:${data.action}`, messages: s.messages.map((m) => {
+        if (m.id !== assistantId) return m
+        const steps = [...(m.steps ?? [])]
+        steps.push({ id: stepId, stepNumber: data.stepNumber ?? steps.length + 1, thought: data.thought, status: 'running', startedAt: Date.now(), kind: 'manage_action', manageAction: data.action, manageAttrs: data.attrs })
+        return { ...m, steps }
+      }) }))
     } else {
-      // done or error
-      set((s) => ({
-        status: 'thinking',
-        currentTool: null,
-        messages: s.messages.map((m) => {
-          if (m.id !== assistantId) return m
-          const steps = (m.steps ?? []).map((st): ToolStep =>
-            st.id === stepId
-              ? {
-                  ...st,
-                  status: data.status === 'error' ? 'error' : 'done',
-                  manageResult: data.result,
-                  finishedAt: Date.now(),
-                }
-              : st
-          )
-          return { ...m, steps }
-        }),
-      }))
+      set((s) => ({ status: 'thinking', currentTool: null, messages: s.messages.map((m) => {
+        if (m.id !== assistantId) return m
+        const steps = (m.steps ?? []).map((st): ToolStep => st.id === stepId ? { ...st, status: data.status === 'error' ? 'error' : 'done', manageResult: data.result, finishedAt: Date.now() } : st)
+        return { ...m, steps }
+      }) }))
     }
   } else if (event === 'subagents_updated') {
-    // The orchestrator created/edited/deleted/toggled a sub-agent. Bump the
-    // version so any mounted Sub-Agents panel re-fetches the list. Also
-    // refresh memories + conversations (cheap) so the rest of the UI is fresh.
     set((s) => ({ subagentsVersion: s.subagentsVersion + 1 }))
   } else if (event === 'heartbeat') {
-    // UPGRADE #63 — Update heartbeat state so the dashboard shows real-time progress
     set((s) => ({ heartbeat: data }))
   } else if (event === 'error') {
-    // UPGRADE #128: Flush any pending tokens BEFORE showing the error
-    // (UPGRADE #125 token batching could swallow content if error arrives
-    // before the 100ms flush timer fires)
     const pendingContent = _pendingTokens
     _pendingTokens = ''
-    if (_tokenFlushTimer) {
-      clearTimeout(_tokenFlushTimer)
-      _tokenFlushTimer = null
-    }
-
+    if (_tokenFlushTimer) { clearTimeout(_tokenFlushTimer); _tokenFlushTimer = null }
     const msg: string = (data?.message ?? '').toString()
-    // UPGRADE #131: Fixed regex — was matching "rate limit" in ALL error messages
-    // because the error text from agent.ts says "Rate limit reached on all active providers"
-    // even when the actual cause is a DB failure or network timeout.
-    // NOW: only treat as rate limit if the message explicitly says "rate-limiting" (with hyphen)
-    // or contains "429" or "too many requests" — NOT the generic "rate limit" phrase.
-    // UPGRADE #131: Stop detecting rate limits from message text entirely.
-    // The error message from friendlyLlmError() was containing trigger words
-    // that the regex was matching — creating a circular reference where the
-    // fix caused the bug. NOW: only show the rate-limit banner if the server
-    // explicitly sends { rateLimited: true } in the error data.
     const isRateLimit = data?.rateLimited === true
     const isDBError = /database|prisma|Can't reach|connection|ECONNREFUSED|ETIMEDOUT/i.test(msg)
     const isNetworkError = /fetch failed|network|timeout|ECONNRESET|socket hang up|aborted/i.test(msg)
-
-    // UPGRADE #149 — Use the friendly message from friendlyLlmError() directly.
-    // Before: the chat-store OVERWROTE the detailed server message with a generic
-    // "A provider is at capacity" banner. This hid the failure breakdown that
-    // the new callLlmWithRetry produces (which provider 429'd, which had a
-    // network error, etc.). After: if the server sent a message, show it
-    // verbatim — it already contains the actionable diagnostic info.
     let userMessage = data.message ?? 'unknown error'
-    if (isDBError && !data.message) {
-      userMessage = '⚠️ The database is temporarily unreachable (Vercel cold start). Please wait 10 seconds and click Retry below.'
-    } else if (isNetworkError && !data.message) {
-      userMessage = '⚠️ Network error — a provider was temporarily unreachable. Please click Retry below.'
-    } else if (isRateLimit && !data.message) {
-      // Only use the generic message if the server didn't send one
-      userMessage = '⏳ A provider is at capacity. Please wait 30 seconds and click Retry below.'
-    } else if (!data.message) {
-      // Generic error — show the actual error text
-      userMessage = `⚠️ ${msg.slice(0, 300)}\n\nThis may be a temporary issue. Click Retry below to try again.`
-    }
-    // If data.message exists, we keep it as-is (it has the full breakdown)
-
+    if (isDBError && !data.message) userMessage = '⚠️ The database is temporarily unreachable (Vercel cold start). Please wait 10 seconds and click Retry below.'
+    else if (isNetworkError && !data.message) userMessage = '⚠️ Network error — a provider was temporarily unreachable. Please click Retry below.'
+    else if (isRateLimit && !data.message) userMessage = '⏳ A provider is at capacity. Please wait 30 seconds and click Retry below.'
+    else if (!data.message) userMessage = `⚠️ ${msg.slice(0, 300)}\n\nThis may be a temporary issue. Click Retry below to try again.`
     set((s) => ({
-      messages: s.messages.map((m) =>
-        m.id === assistantId
-          ? {
-              ...m,
-              content:
-                (m.content || '') +
-                (pendingContent ? pendingContent : '') +
-                (m.content || pendingContent ? '\n\n' : '') +
-                `⚠️ **Error:** ${userMessage}`,
-              isStreaming: false,
-            }
-          : m
-      ),
-      status: 'idle',
-      currentTool: null,
-      heartbeat: null,
-      activeSubagents: [],
-      rateLimitedUntil: isRateLimit ? Date.now() + 30_000 : s.rateLimitedUntil,
+      messages: s.messages.map((m) => m.id === assistantId ? { ...m, content: (m.content || '') + (pendingContent ? pendingContent : '') + (m.content || pendingContent ? '\n\n' : '') + `⚠️ **Error:** ${userMessage}`, isStreaming: false } : m),
+      status: 'idle', currentTool: null, heartbeat: null, activeSubagents: [], rateLimitedUntil: isRateLimit ? Date.now() + 30_000 : s.rateLimitedUntil,
     }))
-  }
-  // UPGRADE #154: 'done' event — flush any pending tokens IMMEDIATELY.
-  // Before: the 'done' handler did nothing, relying on the outer loop to
-  // flush tokens. But if the 'done' event and stream close arrived in the
-  // same chunk, the 100ms token flush timer might not fire before the UI
-  // stopped rendering — causing incomplete responses.
-  // After: flush ALL pending tokens synchronously when 'done' arrives.
-  else if (event === 'done') {
+  } else if (event === 'done') {
     const pendingContent = _pendingTokens
     _pendingTokens = ''
-    if (_tokenFlushTimer) {
-      clearTimeout(_tokenFlushTimer)
-      _tokenFlushTimer = null
-    }
-    if (pendingContent) {
-      set((s) => ({
-        messages: s.messages.map((m) => {
-          if (m.id !== assistantId) return m
-          const steps = (m.steps ?? []).filter(
-            (st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')
-          )
-          return { ...m, content: m.content + pendingContent, steps }
-        }),
-      }))
-    }
+    if (_tokenFlushTimer) { clearTimeout(_tokenFlushTimer); _tokenFlushTimer = null }
+    if (pendingContent) set((s) => ({ messages: s.messages.map((m) => {
+      if (m.id !== assistantId) return m
+      const steps = (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__'))
+      return { ...m, content: m.content + pendingContent, steps }
+    }) }))
   }
 }
