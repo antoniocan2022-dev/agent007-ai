@@ -26,6 +26,14 @@ export const OWNER_NAME = process.env.OWNER_NAME || 'Owner'
 export const SEED_EMAIL = process.env.SEED_EMAIL || OWNER_EMAIL
 
 /**
+ * Controlled release-only owner bootstrap secret accessor.
+ * Runtime authentication code must not read this environment variable directly.
+ */
+export function getOwnerBootstrapPassword(): string | undefined {
+  return process.env.OWNER_BOOTSTRAP_PASSWORD?.trim() || undefined
+}
+
+/**
  * Check if a given email belongs to the owner.
  */
 export function isOwnerEmail(email: string | undefined | null): boolean {
