@@ -37,10 +37,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout exact current main commit
+      - name: Checkout exact release commit
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.event_name == 'schedule' && 'main' || github.sha }}
           fetch-depth: 1
 
       - name: Authorize or safely skip scheduled recovery
@@ -83,7 +83,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main || test "$GITHUB_EVENT_NAME" = schedule
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || test "$GITHUB_EVENT_NAME" != schedule
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then test "$(git rev-parse HEAD)" = "$GITHUB_SHA"; fi
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
           jq -e '((.crons // []) | length == 0)' vercel.json >/dev/null
 
