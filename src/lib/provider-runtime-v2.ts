@@ -57,53 +57,19 @@ export interface ProviderRuntimeProbeResult {
 /** OpenAI is intentionally absent: it is disabled by governance and cannot be selected or called. */
 export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, ProviderRuntimeConfig>> = {
   groq: {
-    id: 'groq',
-    label: 'Groq',
-    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
-    apiKeyEnv: 'GROQ_API_KEY',
-    modelEnv: 'GROQ_MODEL',
-    defaultModel: 'llama-3.3-70b-versatile',
-    modelsUrl: 'https://api.groq.com/openai/v1/models',
-    preferredModels: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'],
+    id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions', apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile', modelsUrl: 'https://api.groq.com/openai/v1/models', preferredModels: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'],
   },
   zai: {
-    id: 'zai',
-    label: 'Z.AI',
-    baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions',
-    apiKeyEnv: 'ZAI_API_KEY',
-    modelEnv: 'ZAI_MODEL',
-    defaultModel: 'glm-5.1',
-    preferredModels: ['glm-5.1', 'glm-5', 'glm-4.5-air', 'glm-4.5-flash'],
+    id: 'zai', label: 'Z.AI', baseUrl: 'https://api.z.ai/api/paas/v4/chat/completions', apiKeyEnv: 'ZAI_API_KEY', modelEnv: 'ZAI_MODEL', defaultModel: 'glm-5.1', preferredModels: ['glm-5.1', 'glm-5', 'glm-4.5-air', 'glm-4.5-flash'],
   },
   mistral: {
-    id: 'mistral',
-    label: 'Mistral',
-    baseUrl: 'https://api.mistral.ai/v1/chat/completions',
-    apiKeyEnv: 'MISTRAL_API_KEY',
-    modelEnv: 'MISTRAL_MODEL',
-    defaultModel: 'mistral-large-latest',
-    modelsUrl: 'https://api.mistral.ai/v1/models',
-    preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
+    id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest', modelsUrl: 'https://api.mistral.ai/v1/models', preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
   },
   gemini: {
-    id: 'gemini',
-    label: 'Gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-    apiKeyEnv: 'GEMINI_API_KEY',
-    modelEnv: 'GEMINI_MODEL',
-    defaultModel: 'gemini-3.6-flash',
-    modelsUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
-    preferredModels: ['gemini-3.6-flash'],
+    id: 'gemini', label: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', apiKeyEnv: 'GEMINI_API_KEY', modelEnv: 'GEMINI_MODEL', defaultModel: 'gemini-3.6-flash', modelsUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/models', preferredModels: ['gemini-3.6-flash'],
   },
   cerebras: {
-    id: 'cerebras',
-    label: 'Cerebras',
-    baseUrl: 'https://api.cerebras.ai/v1/chat/completions',
-    apiKeyEnv: 'CEREBRAS_API_KEY',
-    modelEnv: 'CEREBRAS_MODEL',
-    defaultModel: 'gpt-oss-120b',
-    modelsUrl: 'https://api.cerebras.ai/v1/models',
-    preferredModels: ['gpt-oss-120b', 'llama-3.3-70b', 'llama-3.1-70b'],
+    id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b', modelsUrl: 'https://api.cerebras.ai/v1/models', preferredModels: ['gpt-oss-120b', 'llama-3.3-70b', 'llama-3.1-70b'],
   },
 }
 
@@ -141,8 +107,13 @@ function isProviderConfigurationError(status: number): boolean {
   return status === 401 || status === 403
 }
 
+/** Governed model preference; mutable env overrides are validated separately. */
+function governedModelFor(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string {
+  return getModelForProvider(provider, taskType, verification) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel
+}
+
 function modelFor(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string {
-  return getModelForProvider(provider, taskType, verification) || readEnv(PROVIDER_RUNTIME_CONFIG[provider].modelEnv) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel
+  return governedModelFor(provider, taskType, verification)
 }
 
 function extractModelIds(data: any): string[] {
@@ -154,36 +125,53 @@ function extractModelIds(data: any): string[] {
 async function resolveAccessibleModel(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): Promise<string> {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   const configuredOverride = readEnv(config.modelEnv)
-  const preferred = configuredOverride || modelFor(provider, taskType, verification) || config.defaultModel
+  const governedPreferred = governedModelFor(provider, taskType, verification)
   const cached = providerModelCache[provider]
   if (cached && cached.expiresAt > Date.now()) return cached.model
-  if (!config.modelsUrl) return preferred
+
+  // Providers without a model catalog cannot be validated ahead of time. The
+  // completion call remains authoritative for those providers (currently Z.AI).
+  if (!config.modelsUrl) return configuredOverride || governedPreferred
 
   const key = readEnv(config.apiKeyEnv)
-  if (!key) return preferred
+  if (!key) return configuredPreferredOrOverride(configuredOverride, governedPreferred)
+
   try {
     const response = await fetch(config.modelsUrl, {
       method: 'GET',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(5000),
     })
-    if (!response.ok) return preferred
-    const ids = extractModelIds(await response.json())
-    if (!ids.length) return preferred
+    if (!response.ok) return configuredPreferredOrOverride(configuredOverride, governedPreferred)
 
-    // Do not select an arbitrary catalog entry. Prefer the configured model only when
-    // the provider explicitly exposes it; otherwise use the governed preferred list.
-    const candidateOrder = configuredOverride
-      ? [configuredOverride]
-      : [config.defaultModel, ...(config.preferredModels ?? []), ...ids]
+    const ids = extractModelIds(await response.json())
+    if (!ids.length) return configuredPreferredOrOverride(configuredOverride, governedPreferred)
+
+    // A model override is valid only when the provider's live catalog exposes it.
+    // This prevents stale/retired model names and accidental secret values (for
+    // example an API key accidentally stored in *_MODEL) from reaching the API.
+    if (configuredOverride && ids.includes(configuredOverride)) {
+      providerModelCache[provider] = { model: configuredOverride, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }
+      return configuredOverride
+    }
+
+    const candidateOrder = [governedPreferred, config.defaultModel, ...(config.preferredModels ?? []), ...ids]
     const selected = candidateOrder.find((candidate) => ids.includes(candidate))
-    if (!selected) return preferred
+    if (!selected) throw new Error(`${config.label}: no governed model is available in the live provider catalog`)
 
     providerModelCache[provider] = { model: selected, expiresAt: Date.now() + MODEL_CACHE_TTL_MS }
     return selected
-  } catch {
-    return preferred
+  } catch (error) {
+    if (error instanceof Error && /no governed model is available/.test(error.message)) throw error
+    return configuredPreferredOrOverride(configuredOverride, governedPreferred)
   }
+}
+
+function configuredPreferredOrOverride(override: string | undefined, governedPreferred: string): string {
+  // Used only when the provider's model catalog is temporarily unavailable.
+  // Prefer the governed model over a potentially stale override so a transient
+  // catalog outage cannot turn an invalid environment value into the next call.
+  return governedPreferred || override || ''
 }
 
 async function callProvider(provider: ActiveProviderId, request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
@@ -270,7 +258,7 @@ export async function probeProvider(provider: ActiveProviderId, request?: Partia
     const success = /(^|\b)OK(\b|$)/i.test(content)
     return { provider, configured: true, success, model: result.model, responseMs: Date.now() - started, error: success ? undefined : `Unexpected probe response: ${content.slice(0, 120)}` }
   } catch (error) {
-    return { provider, configured: true, success: false, model: providerModelCache[provider]?.model ?? readEnv(config.modelEnv) ?? config.defaultModel, responseMs: null, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }
+    return { provider, configured: true, success: false, model: providerModelCache[provider]?.model ?? governedModelFor(provider, request?.taskType ?? 'operations', request?.verification ?? 'standard'), responseMs: null, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }
   }
 }
 
