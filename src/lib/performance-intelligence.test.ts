@@ -9,7 +9,7 @@ beforeEach(() => {
 
 describe('Performance Intelligence', () => {
   test('starts from governed model priors during cold start', () => {
-    const recommendations = recommendModelsForTask('coding', ['groq', 'openai'])
+    const recommendations = recommendModelsForTask('coding', ['groq', 'cerebras'])
     expect(recommendations.length).toBe(2)
     expect(recommendations.every((item) => item.calls === 0)).toBe(true)
     expect(recommendations.every((item) => item.confidence === 25)).toBe(true)
