@@ -31,7 +31,7 @@ describe('canonical provider selection', () => {
   it('does not advertise retired providers through provider intelligence', () => {
     const summary = getProviderMetadataSummary().toLowerCase()
     expect(summary).toContain('groq')
-    expect(summary).toContain('z.a.i')
+    expect(summary).toContain('z.ai')
     expect(summary).toContain('mistral')
     expect(summary).toContain('gemini')
     expect(summary).toContain('cerebras')

@@ -52,7 +52,7 @@ describe('Canonical runtime architecture', () => {
 
   test('provider governance has one canonical order', () => {
     expect(validateProviderPriority()).toEqual([])
-    expect(getCanonicalProviderTelemetry().providerCount).toBe(4)
+    expect(getCanonicalProviderTelemetry().providerCount).toBe(5)
   })
 
   test('task inference is deterministic for high-risk CEO work', () => {
@@ -64,7 +64,7 @@ describe('Canonical runtime architecture', () => {
   test('system manifest uses the canonical identity and live provider inventory', () => {
     const manifest = getSystemManifest()
     expect(manifest.manifestId).toBe(SYSTEM_MANIFEST_ID)
-    expect(manifest.capabilities.providerCount).toBe(4)
+    expect(manifest.capabilities.providerCount).toBe(5)
     expect(manifest.capabilities.toolCount).toBeGreaterThan(0)
     expect(manifest.organization.specialistCount).toBeGreaterThan(0)
   })

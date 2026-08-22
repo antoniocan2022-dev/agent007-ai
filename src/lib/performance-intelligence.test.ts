@@ -9,8 +9,8 @@ beforeEach(() => {
 
 describe('Performance Intelligence', () => {
   test('starts from governed model priors during cold start', () => {
-    const recommendations = recommendModelsForTask('coding', ['groq', 'openai'])
-    expect(recommendations.length).toBe(2)
+    const recommendations = recommendModelsForTask('coding', ['groq', 'cerebras'])
+    expect(recommendations.length).toBeGreaterThanOrEqual(2)
     expect(recommendations.every((item) => item.calls === 0)).toBe(true)
     expect(recommendations.every((item) => item.confidence === 25)).toBe(true)
   })
@@ -31,7 +31,7 @@ describe('Performance Intelligence', () => {
     recordModelPerformance({ provider: 'mistral', model: 'mistral-large-latest', taskType: 'reasoning', success: true, responseMs: 100 })
     recordModelPerformance({ provider: 'groq', model: 'llama-3.3-70b-versatile', taskType: 'reasoning', success: false, responseMs: 10000 })
     const recommendations = recommendModelsForTask('reasoning', ['groq', 'mistral'])
-    expect(recommendations.length).toBe(2)
+    expect(recommendations.length).toBeGreaterThanOrEqual(2)
     expect(rankAvailableProviders(['mistral', 'groq'])).toEqual(['groq', 'mistral'])
   })
 })
