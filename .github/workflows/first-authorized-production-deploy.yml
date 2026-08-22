@@ -108,7 +108,7 @@ jobs:
           set -euo pipefail
           deployments="$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&target=production&limit=20&teamId=$VERCEL_ORG_ID")"
+            "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&target=production&limit=100&teamId=$VERCEL_ORG_ID")"
           if printf '%s' "$deployments" | jq -e --arg sha "$(git rev-parse HEAD)" 'any(.deployments[]?.meta?.githubCommitSha == $sha)' >/dev/null; then
             echo 'already_deployed=true' >> "$GITHUB_OUTPUT"
             echo "Exact SHA $(git rev-parse HEAD) is already deployed to production; idempotent skip."
