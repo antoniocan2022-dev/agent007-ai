@@ -114,7 +114,10 @@ jobs:
         run: bun test tests/verification-officer.test.ts tests/verification-gate.test.ts
 
       - name: Provider selection integrity
-        run: bun test tests/provider-selection-contract.test.ts
+        run: bun test tests/provider-selection-contract.test.ts tests/provider-live-model-contract.test.ts
+
+      - name: Hugging Face governed runtime
+        run: bun test tests/huggingface-runtime.test.ts
 
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
