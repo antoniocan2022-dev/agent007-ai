@@ -91,8 +91,8 @@ describe('provider control plane', () => {
     let groqPostAttempts = 0
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.includes('/groq.com/') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
-      if (url.includes('/groq.com/') && init?.method === 'POST') {
+      if (url.includes('groq.com') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('groq.com') && init?.method === 'POST') {
         groqPostAttempts++
         return jsonResponse({ error: { message: 'payment required' } }, 402)
       }
