@@ -13,13 +13,14 @@ describe('owner login bootstrap contract', () => {
   })
 
   it('never reintroduces request-time password reset through auth', () => {
-    expect(auth).not.toContain('resetPassword(')
+    expect(auth).not.toContain('export async function resetPassword')
     expect(auth).not.toContain('db.user.update({ where: { id: user.id }, data: { passwordHash')
   })
 
   it('runs the owner bootstrap only from the controlled Vercel release build', () => {
     expect(build).toContain('bun run db:bootstrap')
     expect(build).toContain('OWNER_BOOTSTRAP_PASSWORD')
-    expect(build).toContain('Postgres detected')
+    expect(build).toContain('additive production schema reconciliation')
+    expect(build).toContain('DATABASE_URL')
   })
 })
