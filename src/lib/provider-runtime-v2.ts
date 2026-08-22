@@ -8,6 +8,7 @@ import type { ProviderId, TaskType, VerificationTier } from './subagent-governan
 
 export type { ActiveProviderId }
 export { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders }
+export function getProviderRuntimeConfig(provider: ActiveProviderId) { return PROVIDER_RUNTIME_CONFIG[provider] }
 
 export interface ProviderRuntimeOutcomeEvidence {
   status: OutcomeStatus
