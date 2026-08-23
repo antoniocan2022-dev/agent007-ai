@@ -1,5 +1,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
+import { buildCeoDecisionPlan } from '../src/lib/ceo-cognitive-kernel'
+import { evaluateCeoQuality } from '../src/lib/ceo-response-quality-gate'
+import { buildCeoDegradedResponse } from '../src/lib/ceo-degraded-mode'
 
 const roots = ['src/lib', 'src/app', 'tests']
 const lifecycleModuleNames = new Set([
@@ -7,7 +11,7 @@ const lifecycleModuleNames = new Set([
   'src/lib/ceo-pre-router.ts',
   'src/lib/ceo-cognitive-kernel.ts',
   'src/lib/ceo-execution-plan.ts',
-  'src/lib/ceo-quality-gate.ts',
+  'src/lib/ceo-response-quality-gate.ts',
   'src/lib/ceo-degraded-mode.ts',
   'src/lib/ceo-response-composer.ts',
   'src/lib/ceo-cognitive-lifecycle.ts',
@@ -39,7 +43,7 @@ for (const root of roots) {
 const violations: string[] = []
 const discoveredModules = files.filter((file) => file.startsWith('src/lib/ceo-') && !file.endsWith('.test.ts'))
 const missing = [...lifecycleModuleNames].filter((file) => !discoveredModules.includes(file))
-const unexpected = discoveredModules.filter((file) => !lifecycleModuleNames.has(file) && /^src\/lib\/ceo-(cognitive|pre-router|execution-plan|quality-gate|degraded-mode|response-composer)/.test(file))
+const unexpected = discoveredModules.filter((file) => !lifecycleModuleNames.has(file) && /^src\/lib\/ceo-(cognitive|pre-router|execution-plan|response-quality-gate|degraded-mode|response-composer)/.test(file))
 if (missing.length) violations.push(`Missing canonical CEO lifecycle module(s): ${missing.join(', ')}`)
 if (unexpected.length) violations.push(`Unexpected duplicate lifecycle module(s): ${unexpected.join(', ')}`)
 
@@ -55,19 +59,17 @@ if (!presenter.includes("from './ceo-cognitive-lifecycle'")) violations.push('CE
 if (!lifecycle.includes("from './ceo-pre-router'")) violations.push('Lifecycle bypasses the deterministic pre-router')
 if (!lifecycle.includes('buildCeoDecisionPlan')) violations.push('Lifecycle bypasses the Reasoning Planner')
 if (!lifecycle.includes('buildCeoExecutionPlan')) violations.push('Lifecycle bypasses execution-plan materialization')
-if (!lifecycle.includes('evaluateCeoQuality')) violations.push('Lifecycle bypasses the Quality Gate')
+if (!lifecycle.includes('evaluateCeoQuality')) violations.push('Lifecycle bypasses the Response Quality Gate')
 if (!lifecycle.includes('buildCeoDegradedResponse')) violations.push('Lifecycle has no degraded-mode branch')
 if (!lifecycle.includes('composeCeoResponse')) violations.push('Degraded/normal output bypasses the Response Composer')
 if (!lifecycle.includes('maxEscalations')) violations.push('Escalation loop has no explicit hard ceiling')
 if (!lifecycle.includes('excludeProviders')) violations.push('Independent review has no provider independence control')
 if (!lifecycle.includes('quality.evidenceState')) violations.push('Lifecycle does not propagate canonical evidence state')
+if (!lifecycle.includes('await buildCeoDegradedResponse')) violations.push('Degraded recovery does not execute the internal evidence resolver')
 
 if (!presenter.includes("const generationAuthorized = decisionKernel.decision === 'PROCEED'")) violations.push('CEO presenter does not enforce PROCEED as the generation boundary')
 if (!presenter.includes("if (!generationAuthorized)")) violations.push('CEO HOLD/REJECT path does not short-circuit LLM generation')
 
-// `@/lib/agent` is an intentional compatibility alias to the canonical bridge.
-// This keeps the large orchestrator/tool runtime compatible without retaining
-// the legacy LLM transport at the module boundary.
 if (!tsconfig.includes('"@/lib/agent": ["./src/lib/agent-canonical-bridge"]')) violations.push('tsconfig must alias @/lib/agent to the canonical cognitive bridge')
 if (!orchestrator.includes("from '@/lib/agent'")) violations.push('Orchestrator lost its canonical bridge compatibility import')
 
@@ -85,15 +87,54 @@ for (const file of productionFiles) {
 const healthProbe = read('src/app/api/system/diagnose-llm/route.ts')
 if (!healthProbe.includes('runCanonicalLlm')) violations.push('Canonical health probe lost its explicit runtime probe contract')
 
-// The old agent.ts implementation is retained only as an internal compatibility
-// provider/helper surface. It has no approved direct production caller; the alias
-// above resolves runtime imports to agent-canonical-bridge instead.
 const legacyAgent = read('src/lib/agent.ts')
 if (!legacyAgent.includes('export async function callLlmWithRetry')) violations.push('Expected legacy agent compatibility export is missing; migrate consumers before deleting the module')
+
+// Behavioral invariants: execute the real planner/gate logic, not merely source-text checks.
+const ambiguousMessages = [
+  'Continue this.',
+  'What about the other one instead?',
+  'Also, can you check that again?',
+]
+for (const content of ambiguousMessages) {
+  const preRoute = preRouteCeoRequest([{ role: 'user', content }])
+  const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content }], preRoute })
+  if (preRoute.route !== 'ambiguous') violations.push(`Behavioral invariant failed: expected ambiguous pre-route for ${JSON.stringify(content)}`)
+  if (!['full', 'critical'].includes(plan.path) || plan.reasoningStrategy === 'direct' || plan.maxEscalations < 1) {
+    violations.push(`Behavioral invariant failed: ambiguous request did not enforce a full cognitive floor for ${JSON.stringify(content)}`)
+  }
+}
+
+const weakQuality = evaluateCeoQuality({
+  objective: 'Compare the financial risks and recommended next actions for the two options.',
+  content: 'This generic response contains unrelated prose. '.repeat(15),
+  path: 'full',
+  externalExecutionSucceeded: true,
+})
+if (weakQuality.decision === 'PASS') violations.push('Behavioral invariant failed: weak objective coverage was accepted by the Response Quality Gate')
+
+const unsupportedLiveClaim = evaluateCeoQuality({
+  objective: 'Give me the latest status.',
+  content: 'The latest live verified status is complete and confirmed.',
+  path: 'full',
+  externalExecutionSucceeded: true,
+  evidenceProvided: false,
+})
+if (unsupportedLiveClaim.checks.evidenceDiscipline) violations.push('Behavioral invariant failed: unsupported live/verified claim passed evidence discipline')
+
+const degradedWithMemory = await buildCeoDegradedResponse({
+  objective: 'What should Agent007 do about mission-42?',
+  missionId: 'mission-42',
+  reason: 'All providers unavailable in controlled audit.',
+  recall: async () => [{ key: 'mission-42-priority', value: 'Preserve verified mission evidence before irreversible actions.', category: 'mission', createdAt: Date.now(), score: 90, timesRecalled: 0 }],
+})
+if (degradedWithMemory.evidenceState !== 'MEMORY_ONLY' || !degradedWithMemory.content.includes('Preserve verified mission evidence')) {
+  violations.push('Behavioral invariant failed: degraded mode did not recover internal evidence')
+}
 
 if (violations.length) {
   console.error('CEO cognitive lifecycle audit FAILED')
   for (const violation of violations) console.error(`- ${violation}`)
   process.exit(1)
 }
-console.log(`CEO cognitive lifecycle audit PASSED: ${lifecycleModuleNames.size} canonical lifecycle modules verified across ${files.length} TypeScript files, including application and orchestrator boundaries`)
+console.log(`CEO cognitive lifecycle audit PASSED: ${lifecycleModuleNames.size} canonical lifecycle modules verified, plus behavioral planner/quality/degraded invariants across ${files.length} TypeScript files`)
