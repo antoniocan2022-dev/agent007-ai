@@ -50,12 +50,20 @@ function buildSynthesisPrompt(objective: string, draft: string, review: string):
   }
 }
 
-async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempts: string[], responseMs: number, decisionPlan: ReturnType<typeof buildCeoDecisionPlan>, executionPlan: ReturnType<typeof buildCeoExecutionPlan>): Promise<CognitiveLifecycleResult> {
+async function tryDegraded(
+  request: CeoCognitiveRequest,
+  reason: string,
+  attempts: string[],
+  responseMs: number,
+  decisionPlan: ReturnType<typeof buildCeoDecisionPlan>,
+  executionPlan: ReturnType<typeof buildCeoExecutionPlan>,
+): Promise<CognitiveLifecycleResult> {
   const degraded = buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), reason, contextualEvidence: request.contextualEvidence })
   const quality = {
     decision: 'DEGRADED' as const,
     evidenceState: degraded.evidenceState,
-    checks: { nonEmpty: true, contractValid: true, objectiveCoverage: false, internalConsistency: true },
+    verificationStatus: 'NOT_PERFORMED' as const,
+    checks: { nonEmpty: true, contractValid: true, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true },
     reasons: [reason],
   }
   return {
@@ -79,6 +87,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const startedAt = Date.now()
   const deadline = startedAt + (request.timeoutMs ?? decisionPlan.latencyBudgetMs)
   const selectedVerification: VerificationTier = request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard')
+  const evidenceProvided = Boolean(request.contextualEvidence?.trim())
 
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({
     taskType: request.taskType,
@@ -123,9 +132,6 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
           { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
           buildSynthesisPrompt(objective, primary.content, review.content),
         ],
-        // The review must be independent from the producer. The producer may
-        // synthesize after seeing the independent review, which keeps critical
-        // work viable even when only two governed providers are available.
         excludeProviders: [review.provider],
       })
     }
@@ -133,7 +139,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     const output = final ?? primary
     if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan)
 
-    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review), externalExecutionSucceeded: true })
+    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided })
 
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
@@ -148,7 +154,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
           excludeProviders: lastProvider ? [lastProvider] : [],
         })
         final = escalated
-        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true })
+        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true, evidenceProvided })
         if (quality.decision === 'PASS') break
       } catch {
         break
@@ -161,7 +167,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
     }
 
-    const evidenceState: EvidenceState = quality.decision === 'PASS' ? 'LIVE_VERIFIED' : 'PARTIAL_UNCONFIRMED'
+    const evidenceState: EvidenceState = quality.evidenceState
     return {
       content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }),
       provider: result.provider,
