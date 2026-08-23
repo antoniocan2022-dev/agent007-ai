@@ -12,10 +12,22 @@ async function getBootstrapPassword(existingUser: { passwordHash: string } | nul
     throw new Error(`${BOOTSTRAP_PASSWORD_ENV} must be set when creating the owner account.`)
   }
 
+  // Legacy releases could derive the owner password from SEED_EMAIL. Detect
+  // that state explicitly and require the controlled-release secret to replace
+  // it. This makes the migration deterministic and prevents a predictable
+  // legacy credential from surviving merely because the secret is absent.
+  const isLegacyPassword = existingUser
+    ? await bcrypt.compare(SEED_EMAIL, existingUser.passwordHash)
+    : false
+
+  if (isLegacyPassword && !configuredPassword) {
+    throw new Error(`${BOOTSTRAP_PASSWORD_ENV} must be set to replace the legacy owner password.`)
+  }
+
   // Controlled-release bootstrap is the single place where the owner password
   // may be reconciled from Vercel's OWNER_BOOTSTRAP_PASSWORD secret. Runtime
-  // authentication never mutates passwords. This fixes stale DB credentials
-  // after a secret rotation without creating a request-time reset path.
+  // authentication never mutates passwords. This also supports safe secret
+  // rotation for an already-secured owner account.
   if (configuredPassword) return bcrypt.hash(configuredPassword, 12)
   return null
 }
