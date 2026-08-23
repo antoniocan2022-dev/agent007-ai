@@ -77,6 +77,15 @@ const statements = [
   'ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE',
   'ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_subscriptionId_fkey" FOREIGN KEY ("subscriptionId") REFERENCES "Subscription"("id") ON DELETE SET NULL ON UPDATE CASCADE',
   'ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_transactionId_fkey" FOREIGN KEY ("transactionId") REFERENCES "Transaction"("id") ON DELETE SET NULL ON UPDATE CASCADE',
+  `CREATE TABLE IF NOT EXISTS "CustomerSuccessState" ("id" TEXT PRIMARY KEY,"ventureId" TEXT NOT NULL,"customerId" TEXT NOT NULL,"lifecycle" TEXT NOT NULL DEFAULT 'ONBOARDING',"activationStatus" TEXT NOT NULL DEFAULT 'NOT_STARTED',"riskLevel" TEXT NOT NULL DEFAULT 'UNKNOWN',"healthScore" DOUBLE PRECISION,"satisfactionScore" DOUBLE PRECISION,"lastValueAt" TIMESTAMP(3),"renewalAt" TIMESTAMP(3),"nextBestAction" TEXT,"ownerUserId" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS "CustomerSuccessState_ventureId_customerId_key" ON "CustomerSuccessState" ("ventureId", "customerId")',
+  'CREATE INDEX IF NOT EXISTS "CustomerSuccessState_ventureId_idx" ON "CustomerSuccessState" ("ventureId")',
+  'CREATE INDEX IF NOT EXISTS "CustomerSuccessState_customerId_idx" ON "CustomerSuccessState" ("customerId")',
+  'CREATE INDEX IF NOT EXISTS "CustomerSuccessState_lifecycle_idx" ON "CustomerSuccessState" ("lifecycle")',
+  'CREATE INDEX IF NOT EXISTS "CustomerSuccessState_riskLevel_idx" ON "CustomerSuccessState" ("riskLevel")',
+  'ALTER TABLE "CustomerSuccessState" ADD CONSTRAINT "CustomerSuccessState_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE CASCADE ON UPDATE CASCADE',
+  'ALTER TABLE "CustomerSuccessState" ADD CONSTRAINT "CustomerSuccessState_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE ON UPDATE CASCADE',
+  'ALTER TABLE "CustomerSuccessState" ADD CONSTRAINT "CustomerSuccessState_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE',
 ]
 
 async function main() {
@@ -92,19 +101,19 @@ async function main() {
   }
   const required = await prisma.$queryRaw<Array<{ table_name: string }>>`
     SELECT table_name FROM information_schema.tables WHERE table_schema='public'
-      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice')
+      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState')
   `
   const requiredSet = new Set(required.map(row => row.table_name))
-  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice'].filter(name => !requiredSet.has(name))
+  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState'].filter(name => !requiredSet.has(name))
   if (missingTables.length) throw new Error(`Schema reconciliation incomplete. Missing tables: ${missingTables.join(', ')}`)
   const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN (
       'ExecutionReceipt_missionId_idempotencyKey_key','EvidenceLedger_missionId_idempotencyKey_key','EvidenceLedger_missionId_version_key','EvidenceClaim_ledgerId_claimKey_key',
-      'BusinessUnit_ownerUserId_businessKey_key','BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx','Subscription_ventureId_idx','Invoice_ventureId_idx'
+      'BusinessUnit_ownerUserId_businessKey_key','BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx','Subscription_ventureId_idx','Invoice_ventureId_idx','CustomerSuccessState_ventureId_customerId_key'
     )
   `
-  if (indexes.length !== 14) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/14`)
-  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, commercial links, subscription, and invoice tables/indexes present.')
+  if (indexes.length !== 15) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/15`)
+  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, commercial links, subscription, invoice, and customer-success lifecycle tables/indexes present.')
 }
 
 main().catch((error) => { console.error('Production schema reconciliation failed:', error); process.exitCode = 1 }).finally(async () => { await prisma.$disconnect() })
