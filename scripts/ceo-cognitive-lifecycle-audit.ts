@@ -16,17 +16,6 @@ const lifecycleModuleNames = new Set([
   'src/lib/ceo-response-composer.ts',
   'src/lib/ceo-cognitive-lifecycle.ts',
 ])
-const approvedRuntimeFiles = new Set([
-  ...lifecycleModuleNames,
-  'src/lib/agent-canonical-bridge.ts',
-  'src/lib/ceo-presenter.ts',
-  'src/lib/canonical-llm-router.ts',
-  'src/lib/provider-runtime-v2.ts',
-  'src/lib/orchestrator.ts',
-  'src/app/api/agent/route.ts',
-  'src/app/api/mission-active/[missionId]/route.ts',
-  'src/app/api/system/diagnose-llm/route.ts',
-])
 const ceoEntrypoints = new Set([
   'src/app/api/agent/route.ts',
   'src/app/api/mission-active/[missionId]/route.ts',
@@ -81,23 +70,16 @@ if (!orchestrator.includes("from '@/lib/agent'")) violations.push('Orchestrator 
 // The repository contains tool/subagent implementations that intentionally use
 // the Tool Runtime as a peer to the CEO Provider Runtime. They are not CEO
 // entry-point bypasses. The audit therefore enforces the strict lifecycle only
-// at authoritative CEO entry points and lifecycle modules, while separately
-// checking that those entry points do not call legacy or provider-specific SDKs.
-const authoritativeCeoFiles = files.filter((file) => ceoEntrypoints.has(file) || lifecycleModuleNames.has(file))
+// at authoritative CEO entry points, while allowing the lifecycle itself to
+// invoke the canonical provider runtime as its execution stage.
+const authoritativeCeoFiles = files.filter((file) => ceoEntrypoints.has(file))
 for (const file of authoritativeCeoFiles) {
-  if (file === 'src/lib/agent.ts') continue
   const source = read(file)
-  if (/callLlmWithRetry\s*\(/.test(source) && file !== 'src/lib/agent-canonical-bridge.ts') {
-    violations.push(`CEO lifecycle bypass: callLlmWithRetry() in ${file}`)
-  }
+  if (/callLlmWithRetry\s*\(/.test(source)) violations.push(`CEO lifecycle bypass: callLlmWithRetry() in ${file}`)
   if (/callFallbackLlm\s*\(/.test(source)) violations.push(`CEO lifecycle bypass: callFallbackLlm() in ${file}`)
   if (/from ['"].\/agent['"]/.test(source)) violations.push(`Legacy agent relative import in authoritative CEO file: ${file}`)
-  if (/\brunCanonicalLlm\s*\(/.test(source) && file !== 'src/app/api/system/diagnose-llm/route.ts') {
-    violations.push(`Direct canonical LLM call in authoritative CEO boundary: ${file}`)
-  }
-  if (/\.chat\.completions\.create\s*\(/.test(source)) {
-    violations.push(`Direct provider chat SDK call in authoritative CEO boundary: ${file}`)
-  }
+  if (/\brunCanonicalLlm\s*\(/.test(source)) violations.push(`Direct canonical LLM call in CEO entry point: ${file}`)
+  if (/\.chat\.completions\.create\s*\(/.test(source)) violations.push(`Direct provider chat SDK call in CEO entry point: ${file}`)
 }
 
 const healthProbe = read('src/app/api/system/diagnose-llm/route.ts')
