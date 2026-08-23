@@ -8,8 +8,10 @@ on:
       - 'src/lib/canonical-llm-router.ts'
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/agent-canonical-bridge.ts'
+      - 'src/app/api/mission-active/**/route.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'tsconfig.ceo-lifecycle.json'
       - 'package.json'
       - 'tsconfig.json'
@@ -21,8 +23,10 @@ on:
       - 'src/lib/canonical-llm-router.ts'
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/agent-canonical-bridge.ts'
+      - 'src/app/api/mission-active/**/route.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'tsconfig.ceo-lifecycle.json'
       - 'package.json'
       - 'tsconfig.json'
@@ -58,5 +62,5 @@ jobs:
       - name: Run CEO lifecycle tests
         run: bun test tests/ceo-cognitive-lifecycle.test.ts
 
-      - name: Typecheck CEO lifecycle dependency graph
+      - name: Typecheck CEO lifecycle and application integration graph
         run: bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit
