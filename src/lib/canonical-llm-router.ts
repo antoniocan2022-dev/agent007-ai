@@ -4,6 +4,7 @@ import {
   getConfiguredProviders,
   runGovernedProviderChat,
   type ProviderRuntimeOutcomeEvidence,
+  type ActiveProviderId,
 } from './provider-runtime-v2'
 import { getHealthScore, isCircuitOpen } from './provider-intelligence'
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
@@ -21,6 +22,7 @@ export type CanonicalLlmRequest = {
   maxProviderAttempts?: number
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
   executionClass?: ExecutionClass
+  excludeProviders?: readonly ActiveProviderId[]
 }
 
 export type CanonicalLlmResult = {
@@ -80,6 +82,7 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
     timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs,
     maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts,
     outcomeEvidence: request.outcomeEvidence,
+    excludeProviders: request.excludeProviders,
   })
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
