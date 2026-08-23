@@ -1,0 +1,70 @@
+name: CEO Cognitive Lifecycle CI
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/ceo-*.ts'
+      - 'src/lib/adaptive-execution.ts'
+      - 'src/lib/canonical-llm-router.ts'
+      - 'src/lib/provider-runtime-v2.ts'
+      - 'src/lib/agent-canonical-bridge.ts'
+      - 'src/lib/orchestrator.ts'
+      - 'src/app/api/agent/route.ts'
+      - 'src/app/api/mission-active/**/route.ts'
+      - 'tests/ceo-cognitive-lifecycle.test.ts'
+      - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
+      - 'tsconfig.ceo-lifecycle.json'
+      - 'tsconfig.json'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/ceo-*.ts'
+      - 'src/lib/adaptive-execution.ts'
+      - 'src/lib/canonical-llm-router.ts'
+      - 'src/lib/provider-runtime-v2.ts'
+      - 'src/lib/agent-canonical-bridge.ts'
+      - 'src/lib/orchestrator.ts'
+      - 'src/app/api/agent/route.ts'
+      - 'src/app/api/mission-active/**/route.ts'
+      - 'tests/ceo-cognitive-lifecycle.test.ts'
+      - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
+      - 'tsconfig.ceo-lifecycle.json'
+      - 'tsconfig.json'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run CEO architecture audit
+        run: bun run audit:ceo-lifecycle
+
+      - name: Run CEO lifecycle tests
+        run: bun test tests/ceo-cognitive-lifecycle.test.ts
+
+      - name: Typecheck CEO lifecycle and application integration graph
+        run: bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit

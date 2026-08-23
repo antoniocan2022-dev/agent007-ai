@@ -4,10 +4,13 @@ import {
   getConfiguredProviders,
   runGovernedProviderChat,
   type ProviderRuntimeOutcomeEvidence,
+  type ActiveProviderId,
 } from './provider-runtime-v2'
 import { getHealthScore, isCircuitOpen } from './provider-intelligence'
-import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
+import type { TaskType, VerificationTier } from './subagent-governance'
 import { classifyExecution, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
+
+export type ProviderId = ActiveProviderId
 
 export type CanonicalLlmRequest = {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -21,13 +24,14 @@ export type CanonicalLlmRequest = {
   maxProviderAttempts?: number
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
   executionClass?: ExecutionClass
+  excludeProviders?: readonly ActiveProviderId[]
 }
 
 export type CanonicalLlmResult = {
-  provider: ProviderId
+  provider: ActiveProviderId
   model: string
   content: string
-  attempts: ProviderId[]
+  attempts: ActiveProviderId[]
   responseMs: number
   policy: ProviderTaskPolicy
   executionClass: ExecutionClass
@@ -80,6 +84,7 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
     timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs,
     maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts,
     outcomeEvidence: request.outcomeEvidence,
+    excludeProviders: request.excludeProviders,
   })
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
@@ -106,7 +111,7 @@ export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmReq
 
 export function getCanonicalProviderTelemetry() {
   const configuredSet = new Set(getConfiguredProviders())
-  const providers = (Object.keys(PROVIDER_RUNTIME_CONFIG) as Exclude<ProviderId, 'openai'>[]).map((provider) => {
+  const providers = (Object.keys(PROVIDER_RUNTIME_CONFIG) as ActiveProviderId[]).map((provider) => {
     const configured = configuredSet.has(provider)
     const circuitOpen = isCircuitOpen(provider)
     const healthScore = getHealthScore(provider)

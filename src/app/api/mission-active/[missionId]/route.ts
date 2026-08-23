@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { assertDelegationAllowed, authorityLevelFor } from '@/lib/architecture-control-plane'
 import { getActiveMissionDB, appendLeaderMessageDB, getLeaderForCurrentStageDB } from '@/lib/active-missions-db'
 import { runSubagent, getAllSubagents } from '@/lib/subagents'
+import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -40,9 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
     const leaderInfo = await getLeaderForCurrentStageDB(missionId)
     if (!leaderInfo) return errorResponse('No active leader for this mission')
 
-    // Mission communication follows the same hierarchy as execution:
-    // CEO → VID → current mission leader. The human owner is authenticated
-    // outside this agent hierarchy and cannot forge an agent identity.
     const targetLevel = authorityLevelFor(leaderInfo.leaderId)
     if (targetLevel !== 'LEADER') return errorResponse(`Current mission owner ${leaderInfo.leaderId} is not a registered leader.`)
     assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID' })
@@ -52,12 +50,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
 
     const dispatchPromise = (async () => {
       if (leaderInfo.leaderId === 'ceo' || leaderInfo.leaderName.toLowerCase() === 'ceo') {
-        const { callLlmWithRetry } = await import('@/lib/agent')
-        const response = await callLlmWithRetry([
-          { role: 'system', content: 'You are the CEO of Agent007. Answer the owner about the mission concisely and honestly. Report status, blockers, risks, and decisions without inventing progress.' },
-          { role: 'user', content: `[MISSION ${mission.id}] ${mission.title}\nStage: ${leaderInfo.stage}\nDescription: ${mission.description}\nOwner question: ${message}` },
-        ], { thinking: false })
-        return typeof response === 'string' ? response : response?.content ?? response?.message?.content ?? '[CEO produced no output]'
+        const contextualEvidence = [
+          `Mission ID: ${mission.id}`,
+          `Mission title: ${mission.title}`,
+          `Mission stage: ${leaderInfo.stage}`,
+          `Mission description: ${mission.description}`,
+        ].join('\n')
+        const response = await runCeoCognitiveLifecycle({
+          missionId,
+          contextualEvidence,
+          verification: 'enhanced',
+          messages: [
+            { role: 'system', content: 'You are the CEO of Agent007. Answer the owner about the mission concisely and honestly. Report status, blockers, risks, and decisions without inventing progress.' },
+            { role: 'user', content: `[MISSION ${mission.id}] ${mission.title}\nStage: ${leaderInfo.stage}\nDescription: ${mission.description}\nOwner question: ${message}` },
+          ],
+          timeoutMs: 55000,
+        })
+        return response
       }
 
       const sub = (await getAllSubagents({ includeDisabled: false })).find((candidate: any) => candidate.id === leaderInfo.leaderId)
@@ -67,13 +76,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
       return result.answer || `[${leaderInfo.leaderName} returned no response]`
     })()
 
-    const timeout = new Promise<string>((resolve) => setTimeout(() => resolve(`[${leaderInfo.leaderName} timed out after 45s. The request remains logged and can be retried after LLM provider recovery.]`), 45_000))
-    const leaderResponse = await Promise.race([dispatchPromise, timeout])
-    const isSystemNotice = leaderResponse.includes('timed out after 45s.') || leaderResponse.startsWith('[CEO LLM call failed')
+    const timeout = new Promise<any>((resolve) => setTimeout(() => resolve({ content: `[${leaderInfo.leaderName} timed out after 45s. The request remains logged and can be retried after LLM provider recovery.]`, degraded: true }), 45_000))
+    const leaderResult = await Promise.race([dispatchPromise, timeout])
+    const leaderResponse = typeof leaderResult === 'string' ? leaderResult : leaderResult?.content ?? leaderResult?.answer ?? `[${leaderInfo.leaderName} returned no response]`
+    const isSystemNotice = leaderResponse.includes('timed out after 45s.') || leaderResponse.includes('Evidence state: UNAVAILABLE')
     if (!isSystemNotice) await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)
 
     const updated = await getActiveMissionDB(missionId)
-    return NextResponse.json({ ok: true, mission: updated, leaderResponse, isSystemNotice })
+    return NextResponse.json({
+      ok: true,
+      mission: updated,
+      leaderResponse,
+      isSystemNotice,
+      lifecycle: typeof leaderResult === 'object' && leaderResult ? {
+        decisionPlan: leaderResult.decisionPlan,
+        executionPlan: leaderResult.executionPlan,
+        evidenceState: leaderResult.evidenceState,
+        quality: leaderResult.quality,
+        provider: leaderResult.provider,
+        model: leaderResult.model,
+      } : undefined,
+    })
   } catch (error) {
     return errorResponse(error, 400)
   }

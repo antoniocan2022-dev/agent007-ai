@@ -2,19 +2,13 @@ import { NextRequest } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
-import { runCanonicalLlm } from '@/lib/canonical-llm-router'
-import { classifyExecution, shouldUseFastLane } from '@/lib/adaptive-execution'
+import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-// UPGRADE #161: Increased to 300s — owner confirmed Vercel Pro is active.
 export const maxDuration = 300
-
-const FAST_LANE_SYSTEM_PROMPT = `You are Agent007, the CEO and executive intelligence of a governed AI organization.
-Answer the user's simple request directly, naturally, and accurately.
-Do not claim to have executed tools, changed data, contacted anyone, or verified facts unless those operations actually occurred.
-Use the shortest useful answer while preserving professional judgment and truthfulness.`
 
 function sse(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -46,8 +40,8 @@ export async function POST(req: NextRequest) {
 
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
-  const adaptivePlan = classifyExecution([{ role: 'user', content: message }])
-  const useFastLane = shouldUseFastLane(adaptivePlan, atts.length)
+  const preRoute = preRouteCeoRequest([{ role: 'user', content: message }], atts.length)
+  const resolvedPath = resolvePreRoute(preRoute)
 
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId } })
@@ -70,36 +64,30 @@ export async function POST(req: NextRequest) {
       let closed = false
       const safeEnqueue = (s: string) => {
         if (closed) return
-        try {
-          controller.enqueue(encoder.encode(s))
-        } catch {
-          closed = true
-        }
+        try { controller.enqueue(encoder.encode(s)) } catch { closed = true }
       }
       const emit: OrchestratorEventEmit = async (event: string, data: any) => safeEnqueue(sse(event, data))
       const heartbeat = setInterval(() => safeEnqueue(sse('ping', { ts: Date.now() })), 5000)
 
       beginInteractive()
       try {
-        if (useFastLane) {
+        if (resolvedPath === 'fast') {
           safeEnqueue(sse('progress', {
             phase: 'fast_lane',
-            executionClass: adaptivePlan.executionClass,
-            reason: adaptivePlan.reason,
+            route: preRoute.route,
+            reason: preRoute.reason,
+            taskClass: preRoute.taskClass,
           }))
 
-          const response = await runCanonicalLlm({
+          const response = await runCeoCognitiveLifecycle({
+            attachmentsCount: atts.length,
             messages: [
-              { role: 'system', content: FAST_LANE_SYSTEM_PROMPT },
+              { role: 'system', content: 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.' },
               { role: 'user', content: message },
             ],
-            taskType: 'reasoning',
+            taskType: preRoute.taskClass,
             verification: 'standard',
-            thinking: false,
-            maxTokens: adaptivePlan.maxTokens,
-            timeoutMs: adaptivePlan.timeoutMs,
-            maxProviderAttempts: adaptivePlan.maxProviderAttempts,
-            executionClass: adaptivePlan.executionClass,
+            timeoutMs: 15000,
           })
 
           let persistedAssistantMessageId: string | null = null
@@ -114,22 +102,32 @@ export async function POST(req: NextRequest) {
             content: response.content,
             provider: response.provider,
             model: response.model,
-            executionClass: response.executionClass,
+            executionClass: response.decisionPlan.path,
+            evidenceState: response.evidenceState,
+            quality: response.quality,
             responseMs: response.responseMs,
           }))
           safeEnqueue(sse('done', {
             messageId: persistedAssistantMessageId,
             steps: 1,
-            executionClass: response.executionClass,
+            executionClass: response.decisionPlan.path,
             provider: response.provider,
             model: response.model,
+            evidenceState: response.evidenceState,
           }))
         } else {
+          // The orchestrator is the tool-runtime lane. Its LLM compatibility
+          // import resolves through the canonical bridge, so every model call
+          // still enters the bounded cognitive lifecycle.
           const result = await runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit })
-          safeEnqueue(sse('done', { messageId: result.persistedAssistantMessageId, steps: result.steps.length, executionClass: adaptivePlan.executionClass }))
+          safeEnqueue(sse('done', {
+            messageId: result.persistedAssistantMessageId,
+            steps: result.steps.length,
+            executionClass: preRoute.adaptiveExecutionClass ?? 'standard',
+          }))
         }
       } catch (e: any) {
-        safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: adaptivePlan.executionClass }))
+        safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath }))
       } finally {
         clearInterval(heartbeat)
         endInteractive()

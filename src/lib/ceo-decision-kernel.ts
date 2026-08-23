@@ -26,7 +26,14 @@ export type CeoDecisionKernelResult = {
   nextAction: 'EXECUTE' | 'COLLECT_EVIDENCE' | 'REMEDIATE'
 }
 
-/** Deterministic governance around the LLM CEO. The model cannot override these gates. */
+/**
+ * Mission Governance Gate (legacy export name retained for compatibility).
+ *
+ * This module is NOT the request-level cognitive planner. The planner is
+ * `ceo-cognitive-kernel.ts` and decides how much reasoning/execution a request
+ * warrants. This module is authoritative only for mission evidence, artifact,
+ * verification, and protected-action governance.
+ */
 export function evaluateCeoDecision(input: CeoDecisionKernelInput): CeoDecisionKernelResult {
   const evidencePass = input.evidenceCount > 0 && (input.criticalConflictCount ?? 0) === 0
   const artifactPass = input.artifactGatePassed
@@ -66,3 +73,6 @@ export function evaluateCeoDecision(input: CeoDecisionKernelInput): CeoDecisionK
     nextAction: hardFailure ? 'REMEDIATE' : 'COLLECT_EVIDENCE',
   }
 }
+
+/** Explicit semantic name for new code; `evaluateCeoDecision` remains the compatibility export. */
+export const evaluateCeoMissionGovernance = evaluateCeoDecision

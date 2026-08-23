@@ -20,9 +20,9 @@ function walk(dir: string): string[] {
   return files
 }
 
-// Audited pre-existing compatibility modules. These are retained as an
-// explicit migration boundary until their legacy transport dependencies are
-// replaced by runCanonicalLlm without changing their public behavior.
+// Audited pre-existing compatibility modules. These remain explicit migration
+// boundaries for legacy callers; the CEO entry bridge itself must use the full
+// cognitive lifecycle before reaching the canonical provider runtime.
 const LEGACY_COMPATIBILITY_FILES = new Set([
   'lib/multi-provider-comparison.ts', 'lib/leader-debate.ts', 'lib/super-agent-verifier.ts', 'lib/mission-os.ts',
   'lib/orchestrator.ts', 'lib/predicted-iq.ts', 'lib/business-portfolio.ts', 'lib/self-healing-engine.ts',
@@ -33,9 +33,10 @@ const LEGACY_COMPATIBILITY_FILES = new Set([
 ])
 
 describe('Canonical runtime architecture', () => {
-  test('the @/lib/agent import resolves through the governed bridge', () => {
+  test('the @/lib/agent import resolves through the CEO cognitive lifecycle bridge', () => {
     expect(tsconfig.compilerOptions.paths['@/lib/agent']).toEqual(['./src/lib/agent-canonical-bridge'])
-    expect(bridge).toContain('runCanonicalLlm')
+    expect(bridge).toContain('runCeoCognitiveLifecycle')
+    expect(bridge).not.toContain("from './canonical-llm-router'")
     expect(bridge).toContain("export * from './agent'")
     expect(typeof callLlmWithRetry).toBe('function')
   })

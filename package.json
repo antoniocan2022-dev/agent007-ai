@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "audit:deep": "bun scripts/deep-integrity-audit.ts",
     "audit:coherence": "bun scripts/repository-coherence-audit.ts",
+    "audit:ceo-lifecycle": "bun scripts/ceo-cognitive-lifecycle-audit.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:reconcile": "bun src/lib/reconcile-production-schema.ts",

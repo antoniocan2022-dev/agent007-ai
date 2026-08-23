@@ -4,7 +4,7 @@ import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderErr
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
 import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
-import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
+import type { TaskType, VerificationTier } from './subagent-governance'
 
 export type { ActiveProviderId }
 export { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders }
@@ -27,6 +27,7 @@ export interface ProviderRuntimeRequest {
   timeoutMs?: number
   maxProviderAttempts?: number
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
+  excludeProviders?: readonly ActiveProviderId[]
 }
 
 export interface ProviderRuntimeResult { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number }
@@ -155,11 +156,12 @@ export async function probeAllConfiguredProviders(): Promise<ProviderRuntimeProb
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const taskType = request.taskType ?? 'general'
   const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification)
-  const configured = getConfiguredProviders()
+  const excluded = new Set(request.excludeProviders ?? [])
+  const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider))
   const available = rankAvailableProviders(configured).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]
   const candidates = rankCandidates(available, taskType, request.verification)
   const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
-  if (candidates.length === 0) throw new Error(`No governed providers configured and healthy. Required priority: ${policy.providerOrder.join(' → ')}`)
+  if (candidates.length === 0) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
 
   const attempts: ActiveProviderId[] = []
   const failures: string[] = []

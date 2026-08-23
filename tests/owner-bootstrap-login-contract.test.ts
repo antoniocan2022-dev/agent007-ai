@@ -17,10 +17,15 @@ describe('owner login bootstrap contract', () => {
     expect(auth).not.toContain('db.user.update({ where: { id: user.id }, data: { passwordHash')
   })
 
-  it('runs the owner bootstrap only from the controlled Vercel release build', () => {
+  it('runs owner bootstrap only after the controlled build contract', () => {
     expect(build).toContain('bun run db:bootstrap')
     expect(build).toContain('OWNER_BOOTSTRAP_PASSWORD')
-    expect(build).toContain('additive production schema reconciliation')
+    expect(build).toContain('AGENT007_RELEASE_SCHEMA_RECONCILE=1')
     expect(build).toContain('DATABASE_URL')
+
+    const buildIndex = build.indexOf('bun run build')
+    const bootstrapIndex = build.indexOf('bun run db:bootstrap')
+    expect(buildIndex).toBeGreaterThanOrEqual(0)
+    expect(bootstrapIndex).toBeGreaterThan(buildIndex)
   })
 })
