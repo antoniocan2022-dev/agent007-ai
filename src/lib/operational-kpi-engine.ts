@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { db } from './db'
 import { listActiveMissionsDB } from './active-missions-db'
 import { evaluateVentureReadiness } from './venture-autonomy-control'
+import { getVenture, getVentureCommercialSnapshot, type VentureCommercialSnapshot } from './venture-commercial-foundation'
 
 export interface OperationalKpiSnapshot {
   snapshotId: string
@@ -16,6 +17,7 @@ export interface OperationalKpiSnapshot {
   readiness: { status: string; score: number; threshold: number; missingEvidence: string[] }
   autonomy: { mode: string; leaseHealthy: boolean; heartbeatAt: string | null; expiresAt: string | null }
   controlHealth: { artifactGateRate: number; syntheticRevenueDetected: boolean }
+  relationalCommercial?: VentureCommercialSnapshot
 }
 
 function stableId(...parts: string[]) { return `kpi_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}` }
@@ -32,7 +34,6 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
     const durable = await listActiveMissionsDB()
     missions = durable.map((mission) => mission as unknown as Record<string, any>).filter((m) => !m.ventureId || m.ventureId === ventureId)
   } catch {
-    // If durable mission state is unavailable, do not substitute synthetic seeds.
     missions = rows.filter((r) => r.category === 'venture_mission').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v && (!v.ventureId || v.ventureId === ventureId))
   }
 
@@ -44,18 +45,15 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const failed = missions.filter((m) => m.currentStage === 'FAILED').length
   const blocked = missions.filter((m) => m.currentStage === 'BLOCKED' || m.chain?.some((c: any) => c.status === 'blocked')).length
   const terminal = completed + failed
-
   const produced = artifacts.filter((a) => ['PRODUCED', 'VERIFIED', 'REJECTED', 'SUPERSEDED'].includes(String(a.status))).length
   const verified = artifacts.filter((a) => a.status === 'VERIFIED').length
   const rejected = artifacts.filter((a) => a.status === 'REJECTED').length
-
   const lifecycle = workflows.map((w) => String(w.output?.lifecycleState ?? w.input?.state ?? 'PROSPECT'))
   const totalOrders = lifecycle.length
   const paidOrders = lifecycle.filter((s) => ['PAID', 'FULFILLMENT', 'FULFILLED', 'REFUND_PENDING', 'REFUNDED'].includes(s)).length
   const fulfilledOrders = lifecycle.filter((s) => s === 'FULFILLED').length
   const refundedOrders = lifecycle.filter((s) => s === 'REFUNDED').length
   const failedOrders = lifecycle.filter((s) => s === 'FAILED').length
-
   const transactions = outcomes.filter((o) => o.type === 'TRANSACTION')
   const refunds = outcomes.filter((o) => o.type === 'REFUND')
   const customersAcquired = outcomes.filter((o) => o.type === 'CUSTOMER_ACQUIRED').length
@@ -70,18 +68,28 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const leaseHealthy = !!lease && Date.parse(String(lease.expiresAt ?? '')) > Date.now() && lease.mode !== 'PAUSED'
   const syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
 
+  const relationalVenture = await getVenture(ventureId)
+  const relationalCommercial = relationalVenture ? await getVentureCommercialSnapshot(ventureId) : undefined
+  const effectiveTransactionCount = relationalCommercial?.transactions ?? transactions.length
+  const effectiveGrossRevenue = relationalCommercial?.grossTransactionRevenue ?? grossRevenue
+  const effectiveRefundAmount = refundAmount
+
   return {
-    snapshotId: stableId(ventureId, String(windowHours), new Date().toISOString()), ventureId, generatedAt: new Date().toISOString(), windowHours,
+    snapshotId: stableId(ventureId, String(windowHours), new Date().toISOString()),
+    ventureId,
+    generatedAt: new Date().toISOString(),
+    windowHours,
     missions: { total: missions.length, completed, failed, blocked, completionRate: terminal ? Number(((completed / terminal) * 100).toFixed(2)) : 0 },
     artifacts: { produced, verified, rejected, verificationRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 0 },
     commercial: { totalOrders, paidOrders, fulfilledOrders, refundedOrders, failedOrders, conversionRate: totalOrders ? Number(((paidOrders / totalOrders) * 100).toFixed(2)) : 0, fulfillmentRate: paidOrders ? Number(((fulfilledOrders / paidOrders) * 100).toFixed(2)) : 0 },
-    outcomes: { transactions: transactions.length, customersAcquired, grossRevenue: Number(grossRevenue.toFixed(2)), refunds: Number(refundAmount.toFixed(2)), netRevenue: Number((grossRevenue - refundAmount).toFixed(2)), currency: transactions.find((o) => o.currency)?.currency ?? null },
+    outcomes: { transactions: effectiveTransactionCount, customersAcquired: relationalCommercial?.customers ?? customersAcquired, grossRevenue: Number(effectiveGrossRevenue.toFixed(2)), refunds: Number(effectiveRefundAmount.toFixed(2)), netRevenue: Number((effectiveGrossRevenue - effectiveRefundAmount).toFixed(2)), currency: transactions.find((o) => o.currency)?.currency ?? null },
     readiness: { status: readiness.status, score: readiness.score, threshold: readiness.threshold, missingEvidence: [...readiness.missingEvidence] },
     autonomy: { mode: String(lease?.mode ?? 'PAUSED'), leaseHealthy, heartbeatAt: lease?.heartbeatAt ?? null, expiresAt: lease?.expiresAt ?? null },
     controlHealth: { artifactGateRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 100, syntheticRevenueDetected },
+    relationalCommercial,
   }
 }
 
 export async function persistOperationalKpiSnapshot(snapshot: OperationalKpiSnapshot): Promise<void> {
-  await db.memory.upsert({ where: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}` }, update: { value: JSON.stringify(snapshot), category: 'operational_kpi_snapshot' }, create: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}`, value: JSON.stringify(snapshot), category: 'operational_kpi_snapshot' } })
+  await db.memory.upsert({ where: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}` }, update: { value: JSON.stringify(snapshot), category: 'operational_kpi_snapshot' }, create: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}`, category: 'operational_kpi_snapshot', value: JSON.stringify(snapshot) } })
 }
