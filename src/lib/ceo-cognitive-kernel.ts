@@ -1,9 +1,12 @@
-import { randomUUID } from 'node:crypto'
-import { classifyExecution } from './adaptive-execution'
-import { inferTaskType } from './canonical-llm-router'
 import type { PreRouteDecision, DecisionPlan } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
 
+/**
+ * Request-level reasoning planner.
+ * This is deliberately separate from ceo-decision-kernel.ts, which is the
+ * mission governance/approval gate. The planner decides how much cognition
+ * the request warrants; it never authorizes protected mission actions.
+ */
 export function buildCeoDecisionPlan(input: {
   messages: readonly { role: string; content: string }[]
   preRoute: PreRouteDecision
@@ -11,14 +14,14 @@ export function buildCeoDecisionPlan(input: {
   taskType?: TaskType
 }): DecisionPlan {
   const latest = [...input.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
-  const adaptive = classifyExecution(input.messages)
-  const taskClass = input.taskType ?? inferTaskType(input.messages)
-  const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId) || adaptive.executionClass === 'mission'
-  const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security' || adaptive.executionClass === 'mission'
-  const deep = critical || input.preRoute.complexitySignals > 0 || adaptive.executionClass === 'deep'
+  const taskClass = input.taskType ?? input.preRoute.taskClass ?? 'reasoning'
+  const adaptiveClass = input.preRoute.adaptiveExecutionClass ?? 'standard'
+  const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId) || adaptiveClass === 'mission'
+  const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security' || adaptiveClass === 'mission'
+  const deep = critical || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep' || resolvePath(input.preRoute) === 'full'
 
   return {
-    requestId: randomUUID(),
+    requestId: crypto.randomUUID(),
     path: critical ? 'critical' : deep ? 'full' : 'fast',
     objective: latest.trim().slice(0, 4000),
     taskClass,
@@ -32,4 +35,8 @@ export function buildCeoDecisionPlan(input: {
     maxProviderAttempts: critical ? 5 : deep ? 4 : 2,
     latencyBudgetMs: critical ? 90000 : deep ? 60000 : 15000,
   }
+}
+
+function resolvePath(preRoute: PreRouteDecision): 'fast' | 'full' {
+  return preRoute.route === 'fast' ? 'fast' : 'full'
 }
