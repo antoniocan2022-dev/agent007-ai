@@ -1,5 +1,6 @@
 import { db } from './db'
 import { listArtifacts, recordBusinessOutcome } from './architecture-control-plane'
+import { assertRealSucceededTransaction } from './transaction-evidence-integrity'
 import { COMMERCIAL_CATEGORIES, type CommercialBusiness, type CommercialEvent, type CommercialWorkflow, type EventStatus, type WorkflowStatus } from './commercial-control-plane'
 
 function key(kind: string, tenantId: string, id: string): string { return `${kind}:${tenantId}:${id}` }
@@ -38,19 +39,24 @@ async function recordVerifiedBusinessOutcome(current: CommercialWorkflow, output
   if (!ventureId || !customerId || !transactionId || !provider || !Number.isFinite(amount) || amount <= 0 || !currency) {
     throw new Error(`Commercial ${lifecycleState} state lacks complete payment evidence; business outcome was not recorded.`)
   }
+
+  const transaction = await assertRealSucceededTransaction({ ventureId, transactionId, amount, currency })
+  if (transaction.customerId && transaction.customerId !== customerId) {
+    throw new Error(`Commercial payment ${transactionId} belongs to customer ${transaction.customerId}, not ${customerId}.`)
+  }
   const paymentArtifact = await requireVerifiedPaymentArtifact(ventureId, transactionId)
   const type = lifecycleState === 'PAID' ? 'TRANSACTION' : 'REFUND'
   await recordBusinessOutcome({
     ventureId,
     missionId: typeof current.input.missionId === 'string' ? current.input.missionId : null,
     type,
-    transactionId,
-    customerId,
-    amount,
-    currency,
+    transactionId: transaction.id,
+    customerId: transaction.customerId ?? customerId,
+    amount: transaction.amount,
+    currency: transaction.currency,
     source: `${provider}:${status}:commercial-control-plane`,
     occurredAt: new Date().toISOString(),
-    metadata: { commercialWorkflowId: current.workflowId, provider, business: current.business, paymentEvidenceArtifactId: paymentArtifact.artifactId },
+    metadata: { commercialWorkflowId: current.workflowId, provider, business: current.business, paymentEvidenceArtifactId: paymentArtifact.artifactId, transactionEvidence: 'relational-transaction' },
   })
 }
 
