@@ -123,7 +123,10 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
           { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
           buildSynthesisPrompt(objective, primary.content, review.content),
         ],
-        excludeProviders: [primary.provider, review.provider],
+        // The review must be independent from the producer. The producer may
+        // synthesize after seeing the independent review, which keeps critical
+        // work viable even when only two governed providers are available.
+        excludeProviders: [review.provider],
       })
     }
 
