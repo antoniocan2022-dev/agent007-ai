@@ -15,6 +15,10 @@ export const maxDuration = 300
  * single daily cron entry point. It dispatches enabled internal schedules and
  * the daily governance/CEO/reconciliation jobs without requiring multiple
  * Vercel Cron definitions.
+ *
+ * The Mission Autonomy Supervisor is also fired from this single scheduler so
+ * persistent missions can be inspected, resumed, blocked, or advanced without
+ * requiring the owner to remain online.
  */
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
@@ -129,6 +133,7 @@ export async function POST(req: NextRequest) {
     fireDaily('/api/schedules/ceo-operations-report')
     fireDaily('/api/schedules/investor-intelligence-brief')
     fireDaily('/api/revenue-reconciliation')
+    fireDaily('/api/system/mission-supervisor')
 
     const tickCount = (globalThis as { __tickCount?: number }).__tickCount ?? 0
     ;(globalThis as { __tickCount?: number }).__tickCount = tickCount + 1
@@ -140,7 +145,7 @@ export async function POST(req: NextRequest) {
       count: dispatched.length,
       executedCount: executed.length,
       nextCheck: 1440,
-      monitors: 'daily external/qa, CEO briefs, investor brief, and revenue reconciliation fired',
+      monitors: 'daily external/qa, CEO briefs, investor brief, revenue reconciliation, and mission autonomy supervisor fired',
     })
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 })
