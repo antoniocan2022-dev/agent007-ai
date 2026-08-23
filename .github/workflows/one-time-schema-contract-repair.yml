@@ -1,0 +1,42 @@
+name: One-time Prisma transaction contract repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/patch-transaction-schema-contract.py'
+      - '.github/workflows/one-time-schema-contract-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ github.event.head_commit.author.name == 'antoniocan2022-dev' || github.actor == 'github-actions[bot]' || github.actor == 'antoniocan2022-dev' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Apply schema contract patch
+        run: python3 scripts/patch-transaction-schema-contract.py
+
+      - name: Remove one-time repair artifacts
+        run: |
+          rm -f scripts/patch-transaction-schema-contract.py .github/workflows/one-time-schema-contract-repair.yml
+
+      - name: Commit repaired Prisma schema
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add prisma/schema.prisma
+          git add -u scripts/patch-transaction-schema-contract.py .github/workflows/one-time-schema-contract-repair.yml
+          if git diff --cached --quiet; then
+            echo 'Schema already repaired; nothing to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(schema): synchronize Prisma Transaction customer identity'
+          git push origin main
