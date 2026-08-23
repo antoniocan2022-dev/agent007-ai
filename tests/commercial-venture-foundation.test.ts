@@ -34,9 +34,13 @@ describe('commercial venture foundation', () => {
 
   test('schema reconciliation contains the canonical relational foundation', () => {
     const source = readRepoFile('src/lib/reconcile-production-schema.ts')
-    for (const table of ['BusinessUnit', 'Venture', 'Subscription', 'Invoice']) expect(source).toContain(`CREATE TABLE IF NOT EXISTS "${table}"`)
-    for (const column of ['Customer', 'Opportunity', 'Transaction', 'MarketingCampaign', 'IncomeEntry']) expect(source).toContain(`ALTER TABLE "${column}" ADD COLUMN IF NOT EXISTS "ventureId" TEXT`)
-    expect(source).not.toContain('ORDER BY u."createdAt" ASC LIMIT 1')
+    for (const table of ['BusinessUnit', 'Venture', 'Subscription', 'Invoice', 'CustomerSuccessState']) {
+      expect(source).toContain(`CREATE TABLE IF NOT EXISTS \"${table}\"`)
+    }
+    for (const column of ['Customer', 'Opportunity', 'Transaction', 'MarketingCampaign', 'IncomeEntry']) {
+      expect(source).toContain(`ALTER TABLE \"${column}\" ADD COLUMN IF NOT EXISTS \"ventureId\" TEXT`)
+    }
+    expect(source).not.toContain('ORDER BY u.\"createdAt\" ASC LIMIT 1')
   })
 
   test('venture OS production code consumes the relational commercial snapshot', () => {
@@ -53,6 +57,7 @@ describe('commercial venture foundation', () => {
     expect(billing).toContain('Transaction')
     expect(billing).toContain('Invoice')
     expect(billing).toContain('ventureId')
-    expect(billing).toContain('status=\'paid\'')
+    expect(billing).toMatch(/SET \"status\"='paid'/)
+    expect(billing).toContain('Transaction and invoice amounts')
   })
 })
