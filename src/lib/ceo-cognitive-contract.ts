@@ -1,6 +1,8 @@
+import type { TaskType } from './subagent-governance'
+
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
 export type CognitivePath = 'fast' | 'full' | 'critical'
-export type ReasoningStrategy = 'direct' | 'analytical' | 'multi_pass' | 'independent_review'
+export type ReasoningStrategy = 'direct' | 'multi_pass' | 'independent_review'
 export type EvidenceState = 'LIVE_VERIFIED' | 'VERIFIED_CACHED' | 'MEMORY_ONLY' | 'PARTIAL_UNCONFIRMED' | 'UNAVAILABLE'
 export type QualityDecision = 'PASS' | 'ESCALATE' | 'DEGRADED'
 
@@ -15,7 +17,7 @@ export interface DecisionPlan {
   requestId: string
   path: CognitivePath
   objective: string
-  taskClass: string
+  taskClass: TaskType
   missionRelevant: boolean
   requiredCapabilities: string[]
   qualityTier: 'standard' | 'high' | 'critical'
@@ -57,6 +59,7 @@ export interface CognitiveLifecycleResult {
   content: string
   provider?: string
   model?: string
+  responseMs: number
   attempts: string[]
   executionPlan: ExecutionPlan
   decisionPlan: DecisionPlan
