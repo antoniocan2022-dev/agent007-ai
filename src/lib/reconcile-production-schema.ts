@@ -82,7 +82,6 @@ const statements = [
   'ALTER TABLE "EvidenceSource" ADD CONSTRAINT "EvidenceSource_ledgerId_fkey" FOREIGN KEY ("ledgerId") REFERENCES "EvidenceLedger"("id") ON DELETE CASCADE ON UPDATE CASCADE',
   'ALTER TABLE "EvidenceClaim" ADD CONSTRAINT "EvidenceClaim_ledgerId_fkey" FOREIGN KEY ("ledgerId") REFERENCES "EvidenceLedger"("id") ON DELETE CASCADE ON UPDATE CASCADE',
   'ALTER TABLE "EvidenceClaim" ADD CONSTRAINT "EvidenceClaim_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "EvidenceSource"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-
   `CREATE TABLE IF NOT EXISTS "BusinessUnit" (
     "id" TEXT PRIMARY KEY,
     "ownerUserId" TEXT NOT NULL,
@@ -96,7 +95,6 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS "BusinessUnit_ownerUserId_idx" ON "BusinessUnit" ("ownerUserId")',
   'CREATE INDEX IF NOT EXISTS "BusinessUnit_status_idx" ON "BusinessUnit" ("status")',
   'ALTER TABLE "BusinessUnit" ADD CONSTRAINT "BusinessUnit_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE',
-
   `CREATE TABLE IF NOT EXISTS "Venture" (
     "id" TEXT PRIMARY KEY,
     "ventureKey" TEXT NOT NULL UNIQUE,
@@ -117,7 +115,6 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS "Venture_status_idx" ON "Venture" ("status")',
   'ALTER TABLE "Venture" ADD CONSTRAINT "Venture_businessUnitId_fkey" FOREIGN KEY ("businessUnitId") REFERENCES "BusinessUnit"("id") ON DELETE SET NULL ON UPDATE CASCADE',
   'ALTER TABLE "Venture" ADD CONSTRAINT "Venture_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE',
-
   'ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "ventureId" TEXT',
   'ALTER TABLE "Opportunity" ADD COLUMN IF NOT EXISTS "ventureId" TEXT',
   'ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "ventureId" TEXT',
@@ -133,7 +130,6 @@ const statements = [
   'ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
   'ALTER TABLE "MarketingCampaign" ADD CONSTRAINT "MarketingCampaign_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
   'ALTER TABLE "IncomeEntry" ADD CONSTRAINT "IncomeEntry_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-
   `CREATE TABLE IF NOT EXISTS "Subscription" (
     "id" TEXT PRIMARY KEY,
     "ventureId" TEXT NOT NULL,
@@ -158,7 +154,6 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS "Subscription_status_idx" ON "Subscription" ("status")',
   'ALTER TABLE "Subscription" ADD CONSTRAINT "Subscription_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE RESTRICT ON UPDATE CASCADE',
   'ALTER TABLE "Subscription" ADD CONSTRAINT "Subscription_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE',
-
   `CREATE TABLE IF NOT EXISTS "Invoice" (
     "id" TEXT PRIMARY KEY,
     "ventureId" TEXT NOT NULL,
@@ -186,19 +181,6 @@ const statements = [
   'ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE',
   'ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_subscriptionId_fkey" FOREIGN KEY ("subscriptionId") REFERENCES "Subscription"("id") ON DELETE SET NULL ON UPDATE CASCADE',
   'ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_transactionId_fkey" FOREIGN KEY ("transactionId") REFERENCES "Transaction"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-
-  `INSERT INTO "BusinessUnit" ("id", "ownerUserId", "businessKey", "name", "description")
-   SELECT 'bu_revenue_recovery', u."id", 'revenue-recovery', 'AI Revenue Recovery', 'Recover and create measurable revenue for local businesses.'
-   FROM "User" u ORDER BY u."createdAt" ASC LIMIT 1
-   ON CONFLICT ("businessKey") DO NOTHING`,
-  `INSERT INTO "BusinessUnit" ("id", "ownerUserId", "businessKey", "name", "description")
-   SELECT 'bu_operations_kit', u."id", 'operations-kit', 'Small Business Operations Kit', 'Productized AI-powered operations and workflow automation for small businesses.'
-   FROM "User" u ORDER BY u."createdAt" ASC LIMIT 1
-   ON CONFLICT ("businessKey") DO NOTHING`,
-  `INSERT INTO "BusinessUnit" ("id", "ownerUserId", "businessKey", "name", "description")
-   SELECT 'bu_career_command', u."id", 'career-command', 'Career Command Center', 'B2C career intelligence, applications, interview preparation, and progression.'
-   FROM "User" u ORDER BY u."createdAt" ASC LIMIT 1
-   ON CONFLICT ("businessKey") DO NOTHING`,
 ]
 
 async function main() {
@@ -219,19 +201,20 @@ async function main() {
     WHERE table_schema = 'public'
       AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice')
   `
-
   const requiredSet = new Set(required.map(row => row.table_name))
   const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice'].filter(name => !requiredSet.has(name))
   if (missingTables.length) throw new Error(`Schema reconciliation incomplete. Missing tables: ${missingTables.join(', ')}`)
 
-  const executionIndexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
-    SELECT indexname FROM pg_indexes
-    WHERE schemaname = 'public'
-      AND indexname IN ('ExecutionReceipt_missionId_idempotencyKey_key','EvidenceLedger_missionId_idempotencyKey_key','EvidenceLedger_missionId_version_key','EvidenceClaim_ledgerId_claimKey_key','Subscription_ventureId_idx','Invoice_ventureId_idx')
+  const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
+    SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname IN (
+      'ExecutionReceipt_missionId_idempotencyKey_key','EvidenceLedger_missionId_idempotencyKey_key','EvidenceLedger_missionId_version_key','EvidenceClaim_ledgerId_claimKey_key',
+      'BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx',
+      'Subscription_ventureId_idx','Invoice_ventureId_idx'
+    )
   `
-  if (executionIndexes.length !== 6) throw new Error(`Production commercial/proof indexes incomplete: ${executionIndexes.length}/6`)
+  if (indexes.length !== 13) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/13`)
 
-  console.log('Production schema reconciliation verified: proof ledger plus venture, commercial scope, subscription, and invoice tables/indexes present.')
+  console.log('Production schema reconciliation verified: proof ledger, venture/business-unit scope, commercial links, subscription, and invoice tables/indexes present.')
 }
 
 main()
