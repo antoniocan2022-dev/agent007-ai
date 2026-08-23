@@ -56,6 +56,12 @@ function stateId(ventureId: string, customerId: string): string {
   return `cs:${ventureId}:${customerId}`
 }
 
+function validTimestamp(value: string, field: string): string {
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) throw new Error(`${field} must be a valid timestamp.`)
+  return new Date(parsed).toISOString()
+}
+
 async function assertCustomerScope(customerId: string, ventureId: string): Promise<void> {
   if (!await getVenture(ventureId)) throw new Error(`Venture not found: ${ventureId}.`)
   const rows = await db.$queryRaw<Array<{ id: string; ventureId: string | null }>>`
@@ -107,22 +113,22 @@ export async function transitionCustomerSuccess(
   if (!canTransitionCustomerSuccess(current.lifecycle, next)) {
     throw new Error(`Illegal customer-success lifecycle transition: ${current.lifecycle} → ${next}.`)
   }
-  const lastValueAt = patch.lastValueAt == null ? current.lastValueAt : new Date(patch.lastValueAt).toISOString()
-  const renewalAt = patch.renewalAt == null ? current.renewalAt : new Date(patch.renewalAt).toISOString()
-  if (patch.lastValueAt != null && !Number.isFinite(Date.parse(patch.lastValueAt))) throw new Error('lastValueAt must be a valid timestamp.')
-  if (patch.renewalAt != null && !Number.isFinite(Date.parse(patch.renewalAt))) throw new Error('renewalAt must be a valid timestamp.')
+  const lastValueAt = patch.lastValueAt === undefined ? current.lastValueAt : patch.lastValueAt === null ? null : validTimestamp(patch.lastValueAt, 'lastValueAt')
+  const renewalAt = patch.renewalAt === undefined ? current.renewalAt : patch.renewalAt === null ? null : validTimestamp(patch.renewalAt, 'renewalAt')
+  const healthScore = patch.healthScore === undefined ? current.healthScore : score(patch.healthScore, 'healthScore')
+  const satisfactionScore = patch.satisfactionScore === undefined ? current.satisfactionScore : score(patch.satisfactionScore, 'satisfactionScore')
 
   await db.$executeRaw`
     UPDATE "CustomerSuccessState"
     SET "lifecycle"=${next},
         "activationStatus"=${patch.activationStatus ?? current.activationStatus},
         "riskLevel"=${patch.riskLevel ?? current.riskLevel},
-        "healthScore"=${score(patch.healthScore, 'healthScore') ?? current.healthScore},
-        "satisfactionScore"=${score(patch.satisfactionScore, 'satisfactionScore') ?? current.satisfactionScore},
+        "healthScore"=${healthScore},
+        "satisfactionScore"=${satisfactionScore},
         "lastValueAt"=${lastValueAt},
         "renewalAt"=${renewalAt},
-        "nextBestAction"=${patch.nextBestAction == null ? current.nextBestAction : clean(patch.nextBestAction)},
-        "ownerUserId"=${patch.ownerUserId == null ? current.ownerUserId : clean(patch.ownerUserId)},
+        "nextBestAction"=${patch.nextBestAction === undefined ? current.nextBestAction : patch.nextBestAction === null ? null : clean(patch.nextBestAction)},
+        "ownerUserId"=${patch.ownerUserId === undefined ? current.ownerUserId : patch.ownerUserId === null ? null : clean(patch.ownerUserId)},
         "updatedAt"=CURRENT_TIMESTAMP
     WHERE "ventureId"=${ventureId} AND "customerId"=${customerId}
   `
