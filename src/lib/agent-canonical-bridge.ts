@@ -1,4 +1,5 @@
 import { runCeoCognitiveLifecycle } from './ceo-cognitive-lifecycle'
+import { getProviderTaskPolicy, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import type { TaskType, VerificationTier } from './subagent-governance'
 
 /**
@@ -25,11 +26,13 @@ export async function callLlmWithRetry(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts?: CanonicalBridgeOptions,
 ): Promise<any> {
+  const startedAt = Date.now()
   const result = await runCeoCognitiveLifecycle({
     messages,
     attachmentsCount: opts?.attachmentsCount,
     missionId: opts?.missionId,
     contextualEvidence: opts?.contextualEvidence,
+    taskType: opts?.taskType,
     verification: opts?.verification,
     model: opts?.model,
     temperature: opts?.temperature,
@@ -37,14 +40,18 @@ export async function callLlmWithRetry(
     timeoutMs: opts?.timeoutMs,
   })
 
+  const policy: ProviderTaskPolicy | undefined = result.decisionPlan.taskClass
+    ? getProviderTaskPolicy(result.decisionPlan.taskClass)
+    : undefined
+
   return {
     choices: [{ message: { content: result.content }, finish_reason: 'stop' }],
     content: result.content,
     provider: result.provider,
     model: result.model,
     attempts: result.attempts,
-    responseMs: undefined,
-    policy: undefined,
+    responseMs: result.responseMs || Date.now() - startedAt,
+    policy,
     executionPlan: result.executionPlan,
     decisionPlan: result.decisionPlan,
     quality: result.quality,
