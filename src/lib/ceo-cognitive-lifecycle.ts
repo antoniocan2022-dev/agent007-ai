@@ -5,7 +5,7 @@ import { buildCeoExecutionPlan } from './ceo-execution-plan'
 import { evaluateCeoQuality } from './ceo-quality-gate'
 import { buildCeoDegradedResponse } from './ceo-degraded-mode'
 import { composeCeoResponse } from './ceo-response-composer'
-import type { TaskType } from './subagent-governance'
+import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceState } from './ceo-cognitive-contract'
 
 export interface CeoCognitiveRequest {
@@ -14,7 +14,7 @@ export interface CeoCognitiveRequest {
   missionId?: string
   contextualEvidence?: string
   taskType?: TaskType
-  verification?: 'basic' | 'standard' | 'enhanced' | 'strict'
+  verification?: VerificationTier
   model?: string
   temperature?: number
   maxTokens?: number
@@ -78,13 +78,15 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const objective = objectiveFrom(request.messages)
   const startedAt = Date.now()
   const deadline = startedAt + (request.timeoutMs ?? decisionPlan.latencyBudgetMs)
+  const selectedVerification: VerificationTier = request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard')
 
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({
     taskType: request.taskType,
-    verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard') as any,
+    verification: selectedVerification,
     model: request.model,
     temperature: request.temperature,
     maxTokens: request.maxTokens,
+    maxProviderAttempts: decisionPlan.maxProviderAttempts,
     timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())),
     executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const,
     ...overrides,
@@ -101,11 +103,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     if (executionPlan.reasoningStrategy === 'multi_pass') {
       const refinement = await runCanonicalLlm({
         ...stageOptions({ maxProviderAttempts: 2 }),
-        messages: [
-          ...request.messages,
-          { role: 'assistant', content: primary.content },
-          buildRefinementPrompt(objective, primary.content),
-        ],
+        messages: [...request.messages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)],
         excludeProviders: [primary.provider],
       })
       review = refinement
