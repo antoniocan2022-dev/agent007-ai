@@ -9,9 +9,10 @@ export function composeCeoResponse(input: {
   const content = input.content.trim()
   if (!content) return 'Agent007 could not produce a usable response.'
 
-  // Keep verified live answers natural. Provenance remains in the structured
-  // lifecycle result. Surface evidence state only for degraded/non-live output.
-  if (!input.degraded && input.evidenceState === 'LIVE_VERIFIED') return content
+  // Live provider execution can be successful without independent evidence
+  // verification. Keep normal responses natural, but surface the evidence
+  // state whenever the result is degraded, cached, memory-only, or partial.
+  if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return content
 
   const evidenceLabel = `Evidence state: ${input.evidenceState}.`
   const qualityLabel = input.quality.decision === 'PASS' ? 'Quality gate: PASS.' : `Quality gate: ${input.quality.decision}.`
