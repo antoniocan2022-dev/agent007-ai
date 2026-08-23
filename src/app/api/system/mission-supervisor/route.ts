@@ -14,9 +14,10 @@ function authorized(req: NextRequest): boolean {
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
-    const body = await req.json().catch(() => ({})) as { missionId?: string; maxMissions?: number; maxLeaderRuns?: number; staleMinutes?: number }
+    const body = await req.json().catch(() => ({})) as { missionId?: string; ownerId?: string; maxMissions?: number; maxLeaderRuns?: number; staleMinutes?: number }
     if (body.missionId) {
-      const snapshot = await getMissionSupervisorSnapshot(body.missionId)
+      if (!body.ownerId?.trim()) return NextResponse.json({ ok: false, error: 'ownerId is required for mission inspection.' }, { status: 400 })
+      const snapshot = await getMissionSupervisorSnapshot(body.missionId, body.ownerId.trim())
       if (!snapshot) return NextResponse.json({ ok: false, error: 'Mission not found' }, { status: 404 })
       return NextResponse.json({ ok: true, mode: 'inspect', ...snapshot })
     }
@@ -31,6 +32,4 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET(req: NextRequest) {
-  return POST(req)
-}
+export async function GET(req: NextRequest) { return POST(req) }
