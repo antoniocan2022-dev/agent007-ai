@@ -27,10 +27,12 @@ export type CeoDecisionKernelResult = {
 }
 
 /**
- * Mission approval gate, not request routing.
- * The cognitive planning kernel is src/lib/ceo-cognitive-kernel.ts; this
- * deterministic gate remains authoritative for evidence, artifact,
- * verification, and protected-action approval.
+ * Mission Governance Gate (legacy export name retained for compatibility).
+ *
+ * This module is NOT the request-level cognitive planner. The planner is
+ * `ceo-cognitive-kernel.ts` and decides how much reasoning/execution a request
+ * warrants. This module is authoritative only for mission evidence, artifact,
+ * verification, and protected-action governance.
  */
 export function evaluateCeoDecision(input: CeoDecisionKernelInput): CeoDecisionKernelResult {
   const evidencePass = input.evidenceCount > 0 && (input.criticalConflictCount ?? 0) === 0
@@ -71,3 +73,6 @@ export function evaluateCeoDecision(input: CeoDecisionKernelInput): CeoDecisionK
     nextAction: hardFailure ? 'REMEDIATE' : 'COLLECT_EVIDENCE',
   }
 }
+
+/** Explicit semantic name for new code; `evaluateCeoDecision` remains the compatibility export. */
+export const evaluateCeoMissionGovernance = evaluateCeoDecision
