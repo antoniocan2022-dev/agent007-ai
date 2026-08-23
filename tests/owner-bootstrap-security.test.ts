@@ -12,8 +12,11 @@ describe('owner bootstrap security invariants', () => {
     expect(source).toContain('${BOOTSTRAP_PASSWORD_ENV} must be set when creating the owner account.')
   })
 
-  test('legacy predictable passwords require explicit replacement', () => {
+  test('legacy predictable passwords are detected and require explicit replacement', () => {
     expect(source).toContain('bcrypt.compare(SEED_EMAIL, existingUser.passwordHash)')
+    expect(source).toContain('const isLegacyPassword = existingUser')
+    expect(source).toContain('if (isLegacyPassword && !configuredPassword)')
+    expect(source).toContain('${BOOTSTRAP_PASSWORD_ENV} must be set to replace the legacy owner password.')
     expect(source).toContain('return bcrypt.hash(configuredPassword, 12)')
   })
 
