@@ -9,11 +9,16 @@ on:
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/agent-canonical-bridge.ts'
       - 'src/lib/orchestrator.ts'
+      - 'src/lib/mission-*.ts'
       - 'src/app/api/agent/route.ts'
       - 'src/app/api/mission-active/**/route.ts'
+      - 'src/app/api/system/mission-supervisor/**'
+      - 'src/app/api/schedules/tick/route.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
+      - 'tests/mission-autonomy-supervisor.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
+      - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
       - 'tsconfig.ceo-lifecycle.json'
       - 'tsconfig.json'
       - 'package.json'
@@ -26,11 +31,16 @@ on:
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/agent-canonical-bridge.ts'
       - 'src/lib/orchestrator.ts'
+      - 'src/lib/mission-*.ts'
       - 'src/app/api/agent/route.ts'
       - 'src/app/api/mission-active/**/route.ts'
+      - 'src/app/api/system/mission-supervisor/**'
+      - 'src/app/api/schedules/tick/route.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
+      - 'tests/mission-autonomy-supervisor.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
+      - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
       - 'tsconfig.ceo-lifecycle.json'
       - 'tsconfig.json'
       - 'package.json'
@@ -41,7 +51,7 @@ permissions:
 jobs:
   lifecycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -66,5 +76,8 @@ jobs:
       - name: Run CEO lifecycle tests
         run: bun test tests/ceo-cognitive-lifecycle.test.ts
 
-      - name: Typecheck CEO lifecycle and application integration graph
+      - name: Run mission autonomy supervisor tests
+        run: bun test tests/mission-autonomy-supervisor.test.ts
+
+      - name: Typecheck CEO lifecycle and mission autonomy integration graph
         run: bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit
