@@ -23,7 +23,7 @@ describe('mission autonomy supervisor', () => {
 
   test('supervisor endpoint is cron-protected and supports inspect/cycle modes', () => {
     const source = readFileSync('src/app/api/system/mission-supervisor/route.ts', 'utf8')
-    expect(source).toContain('Authorization')
+    expect(source).toContain("req.headers.get('authorization')")
     expect(source).toContain('CRON_SECRET')
     expect(source).toContain('getMissionSupervisorSnapshot')
     expect(source).toContain('runMissionSupervisorCycle')
