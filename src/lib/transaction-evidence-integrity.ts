@@ -42,6 +42,7 @@ export async function assertRealSucceededTransaction(input: TransactionEvidenceI
     where: { id: input.transactionId.trim() },
     select: {
       id: true,
+      userId: true,
       ventureId: true,
       customerId: true,
       amount: true,
@@ -57,6 +58,18 @@ export async function assertRealSucceededTransaction(input: TransactionEvidenceI
   const expectedCustomerId = normalizeOptionalId(input.customerId)
   if (expectedCustomerId && transaction.customerId !== expectedCustomerId) {
     throw new Error(`Transaction ${transaction.id} customer does not match supplied evidence.`)
+  }
+
+  if (transaction.customerId) {
+    const customerRows = await db.$queryRaw<Array<{ id: string; userId: string; ventureId: string | null }>>`
+      SELECT "id","userId","ventureId" FROM "Customer" WHERE "id"=${transaction.customerId} LIMIT 1
+    `
+    const customer = customerRows[0]
+    if (!customer) throw new Error(`Transaction ${transaction.id} references a customer that is not present.`)
+    if (customer.userId !== transaction.userId) throw new Error(`Transaction ${transaction.id} references a customer owned by a different user.`)
+    if (transaction.ventureId && customer.ventureId && customer.ventureId !== transaction.ventureId) {
+      throw new Error(`Transaction ${transaction.id} references a customer outside its venture scope.`)
+    }
   }
 
   if (transaction.status !== 'succeeded') throw new Error(`Transaction ${transaction.id} is not succeeded.`)
