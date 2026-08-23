@@ -28,6 +28,12 @@
     "src/lib/performance-intelligence.ts",
     "src/lib/outcome-intelligence.ts",
     "src/lib/subagent-governance.ts",
-    "src/lib/adaptive-execution.ts"
+    "src/lib/adaptive-execution.ts",
+    "src/lib/venture-commercial-foundation.ts",
+    "src/lib/billing-lifecycle.ts",
+    "src/lib/venture-factory.ts",
+    "src/lib/venture-001.ts",
+    "src/lib/operational-kpi-engine.ts",
+    "src/lib/venture-operation-loop.ts"
   ]
 }
