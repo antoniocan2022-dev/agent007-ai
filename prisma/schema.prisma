@@ -101,8 +101,9 @@ model ContractDraft {
   status    String   @default("draft")
   riskScore Int      @default(5)
   notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt @default(now())
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt @default(now())
+  Transaction Transaction[]
 
   @@index([status])
   @@index([userId])
@@ -139,8 +140,8 @@ model CustomSubagent {
 }
 
 model Customer {
-  id        String   @id @default(cuid())
-  userId    String
+  id          String        @id @default(cuid())
+  userId      String
   name      String
   email     String?
   phone     String?
@@ -471,22 +472,25 @@ model SystemHealth {
 }
 
 model Transaction {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   provider      String
   providerTxId  String
   amount        Float
-  currency      String   @default("USD")
-  status        String   @default("succeeded")
+  currency      String    @default("USD")
+  status        String    @default("succeeded")
   customerEmail String?
   customerName  String?
   productName   String?
   description   String?
   rawPayload    String
-  createdAt     DateTime @default(now())
+  customerId    String?
+  Customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdAt     DateTime  @default(now())
 
   @@unique([provider, providerTxId])
   @@index([userId])
+  @@index([customerId])
 }
 
 model TwoFactorSecret {
