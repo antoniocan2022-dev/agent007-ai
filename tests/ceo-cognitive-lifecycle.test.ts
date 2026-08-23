@@ -1,10 +1,19 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test, afterEach } from 'bun:test'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { buildCeoDecisionPlan } from '@/lib/ceo-cognitive-kernel'
 import { buildCeoExecutionPlan } from '@/lib/ceo-execution-plan'
 import { evaluateCeoQuality } from '@/lib/ceo-quality-gate'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
+import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { readFileSync } from 'node:fs'
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+  delete process.env.GROQ_API_KEY
+  delete process.env.ZAI_API_KEY
+})
 
 describe('CEO cognitive lifecycle', () => {
   test('fast requests remain fast and ambiguous defaults to full', () => {
@@ -64,11 +73,36 @@ describe('CEO cognitive lifecycle', () => {
     expect(degraded.content).toContain('will not fabricate a live or verified answer')
   })
 
-  test('integration points use the cognitive lifecycle and no old direct CEO bridge remains', () => {
+  test('provider exclusion guarantees independent review does not reuse the primary provider', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.ZAI_API_KEY = 'test-zai'
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = String(init?.method ?? 'GET')
+      calls.push(`${url}::${method}`)
+      if (url.includes('api.z.ai') && method === 'GET') return new Response(JSON.stringify({ data: [{ id: 'glm-5.1' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url.includes('api.z.ai') && method === 'POST') return new Response(JSON.stringify({ choices: [{ message: { content: 'independent review response' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      throw new Error(`unexpected provider call: ${url}`)
+    }) as typeof fetch
+
+    const result = await runGovernedProviderChat({
+      taskType: 'reasoning',
+      messages: [{ role: 'user', content: 'Review this draft.' }],
+      excludeProviders: ['groq'],
+      maxProviderAttempts: 1,
+    })
+    expect(result.provider).toBe('zai')
+    expect(calls.some((call) => call.includes('groq.com'))).toBe(false)
+  })
+
+  test('integration points use the cognitive lifecycle and preserve compatibility metadata', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
     expect(bridge).toContain("from './ceo-cognitive-lifecycle'")
     expect(bridge).not.toContain("from './canonical-llm-router'")
+    expect(bridge).toContain('responseMs: result.responseMs')
+    expect(bridge).toContain('getProviderTaskPolicy')
     expect(presenter).toContain("from './ceo-cognitive-lifecycle'")
   })
 })
