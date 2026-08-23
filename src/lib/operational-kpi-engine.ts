@@ -4,6 +4,7 @@ import { db } from './db'
 import { listActiveMissionsDB } from './active-missions-db'
 import { evaluateVentureReadiness } from './venture-autonomy-control'
 import { getVenture, getVentureCommercialSnapshot, type VentureCommercialSnapshot } from './venture-commercial-foundation'
+import { getCustomerSuccessSnapshot } from './customer-success'
 
 export interface OperationalKpiSnapshot {
   snapshotId: string
@@ -18,6 +19,7 @@ export interface OperationalKpiSnapshot {
   autonomy: { mode: string; leaseHealthy: boolean; heartbeatAt: string | null; expiresAt: string | null }
   controlHealth: { artifactGateRate: number; syntheticRevenueDetected: boolean }
   relationalCommercial?: VentureCommercialSnapshot
+  customerSuccess?: Awaited<ReturnType<typeof getCustomerSuccessSnapshot>>
 }
 
 function stableId(...parts: string[]) { return `kpi_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}` }
@@ -66,6 +68,7 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
   const relationalVenture = await getVenture(ventureId)
   const relationalCommercial = relationalVenture ? await getVentureCommercialSnapshot(ventureId) : undefined
+  const customerSuccess = relationalVenture ? await getCustomerSuccessSnapshot(ventureId) : undefined
 
   return {
     snapshotId: stableId(ventureId, String(windowHours), new Date().toISOString()),
@@ -80,6 +83,7 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
     autonomy: { mode: String(lease?.mode ?? 'PAUSED'), leaseHealthy, heartbeatAt: lease?.heartbeatAt ?? null, expiresAt: lease?.expiresAt ?? null },
     controlHealth: { artifactGateRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 100, syntheticRevenueDetected },
     relationalCommercial,
+    customerSuccess,
   }
 }
 
