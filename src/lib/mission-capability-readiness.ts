@@ -1,5 +1,4 @@
 import { getAllGovernanceProfiles, getSubagentGovernanceProfile, type SubagentClass, type TaskType } from './subagent-governance'
-import { getAllSubagents } from './subagents'
 
 export type MissionStageCapability = {
   stage: string
@@ -42,6 +41,7 @@ export function capabilityRequirementForStage(stage: string): MissionStageCapabi
 }
 
 export async function assessMissionCapabilityReadiness(stage: string, leaderId: string): Promise<CapabilityReadiness> {
+  const { getAllSubagents } = await import('./subagents')
   const requirement = STAGE_CAPABILITIES[stage] ?? {
     stage,
     requiredTaskType: 'reasoning' as TaskType,
@@ -69,7 +69,7 @@ export async function assessMissionCapabilityReadiness(stage: string, leaderId: 
   return {
     ready: missing.length === 0,
     leaderId,
-    leaderName: profile?.id === leaderId ? profile.division : agent?.name ?? leaderId,
+    leaderName: agent?.name ?? leaderId,
     stage,
     requiredTaskType: requirement.requiredTaskType,
     requiredTools: requirement.requiredTools,
