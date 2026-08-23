@@ -1,0 +1,57 @@
+import { db } from './db'
+
+export interface TransactionEvidenceInput {
+  ventureId: string
+  transactionId: string
+  amount?: number
+  currency?: string
+}
+
+export interface VerifiedTransactionEvidence {
+  id: string
+  ventureId: string
+  customerId: string | null
+  amount: number
+  currency: string
+  status: string
+  createdAt: string
+}
+
+export function validateTransactionEvidence(input: TransactionEvidenceInput): string[] {
+  const errors: string[] = []
+  if (!input.ventureId.trim()) errors.push('ventureId is required.')
+  if (!input.transactionId.trim()) errors.push('transactionId is required.')
+  if (input.amount != null && (!Number.isFinite(input.amount) || input.amount <= 0)) errors.push('amount must be positive and finite when supplied.')
+  if (input.currency != null && !/^[A-Z]{3}$/i.test(input.currency.trim())) errors.push('currency must be an ISO-4217 alpha-3 code when supplied.')
+  return errors
+}
+
+export async function assertRealSucceededTransaction(input: TransactionEvidenceInput): Promise<VerifiedTransactionEvidence> {
+  const errors = validateTransactionEvidence(input)
+  if (errors.length) throw new Error(`Transaction evidence validation failed: ${errors.join(' | ')}`)
+
+  const rows = await db.$queryRaw<Array<{ id: string; ventureId: string | null; customerId: string | null; amount: number; currency: string; status: string; createdAt: Date }>>`
+    SELECT "id","ventureId","customerId","amount","currency","status","createdAt"
+    FROM "Transaction"
+    WHERE "id"=${input.transactionId.trim()}
+    LIMIT 1
+  `
+  const transaction = rows[0]
+  if (!transaction) throw new Error(`Transaction not found: ${input.transactionId}.`)
+  if (transaction.ventureId !== input.ventureId.trim()) throw new Error(`Transaction ${transaction.id} is not scoped to venture ${input.ventureId}.`)
+  if (transaction.status !== 'succeeded') throw new Error(`Transaction ${transaction.id} is not succeeded.`)
+  if (!Number.isFinite(Number(transaction.amount)) || Number(transaction.amount) <= 0) throw new Error(`Transaction ${transaction.id} has no positive amount.`)
+  if (!/^[A-Z]{3}$/i.test(transaction.currency)) throw new Error(`Transaction ${transaction.id} has an invalid currency code.`)
+  if (input.amount != null && Number(transaction.amount) !== Number(input.amount)) throw new Error(`Transaction ${transaction.id} amount does not match supplied evidence.`)
+  if (input.currency != null && transaction.currency.toUpperCase() !== input.currency.trim().toUpperCase()) throw new Error(`Transaction ${transaction.id} currency does not match supplied evidence.`)
+
+  return {
+    id: transaction.id,
+    ventureId: transaction.ventureId,
+    customerId: transaction.customerId,
+    amount: Number(transaction.amount),
+    currency: transaction.currency.toUpperCase(),
+    status: transaction.status,
+    createdAt: new Date(transaction.createdAt).toISOString(),
+  }
+}
