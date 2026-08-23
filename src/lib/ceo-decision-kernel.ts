@@ -26,7 +26,12 @@ export type CeoDecisionKernelResult = {
   nextAction: 'EXECUTE' | 'COLLECT_EVIDENCE' | 'REMEDIATE'
 }
 
-/** Deterministic governance around the LLM CEO. The model cannot override these gates. */
+/**
+ * Mission approval gate, not request routing.
+ * The cognitive planning kernel is src/lib/ceo-cognitive-kernel.ts; this
+ * deterministic gate remains authoritative for evidence, artifact,
+ * verification, and protected-action approval.
+ */
 export function evaluateCeoDecision(input: CeoDecisionKernelInput): CeoDecisionKernelResult {
   const evidencePass = input.evidenceCount > 0 && (input.criticalConflictCount ?? 0) === 0
   const artifactPass = input.artifactGatePassed
