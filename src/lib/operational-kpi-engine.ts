@@ -5,6 +5,7 @@ import { listActiveMissionsDB } from './active-missions-db'
 import { evaluateVentureReadiness } from './venture-autonomy-control'
 import { getVenture, getVentureCommercialSnapshot, type VentureCommercialSnapshot } from './venture-commercial-foundation'
 import { getCustomerSuccessSnapshot } from './customer-success'
+import { assertRealSucceededTransaction } from './transaction-evidence-integrity'
 
 export interface OperationalKpiSnapshot {
   snapshotId: string
@@ -30,13 +31,17 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   if (!Number.isFinite(windowHours) || windowHours <= 0 || windowHours > 720) throw new Error('windowHours must be between 1 and 720.')
   const cutoff = Date.now() - windowHours * 60 * 60 * 1000
   const rows = await db.memory.findMany({ take: 10000 })
+
   let missions: Array<Record<string, any>> = []
   try {
     const durable = await listActiveMissionsDB()
     missions = durable.map((mission) => mission as unknown as Record<string, any>).filter((m) => !m.ventureId || m.ventureId === ventureId)
   } catch {
-    missions = rows.filter((r) => r.category === 'venture_mission').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v && (!v.ventureId || v.ventureId === ventureId))
+    // Fail closed. A KPI snapshot must never substitute legacy/synthetic mission memory
+    // when the durable mission store is unavailable.
+    missions = []
   }
+
   const artifacts = rows.filter((r) => r.category === 'architecture_artifact').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => (!v.ventureId || v.ventureId === ventureId) && (!v.createdAt || Date.parse(String(v.createdAt)) >= cutoff))
   const outcomes = rows.filter((r) => r.category === 'architecture_business_outcome').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => v.ventureId === ventureId && (!v.occurredAt || Date.parse(String(v.occurredAt)) >= cutoff))
   const workflows = rows.filter((r) => r.category === 'commercial_workflow').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => v.tenantId === `tenant_${ventureId}` || v.input?.ventureId === ventureId)
@@ -54,10 +59,27 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const fulfilledOrders = lifecycle.filter((s) => s === 'FULFILLED').length
   const refundedOrders = lifecycle.filter((s) => s === 'REFUNDED').length
   const failedOrders = lifecycle.filter((s) => s === 'FAILED').length
-  const transactions = outcomes.filter((o) => o.type === 'TRANSACTION')
+
+  const transactionOutcomes = outcomes.filter((o) => o.type === 'TRANSACTION' && typeof o.transactionId === 'string' && o.transactionId.trim())
+  const uniqueTransactionIds = [...new Set(transactionOutcomes.map((o) => String(o.transactionId).trim()))]
+  const verifiedByTransaction = new Map<string, { amount: number; currency: string }>()
+  let syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
+  await Promise.all(uniqueTransactionIds.map(async (transactionId) => {
+    const candidates = transactionOutcomes.filter((outcome) => String(outcome.transactionId).trim() === transactionId)
+    const amount = Number(candidates.find((outcome) => Number.isFinite(Number(outcome.amount)))?.amount)
+    const currency = candidates.find((outcome) => typeof outcome.currency === 'string')?.currency
+    try {
+      const verified = await assertRealSucceededTransaction({ ventureId, transactionId, amount: Number.isFinite(amount) && amount > 0 ? amount : undefined, currency })
+      verifiedByTransaction.set(transactionId, { amount: verified.amount, currency: verified.currency })
+    } catch {
+      syntheticRevenueDetected = true
+    }
+  }))
+
+  const verifiedTransactions = uniqueTransactionIds.filter((id) => verifiedByTransaction.has(id))
   const refunds = outcomes.filter((o) => o.type === 'REFUND')
   const customersAcquired = outcomes.filter((o) => o.type === 'CUSTOMER_ACQUIRED').length
-  const grossRevenue = transactions.reduce((sum, o) => sum + (Number.isFinite(Number(o.amount)) ? Number(o.amount) : 0), 0)
+  const grossRevenue = verifiedTransactions.reduce((sum, id) => sum + (verifiedByTransaction.get(id)?.amount ?? 0), 0)
   const refundAmount = refunds.reduce((sum, o) => sum + (Number.isFinite(Number(o.amount)) ? Number(o.amount) : 0), 0)
 
   let readiness: any
@@ -65,7 +87,6 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const leaseRow = await db.memory.findUnique({ where: { key: `venture-os:v2:autonomy-lease:${ventureId}` } })
   const lease = leaseRow ? parseJson(leaseRow.value) : null
   const leaseHealthy = !!lease && Date.parse(String(lease.expiresAt ?? '')) > Date.now() && lease.mode !== 'PAUSED'
-  const syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
   const relationalVenture = await getVenture(ventureId)
   const relationalCommercial = relationalVenture ? await getVentureCommercialSnapshot(ventureId) : undefined
   const customerSuccess = relationalVenture ? await getCustomerSuccessSnapshot(ventureId) : undefined
@@ -78,7 +99,7 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
     missions: { total: missions.length, completed, failed, blocked, completionRate: terminal ? Number(((completed / terminal) * 100).toFixed(2)) : 0 },
     artifacts: { produced, verified, rejected, verificationRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 0 },
     commercial: { totalOrders, paidOrders, fulfilledOrders, refundedOrders, failedOrders, conversionRate: totalOrders ? Number(((paidOrders / totalOrders) * 100).toFixed(2)) : 0, fulfillmentRate: paidOrders ? Number(((fulfilledOrders / paidOrders) * 100).toFixed(2)) : 0 },
-    outcomes: { transactions: transactions.length, customersAcquired, grossRevenue: Number(grossRevenue.toFixed(2)), refunds: Number(refundAmount.toFixed(2)), netRevenue: Number((grossRevenue - refundAmount).toFixed(2)), currency: transactions.find((o) => o.currency)?.currency ?? null },
+    outcomes: { transactions: verifiedTransactions.length, customersAcquired, grossRevenue: Number(grossRevenue.toFixed(2)), refunds: Number(refundAmount.toFixed(2)), netRevenue: Number((grossRevenue - refundAmount).toFixed(2)), currency: [...verifiedByTransaction.values()][0]?.currency ?? null },
     readiness: { status: readiness.status, score: readiness.score, threshold: readiness.threshold, missingEvidence: [...readiness.missingEvidence] },
     autonomy: { mode: String(lease?.mode ?? 'PAUSED'), leaseHealthy, heartbeatAt: lease?.heartbeatAt ?? null, expiresAt: lease?.expiresAt ?? null },
     controlHealth: { artifactGateRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 100, syntheticRevenueDetected },
