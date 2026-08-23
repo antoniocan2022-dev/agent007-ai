@@ -1,7 +1,7 @@
 import { db } from './db'
 import { getVenture } from './venture-commercial-foundation'
 import { getCustomerSuccessSnapshot } from './customer-success'
-import { getMissionMoneySummary } from './mission-money-bridge'
+import { assertRealSucceededTransaction } from './transaction-evidence-integrity'
 
 export interface VentureTemplateProof {
   ventureId: string
@@ -30,19 +30,39 @@ export interface VentureTemplateProof {
 
 async function countMissionRevenueLinks(ventureId: string): Promise<{ missionIds: string[]; revenue: number }> {
   const rows = await db.memory.findMany({ where: { category: 'architecture_business_outcome' }, take: 10000 })
-  const missionIds = new Set<string>()
-  let revenue = 0
+  const outcomes: Array<{ ventureId?: string; missionId?: string | null; type?: string; amount?: number | null; currency?: string | null; transactionId?: string | null }> = []
   for (const row of rows) {
-    try {
-      const outcome = JSON.parse(row.value) as { ventureId?: string; missionId?: string | null; type?: string; amount?: number | null; transactionId?: string | null }
-      if (outcome.ventureId !== ventureId || outcome.type !== 'REVENUE_RECOGNIZED' || !outcome.transactionId || !outcome.missionId) continue
-      missionIds.add(outcome.missionId)
-      if (Number.isFinite(Number(outcome.amount))) revenue += Number(outcome.amount)
-    } catch {
-      // Ignore malformed observational records; never treat them as proof.
-    }
+    try { outcomes.push(JSON.parse(row.value) as typeof outcomes[number]) } catch { /* malformed observational rows are never proof */ }
   }
-  return { missionIds: [...missionIds], revenue: Number(revenue.toFixed(2)) }
+
+  const transactionOutcomeKeys = new Set(
+    outcomes
+      .filter((o) => o.ventureId === ventureId && o.type === 'TRANSACTION' && o.missionId && o.transactionId)
+      .map((o) => `${o.missionId}:${o.transactionId}`),
+  )
+  const candidates = outcomes.filter((o) => o.ventureId === ventureId && o.type === 'REVENUE_RECOGNIZED' && o.missionId && o.transactionId && transactionOutcomeKeys.has(`${o.missionId}:${o.transactionId}`))
+  const missionIds = new Set<string>()
+  const verifiedTransactions = new Map<string, { amount: number; currency: string }>()
+
+  await Promise.all([...new Set(candidates.map((o) => String(o.transactionId).trim()))].map(async (transactionId) => {
+    const candidate = candidates.find((o) => String(o.transactionId).trim() === transactionId)
+    try {
+      const transaction = await assertRealSucceededTransaction({
+        ventureId,
+        transactionId,
+        amount: candidate && Number.isFinite(Number(candidate.amount)) && Number(candidate.amount) > 0 ? Number(candidate.amount) : undefined,
+        currency: typeof candidate?.currency === 'string' ? candidate.currency : undefined,
+      })
+      verifiedTransactions.set(transactionId, { amount: transaction.amount, currency: transaction.currency })
+    } catch {
+      // A revenue outcome that cannot reconcile to the relational Transaction ledger is not proof.
+    }
+  }))
+
+  const verifiedCandidates = candidates.filter((o) => verifiedTransactions.has(String(o.transactionId).trim()))
+  for (const outcome of verifiedCandidates) missionIds.add(String(outcome.missionId))
+  const revenue = Number([...verifiedTransactions.values()].reduce((sum, item) => sum + item.amount, 0).toFixed(2))
+  return { missionIds: [...missionIds], revenue }
 }
 
 export async function evaluateVentureTemplateProof(ventureId: string): Promise<VentureTemplateProof> {
@@ -104,8 +124,8 @@ export async function evaluateVentureTemplateProof(ventureId: string): Promise<V
   if (!requirements.successfulTransaction) blockingReasons.push('No succeeded transaction is attached to the venture.')
   if (!requirements.settledInvoice) blockingReasons.push('No paid invoice is linked to a succeeded transaction for the venture.')
   if (!requirements.customerSuccessValue) blockingReasons.push('No customer has reached a value-realized or retained lifecycle state.')
-  if (!requirements.missionToMoney) blockingReasons.push('No mission-to-money attribution links a mission to a transaction outcome.')
-  if (!requirements.positiveRecognizedRevenue) blockingReasons.push('No positive recognized revenue is evidenced by mission-linked transaction outcomes.')
+  if (!requirements.missionToMoney) blockingReasons.push('No verified mission-to-money attribution links a mission to a real succeeded transaction.')
+  if (!requirements.positiveRecognizedRevenue) blockingReasons.push('No positive recognized revenue is evidenced by reconciled mission-linked transaction outcomes.')
 
   return {
     ventureId,
