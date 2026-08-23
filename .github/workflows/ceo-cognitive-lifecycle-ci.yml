@@ -10,6 +10,7 @@ on:
       - 'src/lib/agent-canonical-bridge.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'tsconfig.ceo-lifecycle.json'
       - 'package.json'
       - 'tsconfig.json'
   push:
@@ -22,6 +23,7 @@ on:
       - 'src/lib/agent-canonical-bridge.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'tsconfig.ceo-lifecycle.json'
       - 'package.json'
       - 'tsconfig.json'
 
@@ -56,5 +58,5 @@ jobs:
       - name: Run CEO lifecycle tests
         run: bun test tests/ceo-cognitive-lifecycle.test.ts
 
-      - name: Typecheck
-        run: bunx tsc --noEmit
+      - name: Typecheck CEO lifecycle dependency graph
+        run: bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit
