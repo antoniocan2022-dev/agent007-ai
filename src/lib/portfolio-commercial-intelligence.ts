@@ -1,7 +1,8 @@
 import { db } from './db'
 import { CEO_VENTURE_MANDATE } from './venture-mandate'
 import { normalizeMetric } from './portfolio-intelligence-rules'
-import type { PortfolioBusiness, PortfolioMetric } from './portfolio-intelligence-types'
+import type { PortfolioBusiness } from './portfolio-intelligence-contract'
+import type { PortfolioMetric } from './portfolio-intelligence-types'
 import type { BusinessUnitKey } from './venture-commercial-foundation'
 
 const BUSINESS_KEYS: readonly BusinessUnitKey[] = ['revenue-recovery', 'operations-kit', 'career-command']
@@ -9,11 +10,7 @@ const BUSINESS_KEYS: readonly BusinessUnitKey[] = ['revenue-recovery', 'operatio
 const toPortfolioBusiness = (value: BusinessUnitKey): PortfolioBusiness => value
 
 function parseJson(value: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(value) as Record<string, unknown>
-  } catch {
-    return null
-  }
+  try { return JSON.parse(value) as Record<string, unknown> } catch { return null }
 }
 
 async function verifiedPortfolioEvidence(business: PortfolioBusiness) {
@@ -65,45 +62,22 @@ interface RelationalBusinessMetrics {
 async function queryBusinessMetrics(business: BusinessUnitKey): Promise<RelationalBusinessMetrics> {
   const [ventureRows, revenueRows, spendRows, customerRows, leadRows, conversionRows] = await Promise.all([
     db.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*)::bigint AS count
-      FROM "Venture" v
-      INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId"
-      WHERE bu."businessKey"=${business}
+      SELECT COUNT(*)::bigint AS count FROM "Venture" v INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business}
     `,
     db.$queryRaw<Array<{ total: number | null }>>`
-      SELECT COALESCE(SUM("amount"),0)::double precision AS total
-      FROM "Transaction" t
-      INNER JOIN "Venture" v ON v."id"=t."ventureId"
-      INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId"
-      WHERE bu."businessKey"=${business} AND t."status"='succeeded'
+      SELECT COALESCE(SUM("amount"),0)::double precision AS total FROM "Transaction" t INNER JOIN "Venture" v ON v."id"=t."ventureId" INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business} AND t."status"='succeeded'
     `,
     db.$queryRaw<Array<{ total: number | null }>>`
-      SELECT COALESCE(SUM("spent"),0)::double precision AS total
-      FROM "MarketingCampaign" c
-      INNER JOIN "Venture" v ON v."id"=c."ventureId"
-      INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId"
-      WHERE bu."businessKey"=${business}
+      SELECT COALESCE(SUM("spent"),0)::double precision AS total FROM "MarketingCampaign" c INNER JOIN "Venture" v ON v."id"=c."ventureId" INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business}
     `,
     db.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*)::bigint AS count
-      FROM "Customer" c
-      INNER JOIN "Venture" v ON v."id"=c."ventureId"
-      INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId"
-      WHERE bu."businessKey"=${business}
+      SELECT COUNT(*)::bigint AS count FROM "Customer" c INNER JOIN "Venture" v ON v."id"=c."ventureId" INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business}
     `,
     db.$queryRaw<Array<{ total: number | null }>>`
-      SELECT COALESCE(SUM("leadsGenerated"),0)::double precision AS total
-      FROM "MarketingCampaign" c
-      INNER JOIN "Venture" v ON v."id"=c."ventureId"
-      INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId"
-      WHERE bu."businessKey"=${business}
+      SELECT COALESCE(SUM("leadsGenerated"),0)::double precision AS total FROM "MarketingCampaign" c INNER JOIN "Venture" v ON v."id"=c."ventureId" INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business}
     `,
     db.$queryRaw<Array<{ total: number | null }>>`
-      SELECT COALESCE(SUM("conversions"),0)::double precision AS total
-      FROM "MarketingCampaign" c
-      INNER JOIN "Venture" v ON v."id"=c."ventureId"
-      INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId"
-      WHERE bu."businessKey"=${business}
+      SELECT COALESCE(SUM("conversions"),0)::double precision AS total FROM "MarketingCampaign" c INNER JOIN "Venture" v ON v."id"=c."ventureId" INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business}
     `,
   ])
   return {
@@ -127,7 +101,6 @@ export async function buildRelationalPortfolioMetrics(): Promise<PortfolioMetric
     return normalizeMetric({
       business: metric.business,
       revenue: metric.revenue,
-      // This is tracked campaign spend only; it is not represented as total operating cost.
       cost: metric.trackedSpend,
       customers: metric.customers,
       leads: metric.leads,
