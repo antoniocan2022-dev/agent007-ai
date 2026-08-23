@@ -66,7 +66,8 @@ describe('mission autonomy supervisor behavioral contracts', () => {
     expect(mission.currentStage).toBe('PLANNED')
     current.artifactValue = '{"ok":true}'
     current.artifactVerified = true
-    const before = mission.progressAt
+    const before = '2026-08-23T19:00:00.000Z'
+    mission.progressAt = before
     advanceMissionStage(mission.id)
     expect(mission.currentStage).toBe('IN_PROGRESS')
     expect(mission.progressAt).not.toBe(before)
