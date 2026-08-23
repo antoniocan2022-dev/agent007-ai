@@ -4,6 +4,7 @@ import { assertMissionTransition, buildArtifactId, registerArtifact } from '@/li
 import { verifyCanonicalArtifact } from '@/lib/artifact-verifier'
 import { createActiveMissionDB, getActiveMissionDB, listActiveMissionsDB, saveActiveMissionDB } from '@/lib/active-missions-db'
 import { STAGE_ORDER } from '@/lib/active-missions'
+import { resolveMissionOwnerId } from '@/lib/mission-owner'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -16,10 +17,10 @@ export async function GET() {
   const session = await getServerSession()
   if (!session?.user) return fail('Unauthorized', 401)
   try {
-    const missions = await listActiveMissionsDB()
+    const ownerId = await resolveMissionOwnerId(session.user)
+    const missions = await listActiveMissionsDB(ownerId)
     return NextResponse.json({ ok: true, count: missions.length, missions })
   } catch (error) {
-    // Never fall back to synthetic/in-memory mission state in production.
     return fail(error, 503)
   }
 }
@@ -32,18 +33,24 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
 
   try {
+    const ownerId = await resolveMissionOwnerId(session.user)
+
     if (action === 'create') {
       if (typeof body.title !== 'string' || typeof body.description !== 'string' || !body.title.trim() || !body.description.trim()) return fail('title and description required')
       const mission = await createActiveMissionDB({
-        title: body.title.trim(), description: body.description.trim(), revenueTarget: Number(body.revenueTarget) || 0,
-        priority: body.priority, category: body.category,
+        ownerId,
+        title: body.title.trim(),
+        description: body.description.trim(),
+        revenueTarget: Number(body.revenueTarget) || 0,
+        priority: body.priority,
+        category: body.category,
       })
       if (!mission) return fail('Mission persistence unavailable.', 503)
       return NextResponse.json({ ok: true, mission })
     }
 
     if (!body.missionId || typeof body.missionId !== 'string') return fail('missionId required')
-    const mission = await getActiveMissionDB(body.missionId)
+    const mission = await getActiveMissionDB(body.missionId, ownerId)
     if (!mission) return fail('Mission not found', 404)
     const handoff = mission.chain.find((c) => c.stage === mission.currentStage)
 
@@ -66,7 +73,7 @@ export async function POST(req: NextRequest) {
         next.startedAt = new Date().toISOString()
       }
       mission.updatedAt = new Date().toISOString()
-      mission.log.push({ timestamp: mission.updatedAt, actor: session.user.email ?? 'OWNER', stage: nextStage, message: `Stage advanced ${handoff.stage} → ${nextStage}.` })
+      mission.log.push({ timestamp: mission.updatedAt, actor: ownerId, stage: nextStage, message: `Stage advanced ${handoff.stage} → ${nextStage}.` })
       await saveActiveMissionDB(mission)
       return NextResponse.json({ ok: true, mission })
     }
@@ -81,7 +88,7 @@ export async function POST(req: NextRequest) {
       }
       mission.currentStage = 'COMPLETED'
       mission.updatedAt = new Date().toISOString()
-      mission.log.push({ timestamp: mission.updatedAt, actor: 'OWNER', stage: 'COMPLETED', message: 'Owner approved the mission. Marked COMPLETED.' })
+      mission.log.push({ timestamp: mission.updatedAt, actor: ownerId, stage: 'COMPLETED', message: 'Owner approved the mission. Marked COMPLETED.' })
       await saveActiveMissionDB(mission)
       return NextResponse.json({ ok: true, mission })
     }
@@ -90,13 +97,12 @@ export async function POST(req: NextRequest) {
       if (typeof body.artifactValue !== 'string' || !body.artifactValue.trim()) return fail('artifactValue required')
       if (!handoff) return fail('Current mission stage has no handoff.')
       if (handoff.artifactRequired === 'none') return fail('Current stage does not accept an artifact.')
-      // Critical rule: clients can PRODUCE artifacts, but cannot self-assert verification.
       const artifact = await registerArtifact({
         artifactId: buildArtifactId({ ventureId: body.ventureId ?? null, missionId: mission.id, stage: mission.currentStage, artifactType: handoff.artifactRequired, value: body.artifactValue.trim() }),
         ventureId: body.ventureId ?? null,
         missionId: mission.id,
         stage: mission.currentStage,
-        producer: session.user.email ?? 'OWNER',
+        producer: ownerId,
         consumers: [],
         artifactType: handoff.artifactRequired,
         value: body.artifactValue.trim(),
@@ -110,13 +116,13 @@ export async function POST(req: NextRequest) {
       handoff.status = 'active'
       mission.updatedAt = new Date().toISOString()
       await saveActiveMissionDB(mission)
-      return NextResponse.json({ ok: true, mission, artifact, verified: false })
+      return NextResponse.json({ ok: true, mission, artifact, verified: artifact.status === 'VERIFIED' })
     }
 
     if (action === 'verify-artifact') {
       if (!handoff?.artifactValue) return fail('No artifact is registered for the current stage.')
       const artifactId = buildArtifactId({ ventureId: body.ventureId ?? null, missionId: mission.id, stage: mission.currentStage, artifactType: handoff.artifactRequired, value: handoff.artifactValue })
-      const result = await verifyCanonicalArtifact(artifactId, session.user.email ?? 'OWNER', { ventureId: body.ventureId ?? null, missionId: mission.id, stage: mission.currentStage })
+      const result = await verifyCanonicalArtifact(artifactId, ownerId, { ventureId: body.ventureId ?? null, missionId: mission.id, stage: mission.currentStage })
       handoff.artifactVerified = result.verified
       handoff.artifactVerifiedAt = result.verified ? new Date().toISOString() : null
       handoff.artifactVerifyError = result.verified ? null : result.reason
