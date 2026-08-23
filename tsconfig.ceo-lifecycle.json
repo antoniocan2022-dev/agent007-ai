@@ -16,6 +16,8 @@
     "src/lib/ceo-cognitive-lifecycle.ts",
     "src/lib/agent-canonical-bridge.ts",
     "src/lib/ceo-presenter.ts",
+    "src/lib/orchestrator.ts",
+    "src/app/api/agent/route.ts",
     "src/app/api/mission-active/[missionId]/route.ts",
     "src/lib/canonical-llm-router.ts",
     "src/lib/provider-runtime-v2.ts",
