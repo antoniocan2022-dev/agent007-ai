@@ -65,6 +65,12 @@ jobs:
       - name: Prepare test database
         run: bunx prisma db push --skip-generate
 
+      - name: Reconcile commercial database schema contract
+        run: bun run db:reconcile
+
+      - name: Commercial database integrity integration suite
+        run: bun test tests/commercial-database-integration.test.ts
+
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
