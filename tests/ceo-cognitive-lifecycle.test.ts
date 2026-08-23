@@ -19,6 +19,25 @@ afterEach(() => {
   delete process.env.CEREBRAS_API_KEY
 })
 
+const criticalAnswer = `# Recommendation
+
+Decision: proceed only after independent review and explicit verification of the deployment evidence. The recommended action is to advance the mission only when the evidence package is complete, the identified risks are understood, and the execution conditions are satisfied.
+
+## Evidence
+- Confirm the deployment identity and verify the exact release evidence before execution.
+- Confirm the independent review result and reconcile any material disagreement.
+- Preserve the supporting mission evidence so the decision remains auditable.
+
+## Risks
+- Deployment without complete evidence could create an irreversible production error.
+- Conflicting verification results require escalation rather than silent selection.
+- Missing current evidence means the system must not claim live confirmation.
+
+## Next Actions
+1. Complete the independent verification checkpoint.
+2. Record the final evidence and decision state.
+3. Proceed only when all mandatory gates are satisfied.`
+
 describe('CEO cognitive lifecycle', () => {
   test('fast requests remain fast, ambiguous resolves to full, and the DecisionPlan enforces the full cognitive floor', () => {
     const fast = preRouteCeoRequest([{ role: 'user', content: 'What is compound interest?' }])
@@ -89,7 +108,7 @@ describe('CEO cognitive lifecycle', () => {
   test('critical responses require supporting evidence before PASS and LIVE_VERIFIED', () => {
     const reviewedWithoutEvidence = evaluateCeoQuality({
       objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
-      content: '# Recommendation\n\nProceed only after independent review and explicit verification.\n\n- Evidence requirements\n- Risks\n- Next actions',
+      content: criticalAnswer,
       path: 'critical',
       reviewed: true,
       externalExecutionSucceeded: true,
@@ -101,7 +120,7 @@ describe('CEO cognitive lifecycle', () => {
 
     const evidenced = evaluateCeoQuality({
       objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
-      content: '# Recommendation\n\nProceed only after independent review and explicit verification.\n\n- Evidence requirements\n- Risks\n- Next actions',
+      content: criticalAnswer,
       path: 'critical',
       reviewed: true,
       externalExecutionSucceeded: true,
@@ -167,15 +186,15 @@ describe('CEO cognitive lifecycle', () => {
       if (method === 'POST') {
         if (url.includes('api.groq.com')) {
           postProviders.push('groq')
-          return new Response(JSON.stringify({ choices: [{ message: { content: 'Agent007 should prioritize the proposed mission with evidence, risks, and next actions.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          return new Response(JSON.stringify({ choices: [{ message: { content: criticalAnswer } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
         }
         if (url.includes('api.z.ai')) {
           postProviders.push('zai')
-          return new Response(JSON.stringify({ choices: [{ message: { content: 'Review: the recommendation needs explicit evidence, risks, and a verification checkpoint.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          return new Response(JSON.stringify({ choices: [{ message: { content: 'Review: the recommendation needs explicit evidence, risks, and a verification checkpoint before any deployment decision.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
         }
         if (url.includes('api.mistral.ai')) {
           postProviders.push('mistral')
-          return new Response(JSON.stringify({ choices: [{ message: { content: '# Recommendation\n\nAgent007 should prioritize the mission with explicit evidence and verification.\n\n- Evidence requirements\n- Risks\n- Next actions' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          return new Response(JSON.stringify({ choices: [{ message: { content: criticalAnswer } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
         }
       }
       throw new Error(`unexpected fetch: ${url}`)
