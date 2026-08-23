@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { assertDelegationAllowed, authorityLevelFor } from '@/lib/architecture-control-plane'
 import { getActiveMissionDB, appendLeaderMessageDB, getLeaderForCurrentStageDB } from '@/lib/active-missions-db'
-import { runSubagent, getAllSubagents } from '@/lib/subagents'
+import { getAllSubagents, runSubagent } from '@/lib/subagents'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { resolveMissionOwnerId } from '@/lib/mission-owner'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -17,7 +18,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ mis
   if (!session?.user) return errorResponse('Unauthorized', 401)
   const { missionId } = await params
   try {
-    const mission = await getActiveMissionDB(missionId)
+    const ownerId = await resolveMissionOwnerId(session.user)
+    const mission = await getActiveMissionDB(missionId, ownerId)
     if (!mission) return errorResponse('Mission not found', 404)
     return NextResponse.json({ ok: true, mission })
   } catch (error) {
@@ -36,9 +38,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
   if (!message) return errorResponse('message required')
 
   try {
-    const mission = await getActiveMissionDB(missionId)
+    const ownerId = await resolveMissionOwnerId(session.user)
+    const mission = await getActiveMissionDB(missionId, ownerId)
     if (!mission) return errorResponse('Mission not found', 404)
-    const leaderInfo = await getLeaderForCurrentStageDB(missionId)
+    const leaderInfo = await getLeaderForCurrentStageDB(missionId, ownerId)
     if (!leaderInfo) return errorResponse('No active leader for this mission')
 
     const targetLevel = authorityLevelFor(leaderInfo.leaderId)
@@ -46,17 +49,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
     assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID' })
     assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: leaderInfo.leaderId, targetLevel: 'LEADER', delegatedBy: 'agent007' })
 
-    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'OWNER', message)
+    await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'OWNER', message, ownerId)
 
     const dispatchPromise = (async () => {
       if (leaderInfo.leaderId === 'ceo' || leaderInfo.leaderName.toLowerCase() === 'ceo') {
         const contextualEvidence = [
           `Mission ID: ${mission.id}`,
+          `Mission owner: ${mission.ownerId ?? ownerId}`,
           `Mission title: ${mission.title}`,
           `Mission stage: ${leaderInfo.stage}`,
           `Mission description: ${mission.description}`,
         ].join('\n')
-        const response = await runCeoCognitiveLifecycle({
+        return runCeoCognitiveLifecycle({
           missionId,
           contextualEvidence,
           verification: 'enhanced',
@@ -66,7 +70,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
           ],
           timeoutMs: 55000,
         })
-        return response
       }
 
       const sub = (await getAllSubagents({ includeDisabled: false })).find((candidate: any) => candidate.id === leaderInfo.leaderId)
@@ -80,23 +83,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
     const leaderResult = await Promise.race([dispatchPromise, timeout])
     const leaderResponse = typeof leaderResult === 'string' ? leaderResult : leaderResult?.content ?? leaderResult?.answer ?? `[${leaderInfo.leaderName} returned no response]`
     const isSystemNotice = leaderResponse.includes('timed out after 45s.') || leaderResponse.includes('Evidence state: UNAVAILABLE')
-    if (!isSystemNotice) await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse)
+    if (!isSystemNotice) await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse, ownerId)
 
-    const updated = await getActiveMissionDB(missionId)
-    return NextResponse.json({
-      ok: true,
-      mission: updated,
-      leaderResponse,
-      isSystemNotice,
-      lifecycle: typeof leaderResult === 'object' && leaderResult ? {
-        decisionPlan: leaderResult.decisionPlan,
-        executionPlan: leaderResult.executionPlan,
-        evidenceState: leaderResult.evidenceState,
-        quality: leaderResult.quality,
-        provider: leaderResult.provider,
-        model: leaderResult.model,
-      } : undefined,
-    })
+    const updated = await getActiveMissionDB(missionId, ownerId)
+    return NextResponse.json({ ok: true, mission: updated, leaderResponse, isSystemNotice, lifecycle: typeof leaderResult === 'object' && leaderResult ? { decisionPlan: leaderResult.decisionPlan, executionPlan: leaderResult.executionPlan, evidenceState: leaderResult.evidenceState, quality: leaderResult.quality, provider: leaderResult.provider, model: leaderResult.model } : undefined })
   } catch (error) {
     return errorResponse(error, 400)
   }
