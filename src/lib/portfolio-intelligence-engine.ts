@@ -3,10 +3,6 @@ import { buildRelationalPortfolioMetrics } from './portfolio-commercial-intellig
 import { optimize } from './portfolio-intelligence-rules'
 import type { PortfolioMetric, PortfolioSnapshot, PortfolioDecisionRecord } from './portfolio-intelligence-types'
 
-const json = (value: string): Record<string, unknown> | null => {
-  try { return JSON.parse(value) as Record<string, unknown> } catch { return null }
-}
-
 function stableDecisionId(business: string, snapshotId: string): string {
   return `portfolio_decision_${business}_${snapshotId}`
 }
@@ -64,5 +60,13 @@ export async function runPortfolioOptimization() {
 
 export async function getPortfolioOptimizationHistory(limit = 25): Promise<PortfolioDecisionRecord[]> {
   const rows = await db.memory.findMany({ where: { category: 'portfolio_intelligence_decision' }, orderBy: { createdAt: 'desc' }, take: Math.max(1, Math.min(100, limit)) })
-  return rows.map((row) => json(row.value)).filter((value): value is PortfolioDecisionRecord => Boolean(value))
+  const records: PortfolioDecisionRecord[] = []
+  for (const row of rows) {
+    try {
+      records.push(JSON.parse(row.value) as PortfolioDecisionRecord)
+    } catch {
+      // Malformed historical telemetry is ignored rather than surfaced as a fake decision.
+    }
+  }
+  return records
 }
