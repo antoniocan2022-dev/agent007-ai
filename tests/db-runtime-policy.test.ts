@@ -35,4 +35,11 @@ describe('production database runtime policy', () => {
     expect(vercelBuildSource).not.toContain('bun run db:reconcile')
     expect(vercelBuildSource).not.toContain('AGENT007_RELEASE_SCHEMA_RECONCILE=1 bun run build')
   })
+
+  test('controlled owner bootstrap runs only after the canonical build succeeds', () => {
+    const buildIndex = vercelBuildSource.indexOf('bun run build')
+    const bootstrapIndex = vercelBuildSource.indexOf('bun run db:bootstrap')
+    expect(buildIndex).toBeGreaterThanOrEqual(0)
+    expect(bootstrapIndex).toBeGreaterThan(buildIndex)
+  })
 })
