@@ -1,5 +1,5 @@
 import type { EvidenceState } from './ceo-cognitive-contract'
-import { recallPersistentMemory, type } from './persistent-memory'
+import { recallPersistentMemory } from './persistent-memory'
 
 export interface DegradedResponse {
   content: string
