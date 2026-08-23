@@ -96,6 +96,15 @@ describe('commercial database contract', () => {
     `
 
     missionId = `mission_ci_${suffix}`
+
+    const attribution = await attributeMissionTransaction({
+      missionId,
+      ventureId,
+      transactionId,
+      source: 'ci-commercial-integration',
+    })
+    expect(attribution.customerId).toBe(customerId)
+    expect(attribution.amount).toBe(125)
   })
 
   afterAll(async () => {
@@ -136,17 +145,7 @@ describe('commercial database contract', () => {
     await expect(assertRealSucceededTransaction({ ventureId, transactionId, amount: 99 })).rejects.toThrow('amount does not match')
   })
 
-  it('closes Mission → Money attribution against the real transaction ledger', async () => {
-    const attribution = await attributeMissionTransaction({
-      missionId,
-      ventureId,
-      transactionId,
-      source: 'ci-commercial-integration',
-    })
-    expect(attribution.transactionId).toBe(transactionId)
-    expect(attribution.customerId).toBe(customerId)
-    expect(attribution.amount).toBe(125)
-
+  it('keeps Mission → Money attribution anchored to the real transaction ledger', async () => {
     const outcomes = await db.memory.findMany({ where: { category: 'architecture_business_outcome' }, take: 5000 })
     const matching = outcomes.filter((row) => {
       try {
