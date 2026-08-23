@@ -62,7 +62,7 @@ describe('mission autonomy supervisor', () => {
     expect(source).toContain('ADVANCE_STAGE')
     expect(source).toContain('OWNER_APPROVAL')
     expect(source).toContain('runCeoCognitiveLifecycle')
-    expect(source).toContain('runSubagent')
+    expect(source).toContain('runLeader')
   })
 
   test('artifact extraction supports every canonical artifact type', () => {
@@ -76,7 +76,7 @@ describe('mission autonomy supervisor', () => {
 
   test('artifact-gated advancement cannot occur without verification', () => {
     const source = readFileSync('src/lib/mission-supervisor.ts', 'utf8')
-    expect(source).toContain("h.artifactRequired!=='none'&&(!h.artifactValue||!h.artifactVerified)")
+    expect(source).toContain("cur.artifactRequired!=='none'&&(!cur.artifactValue||!cur.artifactVerified)")
     expect(source).toContain('verifyCanonicalArtifact')
     expect(source).toContain('registerArtifact')
   })
@@ -86,8 +86,8 @@ describe('mission autonomy supervisor', () => {
     expect(source).toContain('persistLeaderArtifact')
     expect(source).toContain('buildArtifactId')
     expect(source).toContain('registerArtifact')
-    expect(source).toContain('h.artifacts.push')
-    expect(source).toContain('h.artifactValue = value')
+    expect(source).toContain('handoff.artifacts.push')
+    expect(source).toContain('handoff.artifactValue=value')
   })
 
   test('durable missions are owner-bound and cannot use the first-created user', () => {
