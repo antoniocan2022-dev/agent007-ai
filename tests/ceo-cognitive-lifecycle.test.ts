@@ -5,6 +5,7 @@ import { buildCeoExecutionPlan } from '@/lib/ceo-execution-plan'
 import { evaluateCeoQuality } from '@/lib/ceo-quality-gate'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
+import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { readFileSync } from 'node:fs'
 
 const originalFetch = globalThis.fetch
@@ -13,12 +14,17 @@ afterEach(() => {
   globalThis.fetch = originalFetch
   delete process.env.GROQ_API_KEY
   delete process.env.ZAI_API_KEY
+  delete process.env.MISTRAL_API_KEY
+  delete process.env.GEMINI_API_KEY
+  delete process.env.CEREBRAS_API_KEY
 })
 
 describe('CEO cognitive lifecycle', () => {
-  test('fast requests remain fast and ambiguous defaults to full', () => {
+  test('fast requests remain fast, ambiguous defaults to full, and canonical task classification is reused', () => {
     const fast = preRouteCeoRequest([{ role: 'user', content: 'What is compound interest?' }])
     expect(fast.route).toBe('fast')
+    expect(fast.taskClass).toBe('reasoning')
+    expect(fast.adaptiveExecutionClass).toBe('fast')
 
     const ambiguous = preRouteCeoRequest([{ role: 'user', content: 'Continue this.' }])
     expect(ambiguous.route).toBe('ambiguous')
@@ -60,10 +66,12 @@ describe('CEO cognitive lifecycle', () => {
   test('fast path uses lightweight quality checks while critical path requires review', () => {
     const fast = evaluateCeoQuality({ objective: 'What is compound interest?', content: 'Compound interest is interest earned on principal plus accumulated interest.', path: 'fast', reviewed: false, externalExecutionSucceeded: true })
     expect(fast.decision).toBe('PASS')
-    expect(fast.evidenceState).toBe('LIVE_VERIFIED')
+    expect(fast.evidenceState).toBe('LIVE_EXECUTED')
+    expect(fast.verificationStatus).toBe('NOT_PERFORMED')
 
     const critical = evaluateCeoQuality({ objective: 'Decide whether to deploy this mission.', content: 'A draft recommendation without independent review.', path: 'critical', reviewed: false, externalExecutionSucceeded: true })
     expect(critical.decision).toBe('ESCALATE')
+    expect(critical.evidenceState).toBe('PARTIAL_UNCONFIRMED')
     expect(critical.reasons.some((reason) => reason.includes('independent review'))).toBe(true)
   })
 
@@ -96,13 +104,63 @@ describe('CEO cognitive lifecycle', () => {
     expect(calls.some((call) => call.includes('groq.com'))).toBe(false)
   })
 
+  test('critical lifecycle executes primary → independent review → synthesis', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.ZAI_API_KEY = 'test-zai'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    const postProviders: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return new Response(JSON.stringify({ data: [{ id: 'llama-3.3-70b-versatile' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        if (url.includes('api.z.ai')) return new Response(JSON.stringify({ data: [{ id: 'glm-5.1' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        if (url.includes('api.mistral.ai')) return new Response(JSON.stringify({ data: [{ id: 'mistral-large-latest' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (method === 'POST') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content?: string }> }
+        const prompt = JSON.stringify(body.messages ?? [])
+        if (url.includes('api.groq.com')) {
+          postProviders.push('groq')
+          return new Response(JSON.stringify({ choices: [{ message: { content: 'Agent007 should prioritize the proposed mission with evidence and verification.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        }
+        if (url.includes('api.z.ai')) {
+          postProviders.push('zai')
+          return new Response(JSON.stringify({ choices: [{ message: { content: 'Review: the recommendation needs explicit evidence and a verification checkpoint.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        }
+        if (url.includes('api.mistral.ai')) {
+          postProviders.push('mistral')
+          return new Response(JSON.stringify({ choices: [{ message: { content: 'Agent007 should prioritize the mission with explicit evidence, verification, and a controlled next action.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        }
+        void prompt
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({
+      missionId: 'mission-critical-test',
+      messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence and verification needed.' }],
+      timeoutMs: 20000,
+    })
+
+    expect(postProviders).toEqual(['groq', 'zai', 'groq'])
+    expect(result.executionPlan.stages.map((stage) => stage.name)).toEqual(['primary', 'independent_review', 'synthesis'])
+    expect(result.quality.verificationStatus).toBe('INDEPENDENT_PASS')
+    expect(result.evidenceState).toBe('LIVE_VERIFIED')
+    expect(result.degraded).toBe(false)
+  })
+
   test('integration points use the cognitive lifecycle and preserve compatibility metadata', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
+    const missionRoute = readFileSync('src/app/api/mission-active/[missionId]/route.ts', 'utf8')
     expect(bridge).toContain("from './ceo-cognitive-lifecycle'")
     expect(bridge).not.toContain("from './canonical-llm-router'")
     expect(bridge).toContain('responseMs: result.responseMs')
     expect(bridge).toContain('getProviderTaskPolicy')
     expect(presenter).toContain("from './ceo-cognitive-lifecycle'")
+    expect(presenter).toContain("const generationAuthorized = decisionKernel.decision === 'PROCEED'")
+    expect(missionRoute).toContain('runCeoCognitiveLifecycle')
+    expect(missionRoute).not.toContain("import('@/lib/agent')")
   })
 })
