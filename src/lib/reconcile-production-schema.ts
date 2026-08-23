@@ -85,13 +85,15 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS "BusinessUnit" (
     "id" TEXT PRIMARY KEY,
     "ownerUserId" TEXT NOT NULL,
-    "businessKey" TEXT NOT NULL UNIQUE,
+    "businessKey" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT NOT NULL DEFAULT '',
     "status" TEXT NOT NULL DEFAULT 'ACTIVE',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  'ALTER TABLE "BusinessUnit" DROP CONSTRAINT IF EXISTS "BusinessUnit_businessKey_key"',
+  'CREATE UNIQUE INDEX IF NOT EXISTS "BusinessUnit_ownerUserId_businessKey_key" ON "BusinessUnit" ("ownerUserId", "businessKey")',
   'CREATE INDEX IF NOT EXISTS "BusinessUnit_ownerUserId_idx" ON "BusinessUnit" ("ownerUserId")',
   'CREATE INDEX IF NOT EXISTS "BusinessUnit_status_idx" ON "BusinessUnit" ("status")',
   'ALTER TABLE "BusinessUnit" ADD CONSTRAINT "BusinessUnit_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE',
@@ -114,7 +116,7 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS "Venture_ownerUserId_idx" ON "Venture" ("ownerUserId")',
   'CREATE INDEX IF NOT EXISTS "Venture_status_idx" ON "Venture" ("status")',
   'ALTER TABLE "Venture" ADD CONSTRAINT "Venture_businessUnitId_fkey" FOREIGN KEY ("businessUnitId") REFERENCES "BusinessUnit"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-  'ALTER TABLE "Venture" ADD CONSTRAINT "Venture_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE',
+  'ALTER TABLE "Venture" ADD CONSTRAINT "Venture_ownerUserId_fkey" ON DELETE CASCADE ON UPDATE CASCADE',
   'ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "ventureId" TEXT',
   'ALTER TABLE "Opportunity" ADD COLUMN IF NOT EXISTS "ventureId" TEXT',
   'ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "ventureId" TEXT',
@@ -126,10 +128,10 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS "MarketingCampaign_ventureId_idx" ON "MarketingCampaign" ("ventureId")',
   'CREATE INDEX IF NOT EXISTS "IncomeEntry_ventureId_idx" ON "IncomeEntry" ("ventureId")',
   'ALTER TABLE "Customer" ADD CONSTRAINT "Customer_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-  'ALTER TABLE "Opportunity" ADD CONSTRAINT "Opportunity_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-  'ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-  'ALTER TABLE "MarketingCampaign" ADD CONSTRAINT "MarketingCampaign_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
-  'ALTER TABLE "IncomeEntry" ADD CONSTRAINT "IncomeEntry_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE SET NULL ON UPDATE CASCADE',
+  'ALTER TABLE "Opportunity" ADD CONSTRAINT "Opportunity_ventureId_fkey" ON DELETE SET NULL ON UPDATE CASCADE',
+  'ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_ventureId_fkey" ON DELETE SET NULL ON UPDATE CASCADE',
+  'ALTER TABLE "MarketingCampaign" ADD CONSTRAINT "MarketingCampaign_ventureId_fkey" ON DELETE SET NULL ON UPDATE CASCADE',
+  'ALTER TABLE "IncomeEntry" ADD CONSTRAINT "IncomeEntry_ventureId_fkey" ON DELETE SET NULL ON UPDATE CASCADE',
   `CREATE TABLE IF NOT EXISTS "Subscription" (
     "id" TEXT PRIMARY KEY,
     "ventureId" TEXT NOT NULL,
@@ -194,34 +196,21 @@ async function main() {
       throw error
     }
   }
-
   const required = await prisma.$queryRaw<Array<{ table_name: string }>>`
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
+    SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
       AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice')
   `
   const requiredSet = new Set(required.map(row => row.table_name))
   const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice'].filter(name => !requiredSet.has(name))
   if (missingTables.length) throw new Error(`Schema reconciliation incomplete. Missing tables: ${missingTables.join(', ')}`)
-
   const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
-    SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname IN (
+    SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN (
       'ExecutionReceipt_missionId_idempotencyKey_key','EvidenceLedger_missionId_idempotencyKey_key','EvidenceLedger_missionId_version_key','EvidenceClaim_ledgerId_claimKey_key',
-      'BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx',
-      'Subscription_ventureId_idx','Invoice_ventureId_idx'
+      'BusinessUnit_ownerUserId_businessKey_key','BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx','Subscription_ventureId_idx','Invoice_ventureId_idx'
     )
   `
-  if (indexes.length !== 13) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/13`)
-
-  console.log('Production schema reconciliation verified: proof ledger, venture/business-unit scope, commercial links, subscription, and invoice tables/indexes present.')
+  if (indexes.length !== 14) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/14`)
+  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, commercial links, subscription, and invoice tables/indexes present.')
 }
 
-main()
-  .catch((error) => {
-    console.error('Production schema reconciliation failed:', error)
-    process.exitCode = 1
-  })
-  .finally(async () => {
-    await prisma.$disconnect()
-  })
+main().catch((error) => { console.error('Production schema reconciliation failed:', error); process.exitCode = 1 }).finally(async () => { await prisma.$disconnect() })
