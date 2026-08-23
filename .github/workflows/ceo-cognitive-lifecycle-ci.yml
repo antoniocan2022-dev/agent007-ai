@@ -31,10 +31,12 @@ on:
       - 'src/lib/operational-kpi-engine.ts'
       - 'src/lib/reconcile-production-schema.ts'
       - 'src/lib/autonomy/**'
+      - 'prisma/schema.prisma'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
+      - 'tests/commercial-database-integration.test.ts'
       - 'tests/system-continuity-integrity.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
@@ -74,10 +76,12 @@ on:
       - 'src/lib/operational-kpi-engine.ts'
       - 'src/lib/reconcile-production-schema.ts'
       - 'src/lib/autonomy/**'
+      - 'prisma/schema.prisma'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
+      - 'tests/commercial-database-integration.test.ts'
       - 'tests/system-continuity-integrity.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
@@ -92,11 +96,26 @@ permissions:
 
 env:
   NEXTAUTH_SECRET: ci-only-agent007-nextauth-secret
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_ci
 
 jobs:
   lifecycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agent007_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agent007_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -115,6 +134,15 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Regenerate Prisma client
+        run: bun run db:generate
+
+      - name: Create Prisma schema in CI database
+        run: bunx prisma db push --accept-data-loss
+
+      - name: Reconcile runtime commercial schema
+        run: bun run db:reconcile
+
       - name: Run CEO architecture audit
         run: bun run audit:ceo-lifecycle
 
@@ -129,6 +157,9 @@ jobs:
 
       - name: Run commercial lifecycle integration tests
         run: bun test tests/commercial-lifecycle-integration.test.ts
+
+      - name: Run executable commercial database integration tests
+        run: bun test tests/commercial-database-integration.test.ts
 
       - name: Run system continuity and transaction integrity tests
         run: bun test tests/system-continuity-integrity.test.ts
