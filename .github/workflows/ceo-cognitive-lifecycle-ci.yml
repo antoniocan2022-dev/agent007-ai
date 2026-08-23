@@ -8,13 +8,15 @@ on:
       - 'src/lib/canonical-llm-router.ts'
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/agent-canonical-bridge.ts'
+      - 'src/lib/orchestrator.ts'
+      - 'src/app/api/agent/route.ts'
       - 'src/app/api/mission-active/**/route.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'tsconfig.ceo-lifecycle.json'
-      - 'package.json'
       - 'tsconfig.json'
+      - 'package.json'
   push:
     branches: [main]
     paths:
@@ -23,13 +25,15 @@ on:
       - 'src/lib/canonical-llm-router.ts'
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/agent-canonical-bridge.ts'
+      - 'src/lib/orchestrator.ts'
+      - 'src/app/api/agent/route.ts'
       - 'src/app/api/mission-active/**/route.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'tsconfig.ceo-lifecycle.json'
-      - 'package.json'
       - 'tsconfig.json'
+      - 'package.json'
 
 permissions:
   contents: read
