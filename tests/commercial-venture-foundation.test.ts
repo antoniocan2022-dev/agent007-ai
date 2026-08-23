@@ -43,6 +43,14 @@ describe('commercial venture foundation', () => {
     expect(source).not.toContain('ORDER BY u.\"createdAt\" ASC LIMIT 1')
   })
 
+  test('venture identity cannot silently change owner or lifecycle state on idempotent re-entry', () => {
+    const source = readRepoFile('src/lib/venture-commercial-foundation.ts')
+    expect(source).toContain('already belongs to another owner')
+    expect(source).toContain('return venture')
+    expect(source).not.toContain('ON CONFLICT (\"ventureKey\") DO UPDATE SET')
+    expect(source).toContain('productionState')
+  })
+
   test('venture OS production code consumes the relational commercial snapshot', () => {
     const kpi = readRepoFile('src/lib/operational-kpi-engine.ts')
     const factory = readRepoFile('src/lib/venture-factory.ts')
@@ -54,10 +62,11 @@ describe('commercial venture foundation', () => {
 
   test('billing is anchored to the same venture and existing transaction ledger', () => {
     const billing = readRepoFile('src/lib/billing-lifecycle.ts')
-    expect(billing).toContain('Transaction')
+    expect(billing).toContain('assertRealSucceededTransaction')
     expect(billing).toContain('Invoice')
     expect(billing).toContain('ventureId')
     expect(billing).toMatch(/SET \"status\"='paid'/)
-    expect(billing).toContain('Transaction amount/currency does not match invoice.')
+    expect(billing).toContain('already paid by transaction')
+    expect(billing).toContain('paid invoice linked to a transaction')
   })
 })
