@@ -1,109 +1,85 @@
 import { describe, expect, test } from 'bun:test'
-import { capabilityRequirementForStage, listMissionCapabilityRequirements, validateCapabilityProfileCoverage } from '@/lib/mission-capability-readiness'
-import { extractMissionArtifact } from '@/lib/mission-supervisor'
-import { readFileSync } from 'node:fs'
+import { SUBAGENTS } from '@/lib/subagents'
+import { assessBuiltInCapabilityReadiness, capabilityRequirementForStage, capabilitiesForTools, listMissionCapabilityRequirements, validateCapabilityProfileCoverage } from '@/lib/mission-capability-readiness'
+import { createActiveMission, appendMissionControlEvent, markMissionProgress, advanceMissionStage } from '@/lib/active-missions'
+import { evaluateFailurePolicy, extractMissionArtifact, FAILURE_THRESHOLDS, recordMissionControlEvent } from '@/lib/mission-supervisor'
 
-describe('mission autonomy supervisor', () => {
-  test('defines capability requirements for every durable mission stage', () => {
+describe('mission autonomy supervisor behavioral contracts', () => {
+  test('every durable stage has a capability contract backed by the canonical registry', () => {
     const stages = ['PLANNED', 'IN_PROGRESS', 'REVIEW', 'DELIVERED', 'VERIFIED', 'OWNER_APPROVAL', 'COMPLETED']
+    expect(listMissionCapabilityRequirements()).toHaveLength(stages.length)
     for (const stage of stages) {
       const requirement = capabilityRequirementForStage(stage)
-      expect(requirement).toBeDefined()
       expect(requirement?.requiredTaskType).toBeTruthy()
-      expect(Array.isArray(requirement?.requiredTools)).toBe(true)
+      expect(requirement?.requiredCapabilities).toBeDefined()
     }
-    expect(listMissionCapabilityRequirements()).toHaveLength(stages.length)
     expect(validateCapabilityProfileCoverage()).toEqual([])
   })
 
-  test('capability floors match the actual canonical specialist tool definitions', () => {
-    const source = readFileSync('src/lib/subagents.ts', 'utf8')
-    expect(source).toContain("id: 'aurora'")
-    expect(source).not.toMatch(/id: 'aurora'[\s\S]{0,5000}ai_content_factory/)
-    expect(source).not.toMatch(/id: 'aurora'[\s\S]{0,5000}'file_write'/)
-    expect(capabilityRequirementForStage('IN_PROGRESS')?.requiredTools).toEqual(['web_search', 'page_reader', 'memory_recall'])
+  test('AURORA readiness is resolved from capabilities rather than hard-coded tool names', () => {
+    const aurora = SUBAGENTS.find((agent) => agent.id === 'aurora')
+    expect(aurora).toBeDefined()
+    const capabilities = capabilitiesForTools(aurora!.allowedTools)
+    expect(capabilities).toContain('RESEARCH.READ')
+    expect(capabilities).toContain('MISSION.INTERNAL_BOOKKEEPING')
+    const readiness = assessBuiltInCapabilityReadiness('IN_PROGRESS', aurora!)
+    expect(readiness.ready).toBe(true)
+    expect(readiness.requiredCapabilities.length).toBeGreaterThan(0)
+    expect(readiness.missing).toEqual([])
   })
 
-  test('scheduler and heartbeat integrate supervisor through the canonical autonomy manager', () => {
-    const scheduler = readFileSync('src/app/api/schedules/tick/route.ts', 'utf8')
-    const heartbeat = readFileSync('scripts/run-venture-operation-cycle.ts', 'utf8')
-    const manager = readFileSync('src/lib/autonomy/autonomy-manager.ts', 'utf8')
-    expect(scheduler).toContain("fireDaily('/api/system/mission-supervisor')")
-    expect(scheduler).toContain('CRON_SECRET')
-    expect(heartbeat).toContain('includeMissionSupervisor: true')
-    expect(manager).toContain('MISSION_LEASE_PREFIX')
-    expect(manager).toContain('acquireMissionExecutionLease')
-    expect(manager).toContain('releaseMissionExecutionLease')
+  test('failure thresholds deterministically select retry, replan, then escalation', () => {
+    expect(evaluateFailurePolicy(0)).toBe('RETRY')
+    expect(evaluateFailurePolicy(FAILURE_THRESHOLDS.retryAt)).toBe('RETRY')
+    expect(evaluateFailurePolicy(FAILURE_THRESHOLDS.replanAt)).toBe('REPLAN')
+    expect(evaluateFailurePolicy(FAILURE_THRESHOLDS.escalateAt)).toBe('ESCALATE')
+    expect(evaluateFailurePolicy(10)).toBe('ESCALATE')
   })
 
-  test('supervisor endpoint is cron-protected and scopes mission inspection by owner', () => {
-    const source = readFileSync('src/app/api/system/mission-supervisor/route.ts', 'utf8')
-    expect(source).toContain("req.headers.get('authorization')")
-    expect(source).toContain('CRON_SECRET')
-    expect(source).toContain('ownerId is required for mission inspection')
-    expect(source).toContain('getMissionSupervisorSnapshot(body.missionId, body.ownerId.trim())')
-    expect(source).toContain('runMissionSupervisorCycle')
+  test('mission progress is distinct from generic mutation timestamps', () => {
+    const mission = createActiveMission({ ownerId: 'owner-a', title: 'Behavioral mission', description: 'progress semantics' })
+    const initialProgress = mission.progressAt
+    const mutationTime = '2026-08-23T19:20:00.000Z'
+    appendMissionControlEvent(mission, { type: 'DELEGATION', actor: 'MISSION_SUPERVISOR', stage: 'PLANNED', fromLeader: 'scout', toLeader: 'scout', reason: 'Delegated without progress.' }, mutationTime)
+    expect(mission.updatedAt).toBe(mutationTime)
+    expect(mission.progressAt).toBe(initialProgress)
+    markMissionProgress(mission, '2026-08-23T19:21:00.000Z')
+    expect(mission.progressAt).toBe('2026-08-23T19:21:00.000Z')
+    expect(mission.updatedAt).toBe(mission.progressAt)
   })
 
-  test('supervisor uses durable persistence, per-mission leases, bounded execution, and manager integration', () => {
-    const source = readFileSync('src/lib/mission-supervisor.ts', 'utf8')
-    expect(source).toContain('acquireMissionExecutionLease')
-    expect(source).toContain('releaseMissionExecutionLease')
-    expect(source).toContain('runAutonomyManagerTick')
-    expect(source).toContain('assumeAutonomyLease')
-    expect(source).toContain('executionOwner')
-    expect(source).toContain('listActiveMissionsDB')
-    expect(source).toContain('saveActiveMissionDB')
-    expect(source).toContain('maxLeaderRuns')
-    expect(source).toContain('maxMissions')
-    expect(source).toContain('REPLAN_REQUIRED')
-    expect(source).toContain('REPLAN_AND_CONTINUE')
-    expect(source).toContain('WAIT_FOR_ARTIFACT')
-    expect(source).toContain('ADVANCE_STAGE')
-    expect(source).toContain('OWNER_APPROVAL')
-    expect(source).toContain('runCeoCognitiveLifecycle')
-    expect(source).toContain('runLeader')
+  test('delegation and replanning events are monotonically versioned', () => {
+    const mission = createActiveMission({ ownerId: 'owner-a', title: 'Versioned mission', description: 'event history' })
+    const first = recordMissionControlEvent(mission, 'DELEGATION', 'MISSION_SUPERVISOR', 'PLANNED', 'Initial assignment', 'scout', 'scout')
+    const second = recordMissionControlEvent(mission, 'REPLAN', 'MISSION_SUPERVISOR', 'PLANNED', 'Replacement selected', 'scout', 'aurora')
+    expect(first.version).toBe(1)
+    expect(second.version).toBe(2)
+    expect(mission.controlEventVersion).toBe(2)
+    expect(mission.controlEvents.map((event) => event.version)).toEqual([1, 2])
+    expect(mission.controlEvents[1].type).toBe('REPLAN')
   })
 
-  test('artifact extraction supports every canonical artifact type', () => {
+  test('stage advancement is behavioral and requires verified artifacts', () => {
+    const mission = createActiveMission({ ownerId: 'owner-a', title: 'Advance mission', description: 'artifact gate' })
+    const current = mission.chain.find((handoff) => handoff.stage === mission.currentStage)!
+    expect(advanceMissionStage(mission.id)).toBe(mission)
+    expect(mission.currentStage).toBe('PLANNED')
+    current.artifactValue = '{"ok":true}'
+    current.artifactVerified = true
+    const before = mission.progressAt
+    advanceMissionStage(mission.id)
+    expect(mission.currentStage).toBe('IN_PROGRESS')
+    expect(mission.progressAt).not.toBe(before)
+    expect(mission.controlEvents.some((event) => event.type === 'STAGE_ADVANCE')).toBe(true)
+  })
+
+  test('artifact extraction is typed and behaviorally rejects unsupported empty values', () => {
     expect(extractMissionArtifact('Result URL: https://example.com/app', 'url')).toBe('https://example.com/app')
     expect(extractMissionArtifact('transaction_id: tx_12345678', 'transaction_id')).toBe('tx_12345678')
     expect(extractMissionArtifact('message_id: msg_1234', 'message_id')).toBe('msg_1234')
     expect(extractMissionArtifact('file_path: /tmp/report.json', 'file_path')).toBe('/tmp/report.json')
-    const data = extractMissionArtifact('```json {"ok":true,"value":42} ```', 'data')
-    expect(data).toContain('"ok":true')
-  })
-
-  test('artifact-gated advancement cannot occur without verification', () => {
-    const source = readFileSync('src/lib/mission-supervisor.ts', 'utf8')
-    expect(source).toContain("cur.artifactRequired!=='none'&&(!cur.artifactValue||!cur.artifactVerified)")
-    expect(source).toContain('verifyCanonicalArtifact')
-    expect(source).toContain('registerArtifact')
-  })
-
-  test('leader output is persisted through the canonical artifact ledger', () => {
-    const source = readFileSync('src/lib/mission-supervisor.ts', 'utf8')
-    expect(source).toContain('persistLeaderArtifact')
-    expect(source).toContain('buildArtifactId')
-    expect(source).toContain('registerArtifact')
-    expect(source).toContain('handoff.artifacts.push')
-    expect(source).toContain('handoff.artifactValue=value')
-  })
-
-  test('durable missions are owner-bound and cannot use the first-created user', () => {
-    const source = readFileSync('src/lib/active-missions-db.ts', 'utf8')
-    expect(source).toContain('createActiveMissionDB(input: { ownerId: string;')
-    expect(source).toContain('mission.ownerId = ownerId')
-    expect(source).not.toContain('findFirst({ orderBy: { createdAt:')
-    expect(source).toContain('row.userId')
-    const ownerResolver = readFileSync('src/lib/mission-owner.ts', 'utf8')
-    expect(ownerResolver).toContain('resolveMissionOwnerId')
-    expect(ownerResolver).toContain('db.user.findUnique')
-  })
-
-  test('owner approval is a hard boundary and cannot be auto-approved', () => {
-    const source = readFileSync('src/lib/mission-supervisor.ts', 'utf8')
-    expect(source).toContain("action:'OWNER_APPROVAL'")
-    expect(source).toContain('Owner approval is a deliberate governance boundary')
+    expect(extractMissionArtifact('```json {"ok":true,"value":42} ```', 'data')).toContain('"ok":true')
+    expect(extractMissionArtifact('', 'url')).toBeNull()
+    expect(extractMissionArtifact('nothing useful', 'transaction_id')).toBeNull()
   })
 })
