@@ -29,14 +29,17 @@ function mergeAttempts(...results: Array<CanonicalLlmResult | undefined>): strin
   return [...new Set(results.flatMap((result) => result?.attempts ?? []))]
 }
 
-function mergeResponseMs(...results: Array<CanonicalLlmResult | undefined>): number {
-  return results.reduce((total, result) => total + (result?.responseMs ?? 0), 0)
+function buildRefinementPrompt(objective: string, draft: string): { role: 'user'; content: string } {
+  return {
+    role: 'user',
+    content: `Produce a revised final answer for the original objective. Preserve correct information from the draft, repair omissions and unsupported claims, improve precision and completeness, and do not invent facts. Return the revised answer only.\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}`,
+  }
 }
 
 function buildReviewPrompt(objective: string, draft: string): { role: 'user'; content: string } {
   return {
     role: 'user',
-    content: `Review the draft answer below against the original objective. Identify material omissions, unsupported claims, contradictions, and incorrect assumptions. Do not write a new answer unless necessary; return a concise review that a synthesis step can act on.\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}`,
+    content: `Review the draft answer below against the original objective. Identify material omissions, unsupported claims, contradictions, and incorrect assumptions. Do not write a new answer; return a concise review that a synthesis step can act on.\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}`,
   }
 }
 
@@ -73,65 +76,74 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const decisionPlan = buildCeoDecisionPlan({ messages: request.messages, preRoute, missionId: request.missionId, taskType: request.taskType })
   const executionPlan = buildCeoExecutionPlan(decisionPlan)
   const objective = objectiveFrom(request.messages)
+  const startedAt = Date.now()
+  const deadline = startedAt + (request.timeoutMs ?? decisionPlan.latencyBudgetMs)
 
-  const baseOptions = {
+  const stageOptions = (overrides: Record<string, unknown> = {}) => ({
     taskType: request.taskType,
     verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard') as any,
     model: request.model,
     temperature: request.temperature,
     maxTokens: request.maxTokens,
-    timeoutMs: request.timeoutMs ?? decisionPlan.latencyBudgetMs,
+    timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())),
     executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const,
-  }
+    ...overrides,
+  })
 
-  const startedAt = Date.now()
   let primary: CanonicalLlmResult | undefined
   let review: CanonicalLlmResult | undefined
   let final: CanonicalLlmResult | undefined
   let escalation = 0
 
   try {
-    primary = await runCanonicalLlm({ ...baseOptions, messages: request.messages })
+    primary = await runCanonicalLlm({ ...stageOptions(), messages: request.messages })
 
     if (executionPlan.reasoningStrategy === 'multi_pass') {
-      review = await runCanonicalLlm({
-        ...baseOptions,
-        messages: [...request.messages, { role: 'assistant', content: primary.content }, buildReviewPrompt(objective, primary.content)],
-        maxProviderAttempts: 2,
+      const refinement = await runCanonicalLlm({
+        ...stageOptions({ maxProviderAttempts: 2 }),
+        messages: [
+          ...request.messages,
+          { role: 'assistant', content: primary.content },
+          buildRefinementPrompt(objective, primary.content),
+        ],
         excludeProviders: [primary.provider],
       })
-      final = review
+      review = refinement
+      final = refinement
     } else if (executionPlan.reasoningStrategy === 'independent_review') {
       review = await runCanonicalLlm({
-        ...baseOptions,
-        messages: [{ role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)],
-        maxProviderAttempts: 2,
+        ...stageOptions({ maxProviderAttempts: 2 }),
+        messages: [
+          { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' },
+          buildReviewPrompt(objective, primary.content),
+        ],
         excludeProviders: [primary.provider],
       })
       final = await runCanonicalLlm({
-        ...baseOptions,
-        messages: [{ role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content)],
-        maxProviderAttempts: 2,
+        ...stageOptions({ maxProviderAttempts: 2 }),
+        messages: [
+          { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
+          buildSynthesisPrompt(objective, primary.content, review.content),
+        ],
         excludeProviders: [primary.provider, review.provider],
       })
     }
 
     const output = final ?? primary
-    if (!output) return tryDegraded(request, 'No usable provider output was produced.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
+    if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan)
 
     let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review), externalExecutionSucceeded: true })
 
-    while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations) {
+    while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
       const lastProvider = final?.provider ?? review?.provider ?? primary?.provider
       try {
         const escalated = await runCanonicalLlm({
-          ...baseOptions,
+          ...stageOptions({ maxProviderAttempts: 2 }),
           messages: [
             { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' },
             { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` },
           ],
-          maxProviderAttempts: 2,
           excludeProviders: lastProvider ? [lastProvider] : [],
         })
         final = escalated
