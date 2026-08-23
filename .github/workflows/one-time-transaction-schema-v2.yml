@@ -1,0 +1,40 @@
+name: One-time Transaction Schema Contract v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/patch-transaction-schema-v2.py'
+      - '.github/workflows/one-time-transaction-schema-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ github.actor == 'antoniocan2022-dev' || github.actor == 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+
+      - name: Apply Prisma Transaction contract patch
+        run: python3 scripts/patch-transaction-schema-v2.py
+
+      - name: Remove one-time repair files
+        run: |
+          rm -f scripts/patch-transaction-schema-v2.py .github/workflows/one-time-transaction-schema-v2.yml
+
+      - name: Commit synchronized Prisma schema
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add prisma/schema.prisma
+          git add -u scripts/patch-transaction-schema-v2.py .github/workflows/one-time-transaction-schema-v2.yml
+          if git diff --cached --quiet; then
+            echo 'Prisma Transaction schema already synchronized.'
+            exit 0
+          fi
+          git commit -m 'fix(schema): align Prisma Transaction venture and customer scope'
+          git push origin main
