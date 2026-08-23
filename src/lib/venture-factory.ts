@@ -11,6 +11,7 @@ import { db } from './db'
 import { buildVentureBlueprint, CANONICAL_VENTURE_TEMPLATE, validateCanonicalVentureTemplate, type VentureBlueprint } from './venture-template'
 import { createVentureControlContract } from './architecture-control-plane'
 import { createOrGetVenture } from './venture-commercial-foundation'
+import { getNventureTemplateCertification } from './venture-template-validation'
 
 const FACTORY_CATEGORY = 'venture_factory_blueprint'
 const FACTORY_PREFIX = 'venture-os:factory:'
@@ -74,6 +75,10 @@ export async function buildV002V003Factory(specs: [VentureFactorySpec, VentureFa
   if (ids.includes('venture_001')) throw new Error('Venture 001 is canonical and cannot be included in the future venture factory.')
   if (new Set(ids).size !== 2 || !ids.includes('venture_002') || !ids.includes('venture_003')) throw new Error('The factory requires exactly one V002 specification and one V003 specification.')
   return Promise.all(specs.map((spec) => buildVentureShell(spec)))
+}
+
+export async function certifyVentureFactoryTemplate(ventureId = 'venture_001') {
+  return getNventureTemplateCertification(ventureId)
 }
 
 export async function getVentureFactoryBlueprint(ventureId: string): Promise<VentureBlueprint | null> { const id = ventureId.trim().toLowerCase(); if (!/^venture_00[23]$/.test(id)) return null; const row = await db.memory.findUnique({ where: { key: factoryKey(id) } }); return row ? JSON.parse(row.value) as VentureBlueprint : null }
