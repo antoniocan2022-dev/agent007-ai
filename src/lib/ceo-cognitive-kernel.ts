@@ -14,10 +14,15 @@ function inferTask(text: string): TaskType {
   return 'reasoning'
 }
 
-export function buildCeoDecisionPlan(input: { messages: readonly { role: string; content: string }[]; preRoute: PreRouteDecision; missionId?: string }): DecisionPlan {
+export function buildCeoDecisionPlan(input: {
+  messages: readonly { role: string; content: string }[]
+  preRoute: PreRouteDecision
+  missionId?: string
+  taskType?: TaskType
+}): DecisionPlan {
   const latest = [...input.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
   const adaptive = classifyExecution(input.messages)
-  const taskClass = inferTask(latest)
+  const taskClass = input.taskType ?? inferTask(latest)
   const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId) || adaptive.executionClass === 'mission'
   const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security' || adaptive.executionClass === 'mission'
   const deep = critical || input.preRoute.complexitySignals > 0 || adaptive.executionClass === 'deep'
