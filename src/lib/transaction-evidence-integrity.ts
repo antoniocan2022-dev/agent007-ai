@@ -29,11 +29,20 @@ export function validateTransactionEvidence(input: TransactionEvidenceInput): st
 export async function assertRealSucceededTransaction(input: TransactionEvidenceInput): Promise<VerifiedTransactionEvidence> {
   const errors = validateTransactionEvidence(input)
   if (errors.length) throw new Error(`Transaction evidence validation failed: ${errors.join(' | ')}`)
-  const rows = await db.$queryRaw<Array<{ id: string; ventureId: string | null; customerId: string | null; amount: number; currency: string; status: string; createdAt: Date }>>`
-    SELECT "id","ventureId","customerId","amount","currency","status","createdAt"
-    FROM "Transaction" WHERE "id"=${input.transactionId.trim()} LIMIT 1
-  `
-  const transaction = rows[0]
+
+  const transaction = await db.transaction.findUnique({
+    where: { id: input.transactionId.trim() },
+    select: {
+      id: true,
+      ventureId: true,
+      customerId: true,
+      amount: true,
+      currency: true,
+      status: true,
+      createdAt: true,
+    },
+  })
+
   if (!transaction) throw new Error(`Transaction not found: ${input.transactionId}.`)
   if (transaction.ventureId !== input.ventureId.trim()) throw new Error(`Transaction ${transaction.id} is not scoped to venture ${input.ventureId}.`)
   if (transaction.status !== 'succeeded') throw new Error(`Transaction ${transaction.id} is not succeeded.`)
@@ -41,5 +50,14 @@ export async function assertRealSucceededTransaction(input: TransactionEvidenceI
   if (!/^[A-Z]{3}$/i.test(transaction.currency)) throw new Error(`Transaction ${transaction.id} has an invalid currency code.`)
   if (input.amount != null && Number(transaction.amount) !== Number(input.amount)) throw new Error(`Transaction ${transaction.id} amount does not match supplied evidence.`)
   if (input.currency != null && transaction.currency.toUpperCase() !== input.currency.trim().toUpperCase()) throw new Error(`Transaction ${transaction.id} currency does not match supplied evidence.`)
-  return { id: transaction.id, ventureId: transaction.ventureId, customerId: transaction.customerId, amount: Number(transaction.amount), currency: transaction.currency.toUpperCase(), status: transaction.status, createdAt: new Date(transaction.createdAt).toISOString() }
+
+  return {
+    id: transaction.id,
+    ventureId: transaction.ventureId,
+    customerId: transaction.customerId,
+    amount: Number(transaction.amount),
+    currency: transaction.currency.toUpperCase(),
+    status: transaction.status,
+    createdAt: transaction.createdAt.toISOString(),
+  }
 }
