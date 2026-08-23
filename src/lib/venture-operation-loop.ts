@@ -17,8 +17,9 @@ function cycleId(ventureId: string) { return `cycle_${createHash('sha256').updat
 
 export async function runVentureOperationCycle(ventureId = 'venture_001', owner = 'agent007'): Promise<VentureOperationCycle> {
   const findings: string[] = []
-  assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: owner })
-  assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'pulse', targetLevel: 'LEADER', delegatedBy: 'agent007' })
+  const canonicalOwner = owner.trim().toLowerCase()
+  assertDelegationAllowed({ actorId: canonicalOwner, actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: canonicalOwner })
+  assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'pulse', targetLevel: 'LEADER', delegatedBy: canonicalOwner })
 
   const manager = await runAutonomyManagerTick({
     actorId: 'vid',
