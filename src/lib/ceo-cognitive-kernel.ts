@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { PreRouteDecision, DecisionPlan } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
 
@@ -21,7 +22,7 @@ export function buildCeoDecisionPlan(input: {
   const deep = critical || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep' || resolvePath(input.preRoute) === 'full'
 
   return {
-    requestId: crypto.randomUUID(),
+    requestId: randomUUID(),
     path: critical ? 'critical' : deep ? 'full' : 'fast',
     objective: latest.trim().slice(0, 4000),
     taskClass,
