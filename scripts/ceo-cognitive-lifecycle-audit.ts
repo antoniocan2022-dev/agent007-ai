@@ -55,36 +55,33 @@ if (!lifecycle.includes('buildCeoDegradedResponse')) violations.push('Lifecycle 
 if (!lifecycle.includes('composeCeoResponse')) violations.push('Degraded/normal output bypasses the Response Composer')
 if (!lifecycle.includes('maxEscalations')) violations.push('Escalation loop has no explicit hard ceiling')
 if (!lifecycle.includes('excludeProviders')) violations.push('Independent review has no provider independence control')
-if (!lifecycle.includes("quality.evidenceState")) violations.push('Lifecycle does not propagate canonical evidence state')
+if (!lifecycle.includes('quality.evidenceState')) violations.push('Lifecycle does not propagate canonical evidence state')
 
-// Mission governance must be an actual generation boundary.
 if (!presenter.includes("const generationAuthorized = decisionKernel.decision === 'PROCEED'")) violations.push('CEO presenter does not enforce PROCEED as the generation boundary')
 if (!presenter.includes("if (!generationAuthorized)")) violations.push('CEO HOLD/REJECT path does not short-circuit LLM generation')
 
-// The legacy agent.ts remains a compatibility module, but it must not be a
-// runtime execution path. Scan the application and library graph for callers.
-for (const file of files) {
+// Production caller graph: legacy agent LLM execution is forbidden outside
+// the compatibility bridge. Tests may mention legacy symbols without becoming
+// runtime bypasses.
+const productionFiles = files.filter((file) => file.startsWith('src/') && !file.endsWith('.test.ts'))
+for (const file of productionFiles) {
   if (approvedRuntimeFiles.has(file) || file === 'src/lib/agent.ts') continue
   const source = read(file)
   if (/callLlmWithRetry\s*\(/.test(source)) violations.push(`Legacy LLM execution bypass: callLlmWithRetry() in ${file}`)
   if (/callFallbackLlm\s*\(/.test(source)) violations.push(`Legacy LLM fallback bypass: callFallbackLlm() in ${file}`)
   if (/from ['"]@\/lib\/agent['"]/.test(source) || /from ['"].\/agent['"]/.test(source)) violations.push(`Legacy agent module imported outside approved compatibility boundary: ${file}`)
-}
-
-// Direct canonical runtime calls are allowed only in the canonical router,
-// lifecycle, executive presenter, compatibility bridge, provider runtime, and
-// the explicit system health probe. This prevents new application routes from
-// silently bypassing planning/quality governance.
-for (const file of files.filter((file) => file.startsWith('src/') && file.endsWith('.ts'))) {
-  if (approvedRuntimeFiles.has(file) || file === 'src/lib/agent.ts') continue
-  const source = read(file)
   if (/\brunCanonicalLlm\s*\(/.test(source)) violations.push(`Direct canonical LLM call outside approved runtime boundary: ${file}`)
   if (/\.chat\.completions\.create\s*\(/.test(source)) violations.push(`Direct provider chat SDK call outside approved adapter/runtime boundary: ${file}`)
 }
 
+// The system health probe is an intentional direct canonical-runtime exception;
+// the CEO request paths remain lifecycle-gated.
+const healthProbe = read('src/app/api/system/diagnose-llm/route.ts')
+if (!healthProbe.includes('runCanonicalLlm')) violations.push('Canonical health probe lost its explicit runtime probe contract')
+
 // The old agent.ts implementation is retained only as a deprecated compatibility
 // surface until all consumers are migrated. The audit makes that debt explicit:
-// a compatibility export is not permitted to become an application caller.
+// its exported legacy function must not acquire a production caller.
 const legacyAgent = read('src/lib/agent.ts')
 if (!legacyAgent.includes('export async function callLlmWithRetry')) violations.push('Expected legacy agent compatibility export is missing; migrate consumers before deleting the module')
 
