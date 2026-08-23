@@ -11,8 +11,8 @@ export interface CeoVentureState {
 }
 
 export function extractVentureId(objective: string): string | null {
-  const match = objective.match(/\bventure_\d{3}\b/i)
-  return match ? match[0].toLowerCase() : null
+  const match = objective.match(/\bventure(?:[_ -])?(\d{3})\b/i)
+  return match ? `venture_${match[1]}` : null
 }
 
 function parseCheckpoint(value: string | null): Record<string, unknown> | null {
@@ -37,13 +37,7 @@ export async function readCeoVentureState(ventureId: string): Promise<CeoVenture
     db.memory.findUnique({ where: { key: `venture-os:operation:${normalized}` }, select: { value: true } }),
   ])
 
-  return {
-    ventureId: normalized,
-    venture,
-    commercial,
-    kpi,
-    operationCheckpoint: parseCheckpoint(checkpointRow?.value ?? null),
-  }
+  return { ventureId: normalized, venture, commercial, kpi, operationCheckpoint: parseCheckpoint(checkpointRow?.value ?? null) }
 }
 
 function money(value: number): string {

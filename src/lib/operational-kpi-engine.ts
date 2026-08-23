@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto'
 import { db } from './db'
 import { listActiveMissionsDB } from './active-missions-db'
 import { evaluateVentureReadiness } from './venture-autonomy-control'
+import { getVenture, getVentureCommercialSnapshot, type VentureCommercialSnapshot } from './venture-commercial-foundation'
+import { getCustomerSuccessSnapshot } from './customer-success'
+import { assertRealSucceededTransaction } from './transaction-evidence-integrity'
 
 export interface OperationalKpiSnapshot {
   snapshotId: string
@@ -16,6 +19,8 @@ export interface OperationalKpiSnapshot {
   readiness: { status: string; score: number; threshold: number; missingEvidence: string[] }
   autonomy: { mode: string; leaseHealthy: boolean; heartbeatAt: string | null; expiresAt: string | null }
   controlHealth: { artifactGateRate: number; syntheticRevenueDetected: boolean }
+  relationalCommercial?: VentureCommercialSnapshot
+  customerSuccess?: Awaited<ReturnType<typeof getCustomerSuccessSnapshot>>
 }
 
 function stableId(...parts: string[]) { return `kpi_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}` }
@@ -32,8 +37,9 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
     const durable = await listActiveMissionsDB()
     missions = durable.map((mission) => mission as unknown as Record<string, any>).filter((m) => !m.ventureId || m.ventureId === ventureId)
   } catch {
-    // If durable mission state is unavailable, do not substitute synthetic seeds.
-    missions = rows.filter((r) => r.category === 'venture_mission').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v && (!v.ventureId || v.ventureId === ventureId))
+    // Fail closed. A KPI snapshot must never substitute legacy/synthetic mission memory
+    // when the durable mission store is unavailable.
+    missions = []
   }
 
   const artifacts = rows.filter((r) => r.category === 'architecture_artifact').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => (!v.ventureId || v.ventureId === ventureId) && (!v.createdAt || Date.parse(String(v.createdAt)) >= cutoff))
@@ -44,11 +50,9 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const failed = missions.filter((m) => m.currentStage === 'FAILED').length
   const blocked = missions.filter((m) => m.currentStage === 'BLOCKED' || m.chain?.some((c: any) => c.status === 'blocked')).length
   const terminal = completed + failed
-
   const produced = artifacts.filter((a) => ['PRODUCED', 'VERIFIED', 'REJECTED', 'SUPERSEDED'].includes(String(a.status))).length
   const verified = artifacts.filter((a) => a.status === 'VERIFIED').length
   const rejected = artifacts.filter((a) => a.status === 'REJECTED').length
-
   const lifecycle = workflows.map((w) => String(w.output?.lifecycleState ?? w.input?.state ?? 'PROSPECT'))
   const totalOrders = lifecycle.length
   const paidOrders = lifecycle.filter((s) => ['PAID', 'FULFILLMENT', 'FULFILLED', 'REFUND_PENDING', 'REFUNDED'].includes(s)).length
@@ -56,32 +60,69 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const refundedOrders = lifecycle.filter((s) => s === 'REFUNDED').length
   const failedOrders = lifecycle.filter((s) => s === 'FAILED').length
 
-  const transactions = outcomes.filter((o) => o.type === 'TRANSACTION')
-  const refunds = outcomes.filter((o) => o.type === 'REFUND')
+  const transactionOutcomes = outcomes.filter((o) => o.type === 'TRANSACTION' && typeof o.transactionId === 'string' && o.transactionId.trim())
+  const uniqueTransactionIds = [...new Set(transactionOutcomes.map((o) => String(o.transactionId).trim()))]
+  const verifiedByTransaction = new Map<string, { amount: number; currency: string }>()
+  let syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED', 'REFUND'].includes(o.type) && (!o.transactionId || !o.source || !Number.isFinite(Number(o.amount)) || Number(o.amount) <= 0))
+  await Promise.all(uniqueTransactionIds.map(async (transactionId) => {
+    const candidates = transactionOutcomes.filter((outcome) => String(outcome.transactionId).trim() === transactionId)
+    const amount = Number(candidates.find((outcome) => Number.isFinite(Number(outcome.amount)))?.amount)
+    const currency = candidates.find((outcome) => typeof outcome.currency === 'string')?.currency
+    try {
+      const verified = await assertRealSucceededTransaction({ ventureId, transactionId, amount: Number.isFinite(amount) && amount > 0 ? amount : undefined, currency })
+      verifiedByTransaction.set(transactionId, { amount: verified.amount, currency: verified.currency })
+    } catch {
+      syntheticRevenueDetected = true
+    }
+  }))
+
+  const verifiedRefunds = new Map<string, number>()
+  const refunds = outcomes.filter((o) => o.type === 'REFUND' && typeof o.transactionId === 'string' && o.transactionId.trim())
+  await Promise.all(refunds.map(async (refund) => {
+    const transactionId = String(refund.transactionId).trim()
+    try {
+      const verified = await assertRealSucceededTransaction({ ventureId, transactionId })
+      const amount = Number(refund.amount)
+      if (!Number.isFinite(amount) || amount <= 0 || amount > verified.amount) throw new Error('Refund amount is not a valid portion of the succeeded transaction.')
+      if (refund.currency && String(refund.currency).toUpperCase() !== verified.currency) throw new Error('Refund currency does not match the succeeded transaction.')
+      const previous = verifiedRefunds.get(transactionId) ?? 0
+      verifiedRefunds.set(transactionId, Math.max(previous, amount))
+    } catch {
+      syntheticRevenueDetected = true
+    }
+  }))
+
+  const verifiedTransactions = uniqueTransactionIds.filter((id) => verifiedByTransaction.has(id))
   const customersAcquired = outcomes.filter((o) => o.type === 'CUSTOMER_ACQUIRED').length
-  const grossRevenue = transactions.reduce((sum, o) => sum + (Number.isFinite(Number(o.amount)) ? Number(o.amount) : 0), 0)
-  const refundAmount = refunds.reduce((sum, o) => sum + (Number.isFinite(Number(o.amount)) ? Number(o.amount) : 0), 0)
+  const grossRevenue = verifiedTransactions.reduce((sum, id) => sum + (verifiedByTransaction.get(id)?.amount ?? 0), 0)
+  const refundAmount = [...verifiedRefunds.values()].reduce((sum, amount) => sum + amount, 0)
 
   let readiness: any
   try { readiness = await evaluateVentureReadiness(ventureId) } catch (error) { readiness = { status: 'BLOCKED', score: 0, threshold: 100, missingEvidence: [`Readiness evaluation failed: ${error instanceof Error ? error.message : String(error)}`] } }
-
   const leaseRow = await db.memory.findUnique({ where: { key: `venture-os:v2:autonomy-lease:${ventureId}` } })
   const lease = leaseRow ? parseJson(leaseRow.value) : null
   const leaseHealthy = !!lease && Date.parse(String(lease.expiresAt ?? '')) > Date.now() && lease.mode !== 'PAUSED'
-  const syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
+  const relationalVenture = await getVenture(ventureId)
+  const relationalCommercial = relationalVenture ? await getVentureCommercialSnapshot(ventureId) : undefined
+  const customerSuccess = relationalVenture ? await getCustomerSuccessSnapshot(ventureId) : undefined
 
   return {
-    snapshotId: stableId(ventureId, String(windowHours), new Date().toISOString()), ventureId, generatedAt: new Date().toISOString(), windowHours,
+    snapshotId: stableId(ventureId, String(windowHours), new Date().toISOString()),
+    ventureId,
+    generatedAt: new Date().toISOString(),
+    windowHours,
     missions: { total: missions.length, completed, failed, blocked, completionRate: terminal ? Number(((completed / terminal) * 100).toFixed(2)) : 0 },
     artifacts: { produced, verified, rejected, verificationRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 0 },
     commercial: { totalOrders, paidOrders, fulfilledOrders, refundedOrders, failedOrders, conversionRate: totalOrders ? Number(((paidOrders / totalOrders) * 100).toFixed(2)) : 0, fulfillmentRate: paidOrders ? Number(((fulfilledOrders / paidOrders) * 100).toFixed(2)) : 0 },
-    outcomes: { transactions: transactions.length, customersAcquired, grossRevenue: Number(grossRevenue.toFixed(2)), refunds: Number(refundAmount.toFixed(2)), netRevenue: Number((grossRevenue - refundAmount).toFixed(2)), currency: transactions.find((o) => o.currency)?.currency ?? null },
+    outcomes: { transactions: verifiedTransactions.length, customersAcquired, grossRevenue: Number(grossRevenue.toFixed(2)), refunds: Number(refundAmount.toFixed(2)), netRevenue: Number((grossRevenue - refundAmount).toFixed(2)), currency: [...verifiedByTransaction.values()][0]?.currency ?? null },
     readiness: { status: readiness.status, score: readiness.score, threshold: readiness.threshold, missingEvidence: [...readiness.missingEvidence] },
     autonomy: { mode: String(lease?.mode ?? 'PAUSED'), leaseHealthy, heartbeatAt: lease?.heartbeatAt ?? null, expiresAt: lease?.expiresAt ?? null },
     controlHealth: { artifactGateRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 100, syntheticRevenueDetected },
+    relationalCommercial,
+    customerSuccess,
   }
 }
 
 export async function persistOperationalKpiSnapshot(snapshot: OperationalKpiSnapshot): Promise<void> {
-  await db.memory.upsert({ where: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}` }, update: { value: JSON.stringify(snapshot), category: 'operational_kpi_snapshot' }, create: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}`, value: JSON.stringify(snapshot), category: 'operational_kpi_snapshot' } })
+  await db.memory.upsert({ where: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}` }, update: { value: JSON.stringify(snapshot), category: 'operational_kpi_snapshot' }, create: { key: `operational-kpi:${snapshot.ventureId}:${snapshot.snapshotId}`, category: 'operational_kpi_snapshot', value: JSON.stringify(snapshot) } })
 }

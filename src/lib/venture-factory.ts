@@ -2,15 +2,16 @@
  * Venture OS Venture Factory — Upgrade 17.
  *
  * The factory generates deterministic structural venture blueprints only.
- * It creates a DRAFT Venture Control Contract for each future shell so the
- * object is structurally governable, but it never creates readiness evidence,
- * customers, revenue, payments, or launch authorization.
+ * When an owner is supplied it also upserts the canonical relational Venture
+ * identity, while keeping the venture BLOCKED until real evidence and launch
+ * authorization are earned.
  */
-
 import { createHash } from 'node:crypto'
 import { db } from './db'
 import { buildVentureBlueprint, CANONICAL_VENTURE_TEMPLATE, validateCanonicalVentureTemplate, type VentureBlueprint } from './venture-template'
 import { createVentureControlContract } from './architecture-control-plane'
+import { createOrGetVenture } from './venture-commercial-foundation'
+import { getNventureTemplateCertification } from './venture-template-validation'
 
 const FACTORY_CATEGORY = 'venture_factory_blueprint'
 const FACTORY_PREFIX = 'venture-os:factory:'
@@ -22,19 +23,13 @@ export interface VentureFactorySpec {
   description: string
   targetMarket: string
   pricingModel: string
+  ownerUserId?: string
+  businessUnitId?: string | null
 }
 
-export interface VentureFactoryResult {
-  created: boolean
-  repaired: boolean
-  blueprint: VentureBlueprint
-}
-
+export interface VentureFactoryResult { created: boolean; repaired: boolean; blueprint: VentureBlueprint; relationalVentureCreated?: boolean }
 const factoryKey = (ventureId: string) => `${FACTORY_PREFIX}${ventureId}`
-
-function deterministicFactoryId(ventureId: string): string {
-  return `factory_${createHash('sha256').update(ventureId.trim()).digest('hex').slice(0, 24)}`
-}
+function deterministicFactoryId(ventureId: string): string { return `factory_${createHash('sha256').update(ventureId.trim()).digest('hex').slice(0, 24)}` }
 
 export function validateVentureFactorySpec(spec: VentureFactorySpec): string[] {
   const errors = validateCanonicalVentureTemplate()
@@ -49,62 +44,32 @@ export function validateVentureFactorySpec(spec: VentureFactorySpec): string[] {
 }
 
 function normalizeSpec(spec: VentureFactorySpec): VentureFactorySpec {
-  return {
-    ventureId: spec.ventureId.trim().toLowerCase(),
-    name: spec.name.trim(),
-    type: spec.type,
-    description: spec.description.trim(),
-    targetMarket: spec.targetMarket.trim(),
-    pricingModel: spec.pricingModel.trim(),
-  }
+  return { ventureId: spec.ventureId.trim().toLowerCase(), name: spec.name.trim(), type: spec.type, description: spec.description.trim(), targetMarket: spec.targetMarket.trim(), pricingModel: spec.pricingModel.trim(), ownerUserId: spec.ownerUserId?.trim() || undefined, businessUnitId: spec.businessUnitId ?? null }
 }
 
-/** Build and persist a single deterministic V002/V003 blueprint idempotently. */
 export async function buildVentureShell(specInput: VentureFactorySpec): Promise<VentureFactoryResult> {
-  const spec = normalizeSpec(specInput)
-  const errors = validateVentureFactorySpec(spec)
+  const spec = normalizeSpec(specInput); const errors = validateVentureFactorySpec(spec)
   if (errors.length) throw new Error(`Venture factory validation failed: ${errors.join(' | ')}`)
-
-  const key = factoryKey(spec.ventureId)
-  const existing = await db.memory.findUnique({ where: { key } })
+  const key = factoryKey(spec.ventureId); const existing = await db.memory.findUnique({ where: { key } })
   if (existing) {
     const blueprint = JSON.parse(existing.value) as VentureBlueprint
-    if (blueprint.templateKey !== CANONICAL_VENTURE_TEMPLATE.templateKey || blueprint.templateVersion !== CANONICAL_VENTURE_TEMPLATE.version) {
-      throw new Error(`Factory blueprint ${spec.ventureId} uses a non-canonical template version and cannot be silently repaired.`)
-    }
-    const contract = await createVentureControlContract(spec.ventureId)
-    if (contract.status !== 'DRAFT') throw new Error(`Future venture ${spec.ventureId} must retain a DRAFT control contract.`)
-    return { created: false, repaired: false, blueprint }
+    if (blueprint.templateKey !== CANONICAL_VENTURE_TEMPLATE.templateKey || blueprint.templateVersion !== CANONICAL_VENTURE_TEMPLATE.version) throw new Error(`Factory blueprint ${spec.ventureId} uses a non-canonical template version and cannot be silently repaired.`)
+    const contract = await createVentureControlContract(spec.ventureId); if (contract.status !== 'DRAFT') throw new Error(`Future venture ${spec.ventureId} must retain a DRAFT control contract.`)
+    if (spec.ownerUserId) await createOrGetVenture({ ventureKey: spec.ventureId, businessUnitId: spec.businessUnitId ?? null, ownerUserId: spec.ownerUserId, name: spec.name, type: spec.type, description: spec.description, targetMarket: spec.targetMarket, pricingModel: spec.pricingModel, status: 'PROPOSED', productionState: 'STRUCTURAL_ONLY' })
+    return { created: false, repaired: false, blueprint, relationalVentureCreated: Boolean(spec.ownerUserId) }
   }
-
   const blueprint = buildVentureBlueprint(spec)
-  const value = JSON.stringify({
-    ...blueprint,
-    factoryRecordId: deterministicFactoryId(spec.ventureId),
-    generatedBy: 'venture_factory',
-    generatedAt: blueprint.createdAt,
-    productionState: 'STRUCTURAL_ONLY',
-    realEvidencePresent: false,
-    realRevenuePresent: false,
-    realCustomersPresent: false,
-    launchAuthorized: false,
-    readinessStatus: 'BLOCKED',
-  })
-
+  const value = JSON.stringify({ ...blueprint, factoryRecordId: deterministicFactoryId(spec.ventureId), generatedBy: 'venture_factory', generatedAt: blueprint.createdAt, productionState: 'STRUCTURAL_ONLY', realEvidencePresent: false, realRevenuePresent: false, realCustomersPresent: false, launchAuthorized: false, readinessStatus: 'BLOCKED' })
   await db.memory.create({ data: { key, value, category: FACTORY_CATEGORY } }).catch(() => {})
-  const confirmed = await db.memory.findUnique({ where: { key } })
-  if (!confirmed) throw new Error(`Factory could not persist ${spec.ventureId}.`)
-
-  const contract = await createVentureControlContract(spec.ventureId)
-  if (contract.status !== 'DRAFT') throw new Error(`Future venture ${spec.ventureId} must start with a DRAFT control contract.`)
+  const confirmed = await db.memory.findUnique({ where: { key } }); if (!confirmed) throw new Error(`Factory could not persist ${spec.ventureId}.`)
+  const contract = await createVentureControlContract(spec.ventureId); if (contract.status !== 'DRAFT') throw new Error(`Future venture ${spec.ventureId} must start with a DRAFT control contract.`)
   const persisted = JSON.parse(confirmed.value) as VentureBlueprint & { launchAuthorized?: boolean; readinessStatus?: string }
   if (persisted.launchAuthorized !== false) throw new Error(`Factory safety invariant failed for ${spec.ventureId}: launch cannot be authorized by factory generation.`)
   if (persisted.readinessStatus !== 'BLOCKED') throw new Error(`Factory safety invariant failed for ${spec.ventureId}: future ventures must begin BLOCKED.`)
-
-  return { created: true, repaired: false, blueprint: persisted }
+  if (spec.ownerUserId) await createOrGetVenture({ ventureKey: spec.ventureId, businessUnitId: spec.businessUnitId ?? null, ownerUserId: spec.ownerUserId, name: spec.name, type: spec.type, description: spec.description, targetMarket: spec.targetMarket, pricingModel: spec.pricingModel, status: 'PROPOSED', productionState: 'STRUCTURAL_ONLY' })
+  return { created: true, repaired: false, blueprint: persisted, relationalVentureCreated: Boolean(spec.ownerUserId) }
 }
 
-/** Generate both future shells using explicit specs; no implicit business assumptions are invented. */
 export async function buildV002V003Factory(specs: [VentureFactorySpec, VentureFactorySpec]): Promise<VentureFactoryResult[]> {
   const ids = specs.map((spec) => spec.ventureId.trim().toLowerCase())
   if (ids.includes('venture_001')) throw new Error('Venture 001 is canonical and cannot be included in the future venture factory.')
@@ -112,14 +77,9 @@ export async function buildV002V003Factory(specs: [VentureFactorySpec, VentureFa
   return Promise.all(specs.map((spec) => buildVentureShell(spec)))
 }
 
-export async function getVentureFactoryBlueprint(ventureId: string): Promise<VentureBlueprint | null> {
-  const id = ventureId.trim().toLowerCase()
-  if (!/^venture_00[23]$/.test(id)) return null
-  const row = await db.memory.findUnique({ where: { key: factoryKey(id) } })
-  return row ? JSON.parse(row.value) as VentureBlueprint : null
+export async function certifyVentureFactoryTemplate(ventureId = 'venture_001') {
+  return getNventureTemplateCertification(ventureId)
 }
 
-export async function listVentureFactoryBlueprints(): Promise<VentureBlueprint[]> {
-  const rows = await db.memory.findMany({ where: { category: FACTORY_CATEGORY }, orderBy: { createdAt: 'asc' }, take: 100 })
-  return rows.map((row) => { try { return JSON.parse(row.value) as VentureBlueprint } catch { return null } }).filter((item): item is VentureBlueprint => Boolean(item))
-}
+export async function getVentureFactoryBlueprint(ventureId: string): Promise<VentureBlueprint | null> { const id = ventureId.trim().toLowerCase(); if (!/^venture_00[23]$/.test(id)) return null; const row = await db.memory.findUnique({ where: { key: factoryKey(id) } }); return row ? JSON.parse(row.value) as VentureBlueprint : null }
+export async function listVentureFactoryBlueprints(): Promise<VentureBlueprint[]> { const rows = await db.memory.findMany({ where: { category: FACTORY_CATEGORY }, orderBy: { createdAt: 'asc' }, take: 100 }); return rows.map((row) => { try { return JSON.parse(row.value) as VentureBlueprint } catch { return null } }).filter((item): item is VentureBlueprint => Boolean(item)) }

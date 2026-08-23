@@ -1,14 +1,72 @@
-import {db} from './db'
-import {getPortfolio} from './business-portfolio'
-import {normalizeMetric,optimize} from './portfolio-intelligence-rules'
-import {CEO_VENTURE_MANDATE} from './venture-mandate'
-import type {PortfolioBusiness} from './portfolio-intelligence-contract'
-import type {PortfolioMetric,PortfolioSnapshot,PortfolioDecisionRecord} from './portfolio-intelligence-types'
-const json=(v:string)=>{try{return JSON.parse(v) as any}catch{return null}}
-const business=(n:string):PortfolioBusiness=>{const s=n.toLowerCase();if(s.includes('revenue recovery'))return'revenue-recovery';if(s.includes('operations kit'))return'operations-kit';if(s.includes('career command'))return'career-command';throw new Error(`Unsupported venture: ${n}`)}
-const evidence=async(b:PortfolioBusiness)=>{const rows=await db.memory.findMany({where:{category:'commercial_evidence'}});const hit=rows.filter(r=>{const v=json(r.value);return v?.business===b&&v?.verified===true&&v?.source==='portfolio-intelligence'});const score=hit.length?hit.reduce((t,r)=>{const v=Number(json(r.value)?.confidence);return t+(Number.isFinite(v)?(v<=1?v*100:v):0)},0)/hit.length:0;return{confidence:Math.max(0,Math.min(100,score)),ids:[...new Set(hit.map(r=>r.key))]}}
-const periods=async(b:PortfolioBusiness,p:string)=>{const rows=await db.memory.findMany({where:{category:'portfolio_intelligence_snapshot'}});const seen=new Set<string>();for(const row of rows){const s=json(row.value) as PortfolioSnapshot|null;if(!s)continue;for(const m of s.metrics)if(m.business===b&&m.period)seen.add(m.period)}return seen.has(p)?seen.size:seen.size+1}
-export async function buildPortfolioSnapshot():Promise<PortfolioSnapshot>{const raw=await getPortfolio() as any[];const active=raw.filter(x=>x&&x.lifecycle!=='retired'&&typeof x.name==='string');const p=new Date().toISOString().slice(0,10);const metrics:PortfolioMetric[]=await Promise.all(active.map(async x=>{const b=business(x.name),[e,o]=await Promise.all([evidence(b),periods(b,p)]),c=e.confidence/100>=CEO_VENTURE_MANDATE.validationConfidenceMinimum?e.confidence:0;return normalizeMetric({business:b,revenue:Number(x.monthlyRevenue)||0,cost:Number(x.monthlyCost)||0,customers:Number(x.customerCount)||0,leads:null,conversions:null,automation:Number.isFinite(x.automationLevel)?x.automationLevel:null,satisfaction:null,confidence:c,observedPeriods:o,evidenceIds:e.ids,source:'portfolio+commercial-evidence',period:p})}));const revenue=metrics.reduce((s,m)=>s+m.revenue,0),cost=metrics.reduce((s,m)=>s+m.cost,0),customers=metrics.reduce((s,m)=>s+m.customers,0),margin=revenue?((revenue-cost)/revenue)*100:0,health=metrics.length?Math.round(metrics.reduce((s,m)=>s+optimize(m).score,0)/metrics.length):0,snapshot={snapshotId:`portfolio_snapshot_${Date.now()}`,createdAt:new Date().toISOString(),metrics,revenue,cost,netRevenue:revenue-cost,margin,customers,health};await db.memory.create({data:{key:snapshot.snapshotId,category:'portfolio_intelligence_snapshot',value:JSON.stringify(snapshot)}});return snapshot}
-export async function createOptimizationRecords(s:PortfolioSnapshot):Promise<PortfolioDecisionRecord[]>{return Promise.all(s.metrics.map(async m=>{const r=optimize(m),o={...r,decisionId:`portfolio_decision_${m.business}_${Date.now()}`,snapshotId:s.snapshotId,createdAt:new Date().toISOString(),status:'recommended' as const};await db.memory.create({data:{key:o.decisionId,category:'portfolio_intelligence_decision',value:JSON.stringify(o)}});return o}))}
-export async function runPortfolioOptimization(){const snapshot=await buildPortfolioSnapshot();return{snapshot,decisions:await createOptimizationRecords(snapshot)}}
-export async function getPortfolioOptimizationHistory(limit=25):Promise<PortfolioDecisionRecord[]>{const rows=await db.memory.findMany({where:{category:'portfolio_intelligence_decision'},orderBy:{createdAt:'desc'},take:Math.max(1,Math.min(100,limit))});return rows.map(r=>json(r.value)).filter(Boolean) as PortfolioDecisionRecord[]}
+import { db } from './db'
+import { buildRelationalPortfolioMetrics } from './portfolio-commercial-intelligence'
+import { optimize } from './portfolio-intelligence-rules'
+import type { PortfolioMetric, PortfolioSnapshot, PortfolioDecisionRecord } from './portfolio-intelligence-types'
+
+function stableDecisionId(business: string, snapshotId: string): string {
+  return `portfolio_decision_${business}_${snapshotId}`
+}
+
+export async function buildPortfolioSnapshot(): Promise<PortfolioSnapshot> {
+  const metrics: PortfolioMetric[] = await buildRelationalPortfolioMetrics()
+  const revenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0)
+  const cost = metrics.reduce((sum, metric) => sum + metric.cost, 0)
+  const customers = metrics.reduce((sum, metric) => sum + metric.customers, 0)
+  const hasTrackedSpend = metrics.some((metric) => metric.source.includes('tracked-campaign-spend-only'))
+  const margin = revenue ? Number((((revenue - cost) / revenue) * 100).toFixed(2)) : 0
+  const health = metrics.length ? Math.round(metrics.reduce((sum, metric) => sum + optimize(metric).score, 0) / metrics.length) : 0
+  const createdAt = new Date().toISOString()
+  const snapshotId = `portfolio_snapshot_${createdAt.replace(/[-:.TZ]/g, '')}`
+  const snapshot: PortfolioSnapshot & { marginScope?: string } = {
+    snapshotId,
+    createdAt,
+    metrics,
+    revenue: Number(revenue.toFixed(2)),
+    cost: Number(cost.toFixed(2)),
+    netRevenue: Number((revenue - cost).toFixed(2)),
+    margin,
+    customers,
+    health,
+    marginScope: hasTrackedSpend ? 'tracked_campaign_spend_only' : 'no_tracked_cost',
+  }
+  await db.memory.create({ data: { key: snapshot.snapshotId, category: 'portfolio_intelligence_snapshot', value: JSON.stringify(snapshot) } })
+  return snapshot
+}
+
+export async function createOptimizationRecords(snapshot: PortfolioSnapshot): Promise<PortfolioDecisionRecord[]> {
+  return Promise.all(snapshot.metrics.map(async (metric) => {
+    const decision = optimize(metric)
+    const decisionId = stableDecisionId(metric.business, snapshot.snapshotId)
+    const record: PortfolioDecisionRecord = {
+      ...decision,
+      decisionId,
+      snapshotId: snapshot.snapshotId,
+      createdAt: new Date().toISOString(),
+      status: 'recommended',
+    }
+    await db.memory.upsert({
+      where: { key: decisionId },
+      update: { value: JSON.stringify(record), category: 'portfolio_intelligence_decision' },
+      create: { key: decisionId, category: 'portfolio_intelligence_decision', value: JSON.stringify(record) },
+    })
+    return record
+  }))
+}
+
+export async function runPortfolioOptimization() {
+  const snapshot = await buildPortfolioSnapshot()
+  return { snapshot, decisions: await createOptimizationRecords(snapshot) }
+}
+
+export async function getPortfolioOptimizationHistory(limit = 25): Promise<PortfolioDecisionRecord[]> {
+  const rows = await db.memory.findMany({ where: { category: 'portfolio_intelligence_decision' }, orderBy: { createdAt: 'desc' }, take: Math.max(1, Math.min(100, limit)) })
+  const records: PortfolioDecisionRecord[] = []
+  for (const row of rows) {
+    try {
+      records.push(JSON.parse(row.value) as PortfolioDecisionRecord)
+    } catch {
+      // Malformed historical telemetry is ignored rather than surfaced as a fake decision.
+    }
+  }
+  return records
+}
