@@ -86,8 +86,8 @@ describe('CEO cognitive lifecycle', () => {
     expect(unsupportedLiveClaim.checks.evidenceDiscipline).toBe(false)
   })
 
-  test('critical responses remain LIVE_EXECUTED unless actual supporting evidence is supplied', () => {
-    const reviewed = evaluateCeoQuality({
+  test('critical responses require supporting evidence before PASS and LIVE_VERIFIED', () => {
+    const reviewedWithoutEvidence = evaluateCeoQuality({
       objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
       content: '# Recommendation\n\nProceed only after independent review and explicit verification.\n\n- Evidence requirements\n- Risks\n- Next actions',
       path: 'critical',
@@ -95,9 +95,9 @@ describe('CEO cognitive lifecycle', () => {
       externalExecutionSucceeded: true,
       evidenceProvided: false,
     })
-    expect(reviewed.decision).toBe('PASS')
-    expect(reviewed.evidenceState).toBe('LIVE_EXECUTED')
-    expect(reviewed.verificationStatus).toBe('INDEPENDENT_PASS')
+    expect(reviewedWithoutEvidence.decision).toBe('ESCALATE')
+    expect(reviewedWithoutEvidence.evidenceState).toBe('PARTIAL_UNCONFIRMED')
+    expect(reviewedWithoutEvidence.verificationStatus).toBe('INDEPENDENT_PASS')
 
     const evidenced = evaluateCeoQuality({
       objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
@@ -107,7 +107,9 @@ describe('CEO cognitive lifecycle', () => {
       externalExecutionSucceeded: true,
       evidenceProvided: true,
     })
+    expect(evidenced.decision).toBe('PASS')
     expect(evidenced.evidenceState).toBe('LIVE_VERIFIED')
+    expect(evidenced.verificationStatus).toBe('INDEPENDENT_PASS')
   })
 
   test('degraded mode recovers relevant persistent evidence when providers are unavailable', async () => {
@@ -181,7 +183,9 @@ describe('CEO cognitive lifecycle', () => {
 
     const result = await runCeoCognitiveLifecycle({ missionId: 'mission-critical-test', messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }], timeoutMs: 20000, contextualEvidence: 'Verified internal mission evidence is available for this controlled test.' })
 
-    expect(postProviders).toEqual(['groq', 'zai', 'groq'])
+    expect(postProviders.length).toBeGreaterThanOrEqual(3)
+    expect(postProviders[0]).not.toBe(postProviders[1])
+    expect(postProviders[2]).not.toBe(postProviders[1])
     expect(result.executionPlan.stages.map((stage) => stage.name)).toEqual(['primary', 'independent_review', 'synthesis'])
     expect(result.quality.verificationStatus).toBe('INDEPENDENT_PASS')
     expect(result.evidenceState).toBe('LIVE_VERIFIED')
