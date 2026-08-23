@@ -10,6 +10,8 @@ const read = (path: string) => readFileSync(join(root, path), 'utf8')
 describe('system continuity and commercial evidence integrity', () => {
   test('CEO resolves venture-specific requests through one read-only bridge', () => {
     expect(extractVentureId('How is Venture 001 doing?')).toBe('venture_001')
+    expect(extractVentureId('How is Venture_001 doing?')).toBe('venture_001')
+    expect(extractVentureId('How is venture-001 doing?')).toBe('venture_001')
     expect(extractVentureId('How is the portfolio doing?')).toBeNull()
     const source = read('src/lib/ceo-cognitive-lifecycle.ts')
     expect(source).toContain("getCeoVentureEvidenceForObjective(objective)")
@@ -43,6 +45,16 @@ describe('system continuity and commercial evidence integrity', () => {
     expect(commercial).toContain('assertRealSucceededTransaction({ ventureId, transactionId, amount, currency })')
     expect(missionMoney).toContain("import { assertRealSucceededTransaction } from './transaction-evidence-integrity'")
     expect(missionMoney).toContain('const transaction = await assertRealSucceededTransaction({ ventureId, transactionId })')
+  })
+
+  test('KPI and template proof paths fail closed instead of using legacy synthetic mission/revenue state', () => {
+    const kpi = read('src/lib/operational-kpi-engine.ts')
+    const template = read('src/lib/venture-template-validation.ts')
+    expect(kpi).toContain('Fail closed')
+    expect(kpi).not.toContain("r.category === 'venture_mission'")
+    expect(kpi).toContain('assertRealSucceededTransaction')
+    expect(template).toContain('assertRealSucceededTransaction')
+    expect(template).toContain('transactionOutcomeKeys')
   })
 
   test('continuity map documents canonical sources and anti-duplication rules', () => {
