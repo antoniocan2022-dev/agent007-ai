@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { db } from '../src/lib/db'
 import { ensureInitialBusinessUnits, createOrGetVenture } from '../src/lib/venture-commercial-foundation'
 import { assertRealSucceededTransaction } from '../src/lib/transaction-evidence-integrity'
+import { verifyTransactionCustomerSchema } from '../src/lib/verify-transaction-customer-schema'
 import { attributeMissionTransaction } from '../src/lib/mission-money-bridge'
 import { settleInvoiceFromTransaction, activateSubscriptionFromPaidInvoice } from '../src/lib/billing-lifecycle'
 import { calculateOperationalKpis } from '../src/lib/operational-kpi-engine'
@@ -126,35 +128,51 @@ describe('commercial database contract', () => {
     await db.$disconnect()
   })
 
-  it('verifies Transaction customer and venture columns plus customer foreign key in the live database', async () => {
-    const columns = await db.$queryRaw<Array<{ column_name: string }>>`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='Transaction'
-        AND column_name IN ('ventureId','customerId')
-    `
-    expect(new Set(columns.map((row) => row.column_name))).toEqual(new Set(['ventureId', 'customerId']))
+  it('keeps the Prisma schema contract aligned with Transaction.customerId', () => {
+    const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+    expect(schema).toContain('customerId    String?')
+    expect(schema).toContain('Customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: Cascade)')
+    expect(schema).toContain('@@index([customerId])')
+  })
 
-    const foreignKey = await db.$queryRaw<Array<{ source_column: string; target_table: string; target_column: string }>>`
-      SELECT
-        kcu.column_name AS "source_column",
-        ccu.table_name AS "target_table",
-        ccu.column_name AS "target_column"
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name=kcu.constraint_name AND tc.table_schema=kcu.table_schema
-      JOIN information_schema.constraint_column_usage ccu
-        ON tc.constraint_name=ccu.constraint_name AND tc.table_schema=ccu.table_schema
-      WHERE tc.table_schema='public'
-        AND tc.table_name='Transaction'
-        AND tc.constraint_name='Transaction_customerId_fkey'
-        AND tc.constraint_type='FOREIGN KEY'
-    `
-    expect(foreignKey).toEqual([{ source_column: 'customerId', target_table: 'Customer', target_column: 'id' }])
+  it('verifies Transaction.customerId column, nullable contract, foreign key semantics, and exact non-unique index in the live database', async () => {
+    const result = await verifyTransactionCustomerSchema(db)
+    expect(result.column).toEqual({ name: 'customerId', dataType: 'text', isNullable: true })
+    expect(result.foreignKey).toEqual({
+      name: 'Transaction_customerId_fkey',
+      sourceColumn: 'customerId',
+      targetTable: 'Customer',
+      targetColumn: 'id',
+      deleteRule: 'SET NULL',
+      updateRule: 'CASCADE',
+    })
+    expect(result.index).toEqual({
+      name: 'Transaction_customerId_idx',
+      isUnique: false,
+      columnNames: ['customerId'],
+    })
+  })
+
+  it('rejects an orphan Transaction.customerId at the real PostgreSQL foreign key', async () => {
+    const providerTxId = `ci-customer-fk-${randomUUID()}`
+    await expect(
+      db.transaction.create({
+        data: {
+          userId,
+          provider: 'ci-customer-fk',
+          providerTxId,
+          amount: 1,
+          currency: 'USD',
+          status: 'succeeded',
+          rawPayload: JSON.stringify({ test: 'orphan-customer-fk' }),
+          customerId: `missing-customer-${randomUUID()}`,
+        },
+      }),
+    ).rejects.toThrow()
   })
 
   it('executes the real Transaction evidence query against the reconciled schema', async () => {
-    const evidence = await assertRealSucceededTransaction({ ventureId, transactionId, amount: 125, currency: 'USD' })
+    const evidence = await assertRealSucceededTransaction({ ventureId, transactionId, customerId, amount: 125, currency: 'USD' })
     expect(evidence.id).toBe(transactionId)
     expect(evidence.ventureId).toBe(ventureId)
     expect(evidence.customerId).toBe(customerId)
@@ -162,7 +180,8 @@ describe('commercial database contract', () => {
     expect(evidence.currency).toBe('USD')
   })
 
-  it('rejects transaction evidence when venture scope or amount is wrong', async () => {
+  it('rejects transaction evidence when customer, venture scope, or amount is wrong', async () => {
+    await expect(assertRealSucceededTransaction({ ventureId, transactionId, customerId: 'customer_wrong_identity' })).rejects.toThrow('customer does not match')
     await expect(assertRealSucceededTransaction({ ventureId: 'venture_wrong_scope', transactionId })).rejects.toThrow('not scoped to venture')
     await expect(assertRealSucceededTransaction({ ventureId, transactionId, amount: 99 })).rejects.toThrow('amount does not match')
   })
@@ -171,8 +190,8 @@ describe('commercial database contract', () => {
     const outcomes = await db.memory.findMany({ where: { category: 'architecture_business_outcome' }, take: 5000 })
     const matching = outcomes.filter((row) => {
       try {
-        const value = JSON.parse(row.value) as { missionId?: string; transactionId?: string }
-        return value.missionId === missionId && value.transactionId === transactionId
+        const value = JSON.parse(row.value) as { missionId?: string; transactionId?: string; customerId?: string }
+        return value.missionId === missionId && value.transactionId === transactionId && value.customerId === customerId
       } catch {
         return false
       }
