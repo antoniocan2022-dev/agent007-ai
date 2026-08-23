@@ -28,7 +28,6 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   if (!Number.isFinite(windowHours) || windowHours <= 0 || windowHours > 720) throw new Error('windowHours must be between 1 and 720.')
   const cutoff = Date.now() - windowHours * 60 * 60 * 1000
   const rows = await db.memory.findMany({ take: 10000 })
-
   let missions: Array<Record<string, any>> = []
   try {
     const durable = await listActiveMissionsDB()
@@ -36,7 +35,6 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   } catch {
     missions = rows.filter((r) => r.category === 'venture_mission').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v && (!v.ventureId || v.ventureId === ventureId))
   }
-
   const artifacts = rows.filter((r) => r.category === 'architecture_artifact').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => (!v.ventureId || v.ventureId === ventureId) && (!v.createdAt || Date.parse(String(v.createdAt)) >= cutoff))
   const outcomes = rows.filter((r) => r.category === 'architecture_business_outcome').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => v.ventureId === ventureId && (!v.occurredAt || Date.parse(String(v.occurredAt)) >= cutoff))
   const workflows = rows.filter((r) => r.category === 'commercial_workflow').map((r) => parseJson(r.value)).filter((v): v is Record<string, any> => !!v).filter((v) => v.tenantId === `tenant_${ventureId}` || v.input?.ventureId === ventureId)
@@ -62,17 +60,12 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
 
   let readiness: any
   try { readiness = await evaluateVentureReadiness(ventureId) } catch (error) { readiness = { status: 'BLOCKED', score: 0, threshold: 100, missingEvidence: [`Readiness evaluation failed: ${error instanceof Error ? error.message : String(error)}`] } }
-
   const leaseRow = await db.memory.findUnique({ where: { key: `venture-os:v2:autonomy-lease:${ventureId}` } })
   const lease = leaseRow ? parseJson(leaseRow.value) : null
   const leaseHealthy = !!lease && Date.parse(String(lease.expiresAt ?? '')) > Date.now() && lease.mode !== 'PAUSED'
   const syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
-
   const relationalVenture = await getVenture(ventureId)
   const relationalCommercial = relationalVenture ? await getVentureCommercialSnapshot(ventureId) : undefined
-  const effectiveTransactionCount = relationalCommercial?.transactions ?? transactions.length
-  const effectiveGrossRevenue = relationalCommercial?.grossTransactionRevenue ?? grossRevenue
-  const effectiveRefundAmount = refundAmount
 
   return {
     snapshotId: stableId(ventureId, String(windowHours), new Date().toISOString()),
@@ -82,7 +75,7 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
     missions: { total: missions.length, completed, failed, blocked, completionRate: terminal ? Number(((completed / terminal) * 100).toFixed(2)) : 0 },
     artifacts: { produced, verified, rejected, verificationRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 0 },
     commercial: { totalOrders, paidOrders, fulfilledOrders, refundedOrders, failedOrders, conversionRate: totalOrders ? Number(((paidOrders / totalOrders) * 100).toFixed(2)) : 0, fulfillmentRate: paidOrders ? Number(((fulfilledOrders / paidOrders) * 100).toFixed(2)) : 0 },
-    outcomes: { transactions: effectiveTransactionCount, customersAcquired: relationalCommercial?.customers ?? customersAcquired, grossRevenue: Number(effectiveGrossRevenue.toFixed(2)), refunds: Number(effectiveRefundAmount.toFixed(2)), netRevenue: Number((effectiveGrossRevenue - effectiveRefundAmount).toFixed(2)), currency: transactions.find((o) => o.currency)?.currency ?? null },
+    outcomes: { transactions: transactions.length, customersAcquired, grossRevenue: Number(grossRevenue.toFixed(2)), refunds: Number(refundAmount.toFixed(2)), netRevenue: Number((grossRevenue - refundAmount).toFixed(2)), currency: transactions.find((o) => o.currency)?.currency ?? null },
     readiness: { status: readiness.status, score: readiness.score, threshold: readiness.threshold, missingEvidence: [...readiness.missingEvidence] },
     autonomy: { mode: String(lease?.mode ?? 'PAUSED'), leaseHealthy, heartbeatAt: lease?.heartbeatAt ?? null, expiresAt: lease?.expiresAt ?? null },
     controlHealth: { artifactGateRate: produced ? Number(((verified / produced) * 100).toFixed(2)) : 100, syntheticRevenueDetected },
