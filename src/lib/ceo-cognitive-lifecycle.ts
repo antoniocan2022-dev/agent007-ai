@@ -5,6 +5,7 @@ import { buildCeoExecutionPlan } from './ceo-execution-plan'
 import { evaluateCeoQuality } from './ceo-quality-gate'
 import { buildCeoDegradedResponse } from './ceo-degraded-mode'
 import { composeCeoResponse } from './ceo-response-composer'
+import type { TaskType } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceState } from './ceo-cognitive-contract'
 
 export interface CeoCognitiveRequest {
@@ -12,6 +13,7 @@ export interface CeoCognitiveRequest {
   attachmentsCount?: number
   missionId?: string
   contextualEvidence?: string
+  taskType?: TaskType
   verification?: 'basic' | 'standard' | 'enhanced' | 'strict'
   model?: string
   temperature?: number
@@ -25,6 +27,10 @@ function objectiveFrom(messages: CeoCognitiveRequest['messages']): string {
 
 function mergeAttempts(...results: Array<CanonicalLlmResult | undefined>): string[] {
   return [...new Set(results.flatMap((result) => result?.attempts ?? []))]
+}
+
+function mergeResponseMs(...results: Array<CanonicalLlmResult | undefined>): number {
+  return results.reduce((total, result) => total + (result?.responseMs ?? 0), 0)
 }
 
 function buildReviewPrompt(objective: string, draft: string): { role: 'user'; content: string } {
@@ -41,7 +47,7 @@ function buildSynthesisPrompt(objective: string, draft: string, review: string):
   }
 }
 
-async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempts: string[], decisionPlan: ReturnType<typeof buildCeoDecisionPlan>, executionPlan: ReturnType<typeof buildCeoExecutionPlan>): Promise<CognitiveLifecycleResult> {
+async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempts: string[], responseMs: number, decisionPlan: ReturnType<typeof buildCeoDecisionPlan>, executionPlan: ReturnType<typeof buildCeoExecutionPlan>): Promise<CognitiveLifecycleResult> {
   const degraded = buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), reason, contextualEvidence: request.contextualEvidence })
   const quality = {
     decision: 'DEGRADED' as const,
@@ -51,6 +57,7 @@ async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempt
   }
   return {
     content: composeCeoResponse({ content: degraded.content, evidenceState: degraded.evidenceState, quality, degraded: true }),
+    responseMs,
     attempts,
     executionPlan,
     decisionPlan,
@@ -63,12 +70,12 @@ async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempt
 export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Promise<CognitiveLifecycleResult> {
   const preRoute = preRouteCeoRequest(request.messages, request.attachmentsCount ?? 0)
   const resolved = resolvePreRoute(preRoute)
-  const decisionPlan = buildCeoDecisionPlan({ messages: request.messages, preRoute, missionId: request.missionId })
+  const decisionPlan = buildCeoDecisionPlan({ messages: request.messages, preRoute, missionId: request.missionId, taskType: request.taskType })
   const executionPlan = buildCeoExecutionPlan(decisionPlan)
   const objective = objectiveFrom(request.messages)
 
   const baseOptions = {
-    taskType: undefined,
+    taskType: request.taskType,
     verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard') as any,
     model: request.model,
     temperature: request.temperature,
@@ -77,6 +84,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const,
   }
 
+  const startedAt = Date.now()
   let primary: CanonicalLlmResult | undefined
   let review: CanonicalLlmResult | undefined
   let final: CanonicalLlmResult | undefined
@@ -88,11 +96,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     if (executionPlan.reasoningStrategy === 'multi_pass') {
       review = await runCanonicalLlm({
         ...baseOptions,
-        messages: [
-          ...request.messages,
-          { role: 'assistant', content: primary.content },
-          buildReviewPrompt(objective, primary.content),
-        ],
+        messages: [...request.messages, { role: 'assistant', content: primary.content }, buildReviewPrompt(objective, primary.content)],
         maxProviderAttempts: 2,
         excludeProviders: [primary.provider],
       })
@@ -100,34 +104,22 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     } else if (executionPlan.reasoningStrategy === 'independent_review') {
       review = await runCanonicalLlm({
         ...baseOptions,
-        messages: [
-          { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' },
-          buildReviewPrompt(objective, primary.content),
-        ],
+        messages: [{ role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)],
         maxProviderAttempts: 2,
         excludeProviders: [primary.provider],
       })
       final = await runCanonicalLlm({
         ...baseOptions,
-        messages: [
-          { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
-          buildSynthesisPrompt(objective, primary.content, review.content),
-        ],
+        messages: [{ role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content)],
         maxProviderAttempts: 2,
         excludeProviders: [primary.provider, review.provider],
       })
     }
 
     const output = final ?? primary
-    if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], decisionPlan, executionPlan)
+    if (!output) return tryDegraded(request, 'No usable provider output was produced.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
 
-    let quality = evaluateCeoQuality({
-      objective,
-      content: output.content,
-      path: decisionPlan.path,
-      reviewed: Boolean(review),
-      externalExecutionSucceeded: true,
-    })
+    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review), externalExecutionSucceeded: true })
 
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations) {
       escalation += 1
@@ -151,9 +143,9 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     }
 
     const result = final ?? primary
-    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), decisionPlan, executionPlan)
+    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
     if (quality.decision !== 'PASS' && decisionPlan.path === 'critical') {
-      return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), decisionPlan, executionPlan)
+      return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
     }
 
     const evidenceState: EvidenceState = quality.decision === 'PASS' ? 'LIVE_VERIFIED' : 'PARTIAL_UNCONFIRMED'
@@ -161,6 +153,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }),
       provider: result.provider,
       model: result.model,
+      responseMs: Date.now() - startedAt,
       attempts: mergeAttempts(primary, review, final),
       executionPlan,
       decisionPlan,
@@ -169,6 +162,6 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       degraded: false,
     }
   } catch (error) {
-    return tryDegraded(request, error instanceof Error ? error.message.slice(0, 500) : 'All governed external execution paths failed.', mergeAttempts(primary, review, final), decisionPlan, executionPlan)
+    return tryDegraded(request, error instanceof Error ? error.message.slice(0, 500) : 'All governed external execution paths failed.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
   }
 }
