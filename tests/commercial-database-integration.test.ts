@@ -126,13 +126,35 @@ describe('commercial database contract', () => {
     await db.$disconnect()
   })
 
+  it('verifies Transaction customer and venture columns plus customer foreign key in the live database', async () => {
+    const columns = await db.$queryRaw<Array<{ column_name: string }>>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='Transaction'
+        AND column_name IN ('ventureId','customerId')
+    `
+    expect(new Set(columns.map((row) => row.column_name))).toEqual(new Set(['ventureId', 'customerId']))
+
+    const foreignKey = await db.$queryRaw<Array<{ source_column: string; target_table: string; target_column: string }>>`
+      SELECT
+        kcu.column_name AS "source_column",
+        ccu.table_name AS "target_table",
+        ccu.column_name AS "target_column"
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name=kcu.constraint_name AND tc.table_schema=kcu.table_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON tc.constraint_name=ccu.constraint_name AND tc.table_schema=ccu.table_schema
+      WHERE tc.table_schema='public'
+        AND tc.table_name='Transaction'
+        AND tc.constraint_name='Transaction_customerId_fkey'
+        AND tc.constraint_type='FOREIGN KEY'
+    `
+    expect(foreignKey).toEqual([{ source_column: 'customerId', target_table: 'Customer', target_column: 'id' }])
+  })
+
   it('executes the real Transaction evidence query against the reconciled schema', async () => {
-    const evidence = await assertRealSucceededTransaction({
-      ventureId,
-      transactionId,
-      amount: 125,
-      currency: 'USD',
-    })
+    const evidence = await assertRealSucceededTransaction({ ventureId, transactionId, amount: 125, currency: 'USD' })
     expect(evidence.id).toBe(transactionId)
     expect(evidence.ventureId).toBe(ventureId)
     expect(evidence.customerId).toBe(customerId)
