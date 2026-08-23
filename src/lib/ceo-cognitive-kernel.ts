@@ -1,18 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import type { TaskType } from './subagent-governance'
 import { classifyExecution } from './adaptive-execution'
+import { inferTaskType } from './canonical-llm-router'
 import type { PreRouteDecision, DecisionPlan } from './ceo-cognitive-contract'
-
-function inferTask(text: string): TaskType {
-  if (/\b(code|coding|typescript|javascript|python|bug|refactor|compile|build)\b/i.test(text)) return 'coding'
-  if (/\b(finance|financial|investment|revenue|margin|cash|bank|portfolio|payment)\b/i.test(text)) return 'financial'
-  if (/\b(security|vulnerability|auth|password|2fa|cve|owasp)\b/i.test(text)) return 'security'
-  if (/\b(research|market|competitor|source|evidence|investigate|compare)\b/i.test(text)) return 'research'
-  if (/\b(write|content|creative|copy|headline|brand|design)\b/i.test(text)) return 'creative'
-  if (/\b(health|monitor|incident|ops|deployment|uptime|status)\b/i.test(text)) return 'operations'
-  if (/\b(analyze|analysis|evaluate|diagnose|audit|assess)\b/i.test(text)) return 'analysis'
-  return 'reasoning'
-}
+import type { TaskType } from './subagent-governance'
 
 export function buildCeoDecisionPlan(input: {
   messages: readonly { role: string; content: string }[]
@@ -22,7 +12,7 @@ export function buildCeoDecisionPlan(input: {
 }): DecisionPlan {
   const latest = [...input.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
   const adaptive = classifyExecution(input.messages)
-  const taskClass = input.taskType ?? inferTask(latest)
+  const taskClass = input.taskType ?? inferTaskType(input.messages)
   const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId) || adaptive.executionClass === 'mission'
   const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security' || adaptive.executionClass === 'mission'
   const deep = critical || input.preRoute.complexitySignals > 0 || adaptive.executionClass === 'deep'
