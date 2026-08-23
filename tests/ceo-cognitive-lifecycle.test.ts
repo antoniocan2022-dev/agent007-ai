@@ -118,8 +118,6 @@ describe('CEO cognitive lifecycle', () => {
         if (url.includes('api.mistral.ai')) return new Response(JSON.stringify({ data: [{ id: 'mistral-large-latest' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (method === 'POST') {
-        const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content?: string }> }
-        const prompt = JSON.stringify(body.messages ?? [])
         if (url.includes('api.groq.com')) {
           postProviders.push('groq')
           return new Response(JSON.stringify({ choices: [{ message: { content: 'Agent007 should prioritize the proposed mission with evidence and verification.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -132,7 +130,6 @@ describe('CEO cognitive lifecycle', () => {
           postProviders.push('mistral')
           return new Response(JSON.stringify({ choices: [{ message: { content: 'Agent007 should prioritize the mission with explicit evidence, verification, and a controlled next action.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
         }
-        void prompt
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
@@ -154,6 +151,7 @@ describe('CEO cognitive lifecycle', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
     const missionRoute = readFileSync('src/app/api/mission-active/[missionId]/route.ts', 'utf8')
+    const agentRoute = readFileSync('src/app/api/agent/route.ts', 'utf8')
     expect(bridge).toContain("from './ceo-cognitive-lifecycle'")
     expect(bridge).not.toContain("from './canonical-llm-router'")
     expect(bridge).toContain('responseMs: result.responseMs')
@@ -162,5 +160,8 @@ describe('CEO cognitive lifecycle', () => {
     expect(presenter).toContain("const generationAuthorized = decisionKernel.decision === 'PROCEED'")
     expect(missionRoute).toContain('runCeoCognitiveLifecycle')
     expect(missionRoute).not.toContain("import('@/lib/agent')")
+    expect(agentRoute).toContain('runCeoCognitiveLifecycle')
+    expect(agentRoute).not.toContain('runCanonicalLlm')
+    expect(agentRoute).toContain('preRouteCeoRequest')
   })
 })
