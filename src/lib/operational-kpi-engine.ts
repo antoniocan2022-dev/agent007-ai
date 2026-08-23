@@ -63,7 +63,7 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
   const transactionOutcomes = outcomes.filter((o) => o.type === 'TRANSACTION' && typeof o.transactionId === 'string' && o.transactionId.trim())
   const uniqueTransactionIds = [...new Set(transactionOutcomes.map((o) => String(o.transactionId).trim()))]
   const verifiedByTransaction = new Map<string, { amount: number; currency: string }>()
-  let syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED'].includes(o.type) && (!o.transactionId || !o.source || Number(o.amount) <= 0))
+  let syntheticRevenueDetected = outcomes.some((o) => ['TRANSACTION', 'REVENUE_RECOGNIZED', 'REFUND'].includes(o.type) && (!o.transactionId || !o.source || !Number.isFinite(Number(o.amount)) || Number(o.amount) <= 0))
   await Promise.all(uniqueTransactionIds.map(async (transactionId) => {
     const candidates = transactionOutcomes.filter((outcome) => String(outcome.transactionId).trim() === transactionId)
     const amount = Number(candidates.find((outcome) => Number.isFinite(Number(outcome.amount)))?.amount)
@@ -76,11 +76,26 @@ export async function calculateOperationalKpis(ventureId = 'venture_001', window
     }
   }))
 
+  const verifiedRefunds = new Map<string, number>()
+  const refunds = outcomes.filter((o) => o.type === 'REFUND' && typeof o.transactionId === 'string' && o.transactionId.trim())
+  await Promise.all(refunds.map(async (refund) => {
+    const transactionId = String(refund.transactionId).trim()
+    try {
+      const verified = await assertRealSucceededTransaction({ ventureId, transactionId })
+      const amount = Number(refund.amount)
+      if (!Number.isFinite(amount) || amount <= 0 || amount > verified.amount) throw new Error('Refund amount is not a valid portion of the succeeded transaction.')
+      if (refund.currency && String(refund.currency).toUpperCase() !== verified.currency) throw new Error('Refund currency does not match the succeeded transaction.')
+      const previous = verifiedRefunds.get(transactionId) ?? 0
+      verifiedRefunds.set(transactionId, Math.max(previous, amount))
+    } catch {
+      syntheticRevenueDetected = true
+    }
+  }))
+
   const verifiedTransactions = uniqueTransactionIds.filter((id) => verifiedByTransaction.has(id))
-  const refunds = outcomes.filter((o) => o.type === 'REFUND')
   const customersAcquired = outcomes.filter((o) => o.type === 'CUSTOMER_ACQUIRED').length
   const grossRevenue = verifiedTransactions.reduce((sum, id) => sum + (verifiedByTransaction.get(id)?.amount ?? 0), 0)
-  const refundAmount = refunds.reduce((sum, o) => sum + (Number.isFinite(Number(o.amount)) ? Number(o.amount) : 0), 0)
+  const refundAmount = [...verifiedRefunds.values()].reduce((sum, amount) => sum + amount, 0)
 
   let readiness: any
   try { readiness = await evaluateVentureReadiness(ventureId) } catch (error) { readiness = { status: 'BLOCKED', score: 0, threshold: 100, missingEvidence: [`Readiness evaluation failed: ${error instanceof Error ? error.message : String(error)}`] } }
