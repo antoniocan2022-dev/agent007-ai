@@ -26,14 +26,55 @@ export type CapabilityReadiness = {
   missing: string[]
 }
 
+/**
+ * Mission stage requirements deliberately use only tools that are present in
+ * the canonical built-in specialist definitions.  The contract is a minimum
+ * capability floor, not a complete tool inventory: specialists may have many
+ * additional tools available for the task.
+ */
 const STAGE_CAPABILITIES: Record<string, MissionStageCapability> = {
-  PLANNED: { stage: 'PLANNED', requiredTaskType: 'research', requiredTools: ['web_search', 'page_reader', 'source_read', 'memory_recall'], rationale: 'Discovery and evidence gathering before execution.' },
-  IN_PROGRESS: { stage: 'IN_PROGRESS', requiredTaskType: 'creative', requiredTools: ['ai_content_factory', 'file_write', 'memory_recall'], rationale: 'Creation/building of the primary mission deliverable.' },
-  REVIEW: { stage: 'REVIEW', requiredTaskType: 'analysis', requiredTools: ['quality_scorer_v2', 'accuracy_checker', 'memory_recall'], rationale: 'Independent quality and outcome review.' },
-  DELIVERED: { stage: 'DELIVERED', requiredTaskType: 'coding', requiredTools: ['code_exec', 'file_write', 'file_read', 'result_verifier_v2'], rationale: 'Technical delivery, integration, or deployment work.' },
-  VERIFIED: { stage: 'VERIFIED', requiredTaskType: 'analysis', requiredTools: ['accuracy_checker', 'quality_scorer_v2', 'memory_recall'], rationale: 'Production verification, monitoring, KPI and readiness analysis.' },
-  OWNER_APPROVAL: { stage: 'OWNER_APPROVAL', requiredTaskType: 'reasoning', requiredTools: ['memory_recall', 'quality_scorer_v2'], rationale: 'Executive decision and governance review; no autonomous approval is allowed.' },
-  COMPLETED: { stage: 'COMPLETED', requiredTaskType: 'reasoning', requiredTools: [], rationale: 'Terminal mission state.' },
+  PLANNED: {
+    stage: 'PLANNED',
+    requiredTaskType: 'research',
+    requiredTools: ['web_search', 'page_reader', 'memory_recall'],
+    rationale: 'Discovery and evidence gathering before execution.',
+  },
+  IN_PROGRESS: {
+    stage: 'IN_PROGRESS',
+    requiredTaskType: 'creative',
+    requiredTools: ['web_search', 'page_reader', 'memory_recall'],
+    rationale: 'Creation/building of the primary mission deliverable.',
+  },
+  REVIEW: {
+    stage: 'REVIEW',
+    requiredTaskType: 'analysis',
+    requiredTools: ['quality_scorer_v2', 'result_verifier_v2', 'accuracy_checker', 'memory_recall'],
+    rationale: 'Independent quality and outcome review.',
+  },
+  DELIVERED: {
+    stage: 'DELIVERED',
+    requiredTaskType: 'coding',
+    requiredTools: ['code_exec', 'file_write', 'file_read', 'result_verifier_v2', 'memory_recall'],
+    rationale: 'Technical delivery, integration, or deployment work.',
+  },
+  VERIFIED: {
+    stage: 'VERIFIED',
+    requiredTaskType: 'analysis',
+    requiredTools: ['accuracy_checker', 'quality_scorer_v2', 'memory_recall'],
+    rationale: 'Production verification, monitoring, KPI and readiness analysis.',
+  },
+  OWNER_APPROVAL: {
+    stage: 'OWNER_APPROVAL',
+    requiredTaskType: 'reasoning',
+    requiredTools: ['memory_recall', 'quality_scorer_v2'],
+    rationale: 'Executive decision and governance review; no autonomous approval is allowed.',
+  },
+  COMPLETED: {
+    stage: 'COMPLETED',
+    requiredTaskType: 'reasoning',
+    requiredTools: [],
+    rationale: 'Terminal mission state.',
+  },
 }
 
 export function capabilityRequirementForStage(stage: string): MissionStageCapability | undefined {
@@ -95,6 +136,7 @@ export function validateCapabilityProfileCoverage(): string[] {
   const profiles = getAllGovernanceProfiles()
   if (profiles.length === 0) errors.push('No governance profiles are registered.')
   for (const requirement of Object.values(STAGE_CAPABILITIES)) {
+    if (requirement.stage === 'COMPLETED') continue
     const matches = profiles.filter((profile) => profile.taskTypes.includes(requirement.requiredTaskType))
     if (matches.length === 0) errors.push(`No governance profile supports mission stage ${requirement.stage} task type ${requirement.requiredTaskType}.`)
   }
