@@ -10,7 +10,7 @@
     "src/lib/ceo-pre-router.ts",
     "src/lib/ceo-cognitive-kernel.ts",
     "src/lib/ceo-execution-plan.ts",
-    "src/lib/ceo-quality-gate.ts",
+    "src/lib/ceo-response-quality-gate.ts",
     "src/lib/ceo-degraded-mode.ts",
     "src/lib/ceo-response-composer.ts",
     "src/lib/ceo-cognitive-lifecycle.ts",
