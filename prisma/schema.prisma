@@ -484,12 +484,14 @@ model Transaction {
   productName   String?
   description   String?
   rawPayload    String
+  ventureId     String?
   customerId    String?
   Customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   createdAt     DateTime  @default(now())
 
   @@unique([provider, providerTxId])
   @@index([userId])
+  @@index([ventureId])
   @@index([customerId])
 }
 
