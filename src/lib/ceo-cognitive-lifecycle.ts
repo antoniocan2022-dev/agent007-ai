@@ -2,7 +2,7 @@ import { runCanonicalLlm, type CanonicalLlmResult } from './canonical-llm-router
 import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
 import { preRouteCeoRequest, resolvePreRoute } from './ceo-pre-router'
 import { buildCeoExecutionPlan } from './ceo-execution-plan'
-import { evaluateCeoQuality } from './ceo-quality-gate'
+import { evaluateCeoQuality } from './ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from './ceo-degraded-mode'
 import { composeCeoResponse } from './ceo-response-composer'
 import type { TaskType, VerificationTier } from './subagent-governance'
@@ -58,13 +58,18 @@ async function tryDegraded(
   decisionPlan: ReturnType<typeof buildCeoDecisionPlan>,
   executionPlan: ReturnType<typeof buildCeoExecutionPlan>,
 ): Promise<CognitiveLifecycleResult> {
-  const degraded = buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), reason, contextualEvidence: request.contextualEvidence })
+  const degraded = await buildCeoDegradedResponse({
+    objective: objectiveFrom(request.messages),
+    reason,
+    missionId: request.missionId,
+    contextualEvidence: request.contextualEvidence,
+  })
   const quality = {
     decision: 'DEGRADED' as const,
     evidenceState: degraded.evidenceState,
     verificationStatus: 'NOT_PERFORMED' as const,
-    checks: { nonEmpty: true, contractValid: true, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true },
-    reasons: [reason],
+    checks: { nonEmpty: Boolean(degraded.content.trim()), contractValid: degraded.content.length <= 100_000, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true },
+    reasons: [reason, ...(degraded.sourceKeys.length ? [`Recovered ${degraded.sourceKeys.length} internal evidence item(s).`] : [])],
   }
   return {
     content: composeCeoResponse({ content: degraded.content, evidenceState: degraded.evidenceState, quality, degraded: true }),
