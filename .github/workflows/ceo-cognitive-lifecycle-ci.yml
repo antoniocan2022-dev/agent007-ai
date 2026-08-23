@@ -21,6 +21,8 @@ on:
       - 'src/lib/billing-lifecycle.ts'
       - 'src/lib/customer-success.ts'
       - 'src/lib/mission-money-bridge.ts'
+      - 'src/lib/transaction-evidence-integrity.ts'
+      - 'src/lib/ceo-venture-state.ts'
       - 'src/lib/portfolio-commercial-intelligence.ts'
       - 'src/lib/portfolio-intelligence-engine.ts'
       - 'src/lib/venture-template-validation.ts'
@@ -33,9 +35,11 @@ on:
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
+      - 'tests/system-continuity-integrity.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
+      - 'docs/ARCHITECTURE-CONTINUITY-MAP.md'
       - 'tsconfig.ceo-lifecycle.json'
       - 'tsconfig.json'
       - 'package.json'
@@ -60,6 +64,8 @@ on:
       - 'src/lib/billing-lifecycle.ts'
       - 'src/lib/customer-success.ts'
       - 'src/lib/mission-money-bridge.ts'
+      - 'src/lib/transaction-evidence-integrity.ts'
+      - 'src/lib/ceo-venture-state.ts'
       - 'src/lib/portfolio-commercial-intelligence.ts'
       - 'src/lib/portfolio-intelligence-engine.ts'
       - 'src/lib/venture-template-validation.ts'
@@ -72,9 +78,11 @@ on:
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
+      - 'tests/system-continuity-integrity.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
+      - 'docs/ARCHITECTURE-CONTINUITY-MAP.md'
       - 'tsconfig.ceo-lifecycle.json'
       - 'tsconfig.json'
       - 'package.json'
@@ -121,6 +129,9 @@ jobs:
 
       - name: Run commercial lifecycle integration tests
         run: bun test tests/commercial-lifecycle-integration.test.ts
+
+      - name: Run system continuity and transaction integrity tests
+        run: bun test tests/system-continuity-integrity.test.ts
 
       - name: Typecheck CEO, autonomy, venture and commercial integration graph
         run: bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit
