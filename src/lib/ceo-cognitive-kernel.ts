@@ -17,10 +17,10 @@ export function buildCeoDecisionPlan(input: {
   const latest = [...input.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
   const taskClass = input.taskType ?? input.preRoute.taskClass ?? 'reasoning'
   const adaptiveClass = input.preRoute.adaptiveExecutionClass ?? 'standard'
-  const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId) || adaptiveClass === 'mission'
-  const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security' || adaptiveClass === 'mission'
+  const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId)
+  const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security'
   const preRouteFloor = input.preRoute.route === 'fast' ? 'fast' : 'full'
-  const deep = critical || preRouteFloor === 'full' || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep'
+  const deep = critical || preRouteFloor === 'full' || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep' || missionRelevant
   const path = critical ? 'critical' : deep ? 'full' : 'fast'
 
   return {
