@@ -5,6 +5,7 @@ import { buildCeoExecutionPlan } from './ceo-execution-plan'
 import { evaluateCeoQuality } from './ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from './ceo-degraded-mode'
 import { composeCeoResponse } from './ceo-response-composer'
+import { getCeoVentureEvidenceForObjective } from './ceo-venture-state'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceState } from './ceo-cognitive-contract'
 
@@ -43,10 +44,10 @@ function buildReviewPrompt(objective: string, draft: string): { role: 'user'; co
   }
 }
 
-function buildSynthesisPrompt(objective: string, draft: string, review: string): { role: 'user'; content: string } {
+function buildSynthesisPrompt(objective: string, draft: string, review: string, ventureEvidence?: string): { role: 'user'; content: string } {
   return {
     role: 'user',
-    content: `Produce the final executive answer. Preserve correct information from the draft, fix every material issue identified by the review, and do not invent facts. The answer must directly satisfy the original objective and clearly distinguish verified facts from assumptions when relevant.\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}\n\nINDEPENDENT REVIEW:\n${review.slice(0, 20000)}`,
+    content: `Produce the final executive answer. Preserve correct information from the draft, fix every material issue identified by the review, and do not invent facts. The answer must directly satisfy the original objective and clearly distinguish verified facts from assumptions when relevant.${ventureEvidence ? `\n\nLIVE VENTURE EVIDENCE:\n${ventureEvidence}` : ''}\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}\n\nINDEPENDENT REVIEW:\n${review.slice(0, 20000)}`,
   }
 }
 
@@ -94,7 +95,19 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const startedAt = Date.now()
   const deadline = startedAt + (request.timeoutMs ?? decisionPlan.latencyBudgetMs)
   const selectedVerification: VerificationTier = request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard')
-  const evidenceProvided = Boolean(request.contextualEvidence?.trim())
+
+  let ventureEvidence: { ventureId: string; evidence: string } | null = null
+  try { ventureEvidence = await getCeoVentureEvidenceForObjective(objective) } catch (error) {
+    if (/\bventure_\d{3}\b/i.test(objective)) {
+      return tryDegraded(request, `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), [], Date.now() - startedAt, decisionPlan, executionPlan)
+    }
+  }
+
+  const evidenceProvided = Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)
+  const liveSystemMessages = ventureEvidence
+    ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }]
+    : []
+  const primaryMessages = [...liveSystemMessages, ...request.messages]
 
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({
     taskType: request.taskType,
@@ -114,12 +127,12 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   let escalation = 0
 
   try {
-    primary = await runCanonicalLlm({ ...stageOptions(), messages: request.messages })
+    primary = await runCanonicalLlm({ ...stageOptions(), messages: primaryMessages })
 
     if (executionPlan.reasoningStrategy === 'multi_pass') {
       const refinement = await runCanonicalLlm({
         ...stageOptions({ maxProviderAttempts: 2 }),
-        messages: [...request.messages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)],
+        messages: [...primaryMessages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)],
         excludeProviders: [primary.provider],
       })
       review = refinement
@@ -128,6 +141,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       review = await runCanonicalLlm({
         ...stageOptions({ maxProviderAttempts: 2 }),
         messages: [
+          ...(ventureEvidence ? [{ role: 'system' as const, content: ventureEvidence.evidence }] : []),
           { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' },
           buildReviewPrompt(objective, primary.content),
         ],
@@ -136,8 +150,9 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       final = await runCanonicalLlm({
         ...stageOptions({ maxProviderAttempts: 2 }),
         messages: [
+          ...(ventureEvidence ? [{ role: 'system' as const, content: ventureEvidence.evidence }] : []),
           { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
-          buildSynthesisPrompt(objective, primary.content, review.content),
+          buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence),
         ],
         excludeProviders: [review.provider],
       })
@@ -155,6 +170,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         const escalated = await runCanonicalLlm({
           ...stageOptions({ maxProviderAttempts: 2 }),
           messages: [
+            ...(ventureEvidence ? [{ role: 'system' as const, content: ventureEvidence.evidence }] : []),
             { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' },
             { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` },
           ],
