@@ -1,6 +1,7 @@
 import { db } from './db'
 import { recordBusinessOutcome, type BusinessOutcomeRecord } from './architecture-control-plane'
 import { getVenture } from './venture-commercial-foundation'
+import { assertRealSucceededTransaction } from './transaction-evidence-integrity'
 
 export interface MissionMoneyAttribution {
   missionId: string
@@ -52,16 +53,7 @@ export async function attributeMissionTransaction(input: {
   if (!source) throw new Error('Attribution source is required.')
   if (!await getVenture(ventureId)) throw new Error(`Venture not found: ${ventureId}.`)
 
-  const rows = await db.$queryRaw<Array<{ id: string; ventureId: string | null; customerId: string | null; amount: number; currency: string; status: string }>>`
-    SELECT "id","ventureId","customerId","amount","currency","status"
-    FROM "Transaction" WHERE "id"=${transactionId} LIMIT 1
-  `
-  const transaction = rows[0]
-  if (!transaction) throw new Error(`Transaction not found: ${transactionId}.`)
-  if (transaction.ventureId !== ventureId) throw new Error(`Transaction ${transactionId} is not scoped to venture ${ventureId}.`)
-  if (transaction.status !== 'succeeded') throw new Error(`Transaction ${transactionId} is not a succeeded transaction.`)
-  if (!Number.isFinite(transaction.amount) || transaction.amount <= 0) throw new Error(`Transaction ${transactionId} has no positive recognized amount.`)
-  if (!/^[A-Z]{3}$/i.test(transaction.currency)) throw new Error(`Transaction ${transactionId} has an invalid currency code.`)
+  const transaction = await assertRealSucceededTransaction({ ventureId, transactionId })
 
   const occurredAt = new Date().toISOString()
   const transactionOutcome = await recordBusinessOutcome({
@@ -70,11 +62,11 @@ export async function attributeMissionTransaction(input: {
     type: 'TRANSACTION',
     transactionId: transaction.id,
     customerId: transaction.customerId,
-    amount: Number(transaction.amount),
-    currency: transaction.currency.toUpperCase(),
+    amount: transaction.amount,
+    currency: transaction.currency,
     source,
     occurredAt,
-    metadata: { attribution: 'mission_to_money' },
+    metadata: { attribution: 'mission_to_money', transactionEvidence: 'relational-transaction' },
   })
   const revenueOutcome = await recordBusinessOutcome({
     ventureId,
@@ -82,11 +74,11 @@ export async function attributeMissionTransaction(input: {
     type: 'REVENUE_RECOGNIZED',
     transactionId: transaction.id,
     customerId: transaction.customerId,
-    amount: Number(transaction.amount),
-    currency: transaction.currency.toUpperCase(),
+    amount: transaction.amount,
+    currency: transaction.currency,
     source,
     occurredAt,
-    metadata: { attribution: 'mission_to_money' },
+    metadata: { attribution: 'mission_to_money', transactionEvidence: 'relational-transaction' },
   })
 
   return {
@@ -94,8 +86,8 @@ export async function attributeMissionTransaction(input: {
     ventureId,
     transactionId: transaction.id,
     customerId: transaction.customerId,
-    amount: Number(transaction.amount),
-    currency: transaction.currency.toUpperCase(),
+    amount: transaction.amount,
+    currency: transaction.currency,
     transactionOutcomeId: transactionOutcome.outcomeId,
     revenueOutcomeId: revenueOutcome.outcomeId,
     attributedAt: occurredAt,
