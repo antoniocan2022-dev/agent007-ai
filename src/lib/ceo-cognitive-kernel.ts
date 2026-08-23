@@ -4,9 +4,9 @@ import type { TaskType } from './subagent-governance'
 
 /**
  * Request-level reasoning planner.
- * This is deliberately separate from ceo-decision-kernel.ts, which is the
- * mission governance/approval gate. The planner decides how much cognition
- * the request warrants; it never authorizes protected mission actions.
+ * Separate from ceo-decision-kernel.ts, which remains the mission governance
+ * gate. This planner decides how much cognition the request warrants and may
+ * only increase depth beyond the pre-router floor; it can never reduce it.
  */
 export function buildCeoDecisionPlan(input: {
   messages: readonly { role: string; content: string }[]
@@ -19,11 +19,13 @@ export function buildCeoDecisionPlan(input: {
   const adaptiveClass = input.preRoute.adaptiveExecutionClass ?? 'standard'
   const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId) || adaptiveClass === 'mission'
   const critical = missionRelevant || taskClass === 'financial' || taskClass === 'security' || adaptiveClass === 'mission'
-  const deep = critical || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep' || resolvePath(input.preRoute) === 'full'
+  const preRouteFloor = input.preRoute.route === 'fast' ? 'fast' : 'full'
+  const deep = critical || preRouteFloor === 'full' || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep'
+  const path = critical ? 'critical' : deep ? 'full' : 'fast'
 
   return {
     requestId: randomUUID(),
-    path: critical ? 'critical' : deep ? 'full' : 'fast',
+    path,
     objective: latest.trim().slice(0, 4000),
     taskClass,
     missionRelevant,
@@ -36,8 +38,4 @@ export function buildCeoDecisionPlan(input: {
     maxProviderAttempts: critical ? 5 : deep ? 4 : 2,
     latencyBudgetMs: critical ? 90000 : deep ? 60000 : 15000,
   }
-}
-
-function resolvePath(preRoute: PreRouteDecision): 'fast' | 'full' {
-  return preRoute.route === 'fast' ? 'fast' : 'full'
 }
