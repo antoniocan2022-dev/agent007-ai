@@ -54,16 +54,18 @@ async function tryDegraded(
   request: CeoCognitiveRequest,
   reason: string,
   attempts: string[],
-  responseMs: number,
+  responseMsBeforeDegraded: number,
   decisionPlan: ReturnType<typeof buildCeoDecisionPlan>,
   executionPlan: ReturnType<typeof buildCeoExecutionPlan>,
 ): Promise<CognitiveLifecycleResult> {
+  const degradedStartedAt = Date.now()
   const degraded = await buildCeoDegradedResponse({
     objective: objectiveFrom(request.messages),
     reason,
     missionId: request.missionId,
     contextualEvidence: request.contextualEvidence,
   })
+  const responseMs = responseMsBeforeDegraded + (Date.now() - degradedStartedAt)
   const quality = {
     decision: 'DEGRADED' as const,
     evidenceState: degraded.evidenceState,
@@ -168,7 +170,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
 
     const result = final ?? primary
     if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
-    if (quality.decision !== 'PASS' && decisionPlan.path === 'critical') {
+    if (quality.decision !== 'PASS') {
       return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
     }
 
