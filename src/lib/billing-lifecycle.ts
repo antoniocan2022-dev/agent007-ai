@@ -22,6 +22,10 @@ export async function settleInvoiceFromTransaction(invoiceId: string, transactio
 
   const tx = await assertRealSucceededTransaction({ ventureId: invoice.ventureId, transactionId: requestedTransactionId, amount: Number(invoice.amount), currency: invoice.currency })
   if (tx.customerId && tx.customerId !== invoice.customerId) throw new Error(`Invoice ${invoiceId} belongs to customer ${invoice.customerId}, not transaction customer ${tx.customerId}.`)
+  const alreadySettled = await db.$queryRaw<Array<{ id:string }>>`
+    SELECT "id" FROM "Invoice" WHERE "transactionId"=${tx.id} AND "status"='paid' AND "id"<>${invoiceId} LIMIT 1
+  `
+  if (alreadySettled[0]) throw new Error(`Transaction ${tx.id} has already settled invoice ${alreadySettled[0].id}.`)
 
   const paidAt = new Date().toISOString()
   const updated = await db.$executeRaw`
@@ -43,7 +47,7 @@ export async function cancelSubscription(subscriptionId: string): Promise<void> 
   if (!subscription) throw new Error(`Subscription not found: ${subscriptionId}.`)
   if (!await getVenture(subscription.ventureId)) throw new Error(`Relational venture not found for subscription ${subscriptionId}.`)
   if (subscription.status === 'cancelled' || subscription.status === 'expired') return
-  await db.$executeRaw`UPDATE "Subscription" SET "status"='cancelled', "cancelAtPeriodEnd"=TRUE, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=${subscriptionId}`
+  await db.$executeRaw`UPDATE "Subscription" SET "status"='cancelled', "cancelAtPeriodEnd"=FALSE, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=${subscriptionId}`
 }
 
 export async function markSubscriptionPastDue(subscriptionId: string): Promise<void> {
