@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 const dbSource = readFileSync('src/lib/db.ts', 'utf8')
 const packageSource = readFileSync('package.json', 'utf8')
 const vercelSource = readFileSync('vercel.json', 'utf8')
-
+const vercelBuildSource = readFileSync('scripts/vercel-build.sh', 'utf8')
 
 describe('production database runtime policy', () => {
   test('runtime client contains no request-time schema bootstrap', () => {
@@ -24,10 +24,15 @@ describe('production database runtime policy', () => {
     expect(dbSource).not.toContain("if (process.env.NODE_ENV !== 'production')")
   })
 
-  test('schema reconciliation is release-time only', () => {
+  test('schema reconciliation is release-time only and has one canonical build path', () => {
     const pkg = JSON.parse(packageSource) as { scripts: Record<string, string> }
     expect(pkg.scripts['db:reconcile']).toBe('bun src/lib/reconcile-production-schema.ts')
     expect(pkg.scripts['db:bootstrap']).toBe('bun scripts/bootstrap-owner-data.ts')
-    expect(vercelSource).toContain('AGENT007_RELEASE_SCHEMA_RECONCILE=1 bun run build')
+    expect(pkg.scripts.build).toContain('if [ "$AGENT007_RELEASE_SCHEMA_RECONCILE" = "1" ]; then bun run db:reconcile; fi')
+    expect(vercelSource).toContain('"buildCommand": "bash scripts/vercel-build.sh"')
+    expect(vercelBuildSource).toContain('export AGENT007_RELEASE_SCHEMA_RECONCILE=1')
+    expect(vercelBuildSource).toContain('bun run build')
+    expect(vercelBuildSource).not.toContain('bun run db:reconcile')
+    expect(vercelBuildSource).not.toContain('AGENT007_RELEASE_SCHEMA_RECONCILE=1 bun run build')
   })
 })
