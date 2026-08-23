@@ -16,9 +16,17 @@ on:
       - 'src/app/api/schedules/tick/route.ts'
       - 'scripts/run-venture-operation-cycle.ts'
       - 'src/lib/venture-operation-loop.ts'
+      - 'src/lib/venture-autonomy-control.ts'
+      - 'src/lib/venture-commercial-foundation.ts'
+      - 'src/lib/venture-factory.ts'
+      - 'src/lib/venture-001.ts'
+      - 'src/lib/billing-lifecycle.ts'
+      - 'src/lib/operational-kpi-engine.ts'
+      - 'src/lib/reconcile-production-schema.ts'
       - 'src/lib/autonomy/**'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
+      - 'tests/commercial-venture-foundation.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
@@ -41,9 +49,17 @@ on:
       - 'src/app/api/schedules/tick/route.ts'
       - 'scripts/run-venture-operation-cycle.ts'
       - 'src/lib/venture-operation-loop.ts'
+      - 'src/lib/venture-autonomy-control.ts'
+      - 'src/lib/venture-commercial-foundation.ts'
+      - 'src/lib/venture-factory.ts'
+      - 'src/lib/venture-001.ts'
+      - 'src/lib/billing-lifecycle.ts'
+      - 'src/lib/operational-kpi-engine.ts'
+      - 'src/lib/reconcile-production-schema.ts'
       - 'src/lib/autonomy/**'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
+      - 'tests/commercial-venture-foundation.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
       - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
@@ -60,7 +76,7 @@ env:
 jobs:
   lifecycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -88,5 +104,8 @@ jobs:
       - name: Run mission autonomy supervisor tests
         run: bun test tests/mission-autonomy-supervisor.test.ts
 
-      - name: Typecheck CEO lifecycle and mission autonomy integration graph
+      - name: Run commercial venture foundation tests
+        run: bun test tests/commercial-venture-foundation.test.ts
+
+      - name: Typecheck CEO, autonomy, venture and commercial integration graph
         run: bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit
