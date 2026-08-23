@@ -58,6 +58,6 @@ describe('commercial venture foundation', () => {
     expect(billing).toContain('Invoice')
     expect(billing).toContain('ventureId')
     expect(billing).toMatch(/SET \"status\"='paid'/)
-    expect(billing).toContain('Transaction and invoice amounts')
+    expect(billing).toContain('Transaction amount/currency does not match invoice.')
   })
 })
