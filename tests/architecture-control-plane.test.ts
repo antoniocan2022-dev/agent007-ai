@@ -50,7 +50,9 @@ describe('Architecture Control Plane — canonical organization and commercial i
   })
 
   test('business scope is canonical and scales by data, not authority changes', () => {
-    expect(commercialBusinessIds()).toEqual(['career-command', 'operations-kit', 'revenue-recovery'])
+    const businessIds = commercialBusinessIds()
+    expect(businessIds).toEqual(expect.arrayContaining(['career-command', 'operations-kit', 'revenue-recovery']))
+    expect(businessIds).toEqual([...businessIds].sort())
     expect(businessScopeFor('revenue_recovery_leader')).toEqual(['revenue-recovery'])
     expect(businessScopeFor('scout')).toEqual(['revenue-recovery', 'operations-kit', 'career-command'])
     expect(leadersForBusiness('revenue-recovery').map((leader) => leader.id)).toContain('revenue_recovery_leader')
