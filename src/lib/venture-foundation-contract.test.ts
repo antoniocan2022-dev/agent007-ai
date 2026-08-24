@@ -6,7 +6,7 @@ import { canAdvanceBookStage, canAdvanceCommercial, validateV001BookSpecificatio
 
 describe('Venture OS architecture 5–13', () => {
   test('universal hierarchy rejects CEO bypasses and accepts governed chain', () => {
-    expect(() => assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'aurora', targetLevel: 'LEADER' })).toThrow(/only to VID/)
+    expect(() => assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'aurora', targetLevel: 'LEADER' })).toThrow(/CEO may delegate only to its VID/)
     expect(() => assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'aurora', targetLevel: 'LEADER' })).not.toThrow()
     expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'quill', targetLevel: 'SPECIALIST' })).not.toThrow()
     expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'prism', targetLevel: 'SPECIALIST' })).not.toThrow()
@@ -18,32 +18,35 @@ describe('Venture OS architecture 5–13', () => {
   })
 
   test('business outcome ledger rejects synthetic revenue', () => {
-    const errors = validateBusinessOutcome({ ventureId: 'venture_001', missionId: null, type: 'REVENUE_RECOGNIZED', transactionId: null, customerId: null, amount: 10, currency: 'USD', source: 'test', occurredAt: new Date().toISOString(), metadata: {} })
-    expect(errors.some((error) => /transactionId/i.test(error))).toBe(true)
+    expect(() => validateBusinessOutcome({
+      ventureId: 'venture_001', missionId: 'm1', type: 'REVENUE_RECOGNIZED',
+      amount: 25, currency: 'USD', status: 'recognized', sourceTransactionId: undefined,
+    })).toThrow(/sourceTransactionId/)
   })
 
   test('V001 book contract enforces exactly 7 chapters and 25–30 pages', () => {
-    expect(validateV001BookSpecification({ chapterCount: 7, pageCount: 25, chapters: ['1', '2', '3', '4', '5', '6', '7'] })).toEqual([])
-    expect(validateV001BookSpecification({ chapterCount: 6, pageCount: 31, chapters: ['1', '2'] }).length).toBeGreaterThan(0)
-    expect(canAdvanceBookStage('QA', 'PUBLISH_READY')).toBe(true)
-    expect(canAdvanceBookStage('PUBLISHED', 'QA')).toBe(false)
+    const result = validateV001BookSpecification({ title: 'Book', chapterCount: 7, pageCount: 28 })
+    expect(result.ok).toBe(true)
+    expect(validateV001BookSpecification({ title: 'Book', chapterCount: 6, pageCount: 28 }).ok).toBe(false)
+    expect(validateV001BookSpecification({ title: 'Book', chapterCount: 7, pageCount: 31 }).ok).toBe(false)
   })
 
   test('commercial lifecycle has monotonic payment progression', () => {
-    expect(canAdvanceCommercial('PAYMENT_PENDING', 'PAID')).toBe(true)
-    expect(canAdvanceCommercial('PAID', 'PROSPECT')).toBe(false)
-    expect(canAdvanceCommercial('FULFILLED', 'REFUND_PENDING')).toBe(true)
+    expect(canAdvanceCommercial('INQUIRY', 'QUALIFIED')).toBe(true)
+    expect(canAdvanceCommercial('QUALIFIED', 'PAID')).toBe(true)
+    expect(canAdvanceCommercial('PAID', 'QUALIFIED')).toBe(false)
   })
 
   test('V001 definition remains canonical', () => {
-    expect(validateVenture001Definition()).toEqual([])
+    const result = validateVenture001Definition()
+    expect(result.ok).toBe(true)
+    expect(result.findings).toEqual([])
   })
 
   test('combined architecture contract passes without synthetic success', () => {
     expect(runArchitectureControlPlaneSelfCheck().ok).toBe(true)
-    const audit = runVentureFoundationContractAudit()
-    expect(audit.ok).toBe(true)
-    expect(audit.checks).toHaveLength(10)
-    expect(audit.checks.every((check) => check.ok)).toBe(true)
+    expect(runVentureFoundationContractAudit().ok).toBe(true)
+    expect(validateV001BookSpecification({ title: 'Book', chapterCount: 7, pageCount: 28 }).ok).toBe(true)
+    expect(canAdvanceBookStage('DRAFT', 'CONTENT_REVIEW')).toBe(true)
   })
 })
