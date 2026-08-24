@@ -77,6 +77,9 @@ jobs:
       - name: Canonical organization, authority and venture-scope integrity
         run: bun test tests/architecture-control-plane.test.ts
 
+      - name: Five-layer organization architecture audit
+        run: bun scripts/organization-architecture-audit.ts
+
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
