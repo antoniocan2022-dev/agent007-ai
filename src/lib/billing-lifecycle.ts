@@ -26,7 +26,7 @@ export async function settleInvoiceFromTransaction(invoiceId: string, transactio
   `
   if (alreadySettled[0]) throw new Error(`Transaction ${tx.id} has already settled invoice ${alreadySettled[0].id}.`)
 
-  const paidAt = new Date().toISOString()
+  const paidAt = new Date()
   const updated = await db.$executeRaw`
     UPDATE "Invoice"
     SET "status"='paid', "paidAt"=${paidAt}, "transactionId"=${tx.id}, "updatedAt"=CURRENT_TIMESTAMP
@@ -34,10 +34,10 @@ export async function settleInvoiceFromTransaction(invoiceId: string, transactio
   `
   if (updated !== 1) {
     const current = await db.$queryRaw<Array<{ status:string; transactionId:string|null; paidAt:Date|null }>>`SELECT "status","transactionId","paidAt" FROM "Invoice" WHERE "id"=${invoiceId} LIMIT 1`
-    if (current[0]?.status === 'paid' && current[0].transactionId === tx.id) return { invoiceId, status:'paid', transactionId:tx.id, paidAt: current[0].paidAt ? new Date(current[0].paidAt).toISOString() : paidAt }
+    if (current[0]?.status === 'paid' && current[0].transactionId === tx.id) return { invoiceId, status:'paid', transactionId:tx.id, paidAt: current[0].paidAt ? new Date(current[0].paidAt).toISOString() : paidAt.toISOString() }
     throw new Error(`Invoice ${invoiceId} could not be settled because its state changed concurrently.`)
   }
-  return { invoiceId, status: 'paid', transactionId: tx.id, paidAt }
+  return { invoiceId, status:'paid', transactionId:tx.id, paidAt: paidAt.toISOString() }
 }
 
 export async function cancelSubscription(subscriptionId: string): Promise<void> {
@@ -75,5 +75,5 @@ export async function activateSubscriptionFromPaidInvoice(subscriptionId: string
     transactionId: paidInvoice[0].transactionId,
     customerId: paidInvoice[0].customerId,
   })
-  await db.$executeRaw`UPDATE "Subscription" SET "status"='active', "currentPeriodStart"=${new Date(nextPeriodStart).toISOString()}, "currentPeriodEnd"=${new Date(nextPeriodEnd).toISOString()}, "cancelAtPeriodEnd"=FALSE, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=${subscriptionId}`
+  await db.$executeRaw`UPDATE "Subscription" SET "status"='active', "currentPeriodStart"=${new Date(nextPeriodStart)}, "currentPeriodEnd"=${new Date(nextPeriodEnd)}, "cancelAtPeriodEnd"=FALSE, "updatedAt"=CURRENT_TIMESTAMP WHERE "id"=${subscriptionId}`
 }
