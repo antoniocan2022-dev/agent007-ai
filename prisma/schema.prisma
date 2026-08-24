@@ -101,9 +101,8 @@ model ContractDraft {
   status    String   @default("draft")
   riskScore Int      @default(5)
   notes     String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt @default(now())
-  Transaction Transaction[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -142,17 +141,17 @@ model CustomSubagent {
 model Customer {
   id          String        @id @default(cuid())
   userId      String
-  name      String
-  email     String?
-  phone     String?
-  company   String?
-  status    String   @default("lead")
-  value     Float    @default(0)
-  source    String?
-  notes     String?
-  tags      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt @default(now())
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  status      String   @default("lead")
+  value       Float    @default(0)
+  source      String?
+  notes       String?
+  tags        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt @default(now())
   Transaction Transaction[]
 
   @@index([status])
@@ -228,21 +227,21 @@ model MLModel {
 }
 
 model MarketingCampaign {
-  id             String    @id @default(cuid())
+  id             String     @id @default(cuid())
   userId         String
   name           String
   channel        String
-  status         String    @default("draft")
-  budget         Float     @default(0)
-  spent          Float     @default(0)
-  leadsGenerated Int       @default(0)
-  conversions    Int       @default(0)
-  revenue        Float     @default(0)
+  status         String     @default("draft")
+  budget         Float      @default(0)
+  spent          Float      @default(0)
+  leadsGenerated Int        @default(0)
+  conversions    Int        @default(0)
+  revenue        Float      @default(0)
   startDate      DateTime?
   endDate        DateTime?
   metadata       String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt @default(now())
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt @default(now())
 
   @@index([status])
   @@index([userId])
@@ -696,18 +695,18 @@ model EvidenceSource {
 
 /// Atomic claim record linked to evidence provenance and confidence.
 model EvidenceClaim {
-  id               String          @id @default(cuid())
-  ledgerId         String
-  sourceId         String?
-  claimKey         String
-  claimText        String
-  classification   String
-  confidence       Float
+  id                 String          @id @default(cuid())
+  ledgerId           String
+  sourceId           String?
+  claimKey           String
+  claimText          String
+  classification     String
+  confidence         Float
   verificationStatus String
-  notes            String?
-  createdAt        DateTime        @default(now())
-  Ledger           EvidenceLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  Source           EvidenceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  notes              String?
+  createdAt          DateTime        @default(now())
+  Ledger             EvidenceLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  Source             EvidenceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
 
   @@unique([ledgerId, claimKey])
   @@index([ledgerId, verificationStatus])
