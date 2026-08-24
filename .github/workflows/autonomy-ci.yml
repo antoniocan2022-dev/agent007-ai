@@ -71,6 +71,9 @@ jobs:
       - name: Commercial database integrity integration suite
         run: bun test tests/commercial-database-integration.test.ts
 
+      - name: Commercial lifecycle integration contract suite
+        run: bun test tests/commercial-lifecycle-integration.test.ts
+
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
