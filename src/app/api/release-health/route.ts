@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationGraphFingerprint } from '@/lib/organization-graph-fingerprint'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -16,6 +17,7 @@ export async function GET() {
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'unknown',
       releaseGate: true,
       releaseCommit,
+      organizationGraphFingerprint: organizationGraphFingerprint(),
     },
     { headers: { 'cache-control': 'no-store' } },
   )
