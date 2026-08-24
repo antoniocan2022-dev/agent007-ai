@@ -18,35 +18,34 @@ describe('Venture OS architecture 5–13', () => {
   })
 
   test('business outcome ledger rejects synthetic revenue', () => {
-    expect(() => validateBusinessOutcome({
+    const errors = validateBusinessOutcome({
       ventureId: 'venture_001', missionId: 'm1', type: 'REVENUE_RECOGNIZED',
-      amount: 25, currency: 'USD', status: 'recognized', sourceTransactionId: undefined,
-    })).toThrow(/sourceTransactionId/)
+      transactionId: null, customerId: null, amount: 25, currency: 'USD',
+      source: 'synthetic-test', occurredAt: new Date().toISOString(), metadata: {},
+    })
+    expect(errors.some((error) => /transactionId evidence/.test(error))).toBe(true)
   })
 
   test('V001 book contract enforces exactly 7 chapters and 25–30 pages', () => {
-    const result = validateV001BookSpecification({ title: 'Book', chapterCount: 7, pageCount: 28 })
-    expect(result.ok).toBe(true)
-    expect(validateV001BookSpecification({ title: 'Book', chapterCount: 6, pageCount: 28 }).ok).toBe(false)
-    expect(validateV001BookSpecification({ title: 'Book', chapterCount: 7, pageCount: 31 }).ok).toBe(false)
+    expect(validateV001BookSpecification({ chapterCount: 7, pageCount: 28 }).length).toBe(0)
+    expect(validateV001BookSpecification({ chapterCount: 6, pageCount: 28 }).length).toBeGreaterThan(0)
+    expect(validateV001BookSpecification({ chapterCount: 7, pageCount: 31 }).length).toBeGreaterThan(0)
   })
 
   test('commercial lifecycle has monotonic payment progression', () => {
-    expect(canAdvanceCommercial('INQUIRY', 'QUALIFIED')).toBe(true)
-    expect(canAdvanceCommercial('QUALIFIED', 'PAID')).toBe(true)
+    expect(canAdvanceCommercial('PROSPECT', 'QUALIFIED')).toBe(true)
+    expect(canAdvanceCommercial('QUALIFIED', 'OFFERED')).toBe(true)
     expect(canAdvanceCommercial('PAID', 'QUALIFIED')).toBe(false)
   })
 
   test('V001 definition remains canonical', () => {
-    const result = validateVenture001Definition()
-    expect(result.ok).toBe(true)
-    expect(result.findings).toEqual([])
+    expect(validateVenture001Definition()).toEqual([])
   })
 
   test('combined architecture contract passes without synthetic success', () => {
     expect(runArchitectureControlPlaneSelfCheck().ok).toBe(true)
     expect(runVentureFoundationContractAudit().ok).toBe(true)
-    expect(validateV001BookSpecification({ title: 'Book', chapterCount: 7, pageCount: 28 }).ok).toBe(true)
-    expect(canAdvanceBookStage('DRAFT', 'CONTENT_REVIEW')).toBe(true)
+    expect(validateV001BookSpecification({ chapterCount: 7, pageCount: 28 }).length).toBe(0)
+    expect(canAdvanceBookStage('DRAFT', 'EDIT')).toBe(true)
   })
 })
