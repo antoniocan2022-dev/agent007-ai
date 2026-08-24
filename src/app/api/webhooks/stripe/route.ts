@@ -13,14 +13,9 @@ function safeJson(value: unknown): Record<string, unknown> {
 
 async function ensureIncomeEntry(opts: { amount: number; source: string; notes: string }) {
   return db.$transaction(async (tx) => {
-    // Serialize concurrent deliveries for the same derived ledger key.
-    // This prevents duplicate IncomeEntry rows even though Stripe may retry
-    // or deliver related events concurrently.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${opts.source}\n${opts.notes}`}))`
-
     const existing = await tx.incomeEntry.findFirst({ where: { source: opts.source, notes: opts.notes } })
     if (existing) return { created: false, id: existing.id }
-
     const created = await tx.incomeEntry.create({ data: { ...opts, date: new Date() } })
     return { created: true, id: created.id }
   })
@@ -90,19 +85,9 @@ export async function POST(req: NextRequest) {
       if (customerEmail && productId !== 'unknown' && !hasFulfillmentCompleted(transaction.rawPayload)) {
         try {
           const { fulfillPurchase } = await import('@/lib/product-fulfillment')
-          fulfillmentResult = await fulfillPurchase({
-            ownerUserId: owner.id,
-            customerEmail,
-            productId,
-            amount,
-            transactionId: providerTxId,
-            checkoutSessionId,
-          })
-          if (fulfillmentResult.emailSent) {
-            await persistFulfillmentState(transaction.id, transaction.rawPayload, 'completed')
-          } else {
-            await persistFulfillmentState(transaction.id, transaction.rawPayload, 'pending_retry', 'fulfillment email was not confirmed')
-          }
+          fulfillmentResult = await fulfillPurchase({ ownerUserId: owner.id, customerEmail, productId, amount, transactionId: providerTxId, checkoutSessionId })
+          if (fulfillmentResult.emailSent) await persistFulfillmentState(transaction.id, transaction.rawPayload, 'completed')
+          else await persistFulfillmentState(transaction.id, transaction.rawPayload, 'pending_retry', 'fulfillment email was not confirmed')
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           await persistFulfillmentState(transaction.id, transaction.rawPayload, 'pending_retry', message || 'fulfillment failed')
@@ -119,23 +104,21 @@ export async function POST(req: NextRequest) {
       const providerTxId = String(data.id)
       const metadata = safeJson(data.metadata)
       const metadataUserId = typeof metadata.agent007UserId === 'string' ? metadata.agent007UserId : ''
+      const metadataEmail = typeof metadata.customerEmail === 'string' ? metadata.customerEmail : undefined
+      const metadataName = typeof metadata.customerName === 'string' ? metadata.customerName : undefined
+      const receiptEmail = typeof data.receipt_email === 'string' ? data.receipt_email : undefined
+      const customerEmail = receiptEmail || metadataEmail
+      const customerName = metadataName
       if (!metadataUserId) return NextResponse.json({ received: true, skipped: true, reason: 'missing_owner_metadata' })
 
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) return NextResponse.json({ error: 'Agent007 payment owner not found.' }, { status: 422 })
-
-      const paymentMethodDetails = safeJson(data.charges)
-      const latestCharge = Array.isArray(paymentMethodDetails.data) ? paymentMethodDetails.data[0] : null
-      const chargeRecord = safeJson(latestCharge)
-      const billingDetails = safeJson(chargeRecord.billing_details)
-      const customerEmail = typeof billingDetails.email === 'string' ? billingDetails.email : undefined
-      const customerName = typeof billingDetails.name === 'string' ? billingDetails.name : undefined
       const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
 
       const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } } })
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
-        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
+        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
+        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
 
       await ensureIncomeEntry({ amount, source: stripeIncomeReference('sale', providerTxId), notes: `Stripe PaymentIntent — ${providerTxId}` })
       return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null })
@@ -151,9 +134,7 @@ export async function POST(req: NextRequest) {
 
       const alreadyRefunded = existing.status === 'refunded'
       await db.transaction.update({ where: { id: existing.id }, data: { status: 'refunded' } })
-      if (amountRefunded > 0) {
-        await ensureIncomeEntry({ amount: -amountRefunded, source: stripeIncomeReference('refund', providerTxId), notes: `Stripe refund for PaymentIntent ${providerTxId}` })
-      }
+      if (amountRefunded > 0) await ensureIncomeEntry({ amount: -amountRefunded, source: stripeIncomeReference('refund', providerTxId), notes: `Stripe refund for PaymentIntent ${providerTxId}` })
       return NextResponse.json({ received: true, refunded: amountRefunded, duplicate: alreadyRefunded })
     }
 
