@@ -36,10 +36,6 @@ describe('commercial lifecycle integration', () => {
     expect(source).toContain("type: 'REVENUE_RECOGNIZED'")
     expect(source).toContain('recordBusinessOutcome')
     expect(source).toContain('getMissionMoneySummary')
-
-    // The evidence boundary intentionally uses the canonical Prisma client rather
-    // than raw SQL. Test the semantic contract instead of coupling CI to a query
-    // string that can legitimately change during a persistence refactor.
     expect(evidenceBoundary).toContain('db.transaction.findUnique')
     expect(evidenceBoundary).toContain('ventureId: true')
     expect(evidenceBoundary).toContain('customerId: true')
@@ -52,7 +48,7 @@ describe('commercial lifecycle integration', () => {
     expect(evidenceBoundary).toContain('transaction currency does not match supplied evidence')
   })
 
-  test('template certification requires real commercial lifecycle proof and never certifies structural shells', async () =>
+  test('template certification requires real commercial lifecycle proof and never certifies structural shells', async () => {
     const source = await readRepoFile('src/lib/venture-template-validation.ts')
     const factory = await readRepoFile('src/lib/venture-factory.ts')
     expect(source).toContain("venture?.productionState === 'PRODUCTION'")
