@@ -15,6 +15,7 @@ import {
   businessScopeFor,
   commercialBusinessIds,
   directReportsOf,
+  getCommercialNode,
   leadersForBusiness,
   specialistsForBusiness,
   validateCommercialOrganization,
@@ -30,6 +31,16 @@ describe('Architecture Control Plane — canonical organization and commercial i
     expect(directReportsOf('aurora')).toEqual(['quill', 'prism', 'seo_cro_specialist'])
     expect(ancestorsOf('developer')).toContain('forge')
     expect(allDescendantsOf('vid')).toContain('developer')
+  })
+
+  test('canonical identity aliases resolve to the same organizational authority', () => {
+    expect(getCommercialNode('agent007')?.id).toBe('ceo')
+    expect(getCommercialNode('super-agent')?.id).toBe('ceo')
+    expect(getCommercialNode('vid_director')?.id).toBe('vid')
+    expect(authorityLevelFor('agent007')).toBe('CEO')
+    expect(authorityLevelFor('owner')).toBe('CEO')
+    expect(authorityLevelFor('super_agent')).toBe('CEO')
+    expect(authorityLevelFor('vid_director')).toBe('VID')
   })
 
   test('authority resolution is derived from the canonical organization graph', () => {
