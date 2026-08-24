@@ -76,16 +76,28 @@ export const COMMERCIAL_SPECIALISTS: readonly CommercialNode[] = [
 
 export const COMMERCIAL_ORGANIZATION: readonly CommercialNode[] = [...COMMERCIAL_LEADERS, ...COMMERCIAL_SPECIALISTS]
 
+const CANONICAL_ID_ALIASES: Readonly<Record<string, string>> = {
+  agent007: 'ceo',
+  owner: 'ceo',
+  'super-agent': 'ceo',
+  super_agent: 'ceo',
+  vid_director: 'vid',
+}
+
 const normalizeId = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '_')
+const canonicalizeId = (value: string) => {
+  const normalized = normalizeId(value)
+  return CANONICAL_ID_ALIASES[normalized] ?? normalized
+}
 const nodeById = new Map(COMMERCIAL_ORGANIZATION.map((node) => [normalizeId(node.id), node]))
 
 export function getCommercialNode(id: string): CommercialNode | null {
-  const normalized = normalizeId(id)
+  const normalized = canonicalizeId(id)
   return normalized ? nodeById.get(normalized) ?? null : null
 }
 
 export function directReportsOf(leaderId: string): string[] {
-  const normalized = normalizeId(leaderId)
+  const normalized = canonicalizeId(leaderId)
   if (!normalized) return []
   return COMMERCIAL_ORGANIZATION.filter((node) => node.reportsTo === normalized).map((node) => node.id)
 }
@@ -154,7 +166,7 @@ export function validateCommercialOrganization(): string[] {
     if (new Set(businesses).size !== businesses.length) errors.push(`Organization node ${normalizedId} has duplicate business scopes.`)
     if (businesses.length === 0) errors.push(`Organization node ${normalizedId} has no business scope.`)
     if (parentId && !nodeById.has(parentId)) errors.push(`Organization node ${normalizedId} reports to unknown node ${parentId}.`)
-    if (node.level === 'CEO' && node.id !== 'ceo') errors.push(`Only ceo may have CEO authority; found ${normalizedId}.`)
+    if (node.level === 'CEO' && normalizedId !== 'ceo') errors.push(`Only ceo may have CEO authority; found ${normalizedId}.`)
     if (node.level === 'VID' && parentId !== 'ceo') errors.push(`VID node ${normalizedId} must report to ceo.`)
     if (node.level === 'LEADER' && (!parentId || getCommercialNode(parentId)?.level === 'SPECIALIST')) errors.push(`Leader ${normalizedId} must report to CEO/VID/another leader.`)
     if (node.level === 'SPECIALIST' && getCommercialNode(parentId ?? '')?.level !== 'LEADER') errors.push(`Specialist ${normalizedId} must report to a leader.`)
