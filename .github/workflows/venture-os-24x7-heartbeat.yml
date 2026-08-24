@@ -59,17 +59,26 @@ jobs:
           bun -e '
             const fs = require("node:fs")
             const checks = [
-              ["scripts/run-venture-operation-cycle.ts", "runAutonomyManagerTick"],
-              ["scripts/run-venture-operation-cycle.ts", "runVentureOperationCycle"],
-              ["src/lib/venture-operation-loop.ts", "runVentureOperationCycle"],
-              ["src/lib/venture-operation-loop.ts", "RECOVERABLE"],
+              ["scripts/run-venture-operation-cycle.ts", /import\\s+\\{\\s*runVentureOperationCycle\\s*\\}\\s+from\\s+[\"'\''.]\\/\\.\\.\\/src\\/lib\\/venture-operation-loop[\"'\'']/],
+              ["scripts/run-venture-operation-cycle.ts", /runVentureOperationCycle\\(/],
+              ["src/lib/venture-operation-loop.ts", /import\\s+\\{\\s*runAutonomyManagerTick\\s*\\}\\s+from\\s+[\"'\''.]\\/autonomy\\/autonomy-manager[\"'\'']/],
+              ["src/lib/venture-operation-loop.ts", /export\\s+async\\s+function\\s+runVentureOperationCycle\\(/],
+              ["src/lib/venture-operation-loop.ts", /runAutonomyManagerTick\\(/],
+              ["src/lib/venture-operation-loop.ts", /includeMissionSupervisor:\\s*true/],
+              ["src/lib/venture-operation-loop.ts", /RECOVERABLE/],
             ]
-            for (const [file, token] of checks) {
+            for (const [file, pattern] of checks) {
               const text = fs.readFileSync(file, "utf8")
-              if (!text.includes(token)) {
-                console.error(`Missing required contract token ${token} in ${file}`)
+              if (!pattern.test(text)) {
+                console.error(`Missing required operation-loop/autonomy contract ${pattern} in ${file}`)
                 process.exit(1)
               }
+            }
+            const loop = fs.readFileSync("src/lib/venture-operation-loop.ts", "utf8")
+            const managerCalls = loop.match(/\\brunAutonomyManagerTick\\s*\\(/g) ?? []
+            if (managerCalls.length !== 1) {
+              console.error(`Expected exactly one Autonomy Manager entry point; found ${managerCalls.length}.`)
+              process.exit(1)
             }
             console.log("Operation-loop and autonomy contracts verified.")
           '
