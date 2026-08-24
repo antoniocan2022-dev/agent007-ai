@@ -74,6 +74,9 @@ jobs:
       - name: Commercial lifecycle integration contract suite
         run: bun test tests/commercial-lifecycle-integration.test.ts
 
+      - name: Canonical organization, authority and venture-scope integrity
+        run: bun test tests/architecture-control-plane.test.ts
+
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
