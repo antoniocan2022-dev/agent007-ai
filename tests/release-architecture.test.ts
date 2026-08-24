@@ -39,7 +39,7 @@ describe("release architecture invariants", () => {
     expect(vercel.crons ?? []).toEqual([]);
   });
 
-  it("canonical release workflow is manual, authorization-gated, and verifies the exact production SHA", () => {
+  it("canonical release workflow is explicit-authorization gated and verifies the exact production SHA", () => {
     const content = workflowContent(CANONICAL_WORKFLOW);
 
     expect(content).toContain("VERCEL_CLI_VERSION: 59.3.0");
@@ -49,8 +49,11 @@ describe("release architecture invariants", () => {
     expect(content).toContain("workflow_dispatch:");
     expect(content).toContain("authorization:");
     expect(content).toContain("DEPLOY_AGENT007_MAIN");
-    expect(content).toContain("ref: main");
-    expect(content).not.toContain("on:\n  push:\n    branches: [main]");
+    expect(content).toContain("on:\n  push:\n    branches: [main]");
+    expect(content).toContain("[AUTHORIZED_PRODUCTION_RELEASE]");
+    expect(content).toContain("github.actor == 'antoniocan2022-dev'");
+    expect(content).toContain("github.event_name == 'workflow_dispatch' && 'main' || github.sha");
+    expect(content).toContain("Wait for exact main Autonomy CI and Heartbeat to be green");
     expect(content).toContain("npx --yes vercel@$VERCEL_CLI_VERSION deploy");
     expect(content).toContain("--prod --yes --token");
     expect(content).toContain("git rev-parse HEAD");
@@ -62,10 +65,6 @@ describe("release architecture invariants", () => {
     expect(content).toContain("releaseCommit");
     expect(content).toContain("environment production");
     expect(content).toContain("--level error");
-    expect(content).toContain("Verify exact main Autonomy CI is green");
-    expect(content).toContain("Verify exact main Venture OS heartbeat is green");
-
-    // The release controller must not silently fall back to scheduled or push deployment.
     expect(content).not.toContain("cron:");
   });
 
