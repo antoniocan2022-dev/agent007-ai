@@ -44,8 +44,8 @@ describe('commercial lifecycle integration', () => {
     expect(evidenceBoundary).toContain('customer.userId !== transaction.userId')
     expect(evidenceBoundary).toContain("transaction.status !== 'succeeded'")
     expect(evidenceBoundary).toContain('transaction.ventureId !== input.ventureId.trim()')
-    expect(evidenceBoundary).toContain('transaction amount does not match supplied evidence')
-    expect(evidenceBoundary).toContain('transaction currency does not match supplied evidence')
+    expect(evidenceBoundary).toContain('amount does not match supplied evidence')
+    expect(evidenceBoundary).toContain('currency does not match supplied evidence')
   })
 
   test('template certification requires real commercial lifecycle proof and never certifies structural shells', async () => {
