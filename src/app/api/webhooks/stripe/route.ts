@@ -10,6 +10,42 @@ function safeJson(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+async function resolveStripeCustomer(input: { userId: string; email?: string; name?: string }): Promise<string | null> {
+  const email = input.email?.trim().toLowerCase()
+  const name = input.name?.trim()
+  if (!email) return null
+
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`stripe-customer\n${input.userId}\n${email}`}))`
+
+    const existing = await tx.customer.findFirst({
+      where: { userId: input.userId, email },
+      select: { id: true },
+    })
+    if (existing) {
+      await tx.customer.update({
+        where: { id: existing.id },
+        data: {
+          status: 'customer',
+          ...(name ? { name } : {}),
+        },
+      })
+      return existing.id
+    }
+
+    const created = await tx.customer.create({
+      data: {
+        userId: input.userId,
+        name: name || email,
+        email,
+        status: 'customer',
+      },
+      select: { id: true },
+    })
+    return created.id
+  })
+}
+
 async function ensureIncomeEntry(opts: { amount: number; source: string; notes: string }) {
   return db.$transaction(async (tx) => {
     // Serialize concurrent deliveries for the same derived ledger key.
@@ -72,14 +108,15 @@ export async function POST(req: NextRequest) {
 
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) return NextResponse.json({ error: 'Agent007 checkout owner not found.' }, { status: 422 })
+      const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
 
       const existing = await db.transaction.findUnique({
         where: { provider_providerTxId: { provider: 'stripe', providerTxId } },
       })
 
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: existing.rawPayload || payload.slice(0, 10000) } })
-        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: payload.slice(0, 10000) } })
+        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
+        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
 
       const incomeNotes = `Stripe Checkout — ${productName} (product: ${productId}, session: ${checkoutSessionId}, payment_intent: ${providerTxId})`
       await ensureIncomeEntry({ amount, source: stripeIncomeReference('sale', providerTxId), notes: incomeNotes })
@@ -108,7 +145,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, product: productName, fulfilled: !!fulfillmentResult.downloadUrl, emailSent: fulfillmentResult.emailSent ?? false, isFirstSale: fulfillmentResult.isFirstSale ?? false })
+      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null, product: productName, fulfilled: !!fulfillmentResult.downloadUrl, emailSent: fulfillmentResult.emailSent ?? false, isFirstSale: fulfillmentResult.isFirstSale ?? false })
     }
 
     if (event.type === 'payment_intent.succeeded') {
@@ -122,13 +159,21 @@ export async function POST(req: NextRequest) {
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) return NextResponse.json({ error: 'Agent007 payment owner not found.' }, { status: 422 })
 
+      const paymentMethodDetails = safeJson(data.charges)
+      const latestCharge = Array.isArray(paymentMethodDetails.data) ? paymentMethodDetails.data[0] : null
+      const chargeRecord = safeJson(latestCharge)
+      const billingDetails = safeJson(chargeRecord.billing_details)
+      const customerEmail = typeof billingDetails.email === 'string' ? billingDetails.email : undefined
+      const customerName = typeof billingDetails.name === 'string' ? billingDetails.name : undefined
+      const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
+
       const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } } })
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, rawPayload: existing.rawPayload || payload.slice(0, 10000) } })
-        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', rawPayload: payload.slice(0, 10000) } })
+        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
+        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
 
       await ensureIncomeEntry({ amount, source: stripeIncomeReference('sale', providerTxId), notes: `Stripe PaymentIntent — ${providerTxId}` })
-      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id })
+      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null })
     }
 
     if (event.type === 'charge.refunded') {
