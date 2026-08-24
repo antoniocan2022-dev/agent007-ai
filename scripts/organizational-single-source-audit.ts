@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const ROOT = process.cwd()
 const CANONICAL_ORGANIZATION = 'src/lib/commercial-organization.ts'
@@ -24,12 +24,14 @@ function isTest(file: string): boolean {
 
 function sourceFiles(): string[] {
   const files: string[] = []
-  const glob = new Bun.Glob('{src,scripts}/**/*.{ts,tsx}')
-  for (const file of glob.scanSync({ cwd: ROOT, absolute: false })) {
-    const full = resolve(ROOT, file)
-    if (statSync(full).isFile()) files.push(file.replace(/\\/g, '/'))
+  for (const pattern of ['src/**/*.ts', 'src/**/*.tsx', 'scripts/**/*.ts']) {
+    const glob = new Bun.Glob(pattern)
+    for (const file of glob.scanSync({ cwd: ROOT, absolute: false })) {
+      const full = resolve(ROOT, file)
+      if (statSync(full).isFile()) files.push(file.replace(/\\/g, '/'))
+    }
   }
-  return files.sort()
+  return [...new Set(files)].sort()
 }
 
 function lineNumber(content: string, index: number): number {
