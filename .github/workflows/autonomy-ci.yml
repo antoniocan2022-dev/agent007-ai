@@ -80,6 +80,9 @@ jobs:
       - name: Five-layer organization architecture audit
         run: bun scripts/organization-architecture-audit.ts
 
+      - name: Phase 7 organizational single-source audit
+        run: bun scripts/organizational-single-source-audit.ts
+
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
@@ -161,4 +164,14 @@ jobs:
       - name: Lint
         run: bun run lint
 
-# Release validation replay: keep the full gate visible on every main push.
+      - name: Phase 8 production verification readiness
+        run: bun scripts/production-verification-audit.ts
+
+      - name: Upload production verification manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-verification-${{ github.sha }}
+          path: .artifacts/production-verification-manifest.json
+          if-no-files-found: error
+
+# Release execution is intentionally separate and authorization-gated in production-release-watchdog.yml.
