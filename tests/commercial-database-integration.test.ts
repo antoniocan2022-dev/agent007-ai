@@ -5,6 +5,7 @@ import { db } from '../src/lib/db'
 import { ensureInitialBusinessUnits, createOrGetVenture } from '../src/lib/venture-commercial-foundation'
 import { assertRealSucceededTransaction } from '../src/lib/transaction-evidence-integrity'
 import { verifyTransactionCustomerSchema } from '../src/lib/verify-transaction-customer-schema'
+import { resolveStripeCustomer } from '../src/lib/stripe-customer-resolution'
 import { attributeMissionTransaction } from '../src/lib/mission-money-bridge'
 import { settleInvoiceFromTransaction, activateSubscriptionFromPaidInvoice } from '../src/lib/billing-lifecycle'
 import { calculateOperationalKpis } from '../src/lib/operational-kpi-engine'
@@ -151,6 +152,18 @@ describe('commercial database contract', () => {
       isUnique: false,
       columnNames: ['customerId'],
     })
+  })
+
+  it('resolves Stripe customers idempotently within the owner scope', async () => {
+    const email = `stripe-customer-${suffix}@example.test`
+    const first = await resolveStripeCustomer({ userId, email, name: 'Stripe Customer' })
+    const second = await resolveStripeCustomer({ userId, email: email.toUpperCase(), name: 'Stripe Customer Updated' })
+    expect(first).toBeTruthy()
+    expect(second).toBe(first)
+
+    const customer = await db.customer.findUnique({ where: { id: first! }, select: { userId: true, email: true, status: true, name: true } })
+    expect(customer).toEqual({ userId, email, status: 'customer', name: 'Stripe Customer Updated' })
+    await db.customer.delete({ where: { id: first! } })
   })
 
   it('rejects an orphan Transaction.customerId at the real PostgreSQL foreign key', async () => {
