@@ -8,15 +8,25 @@ const CANONICAL_AUTHORITY = 'src/lib/architecture-control-plane.ts'
 const CANONICAL_RUNTIME = 'src/lib/venture-operation-loop.ts'
 
 const sourcePatterns: Array<{ name: string; pattern: RegExp; allow: Set<string> }> = [
-  { name: 'duplicate LEADERS registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+LEADERS\s*(?:[:=])/i, allow: new Set([CANONICAL_ORGANIZATION]) },
-  { name: 'duplicate SPECIALISTS registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+SPECIALISTS\s*(?:[:=])/i, allow: new Set([CANONICAL_ORGANIZATION]) },
-  { name: 'duplicate directReports registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+directReports\s*(?:[:=])/i, allow: new Set([CANONICAL_ORGANIZATION]) },
-  { name: 'duplicate ventureScope registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+ventureScope\s*(?:[:=])/i, allow: new Set([CANONICAL_SCOPE]) },
-  { name: 'duplicate hierarchy registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+\w*HIERARCHY\w*\s*(?:[:=])/i, allow: new Set([CANONICAL_ORGANIZATION]) },
+  // Deliberately require the legacy registry identifiers to be uppercase. Runtime
+  // query parameters such as `leaders` are consumers, not organizational registries.
+  { name: 'duplicate LEADERS registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+LEADERS\s*(?:[:=])/g, allow: new Set([CANONICAL_ORGANIZATION]) },
+  { name: 'duplicate SPECIALISTS registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+SPECIALISTS\s*(?:[:=])/g, allow: new Set([CANONICAL_ORGANIZATION]) },
+  { name: 'duplicate directReports registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+directReports\s*(?:[:=])/g, allow: new Set([CANONICAL_ORGANIZATION]) },
+  { name: 'duplicate ventureScope registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+ventureScope\s*(?:[:=])/g, allow: new Set([CANONICAL_SCOPE]) },
+  { name: 'duplicate hierarchy registry', pattern: /\b(?:export\s+)?(?:const|let|var)\s+\w*HIERARCHY\w*\s*(?:[:=])/g, allow: new Set([CANONICAL_ORGANIZATION]) },
 ]
 
 const fileNamePattern = /^(?:leaders|specialists|organization-(?:leaders|specialists)|agent-hierarchy|direct-reports|venture-scope)\.(?:ts|tsx)$/i
-const enforcePattern = /(actorLevel\s*===\s*['"]CEO['"]|targetLevel\s*===\s*['"]VID['"]|actorLevel\s*===\s*['"]VID['"]|targetLevel\s*===\s*['"]LEADER['"])/
+
+// Detect executable hierarchy enforcement outside the canonical authority/runtime
+// boundary, while ignoring ordinary API input variables, comments, and prose.
+const enforcementPatterns: RegExp[] = [
+  /if\s*\(\s*[^\n;{}]*\b(?:actor|request)\.actorLevel\s*={2,3}\s*['"](?:CEO|VID|LEADER|SPECIALIST)['"]/,
+  /if\s*\(\s*[^\n;{}]*\b(?:target|request)\.targetLevel\s*={2,3}\s*['"](?:CEO|VID|LEADER|SPECIALIST)['"]/,
+  /switch\s*\(\s*[^\n;{}]*\b(?:actor|request)\.actorLevel\s*\)/,
+  /switch\s*\(\s*[^\n;{}]*\b(?:target|request)\.targetLevel\s*\)/,
+]
 
 function isTest(file: string): boolean {
   return /(^|\/)tests?(?:\/|$)|\.test\.(?:ts|tsx)$/.test(file)
@@ -49,12 +59,20 @@ for (const file of sourceFiles()) {
 
   for (const rule of sourcePatterns) {
     if (rule.allow.has(file)) continue
+    rule.pattern.lastIndex = 0
     const match = rule.pattern.exec(content)
     if (match) violations.push(`${file}:${lineNumber(content, match.index)}: ${rule.name}`)
   }
 
-  if (file !== CANONICAL_AUTHORITY && file !== CANONICAL_RUNTIME && enforcePattern.test(content)) {
-    violations.push(`${file}: hardcoded hierarchy enforcement belongs only to the canonical authority/runtime boundary`)
+  if (file !== CANONICAL_AUTHORITY && file !== CANONICAL_RUNTIME) {
+    for (const pattern of enforcementPatterns) {
+      pattern.lastIndex = 0
+      const match = pattern.exec(content)
+      if (match) {
+        violations.push(`${file}:${lineNumber(content, match.index)}: hardcoded hierarchy enforcement belongs only to the canonical authority/runtime boundary`)
+        break
+      }
+    }
   }
 }
 
