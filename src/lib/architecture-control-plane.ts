@@ -1,25 +1,25 @@
 import { createHash } from 'node:crypto'
 import { db } from './db'
 import { isCapabilityRegistered } from './autonomy/capability-registry'
+import { directReportsOf, getCommercialNode, type OrganizationLevel, validateCommercialOrganization } from './commercial-organization'
 
-export type AuthorityLevel = 'CEO' | 'VID' | 'LEADER' | 'SPECIALIST' | 'TOOL' | 'UNKNOWN'
+export type AuthorityLevel = OrganizationLevel | 'TOOL' | 'UNKNOWN'
 export interface DelegationRequest { actorId: string; actorLevel: AuthorityLevel; targetId: string; targetLevel: AuthorityLevel; delegatedBy?: string }
 
-const CEO_IDS = new Set(['ceo', 'agent007', 'super-agent', 'super_agent', 'owner'])
-const VID_IDS = new Set(['vid', 'vid_director'])
-const LEADERS = new Set(['scout', 'aurora', 'vertex', 'quantum', 'echo', 'forge', 'pulse', 'legal', 'banker', 'hunt', 'cybersecurity_a', 'cybersecurity_r', 'trader', 'revenue', 'external_uptime_monitor', 'qa_monitor'])
-const SPECIALISTS = new Set(['quill', 'prism', 'developer'])
 const normalizeId = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '_')
 
 export function authorityLevelFor(id: string): AuthorityLevel {
   const normalized = normalizeId(id)
   if (!normalized) return 'UNKNOWN'
-  if (CEO_IDS.has(normalized)) return 'CEO'
-  if (VID_IDS.has(normalized)) return 'VID'
-  if (LEADERS.has(normalized)) return 'LEADER'
-  if (SPECIALISTS.has(normalized)) return 'SPECIALIST'
+  const organizationNode = getCommercialNode(normalized)
+  if (organizationNode) return organizationNode.level
   if (isCapabilityRegistered(normalized)) return 'TOOL'
   return 'UNKNOWN'
+}
+
+function isDirectReport(actorId: string, targetId: string): boolean {
+  const normalizedTarget = normalizeId(targetId)
+  return directReportsOf(actorId).some((id) => normalizeId(id) === normalizedTarget)
 }
 
 export function assertDelegationAllowed(request: DelegationRequest): void {
@@ -32,9 +32,23 @@ export function assertDelegationAllowed(request: DelegationRequest): void {
   if (actualTargetLevel === 'UNKNOWN') throw new Error(`Hierarchy violation: unregistered target identity ${target}.`)
   if (actualActorLevel !== request.actorLevel) throw new Error(`Hierarchy violation: actor identity ${actor} resolves to ${actualActorLevel}, not ${request.actorLevel}.`)
   if (actualTargetLevel !== request.targetLevel) throw new Error(`Hierarchy violation: target identity ${target} resolves to ${actualTargetLevel}, not ${request.targetLevel}.`)
-  if (request.actorLevel === 'CEO') { if (request.targetLevel !== 'VID' || !VID_IDS.has(target)) throw new Error(`Hierarchy violation: CEO may delegate only to VID; attempted target=${target}.`); return }
-  if (request.actorLevel === 'VID') { if (request.targetLevel !== 'LEADER' || !LEADERS.has(target)) throw new Error(`Hierarchy violation: VID may delegate only to registered leaders; attempted target=${target}.`); return }
-  if (request.actorLevel === 'LEADER') { if (request.targetLevel !== 'SPECIALIST' && request.targetLevel !== 'TOOL') throw new Error(`Hierarchy violation: leader ${actor} may delegate only to specialists/tools; attempted target=${target}.`); return }
+
+  if (request.actorLevel === 'CEO') {
+    if (request.targetLevel !== 'VID' || !isDirectReport(actor, target)) throw new Error(`Hierarchy violation: CEO may delegate only to its VID; attempted target=${target}.`)
+    return
+  }
+
+  if (request.actorLevel === 'VID') {
+    if (request.targetLevel !== 'LEADER' || !isDirectReport(actor, target)) throw new Error(`Hierarchy violation: VID may delegate only to direct-report leaders; attempted target=${target}.`)
+    return
+  }
+
+  if (request.actorLevel === 'LEADER') {
+    if (request.targetLevel === 'TOOL') return
+    if (request.targetLevel === 'SPECIALIST' && isDirectReport(actor, target)) return
+    throw new Error(`Hierarchy violation: leader ${actor} may delegate only to direct-report specialists or registered tools; attempted target=${target}.`)
+  }
+
   throw new Error(`Hierarchy violation: ${request.actorLevel} is not authorized to delegate to ${target}.`)
 }
 
@@ -309,6 +323,8 @@ export async function assertVentureActionAllowed(ventureId: string, action: stri
 }
 export function runArchitectureControlPlaneSelfCheck(): { ok: boolean; findings: string[] } {
   const findings: string[] = []
+  const organizationErrors = validateCommercialOrganization()
+  if (organizationErrors.length) findings.push(...organizationErrors)
   try { assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID' }) } catch (error) { findings.push(String(error)) }
   try { assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'SPECIALIST', targetId: 'vid', targetLevel: 'VID' }); findings.push('Forged actor level was accepted.') } catch { /* expected */ }
   try { assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'aurora', targetLevel: 'LEADER' }); findings.push('CEO bypassed VID.') } catch { /* expected */ }
