@@ -36,13 +36,23 @@ describe('commercial lifecycle integration', () => {
     expect(source).toContain("type: 'REVENUE_RECOGNIZED'")
     expect(source).toContain('recordBusinessOutcome')
     expect(source).toContain('getMissionMoneySummary')
-    expect(evidenceBoundary).toContain('FROM "Transaction"')
+
+    // The evidence boundary intentionally uses the canonical Prisma client rather
+    // than raw SQL. Test the semantic contract instead of coupling CI to a query
+    // string that can legitimately change during a persistence refactor.
+    expect(evidenceBoundary).toContain('db.transaction.findUnique')
+    expect(evidenceBoundary).toContain('ventureId: true')
+    expect(evidenceBoundary).toContain('customerId: true')
+    expect(evidenceBoundary).toContain('status: true')
+    expect(evidenceBoundary).toContain('db.customer.findUnique')
+    expect(evidenceBoundary).toContain('customer.userId !== transaction.userId')
     expect(evidenceBoundary).toContain("transaction.status !== 'succeeded'")
     expect(evidenceBoundary).toContain('transaction.ventureId !== input.ventureId.trim()')
     expect(evidenceBoundary).toContain('transaction amount does not match supplied evidence')
+    expect(evidenceBoundary).toContain('transaction currency does not match supplied evidence')
   })
 
-  test('template certification requires real commercial lifecycle proof and never certifies structural shells', async () => {
+  test('template certification requires real commercial lifecycle proof and never certifies structural shells', async () =>
     const source = await readRepoFile('src/lib/venture-template-validation.ts')
     const factory = await readRepoFile('src/lib/venture-factory.ts')
     expect(source).toContain("venture?.productionState === 'PRODUCTION'")
@@ -61,6 +71,8 @@ describe('commercial lifecycle integration', () => {
     expect(source).toContain('CustomerSuccessState_ventureId_fkey')
     expect(source).toContain('CustomerSuccessState_customerId_fkey')
     expect(source).toContain('CustomerSuccessState_ownerUserId_fkey')
-    expect(source).toContain('if (indexes.length !== 15)')
+    expect(source).toContain('Transaction_customerId_idx')
+    expect(source).toContain('Transaction_customerId_fkey')
+    expect(source).toContain('if (indexes.length !== 16)')
   })
 })
