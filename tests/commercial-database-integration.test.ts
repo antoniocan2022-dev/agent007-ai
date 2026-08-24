@@ -1,74 +1,154 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { randomUUID } from 'node:crypto'
-import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { db } from '../src/lib/db'
-import { resolveStripeCustomer } from '../src/lib/stripe-customer-resolution'
+import { ensureInitialBusinessUnits, createOrGetVenture } from '../src/lib/venture-commercial-foundation'
 import { assertRealSucceededTransaction } from '../src/lib/transaction-evidence-integrity'
+import { verifyTransactionCustomerSchema } from '../src/lib/verify-transaction-customer-schema'
+import { resolveStripeCustomer } from '../src/lib/stripe-customer-resolution'
+import { attributeMissionTransaction } from '../src/lib/mission-money-bridge'
 import { settleInvoiceFromTransaction, activateSubscriptionFromPaidInvoice } from '../src/lib/billing-lifecycle'
 import { calculateOperationalKpis } from '../src/lib/operational-kpi-engine'
 
-const userId = process.env.SEED_USER_ID?.trim() || 'ci-owner'
-const ventureId = 'venture_001'
-const missionId = `commercial-db-test-mission-${randomUUID()}`
-const suffix = randomUUID().replace(/-/g, '')
-
-let customerId = ''
-let transactionId = ''
-let invoiceId = ''
-let subscriptionId = ''
-
 describe('commercial database contract', () => {
-  it('keeps the Prisma schema contract aligned with Transaction.customerId', async () => {
-    const result = await db.$queryRaw<Array<{ name: string; nullable: string; dataType: string }>>`
-      SELECT column_name AS name,
-             is_nullable AS nullable,
-             data_type AS "dataType"
-      FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='Transaction' AND column_name='customerId'
+  const suffix = `${Date.now()}_${randomUUID().slice(0, 8)}`
+  let userId = ''
+  let customerId = ''
+  let ventureId = ''
+  let transactionId = ''
+  let invoiceId = ''
+  let subscriptionId = ''
+  let missionId = ''
+
+  beforeAll(async () => {
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for commercial database integration tests.')
+
+    const user = await db.user.create({
+      data: {
+        email: `ci-commercial-${suffix}@example.test`,
+        passwordHash: 'ci-only-hash',
+        name: 'CI Commercial Test Owner',
+      },
+      select: { id: true },
+    })
+    userId = user.id
+
+    const customer = await db.customer.create({
+      data: {
+        userId,
+        name: 'CI Commercial Customer',
+        email: `customer-${suffix}@example.test`,
+        status: 'customer',
+        value: 125,
+      },
+      select: { id: true },
+    })
+    customerId = customer.id
+
+    const units = await ensureInitialBusinessUnits(userId)
+    const venture = await createOrGetVenture({
+      ventureKey: `venture_ci_${suffix.replace(/[^a-z0-9]/gi, '').toLowerCase()}`,
+      businessUnitId: units[0].id,
+      ownerUserId: userId,
+      name: 'CI Commercial Venture',
+      type: 'integration-test',
+      description: 'Ephemeral integration-test venture.',
+      targetMarket: 'CI',
+      pricingModel: 'one-time',
+      status: 'ACTIVE',
+      productionState: 'PRODUCTION',
+    })
+    ventureId = venture.id
+
+    await db.$executeRaw`UPDATE "Customer" SET "ventureId"=${ventureId} WHERE "id"=${customerId}`
+
+    const transaction = await db.transaction.create({
+      data: {
+        userId,
+        provider: 'ci-test',
+        providerTxId: `tx-${suffix}`,
+        amount: 125,
+        currency: 'USD',
+        status: 'succeeded',
+        customerEmail: `customer-${suffix}@example.test`,
+        customerName: 'CI Commercial Customer',
+        productName: 'CI Test Product',
+        description: 'Real database integration transaction.',
+        rawPayload: JSON.stringify({ source: 'ci', suffix }),
+        ventureId,
+        customerId,
+      },
+      select: { id: true },
+    })
+    transactionId = transaction.id
+
+    subscriptionId = `sub_ci_${suffix}`
+    await db.$executeRaw`
+      INSERT INTO "Subscription"
+        ("id","ventureId","customerId","provider","providerSubscriptionId","status","plan","amount","currency","interval")
+      VALUES
+        (${subscriptionId},${ventureId},${customerId},'ci-test',${subscriptionId},'past_due','CI Plan',125,'USD','month')
     `
-    expect(result).toEqual([{ name: 'customerId', nullable: 'YES', dataType: 'text' }])
+
+    invoiceId = `inv_ci_${suffix}`
+    await db.$executeRaw`
+      INSERT INTO "Invoice"
+        ("id","ventureId","customerId","subscriptionId","provider","providerInvoiceId","status","amount","currency")
+      VALUES
+        (${invoiceId},${ventureId},${customerId},${subscriptionId},'ci-test',${invoiceId},'open',125,'USD')
+    `
+
+    missionId = `mission_ci_${suffix}`
+
+    const attribution = await attributeMissionTransaction({
+      missionId,
+      ventureId,
+      transactionId,
+      source: 'ci-commercial-integration',
+    })
+    expect(attribution.customerId).toBe(customerId)
+    expect(attribution.amount).toBe(125)
+  })
+
+  afterAll(async () => {
+    if (missionId) {
+      const rows = await db.memory.findMany({ where: { category: 'architecture_business_outcome' }, take: 5000 })
+      for (const row of rows) {
+        try {
+          const value = JSON.parse(row.value) as { missionId?: string }
+          if (value.missionId === missionId) await db.memory.delete({ where: { key: row.key } })
+        } catch {}
+      }
+    }
+    if (invoiceId) await db.$executeRaw`DELETE FROM "Invoice" WHERE "id"=${invoiceId}`
+    if (subscriptionId) await db.$executeRaw`DELETE FROM "Subscription" WHERE "id"=${subscriptionId}`
+    if (transactionId) await db.transaction.delete({ where: { id: transactionId } })
+    if (ventureId) await db.$executeRaw`DELETE FROM "Venture" WHERE "id"=${ventureId}`
+    if (customerId) await db.customer.delete({ where: { id: customerId } })
+    if (userId) await db.user.delete({ where: { id: userId } })
+    await db.$disconnect()
+  })
+
+  it('keeps the Prisma schema contract aligned with Transaction.customerId', () => {
+    const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+    expect(schema).toContain('customerId    String?')
+    expect(schema).toContain('Customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull, onUpdate: Cascade)')
+    expect(schema).toContain('@@index([customerId])')
   })
 
   it('verifies Transaction.customerId column, nullable contract, foreign key semantics, and exact non-unique index in the live database', async () => {
-    const result = await db.$queryRaw<Array<{ columnName: string; nullable: string; dataType: string; foreignKeyName: string | null; referencedTable: string | null; onDelete: string | null; onUpdate: string | null; indexName: string; isUnique: boolean; columnNames: string[] }>>`
-      SELECT c.column_name AS "columnName",
-             c.is_nullable AS nullable,
-             c.data_type AS "dataType",
-             fk.constraint_name AS "foreignKeyName",
-             fk.foreign_table_name AS "referencedTable",
-             fk.delete_rule AS "onDelete",
-             fk.update_rule AS "onUpdate",
-             idx.indexname AS "indexName",
-             ix.indisunique AS "isUnique",
-             ARRAY(
-               SELECT a.attname
-               FROM pg_attribute a
-               JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON k.attnum = a.attnum
-               WHERE a.attrelid = ix.indrelid
-               ORDER BY k.ord
-             ) AS "columnNames"
-      FROM information_schema.columns c
-      LEFT JOIN LATERAL (
-        SELECT tc.constraint_name, ccu.table_name AS foreign_table_name, rc.delete_rule, rc.update_rule
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
-        JOIN information_schema.referential_constraints rc ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema
-        WHERE tc.table_schema='public' AND tc.table_name='Transaction' AND tc.constraint_type='FOREIGN KEY' AND ccu.table_name='Customer' AND ccu.column_name='id'
-        LIMIT 1
-      ) fk ON TRUE
-      LEFT JOIN pg_indexes idx ON idx.schemaname='public' AND idx.tablename='Transaction' AND idx.indexname='Transaction_customerId_idx'
-      LEFT JOIN pg_class ix ON ix.relname=idx.indexname
-      WHERE c.table_schema='public' AND c.table_name='Transaction' AND c.column_name='customerId'
-    `
-    expect(result[0]).toBeDefined()
-    expect(result[0]).toMatchObject({
-      columnName: 'customerId',
-      nullable: 'YES',
-      dataType: 'text',
-      foreignKeyName: 'Transaction_customerId_fkey',
-      referencedTable: 'Customer',
-      onDelete: 'SET NULL',
-      onUpdate: 'CASCADE',
-      indexName: 'Transaction_customerId_idx',
+    const result = await verifyTransactionCustomerSchema(db)
+    expect(result.column).toEqual({ name: 'customerId', dataType: 'text', isNullable: true })
+    expect(result.foreignKey).toEqual({
+      name: 'Transaction_customerId_fkey',
+      sourceColumn: 'customerId',
+      targetTable: 'Customer',
+      targetColumn: 'id',
+      deleteRule: 'SET NULL',
+      updateRule: 'CASCADE',
+    })
+    expect(result.index).toEqual({
+      name: 'Transaction_customerId_idx',
       isUnique: false,
       columnNames: ['customerId'],
     })
