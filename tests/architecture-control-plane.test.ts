@@ -9,24 +9,54 @@ import {
   canTransitionMission,
   runArchitectureControlPlaneSelfCheck,
 } from '@/lib/architecture-control-plane'
+import {
+  allDescendantsOf,
+  ancestorsOf,
+  businessScopeFor,
+  commercialBusinessIds,
+  directReportsOf,
+  leadersForBusiness,
+  specialistsForBusiness,
+  validateCommercialOrganization,
+} from '@/lib/commercial-organization'
 
-describe('Architecture Control Plane — changes 5–9', () => {
-  test('enforces the universal hierarchy', () => {
+describe('Architecture Control Plane — canonical organization and commercial integrity', () => {
+  test('canonical organization graph is internally coherent', () => {
+    expect(validateCommercialOrganization()).toEqual([])
+    expect(directReportsOf('ceo')).toEqual(['vid'])
+    expect(directReportsOf('vid')).toContain('scout')
+    expect(directReportsOf('vid')).toContain('vertex')
+    expect(directReportsOf('vertex')).toEqual(['forge'])
+    expect(directReportsOf('aurora')).toEqual(['quill', 'prism', 'seo_cro_specialist'])
+    expect(ancestorsOf('developer')).toContain('forge')
+    expect(allDescendantsOf('vid')).toContain('developer')
+  })
+
+  test('authority resolution is derived from the canonical organization graph', () => {
     expect(authorityLevelFor('ceo')).toBe('CEO')
     expect(authorityLevelFor('vid')).toBe('VID')
     expect(authorityLevelFor('scout')).toBe('LEADER')
+    expect(authorityLevelFor('local_business_intelligence')).toBe('SPECIALIST')
+    expect(authorityLevelFor('developer')).toBe('SPECIALIST')
+    expect(authorityLevelFor('web_search')).toBe('TOOL')
+    expect(authorityLevelFor('not_registered')).toBe('UNKNOWN')
 
-    expect(() => assertDelegationAllowed({
-      actorId: 'ceo', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID',
-    })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID' })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'scout', targetLevel: 'LEADER' })).toThrow(/Hierarchy violation/)
+    expect(() => assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'scout', targetLevel: 'LEADER' })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'revenue_recovery_leader', actorLevel: 'LEADER', targetId: 'local_business_intelligence', targetLevel: 'SPECIALIST' })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'revenue_recovery_leader', actorLevel: 'LEADER', targetId: 'job_matching', targetLevel: 'SPECIALIST' })).toThrow(/direct-report specialists/)
+    expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'web_search', targetLevel: 'TOOL' })).not.toThrow()
+  })
 
-    expect(() => assertDelegationAllowed({
-      actorId: 'ceo', actorLevel: 'CEO', targetId: 'scout', targetLevel: 'LEADER',
-    })).toThrow(/Hierarchy violation/)
-
-    expect(() => assertDelegationAllowed({
-      actorId: 'vid', actorLevel: 'VID', targetId: 'scout', targetLevel: 'LEADER',
-    })).not.toThrow()
+  test('business scope is canonical and scales by data, not authority changes', () => {
+    expect(commercialBusinessIds()).toEqual(['career-command', 'operations-kit', 'revenue-recovery'])
+    expect(businessScopeFor('revenue_recovery_leader')).toEqual(['revenue-recovery'])
+    expect(businessScopeFor('scout')).toEqual(['revenue-recovery', 'operations-kit', 'career-command'])
+    expect(leadersForBusiness('revenue-recovery').map((leader) => leader.id)).toContain('revenue_recovery_leader')
+    expect(leadersForBusiness('career-command').map((leader) => leader.id)).toContain('scout')
+    expect(specialistsForBusiness('operations-kit').map((specialist) => specialist.id)).toContain('workflow_automation')
+    expect(leadersForBusiness('unknown-business')).toEqual([])
   })
 
   test('keeps mission transitions formal and terminal states safe', () => {
