@@ -6,10 +6,13 @@ describe('Venture OS closed-loop integration invariants', () => {
   test('hierarchy requires CEO → VID → leader → specialist/tool', () => {
     expect(() => assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID' })).not.toThrow()
     expect(() => assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'pulse', targetLevel: 'LEADER' })).not.toThrow()
-    // Use a canonical registered specialist. The control plane deliberately rejects
-    // fabricated/unknown identities, so a placeholder such as "custom_specialist"
-    // must not be used for a successful hierarchy assertion.
-    expect(() => assertDelegationAllowed({ actorId: 'pulse', actorLevel: 'LEADER', targetId: 'quill', targetLevel: 'SPECIALIST' })).not.toThrow()
+
+    // Specialist authority is derived from the canonical organization graph.
+    // pulse owns attribution_analyst/cohort_analyst; quill belongs to aurora.
+    expect(() => assertDelegationAllowed({ actorId: 'pulse', actorLevel: 'LEADER', targetId: 'attribution_analyst', targetLevel: 'SPECIALIST' })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'quill', targetLevel: 'SPECIALIST' })).not.toThrow()
+    expect(() => assertDelegationAllowed({ actorId: 'pulse', actorLevel: 'LEADER', targetId: 'quill', targetLevel: 'SPECIALIST' })).toThrow(/direct-report specialists/)
+
     expect(() => assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'pulse', targetLevel: 'LEADER' })).toThrow()
     expect(() => assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: 'custom_specialist', targetLevel: 'SPECIALIST' })).toThrow(/unregistered target identity/)
   })
