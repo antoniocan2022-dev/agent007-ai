@@ -39,13 +39,18 @@ describe("release architecture invariants", () => {
     expect(vercel.crons ?? []).toEqual([]);
   });
 
-  it("canonical release workflow is push/manual driven and verifies the exact production SHA", () => {
+  it("canonical release workflow is manual, authorization-gated, and verifies the exact production SHA", () => {
     const content = workflowContent(CANONICAL_WORKFLOW);
 
     expect(content).toContain("VERCEL_CLI_VERSION: 59.3.0");
     expect(content).toContain("actions/checkout@v5");
     expect(content).toContain("actions/setup-node@v7");
     expect(content).toContain("node-version: '24'");
+    expect(content).toContain("workflow_dispatch:");
+    expect(content).toContain("authorization:");
+    expect(content).toContain("DEPLOY_AGENT007_MAIN");
+    expect(content).toContain("ref: main");
+    expect(content).not.toContain("on:\n  push:\n    branches: [main]");
     expect(content).toContain("npx --yes vercel@$VERCEL_CLI_VERSION deploy");
     expect(content).toContain("--prod --yes --token");
     expect(content).toContain("git rev-parse HEAD");
@@ -53,20 +58,15 @@ describe("release architecture invariants", () => {
     expect(content).toContain("/v13/deployments/");
     expect(content).toContain("teamId=$VERCEL_ORG_ID");
     expect(content).toContain("release-health");
+    expect(content).toContain("organizationGraphFingerprint");
     expect(content).toContain("releaseCommit");
     expect(content).toContain("environment production");
     expect(content).toContain("--level error");
+    expect(content).toContain("Verify exact main Autonomy CI is green");
+    expect(content).toContain("Verify exact main Venture OS heartbeat is green");
 
-    // A push must deploy the exact commit that triggered the run. Manual
-    // releases intentionally resolve the current main branch instead.
-    expect(content).toContain("ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}");
-
-    // The release controller must not silently fall back to a scheduled
-    // deployment path. Continuous monitoring belongs to a separate read-only
-    // workflow, while this workflow owns actual production releases.
+    // The release controller must not silently fall back to scheduled or push deployment.
     expect(content).not.toContain("cron:");
-    expect(content).toContain("on:\n  push:\n    branches: [main]");
-    expect(content).toContain("workflow_dispatch:");
   });
 
   it("heartbeat remains a non-deploying health/contract monitor", () => {
