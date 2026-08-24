@@ -20,6 +20,12 @@ import {
   specialistsForBusiness,
   validateCommercialOrganization,
 } from '@/lib/commercial-organization'
+import {
+  businessLeaders,
+  leaderBusinesses,
+  sharedLeaders,
+  ventureSpecificLeaders,
+} from '@/lib/commercial-organization-scope'
 
 describe('Architecture Control Plane — canonical organization and commercial integrity', () => {
   test('canonical organization graph is internally coherent', () => {
@@ -60,15 +66,22 @@ describe('Architecture Control Plane — canonical organization and commercial i
     expect(() => assertDelegationAllowed({ actorId: 'aurora', actorLevel: 'LEADER', targetId: 'web_search', targetLevel: 'TOOL' })).not.toThrow()
   })
 
-  test('business scope is canonical and scales by data, not authority changes', () => {
+  test('business and venture scope are canonical and scalable', () => {
     const businessIds = commercialBusinessIds()
     expect(businessIds).toEqual(expect.arrayContaining(['career-command', 'operations-kit', 'revenue-recovery']))
     expect(businessIds).toEqual([...businessIds].sort())
+
     expect(businessScopeFor('revenue_recovery_leader')).toEqual(['revenue-recovery'])
-    expect(businessScopeFor('scout')).toEqual(['revenue-recovery', 'operations-kit', 'career-command'])
-    expect(leadersForBusiness('revenue-recovery').map((leader) => leader.id)).toContain('revenue_recovery_leader')
+    expect(leaderBusinesses('scout')).toEqual(['revenue-recovery', 'operations-kit', 'career-command'])
+
+    expect(businessLeaders('revenue-recovery').map((leader) => leader.id)).toContain('revenue_recovery_leader')
     expect(leadersForBusiness('career-command').map((leader) => leader.id)).toContain('scout')
     expect(specialistsForBusiness('operations-kit').map((specialist) => specialist.id)).toContain('workflow_automation')
+
+    expect(sharedLeaders('revenue-recovery').map((leader) => leader.id)).toContain('scout')
+    expect(ventureSpecificLeaders('revenue-recovery').map((leader) => leader.id)).toEqual(['revenue_recovery_leader'])
+    expect(ventureSpecificLeaders('operations-kit').map((leader) => leader.id)).toEqual(['operations_kit_leader'])
+    expect(ventureSpecificLeaders('career-command').map((leader) => leader.id)).toEqual(['career_command_leader'])
     expect(leadersForBusiness('unknown-business')).toEqual([])
   })
 
