@@ -45,14 +45,34 @@ jobs:
       - run: bunx prisma generate
 
       - name: Verify operation-loop and autonomy contracts
+        shell: bash
         run: |
           set -euo pipefail
-          test -f src/lib/autonomy/autonomy-manager.ts
-          test -f src/lib/venture-operation-loop.ts
-          test -f scripts/run-venture-operation-cycle.ts
-          grep -q 'runAutonomyManagerTick' scripts/run-venture-operation-cycle.ts
-          grep -q 'runVentureOperationCycle' src/lib/venture-operation-loop.ts
-          grep -q 'RECOVERABLE' src/lib/venture-operation-loop.ts
+          required_files=(
+            "src/lib/autonomy/autonomy-manager.ts"
+            "src/lib/venture-operation-loop.ts"
+            "scripts/run-venture-operation-cycle.ts"
+          )
+          for file in "${required_files[@]}"; do
+            test -f "$file" || { echo "Missing required contract file: $file"; exit 1; }
+          done
+          bun -e '
+            const fs = require("node:fs")
+            const checks = [
+              ["scripts/run-venture-operation-cycle.ts", "runAutonomyManagerTick"],
+              ["scripts/run-venture-operation-cycle.ts", "runVentureOperationCycle"],
+              ["src/lib/venture-operation-loop.ts", "runVentureOperationCycle"],
+              ["src/lib/venture-operation-loop.ts", "RECOVERABLE"],
+            ]
+            for (const [file, token] of checks) {
+              const text = fs.readFileSync(file, "utf8")
+              if (!text.includes(token)) {
+                console.error(`Missing required contract token ${token} in ${file}`)
+                process.exit(1)
+              }
+            }
+            console.log("Operation-loop and autonomy contracts verified.")
+          '
 
       - name: Run release architecture invariants
         run: bun test tests/release-architecture.test.ts
