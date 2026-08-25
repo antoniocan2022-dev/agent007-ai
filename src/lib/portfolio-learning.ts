@@ -5,6 +5,7 @@ import { runPortfolioOptimization } from './portfolio-intelligence-engine'
 import type { PortfolioExperiment, PortfolioExperimentLearningStatus } from './portfolio-intelligence-types'
 
 type PortfolioOptimizationResult = Awaited<ReturnType<typeof runPortfolioOptimization>>
+const MINIMUM_VARIANT_SAMPLES = 2
 
 export interface PortfolioExperimentLearning {
   learningId: string
@@ -50,15 +51,15 @@ export async function learnFromPortfolioExperiment(experiment: PortfolioExperime
   const controlRevenue = sum(controlAttributions.map((item) => item.amount))
   const variantRevenue = sum(variantAttributions.map((item) => item.amount))
   const evidenceIds = attributions.map((item) => item.evidenceId)
-  const hasBothVariants = controlAttributions.length > 0 && variantAttributions.length > 0
+  const hasMinimumSamples = controlAttributions.length >= MINIMUM_VARIANT_SAMPLES && variantAttributions.length >= MINIMUM_VARIANT_SAMPLES
 
   let status: PortfolioExperimentLearningStatus = 'insufficient_evidence'
   let winnerVariant: string | null = null
   let confidence = 0.25
-  if (hasBothVariants) {
+  if (hasMinimumSamples) {
     const totalRevenue = controlRevenue + variantRevenue
     const relativeDelta = totalRevenue > 0 ? Math.abs(variantRevenue - controlRevenue) / totalRevenue : 0
-    confidence = clamp01(0.5 + Math.min(0.45, (controlAttributions.length + variantAttributions.length) * 0.05) + Math.min(0.05, relativeDelta))
+    confidence = clamp01(0.6 + Math.min(0.3, (controlAttributions.length + variantAttributions.length - 4) * 0.05) + Math.min(0.1, relativeDelta))
     if (relativeDelta < 0.1) status = 'inconclusive'
     else if (variantRevenue > controlRevenue) { status = 'variant_wins'; winnerVariant = variant }
     else { status = 'control_wins'; winnerVariant = controlVariant }
@@ -81,14 +82,13 @@ export async function learnFromPortfolioExperiment(experiment: PortfolioExperime
     completed: false,
   }
 
-  if (!hasBothVariants) {
-    await db.memory.upsert({
-      where: { key: learning.learningId },
-      update: { value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
-      create: { key: learning.learningId, value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
-    })
-    return learning
-  }
+  await db.memory.upsert({
+    where: { key: learning.learningId },
+    update: { value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
+    create: { key: learning.learningId, value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
+  })
+
+  if (!hasMinimumSamples) return learning
 
   const completed = await completePortfolioExperiment(experiment.experimentId, {
     observedValue: variantRevenue,
@@ -102,12 +102,7 @@ export async function learnFromPortfolioExperiment(experiment: PortfolioExperime
   })
   if (!completed) throw new Error(`Experiment ${experiment.experimentId} could not be completed.`)
   learning.completed = true
-
-  await db.memory.upsert({
-    where: { key: learning.learningId },
-    update: { value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
-    create: { key: learning.learningId, value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
-  })
+  await db.memory.update({ where: { key: learning.learningId }, data: { value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' } })
 
   if (status === 'variant_wins' || status === 'control_wins') {
     await db.memory.upsert({
