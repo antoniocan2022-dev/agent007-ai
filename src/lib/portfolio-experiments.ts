@@ -25,9 +25,17 @@ async function learnedControlVariant(business: PortfolioBusiness): Promise<strin
   return 'current_baseline'
 }
 
+function createDistinctVariant(controlVariant: string, decisionId: string): string {
+  const base = `autonomous_variant_${decisionId.slice(-8)}`
+  if (base !== controlVariant) return base
+  return `${base}_treatment`
+}
+
 export async function createPortfolioExperiment(input: Omit<PortfolioExperiment, 'experimentId' | 'createdAt' | 'status'>): Promise<PortfolioExperiment> {
   if (input.budget < 0 || !Number.isFinite(input.budget)) throw new Error('Experiment budget must be non-negative.')
   if (input.budget > CEO_VENTURE_MANDATE.maximumSingleSpendWithoutApproval) throw new Error('Experiment budget exceeds autonomous spend guardrail.')
+  if (!input.controlVariant?.trim() || !input.variant?.trim()) throw new Error('Experiment control and variant identifiers are required.')
+  if (input.controlVariant === input.variant) throw new Error('Experiment controlVariant and variant must differ.')
   const id = `portfolio_experiment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const experiment: PortfolioExperiment = { ...input, experimentId: id, createdAt: new Date().toISOString(), status: 'proposed', learningStatus: 'pending' }
   await db.memory.create({ data: { key: id, category: 'portfolio_intelligence_experiment', value: JSON.stringify(experiment) } })
@@ -90,10 +98,9 @@ export async function activatePortfolioExperiment(input: ActivatePortfolioExperi
     budget,
     decisionId: input.decisionId,
     controlVariant,
-    variant: `autonomous_variant_${input.decisionId.slice(-8)}`,
+    variant: createDistinctVariant(controlVariant, input.decisionId),
   })
 
-  if (experiment.variant === experiment.controlVariant) throw new Error('Experiment variant must differ from the learned control baseline.')
   const approved = await transitionPortfolioExperiment(experiment.experimentId, 'approved')
   if (!approved) throw new Error('Experiment approval state could not be persisted.')
   const running = await transitionPortfolioExperiment(approved.experimentId, 'running')
