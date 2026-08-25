@@ -4,6 +4,10 @@
 
 This is the canonical navigation map for future Agent007 work. It prevents parallel implementations, repeated fixes, and context loss between conversations.
 
+## Canonical control-loop rule
+
+There is one canonical heartbeat: `src/lib/autonomy/autonomy-manager.ts` owns the global autonomy lease, and `src/lib/venture-operation-loop.ts` is the sole Venture heartbeat integration point. Other modules may derive projections or evidence from that heartbeat, but they must not create a competing scheduler or execution loop.
+
 ## Source-of-truth hierarchy
 
 ### Executive / conversational control
