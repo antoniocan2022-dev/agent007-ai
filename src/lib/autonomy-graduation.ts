@@ -123,11 +123,26 @@ export async function recordAutonomyEvidence(input: AutonomyEvidenceInput): Prom
   }
   const key = keyForEvidence(evidenceId)
   const existing = await db.memory.findUnique({ where: { key } })
-  if (existing) return JSON.parse(existing.value) as AutonomyEvidenceRecord
+  if (existing) {
+    const existingRecord = JSON.parse(existing.value) as AutonomyEvidenceRecord
+    const immutableFields: Array<keyof AutonomyEvidenceRecord> = ['actionClass', 'attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'recordedAt', 'source']
+    for (const field of immutableFields) {
+      if (JSON.stringify(existingRecord[field]) !== JSON.stringify(record[field])) throw new Error(`Autonomy evidence idempotency collision: ${evidenceId} immutable field ${field} differs.`)
+    }
+    return existingRecord
+  }
   await db.memory.create({ data: { key, value: JSON.stringify(record), category: EVIDENCE_CATEGORY } }).catch(() => {})
   const confirmed = await db.memory.findUnique({ where: { key } })
   if (!confirmed) throw new Error(`Autonomy evidence could not be persisted: ${evidenceId}`)
-  return JSON.parse(confirmed.value) as AutonomyEvidenceRecord
+  const confirmedRecord = JSON.parse(confirmed.value) as AutonomyEvidenceRecord
+  for (const field of immutableFieldsForRecord()) {
+    if (JSON.stringify(confirmedRecord[field]) !== JSON.stringify(record[field])) throw new Error(`Autonomy evidence race produced an immutable mismatch: ${evidenceId} field ${field}.`)
+  }
+  return confirmedRecord
+}
+
+function immutableFieldsForRecord(): Array<keyof AutonomyEvidenceRecord> {
+  return ['actionClass', 'attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'recordedAt', 'source']
 }
 
 async function listEvidence(actionClass: ActionClass, limit = 1000): Promise<AutonomyEvidenceRecord[]> {
@@ -182,26 +197,32 @@ export async function createFirstHighRiskApprovalChallenge(): Promise<{ challeng
   return { challengeId, challenge, expiresAt }
 }
 
-export async function approveFirstHighRiskGraduation(input: { ownerUserId: string; challengeId: string; approvalToken: string }): Promise<OwnerApprovalEvidence> {
-  const challengeRow = await db.memory.findUnique({ where: { key: approvalChallengeKey(input.challengeId) } })
+export async function approveFirstHighRiskGraduation(input: { ownerUserId: string; challengeId: string; challenge: string; approvalToken: string }): Promise<OwnerApprovalEvidence> {
+  const ownerUserId = input.ownerUserId.trim()
+  const challengeId = input.challengeId.trim()
+  const challengeValue = input.challenge.trim()
+  const approvalToken = input.approvalToken.trim()
+  if (!ownerUserId || !challengeId || !challengeValue || !approvalToken) throw new Error('Owner approval requires ownerUserId, challengeId, challenge, and approvalToken.')
+  const challengeRow = await db.memory.findUnique({ where: { key: approvalChallengeKey(challengeId) } })
   if (!challengeRow) throw new Error('High-risk owner approval challenge was not found.')
-  const challenge = JSON.parse(challengeRow.value) as { challengeHash: string; expiresAt: string }
-  if (Date.parse(challenge.expiresAt) <= Date.now()) throw new Error('High-risk owner approval challenge has expired.')
+  const challengeRecord = JSON.parse(challengeRow.value) as { challengeHash: string; expiresAt: string }
+  if (Date.parse(challengeRecord.expiresAt) <= Date.now()) throw new Error('High-risk owner approval challenge has expired.')
+  if (sha256(challengeValue) !== challengeRecord.challengeHash) throw new Error('High-risk owner approval challenge verification failed.')
   const configuredToken = process.env.AGENT007_OWNER_APPROVAL_SECRET?.trim()
   if (!configuredToken) throw new Error('Owner approval is unavailable: AGENT007_OWNER_APPROVAL_SECRET is not configured.')
-  if (sha256(`${input.challengeId}:${input.approvalToken}:${configuredToken}`) !== sha256(`${input.challengeId}:${challenge.challengeHash}:${configuredToken}`)) {
-    throw new Error('Owner approval token verification failed.')
-  }
+  if (approvalToken !== configuredToken) throw new Error('Owner approval token verification failed.')
   const approval: OwnerApprovalEvidence = {
     approvalId: randomUUID(),
-    ownerUserId: input.ownerUserId.trim(),
-    challengeId: input.challengeId,
+    ownerUserId,
+    challengeId,
     issuedAt: new Date().toISOString(),
-    expiresAt: challenge.expiresAt,
-    signature: sha256(`${input.ownerUserId}|${input.challengeId}|${input.approvalToken}|${configuredToken}`),
+    expiresAt: challengeRecord.expiresAt,
+    signature: sha256(`${ownerUserId}|${challengeId}|${challengeValue}|${configuredToken}`),
   }
-  await db.memory.create({ data: { key: approvalKey('HIGH_RISK'), value: JSON.stringify(approval), category: APPROVAL_CATEGORY } }).catch(() => {})
-  await db.memory.delete({ where: { key: approvalChallengeKey(input.challengeId) } }).catch(() => {})
+  await db.memory.create({ data: { key: approvalKey('HIGH_RISK'), value: JSON.stringify(approval), category: APPROVAL_CATEGORY } }).catch((error) => {
+    throw new Error(`High-risk owner approval could not be persisted: ${error instanceof Error ? error.message : String(error)}`)
+  })
+  await db.memory.delete({ where: { key: approvalChallengeKey(challengeId) } }).catch(() => {})
   return approval
 }
 
@@ -210,7 +231,10 @@ async function consumeFirstHighRiskApproval(): Promise<OwnerApprovalEvidence | n
   if (!row) return null
   try {
     const approval = JSON.parse(row.value) as OwnerApprovalEvidence
-    if (Date.parse(approval.expiresAt) <= Date.now()) return null
+    if (Date.parse(approval.expiresAt) <= Date.now()) {
+      await db.memory.delete({ where: { key: approvalKey('HIGH_RISK') } }).catch(() => {})
+      return null
+    }
     await db.memory.delete({ where: { key: approvalKey('HIGH_RISK') } })
     return approval
   } catch { return null }
@@ -227,7 +251,7 @@ export async function evaluateAndPersistAutonomy(actionClass: ActionClass): Prom
   if (measurement.safetyRate < 1 || measurement.ownerSafetyRate < 1) {
     target = 'PROPOSED'
     decision = levelRank(target) < levelRank(previousLevel) ? 'DOWNGRADED' : 'UNCHANGED'
-    reason = measurement.reasons.join(' ')
+    reason = measurement.reasons.join(' ') || 'A safety signal requires the action class to remain at the lowest safe level.'
   } else if (levelRank(target) > levelRank(previousLevel)) {
     if (actionClass === 'HIGH_RISK' && levelRank(previousLevel) < levelRank('SUPERVISED') && levelRank(target) >= levelRank('SUPERVISED')) {
       const approval = await consumeFirstHighRiskApproval()
