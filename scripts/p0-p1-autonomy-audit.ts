@@ -8,6 +8,7 @@ const requiredFiles = [
   'src/lib/operational-kpi-engine.ts',
   'src/lib/ceo-venture-state.ts',
   'src/lib/portfolio-decision-contract.ts',
+  'src/lib/portfolio-intelligence-contract.ts',
   'src/lib/portfolio-intelligence-rules.ts',
   'src/lib/venture-scorecard.ts',
   'src/lib/venture-decision-engine.ts',
@@ -26,6 +27,7 @@ const outcome = files.get('src/lib/business-outcome-integrity.ts')!
 const kpi = files.get('src/lib/operational-kpi-engine.ts')!
 const ceo = files.get('src/lib/ceo-venture-state.ts')!
 const contract = files.get('src/lib/portfolio-decision-contract.ts')!
+const portfolioContract = files.get('src/lib/portfolio-intelligence-contract.ts')!
 const rules = files.get('src/lib/portfolio-intelligence-rules.ts')!
 const scorecard = files.get('src/lib/venture-scorecard.ts')!
 const decision = files.get('src/lib/venture-decision-engine.ts')!
@@ -44,7 +46,8 @@ const checks: Array<[string, boolean]> = [
   ['KPI engine independently verifies transaction evidence', kpi.includes('assertRealSucceededTransaction')],
   ['CEO reads canonical decision engine', ceo.includes('evaluateVentureDecision') && ceo.includes('CANONICAL_DECISION')],
   ['Canonical portfolio decision contract exists', contract.includes('PortfolioOperationalDecision') && contract.includes('VentureLifecycleDecision')],
-  ['Portfolio rules consume the canonical operational decision taxonomy', rules.includes('PortfolioDecision')],
+  ['Portfolio contract aliases the canonical operational decision type', portfolioContract.includes("import type { PortfolioOperationalDecision } from './portfolio-decision-contract'") && portfolioContract.includes('PortfolioDecision = PortfolioOperationalDecision')],
+  ['Portfolio rules consume the canonical operational decision taxonomy', /import type \{\s*PortfolioOperationalDecision\s*\}\s+from ['"]\.\/portfolio-decision-contract['"]/.test(rules) && /let d:\s*PortfolioOperationalDecision/.test(rules)],
   ['Venture scorecard consumes the canonical health decision taxonomy', scorecard.includes('VentureHealthDecision')],
   ['Venture decision engine consumes canonical lifecycle decision type', decision.includes("from './portfolio-decision-contract'") && decision.includes('VentureLifecycleDecision')],
   ['Decision=experiment activates a real experiment', intelligence.includes('activatePortfolioExperiment') && intelligence.includes("decision.decision === 'experiment'")],
