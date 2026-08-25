@@ -34,6 +34,7 @@ async function cleanup(fixture: Fixture, experimentId?: string): Promise<void> {
     await db.memory.delete({ where: { key: `portfolio_learning_${experimentId}` } }).catch(() => undefined)
     await db.memory.delete({ where: { key: experimentId } }).catch(() => undefined)
   }
+  await db.memory.delete({ where: { key: 'portfolio_reallocation:revenue-recovery' } }).catch(() => undefined)
   for (const transactionId of fixture.transactionIds) {
     await db.memory.delete({ where: { key: `architecture_business_outcome:TRANSACTION:${transactionId}` } }).catch(() => undefined)
     await db.transaction.delete({ where: { id: transactionId } }).catch(() => undefined)
@@ -50,23 +51,38 @@ describe('portfolio continuous learning loop', () => {
     try {
       const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_${fixture.ventureId}`, hypothesis: 'Variant improves verified revenue.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
       experimentId = experiment.experimentId
-      const controlTx = await addTransaction(fixture, 10, `pi_learning_control_${fixture.ventureId}`)
-      const variantTx = await addTransaction(fixture, 25, `pi_learning_variant_${fixture.ventureId}`)
-      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: controlTx, amount: 10, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.controlVariant })
-      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx, amount: 25, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
+      const controlTx1 = await addTransaction(fixture, 10, `pi_learning_control_a_${fixture.ventureId}`)
+      const controlTx2 = await addTransaction(fixture, 11, `pi_learning_control_b_${fixture.ventureId}`)
+      const variantTx1 = await addTransaction(fixture, 25, `pi_learning_variant_a_${fixture.ventureId}`)
+      const variantTx2 = await addTransaction(fixture, 26, `pi_learning_variant_b_${fixture.ventureId}`)
+      for (const [transactionId, amount, variant] of [
+        [controlTx1, 10, experiment.controlVariant],
+        [controlTx2, 11, experiment.controlVariant],
+        [variantTx1, 25, experiment.variant],
+        [variantTx2, 26, experiment.variant],
+      ] as const) {
+        await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId, amount, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: variant })
+      }
 
       const learning = await learnFromPortfolioExperiment(experiment)
       expect(learning.completed).toBe(true)
       expect(learning.status).toBe('variant_wins')
       expect(learning.winnerVariant).toBe(experiment.variant)
-      expect(learning.controlRevenue).toBe(10)
-      expect(learning.variantRevenue).toBe(25)
-      expect(learning.confidence).toBeGreaterThan(0.5)
+      expect(learning.controlRevenue).toBe(21)
+      expect(learning.variantRevenue).toBe(51)
+      expect(learning.controlSampleSize).toBe(2)
+      expect(learning.variantSampleSize).toBe(2)
+      expect(learning.confidence).toBeGreaterThan(0.6)
 
       const attribution = await listExperimentPaymentAttribution(experimentId)
-      expect(attribution).toHaveLength(2)
+      expect(attribution).toHaveLength(4)
       const persisted = await db.memory.findUnique({ where: { key: `portfolio_reallocation:revenue-recovery` } })
       expect(persisted).not.toBeNull()
+
+      const next = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_followup_${fixture.ventureId}`, hypothesis: 'Use the verified winner as the next control baseline.', metric: 'revenue', baseline: 51, target: 56, budget: 0 })
+      expect(next.controlVariant).toBe(experiment.variant)
+      expect(next.variant).not.toBe(next.controlVariant)
+      await db.memory.delete({ where: { key: next.experimentId } }).catch(() => undefined)
     } finally {
       await cleanup(fixture, experimentId)
     }
@@ -76,13 +92,17 @@ describe('portfolio continuous learning loop', () => {
     const fixture = await createFixture()
     let experimentId = ''
     try {
-      const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_open_${fixture.ventureId}`, hypothesis: 'Keep running until both variants have evidence.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
+      const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_open_${fixture.ventureId}`, hypothesis: 'Keep running until both variants have sufficient evidence.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
       experimentId = experiment.experimentId
-      const variantTx = await addTransaction(fixture, 20, `pi_learning_open_${fixture.ventureId}`)
-      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx, amount: 20, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
+      const variantTx1 = await addTransaction(fixture, 20, `pi_learning_open_a_${fixture.ventureId}`)
+      const variantTx2 = await addTransaction(fixture, 21, `pi_learning_open_b_${fixture.ventureId}`)
+      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx1, amount: 20, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
+      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx2, amount: 21, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
       const learning = await learnFromPortfolioExperiment(experiment)
       expect(learning.completed).toBe(false)
       expect(learning.status).toBe('insufficient_evidence')
+      expect(learning.variantSampleSize).toBe(2)
+      expect(learning.controlSampleSize).toBe(0)
       const persisted = await db.memory.findUnique({ where: { key: experimentId } })
       expect(persisted).not.toBeNull()
       expect(JSON.parse(persisted!.value).status).toBe('running')
