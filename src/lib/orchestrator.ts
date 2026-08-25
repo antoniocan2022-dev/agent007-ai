@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { internalUrl } from "./internal-url"
 import { runSystemAudit, getCapabilities, getManifest, testCommunication, runSelfHeal } from "./system-functions"
 import { verifyToolAction } from "./tool-action-verification"
+import { getCanonicalOrganizationPrompt } from './canonical-organization-prompt'
 
 // Helper: fetch internal URL with better error handling for Vercel
 async function internalFetch(url: string, options?: any): Promise<any> {
@@ -238,7 +239,7 @@ function parseManageAttrs(tag: string): Record<string, string> {
 
 const ORCHESTRATOR_PROMPT_ADDENDUM = `
 ORCHESTRATION:
-You orchestrate 20 subagents. For multi-step tasks, dispatch leaders:
+You orchestrate the canonical organization defined by the Agent007 organization graph. For multi-step tasks, dispatch leaders:
 <dispatch agent="scout" task="find 3 trending AI niches"/>
 <dispatch_subagent id="aurora">Design a content calendar</dispatch_subagent>
 Max 3 dispatches per turn, then synthesize into a final answer.
