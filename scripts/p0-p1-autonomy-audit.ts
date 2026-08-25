@@ -40,7 +40,7 @@ const checks: Array<[string, boolean]> = [
   ['Stripe webhook persists canonical venture scope', webhook.includes('ventureId') && webhook.includes('db.transaction.create')],
   ['Stripe webhook emits verified BusinessOutcome', webhook.includes('recordVerifiedTransactionOutcome')],
   ['BusinessOutcome verifies Transaction before revenue proof', outcome.includes('assertRealSucceededTransaction')],
-  ['Experiment attribution is awaited without a swallowed error path', outcome.includes('await recordExperimentPaymentAttribution(') && !outcome.includes('recordExperimentPaymentAttribution({').includes('catch')],
+  ['Experiment attribution is awaited without a swallowed error path', outcome.includes('await recordExperimentPaymentAttribution(') && !/recordExperimentPaymentAttribution\([\s\S]*?\)\.catch\(/.test(outcome)],
   ['KPI engine independently verifies transaction evidence', kpi.includes('assertRealSucceededTransaction')],
   ['CEO reads canonical decision engine', ceo.includes('evaluateVentureDecision') && ceo.includes('CANONICAL_DECISION')],
   ['Canonical portfolio decision contract exists', contract.includes('PortfolioOperationalDecision') && contract.includes('VentureLifecycleDecision')],
