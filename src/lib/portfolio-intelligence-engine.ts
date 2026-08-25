@@ -29,13 +29,15 @@ export async function createOptimizationRecords(snapshot: PortfolioSnapshot): Pr
     await db.memory.upsert({ where: { key: decisionId }, update: { value: JSON.stringify(record), category: 'portfolio_intelligence_decision' }, create: { key: decisionId, category: 'portfolio_intelligence_decision', value: JSON.stringify(record) } })
 
     if (decision.decision === 'experiment') {
-      const baseline = metric.conversions ?? metric.revenue
+      // Current causal evidence is payment-backed revenue. Do not label a revenue experiment
+      // as conversion_rate until exposure/conversion outcome evidence is modeled end-to-end.
+      const baseline = metric.revenue
       const target = baseline > 0 ? Number((baseline * 1.1).toFixed(2)) : 1
       await activatePortfolioExperiment({
         business: metric.business,
         decisionId,
-        hypothesis: `Improve ${metric.business} ${metric.conversions !== null ? 'conversion rate' : 'revenue'} using a controlled variant against the current baseline.`,
-        metric: metric.conversions !== null ? 'conversion_rate' : 'revenue',
+        hypothesis: `Improve ${metric.business} verified revenue using a controlled variant against the current evidence-backed baseline.`,
+        metric: 'revenue',
         baseline,
         target,
         budget: 0,
