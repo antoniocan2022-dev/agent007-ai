@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 
 const requiredFiles = [
   'prisma/schema.prisma',
-  'scripts/db-reconcile.ts',
+  'src/lib/reconcile-production-schema.ts',
   'src/app/api/webhooks/stripe/route.ts',
   'src/lib/business-outcome-integrity.ts',
   'src/lib/operational-kpi-engine.ts',
@@ -20,7 +20,7 @@ const files = new Map<string, string>()
 for (const path of requiredFiles) files.set(path, await readFile(path, 'utf8'))
 
 const schema = files.get('prisma/schema.prisma')!
-const reconcile = files.get('scripts/db-reconcile.ts')!
+const reconcile = files.get('src/lib/reconcile-production-schema.ts')!
 const webhook = files.get('src/app/api/webhooks/stripe/route.ts')!
 const outcome = files.get('src/lib/business-outcome-integrity.ts')!
 const kpi = files.get('src/lib/operational-kpi-engine.ts')!
