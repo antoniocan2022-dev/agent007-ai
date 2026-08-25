@@ -19,7 +19,7 @@ export async function createPortfolioExperiment(input: Omit<PortfolioExperiment,
   if (input.budget < 0 || !Number.isFinite(input.budget)) throw new Error('Experiment budget must be non-negative.')
   if (input.budget > CEO_VENTURE_MANDATE.maximumSingleSpendWithoutApproval) throw new Error('Experiment budget exceeds autonomous spend guardrail.')
   const id = `portfolio_experiment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  const experiment: PortfolioExperiment = { ...input, experimentId: id, createdAt: new Date().toISOString(), status: 'proposed' }
+  const experiment: PortfolioExperiment = { ...input, experimentId: id, createdAt: new Date().toISOString(), status: 'proposed', learningStatus: 'pending' }
   await db.memory.create({ data: { key: id, category: 'portfolio_intelligence_experiment', value: JSON.stringify(experiment) } })
   return experiment
 }
@@ -32,6 +32,17 @@ export async function transitionPortfolioExperiment(experimentId: string, status
   if (!transitions[current.status].includes(status)) throw new Error(`Invalid experiment transition: ${current.status} -> ${status}`)
   if (status === 'running' && !isSpendWithinGuardrail(current.budget, 0)) throw new Error('Experiment cannot run outside the CEO spend guardrail.')
   const next = { ...current, status }
+  await db.memory.update({ where: { id: row.id }, data: { value: JSON.stringify(next) } })
+  return next
+}
+
+export async function completePortfolioExperiment(experimentId: string, learning: Partial<Pick<PortfolioExperiment, 'observedValue' | 'controlRevenue' | 'variantRevenue' | 'controlSampleSize' | 'variantSampleSize' | 'learningStatus' | 'learningConfidence' | 'learningEvidenceIds'>>): Promise<PortfolioExperiment | null> {
+  const row = await db.memory.findFirst({ where: { key: experimentId, category: 'portfolio_intelligence_experiment' } })
+  if (!row) return null
+  const current = parseExperiment(row.value)
+  if (!current) return null
+  if (current.status !== 'running') throw new Error(`Only running experiments may complete. Current state: ${current.status}.`)
+  const next: PortfolioExperiment = { ...current, ...learning, status: 'completed', completedAt: new Date().toISOString() }
   await db.memory.update({ where: { id: row.id }, data: { value: JSON.stringify(next) } })
   return next
 }
@@ -50,11 +61,12 @@ export async function activatePortfolioExperiment(input: ActivatePortfolioExperi
   if (!input.decisionId.trim()) throw new Error('decisionId is required to activate an experiment.')
   if (!input.hypothesis.trim()) throw new Error('Experiment hypothesis is required.')
   if (!input.metric.trim()) throw new Error('Experiment metric is required.')
-  const rows = await db.memory.findMany({ where: { category: 'portfolio_intelligence_experiment' }, orderBy: { createdAt: 'desc' }, take: 200 })
+  const rows = await db.memory.findMany({ where: { category: 'portfolio_intelligence_experiment' }, orderBy: { createdAt: 'desc' }, take: 500 })
   for (const row of rows) {
     const existing = parseExperiment(row.value)
-    if (!existing) continue
+    if (!existing || existing.business !== input.business) continue
     if (existing.decisionId === input.decisionId && ['proposed', 'approved', 'running'].includes(existing.status)) return existing
+    if (['proposed', 'approved', 'running'].includes(existing.status)) return existing
   }
 
   const budget = input.budget ?? 0
