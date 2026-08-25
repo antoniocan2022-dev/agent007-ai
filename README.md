@@ -6,6 +6,10 @@
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org)
 
+## Release marker
+
+Production release authorized on **2026-08-24** from GitHub `main`. This marker is documentation-only and does not change runtime behavior.
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
