@@ -1,3 +1,5 @@
-export const PORTFOLIO_BUSINESSES=['revenue-recovery','operations-kit','career-command'] as const
-export type PortfolioBusiness=typeof PORTFOLIO_BUSINESSES[number]
-export type PortfolioDecision='scale'|'optimize'|'experiment'|'hold'|'pivot'|'kill'
+import type { PortfolioOperationalDecision } from './portfolio-decision-contract'
+
+export const PORTFOLIO_BUSINESSES = ['revenue-recovery', 'operations-kit', 'career-command'] as const
+export type PortfolioBusiness = typeof PORTFOLIO_BUSINESSES[number]
+export type PortfolioDecision = PortfolioOperationalDecision
