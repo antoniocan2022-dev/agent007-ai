@@ -107,6 +107,7 @@ function validateEvidence(input: AutonomyEvidenceInput): void {
 
 export async function recordAutonomyEvidence(input: AutonomyEvidenceInput): Promise<AutonomyEvidenceRecord> {
   validateEvidence(input)
+  const hasExplicitRecordedAt = Boolean(input.recordedAt)
   const recordedAt = input.recordedAt ? new Date(input.recordedAt).toISOString() : new Date().toISOString()
   const idempotencyKey = input.idempotencyKey?.trim() || randomUUID()
   const evidenceId = sha256(`${input.actionClass}|${idempotencyKey}`)
@@ -125,7 +126,8 @@ export async function recordAutonomyEvidence(input: AutonomyEvidenceInput): Prom
   const existing = await db.memory.findUnique({ where: { key } })
   if (existing) {
     const existingRecord = JSON.parse(existing.value) as AutonomyEvidenceRecord
-    const immutableFields: Array<keyof AutonomyEvidenceRecord> = ['actionClass', 'attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'recordedAt', 'source']
+    const immutableFields: Array<keyof AutonomyEvidenceRecord> = ['actionClass', 'attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'source']
+    if (hasExplicitRecordedAt) immutableFields.push('recordedAt')
     for (const field of immutableFields) {
       if (JSON.stringify(existingRecord[field]) !== JSON.stringify(record[field])) throw new Error(`Autonomy evidence idempotency collision: ${evidenceId} immutable field ${field} differs.`)
     }
@@ -135,14 +137,11 @@ export async function recordAutonomyEvidence(input: AutonomyEvidenceInput): Prom
   const confirmed = await db.memory.findUnique({ where: { key } })
   if (!confirmed) throw new Error(`Autonomy evidence could not be persisted: ${evidenceId}`)
   const confirmedRecord = JSON.parse(confirmed.value) as AutonomyEvidenceRecord
-  for (const field of immutableFieldsForRecord()) {
+  const immutableFields: Array<keyof AutonomyEvidenceRecord> = ['actionClass', 'attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'recordedAt', 'source']
+  for (const field of immutableFields) {
     if (JSON.stringify(confirmedRecord[field]) !== JSON.stringify(record[field])) throw new Error(`Autonomy evidence race produced an immutable mismatch: ${evidenceId} field ${field}.`)
   }
   return confirmedRecord
-}
-
-function immutableFieldsForRecord(): Array<keyof AutonomyEvidenceRecord> {
-  return ['actionClass', 'attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'recordedAt', 'source']
 }
 
 async function listEvidence(actionClass: ActionClass, limit = 1000): Promise<AutonomyEvidenceRecord[]> {
