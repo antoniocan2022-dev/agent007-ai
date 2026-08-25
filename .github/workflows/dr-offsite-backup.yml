@@ -26,6 +26,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --legacy-peer-deps
+      - name: Install OCI S3 upload client
+        run: python3 -m pip install --disable-pip-version-check --quiet boto3
 
       - name: Verify required backup and storage configuration
         env:
@@ -70,7 +72,6 @@ jobs:
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           aws configure set default.s3.addressing_style path
           aws configure set default.s3.signature_version s3v4
-          aws configure set default.s3.payload_signing_enabled false
           node - "$ENDPOINT" <<'NODE'
           const endpoint = process.argv[2]
           const parsed = new URL(endpoint)
@@ -125,35 +126,85 @@ jobs:
           SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           set -euo pipefail
-          aws configure set default.s3.addressing_style path
-          aws configure set default.s3.signature_version s3v4
-          aws configure set default.s3.payload_signing_enabled false
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
-          aws s3api put-object \
-            --bucket "$DR_BACKUP_BUCKET" \
-            --key "$KEY" \
-            --body /tmp/agent007-backup-v2.json.gz \
-            --content-type application/gzip \
-            --metadata "source=Agent007,backup-version=2.1,sha256=$SHA256,immutable-retention=storage-policy" \
-            --endpoint-url "$DR_BACKUP_ENDPOINT" \
-            --region "$DR_BACKUP_REGION"
-          echo "Immutable DR backup uploaded: $KEY"
-          echo "SHA256: $SHA256"
-          echo "OBJECT_KEY=$KEY" >> "$GITHUB_ENV"
+          export KEY
+          python3 - <<'PY'
+          import os
+          import boto3
+          from botocore.client import Config
+
+          bucket = os.environ['DR_BACKUP_BUCKET']
+          key = os.environ['KEY']
+          endpoint = os.environ['DR_BACKUP_ENDPOINT']
+          region = os.environ['DR_BACKUP_REGION']
+          sha256 = os.environ['SHA256']
+
+          client = boto3.client(
+              's3',
+              region_name=region,
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+              config=Config(
+                  signature_version='s3v4',
+                  s3={'addressing_style': 'path', 'payload_signing_enabled': False},
+              ),
+          )
+
+          with open('/tmp/agent007-backup-v2.json.gz', 'rb') as body:
+              client.put_object(
+                  Bucket=bucket,
+                  Key=key,
+                  Body=body,
+                  ContentType='application/gzip',
+                  Metadata={
+                      'source': 'Agent007',
+                      'backup-version': '2.1',
+                      'sha256': sha256,
+                      'immutable-retention': 'storage-policy',
+                  },
+              )
+          print(f'Immutable DR backup uploaded: {key}')
+          print(f'SHA256: {sha256}')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              env.write(f'OBJECT_KEY={key}\n')
+          PY
 
       - name: Verify uploaded backup
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
+          EXPECTED_SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           set -euo pipefail
-          aws configure set default.s3.addressing_style path
-          aws configure set default.s3.signature_version s3v4
-          aws configure set default.s3.payload_signing_enabled false
-          aws s3api head-object \
-            --bucket "$DR_BACKUP_BUCKET" \
-            --key "$OBJECT_KEY" \
-            --endpoint-url "$DR_BACKUP_ENDPOINT" \
-            --region "$DR_BACKUP_REGION"
-          echo 'External DR backup object verified.'
-          echo 'Immutability is provided by the configured storage retention policy.'
+          python3 - <<'PY'
+          import os
+          import boto3
+          from botocore.client import Config
+
+          client = boto3.client(
+              's3',
+              region_name=os.environ['DR_BACKUP_REGION'],
+              endpoint_url=os.environ['DR_BACKUP_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+              config=Config(
+                  signature_version='s3v4',
+                  s3={'addressing_style': 'path', 'payload_signing_enabled': False},
+              ),
+          )
+          head = client.head_object(
+              Bucket=os.environ['DR_BACKUP_BUCKET'],
+              Key=os.environ['OBJECT_KEY'],
+          )
+          expected = os.environ['EXPECTED_SHA256']
+          actual = head.get('Metadata', {}).get('sha256')
+          if head.get('ContentLength', 0) <= 0:
+              raise SystemExit('Uploaded DR backup object is empty')
+          if actual != expected:
+              raise SystemExit(f'Uploaded DR backup checksum metadata mismatch: {actual!r} != {expected!r}')
+          print(f"Verified uploaded DR backup: {os.environ['OBJECT_KEY']}")
+          print(f"Verified size: {head['ContentLength']} bytes")
+          print(f"Verified SHA256 metadata: {actual}")
+          print('Immutability is provided by the configured storage retention policy.')
+          PY
