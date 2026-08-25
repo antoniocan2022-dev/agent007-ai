@@ -35,7 +35,6 @@ jobs:
           BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
           STORAGE_KEY: ${{ secrets.OCI_S3_ACCESS_KEY }}
           STORAGE_SECRET: ${{ secrets.OCI_S3_SECRET_KEY }}
-          BUCKET_SECRET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
           REGION: ${{ env.DR_STORAGE_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
@@ -47,7 +46,6 @@ jobs:
           [[ -n "$BACKUP_KEY" ]] || missing+=(BACKUP_ENCRYPTION_KEY)
           [[ -n "$STORAGE_KEY" ]] || missing+=(OCI_S3_ACCESS_KEY)
           [[ -n "$STORAGE_SECRET" ]] || missing+=(OCI_S3_SECRET_KEY)
-          [[ -n "$BUCKET_SECRET" ]] || missing+=(DR_BACKUP_S3_BUCKET)
           [[ -n "$NAMESPACE" ]] || missing+=(DR_BACKUP_S3_NAMESPACE)
           [[ -n "$REGION" ]] || missing+=(DR_BACKUP_S3_REGION)
           if (( ${#missing[@]} > 0 )); then
@@ -58,7 +56,6 @@ jobs:
 
           NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
           REGION="$(printf '%s' "$REGION" | tr -d '[:space:]')"
-          BUCKET_SECRET="$(printf '%s' "$BUCKET_SECRET" | tr -d '[:space:]')"
           case "${REGION,,}" in
             ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
             ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
@@ -80,21 +77,15 @@ jobs:
 
           echo 'Discovering accessible OCI S3 buckets...'
           BUCKET_LIST="$(aws s3api list-buckets --endpoint-url "$ENDPOINT" --region "$REGION" --query 'Buckets[].Name' --output text)"
-          TARGET_BUCKET=''
-          if printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq 'agent007_dr_backups'; then
-            TARGET_BUCKET='agent007_dr_backups'
-          elif printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq "$BUCKET_SECRET"; then
-            TARGET_BUCKET="$BUCKET_SECRET"
-          fi
-          if [[ -z "$TARGET_BUCKET" ]]; then
-            echo 'ERROR: no valid Agent007 DR bucket was found in the accessible OCI bucket inventory.'
+          if ! printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq 'agent007_dr_backups'; then
+            echo 'ERROR: canonical Agent007 DR bucket agent007_dr_backups is not accessible.'
             echo 'Accessible bucket names:'
             printf '%s\n' "$BUCKET_LIST"
-            echo 'Expected primary bucket: agent007_dr_backups'
             exit 1
           fi
-          echo "Selected DR backup bucket: $TARGET_BUCKET"
-          echo "DR_BACKUP_BUCKET=$TARGET_BUCKET" >> "$GITHUB_ENV"
+
+          echo 'Selected DR backup bucket: agent007_dr_backups'
+          echo "DR_BACKUP_BUCKET=agent007_dr_backups" >> "$GITHUB_ENV"
           echo "DR_BACKUP_REGION=$REGION" >> "$GITHUB_ENV"
           echo "DR_BACKUP_ENDPOINT=$ENDPOINT" >> "$GITHUB_ENV"
           echo 'Required Agent007 backup and external object-storage configuration is verified.'
@@ -133,16 +124,10 @@ jobs:
           import boto3
           from botocore.client import Config
 
-          bucket = os.environ['DR_BACKUP_BUCKET']
-          key = os.environ['KEY']
-          endpoint = os.environ['DR_BACKUP_ENDPOINT']
-          region = os.environ['DR_BACKUP_REGION']
-          sha256 = os.environ['SHA256']
-
           client = boto3.client(
               's3',
-              region_name=region,
-              endpoint_url=endpoint,
+              region_name=os.environ['DR_BACKUP_REGION'],
+              endpoint_url=os.environ['DR_BACKUP_ENDPOINT'],
               aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
               aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
               config=Config(
@@ -153,21 +138,21 @@ jobs:
 
           with open('/tmp/agent007-backup-v2.json.gz', 'rb') as body:
               client.put_object(
-                  Bucket=bucket,
-                  Key=key,
+                  Bucket=os.environ['DR_BACKUP_BUCKET'],
+                  Key=os.environ['KEY'],
                   Body=body,
                   ContentType='application/gzip',
                   Metadata={
                       'source': 'Agent007',
                       'backup-version': '2.1',
-                      'sha256': sha256,
+                      'sha256': os.environ['SHA256'],
                       'immutable-retention': 'storage-policy',
                   },
               )
-          print(f'Immutable DR backup uploaded: {key}')
-          print(f'SHA256: {sha256}')
+          print(f"Immutable DR backup uploaded: {os.environ['KEY']}")
+          print(f"SHA256: {os.environ['SHA256']}")
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
-              env.write(f'OBJECT_KEY={key}\n')
+              env.write(f"OBJECT_KEY={os.environ['KEY']}\n")
           PY
 
       - name: Verify uploaded backup
