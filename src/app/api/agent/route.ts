@@ -4,6 +4,7 @@ import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
+import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -82,7 +83,10 @@ export async function POST(req: NextRequest) {
           const response = await runCeoCognitiveLifecycle({
             attachmentsCount: atts.length,
             messages: [
-              { role: 'system', content: 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.' },
+              {
+                role: 'system',
+                content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.\n\n${getCanonicalOrganizationPrompt()}`,
+              },
               { role: 'user', content: message },
             ],
             taskType: preRoute.taskClass,
@@ -118,7 +122,7 @@ export async function POST(req: NextRequest) {
         } else {
           // The orchestrator is the tool-runtime lane. Its LLM compatibility
           // import resolves through the canonical bridge, so every model call
-          // still enters the bounded cognitive lifecycle.
+          // still enters the bounded cognitive lifecycle with the canonical org context.
           const result = await runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit })
           safeEnqueue(sse('done', {
             messageId: result.persistedAssistantMessageId,
