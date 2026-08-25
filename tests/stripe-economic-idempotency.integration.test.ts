@@ -17,7 +17,7 @@ describe('Stripe economic idempotency', () => {
     const email = `stripe-idempotency-${randomUUID()}@example.test`
     await db.user.create({ data: { id: userId, email, passwordHash: 'ci-test-password-hash', name: 'Stripe Economic Idempotency Test' } })
     await db.customer.create({ data: { id: customerId, userId, email, name: 'Stripe Idempotency Customer' } })
-    const tx = await db.transaction.create({ data: { userId, provider: 'stripe', providerTxId, amount: 1, currency: 'USD', status: 'succeeded', customerId, ventureId, customerEmail: email } })
+    const tx = await db.transaction.create({ data: { userId, provider: 'stripe', providerTxId, amount: 1, currency: 'USD', status: 'succeeded', rawPayload: JSON.stringify({ source: 'phase-b-idempotency-test' }), customerId, ventureId, customerEmail: email } })
     transactionId = tx.id
   })
 
