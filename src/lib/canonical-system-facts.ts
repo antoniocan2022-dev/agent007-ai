@@ -1,5 +1,5 @@
 import { getCanonicalRuntimeManifest } from './canonical-runtime-manifest'
-import type { CapabilityRuntimeState } from './capability-runtime-state'
+import { listCapabilityRuntimeStates, type CapabilityRuntimeState } from './capability-runtime-state'
 
 export interface CanonicalSystemFacts {
   organization: {
@@ -23,6 +23,7 @@ export interface CanonicalSystemFacts {
 
 export async function getCanonicalSystemFacts(): Promise<CanonicalSystemFacts> {
   const manifest = getCanonicalRuntimeManifest()
+  const states = listCapabilityRuntimeStates()
   return {
     organization: {
       leaderCount: manifest.organization.leaderCount,
@@ -31,10 +32,7 @@ export async function getCanonicalSystemFacts(): Promise<CanonicalSystemFacts> {
       businessCount: manifest.organization.businessCount,
     },
     providers: manifest.providers,
-    capabilities: {
-      knownRuntimeStates: manifest.capabilities.runtimeStateCount,
-      states: [],
-    },
+    capabilities: { knownRuntimeStates: states.length, states },
     manifestVersion: manifest.manifestVersion,
     fingerprint: manifest.fingerprint,
     generatedAt: manifest.generatedAt,
