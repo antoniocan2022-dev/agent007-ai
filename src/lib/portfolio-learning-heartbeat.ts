@@ -1,10 +1,12 @@
 import { db } from './db'
 import { runContinuousPortfolioLearningCycle, type PortfolioLearningCycleResult } from './portfolio-learning'
+import { getDueWork, markDueWorkCompleted } from './autonomy-due-work'
 
 const LEASE_KEY = 'portfolio-intelligence:heartbeat:lease'
 const LAST_RESULT_KEY = 'portfolio-intelligence:heartbeat:last'
 const LEASE_TTL_MS = 15 * 60 * 1000
 const COOLDOWN_MS = 45 * 60 * 1000
+const DUE_INTERVAL_MS = 45 * 60 * 1000
 
 export interface PortfolioLearningHeartbeatResult {
   status: 'ran' | 'skipped'
@@ -14,6 +16,9 @@ export interface PortfolioLearningHeartbeatResult {
 
 export async function runPortfolioLearningHeartbeat(): Promise<PortfolioLearningHeartbeatResult> {
   const now = Date.now()
+  const due = await getDueWork('portfolio-learning', DUE_INTERVAL_MS, now)
+  if (!due.due) return { status: 'skipped', reason: 'portfolio-learning-not-due' }
+
   const existing = await db.memory.findUnique({ where: { key: LEASE_KEY }, select: { value: true } })
   if (existing) {
     try {
@@ -35,7 +40,7 @@ export async function runPortfolioLearningHeartbeat(): Promise<PortfolioLearning
         return { status: 'skipped', reason: 'portfolio-learning-cooldown' }
       }
     } catch {
-      // Malformed telemetry is non-authoritative; run a fresh cycle.
+      // Malformed telemetry is non-authoritative; the due-work gate remains authoritative.
     }
   }
 
@@ -58,6 +63,7 @@ export async function runPortfolioLearningHeartbeat(): Promise<PortfolioLearning
       update: { category: 'portfolio_intelligence_heartbeat', value: JSON.stringify({ completedAt: Date.now(), measured: cycle.measured, completedExperiments: cycle.completedExperiments.length, replanned: Boolean(cycle.replan) }) },
       create: { key: LAST_RESULT_KEY, category: 'portfolio_intelligence_heartbeat', value: JSON.stringify({ completedAt: Date.now(), measured: cycle.measured, completedExperiments: cycle.completedExperiments.length, replanned: Boolean(cycle.replan) }) },
     })
+    await markDueWorkCompleted('portfolio-learning', Date.now())
     return { status: 'ran', reason: 'portfolio-learning-cycle-completed', cycle }
   } finally {
     await db.memory.delete({ where: { key: LEASE_KEY } }).catch(() => {})
