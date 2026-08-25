@@ -74,6 +74,12 @@ jobs:
       - name: Commercial lifecycle integration contract suite
         run: bun test tests/commercial-lifecycle-integration.test.ts
 
+      - name: Commercial autonomy P0/P1 proof suite
+        run: bun test tests/commercial-autonomy-loop.integration.test.ts
+
+      - name: Real-money proof architecture audit
+        run: bun scripts/real-money-proof-audit.ts
+
       - name: Canonical organization, authority and venture-scope integrity
         run: bun test tests/architecture-control-plane.test.ts
 
