@@ -15,6 +15,16 @@ function parseExperiment(value: string): PortfolioExperiment | null {
   try { return JSON.parse(value) as PortfolioExperiment } catch { return null }
 }
 
+async function learnedControlVariant(business: PortfolioBusiness): Promise<string> {
+  const row = await db.memory.findUnique({ where: { key: `portfolio_reallocation:${business}` }, select: { value: true } })
+  if (!row) return 'current_baseline'
+  try {
+    const parsed = JSON.parse(row.value) as { preferredVariant?: unknown; confidence?: unknown }
+    if (typeof parsed.preferredVariant === 'string' && parsed.preferredVariant.trim() && Number(parsed.confidence) >= 0.7) return parsed.preferredVariant
+  } catch {}
+  return 'current_baseline'
+}
+
 export async function createPortfolioExperiment(input: Omit<PortfolioExperiment, 'experimentId' | 'createdAt' | 'status'>): Promise<PortfolioExperiment> {
   if (input.budget < 0 || !Number.isFinite(input.budget)) throw new Error('Experiment budget must be non-negative.')
   if (input.budget > CEO_VENTURE_MANDATE.maximumSingleSpendWithoutApproval) throw new Error('Experiment budget exceeds autonomous spend guardrail.')
@@ -70,6 +80,7 @@ export async function activatePortfolioExperiment(input: ActivatePortfolioExperi
   }
 
   const budget = input.budget ?? 0
+  const controlVariant = await learnedControlVariant(input.business)
   const experiment = await createPortfolioExperiment({
     business: input.business,
     hypothesis: input.hypothesis,
@@ -78,10 +89,11 @@ export async function activatePortfolioExperiment(input: ActivatePortfolioExperi
     target: Number.isFinite(input.target) ? input.target : input.baseline,
     budget,
     decisionId: input.decisionId,
-    controlVariant: 'current_baseline',
+    controlVariant,
     variant: `autonomous_variant_${input.decisionId.slice(-8)}`,
   })
 
+  if (experiment.variant === experiment.controlVariant) throw new Error('Experiment variant must differ from the learned control baseline.')
   const approved = await transitionPortfolioExperiment(experiment.experimentId, 'approved')
   if (!approved) throw new Error('Experiment approval state could not be persisted.')
   const running = await transitionPortfolioExperiment(approved.experimentId, 'running')
