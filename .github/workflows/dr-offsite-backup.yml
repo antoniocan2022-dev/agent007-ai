@@ -53,6 +53,13 @@ jobs:
             exit 1
           fi
 
+          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
+          REGION="$(printf '%s' "$REGION" | tr -d '[:space:]')"
+          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
+          [[ -n "$NAMESPACE" ]] || { echo 'ERROR: DR_BACKUP_S3_NAMESPACE is empty after normalization.'; exit 1; }
+          [[ -n "$REGION" ]] || { echo 'ERROR: DR_BACKUP_S3_REGION is empty after normalization.'; exit 1; }
+          [[ -n "$BUCKET" ]] || { echo 'ERROR: DR_BACKUP_S3_BUCKET is empty after normalization.'; exit 1; }
+
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           node - "$ENDPOINT" <<'NODE'
           const endpoint = process.argv[2]
@@ -74,8 +81,11 @@ jobs:
           NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
         run: |
           set -euo pipefail
-          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${AWS_DEFAULT_REGION}.oraclecloud.com"
-          if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$AWS_DEFAULT_REGION"; then
+          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
+          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
+          REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$REGION"; then
             echo 'ERROR: external DR backup bucket is not reachable or does not exist.'
             echo 'Check DR_BACKUP_S3_NAMESPACE, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the OCI Object Storage IAM policy.'
             echo 'The workflow refuses to generate/upload a backup when this preflight fails.'
@@ -104,7 +114,10 @@ jobs:
           SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           set -euo pipefail
-          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${AWS_DEFAULT_REGION}.oraclecloud.com"
+          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
+          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
+          REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
           aws s3api put-object \
             --bucket "$BUCKET" \
@@ -113,7 +126,7 @@ jobs:
             --content-type application/gzip \
             --metadata "source=Agent007,backup-version=2.1,sha256=$SHA256,immutable-retention=storage-policy" \
             --endpoint-url "$ENDPOINT" \
-            --region "$AWS_DEFAULT_REGION"
+            --region "$REGION"
           echo "Immutable DR backup uploaded: $KEY"
           echo "SHA256: $SHA256"
           echo "OBJECT_KEY=$KEY" >> "$GITHUB_ENV"
@@ -127,7 +140,10 @@ jobs:
           NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
         run: |
           set -euo pipefail
-          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${AWS_DEFAULT_REGION}.oraclecloud.com"
-          aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT" --region "$AWS_DEFAULT_REGION"
+          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
+          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
+          REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT" --region "$REGION"
           echo 'External DR backup object verified.'
           echo 'Immutability is provided by the configured storage retention policy.'
