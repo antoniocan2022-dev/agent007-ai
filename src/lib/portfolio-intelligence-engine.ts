@@ -1,11 +1,10 @@
 import { db } from './db'
 import { buildRelationalPortfolioMetrics } from './portfolio-commercial-intelligence'
 import { optimize } from './portfolio-intelligence-rules'
+import { activatePortfolioExperiment } from './portfolio-experiments'
 import type { PortfolioMetric, PortfolioSnapshot, PortfolioDecisionRecord } from './portfolio-intelligence-types'
 
-function stableDecisionId(business: string, snapshotId: string): string {
-  return `portfolio_decision_${business}_${snapshotId}`
-}
+function stableDecisionId(business: string, snapshotId: string): string { return `portfolio_decision_${business}_${snapshotId}` }
 
 export async function buildPortfolioSnapshot(): Promise<PortfolioSnapshot> {
   const metrics: PortfolioMetric[] = await buildRelationalPortfolioMetrics()
@@ -17,18 +16,7 @@ export async function buildPortfolioSnapshot(): Promise<PortfolioSnapshot> {
   const health = metrics.length ? Math.round(metrics.reduce((sum, metric) => sum + optimize(metric).score, 0) / metrics.length) : 0
   const createdAt = new Date().toISOString()
   const snapshotId = `portfolio_snapshot_${createdAt.replace(/[-:.TZ]/g, '')}`
-  const snapshot: PortfolioSnapshot & { marginScope?: string } = {
-    snapshotId,
-    createdAt,
-    metrics,
-    revenue: Number(revenue.toFixed(2)),
-    cost: Number(cost.toFixed(2)),
-    netRevenue: Number((revenue - cost).toFixed(2)),
-    margin,
-    customers,
-    health,
-    marginScope: hasTrackedSpend ? 'tracked_campaign_spend_only' : 'no_tracked_cost',
-  }
+  const snapshot: PortfolioSnapshot & { marginScope?: string } = { snapshotId, createdAt, metrics, revenue: Number(revenue.toFixed(2)), cost: Number(cost.toFixed(2)), netRevenue: Number((revenue - cost).toFixed(2)), margin, customers, health, marginScope: hasTrackedSpend ? 'tracked_campaign_spend_only' : 'no_tracked_cost' }
   await db.memory.create({ data: { key: snapshot.snapshotId, category: 'portfolio_intelligence_snapshot', value: JSON.stringify(snapshot) } })
   return snapshot
 }
@@ -37,18 +25,22 @@ export async function createOptimizationRecords(snapshot: PortfolioSnapshot): Pr
   return Promise.all(snapshot.metrics.map(async (metric) => {
     const decision = optimize(metric)
     const decisionId = stableDecisionId(metric.business, snapshot.snapshotId)
-    const record: PortfolioDecisionRecord = {
-      ...decision,
-      decisionId,
-      snapshotId: snapshot.snapshotId,
-      createdAt: new Date().toISOString(),
-      status: 'recommended',
+    const record: PortfolioDecisionRecord = { ...decision, decisionId, snapshotId: snapshot.snapshotId, createdAt: new Date().toISOString(), status: 'recommended' }
+    await db.memory.upsert({ where: { key: decisionId }, update: { value: JSON.stringify(record), category: 'portfolio_intelligence_decision' }, create: { key: decisionId, category: 'portfolio_intelligence_decision', value: JSON.stringify(record) } })
+
+    if (decision.decision === 'experiment') {
+      const baseline = metric.conversions ?? metric.revenue
+      const target = baseline > 0 ? Number((baseline * 1.1).toFixed(2)) : 1
+      await activatePortfolioExperiment({
+        business: metric.business,
+        decisionId,
+        hypothesis: `Improve ${metric.business} ${metric.conversions !== null ? 'conversion rate' : 'revenue'} using a controlled variant against the current baseline.`,
+        metric: metric.conversions !== null ? 'conversion_rate' : 'revenue',
+        baseline,
+        target,
+        budget: 0,
+      })
     }
-    await db.memory.upsert({
-      where: { key: decisionId },
-      update: { value: JSON.stringify(record), category: 'portfolio_intelligence_decision' },
-      create: { key: decisionId, category: 'portfolio_intelligence_decision', value: JSON.stringify(record) },
-    })
     return record
   }))
 }
@@ -62,11 +54,7 @@ export async function getPortfolioOptimizationHistory(limit = 25): Promise<Portf
   const rows = await db.memory.findMany({ where: { category: 'portfolio_intelligence_decision' }, orderBy: { createdAt: 'desc' }, take: Math.max(1, Math.min(100, limit)) })
   const records: PortfolioDecisionRecord[] = []
   for (const row of rows) {
-    try {
-      records.push(JSON.parse(row.value) as PortfolioDecisionRecord)
-    } catch {
-      // Malformed historical telemetry is ignored rather than surfaced as a fake decision.
-    }
+    try { records.push(JSON.parse(row.value) as PortfolioDecisionRecord) } catch { /* malformed historical telemetry is ignored */ }
   }
   return records
 }
