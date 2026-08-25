@@ -6,22 +6,17 @@ import { assertStripeReplayCompatible, nextStripeTransactionState } from '@/lib/
 
 describe('Stripe economic idempotency', () => {
   let userId = ''
-  let businessUnitId = ''
-  let ventureId = ''
   let customerId = ''
   let transactionId = ''
   const providerTxId = `stripe-proof-${randomUUID()}`
+  const ventureId = `venture_${randomUUID().replace(/-/g, '').slice(0, 12)}`
 
   beforeAll(async () => {
     userId = randomUUID()
-    businessUnitId = `bu_${randomUUID()}`
-    ventureId = `venture_${randomUUID().replace(/-/g, '').slice(0, 12)}`
     customerId = `cust_${randomUUID()}`
     const email = `stripe-idempotency-${randomUUID()}@example.test`
-    await db.user.create({ data: { id: userId, email, name: 'Stripe Economic Idempotency Test' } })
-    await db.businessUnit.create({ data: { id: businessUnitId, key: `idempotency_${randomUUID().slice(0, 8)}`, name: 'Idempotency Test Business', ownerUserId: userId } })
-    await db.venture.create({ data: { id: ventureId, slug: `idempotency-${randomUUID().slice(0, 8)}`, name: 'Idempotency Test Venture', businessUnitId, ownerUserId: userId, lifecycleStatus: 'ACTIVE' as any } })
-    await db.customer.create({ data: { id: customerId, userId, ventureId, email, name: 'Stripe Idempotency Customer' } })
+    await db.user.create({ data: { id: userId, email, passwordHash: 'ci-test-password-hash', name: 'Stripe Economic Idempotency Test' } })
+    await db.customer.create({ data: { id: customerId, userId, email, name: 'Stripe Idempotency Customer' } })
     const tx = await db.transaction.create({ data: { userId, provider: 'stripe', providerTxId, amount: 1, currency: 'USD', status: 'succeeded', customerId, ventureId, customerEmail: email } })
     transactionId = tx.id
   })
@@ -30,8 +25,6 @@ describe('Stripe economic idempotency', () => {
     await db.memory.deleteMany({ where: { key: { startsWith: `architecture_business_outcome:TRANSACTION:${transactionId}` } } }).catch(() => {})
     await db.transaction.deleteMany({ where: { id: transactionId } }).catch(() => {})
     await db.customer.deleteMany({ where: { id: customerId } }).catch(() => {})
-    await db.venture.deleteMany({ where: { id: ventureId } }).catch(() => {})
-    await db.businessUnit.deleteMany({ where: { id: businessUnitId } }).catch(() => {})
     await db.user.deleteMany({ where: { id: userId } }).catch(() => {})
     await db.$disconnect()
   })
