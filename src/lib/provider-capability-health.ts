@@ -4,7 +4,7 @@ import { registerCapabilityProbe, runCapabilityProbe } from './capability-probe'
 
 const PROVIDERS = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as const
 let registered = false
-let latestResults = new Map<string, { discovered: boolean; model?: string; source?: string; error?: string }>()
+let latestResults = new Map<string, { discovered: boolean; model: string | null; source?: string; error?: string }>()
 
 function ensureRegistered() {
   if (registered) return
