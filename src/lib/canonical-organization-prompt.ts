@@ -1,8 +1,17 @@
 import { getCanonicalRuntimeManifest, getCanonicalOrganizationPromptFromManifest } from './canonical-runtime-manifest'
 
-export type CanonicalOrganizationFacts = ReturnType<typeof getCanonicalOrganizationFacts>
+export interface CanonicalOrganizationFacts {
+  leaderCount: number
+  specialistCount: number
+  divisionCount: number
+  businessCount: number
+  leaderIds: readonly string[]
+  divisionNames: readonly string[]
+  businessKeys: readonly string[]
+  fingerprint: string
+}
 
-export function getCanonicalOrganizationFacts() {
+export function getCanonicalOrganizationFacts(): CanonicalOrganizationFacts {
   const manifest = getCanonicalRuntimeManifest()
   return {
     leaderCount: manifest.organization.leaderCount,
