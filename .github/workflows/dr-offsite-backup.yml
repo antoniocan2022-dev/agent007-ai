@@ -98,6 +98,8 @@ jobs:
             us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
           esac
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.signature_version s3v4
           if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$REGION"; then
             echo 'ERROR: external DR backup bucket is not reachable or does not exist.'
             echo 'Check DR_BACKUP_S3_NAMESPACE, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the OCI Object Storage IAM policy.'
@@ -136,6 +138,8 @@ jobs:
             us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
           esac
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.signature_version s3v4
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
           aws s3api put-object \
             --bucket "$BUCKET" \
@@ -168,6 +172,8 @@ jobs:
             us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
           esac
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.signature_version s3v4
           aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT" --region "$REGION"
           echo 'External DR backup object verified.'
           echo 'Immutability is provided by the configured storage retention policy.'
