@@ -2,6 +2,7 @@ import { db } from './db'
 import { buildRelationalPortfolioMetrics } from './portfolio-commercial-intelligence'
 import { optimize } from './portfolio-intelligence-rules'
 import { activatePortfolioExperiment } from './portfolio-experiments'
+import { assertPortfolioExperimentSafety } from './portfolio-experiment-safety'
 import type { PortfolioMetric, PortfolioSnapshot, PortfolioDecisionRecord } from './portfolio-intelligence-types'
 
 function stableDecisionId(business: string, snapshotId: string): string { return `portfolio_decision_${business}_${snapshotId}` }
@@ -31,6 +32,7 @@ export async function createOptimizationRecords(snapshot: PortfolioSnapshot): Pr
     if (decision.decision === 'experiment') {
       // Current causal evidence is payment-backed revenue. Do not label a revenue experiment
       // as conversion_rate until exposure/conversion outcome evidence is modeled end-to-end.
+      await assertPortfolioExperimentSafety(metric.business)
       const baseline = metric.revenue
       const target = baseline > 0 ? Number((baseline * 1.1).toFixed(2)) : 1
       await activatePortfolioExperiment({
