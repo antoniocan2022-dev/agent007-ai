@@ -1,4 +1,6 @@
 import { db } from './db'
+import { getPortfolio } from './business-portfolio'
+import { evaluateVentureDecision, type VentureDecisionResult } from './venture-decision-engine'
 import { getVenture, getVentureCommercialSnapshot, type VentureCommercialSnapshot } from './venture-commercial-foundation'
 import { calculateOperationalKpis, type OperationalKpiSnapshot } from './operational-kpi-engine'
 
@@ -7,6 +9,7 @@ export interface CeoVentureState {
   venture: Awaited<ReturnType<typeof getVenture>>
   commercial: VentureCommercialSnapshot | null
   kpi: OperationalKpiSnapshot | null
+  decision: VentureDecisionResult | null
   operationCheckpoint: Record<string, unknown> | null
 }
 
@@ -25,19 +28,33 @@ function parseCheckpoint(value: string | null): Record<string, unknown> | null {
   }
 }
 
+function normalizeName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+}
+
+async function readCanonicalVentureDecision(venture: Awaited<ReturnType<typeof getVenture>>): Promise<VentureDecisionResult | null> {
+  if (!venture) return null
+  const businesses = await getPortfolio()
+  const exact = businesses.find((business) => business.businessId === venture.id || business.businessId === venture.ventureKey)
+  const byName = exact ?? businesses.find((business) => normalizeName(business.name) === normalizeName(venture.name))
+  if (!byName) return null
+  return evaluateVentureDecision({ businessId: byName.businessId })
+}
+
 export async function readCeoVentureState(ventureId: string): Promise<CeoVentureState> {
   const normalized = ventureId.trim().toLowerCase()
   if (!/^venture_\d{3}$/.test(normalized)) throw new Error(`Invalid venture identifier: ${ventureId}`)
   const venture = await getVenture(normalized)
   if (!venture) throw new Error(`Venture not found: ${normalized}.`)
 
-  const [commercial, kpi, checkpointRow] = await Promise.all([
+  const [commercial, kpi, decision, checkpointRow] = await Promise.all([
     getVentureCommercialSnapshot(normalized),
     calculateOperationalKpis(normalized, 24),
+    readCanonicalVentureDecision(venture),
     db.memory.findUnique({ where: { key: `venture-os:operation:${normalized}` }, select: { value: true } }),
   ])
 
-  return { ventureId: normalized, venture, commercial, kpi, operationCheckpoint: parseCheckpoint(checkpointRow?.value ?? null) }
+  return { ventureId: normalized, venture, commercial, kpi, decision, operationCheckpoint: parseCheckpoint(checkpointRow?.value ?? null) }
 }
 
 function money(value: number): string {
@@ -48,14 +65,16 @@ export function formatCeoVentureEvidence(state: CeoVentureState): string {
   const venture = state.venture
   const commercial = state.commercial
   const kpi = state.kpi
+  const decision = state.decision
   const checkpoint = state.operationCheckpoint
   return [
     `SOURCE: Agent007 live Venture OS read path; venture=${state.ventureId}; read-only evidence.`,
     `IDENTITY: name=${venture?.name ?? 'unknown'}; status=${venture?.status ?? 'unknown'}; productionState=${venture?.productionState ?? 'unknown'}; owner=${venture?.ownerUserId ?? 'unknown'}.`,
     commercial ? `COMMERCIAL: customers=${commercial.customers}; opportunities=${commercial.opportunities}; transactions=${commercial.transactions}; succeededRevenue=${money(commercial.grossTransactionRevenue)}; paidInvoices=${commercial.paidInvoices}; openInvoices=${commercial.openInvoices}; activeSubscriptions=${commercial.activeSubscriptions}.` : 'COMMERCIAL: unavailable.',
     kpi ? `KPI_24H: transactions=${kpi.outcomes.transactions}; grossRevenue=${money(kpi.outcomes.grossRevenue)}; refunds=${money(kpi.outcomes.refunds)}; netRevenue=${money(kpi.outcomes.netRevenue)}; readiness=${kpi.readiness.status}; readinessScore=${kpi.readiness.score}; syntheticRevenueDetected=${kpi.controlHealth.syntheticRevenueDetected}; autonomy=${kpi.autonomy.mode}; leaseHealthy=${kpi.autonomy.leaseHealthy}.` : 'KPI_24H: unavailable.',
+    decision ? `CANONICAL_DECISION: decision=${decision.decision}; confidence=${decision.confidence.toFixed(3)}; score=${decision.score ?? 'unavailable'}; autonomousEligible=${decision.autonomousEligible}; irreversibleActionBlocked=${decision.irreversibleActionBlocked}; reasons=${decision.reasons.length ? decision.reasons.join(' | ') : 'none'}.` : 'CANONICAL_DECISION: unavailable because no canonical portfolio-business mapping is established for this venture.',
     checkpoint ? `OPERATION_CHECKPOINT: cycleId=${String(checkpoint.cycleId ?? 'unknown')}; heartbeatAt=${String(checkpoint.updatedAt ?? 'unknown')}; mode=${String(checkpoint.mode ?? 'unknown')}; readiness=${String(checkpoint.readiness ?? 'unknown')}; status=${String(checkpoint.status ?? 'unknown')}.` : 'OPERATION_CHECKPOINT: no persisted checkpoint available.',
-    'TRUTH RULE: these values are system evidence, not generated assumptions. Missing values must remain unknown; do not infer revenue, readiness, customer success, or launch approval from absent data.',
+    'TRUTH RULE: these values are system evidence, not generated assumptions. Missing values must remain unknown; do not infer revenue, readiness, customer success, decision, or launch approval from absent data.',
   ].join('\n')
 }
 
