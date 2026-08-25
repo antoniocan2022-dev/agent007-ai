@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { COMMERCIAL_LEADERS, COMMERCIAL_SPECIALISTS, getCommercialBusinesses, getCommercialDivisions } from './commercial-organization'
 import { PROVIDER_ORDER } from './provider-control-plane'
 import { listCapabilityRuntimeStates } from './capability-runtime-state'
-import { TOOL_REGISTRY } from './tools'
 
 export interface CanonicalRuntimeManifest {
   manifestVersion: '1.0'
@@ -21,7 +20,6 @@ export interface CanonicalRuntimeManifest {
     registeredIds: readonly string[]
   }
   capabilities: {
-    toolCount: number
     runtimeStateCount: number
     healthyCount: number
     degradedCount: number
@@ -45,7 +43,6 @@ function fingerprintInput() {
     divisions: getCommercialDivisions(),
     businesses: getCommercialBusinesses(),
     providers: PROVIDER_ORDER,
-    toolNames: Object.keys(TOOL_REGISTRY).sort(),
   })
 }
 
@@ -75,11 +72,7 @@ export function getCanonicalRuntimeManifest(forceRefresh = false): CanonicalRunt
       businessKeys: getCommercialBusinesses(),
     },
     providers: { registeredCount: PROVIDER_ORDER.length, registeredIds: PROVIDER_ORDER },
-    capabilities: {
-      toolCount: Object.keys(TOOL_REGISTRY).length,
-      runtimeStateCount: runtimeStates.length,
-      ...counts,
-    },
+    capabilities: { runtimeStateCount: runtimeStates.length, ...counts },
     fingerprint,
   }
   cached = manifest
@@ -94,7 +87,7 @@ export function getCanonicalOrganizationPromptFromManifest(): string {
     `LEADERS: ${manifest.organization.leaderIds.join('|')}.`,
     `DIVISIONS: ${manifest.organization.divisionNames.join(' | ')}.`,
     `BUSINESS SCOPE: ${manifest.organization.businessKeys.join(' | ')}.`,
-    `SYSTEM PROVIDERS: ${manifest.providers.registeredCount}. TOOLS: ${manifest.capabilities.toolCount}.`,
+    `SYSTEM PROVIDERS: ${manifest.providers.registeredCount}. KNOWN CAPABILITY STATES: ${manifest.capabilities.runtimeStateCount}.`,
     `RUNTIME MANIFEST FINGERPRINT: ${manifest.fingerprint}.`,
     'ORGANIZATIONAL TRUTH: hierarchy, reporting relationships, authority level, and business scope are derived from the canonical commercial organization graph. Do not invent or hardcode a different team structure.',
   ].join('\n')
