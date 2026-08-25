@@ -47,7 +47,7 @@ const checks: Array<[string, boolean]> = [
   ['Portfolio rules consume the canonical operational decision taxonomy', rules.includes('PortfolioDecision')],
   ['Venture scorecard consumes the canonical health decision taxonomy', scorecard.includes('VentureHealthDecision')],
   ['Venture decision engine consumes canonical lifecycle decision type', decision.includes("from './portfolio-decision-contract'") && decision.includes('VentureLifecycleDecision')],
-  ['Decision=experiment activates a real experiment', intelligence.includes('activatePortfolioExperiment') && intelligence.includes("decision.decision === 'experiment'")) ,
+  ['Decision=experiment activates a real experiment', intelligence.includes('activatePortfolioExperiment') && intelligence.includes("decision.decision === 'experiment'")],
   ['Experiment state machine persists proposed/approved/running/completed', experiments.includes("proposed: ['approved', 'rejected']") && experiments.includes('completePortfolioExperiment')],
   ['Payment attribution verifies a succeeded transaction', attribution.includes('assertRealSucceededTransaction')],
   ['Attribution is scoped to experiment business', attribution.includes('experiment.business !== input.business')],
