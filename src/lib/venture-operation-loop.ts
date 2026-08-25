@@ -1,8 +1,9 @@
 /**
  * Provider-neutral continuous-operation boundary for Venture OS.
  * The canonical heartbeat enters through Autonomy Manager exactly once.
- * Mission Supervisor is a child of that manager; this cycle only performs
- * bounded KPI/health work after the manager has acquired the global lease.
+ * Mission Supervisor is a child of that manager; this cycle performs bounded
+ * KPI/health work and, through a lease/cooldown guard, activates the existing
+ * portfolio intelligence/learning loop without creating a second scheduler.
  */
 import { createHash } from 'node:crypto'
 import { db } from './db'
@@ -12,6 +13,7 @@ import { evaluateVentureReadiness } from './venture-autonomy-control'
 import { calculateOperationalKpis, persistOperationalKpiSnapshot, type OperationalKpiSnapshot } from './operational-kpi-engine'
 import { assertDelegationAllowed } from './architecture-control-plane'
 import { resolveVentureOrganizationScope, type VentureOrganizationScope } from './commercial-organization-scope'
+import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } from './portfolio-learning-heartbeat'
 
 export interface VentureOperationCycle {
   cycleId: string
@@ -23,6 +25,7 @@ export interface VentureOperationCycle {
   recoveredStaleRecords: number
   kpi: OperationalKpiSnapshot
   organization: VentureOrganizationScope
+  portfolioLearning: PortfolioLearningHeartbeatResult
   ok: boolean
   findings: string[]
 }
@@ -76,8 +79,19 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   if (kpi.controlHealth.syntheticRevenueDetected) findings.push('Synthetic revenue evidence detected by KPI integrity scan.')
   if (readiness.status !== 'READY') findings.push(...readiness.blockingReasons)
 
+  let portfolioLearning: PortfolioLearningHeartbeatResult = { status: 'skipped', reason: 'venture-operation-cycle-not-reached' }
+  try {
+    portfolioLearning = await runPortfolioLearningHeartbeat()
+    if (portfolioLearning.status === 'ran' && portfolioLearning.cycle?.completedExperiments.some((learning) => learning.completed)) {
+      findings.push(`Portfolio learning completed ${portfolioLearning.cycle.completedExperiments.filter((learning) => learning.completed).length} experiment learning result(s).`)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    findings.push(`Portfolio learning heartbeat failed safely: ${message.slice(0, 240)}`)
+  }
+
   const id = cycleId(ventureId)
-  const checkpoint = { cycleId: id, ventureId, leaseId: manager.runId, status: 'HEALTHY', updatedAt: heartbeatAt, readiness: readiness.status, mode, businessKey: organization.businessKey, operationalOwnerId: organization.operationalOwnerId, sharedLeaderIds: organization.sharedLeaderIds, ventureSpecificLeaderIds: organization.ventureSpecificLeaderIds, kpiSnapshotId: kpi.snapshotId, recoveredStaleRecords }
+  const checkpoint = { cycleId: id, ventureId, leaseId: manager.runId, status: 'HEALTHY', updatedAt: heartbeatAt, readiness: readiness.status, mode, businessKey: organization.businessKey, operationalOwnerId: organization.operationalOwnerId, sharedLeaderIds: organization.sharedLeaderIds, ventureSpecificLeaderIds: organization.ventureSpecificLeaderIds, kpiSnapshotId: kpi.snapshotId, recoveredStaleRecords, portfolioLearning: { status: portfolioLearning.status, reason: portfolioLearning.reason, completedExperiments: portfolioLearning.cycle?.completedExperiments.length ?? 0, replanned: Boolean(portfolioLearning.cycle?.replan) } }
   await db.memory.upsert({ where: { key: `venture-os:operation:${ventureId}` }, update: { category: 'venture_operation_checkpoint', value: JSON.stringify(checkpoint) }, create: { key: `venture-os:operation:${ventureId}`, category: 'venture_operation_checkpoint', value: JSON.stringify(checkpoint) } })
-  return { cycleId: id, ventureId, leaseId: manager.runId, mode, readiness: readiness.status, heartbeatAt, recoveredStaleRecords, kpi, organization, ok: !kpi.controlHealth.syntheticRevenueDetected, findings }
+  return { cycleId: id, ventureId, leaseId: manager.runId, mode, readiness: readiness.status, heartbeatAt, recoveredStaleRecords, kpi, organization, portfolioLearning, ok: !kpi.controlHealth.syntheticRevenueDetected, findings }
 }
