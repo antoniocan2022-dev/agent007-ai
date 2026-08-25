@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  DR_STORAGE_ENDPOINT: ${{ secrets.DR_BACKUP_S3_ENDPOINT }}
+  DR_STORAGE_NAMESPACE: ${{ secrets.DR_BACKUP_S3_NAMESPACE }}
   DR_STORAGE_REGION: ${{ secrets.DR_BACKUP_S3_REGION }}
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
           STORAGE_KEY: ${{ secrets.OCI_S3_ACCESS_KEY }}
           STORAGE_SECRET: ${{ secrets.OCI_S3_SECRET_KEY }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          ENDPOINT: ${{ env.DR_STORAGE_ENDPOINT }}
+          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
           REGION: ${{ env.DR_STORAGE_REGION }}
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
           [[ -n "$STORAGE_KEY" ]] || missing+=(OCI_S3_ACCESS_KEY)
           [[ -n "$STORAGE_SECRET" ]] || missing+=(OCI_S3_SECRET_KEY)
           [[ -n "$BUCKET" ]] || missing+=(DR_BACKUP_S3_BUCKET)
-          [[ -n "$ENDPOINT" ]] || missing+=(DR_BACKUP_S3_ENDPOINT)
+          [[ -n "$NAMESPACE" ]] || missing+=(DR_BACKUP_S3_NAMESPACE)
           [[ -n "$REGION" ]] || missing+=(DR_BACKUP_S3_REGION)
           if (( ${#missing[@]} > 0 )); then
             echo 'ERROR: required DR backup configuration is missing.'
@@ -53,12 +53,12 @@ jobs:
             exit 1
           fi
 
-          node - <<'NODE'
-          const endpoint = process.env.ENDPOINT
-          let parsed
-          try { parsed = new URL(endpoint) } catch { throw new Error('DR_BACKUP_S3_ENDPOINT must be a valid URL') }
-          if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('DR_BACKUP_S3_ENDPOINT must use http:// or https://')
-          if (!parsed.hostname) throw new Error('DR_BACKUP_S3_ENDPOINT must include a hostname')
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          node - "$ENDPOINT" <<'NODE'
+          const endpoint = process.argv[2]
+          const parsed = new URL(endpoint)
+          if (parsed.protocol !== 'https:') throw new Error('Derived OCI S3 endpoint must use HTTPS')
+          if (!parsed.hostname) throw new Error('Derived OCI S3 endpoint must include a hostname')
           console.log(`Configured storage endpoint host: ${parsed.hostname}`)
           NODE
           echo "Configured storage region: $REGION"
@@ -71,12 +71,13 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ env.DR_STORAGE_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          ENDPOINT: ${{ env.DR_STORAGE_ENDPOINT }}
+          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
         run: |
           set -euo pipefail
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${AWS_DEFAULT_REGION}.oraclecloud.com"
           if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$AWS_DEFAULT_REGION"; then
             echo 'ERROR: external DR backup bucket is not reachable or does not exist.'
-            echo 'Check DR_BACKUP_S3_ENDPOINT, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the storage access policy.'
+            echo 'Check DR_BACKUP_S3_NAMESPACE, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the OCI Object Storage IAM policy.'
             echo 'The workflow refuses to generate/upload a backup when this preflight fails.'
             exit 1
           fi
@@ -99,10 +100,11 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ env.DR_STORAGE_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          ENDPOINT: ${{ env.DR_STORAGE_ENDPOINT }}
+          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
           SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           set -euo pipefail
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${AWS_DEFAULT_REGION}.oraclecloud.com"
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
           aws s3api put-object \
             --bucket "$BUCKET" \
@@ -122,9 +124,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ env.DR_STORAGE_REGION }}
           BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          ENDPOINT: ${{ env.DR_STORAGE_ENDPOINT }}
+          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
         run: |
           set -euo pipefail
+          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${AWS_DEFAULT_REGION}.oraclecloud.com"
           aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT" --region "$AWS_DEFAULT_REGION"
           echo 'External DR backup object verified.'
           echo 'Immutability is provided by the configured storage retention policy.'
