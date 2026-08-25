@@ -31,8 +31,12 @@ export interface VentureOperationCycle {
   findings: string[]
 }
 
-function cycleId(ventureId: string) {
-  return `cycle_${createHash('sha256').update(`${ventureId}|${new Date().toISOString().slice(0, 16)}`).digest('hex').slice(0, 20)}`
+function cycleId(ventureId: string, leaseId: string) {
+  return `cycle_${createHash('sha256').update(`${ventureId}|${leaseId}`).digest('hex').slice(0, 20)}`
+}
+
+function autonomyModeForLevel(level: AutonomyDecision['level']): AutonomyMode {
+  return level === 'AUTONOMOUS' ? 'AUTONOMOUS' : 'SUPERVISED'
 }
 
 export async function runVentureOperationCycle(ventureId = 'venture_001', owner = 'agent007'): Promise<VentureOperationCycle> {
@@ -61,7 +65,6 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   if (manager.status === 'FAILED') throw new Error(manager.errors.join('; ') || 'Canonical Autonomy Manager heartbeat failed.')
 
   const readiness = await evaluateVentureReadiness(ventureId)
-  const mode: AutonomyMode = readiness.status === 'READY' ? 'AUTONOMOUS' : 'SUPERVISED'
   const heartbeatAt = manager.finishedAt
   const stale = await db.memory.findMany({ where: { category: 'venture_operation_checkpoint' }, take: 1000 })
   let recoveredStaleRecords = 0
@@ -92,9 +95,13 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     idempotencyKey: `cycle:${manager.runId}:${ventureId}`,
   })
   const autonomy = await evaluateAndPersistAutonomy('LOW_RISK')
+  const mode = autonomyModeForLevel(autonomy.level)
   if (autonomy.decision === 'BLOCKED') findings.push(`Autonomy graduation blocked: ${autonomy.reason}`)
   if (autonomy.decision === 'DOWNGRADED') findings.push(`Autonomy downgraded: ${autonomy.reason}`)
   if (autonomyEvidence.safetyViolations) findings.push('Low-risk autonomy evidence recorded a safety violation.')
+  if (readiness.status === 'READY' && autonomy.level !== 'AUTONOMOUS') {
+    findings.push(`Venture readiness is READY but autonomy remains ${autonomy.level}; the canonical graduation policy controls execution mode.`)
+  }
 
   let portfolioLearning: PortfolioLearningHeartbeatResult = { status: 'skipped', reason: 'venture-operation-cycle-not-reached' }
   try {
@@ -107,7 +114,7 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     findings.push(`Portfolio learning heartbeat failed safely: ${message.slice(0, 240)}`)
   }
 
-  const id = cycleId(ventureId)
+  const id = cycleId(ventureId, manager.runId)
   const checkpoint = {
     cycleId: id,
     ventureId,
