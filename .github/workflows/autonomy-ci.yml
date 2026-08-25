@@ -180,7 +180,10 @@ jobs:
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
       - name: Autonomy domain tests
-        run: bun test src/lib/autonomy/autonomy.test.ts src/lib/autonomy/autonomy-runtime.test.ts src/lib/autonomy/autonomy-runtime.integration.test.ts src/lib/autonomy/capability-registry.test.ts src/lib/autonomy/owner-authorization.test.ts src/lib/autonomy/autonomy-scorecard.test.ts src/lib/autonomy/operational-evidence-bridge.test.ts src/lib/tools-runtime.test.ts src/lib/mission-telemetry.autonomy.test.ts src/lib/runtime/background-tasks.test.ts
+        run: bun test src/lib/autonomy/autonomy.test.ts src/lib/autonomy/autonomy-runtime.test.ts src/lib/autonomy/autonomy-runtime.integration.test.ts src/lib/autonomy/capability-registry.test.ts src/lib/autonomy/owner-authorization.test.ts src/lib/autonomy/autonomy-scorecard.test.ts src/lib/autonomy/operational-evidence-bridge.test.ts src/lib/tools-runtime.test.ts src/lib/mission-telemetry.autonomy.test.ts src/lib/runtime/background-tasks.test.ts tests/autonomy-graduation.integration.test.ts tests/phase-d-e-integration.test.ts
+
+      - name: Phase A-E structural integrity
+        run: bun test tests/phase-a-e-structural-integrity.test.ts
 
       - name: Lint
         run: bun run lint
