@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { COMMERCIAL_LEADERS, COMMERCIAL_SPECIALISTS, getCommercialBusinesses, getCommercialDivisions } from './commercial-organization'
+import { COMMERCIAL_LEADERS, COMMERCIAL_ORGANIZATION, COMMERCIAL_SPECIALISTS } from './commercial-organization'
 import { PROVIDER_ORDER } from './provider-control-plane'
 import { listCapabilityRuntimeStates } from './capability-runtime-state'
 
@@ -34,16 +34,17 @@ let cached: CanonicalRuntimeManifest | null = null
 let cachedAt = 0
 const CACHE_TTL_MS = 60_000
 
+function organizationProjection() {
+  const divisionNames = [...new Set(COMMERCIAL_ORGANIZATION.map((node) => node.division.trim()).filter(Boolean))].sort()
+  const businessKeys = [...new Set(COMMERCIAL_ORGANIZATION.flatMap((node) => node.businesses.map((business) => business.trim().toLowerCase())).filter(Boolean))].sort()
+  return { divisionNames, businessKeys }
+}
+
 function fingerprintInput() {
   const leaderIds = COMMERCIAL_LEADERS.map((node) => `${node.id}:${node.level}:${node.reportsTo ?? ''}:${node.division}:${node.businesses.join(',')}`)
   const specialistIds = COMMERCIAL_SPECIALISTS.map((node) => `${node.id}:${node.level}:${node.reportsTo ?? ''}:${node.division}:${node.businesses.join(',')}`)
-  return JSON.stringify({
-    leaderIds,
-    specialistIds,
-    divisions: getCommercialDivisions(),
-    businesses: getCommercialBusinesses(),
-    providers: PROVIDER_ORDER,
-  })
+  const projection = organizationProjection()
+  return JSON.stringify({ leaderIds, specialistIds, ...projection, providers: PROVIDER_ORDER })
 }
 
 export function getCanonicalRuntimeManifest(forceRefresh = false): CanonicalRuntimeManifest {
@@ -51,6 +52,7 @@ export function getCanonicalRuntimeManifest(forceRefresh = false): CanonicalRunt
   if (!forceRefresh && cached && now - cachedAt < CACHE_TTL_MS) return cached
 
   const runtimeStates = listCapabilityRuntimeStates()
+  const projection = organizationProjection()
   const counts = {
     healthyCount: runtimeStates.filter((state) => state.status === 'HEALTHY').length,
     degradedCount: runtimeStates.filter((state) => state.status === 'DEGRADED').length,
@@ -65,11 +67,11 @@ export function getCanonicalRuntimeManifest(forceRefresh = false): CanonicalRunt
     organization: {
       leaderCount: COMMERCIAL_LEADERS.filter((node) => node.level === 'LEADER').length,
       specialistCount: COMMERCIAL_SPECIALISTS.length,
-      divisionCount: getCommercialDivisions().length,
-      businessCount: getCommercialBusinesses().length,
+      divisionCount: projection.divisionNames.length,
+      businessCount: projection.businessKeys.length,
       leaderIds: COMMERCIAL_LEADERS.filter((node) => node.level === 'LEADER').map((node) => node.id),
-      divisionNames: getCommercialDivisions(),
-      businessKeys: getCommercialBusinesses(),
+      divisionNames: projection.divisionNames,
+      businessKeys: projection.businessKeys,
     },
     providers: { registeredCount: PROVIDER_ORDER.length, registeredIds: PROVIDER_ORDER },
     capabilities: { runtimeStateCount: runtimeStates.length, ...counts },
