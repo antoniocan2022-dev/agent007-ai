@@ -46,13 +46,18 @@ while (Date.now() < deadline) {
   await new Promise((resolve) => setTimeout(resolve, 3000))
 }
 if (!transaction) throw new Error(`Stripe test payment ${paymentIntent.id} succeeded, but no Agent007 Transaction was ingested within 90 seconds.`)
+const transactionCount = await db.transaction.count({ where: { provider: 'stripe', providerTxId: paymentIntent.id } })
+if (transactionCount !== 1) throw new Error(`Stripe payment ${paymentIntent.id} produced ${transactionCount} canonical Transaction rows; expected exactly 1.`)
 if (transaction.ventureId !== ventureId) throw new Error(`Transaction venture mismatch: expected ${ventureId}, received ${transaction.ventureId}`)
 if (!transaction.customerId) throw new Error('Transaction succeeded but no customerId was recorded.')
 
 const verified = await assertRealSucceededTransaction({ ventureId, transactionId: transaction.id, amount: amountCents / 100, currency: 'USD', customerId: transaction.customerId })
+const outcome = await db.memory.findUnique({ where: { key: `architecture_business_outcome:TRANSACTION:${transaction.id}` }, select: { category: true, value: true } })
+if (!outcome || outcome.category !== 'architecture_business_outcome') throw new Error('Verified Transaction has no canonical architecture_business_outcome evidence record.')
+
 const kpi = await calculateOperationalKpis(ventureId, 24)
 if (kpi.controlHealth.syntheticRevenueDetected) throw new Error('Synthetic revenue was detected in the KPI proof snapshot.')
 if (kpi.outcomes.grossRevenue < amountCents / 100) throw new Error(`KPI gross revenue did not include the proof payment. expected_at_least=${amountCents / 100}, actual=${kpi.outcomes.grossRevenue}`)
 
-console.log(JSON.stringify({ paymentIntentId: paymentIntent.id, mode: 'stripe_test', transactionId: verified.id, ventureId: verified.ventureId, customerId: verified.customerId, amount: verified.amount, currency: verified.currency, kpiGrossRevenue: kpi.outcomes.grossRevenue, syntheticRevenueDetected: kpi.controlHealth.syntheticRevenueDetected, correlationId }, null, 2))
+console.log(JSON.stringify({ paymentIntentId: paymentIntent.id, mode: 'stripe_test', transactionId: verified.id, transactionCount, ventureId: verified.ventureId, customerId: verified.customerId, amount: verified.amount, currency: verified.currency, evidenceKey: `architecture_business_outcome:TRANSACTION:${transaction.id}`, kpiGrossRevenue: kpi.outcomes.grossRevenue, syntheticRevenueDetected: kpi.controlHealth.syntheticRevenueDetected, correlationId }, null, 2))
 await db.$disconnect()
