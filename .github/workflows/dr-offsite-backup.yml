@@ -70,6 +70,7 @@ jobs:
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           aws configure set default.s3.addressing_style path
           aws configure set default.s3.signature_version s3v4
+          aws configure set default.s3.payload_signing_enabled false
           node - "$ENDPOINT" <<'NODE'
           const endpoint = process.argv[2]
           const parsed = new URL(endpoint)
@@ -124,6 +125,9 @@ jobs:
           SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           set -euo pipefail
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.signature_version s3v4
+          aws configure set default.s3.payload_signing_enabled false
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
           aws s3api put-object \
             --bucket "$DR_BACKUP_BUCKET" \
@@ -143,6 +147,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
         run: |
           set -euo pipefail
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.signature_version s3v4
+          aws configure set default.s3.payload_signing_enabled false
           aws s3api head-object \
             --bucket "$DR_BACKUP_BUCKET" \
             --key "$OBJECT_KEY" \
