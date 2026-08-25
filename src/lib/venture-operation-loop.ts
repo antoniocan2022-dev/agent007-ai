@@ -31,11 +31,14 @@ export interface VentureOperationCycle {
   findings: string[]
 }
 
-function cycleId(ventureId: string, leaseId: string) {
-  return `cycle_${createHash('sha256').update(`${ventureId}|${leaseId}`).digest('hex').slice(0, 20)}`
+export function createVentureOperationCycleId(ventureId: string, leaseId: string): string {
+  const normalizedVentureId = ventureId.trim()
+  const normalizedLeaseId = leaseId.trim()
+  if (!normalizedVentureId || !normalizedLeaseId) throw new Error('ventureId and leaseId are required for a Venture operation cycle id.')
+  return `cycle_${createHash('sha256').update(`${normalizedVentureId}|${normalizedLeaseId}`).digest('hex').slice(0, 20)}`
 }
 
-function autonomyModeForLevel(level: AutonomyDecision['level']): AutonomyMode {
+export function autonomyModeForLevel(level: AutonomyDecision['level']): AutonomyMode {
   return level === 'AUTONOMOUS' ? 'AUTONOMOUS' : 'SUPERVISED'
 }
 
@@ -114,7 +117,7 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     findings.push(`Portfolio learning heartbeat failed safely: ${message.slice(0, 240)}`)
   }
 
-  const id = cycleId(ventureId, manager.runId)
+  const id = createVentureOperationCycleId(ventureId, manager.runId)
   const checkpoint = {
     cycleId: id,
     ventureId,
