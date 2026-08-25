@@ -36,6 +36,8 @@ jobs:
           BUCKET_SECRET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
           REGION: ${{ env.DR_STORAGE_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
         run: |
           set -euo pipefail
           missing=()
