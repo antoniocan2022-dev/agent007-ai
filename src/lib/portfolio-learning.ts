@@ -1,8 +1,10 @@
 import { db } from './db'
 import { listExperimentPaymentAttribution } from './portfolio-experiment-attribution'
 import { completePortfolioExperiment } from './portfolio-experiments'
-import { runPortfolioOptimization, type PortfolioOptimizationResult } from './portfolio-intelligence-engine'
+import { runPortfolioOptimization } from './portfolio-intelligence-engine'
 import type { PortfolioExperiment, PortfolioExperimentLearningStatus } from './portfolio-intelligence-types'
+
+type PortfolioOptimizationResult = Awaited<ReturnType<typeof runPortfolioOptimization>>
 
 export interface PortfolioExperimentLearning {
   learningId: string
@@ -26,17 +28,9 @@ export interface PortfolioLearningCycleResult {
   replan: PortfolioOptimizationResult | null
 }
 
-function clamp01(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
-}
-
-function sum(values: number[]): number {
-  return Number(values.reduce((total, value) => total + value, 0).toFixed(2))
-}
-
-function parse(value: string): Record<string, unknown> | null {
-  try { return JSON.parse(value) as Record<string, unknown> } catch { return null }
-}
+function clamp01(value: number): number { return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 }
+function sum(values: number[]): number { return Number(values.reduce((total, value) => total + value, 0).toFixed(2)) }
+function parse(value: string): Record<string, unknown> | null { try { return JSON.parse(value) as Record<string, unknown> } catch { return null } }
 
 export async function listRunningPortfolioExperiments(): Promise<PortfolioExperiment[]> {
   const rows = await db.memory.findMany({ where: { category: 'portfolio_intelligence_experiment' }, orderBy: { createdAt: 'asc' }, take: 500 })
@@ -64,15 +58,9 @@ export async function learnFromPortfolioExperiment(experiment: PortfolioExperime
     const totalRevenue = controlRevenue + variantRevenue
     const relativeDelta = totalRevenue > 0 ? Math.abs(variantRevenue - controlRevenue) / totalRevenue : 0
     confidence = clamp01(0.5 + Math.min(0.45, (controlAttributions.length + variantAttributions.length) * 0.05) + Math.min(0.05, relativeDelta))
-    if (relativeDelta < 0.1) {
-      status = 'inconclusive'
-    } else if (variantRevenue > controlRevenue) {
-      status = 'variant_wins'
-      winnerVariant = variant
-    } else {
-      status = 'control_wins'
-      winnerVariant = controlVariant
-    }
+    if (relativeDelta < 0.1) status = 'inconclusive'
+    else if (variantRevenue > controlRevenue) { status = 'variant_wins'; winnerVariant = variant }
+    else { status = 'control_wins'; winnerVariant = controlVariant }
   }
 
   const learning: PortfolioExperimentLearning = {
@@ -91,16 +79,7 @@ export async function learnFromPortfolioExperiment(experiment: PortfolioExperime
     learnedAt: new Date().toISOString(),
   }
 
-  const completed = await completePortfolioExperiment(experiment.experimentId, {
-    observedValue: variantRevenue,
-    controlRevenue,
-    variantRevenue,
-    controlSampleSize: controlAttributions.length,
-    variantSampleSize: variantAttributions.length,
-    learningStatus: status,
-    learningConfidence: confidence,
-    learningEvidenceIds: evidenceIds,
-  })
+  const completed = await completePortfolioExperiment(experiment.experimentId, { observedValue: variantRevenue, controlRevenue, variantRevenue, controlSampleSize: controlAttributions.length, variantSampleSize: variantAttributions.length, learningStatus: status, learningConfidence: confidence, learningEvidenceIds: evidenceIds })
   if (!completed) throw new Error(`Experiment ${experiment.experimentId} could not be completed.`)
 
   await db.memory.upsert({
@@ -124,15 +103,9 @@ export async function runContinuousPortfolioLearningCycle(): Promise<PortfolioLe
   const baseline = await runPortfolioOptimization()
   const running = await listRunningPortfolioExperiments()
   const completedExperiments: PortfolioExperimentLearning[] = []
-
   for (const experiment of running) {
-    try {
-      completedExperiments.push(await learnFromPortfolioExperiment(experiment))
-    } catch {
-      // A running experiment without enough verified outcome evidence remains running.
-    }
+    try { completedExperiments.push(await learnFromPortfolioExperiment(experiment)) } catch { /* insufficient verified evidence leaves the experiment running */ }
   }
-
   const requiresReplan = completedExperiments.some((learning) => ['variant_wins', 'control_wins', 'inconclusive'].includes(learning.status))
   const replan = requiresReplan ? await runPortfolioOptimization() : null
   return { measured: !!baseline.snapshot, completedExperiments, replan }
