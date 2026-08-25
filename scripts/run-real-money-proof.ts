@@ -18,20 +18,7 @@ const owner = await db.user.findUnique({ where: { id: ownerUserId }, select: { i
 if (!owner) throw new Error(`Proof owner does not exist: ${ownerUserId}`)
 
 const stripe = new Stripe(stripeSecret, { apiVersion: '2024-12-18.acacia' as any })
-const paymentIntent = await stripe.paymentIntents.create({
-  amount: amountCents,
-  currency: 'usd',
-  payment_method: 'pm_card_visa',
-  confirm: true,
-  description: 'Agent007 controlled real-money proof',
-  metadata: {
-    agent007UserId: ownerUserId,
-    ventureId,
-    revenueCorrelationId: correlationId,
-    source: 'agent007-real-money-proof',
-  },
-})
-
+const paymentIntent = await stripe.paymentIntents.create({ amount: amountCents, currency: 'usd', payment_method: 'pm_card_visa', confirm: true, description: 'Agent007 controlled real-money proof', metadata: { agent007UserId: ownerUserId, ventureId, revenueCorrelationId: correlationId, source: 'agent007-real-money-proof' } })
 if (paymentIntent.status !== 'succeeded') throw new Error(`Stripe test PaymentIntent did not succeed: ${paymentIntent.status}`)
 
 const deadline = Date.now() + 90_000
@@ -45,21 +32,10 @@ if (!transaction) throw new Error(`Stripe payment ${paymentIntent.id} succeeded,
 if (transaction.ventureId !== ventureId) throw new Error(`Transaction venture mismatch: expected ${ventureId}, received ${transaction.ventureId}`)
 if (!transaction.customerId) throw new Error('Transaction succeeded but no customerId was recorded.')
 
-const verified = await assertRealSucceededTransaction({ ventureId, transactionId: transaction.id, amount: amountCents / 100, currency: 'USD', customerId: transaction.customerId } as any)
+const verified = await assertRealSucceededTransaction({ ventureId, transactionId: transaction.id, amount: amountCents / 100, currency: 'USD' })
 const kpi = await calculateOperationalKpis(ventureId, 24)
 if (kpi.controlHealth.syntheticRevenueDetected) throw new Error('Synthetic revenue was detected in the KPI proof snapshot.')
 if (kpi.outcomes.grossRevenue < amountCents / 100) throw new Error(`KPI gross revenue did not include the proof payment. expected_at_least=${amountCents / 100}, actual=${kpi.outcomes.grossRevenue}`)
 
-console.log(JSON.stringify({
-  paymentIntentId: paymentIntent.id,
-  transactionId: verified.id,
-  ventureId: verified.ventureId,
-  customerId: verified.customerId,
-  amount: verified.amount,
-  currency: verified.currency,
-  kpiGrossRevenue: kpi.outcomes.grossRevenue,
-  syntheticRevenueDetected: kpi.controlHealth.syntheticRevenueDetected,
-  correlationId,
-}, null, 2))
-
+console.log(JSON.stringify({ paymentIntentId: paymentIntent.id, transactionId: verified.id, ventureId: verified.ventureId, customerId: verified.customerId, amount: verified.amount, currency: verified.currency, kpiGrossRevenue: kpi.outcomes.grossRevenue, syntheticRevenueDetected: kpi.controlHealth.syntheticRevenueDetected, correlationId }, null, 2))
 await db.$disconnect()
