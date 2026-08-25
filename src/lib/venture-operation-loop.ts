@@ -1,9 +1,8 @@
 /**
  * Provider-neutral continuous-operation boundary for Venture OS.
  * The canonical heartbeat enters through Autonomy Manager exactly once.
- * Mission Supervisor is a child of that manager; this cycle performs bounded
- * KPI/health work and, through a lease/cooldown guard, activates the existing
- * portfolio intelligence/learning loop without creating a second scheduler.
+ * Mission Supervisor execution is integrated here so there is one autonomous
+ * control loop and one global manager lease rather than competing schedulers.
  */
 import { createHash } from 'node:crypto'
 import { db } from './db'
@@ -14,6 +13,7 @@ import { calculateOperationalKpis, persistOperationalKpiSnapshot, type Operation
 import { assertDelegationAllowed } from './architecture-control-plane'
 import { resolveVentureOrganizationScope, type VentureOrganizationScope } from './commercial-organization-scope'
 import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } from './portfolio-learning-heartbeat'
+import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
 
 export interface VentureOperationCycle {
   cycleId: string
@@ -26,6 +26,7 @@ export interface VentureOperationCycle {
   kpi: OperationalKpiSnapshot
   organization: VentureOrganizationScope
   portfolioLearning: PortfolioLearningHeartbeatResult
+  autonomy: AutonomyDecision
   ok: boolean
   findings: string[]
 }
@@ -79,6 +80,22 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   if (kpi.controlHealth.syntheticRevenueDetected) findings.push('Synthetic revenue evidence detected by KPI integrity scan.')
   if (readiness.status !== 'READY') findings.push(...readiness.blockingReasons)
 
+  // Phase D/E evidence measurement is deliberately bounded to LOW_RISK work at
+  // this integration point. Higher-risk action classes require their own evidence
+  // streams and never inherit autonomy merely because the heartbeat is healthy.
+  const autonomyEvidence = await recordAutonomyEvidence({
+    actionClass: 'LOW_RISK',
+    attempts: 1,
+    successes: manager.status === 'COMPLETED' && !kpi.controlHealth.syntheticRevenueDetected ? 1 : 0,
+    safetyViolations: kpi.controlHealth.syntheticRevenueDetected ? 1 : 0,
+    source: `canonical-heartbeat:${ventureId}`,
+    idempotencyKey: `cycle:${manager.runId}:${ventureId}`,
+  })
+  const autonomy = await evaluateAndPersistAutonomy('LOW_RISK')
+  if (autonomy.decision === 'BLOCKED') findings.push(`Autonomy graduation blocked: ${autonomy.reason}`)
+  if (autonomy.decision === 'DOWNGRADED') findings.push(`Autonomy downgraded: ${autonomy.reason}`)
+  if (autonomyEvidence.safetyViolations) findings.push('Low-risk autonomy evidence recorded a safety violation.')
+
   let portfolioLearning: PortfolioLearningHeartbeatResult = { status: 'skipped', reason: 'venture-operation-cycle-not-reached' }
   try {
     portfolioLearning = await runPortfolioLearningHeartbeat()
@@ -91,7 +108,36 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   }
 
   const id = cycleId(ventureId)
-  const checkpoint = { cycleId: id, ventureId, leaseId: manager.runId, status: 'HEALTHY', updatedAt: heartbeatAt, readiness: readiness.status, mode, businessKey: organization.businessKey, operationalOwnerId: organization.operationalOwnerId, sharedLeaderIds: organization.sharedLeaderIds, ventureSpecificLeaderIds: organization.ventureSpecificLeaderIds, kpiSnapshotId: kpi.snapshotId, recoveredStaleRecords, portfolioLearning: { status: portfolioLearning.status, reason: portfolioLearning.reason, completedExperiments: portfolioLearning.cycle?.completedExperiments.length ?? 0, replanned: Boolean(portfolioLearning.cycle?.replan) } }
+  const checkpoint = {
+    cycleId: id,
+    ventureId,
+    leaseId: manager.runId,
+    status: 'HEALTHY',
+    updatedAt: heartbeatAt,
+    readiness: readiness.status,
+    mode,
+    businessKey: organization.businessKey,
+    operationalOwnerId: organization.operationalOwnerId,
+    sharedLeaderIds: organization.sharedLeaderIds,
+    ventureSpecificLeaderIds: organization.ventureSpecificLeaderIds,
+    kpiSnapshotId: kpi.snapshotId,
+    recoveredStaleRecords,
+    autonomy: {
+      level: autonomy.level,
+      decision: autonomy.decision,
+      score: autonomy.score,
+      ceiling: autonomy.ceiling,
+      evidenceWindow: autonomy.evidenceWindow,
+      approvalId: autonomy.approvalId,
+      reason: autonomy.reason,
+    },
+    portfolioLearning: {
+      status: portfolioLearning.status,
+      reason: portfolioLearning.reason,
+      completedExperiments: portfolioLearning.cycle?.completedExperiments.length ?? 0,
+      replanned: Boolean(portfolioLearning.cycle?.replan),
+    },
+  }
   await db.memory.upsert({ where: { key: `venture-os:operation:${ventureId}` }, update: { category: 'venture_operation_checkpoint', value: JSON.stringify(checkpoint) }, create: { key: `venture-os:operation:${ventureId}`, category: 'venture_operation_checkpoint', value: JSON.stringify(checkpoint) } })
-  return { cycleId: id, ventureId, leaseId: manager.runId, mode, readiness: readiness.status, heartbeatAt, recoveredStaleRecords, kpi, organization, portfolioLearning, ok: !kpi.controlHealth.syntheticRevenueDetected, findings }
+  return { cycleId: id, ventureId, leaseId: manager.runId, mode, readiness: readiness.status, heartbeatAt, recoveredStaleRecords, kpi, organization, portfolioLearning, autonomy, ok: !kpi.controlHealth.syntheticRevenueDetected, findings }
 }
