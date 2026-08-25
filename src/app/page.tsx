@@ -33,10 +33,16 @@ import { PwaInstallPrompt } from '@/components/agent/pwa-install-prompt'
 import { AnimatePresence } from 'framer-motion'
 import { motion as Motion } from 'framer-motion'
 
+interface BootFacts {
+  organization?: { leaderCount?: number; specialistCount?: number }
+  providers?: { registeredCount?: number }
+}
+
 export default function Home() {
   const { status } = useSession()
   const router = useRouter()
   const [leftOpenMobile, setLeftOpenMobile] = useState(false)
+  const [bootFacts, setBootFacts] = useState<BootFacts>({})
 
   const leftOpen = useChatStore((s) => s.leftOpen)
   const toggleLeft = useChatStore((s) => s.toggleLeft)
@@ -46,6 +52,13 @@ export default function Home() {
   const conversations = useChatStore((s) => s.conversations)
   const activeTab = useChatStore((s) => s.activeTab)
   const startAutoRefresh = useChatStore((s) => s.startAutoRefresh)
+
+  useEffect(() => {
+    fetch('/api/system/canonical-facts', { method: 'GET', cache: 'no-store', signal: AbortSignal.timeout(5000) })
+      .then((response) => response.ok ? response.json() : null)
+      .then((facts) => facts && setBootFacts(facts))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -67,6 +80,9 @@ export default function Home() {
   }, [status, loadConversations, loadMemories, loadSubagentCount, startAutoRefresh])
 
   if (status === 'loading' || status === 'unauthenticated') {
+    const providerCount = bootFacts.providers?.registeredCount
+    const leaderCount = bootFacts.organization?.leaderCount
+    const specialistCount = bootFacts.organization?.specialistCount
     return (
       <div className="relative min-h-screen flex flex-col items-center justify-center bg-black overflow-hidden">
         <div className="relative z-10 flex flex-col items-center">
@@ -77,8 +93,8 @@ export default function Home() {
           </div>
           <div className="flex flex-col gap-1.5 text-[10px] text-[#5b6a92] tracking-wider">
             <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /><span>Initializing system…</span></div>
-            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Loading 6 LLM providers…</span></div>
-            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Connecting 20 subagents…</span></div>
+            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Loading {providerCount ?? '…'} LLM providers…</span></div>
+            <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Connecting {leaderCount ?? '…'} leaders / {specialistCount ?? '…'} specialists…</span></div>
             <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400/40" /><span>Preparing dashboard…</span></div>
           </div>
           <div className="mt-5 w-48 h-1 bg-white/5 rounded-full overflow-hidden">
