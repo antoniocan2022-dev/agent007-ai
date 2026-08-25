@@ -56,9 +56,16 @@ jobs:
           NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
           REGION="$(printf '%s' "$REGION" | tr -d '[:space:]')"
           BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
+          case "${REGION,,}" in
+            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
+            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
+            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
+            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
+          esac
           [[ -n "$NAMESPACE" ]] || { echo 'ERROR: DR_BACKUP_S3_NAMESPACE is empty after normalization.'; exit 1; }
           [[ -n "$REGION" ]] || { echo 'ERROR: DR_BACKUP_S3_REGION is empty after normalization.'; exit 1; }
           [[ -n "$BUCKET" ]] || { echo 'ERROR: DR_BACKUP_S3_BUCKET is empty after normalization.'; exit 1; }
+          [[ "$REGION" =~ ^[a-z0-9-]+$ ]] || { echo "ERROR: unsupported OCI region identifier: $REGION"; exit 1; }
 
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           node - "$ENDPOINT" <<'NODE'
@@ -68,7 +75,7 @@ jobs:
           if (!parsed.hostname) throw new Error('Derived OCI S3 endpoint must include a hostname')
           console.log(`Configured storage endpoint host: ${parsed.hostname}`)
           NODE
-          echo "Configured storage region: $REGION"
+          echo "Configured OCI storage region identifier: $REGION"
           echo "Configured backup bucket: $BUCKET"
           echo 'Required Agent007 backup and external object-storage configuration is present.'
 
@@ -84,11 +91,16 @@ jobs:
           NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
           BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
           REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
+          case "${REGION,,}" in
+            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
+            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
+            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
+            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
+          esac
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$REGION"; then
             echo 'ERROR: external DR backup bucket is not reachable or does not exist.'
             echo 'Check DR_BACKUP_S3_NAMESPACE, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the OCI Object Storage IAM policy.'
-            echo 'The workflow refuses to generate/upload a backup when this preflight fails.'
             exit 1
           fi
           echo 'External DR backup bucket access verified.'
@@ -117,6 +129,12 @@ jobs:
           NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
           BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
           REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
+          case "${REGION,,}" in
+            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
+            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
+            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
+            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
+          esac
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
           aws s3api put-object \
@@ -143,6 +161,12 @@ jobs:
           NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
           BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
           REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
+          case "${REGION,,}" in
+            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
+            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
+            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
+            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
+          esac
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT" --region "$REGION"
           echo 'External DR backup object verified.'
