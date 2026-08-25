@@ -2,6 +2,9 @@ name: DR Immutable Offsite Backup
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dr-offsite-backup.yml'
   schedule:
     - cron: '47 3 * * *'
 
