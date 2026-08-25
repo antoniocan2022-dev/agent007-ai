@@ -1,34 +1,21 @@
-import { COMMERCIAL_LEADERS, COMMERCIAL_SPECIALISTS, getCommercialDivisions, getCommercialBusinesses } from './commercial-organization'
+import { getCanonicalRuntimeManifest, getCanonicalOrganizationPromptFromManifest } from './canonical-runtime-manifest'
 
-export interface CanonicalOrganizationFacts {
-  leaderCount: number
-  specialistCount: number
-  divisionCount: number
-  businessCount: number
-  leaderIds: readonly string[]
-  divisionNames: readonly string[]
-  businessKeys: readonly string[]
-}
+export type CanonicalOrganizationFacts = ReturnType<typeof getCanonicalOrganizationFacts>
 
-export function getCanonicalOrganizationFacts(): CanonicalOrganizationFacts {
+export function getCanonicalOrganizationFacts() {
+  const manifest = getCanonicalRuntimeManifest()
   return {
-    leaderCount: COMMERCIAL_LEADERS.filter((node) => node.level === 'LEADER').length,
-    specialistCount: COMMERCIAL_SPECIALISTS.length,
-    divisionCount: getCommercialDivisions().length,
-    businessCount: getCommercialBusinesses().length,
-    leaderIds: COMMERCIAL_LEADERS.filter((node) => node.level === 'LEADER').map((node) => node.id),
-    divisionNames: getCommercialDivisions(),
-    businessKeys: getCommercialBusinesses(),
+    leaderCount: manifest.organization.leaderCount,
+    specialistCount: manifest.organization.specialistCount,
+    divisionCount: manifest.organization.divisionCount,
+    businessCount: manifest.organization.businessCount,
+    leaderIds: manifest.organization.leaderIds,
+    divisionNames: manifest.organization.divisionNames,
+    businessKeys: manifest.organization.businessKeys,
+    fingerprint: manifest.fingerprint,
   }
 }
 
 export function getCanonicalOrganizationPrompt(): string {
-  const facts = getCanonicalOrganizationFacts()
-  return [
-    `CANONICAL ORGANIZATION: ${facts.leaderCount} executive leaders, ${facts.specialistCount} specialists, ${facts.divisionCount} divisions, ${facts.businessCount} businesses.`,
-    `LEADERS: ${facts.leaderIds.join('|')}.`,
-    `DIVISIONS: ${facts.divisionNames.join(' | ')}.`,
-    `BUSINESS SCOPE: ${facts.businessKeys.join(' | ')}.`,
-    'ORGANIZATIONAL TRUTH: hierarchy, reporting relationships, authority level, and business scope are derived from the canonical commercial organization graph. Do not invent or hardcode a different team structure.',
-  ].join('\n')
+  return getCanonicalOrganizationPromptFromManifest()
 }
