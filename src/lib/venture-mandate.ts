@@ -86,18 +86,10 @@ export const CEO_VENTURE_MANDATE: VentureMandate = {
 }
 
 const LIFECYCLE_ACTION_AUTHORITY: Record<string, VentureAuthorityLevel> = {
-  reject: 'autonomous',
-  validate: 'autonomous',
-  build: 'guardrailed',
-  launch_ready: 'human_approval',
-  scale: 'human_approval',
-  optimize: 'autonomous',
-  experiment: 'autonomous',
-  pivot: 'human_approval',
-  kill: 'human_approval',
-  hold: 'autonomous',
+  reject: 'autonomous', validate: 'autonomous', build: 'guardrailed', launch_ready: 'human_approval',
+  scale: 'human_approval', optimize: 'autonomous', experiment: 'autonomous', pivot: 'human_approval',
+  kill: 'human_approval', hold: 'autonomous',
 }
-
 const HIGH_RISK_ACTIONS = new Set(['build', 'launch_ready', 'scale', 'pivot', 'kill', 'refunds_within_limit', 'major_expenditure', 'payment_credential_changes'])
 const CRITICAL_RISK_ACTIONS = new Set(['launch_ready', 'scale', 'pivot', 'kill', 'banking', 'ownership_changes', 'borrowing', 'tax_filings', 'legal_contracts', 'identity_verification', 'kyc', 'irreversible_financial_actions'])
 const MEDIUM_RISK_ACTIONS = new Set(['internal_experiments', 'publish_content', 'website_updates', 'small_operating_spend', 'discounts_within_limit', 'outreach_within_limit', 'routine_product_changes'])
@@ -110,18 +102,15 @@ function authorityForAction(action: string): VentureAuthorityLevel {
   if (CEO_VENTURE_MANDATE.authorities.human_approval.includes(action)) return 'human_approval'
   return 'human_approval'
 }
-
 function riskClassForAction(action: string): VentureRiskClass {
   if (CRITICAL_RISK_ACTIONS.has(action)) return 'critical'
   if (HIGH_RISK_ACTIONS.has(action)) return 'high'
   if (MEDIUM_RISK_ACTIONS.has(action)) return 'medium'
   return 'low'
 }
-
 function spendClassForAction(action: string, authority: VentureAuthorityLevel): VentureSpendClass {
   if (authority === 'human_approval') return 'owner_approval'
-  if (['internal_experiments', 'small_operating_spend', 'refunds_within_limit'].includes(action)) return 'guardrail'
-  if (['build'].includes(action)) return 'guardrail'
+  if (['internal_experiments', 'small_operating_spend', 'refunds_within_limit', 'build'].includes(action)) return 'guardrail'
   return 'none'
 }
 
@@ -129,12 +118,13 @@ export function resolveVentureActionEnvelope(action: string): VentureActionEnvel
   const normalized = action.trim()
   const authority = authorityForAction(normalized)
   const spendClass = spendClassForAction(normalized, authority)
+  const maxSingleSpend = normalized === 'refunds_within_limit' ? CEO_VENTURE_MANDATE.maximumRefundWithoutApproval : spendClass === 'guardrail' ? CEO_VENTURE_MANDATE.maximumSingleSpendWithoutApproval : null
   return {
     action: normalized,
     authority,
     riskClass: riskClassForAction(normalized),
     spendClass,
-    maxSingleSpend: spendClass === 'guardrail' ? CEO_VENTURE_MANDATE.maximumSingleSpendWithoutApproval : normalized === 'refunds_within_limit' ? CEO_VENTURE_MANDATE.maximumRefundWithoutApproval : null,
+    maxSingleSpend,
     maxMonthlySpend: spendClass === 'guardrail' ? CEO_VENTURE_MANDATE.maximumMonthlyBurnWithoutApproval : null,
     maxDailyCount: normalized === 'outreach_within_limit' ? CEO_VENTURE_MANDATE.maximumDailyOutreachWithoutApproval : null,
     irreversible: IRREVERSIBLE_ACTIONS.has(normalized),
@@ -146,7 +136,6 @@ export function evaluateVentureAction(action: string, input: { requestedSpend?: 
   const requestedSpend = input.requestedSpend ?? 0
   const monthlyCommittedSpend = input.monthlyCommittedSpend ?? 0
   const dailyCount = input.dailyCount ?? 0
-
   if (envelope.authority === 'human_approval') return { allowed: false, requiresHumanApproval: true, reason: `Action ${envelope.action} requires owner approval.`, envelope }
   if (!Number.isFinite(requestedSpend) || requestedSpend < 0) return { allowed: false, requiresHumanApproval: false, reason: 'Requested spend must be a finite non-negative number.', envelope }
   if (envelope.spendClass === 'guardrail') {
@@ -173,22 +162,10 @@ export function validateVentureMandate(mandate: VentureMandate = CEO_VENTURE_MAN
   if (mandate.authorities.autonomous.length === 0 || mandate.authorities.human_approval.length === 0) errors.push('Authority boundaries must contain autonomous and human approval actions.')
   const allActions = [...mandate.authorities.autonomous, ...mandate.authorities.guardrailed, ...mandate.authorities.human_approval]
   if (new Set(allActions).size !== allActions.length) errors.push('Authority actions must belong to exactly one authority tier.')
-  for (const action of allActions) {
-    const envelope = resolveVentureActionEnvelope(action)
-    if (!envelope.action) errors.push('An authority action resolved to an empty envelope.')
-  }
+  for (const action of allActions) if (!resolveVentureActionEnvelope(action).action) errors.push('An authority action resolved to an empty envelope.')
   if (mandate.hardStops.length < 5) errors.push('Hard-stop policy is unexpectedly incomplete.')
   return errors
 }
-
-export function isSpendWithinGuardrail(amount: number, monthlyCommitted: number = 0): boolean {
-  return evaluateVentureAction('internal_experiments', { requestedSpend: amount, monthlyCommittedSpend: monthlyCommitted }).allowed
-}
-
-export function canActAutonomously(action: string): boolean {
-  return resolveVentureActionEnvelope(action).authority === 'autonomous'
-}
-
-export function canActWithinGuardrail(action: string): boolean {
-  return resolveVentureActionEnvelope(action).authority === 'guardrailed'
-}
+export function isSpendWithinGuardrail(amount: number, monthlyCommitted: number = 0): boolean { return evaluateVentureAction('internal_experiments', { requestedSpend: amount, monthlyCommittedSpend: monthlyCommitted }).allowed }
+export function canActAutonomously(action: string): boolean { return resolveVentureActionEnvelope(action).authority === 'autonomous' }
+export function canActWithinGuardrail(action: string): boolean { return resolveVentureActionEnvelope(action).authority === 'guardrailed' }
