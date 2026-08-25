@@ -15,6 +15,7 @@ This is the canonical navigation map for future Agent007 work. It prevents paral
 ### Governance / control plane
 - `src/lib/architecture-control-plane.ts` — delegation hierarchy, artifact ledger, mission state transitions, business outcomes, and Venture control contracts.
 - `src/lib/autonomy/autonomy-manager.ts` — canonical autonomy heartbeat/lease boundary.
+- `src/lib/autonomy-graduation.ts` — canonical autonomy measurement, evidence-based graduation/downgrade, immutable action-class ceilings, and first high-risk owner approval evidence.
 - `src/lib/venture-autonomy-control.ts` — Venture readiness and autonomy gating.
 
 ### Commercial system of record
@@ -25,7 +26,7 @@ This is the canonical navigation map for future Agent007 work. It prevents paral
 - `src/lib/transaction-evidence-integrity.ts` — canonical check that a payment claim resolves to a real succeeded relational Transaction.
 
 ### Venture operation / intelligence
-- `src/lib/venture-operation-loop.ts` — bounded Venture heartbeat after the canonical Autonomy Manager lease; the supplied owner must resolve to a registered CEO identity.
+- `src/lib/venture-operation-loop.ts` — bounded Venture heartbeat after the canonical Autonomy Manager lease; the supplied owner must resolve to a registered CEO identity; this is also the sole heartbeat integration point for autonomy evidence/graduation.
 - `src/lib/operational-kpi-engine.ts` — operational KPI snapshot, combining durable mission/artifact/outcome evidence with relational commercial state; revenue/refunds are reconciled to real Transactions and mission storage failures fail closed.
 - `src/lib/mission-money-bridge.ts` — mission → real succeeded Transaction → canonical BusinessOutcome attribution.
 - `src/lib/portfolio-commercial-intelligence.ts` — relational adapter feeding Portfolio Intelligence.
@@ -57,6 +58,8 @@ Business Outcome ledger
   ↓
 Operational KPI / Portfolio Intelligence
   ↓
+Autonomy evidence / graduation gate
+  ↓
 CEO optimization / decision
 ```
 
@@ -74,6 +77,8 @@ A paid invoice is not proof by status alone. It must reconcile to the same-ventu
 
 A KPI refund is not proof by ledger row alone. It must reference a real succeeded Transaction, use a valid positive amount, and not exceed the originating transaction amount.
 
+Autonomy graduation is not proof of safety by score alone. Each action class has an immutable ceiling, and first high-risk graduation requires explicit owner approval evidence.
+
 ## Anti-duplication rules
 
 1. Extend the existing canonical module before creating a new subsystem.
@@ -84,6 +89,8 @@ A KPI refund is not proof by ledger row alone. It must reference a real succeede
 6. Idempotent identity functions must not silently change owner, production state, or lifecycle status on re-entry.
 7. KPI engines must fail closed rather than fall back to legacy/synthetic state when a durable source is unavailable.
 8. CI must fail when a second registry, payment ledger, portfolio source, or Venture identity model is introduced.
+9. Do not create a second CRM, payment ledger, portfolio source, or Venture identity model.
+10. Autonomy policy must remain centralized in the canonical graduation module; derived UI/reporting may project it but may not redefine ceilings or approval rules.
 
 ## Change discipline for future conversations
 
