@@ -1,5 +1,5 @@
 import { discoverProviderModels } from './provider-intelligence'
-import { getCapabilityRuntimeState, listCapabilityRuntimeStates } from './capability-runtime-state'
+import { getCapabilityRuntimeStatePersistent, listCapabilityRuntimeStatesPersistent } from './capability-runtime-state'
 import { registerCapabilityProbe, runCapabilityProbe } from './capability-probe'
 
 const PROVIDERS = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as const
@@ -32,12 +32,12 @@ export async function probeLlmCapabilities(forceRefresh = false) {
   return Promise.all(PROVIDERS.map(async (provider) => ({ provider, state: await runCapabilityProbe(`llm:${provider}`, { forceRefresh }) })))
 }
 
-export function getLlmCapabilityStates() {
+export async function getLlmCapabilityStates() {
   ensureRegistered()
-  return listCapabilityRuntimeStates().filter((state) => state.id.startsWith('llm:'))
+  return (await listCapabilityRuntimeStatesPersistent()).filter((state) => state.id.startsWith('llm:'))
 }
 
-export function getLlmCapabilityState(provider: string) {
+export async function getLlmCapabilityState(provider: string) {
   ensureRegistered()
-  return getCapabilityRuntimeState(`llm:${provider}`)
+  return getCapabilityRuntimeStatePersistent(`llm:${provider}`)
 }
