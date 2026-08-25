@@ -2,17 +2,18 @@
 import { db } from './db'
 import { CEO_VENTURE_MANDATE, evaluateVentureAction, isSpendWithinGuardrail, validateVentureMandate } from './venture-mandate'
 import { calculateOpportunityScore, calculateVentureHealth, type OpportunityScoreInput, type VentureHealthInput, type ScoreEvidence } from './venture-scorecard'
-import { getPortfolio, retireBusiness, updateBusiness, type Business, type BusinessLifecycle } from './business-portfolio'
+import { getPortfolio, updateBusiness, type Business, type BusinessLifecycle } from './business-portfolio'
+import { runContinuousPortfolioLearningCycle, type PortfolioLearningCycleResult } from './portfolio-learning'
 import type { VentureLifecycleDecision } from './portfolio-decision-contract'
 
-export const VENTURE_DECISION_ENGINE_VERSION = 5
+export const VENTURE_DECISION_ENGINE_VERSION = 6
 export type VentureDecision = VentureLifecycleDecision
 
 export interface VentureDecisionInput { businessId: string; opportunity?: OpportunityScoreInput; health?: VentureHealthInput; launchVerified?: boolean; requestedSpend?: number; monthlyCommittedSpend?: number }
 export interface VentureDecisionResult { engineVersion: number; businessId: string; lifecycle: BusinessLifecycle | null; decision: VentureDecision; confidence: number; autonomousEligible: boolean; irreversibleActionBlocked: boolean; score: number | null; reasons: string[]; scorecard: { opportunity?: ReturnType<typeof calculateOpportunityScore>; health?: ReturnType<typeof calculateVentureHealth> } }
 export interface VentureEvidenceRecord extends ScoreEvidence { businessId: string; evidenceId: string; kind: 'market' | 'customer' | 'payment' | 'analytics' | 'launch' | 'operations' | 'other'; verified: boolean; createdAt: string }
 export interface LaunchVerification { source: string; statement: string; confidence: number; verifiedAt?: string }
-export interface VentureCycleResult { scanned: number; evaluated: number; applied: number; held: number; killed: number; scaled: number; decisions: VentureDecisionResult[] }
+export interface VentureCycleResult { scanned: number; evaluated: number; applied: number; held: number; killed: number; scaled: number; decisions: VentureDecisionResult[]; learning: PortfolioLearningCycleResult | null }
 
 function clamp(value: number): number { return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0 }
 function clampConfidence(value: number): number { return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 }
@@ -49,8 +50,7 @@ export async function finalizeVerifiedLaunch(businessId: string): Promise<{ appl
   if (business.lifecycle !== 'validated') return { applied: false, message: 'Only validated ventures can transition to launched through the verified launch gate.' }
   const launchEvidence = (await getVentureEvidence(businessId)).find((item) => item.kind === 'launch' && item.verified && item.confidence >= CEO_VENTURE_MANDATE.validationConfidenceMinimum)
   if (!launchEvidence) return { applied: false, message: 'No sufficiently confident verified launch evidence exists.' }
-  const updated = await updateBusiness(businessId, { lifecycle: 'launched', launchedAt: business.launchedAt ?? launchEvidence.createdAt })
-  return updated ? { applied: true, message: 'Verified launch recorded and lifecycle advanced to launched.' } : { applied: false, message: 'Launch verification was present but the portfolio update failed.' }
+  return { applied: false, message: 'Verified launch is owner-gated by the CEO Venture Mandate.' }
 }
 
 export async function evaluateVentureDecision(input: VentureDecisionInput): Promise<VentureDecisionResult> {
@@ -86,7 +86,7 @@ export async function evaluateVentureDecision(input: VentureDecisionInput): Prom
   const scaleComplete = scaleEvidenceComplete(persistedEvidence)
   if (decision === 'scale' && !scaleComplete) reasons.push('Scale requires verified conversion-rate and customer-satisfaction metrics; missing metrics block autonomous scaling.')
   if (action.reason) reasons.push(action.reason)
-  const autonomousEligible = !isTerminal && mandateErrors.length === 0 && health.confidence >= 0.5 && action.allowed && !action.requiresHumanApproval && !(decision === 'scale' && !scaleComplete) && (decision !== 'kill' || (health.confidence >= 0.75 && health.evidenceCount >= 2))
+  const autonomousEligible = !isTerminal && mandateErrors.length === 0 && health.confidence >= 0.5 && action.allowed && !action.requiresHumanApproval && !(decision === 'scale' && !scaleComplete)
   return { engineVersion: VENTURE_DECISION_ENGINE_VERSION, businessId: business.businessId, lifecycle: business.lifecycle, decision: (decision === 'scale' && !scaleComplete) ? 'hold' : decision, confidence: health.confidence, autonomousEligible, irreversibleActionBlocked: action.envelope.irreversible, score: health.score, reasons: [...reasons, ...health.blockingReasons], scorecard: { health } }
 }
 
@@ -99,26 +99,14 @@ export async function applyAutonomousVentureDecision(result: VentureDecisionResu
 
   let applied = false
   let message = 'No state change required.'
-  switch (result.decision) {
-    case 'optimize':
-      if (business.lifecycle === 'scaling') { const updated = await updateBusiness(business.businessId, { lifecycle: 'active' }); applied = !!updated; message = applied ? 'Business moved from scaling to active for optimization.' : 'Optimization lifecycle update failed.' }
-      else message = 'Business retained for optimization; no lifecycle mutation was required.'
-      break
-    case 'experiment':
-      message = 'Business remains under controlled experimentation; the portfolio experiment engine owns the experiment lifecycle.'
-      break
-    case 'reject':
-    case 'validate':
-    case 'build':
-    case 'hold':
-      message = `Decision ${result.decision} requires additional planning/evidence or a separate non-destructive execution capability.`
-      break
-    case 'scale':
-    case 'launch_ready':
-    case 'pivot':
-    case 'kill':
-      message = 'High-impact lifecycle action is owner-gated by the CEO Venture Mandate.'
-      break
+  if (result.decision === 'optimize' && business.lifecycle === 'scaling') {
+    const updated = await updateBusiness(business.businessId, { lifecycle: 'active' })
+    applied = !!updated
+    message = applied ? 'Business moved from scaling to active for optimization.' : 'Optimization lifecycle update failed.'
+  } else if (result.decision === 'experiment') {
+    message = 'Business remains under controlled experimentation; the portfolio experiment engine owns the experiment lifecycle.'
+  } else {
+    message = `Decision ${result.decision} requires additional planning/evidence or is owner-gated.`
   }
 
   await db.memory.create({ data: { key: `venture_decision_${result.businessId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, category: 'venture_decision_audit', value: JSON.stringify({ engineVersion: result.engineVersion, businessId: result.businessId, decision: result.decision, confidence: result.confidence, applied, message, reasons: result.reasons, createdAt: new Date().toISOString() }) } }).catch(() => undefined)
@@ -137,5 +125,12 @@ export async function runAutonomousVentureCycle(): Promise<VentureCycleResult> {
     const appliedResult = await applyAutonomousVentureDecision(result)
     if (appliedResult.applied) { applied++; if (result.decision === 'kill') killed++; if (result.decision === 'scale') scaled++ }
   }
-  return { scanned: businesses.length, evaluated: decisions.length, applied, held, killed, scaled, decisions }
+
+  let learning: PortfolioLearningCycleResult | null = null
+  try { learning = await runContinuousPortfolioLearningCycle() }
+  catch (error) {
+    await db.memory.create({ data: { key: `portfolio_learning_cycle_error_${Date.now()}`, category: 'portfolio_learning_cycle_error', value: JSON.stringify({ error: error instanceof Error ? error.message : String(error), createdAt: new Date().toISOString() }) } }).catch(() => undefined)
+  }
+
+  return { scanned: businesses.length, evaluated: decisions.length, applied, held, killed, scaled, decisions, learning }
 }
