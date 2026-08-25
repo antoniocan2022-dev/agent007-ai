@@ -89,7 +89,7 @@ Autonomy graduation is not proof of safety by score alone. Each action class has
 6. Idempotent identity functions must not silently change owner, production state, or lifecycle status on re-entry.
 7. KPI engines must fail closed rather than fall back to legacy/synthetic state when a durable source is unavailable.
 8. CI must fail when a second registry, payment ledger, portfolio source, or Venture identity model is introduced.
-9. Do not create a second CRM, payment ledger, portfolio source, or Venture identity model.
+9. do not create a second CRM, payment ledger, portfolio source, or Venture identity model.
 10. Autonomy policy must remain centralized in the canonical graduation module; derived UI/reporting may project it but may not redefine ceilings or approval rules.
 
 ## Change discipline for future conversations
