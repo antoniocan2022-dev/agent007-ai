@@ -77,6 +77,15 @@ jobs:
       - name: Commercial autonomy P0/P1 proof suite
         run: bun test tests/commercial-autonomy-loop.integration.test.ts
 
+      - name: CEO canonical decision integration
+        run: bun test tests/ceo-venture-decision-integration.test.ts
+
+      - name: CEO machine-verifiable authority envelope
+        run: bun test tests/venture-authority-envelope.test.ts
+
+      - name: Portfolio continuous learning integration
+        run: bun test tests/portfolio-learning.integration.test.ts
+
       - name: Real-money proof architecture audit
         run: bun scripts/real-money-proof-audit.ts
 
