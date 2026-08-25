@@ -80,6 +80,9 @@ jobs:
       - name: P0/P1 end-to-end contract audit
         run: bun scripts/p0-p1-autonomy-audit.ts
 
+      - name: Phase A-C integrity certification gate
+        run: bun test tests/phase-a-c-integrity.test.ts tests/stripe-economic-idempotency.integration.test.ts
+
       - name: CEO canonical decision integration
         run: bun test tests/ceo-venture-decision-integration.test.ts
 
