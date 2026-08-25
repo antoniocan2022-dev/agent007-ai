@@ -11,13 +11,7 @@ import { toHealthDecision, toPortfolioDecision } from '../src/lib/portfolio-deci
 import type { PortfolioOperationalDecision } from '../src/lib/portfolio-decision-contract'
 
 const suiteSuffix = `${Date.now()}_${randomUUID().slice(0, 8)}`
-
-interface ProofFixture {
-  userId: string
-  customerId: string
-  ventureId: string
-  transactionId: string
-}
+interface ProofFixture { userId: string; customerId: string; ventureId: string; transactionId: string }
 
 async function cleanupFixture(fixture: Partial<ProofFixture>, experimentId?: string): Promise<void> {
   if (experimentId) {
@@ -39,48 +33,16 @@ async function createRealizedTransaction(amount = 17.5): Promise<ProofFixture> {
   try {
     const user = await db.user.create({ data: { email: `autonomy-proof-${unique}@example.com`, passwordHash: 'ci-test-password', name: 'Autonomy Proof' }, select: { id: true } })
     fixture.userId = user.id
-
     const customer = await db.customer.create({ data: { userId: user.id, name: 'Proof Customer', email: `autonomy-proof-${unique}@example.com`, status: 'customer' }, select: { id: true } })
     fixture.customerId = customer.id
-
     const units = await ensureInitialBusinessUnits(user.id)
-    const venture = await createOrGetVenture({
-      ventureKey: `venture_autonomy_ci_${unique.replace(/[^a-z0-9]/gi, '').toLowerCase()}`,
-      businessUnitId: units[0].id,
-      ownerUserId: user.id,
-      name: 'Autonomy Proof Venture',
-      type: 'integration-test',
-      description: 'Ephemeral commercial autonomy integration-test venture.',
-      targetMarket: 'CI',
-      pricingModel: 'one-time',
-      status: 'ACTIVE',
-      productionState: 'PRODUCTION',
-    })
+    const venture = await createOrGetVenture({ ventureKey: `venture_autonomy_ci_${unique.replace(/[^a-z0-9]/gi, '').toLowerCase()}`, businessUnitId: units[0].id, ownerUserId: user.id, name: 'Autonomy Proof Venture', type: 'integration-test', description: 'Ephemeral commercial autonomy integration-test venture.', targetMarket: 'CI', pricingModel: 'one-time', status: 'ACTIVE', productionState: 'PRODUCTION' })
     fixture.ventureId = venture.id
     await linkCustomerToVenture(customer.id, venture.id)
-
-    const transaction = await db.transaction.create({
-      data: {
-        userId: user.id,
-        provider: 'stripe',
-        providerTxId: `pi_ci_${unique}`,
-        amount,
-        currency: 'USD',
-        status: 'succeeded',
-        customerEmail: `autonomy-proof-${unique}@example.com`,
-        customerName: 'Proof Customer',
-        rawPayload: JSON.stringify({ test: true, unique }),
-        ventureId: venture.id,
-        customerId: customer.id,
-      },
-      select: { id: true },
-    })
+    const transaction = await db.transaction.create({ data: { userId: user.id, provider: 'stripe', providerTxId: `pi_ci_${unique}`, amount, currency: 'USD', status: 'succeeded', customerEmail: `autonomy-proof-${unique}@example.com`, customerName: 'Proof Customer', rawPayload: JSON.stringify({ test: true, unique }), ventureId: venture.id, customerId: customer.id }, select: { id: true } })
     fixture.transactionId = transaction.id
     return fixture as ProofFixture
-  } catch (error) {
-    await cleanupFixture(fixture)
-    throw error
-  }
+  } catch (error) { await cleanupFixture(fixture); throw error }
 }
 
 describe('Commercial autonomy proof chain', () => {
@@ -100,20 +62,19 @@ describe('Commercial autonomy proof chain', () => {
       expect(evidence).toContain('grossRevenue=17.50')
       expect(evidence).toContain('syntheticRevenueDetected=false')
       expect(evidence).toContain('TRUTH RULE')
-    } finally {
-      await cleanupFixture(fixture)
-    }
+    } finally { await cleanupFixture(fixture) }
   })
 
-  test('experiment decision activates a controlled running experiment and attribution is transaction-backed', async () => {
+  test('experiment decision activates a controlled running revenue experiment and attribution is transaction-backed', async () => {
     const fixture = await createRealizedTransaction(23)
     let experimentId = ''
     try {
-      const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `decision_${suiteSuffix}_${fixture.transactionId}`, hypothesis: 'Increase verified conversion by testing a controlled offer variant.', metric: 'conversion_rate', baseline: 8, target: 10, budget: 0 })
+      const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `decision_${suiteSuffix}_${fixture.transactionId}`, hypothesis: 'Increase verified revenue by testing a controlled offer variant.', metric: 'revenue', baseline: 20, target: 23, budget: 0 })
       experimentId = experiment.experimentId
       expect(experiment.status).toBe('running')
       expect(experiment.variant).toContain('autonomous_variant')
       expect(experiment.controlVariant).toBe('current_baseline')
+      expect(experiment.metric).toBe('revenue')
       const outcome = await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: fixture.transactionId, amount: 23, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
       expect(outcome.experimentId).toBe(experimentId)
       expect(outcome.experimentBusiness).toBe('revenue-recovery')
@@ -122,9 +83,7 @@ describe('Commercial autonomy proof chain', () => {
       expect(attribution[0].transactionId).toBe(fixture.transactionId)
       expect(attribution[0].amount).toBe(23)
       expect(attribution[0].business).toBe('revenue-recovery')
-    } finally {
-      await cleanupFixture(fixture, experimentId)
-    }
+    } finally { await cleanupFixture(fixture, experimentId) }
   })
 
   test('decision taxonomies converge through the canonical contract without erasing lifecycle semantics', () => {
