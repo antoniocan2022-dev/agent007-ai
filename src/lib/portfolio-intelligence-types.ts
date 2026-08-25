@@ -5,6 +5,7 @@ export interface PortfolioSnapshot { snapshotId: string; createdAt: string; metr
 export interface AllocationRecommendation { business: PortfolioBusiness; decision: PortfolioDecision; score: number; confidence: number; rationale: string; priority: number; requiresHumanApproval: boolean; evidenceIds?: string[] }
 export interface PortfolioDecisionRecord extends AllocationRecommendation { decisionId: string; snapshotId: string; createdAt: string; status: 'recommended' | 'approved' | 'rejected' | 'executed' }
 export type PortfolioExperimentStatus = 'proposed' | 'approved' | 'running' | 'completed' | 'rejected'
+export type PortfolioExperimentLearningStatus = 'pending' | 'insufficient_evidence' | 'variant_wins' | 'control_wins' | 'inconclusive'
 export interface PortfolioExperiment {
   experimentId: string
   business: PortfolioBusiness
@@ -15,7 +16,16 @@ export interface PortfolioExperiment {
   budget: number
   status: PortfolioExperimentStatus
   createdAt: string
+  completedAt?: string
   decisionId?: string
   controlVariant?: string
   variant?: string
+  observedValue?: number
+  controlRevenue?: number
+  variantRevenue?: number
+  controlSampleSize?: number
+  variantSampleSize?: number
+  learningStatus?: PortfolioExperimentLearningStatus
+  learningConfidence?: number
+  learningEvidenceIds?: string[]
 }
