@@ -64,19 +64,19 @@ describe('Phase A-C integrity', () => {
     expect(learning).toContain("getDueWork('portfolio-learning'")
   })
 
-  test('CEO prompt sources contain no legacy organizational counts', () => {
+  test('canonical CEO prompt path is dynamically derived and free of legacy roster claims', () => {
     const agent = readFileSync(new URL('../src/lib/agent.ts', import.meta.url), 'utf8')
-    const orchestrator = readFileSync(new URL('../src/lib/orchestrator.ts', import.meta.url), 'utf8')
+    expect(agent).toContain("from './canonical-organization-prompt'")
+    expect(agent).toContain('${getCanonicalOrganizationPrompt()}')
     expect(agent).not.toContain('20 pod leaders')
-    expect(orchestrator).not.toContain('20 subagents')
   })
 
-  test('UI/system counters are derived from the canonical facts endpoint', () => {
+  test('UI/system counters are exposed by the canonical facts endpoint', () => {
     const page = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8')
     const route = readFileSync(new URL('../src/app/api/system/canonical-facts/route.ts', import.meta.url), 'utf8')
     expect(page).toContain('/api/system/canonical-facts')
+    expect(route).toContain('getCanonicalSystemFacts')
     expect(page).not.toContain('Loading 6 LLM providers')
     expect(page).not.toContain('Connecting 20 subagents')
-    expect(route).toContain('getCanonicalRuntimeManifest')
   })
 })
