@@ -34,7 +34,6 @@ async function cleanup(fixture: Fixture, experimentId?: string): Promise<void> {
     await db.memory.delete({ where: { key: `portfolio_learning_${experimentId}` } }).catch(() => undefined)
     await db.memory.delete({ where: { key: experimentId } }).catch(() => undefined)
   }
-  await db.memory.delete({ where: { key: 'portfolio_reallocation:revenue-recovery' } }).catch(() => undefined)
   for (const transactionId of fixture.transactionIds) {
     await db.memory.delete({ where: { key: `architecture_business_outcome:TRANSACTION:${transactionId}` } }).catch(() => undefined)
     await db.transaction.delete({ where: { id: transactionId } }).catch(() => undefined)
@@ -79,11 +78,13 @@ describe('portfolio continuous learning loop', () => {
       const persisted = await db.memory.findUnique({ where: { key: `portfolio_reallocation:revenue-recovery` } })
       expect(persisted).not.toBeNull()
 
+      await db.memory.delete({ where: { key: `portfolio_reallocation:revenue-recovery` } }).catch(() => undefined)
       const next = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_followup_${fixture.ventureId}`, hypothesis: 'Use the verified winner as the next control baseline.', metric: 'revenue', baseline: 51, target: 56, budget: 0 })
       expect(next.controlVariant).toBe(experiment.variant)
       expect(next.variant).not.toBe(next.controlVariant)
       await db.memory.delete({ where: { key: next.experimentId } }).catch(() => undefined)
     } finally {
+      await db.memory.delete({ where: { key: `portfolio_reallocation:revenue-recovery` } }).catch(() => undefined)
       await cleanup(fixture, experimentId)
     }
   })
@@ -92,12 +93,12 @@ describe('portfolio continuous learning loop', () => {
     const fixture = await createFixture()
     let experimentId = ''
     try {
-      const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_open_${fixture.ventureId}`, hypothesis: 'Keep running until both variants have sufficient evidence.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
+      const experiment = await activatePortfolioExperiment({ business: 'operations-kit', decisionId: `learning_open_${fixture.ventureId}`, hypothesis: 'Keep running until both variants have sufficient evidence.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
       experimentId = experiment.experimentId
       const variantTx1 = await addTransaction(fixture, 20, `pi_learning_open_a_${fixture.ventureId}`)
       const variantTx2 = await addTransaction(fixture, 21, `pi_learning_open_b_${fixture.ventureId}`)
-      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx1, amount: 20, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
-      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx2, amount: 21, currency: 'USD', experimentId, experimentBusiness: 'revenue-recovery', experimentVariant: experiment.variant })
+      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx1, amount: 20, currency: 'USD', experimentId, experimentBusiness: 'operations-kit', experimentVariant: experiment.variant })
+      await recordVerifiedTransactionOutcome({ ventureId: fixture.ventureId, transactionId: variantTx2, amount: 21, currency: 'USD', experimentId, experimentBusiness: 'operations-kit', experimentVariant: experiment.variant })
       const learning = await learnFromPortfolioExperiment(experiment)
       expect(learning.completed).toBe(false)
       expect(learning.status).toBe('insufficient_evidence')
@@ -115,9 +116,9 @@ describe('portfolio continuous learning loop', () => {
     const fixture = await createFixture()
     let experimentId = ''
     try {
-      const first = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_idempotent_${fixture.ventureId}_1`, hypothesis: 'One active test per business.', metric: 'revenue', baseline: 10, target: 11, budget: 0 })
+      const first = await activatePortfolioExperiment({ business: 'career-command', decisionId: `learning_idempotent_${fixture.ventureId}_1`, hypothesis: 'One active test per business.', metric: 'revenue', baseline: 10, target: 11, budget: 0 })
       experimentId = first.experimentId
-      const second = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_idempotent_${fixture.ventureId}_2`, hypothesis: 'Another request must reuse the active experiment.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
+      const second = await activatePortfolioExperiment({ business: 'career-command', decisionId: `learning_idempotent_${fixture.ventureId}_2`, hypothesis: 'Another request must reuse the active experiment.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
       expect(second.experimentId).toBe(first.experimentId)
       expect(second.status).toBe('running')
     } finally {
