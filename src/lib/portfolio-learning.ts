@@ -20,6 +20,7 @@ export interface PortfolioExperimentLearning {
   confidence: number
   evidenceIds: string[]
   learnedAt: string
+  completed: boolean
 }
 
 export interface PortfolioLearningCycleResult {
@@ -77,10 +78,30 @@ export async function learnFromPortfolioExperiment(experiment: PortfolioExperime
     confidence,
     evidenceIds,
     learnedAt: new Date().toISOString(),
+    completed: false,
   }
 
-  const completed = await completePortfolioExperiment(experiment.experimentId, { observedValue: variantRevenue, controlRevenue, variantRevenue, controlSampleSize: controlAttributions.length, variantSampleSize: variantAttributions.length, learningStatus: status, learningConfidence: confidence, learningEvidenceIds: evidenceIds })
+  if (!hasBothVariants) {
+    await db.memory.upsert({
+      where: { key: learning.learningId },
+      update: { value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
+      create: { key: learning.learningId, value: JSON.stringify(learning), category: 'portfolio_intelligence_learning' },
+    })
+    return learning
+  }
+
+  const completed = await completePortfolioExperiment(experiment.experimentId, {
+    observedValue: variantRevenue,
+    controlRevenue,
+    variantRevenue,
+    controlSampleSize: controlAttributions.length,
+    variantSampleSize: variantAttributions.length,
+    learningStatus: status,
+    learningConfidence: confidence,
+    learningEvidenceIds: evidenceIds,
+  })
   if (!completed) throw new Error(`Experiment ${experiment.experimentId} could not be completed.`)
+  learning.completed = true
 
   await db.memory.upsert({
     where: { key: learning.learningId },
@@ -106,7 +127,7 @@ export async function runContinuousPortfolioLearningCycle(): Promise<PortfolioLe
   for (const experiment of running) {
     try { completedExperiments.push(await learnFromPortfolioExperiment(experiment)) } catch { /* insufficient verified evidence leaves the experiment running */ }
   }
-  const requiresReplan = completedExperiments.some((learning) => ['variant_wins', 'control_wins', 'inconclusive'].includes(learning.status))
+  const requiresReplan = completedExperiments.some((learning) => learning.completed && ['variant_wins', 'control_wins', 'inconclusive'].includes(learning.status))
   const replan = requiresReplan ? await runPortfolioOptimization() : null
   return { measured: !!baseline.snapshot, completedExperiments, replan }
 }
