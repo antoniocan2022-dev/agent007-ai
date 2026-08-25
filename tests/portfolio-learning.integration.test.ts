@@ -47,6 +47,7 @@ describe('portfolio continuous learning loop', () => {
   test('verified variant/control payments complete an experiment and create a reallocation record', async () => {
     const fixture = await createFixture()
     let experimentId = ''
+    let nextExperimentId = ''
     try {
       const experiment = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_${fixture.ventureId}`, hypothesis: 'Variant improves verified revenue.', metric: 'revenue', baseline: 10, target: 12, budget: 0 })
       experimentId = experiment.experimentId
@@ -78,13 +79,13 @@ describe('portfolio continuous learning loop', () => {
       const persisted = await db.memory.findUnique({ where: { key: `portfolio_reallocation:revenue-recovery` } })
       expect(persisted).not.toBeNull()
 
-      await db.memory.delete({ where: { key: `portfolio_reallocation:revenue-recovery` } }).catch(() => undefined)
       const next = await activatePortfolioExperiment({ business: 'revenue-recovery', decisionId: `learning_followup_${fixture.ventureId}`, hypothesis: 'Use the verified winner as the next control baseline.', metric: 'revenue', baseline: 51, target: 56, budget: 0 })
+      nextExperimentId = next.experimentId
       expect(next.controlVariant).toBe(experiment.variant)
       expect(next.variant).not.toBe(next.controlVariant)
-      await db.memory.delete({ where: { key: next.experimentId } }).catch(() => undefined)
     } finally {
       await db.memory.delete({ where: { key: `portfolio_reallocation:revenue-recovery` } }).catch(() => undefined)
+      if (nextExperimentId) await db.memory.delete({ where: { key: nextExperimentId } }).catch(() => undefined)
       await cleanup(fixture, experimentId)
     }
   })
