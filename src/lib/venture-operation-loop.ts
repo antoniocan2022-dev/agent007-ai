@@ -95,6 +95,7 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     successes: manager.status === 'COMPLETED' && !kpi.controlHealth.syntheticRevenueDetected ? 1 : 0,
     safetyViolations: kpi.controlHealth.syntheticRevenueDetected ? 1 : 0,
     source: `canonical-heartbeat:${ventureId}`,
+    recordedAt: heartbeatAt,
     idempotencyKey: `cycle:${manager.runId}:${ventureId}`,
   })
   const autonomy = await evaluateAndPersistAutonomy('LOW_RISK')
