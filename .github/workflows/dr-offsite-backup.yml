@@ -100,6 +100,26 @@ jobs:
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
           aws configure set default.s3.addressing_style path
           aws configure set default.s3.signature_version s3v4
+
+          echo 'Checking OCI S3 credentials and listing accessible buckets...'
+          set +e
+          BUCKET_LIST="$(aws s3api list-buckets --endpoint-url "$ENDPOINT" --region "$REGION" --query 'Buckets[].Name' --output text 2>&1)"
+          LIST_STATUS=$?
+          set -e
+          if (( LIST_STATUS == 0 )); then
+            echo 'Accessible bucket names:'
+            printf '%s\n' "$BUCKET_LIST"
+            if ! printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq "$BUCKET"; then
+              echo 'ERROR: DR_BACKUP_S3_BUCKET is not present in the accessible OCI bucket list.'
+              echo 'The stored bucket secret is incorrect, or the OCI S3 credentials do not have visibility to that bucket.'
+              exit 1
+            fi
+            echo 'Configured DR backup bucket is present in the accessible bucket list.'
+          else
+            echo 'WARNING: list-buckets preflight was not available; continuing with direct bucket verification.'
+            echo "$BUCKET_LIST"
+          fi
+
           if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$REGION"; then
             echo 'ERROR: external DR backup bucket is not reachable or does not exist.'
             echo 'Check DR_BACKUP_S3_NAMESPACE, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the OCI Object Storage IAM policy.'
