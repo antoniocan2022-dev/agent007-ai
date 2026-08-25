@@ -4,6 +4,7 @@ import Stripe from 'stripe'
 import { hasFulfillmentCompleted, markFulfillmentCompleted, markFulfillmentPending, stripeIncomeReference } from '@/lib/revenue-integrity'
 import { resolveStripeCustomer } from '@/lib/stripe-customer-resolution'
 import { recordVerifiedRefundOutcome, recordVerifiedTransactionOutcome } from '@/lib/business-outcome-integrity'
+import { assertStripeReplayCompatible, nextStripeTransactionState } from '@/lib/stripe-webhook-integrity'
 import type { PortfolioBusiness } from '@/lib/portfolio-intelligence-contract'
 
 export const runtime = 'nodejs'
@@ -80,12 +81,22 @@ export async function POST(req: NextRequest) {
       const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
 
       const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } } })
+      if (existing) {
+        assertStripeReplayCompatible(existing, {
+          userId: owner.id,
+          status: 'succeeded',
+          amount,
+          currency,
+          customerId: existing.customerId ?? customerId,
+          ventureId: existing.ventureId ?? (paymentContext.ventureId || null),
+        })
+      }
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
+        ? await db.transaction.update({ where: { id: existing.id }, data: { status: nextStripeTransactionState(existing.status, 'succeeded'), rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(existing.customerId || !customerId ? {} : { customerId }), ...(existing.ventureId || !paymentContext.ventureId ? {} : { ventureId: paymentContext.ventureId }) } })
         : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
 
       let outcomeCreated = false
-      if (paymentContext.ventureId) {
+      if (paymentContext.ventureId && transaction.status === 'succeeded') {
         await recordVerifiedTransactionOutcome({ ventureId: paymentContext.ventureId, transactionId: transaction.id, amount, currency, revenueCorrelationId: paymentContext.revenueCorrelationId, experimentId: paymentContext.experimentId || undefined, experimentBusiness: paymentContext.experimentBusiness, experimentVariant: paymentContext.experimentVariant })
         outcomeCreated = true
       }
@@ -93,7 +104,7 @@ export async function POST(req: NextRequest) {
       const incomeNotes = `Stripe Checkout — ${productName} (product: ${productId}, session: ${checkoutSessionId}, payment_intent: ${providerTxId})`
       await ensureIncomeEntry({ amount, source: stripeIncomeReference('sale', providerTxId), notes: incomeNotes })
       let fulfillmentResult: { downloadUrl?: string; emailSent?: boolean; isFirstSale?: boolean } = {}
-      if (customerEmail && productId !== 'unknown' && !hasFulfillmentCompleted(transaction.rawPayload)) {
+      if (transaction.status === 'succeeded' && customerEmail && productId !== 'unknown' && !hasFulfillmentCompleted(transaction.rawPayload)) {
         try {
           const { fulfillPurchase } = await import('@/lib/product-fulfillment')
           fulfillmentResult = await fulfillPurchase({ ownerUserId: owner.id, customerEmail, productId, amount, transactionId: providerTxId, checkoutSessionId })
@@ -125,11 +136,21 @@ export async function POST(req: NextRequest) {
       const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
 
       const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } } })
+      if (existing) {
+        assertStripeReplayCompatible(existing, {
+          userId: owner.id,
+          status: 'succeeded',
+          amount,
+          currency,
+          customerId: existing.customerId ?? customerId,
+          ventureId: existing.ventureId ?? (paymentContext.ventureId || null),
+        })
+      }
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
+        ? await db.transaction.update({ where: { id: existing.id }, data: { status: nextStripeTransactionState(existing.status, 'succeeded'), rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(existing.customerId || !customerId ? {} : { customerId }), ...(existing.ventureId || !paymentContext.ventureId ? {} : { ventureId: paymentContext.ventureId }) } })
         : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
       let outcomeCreated = false
-      if (paymentContext.ventureId) {
+      if (paymentContext.ventureId && transaction.status === 'succeeded') {
         await recordVerifiedTransactionOutcome({ ventureId: paymentContext.ventureId, transactionId: transaction.id, amount, currency, revenueCorrelationId: paymentContext.revenueCorrelationId, experimentId: paymentContext.experimentId || undefined, experimentBusiness: paymentContext.experimentBusiness, experimentVariant: paymentContext.experimentVariant })
         outcomeCreated = true
       }
