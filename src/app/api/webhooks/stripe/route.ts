@@ -3,13 +3,13 @@ import { db } from '@/lib/db'
 import Stripe from 'stripe'
 import { hasFulfillmentCompleted, markFulfillmentCompleted, markFulfillmentPending, stripeIncomeReference } from '@/lib/revenue-integrity'
 import { resolveStripeCustomer } from '@/lib/stripe-customer-resolution'
+import { recordVerifiedRefundOutcome, recordVerifiedTransactionOutcome } from '@/lib/business-outcome-integrity'
+import type { PortfolioBusiness } from '@/lib/portfolio-intelligence-contract'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-function safeJson(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
+function safeJson(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {} }
 
 async function ensureIncomeEntry(opts: { amount: number; source: string; notes: string }) {
   return db.$transaction(async (tx) => {
@@ -26,12 +26,21 @@ async function persistFulfillmentState(transactionId: string, payload: string, s
   await db.transaction.update({ where: { id: transactionId }, data: { rawPayload: nextPayload } })
 }
 
+function paymentMetadata(data: Record<string, unknown>) {
+  const metadata = safeJson(data.metadata)
+  const ventureId = typeof metadata.ventureId === 'string' ? metadata.ventureId.trim().toLowerCase() : ''
+  const experimentId = typeof metadata.experimentId === 'string' ? metadata.experimentId.trim() : ''
+  const experimentBusiness = typeof metadata.experimentBusiness === 'string' ? metadata.experimentBusiness.trim() as PortfolioBusiness : undefined
+  const experimentVariant = typeof metadata.experimentVariant === 'string' ? metadata.experimentVariant.trim() : undefined
+  const revenueCorrelationId = typeof metadata.revenueCorrelationId === 'string' ? metadata.revenueCorrelationId.trim() : undefined
+  return { metadata, ventureId: /^venture_\d{3}$/.test(ventureId) ? ventureId : '', experimentId, experimentBusiness, experimentVariant, revenueCorrelationId }
+}
+
 export async function POST(req: NextRequest) {
   const payload = await req.text()
   const sig = req.headers.get('stripe-signature') || ''
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
   const secretKey = process.env.STRIPE_SECRET_KEY
-
   if (!webhookSecret) return NextResponse.json({ error: 'Webhook secret not configured.' }, { status: 503 })
   if (!secretKey) return NextResponse.json({ error: 'Stripe secret key not configured.' }, { status: 503 })
   if (!sig) return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 })
@@ -48,6 +57,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const data = safeJson(event.data?.object)
+    const paymentContext = paymentMetadata(data)
 
     if (event.type === 'checkout.session.completed') {
       const amount = Number(data.amount_total ?? 0) / 100
@@ -57,7 +67,7 @@ export async function POST(req: NextRequest) {
       const customerDetails = safeJson(data.customer_details)
       const customerEmail = typeof customerDetails.email === 'string' ? customerDetails.email : undefined
       const customerName = typeof customerDetails.name === 'string' ? customerDetails.name : undefined
-      const metadata = safeJson(data.metadata)
+      const metadata = paymentContext.metadata
       const productId = typeof metadata.productId === 'string' ? metadata.productId : 'unknown'
       const productName = typeof metadata.productName === 'string' ? metadata.productName : 'Unknown Product'
       const paymentStatus = String(data.payment_status || '')
@@ -65,22 +75,23 @@ export async function POST(req: NextRequest) {
 
       if (paymentStatus !== 'paid') return NextResponse.json({ received: true, skipped: true, reason: `payment_status=${paymentStatus}` })
       if (!metadataUserId) return NextResponse.json({ error: 'Paid checkout is missing Agent007 owner metadata.' }, { status: 422 })
-
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) return NextResponse.json({ error: 'Agent007 checkout owner not found.' }, { status: 422 })
       const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
 
-      const existing = await db.transaction.findUnique({
-        where: { provider_providerTxId: { provider: 'stripe', providerTxId } },
-      })
-
+      const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } } })
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
-        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
+        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
+        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, productName, description: `Product: ${productName} (ID: ${productId})`, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
+
+      let outcomeCreated = false
+      if (paymentContext.ventureId) {
+        await recordVerifiedTransactionOutcome({ ventureId: paymentContext.ventureId, transactionId: transaction.id, amount, currency, revenueCorrelationId: paymentContext.revenueCorrelationId, experimentId: paymentContext.experimentId || undefined, experimentBusiness: paymentContext.experimentBusiness, experimentVariant: paymentContext.experimentVariant })
+        outcomeCreated = true
+      }
 
       const incomeNotes = `Stripe Checkout — ${productName} (product: ${productId}, session: ${checkoutSessionId}, payment_intent: ${providerTxId})`
       await ensureIncomeEntry({ amount, source: stripeIncomeReference('sale', providerTxId), notes: incomeNotes })
-
       let fulfillmentResult: { downloadUrl?: string; emailSent?: boolean; isFirstSale?: boolean } = {}
       if (customerEmail && productId !== 'unknown' && !hasFulfillmentCompleted(transaction.rawPayload)) {
         try {
@@ -94,15 +105,14 @@ export async function POST(req: NextRequest) {
           console.error(`[stripe-webhook] Fulfillment failed for ${checkoutSessionId}:`, message.slice(0, 200))
         }
       }
-
-      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null, product: productName, fulfilled: !!fulfillmentResult.downloadUrl, emailSent: fulfillmentResult.emailSent ?? false, isFirstSale: fulfillmentResult.isFirstSale ?? false })
+      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null, product: productName, fulfilled: !!fulfillmentResult.downloadUrl, emailSent: fulfillmentResult.emailSent ?? false, isFirstSale: fulfillmentResult.isFirstSale ?? false, outcomeCreated, experimentAttributed: !!(paymentContext.experimentId && paymentContext.experimentVariant) })
     }
 
     if (event.type === 'payment_intent.succeeded') {
       const amount = Number(data.amount_received ?? data.amount ?? 0) / 100
       const currency = String(data.currency || 'usd').toUpperCase()
       const providerTxId = String(data.id)
-      const metadata = safeJson(data.metadata)
+      const metadata = paymentContext.metadata
       const metadataUserId = typeof metadata.agent007UserId === 'string' ? metadata.agent007UserId : ''
       const metadataEmail = typeof metadata.customerEmail === 'string' ? metadata.customerEmail : undefined
       const metadataName = typeof metadata.customerName === 'string' ? metadata.customerName : undefined
@@ -110,32 +120,34 @@ export async function POST(req: NextRequest) {
       const customerEmail = receiptEmail || metadataEmail
       const customerName = metadataName
       if (!metadataUserId) return NextResponse.json({ received: true, skipped: true, reason: 'missing_owner_metadata' })
-
       const owner = await db.user.findUnique({ where: { id: metadataUserId }, select: { id: true } })
       if (!owner) return NextResponse.json({ error: 'Agent007 payment owner not found.' }, { status: 422 })
       const customerId = await resolveStripeCustomer({ userId: owner.id, email: customerEmail, name: customerName })
 
       const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } } })
       const transaction = existing
-        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
-        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}) } })
-
+        ? await db.transaction.update({ where: { id: existing.id }, data: { userId: owner.id, status: 'succeeded', amount, currency, customerEmail, customerName, rawPayload: existing.rawPayload || payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
+        : await db.transaction.create({ data: { userId: owner.id, provider: 'stripe', providerTxId, amount, currency, status: 'succeeded', customerEmail, customerName, rawPayload: payload.slice(0, 10000), ...(customerId ? { customerId } : {}), ...(paymentContext.ventureId ? { ventureId: paymentContext.ventureId } : {}) } })
+      let outcomeCreated = false
+      if (paymentContext.ventureId) {
+        await recordVerifiedTransactionOutcome({ ventureId: paymentContext.ventureId, transactionId: transaction.id, amount, currency, revenueCorrelationId: paymentContext.revenueCorrelationId, experimentId: paymentContext.experimentId || undefined, experimentBusiness: paymentContext.experimentBusiness, experimentVariant: paymentContext.experimentVariant })
+        outcomeCreated = true
+      }
       await ensureIncomeEntry({ amount, source: stripeIncomeReference('sale', providerTxId), notes: `Stripe PaymentIntent — ${providerTxId}` })
-      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null })
+      return NextResponse.json({ received: true, duplicate: !!existing, transactionId: transaction.id, customerId: transaction.customerId ?? null, outcomeCreated, experimentAttributed: !!(paymentContext.experimentId && paymentContext.experimentVariant) })
     }
 
     if (event.type === 'charge.refunded') {
       const providerTxId = typeof data.payment_intent === 'string' ? data.payment_intent : ''
       const amountRefunded = Number(data.amount_refunded ?? 0) / 100
       if (!providerTxId) return NextResponse.json({ received: true, skipped: true, reason: 'refund_missing_payment_intent' })
-
-      const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } }, select: { id: true, status: true } })
+      const existing = await db.transaction.findUnique({ where: { provider_providerTxId: { provider: 'stripe', providerTxId } }, select: { id: true, status: true, ventureId: true } })
       if (!existing) return NextResponse.json({ received: true, skipped: true, reason: 'transaction_not_found' })
-
       const alreadyRefunded = existing.status === 'refunded'
+      if (amountRefunded > 0 && existing.ventureId) await recordVerifiedRefundOutcome({ ventureId: existing.ventureId, transactionId: existing.id, amount: amountRefunded, currency: typeof data.currency === 'string' ? data.currency.toUpperCase() : undefined })
       await db.transaction.update({ where: { id: existing.id }, data: { status: 'refunded' } })
       if (amountRefunded > 0) await ensureIncomeEntry({ amount: -amountRefunded, source: stripeIncomeReference('refund', providerTxId), notes: `Stripe refund for PaymentIntent ${providerTxId}` })
-      return NextResponse.json({ received: true, refunded: amountRefunded, duplicate: alreadyRefunded })
+      return NextResponse.json({ received: true, refunded: amountRefunded, duplicate: alreadyRefunded, outcomeCreated: !!existing.ventureId })
     }
 
     return NextResponse.json({ received: true, unhandled: event.type })
@@ -146,6 +158,4 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: true, endpoint: '/api/webhooks/stripe', signatureRequired: true })
-}
+export async function GET() { return NextResponse.json({ ok: true, endpoint: '/api/webhooks/stripe', signatureRequired: true }) }
