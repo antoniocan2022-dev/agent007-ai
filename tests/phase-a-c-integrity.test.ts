@@ -71,10 +71,12 @@ describe('Phase A-C integrity', () => {
     expect(agent).not.toContain('20 pod leaders')
   })
 
-  test('UI/system counters are exposed by the canonical facts endpoint', () => {
+  test('UI/system counters are derived from the canonical facts endpoint', () => {
     const page = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8')
     const route = readFileSync(new URL('../src/app/api/system/canonical-facts/route.ts', import.meta.url), 'utf8')
     expect(page).toContain('/api/system/canonical-facts')
+    expect(page).toContain('registeredCount')
+    expect(page).toContain('leaderCount')
     expect(route).toContain('getCanonicalSystemFacts')
     expect(page).not.toContain('Loading 6 LLM providers')
     expect(page).not.toContain('Connecting 20 subagents')
