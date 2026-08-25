@@ -4,6 +4,7 @@ import { registerCapabilityProbe, runCapabilityProbe } from './capability-probe'
 
 const PROVIDERS = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as const
 let registered = false
+let latestResults = new Map<string, { discovered: boolean; model?: string; source?: string; error?: string }>()
 
 function ensureRegistered() {
   if (registered) return
@@ -12,9 +13,8 @@ function ensureRegistered() {
     registerCapabilityProbe({
       id: `llm:${provider}`,
       async probe() {
-        const results = await discoverProviderModels(true)
-        const result = results.find((item) => item.name === provider)
-        if (!result) return { ok: false, details: `Provider probe returned no result for ${provider}.`, proofLevel: 'CONNECTIVITY' }
+        const result = latestResults.get(provider)
+        if (!result) return { ok: false, details: `No coordinated provider probe result is available for ${provider}.`, proofLevel: 'CONNECTIVITY' }
         return {
           ok: result.discovered,
           details: result.discovered ? `${result.model ?? 'model discovered'} via ${result.source ?? 'runtime probe'}` : result.error ?? 'Provider probe did not discover a usable model.',
@@ -27,18 +27,9 @@ function ensureRegistered() {
 
 export async function probeLlmCapabilities(forceRefresh = false) {
   ensureRegistered()
-  const results: Array<{ provider: string; state: Awaited<ReturnType<typeof runCapabilityProbe>> }> = []
-  for (const provider of PROVIDERS) {
-    if (!forceRefresh) {
-      const state = getCapabilityRuntimeState(`llm:${provider}`)
-      if (state.probedAt !== null) {
-        results.push({ provider, state })
-        continue
-      }
-    }
-    results.push({ provider, state: await runCapabilityProbe(`llm:${provider}`, { forceRefresh }) })
-  }
-  return results
+  const discovered = await discoverProviderModels(forceRefresh)
+  latestResults = new Map(discovered.map((result) => [result.name, result]))
+  return Promise.all(PROVIDERS.map(async (provider) => ({ provider, state: await runCapabilityProbe(`llm:${provider}`, { forceRefresh }) })))
 }
 
 export function getLlmCapabilityStates() {
