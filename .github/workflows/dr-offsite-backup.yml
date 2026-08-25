@@ -33,7 +33,7 @@ jobs:
           BACKUP_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
           STORAGE_KEY: ${{ secrets.OCI_S3_ACCESS_KEY }}
           STORAGE_SECRET: ${{ secrets.OCI_S3_SECRET_KEY }}
-          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
+          BUCKET_SECRET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
           NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
           REGION: ${{ env.DR_STORAGE_REGION }}
         run: |
@@ -43,19 +43,18 @@ jobs:
           [[ -n "$BACKUP_KEY" ]] || missing+=(BACKUP_ENCRYPTION_KEY)
           [[ -n "$STORAGE_KEY" ]] || missing+=(OCI_S3_ACCESS_KEY)
           [[ -n "$STORAGE_SECRET" ]] || missing+=(OCI_S3_SECRET_KEY)
-          [[ -n "$BUCKET" ]] || missing+=(DR_BACKUP_S3_BUCKET)
+          [[ -n "$BUCKET_SECRET" ]] || missing+=(DR_BACKUP_S3_BUCKET)
           [[ -n "$NAMESPACE" ]] || missing+=(DR_BACKUP_S3_NAMESPACE)
           [[ -n "$REGION" ]] || missing+=(DR_BACKUP_S3_REGION)
           if (( ${#missing[@]} > 0 )); then
             echo 'ERROR: required DR backup configuration is missing.'
             printf 'Missing secret(s): %s\n' "${missing[*]}"
-            echo 'The workflow stops before database access or backup generation.'
             exit 1
           fi
 
           NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
           REGION="$(printf '%s' "$REGION" | tr -d '[:space:]')"
-          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
+          BUCKET_SECRET="$(printf '%s' "$BUCKET_SECRET" | tr -d '[:space:]')"
           case "${REGION,,}" in
             ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
             ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
@@ -64,67 +63,45 @@ jobs:
           esac
           [[ -n "$NAMESPACE" ]] || { echo 'ERROR: DR_BACKUP_S3_NAMESPACE is empty after normalization.'; exit 1; }
           [[ -n "$REGION" ]] || { echo 'ERROR: DR_BACKUP_S3_REGION is empty after normalization.'; exit 1; }
-          [[ -n "$BUCKET" ]] || { echo 'ERROR: DR_BACKUP_S3_BUCKET is empty after normalization.'; exit 1; }
           [[ "$REGION" =~ ^[a-z0-9-]+$ ]] || { echo "ERROR: unsupported OCI region identifier: $REGION"; exit 1; }
 
           ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
+          aws configure set default.s3.addressing_style path
+          aws configure set default.s3.signature_version s3v4
           node - "$ENDPOINT" <<'NODE'
           const endpoint = process.argv[2]
           const parsed = new URL(endpoint)
-          if (parsed.protocol !== 'https:') throw new Error('Derived OCI S3 endpoint must use HTTPS')
-          if (!parsed.hostname) throw new Error('Derived OCI S3 endpoint must include a hostname')
-          console.log(`Configured storage endpoint host: ${parsed.hostname}`)
+          if (parsed.protocol !== 'https:' || !parsed.hostname) throw new Error('Invalid OCI S3 endpoint')
           NODE
-          echo "Configured OCI storage region identifier: $REGION"
-          echo "Configured backup bucket: $BUCKET"
-          echo 'Required Agent007 backup and external object-storage configuration is present.'
+
+          echo 'Discovering accessible OCI S3 buckets...'
+          BUCKET_LIST="$(aws s3api list-buckets --endpoint-url "$ENDPOINT" --region "$REGION" --query 'Buckets[].Name' --output text)"
+          TARGET_BUCKET=''
+          if printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq 'agent007_dr_backups'; then
+            TARGET_BUCKET='agent007_dr_backups'
+          elif printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq "$BUCKET_SECRET"; then
+            TARGET_BUCKET="$BUCKET_SECRET"
+          fi
+          if [[ -z "$TARGET_BUCKET" ]]; then
+            echo 'ERROR: no valid Agent007 DR bucket was found in the accessible OCI bucket inventory.'
+            echo 'Accessible bucket names:'
+            printf '%s\n' "$BUCKET_LIST"
+            echo 'Expected primary bucket: agent007_dr_backups'
+            exit 1
+          fi
+          echo "Selected DR backup bucket: $TARGET_BUCKET"
+          echo "DR_BACKUP_BUCKET=$TARGET_BUCKET" >> "$GITHUB_ENV"
+          echo "DR_BACKUP_REGION=$REGION" >> "$GITHUB_ENV"
+          echo "DR_BACKUP_ENDPOINT=$ENDPOINT" >> "$GITHUB_ENV"
+          echo 'Required Agent007 backup and external object-storage configuration is verified.'
 
       - name: Verify external object-storage bucket access
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.DR_STORAGE_REGION }}
-          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
         run: |
           set -euo pipefail
-          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
-          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
-          REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
-          case "${REGION,,}" in
-            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
-            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
-            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
-            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
-          esac
-          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
-          aws configure set default.s3.addressing_style path
-          aws configure set default.s3.signature_version s3v4
-
-          echo 'Checking OCI S3 credentials and listing accessible buckets...'
-          set +e
-          BUCKET_LIST="$(aws s3api list-buckets --endpoint-url "$ENDPOINT" --region "$REGION" --query 'Buckets[].Name' --output text 2>&1)"
-          LIST_STATUS=$?
-          set -e
-          if (( LIST_STATUS == 0 )); then
-            echo 'Accessible bucket names:'
-            printf '%s\n' "$BUCKET_LIST"
-            if ! printf '%s\n' "$BUCKET_LIST" | tr '\t' '\n' | grep -Fxq "$BUCKET"; then
-              echo 'ERROR: DR_BACKUP_S3_BUCKET is not present in the accessible OCI bucket list.'
-              echo 'The stored bucket secret is incorrect, or the OCI S3 credentials do not have visibility to that bucket.'
-              exit 1
-            fi
-            echo 'Configured DR backup bucket is present in the accessible bucket list.'
-          else
-            echo 'WARNING: list-buckets preflight was not available; continuing with direct bucket verification.'
-            echo "$BUCKET_LIST"
-          fi
-
-          if ! aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$REGION"; then
-            echo 'ERROR: external DR backup bucket is not reachable or does not exist.'
-            echo 'Check DR_BACKUP_S3_NAMESPACE, DR_BACKUP_S3_REGION, DR_BACKUP_S3_BUCKET and the OCI Object Storage IAM policy.'
-            exit 1
-          fi
+          aws s3api head-bucket --bucket "$DR_BACKUP_BUCKET" --endpoint-url "$DR_BACKUP_ENDPOINT" --region "$DR_BACKUP_REGION"
           echo 'External DR backup bucket access verified.'
 
       - name: Generate validated Backup V2.1
@@ -142,33 +119,18 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.DR_STORAGE_REGION }}
-          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
           SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
           set -euo pipefail
-          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
-          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
-          REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
-          case "${REGION,,}" in
-            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
-            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
-            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
-            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
-          esac
-          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
-          aws configure set default.s3.addressing_style path
-          aws configure set default.s3.signature_version s3v4
           KEY="agent007/disaster-recovery/$(date -u '+%Y/%m/%d')/agent007-backup-v2-$(date -u '+%Y%m%dT%H%M%SZ').json.gz"
           aws s3api put-object \
-            --bucket "$BUCKET" \
+            --bucket "$DR_BACKUP_BUCKET" \
             --key "$KEY" \
             --body /tmp/agent007-backup-v2.json.gz \
             --content-type application/gzip \
             --metadata "source=Agent007,backup-version=2.1,sha256=$SHA256,immutable-retention=storage-policy" \
-            --endpoint-url "$ENDPOINT" \
-            --region "$REGION"
+            --endpoint-url "$DR_BACKUP_ENDPOINT" \
+            --region "$DR_BACKUP_REGION"
           echo "Immutable DR backup uploaded: $KEY"
           echo "SHA256: $SHA256"
           echo "OBJECT_KEY=$KEY" >> "$GITHUB_ENV"
@@ -177,23 +139,12 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.OCI_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.OCI_S3_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ env.DR_STORAGE_REGION }}
-          BUCKET: ${{ secrets.DR_BACKUP_S3_BUCKET }}
-          NAMESPACE: ${{ env.DR_STORAGE_NAMESPACE }}
         run: |
           set -euo pipefail
-          NAMESPACE="$(printf '%s' "$NAMESPACE" | tr -d '[:space:]')"
-          BUCKET="$(printf '%s' "$BUCKET" | tr -d '[:space:]')"
-          REGION="$(printf '%s' "$AWS_DEFAULT_REGION" | tr -d '[:space:]')"
-          case "${REGION,,}" in
-            ca-montreal-1|canadasoutheast\(montreal\)) REGION='ca-montreal-1' ;;
-            ca-toronto-1|canadasoutheast\(toronto\)) REGION='ca-toronto-1' ;;
-            us-ashburn-1|useast\(ashburn\)) REGION='us-ashburn-1' ;;
-            us-phoenix-1|uswest\(phoenix\)) REGION='us-phoenix-1' ;;
-          esac
-          ENDPOINT="https://${NAMESPACE}.compat.objectstorage.${REGION}.oraclecloud.com"
-          aws configure set default.s3.addressing_style path
-          aws configure set default.s3.signature_version s3v4
-          aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" --endpoint-url "$ENDPOINT" --region "$REGION"
+          aws s3api head-object \
+            --bucket "$DR_BACKUP_BUCKET" \
+            --key "$OBJECT_KEY" \
+            --endpoint-url "$DR_BACKUP_ENDPOINT" \
+            --region "$DR_BACKUP_REGION"
           echo 'External DR backup object verified.'
           echo 'Immutability is provided by the configured storage retention policy.'
