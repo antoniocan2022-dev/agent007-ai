@@ -1,0 +1,59 @@
+name: Controlled Stripe Real-Money Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_user_id:
+        description: 'Existing Agent007 User id used for the controlled test payment'
+        required: true
+        type: string
+      venture_id:
+        description: 'Canonical venture id, e.g. venture_001'
+        required: true
+        type: string
+      amount_cents:
+        description: 'Controlled Stripe test payment amount in cents (default 100)'
+        required: false
+        default: '100'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  real-money-proof:
+    name: Controlled Stripe test payment proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.PROOF_DATABASE_URL }}
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+      REAL_MONEY_PROOF_OWNER_USER_ID: ${{ inputs.owner_user_id }}
+      REAL_MONEY_PROOF_VENTURE_ID: ${{ inputs.venture_id }}
+      REAL_MONEY_PROOF_AMOUNT_CENTS: ${{ inputs.amount_cents }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Verify proof database schema
+        run: bunx prisma db push --skip-generate
+
+      - name: Run real Stripe test payment and verify end-to-end ingestion
+        run: bun scripts/run-real-money-proof.ts
+
+      - name: Run architecture proof audit
+        run: bun scripts/real-money-proof-audit.ts
