@@ -26,6 +26,7 @@ on:
       - 'tests/provider-live-model-contract.test.ts'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/ceo-availability-recovery.test.ts'
+      - 'tests/provider-error-lifecycle.test.ts'
       - 'src/lib/model-intelligence-runtime.test.ts'
       - 'scripts/provider-control-plane-audit.ts'
       - 'package.json'
@@ -57,7 +58,7 @@ jobs:
       - name: Provider control-plane integrity audit
         run: bun scripts/provider-control-plane-audit.ts
       - name: Provider governance unit and integration matrix
-        run: bun test tests/provider-live-model-contract.test.ts tests/provider-live-probe-regression.test.ts src/lib/model-intelligence-runtime.test.ts tests/provider-control-plane.integration.test.ts tests/ceo-cognitive-lifecycle.test.ts tests/provider-selection-contract.test.ts
+        run: bun test tests/provider-live-model-contract.test.ts tests/provider-live-probe-regression.test.ts src/lib/model-intelligence-runtime.test.ts tests/provider-control-plane.integration.test.ts tests/ceo-cognitive-lifecycle.test.ts tests/ceo-availability-recovery.test.ts tests/provider-error-lifecycle.test.ts tests/provider-selection-contract.test.ts
       - name: Repository hygiene
         run: |
           git diff --check
