@@ -1,9 +1,7 @@
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export type ActiveProviderId = Exclude<ProviderId, 'openai'>
-export type ProviderErrorKind =
-  | 'AUTHENTICATION' | 'AUTHORIZATION' | 'BILLING' | 'RATE_LIMIT' | 'MODEL_UNAVAILABLE'
-  | 'MODEL_NOT_GOVERNED' | 'CATALOG_UNAVAILABLE' | 'TIMEOUT' | 'NETWORK' | 'INVALID_REQUEST' | 'UPSTREAM' | 'UNKNOWN'
+export type ProviderErrorKind = 'AUTHENTICATION' | 'AUTHORIZATION' | 'BILLING' | 'RATE_LIMIT' | 'MODEL_UNAVAILABLE' | 'MODEL_NOT_GOVERNED' | 'CATALOG_UNAVAILABLE' | 'TIMEOUT' | 'NETWORK' | 'INVALID_REQUEST' | 'UPSTREAM' | 'UNKNOWN'
 
 export class ProviderControlPlaneError extends Error {
   readonly provider: ActiveProviderId
@@ -11,40 +9,13 @@ export class ProviderControlPlaneError extends Error {
   readonly status?: number
   readonly retryable: boolean
   constructor(shape: { provider: ActiveProviderId; kind: ProviderErrorKind; status?: number; message: string; retryable: boolean }) {
-    super(shape.message)
-    this.name = 'ProviderControlPlaneError'
-    this.provider = shape.provider
-    this.kind = shape.kind
-    this.status = shape.status
-    this.retryable = shape.retryable
+    super(shape.message); this.name = 'ProviderControlPlaneError'; this.provider = shape.provider; this.kind = shape.kind; this.status = shape.status; this.retryable = shape.retryable
   }
 }
 
 export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed' | 'vision'
-
-export interface GovernedModelProfile {
-  provider: ActiveProviderId
-  model: string
-  capabilities: readonly ModelCapability[]
-  quality: number
-  speed: number
-  costTier: 1 | 2 | 3
-  maxOutputTokens: number
-}
-
-export interface ProviderRuntimeConfig {
-  id: ActiveProviderId
-  label: string
-  baseUrl: string
-  apiKeyEnv: string
-  modelEnv: string
-  defaultModel: string
-  modelsUrl?: string
-  accountIdEnv?: string
-  preferredModels: readonly string[]
-  catalogMode: 'live-api' | 'execution-validated'
-  emergency?: boolean
-}
+export interface GovernedModelProfile { provider: ActiveProviderId; model: string; capabilities: readonly ModelCapability[]; quality: number; speed: number; costTier: 1 | 2 | 3; maxOutputTokens: number }
+export interface ProviderRuntimeConfig { id: ActiveProviderId; label: string; baseUrl: string; apiKeyEnv: string; modelEnv: string; defaultModel: string; modelsUrl?: string; accountIdEnv?: string; preferredModels: readonly string[]; catalogMode: 'live-api' | 'execution-validated'; emergency?: boolean }
 
 export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, ProviderRuntimeConfig>> = {
   groq: { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions', apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile', modelsUrl: 'https://api.groq.com/openai/v1/models', preferredModels: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'], catalogMode: 'live-api' },
@@ -66,34 +37,27 @@ export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
   { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 75, speed: 70, costTier: 1, maxOutputTokens: 8000 },
 ]
 
-const TASK_CAPABILITIES: Record<TaskType, readonly ModelCapability[]> = {
+export const TASK_CAPABILITIES: Readonly<Record<TaskType, readonly ModelCapability[]>> = {
   general: ['reasoning', 'tool-use'], research: ['research', 'long-context'], reasoning: ['reasoning', 'analysis'], coding: ['coding', 'tool-use', 'reasoning'], creative: ['creative', 'reasoning'], financial: ['analysis', 'reasoning', 'long-context'], security: ['reasoning', 'coding', 'analysis'], operations: ['analysis', 'tool-use', 'speed'], analysis: ['analysis', 'reasoning'],
 }
-
 export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter']
 
-function configured(provider: ActiveProviderId): boolean {
+export function isProviderConfigured(provider: ActiveProviderId): boolean {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
-  if (!process.env[config.apiKeyEnv]?.trim()) return false
-  if (config.accountIdEnv && !process.env[config.accountIdEnv]?.trim()) return false
-  return true
+  return Boolean(process.env[config.apiKeyEnv]?.trim()) && (!config.accountIdEnv || Boolean(process.env[config.accountIdEnv]?.trim()))
 }
-
-export function getConfiguredProviders(): ActiveProviderId[] {
-  return PROVIDER_ORDER.filter(configured)
-}
+export function getConfiguredProviders(): ActiveProviderId[] { return PROVIDER_ORDER.filter(isProviderConfigured) }
 
 export function getGovernedCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
   const required = TASK_CAPABILITIES[taskType]
   const strict = verification === 'dual-review' || taskType === 'financial' || taskType === 'security'
   return GOVERNED_MODEL_PROFILES.filter((profile) => profile.provider === provider && required.every((capability) => profile.capabilities.includes(capability)))
-    .sort((a, b) => (b.quality * 0.55 + b.speed * 0.2 + (b.costTier === 1 ? 10 : b.costTier === 2 ? 5 : 0) + (strict && b.quality >= 90 ? 5 : 0)) - (a.quality * 0.55 + a.speed * 0.2 + (a.costTier === 1 ? 10 : a.costTier === 2 ? 5 : 0) + (strict && a.quality >= 90 ? 5 : 0)))
-    .map((profile) => profile.model)
+    .sort((a, b) => {
+      const score = (x: GovernedModelProfile) => x.quality * 0.55 + x.speed * 0.2 + (x.costTier === 1 ? 10 : x.costTier === 2 ? 5 : 0) + (strict && x.quality >= 90 ? 5 : 0)
+      return score(b) - score(a)
+    }).map((profile) => profile.model)
 }
-
-export function getModelForProviderGoverned(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string | undefined {
-  return getGovernedCandidates(provider, taskType, verification)[0]
-}
+export function getModelForProviderGoverned(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string | undefined { return getGovernedCandidates(provider, taskType, verification)[0] }
 
 export function classifyProviderError(provider: ActiveProviderId, status?: number, message = '') {
   const lower = message.toLowerCase()
@@ -109,52 +73,41 @@ export function classifyProviderError(provider: ActiveProviderId, status?: numbe
   return { provider, kind: 'UNKNOWN' as const, status, message, retryable: false }
 }
 
-function resolvedEndpoint(template: string, config: ProviderRuntimeConfig): string {
+function resolveEndpoint(template: string, config: ProviderRuntimeConfig, provider: ActiveProviderId): string {
   if (!config.accountIdEnv) return template
   const accountId = process.env[config.accountIdEnv]?.trim()
-  if (!accountId) throw new ProviderControlPlaneError({ provider: config.id, kind: 'AUTHENTICATION', message: `${config.label}: ${config.accountIdEnv} is not configured`, retryable: false })
+  if (!accountId) throw new ProviderControlPlaneError({ provider, kind: 'AUTHENTICATION', message: `${config.label}: ${config.accountIdEnv} is not configured`, retryable: false })
   return template.replace('{ACCOUNT_ID}', encodeURIComponent(accountId))
 }
-
-function normalizeModelId(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.replace(/^models\//, '')
-}
-
+function normalizeModelId(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value.trim().replace(/^models\//, '') : null }
 function extractModelIds(data: any, provider: ActiveProviderId): string[] {
-  if (provider === 'cloudflare' && Array.isArray(data?.result)) {
-    return data.result.map((item: any) => normalizeModelId(item?.name ?? item?.model ?? item?.id)).filter((id: string | null): id is string => Boolean(id))
-  }
-  if (Array.isArray(data?.data)) return data.data.map((model: any) => normalizeModelId(model?.id)).filter((id: string | null): id is string => Boolean(id))
-  if (Array.isArray(data?.models)) return data.models.map((model: any) => normalizeModelId(model?.name ?? model?.baseModelId ?? model?.id)).filter((id: string | null): id is string => Boolean(id))
+  if (provider === 'cloudflare' && Array.isArray(data?.result)) return data.result.map((item: any) => normalizeModelId(item?.name ?? item?.model ?? item?.id)).filter((id: string | null): id is string => Boolean(id))
+  if (Array.isArray(data?.data)) return data.data.map((item: any) => normalizeModelId(item?.id)).filter((id: string | null): id is string => Boolean(id))
+  if (Array.isArray(data?.models)) return data.models.map((item: any) => normalizeModelId(item?.name ?? item?.baseModelId ?? item?.id)).filter((id: string | null): id is string => Boolean(id))
   return []
 }
 
 interface LiveCatalog { provider: ActiveProviderId; modelIds: readonly string[]; fetchedAt: number }
 const catalogCache = new Map<ActiveProviderId, LiveCatalog>()
 const CACHE_TTL_MS = 60_000
-
 export interface CatalogFetchResult { provider: ActiveProviderId; modelIds: readonly string[]; source: 'live-api' | 'execution-validated'; fetchedAt: number }
 
 export async function resolveLiveCatalog(provider: ActiveProviderId, fetchImpl: typeof fetch = fetch, forceRefresh = false): Promise<CatalogFetchResult> {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
-  const key = process.env[config.apiKeyEnv]?.trim()
-  if (!key) throw new ProviderControlPlaneError({ provider, kind: 'AUTHENTICATION', message: `${config.label}: ${config.apiKeyEnv} is not configured`, retryable: false })
-  const endpoint = config.modelsUrl ? resolvedEndpoint(config.modelsUrl, config) : null
+  if (!isProviderConfigured(provider)) throw new ProviderControlPlaneError({ provider, kind: 'AUTHENTICATION', message: `${config.label}: required credentials are not configured`, retryable: false })
+  const endpoint = config.modelsUrl ? resolveEndpoint(config.modelsUrl, config, provider) : null
   if (!endpoint) return { provider, modelIds: getGovernedCandidates(provider, 'general'), source: 'execution-validated', fetchedAt: Date.now() }
   if (!forceRefresh) {
     const cached = catalogCache.get(provider)
     if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return { ...cached, source: 'live-api' }
   }
-  const started = Date.now()
   try {
-    const response = await fetchImpl(endpoint, { method: 'GET', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(7000) })
+    const response = await fetchImpl(endpoint, { method: 'GET', headers: { Authorization: `Bearer ${process.env[config.apiKeyEnv]!.trim()}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(7000) })
     const bodyText = response.ok ? '' : (await response.text()).slice(0, 700)
     if (!response.ok) throw new ProviderControlPlaneError({ ...classifyProviderError(provider, response.status, bodyText), message: `${config.label}: live model catalog HTTP ${response.status}${bodyText ? ` — ${bodyText}` : ''}` })
     const modelIds = [...new Set(extractModelIds(await response.json(), provider))]
     if (!modelIds.length) throw new ProviderControlPlaneError({ provider, kind: 'CATALOG_UNAVAILABLE', message: `${config.label}: live model catalog returned no model identifiers`, retryable: true })
-    const catalog = { provider, modelIds, fetchedAt: started }
+    const catalog = { provider, modelIds, fetchedAt: Date.now() }
     catalogCache.set(provider, catalog)
     return { ...catalog, source: 'live-api' }
   } catch (error) {
@@ -167,19 +120,15 @@ export async function resolveLiveCatalog(provider: ActiveProviderId, fetchImpl: 
 export async function resolveGovernedModel(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier, requestedModel?: string, fetchImpl: typeof fetch = fetch): Promise<string> {
   const governed = getGovernedCandidates(provider, taskType, verification)
   if (!governed.length) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: no governed model satisfies task capability requirements`, retryable: false })
-  const requestedAllowed = !requestedModel || governed.includes(requestedModel)
-  if (!requestedAllowed) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: requested model is outside the governed model matrix`, retryable: false })
+  if (requestedModel && !governed.includes(requestedModel)) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: requested model is outside the governed model matrix`, retryable: false })
   const catalog = await resolveLiveCatalog(provider, fetchImpl)
   if (provider === 'openrouter') return requestedModel ?? 'openrouter/free'
-  const selected = (requestedModel && catalog.modelIds.includes(requestedModel)) ? requestedModel : governed.find((model) => catalog.modelIds.includes(model))
+  const selected = requestedModel && catalog.modelIds.includes(requestedModel) ? requestedModel : governed.find((model) => catalog.modelIds.includes(model))
   if (!selected) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: no governed model is currently available in the live provider catalog`, retryable: false })
   return selected
 }
 
-export function clearProviderCatalogCache(provider?: ActiveProviderId): void {
-  if (provider) catalogCache.delete(provider); else catalogCache.clear()
-}
-
+export function clearProviderCatalogCache(provider?: ActiveProviderId): void { if (provider) catalogCache.delete(provider); else catalogCache.clear() }
 export function getProviderCatalogSnapshot(): Record<ActiveProviderId, { cached: boolean; ageMs: number | null }> {
   return Object.fromEntries(PROVIDER_ORDER.map((provider) => { const cached = catalogCache.get(provider); return [provider, { cached: Boolean(cached), ageMs: cached ? Date.now() - cached.fetchedAt : null }] })) as Record<ActiveProviderId, { cached: boolean; ageMs: number | null }>
 }
