@@ -22,8 +22,8 @@ const contents = files.map((path) => [path, readFileSync(path, 'utf8')] as const
 const runtimeConfigPattern = /export const PROVIDER_RUNTIME_CONFIG\s*(?::[^=]+)?=/
 const governedModelPattern = /export const GOVERNED_MODEL_PROFILES\s*(?::[^=]+)?=/
 const legacyModelPattern = /export const MODEL_PROFILES\s*(?::[^=]+)?=/
-const expectedProviders = ['cerebras', 'cloudflare', 'groq', 'mistral', 'openrouter']
-const retiredProviders = ['zai', 'gemini']
+const expectedProviderOrder = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
+const retiredProviders = ['zai', 'gemini'] as const
 
 const runtimeConfigDefs = contents.filter(([, content]) => runtimeConfigPattern.test(content)).map(([path]) => path)
 if (runtimeConfigDefs.length !== 1 || runtimeConfigDefs[0] !== 'src/lib/provider-control-plane.ts') violations.push(`Expected exactly one canonical PROVIDER_RUNTIME_CONFIG in src/lib/provider-control-plane.ts; found ${runtimeConfigDefs.join(', ') || 'none'}`)
@@ -36,7 +36,10 @@ for (const [path, content] of contents) {
     if (!isApprovedCompatibilityAlias) violations.push(`Duplicate or legacy provider model matrix found: ${path}`)
   }
   if (path === AUDIT_FILE) continue
-  if (content.includes('zai') || /\bgemini\b/i.test(content)) violations.push(`Retired provider reference found in ${path}`)
+  for (const retired of retiredProviders) {
+    const pattern = retired === 'gemini' ? /\bgemini\b/i : /\bzai\b/i
+    if (pattern.test(content)) violations.push(`Retired provider reference found in ${path}: ${retired}`)
+  }
   if (content.includes('__providerDiscovery') || content.includes('__agent007ProviderModelCache')) violations.push(`Stale provider discovery/cache marker found in ${path}`)
 }
 
@@ -52,7 +55,7 @@ const providerOrderMatch = controlPlane.match(/export const PROVIDER_ORDER[^=]*=
 if (!providerOrderMatch) violations.push('Canonical PROVIDER_ORDER definition missing')
 else {
   const actual = [...providerOrderMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1])
-  if (actual.join(',') !== expectedProviders.map((provider) => provider === 'cerebras' ? 'cerebras' : provider).join(',')) violations.push(`Canonical provider order drift: ${actual.join(' → ')}`)
+  if (actual.join(',') !== expectedProviderOrder.join(',')) violations.push(`Canonical provider order drift: ${actual.join(' → ')}`)
 }
 
 const runtime = readFileSync('src/lib/provider-runtime-v2.ts', 'utf8')
@@ -71,4 +74,4 @@ if (violations.length) {
   process.exit(1)
 }
 
-console.log(`Provider control plane audit PASSED: ${files.length} source/test files scanned; canonical providers: ${expectedProviders.join(', ')}`)
+console.log(`Provider control plane audit PASSED: ${files.length} source/test files scanned; canonical providers: ${expectedProviderOrder.join(', ')}`)
