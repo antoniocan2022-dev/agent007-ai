@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import { decode as decodeNextAuthJwt } from 'next-auth/jwt'
 import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import { db } from '@/lib/db'
@@ -158,6 +159,20 @@ function getNextAuthSecret(): string {
   throw new Error('NEXTAUTH_SECRET is required at runtime. Configure it in Vercel for Preview and Production.')
 }
 
+async function decodeNextAuthSessionJwt(params: Parameters<typeof decodeNextAuthJwt>[0]) {
+  try {
+    return await decodeNextAuthJwt(params)
+  } catch (error: any) {
+    // A stale/corrupted JWT is not an authentication outage. Treat it as an
+    // anonymous session so NextAuth can issue a fresh token after login.
+    // This specifically prevents JWT_SESSION_ERROR from becoming a noisy
+    // server-side failure while preserving fail-closed authentication.
+    const message = error?.message ? String(error.message).slice(0, 120) : 'invalid session token'
+    console.warn(`[auth] Ignoring stale or invalid NextAuth session JWT: ${message}`)
+    return null
+  }
+}
+
 function verifyTwoFactorLoginProof(userId: string, token: string, expiresAtInput: number): boolean {
   const secret = process.env.NEXTAUTH_SECRET?.trim()
   if (!secret || !token || !Number.isFinite(expiresAtInput) || Date.now() >= expiresAtInput) return false
@@ -181,6 +196,9 @@ function verifyTwoFactorLoginProof(userId: string, token: string, expiresAtInput
 
 export const authOptions: NextAuthOptions = {
   secret: getNextAuthSecret(),
+  // Invalidated/stale JWTs are handled by the custom decoder above; the
+  // session itself remains JWT-based and unchanged for valid users.
+  jwt: { decode: decodeNextAuthSessionJwt },
   session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 30 },
   pages: { signIn: '/login' },
   providers: [
