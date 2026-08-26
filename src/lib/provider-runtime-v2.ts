@@ -1,6 +1,6 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
-import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId } from './provider-control-plane'
+import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId } from './provider-control-plane'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
 import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
@@ -9,7 +9,6 @@ import type { TaskType, VerificationTier } from './subagent-governance'
 export type { ActiveProviderId }
 export { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders }
 export function getProviderRuntimeConfig(provider: ActiveProviderId) { return PROVIDER_RUNTIME_CONFIG[provider] }
-
 export interface ProviderRuntimeOutcomeEvidence { status: OutcomeStatus; qualityScore?: number; businessValueScore?: number; verificationPassed: boolean }
 export interface ProviderRuntimeRequest { messages: readonly Record<string, unknown>[]; taskType?: TaskType; verification?: VerificationTier; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; excludeProviders?: readonly ActiveProviderId[] }
 export interface ProviderRuntimeResult { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number }
@@ -54,8 +53,7 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
   try { model = await resolveGovernedModel(provider, taskType, request.verification, request.model) }
   catch (error) { if (error instanceof ProviderControlPlaneError) throw error; throw buildProviderFailure(provider, undefined, error instanceof Error ? error.message : String(error)) }
   const timeoutMs = Math.max(1000, request.timeoutMs ?? 60000)
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(resolveChatEndpoint(provider), { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: request.messages, max_tokens: Math.max(64, request.maxTokens ?? 4000), temperature: request.temperature ?? 0.2 }), signal: controller.signal })
     const responseMs = Date.now() - started
@@ -73,22 +71,20 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
 }
 
 function rankCandidates(candidates: ActiveProviderId[], taskType: TaskType, verification?: VerificationTier): ActiveProviderId[] {
-  const policyOrder = new Map(candidates.map((provider, index) => [provider, index]))
-  const outcomeSnapshots = recommendByVerifiedOutcome(taskType, candidates.map((provider) => ({ provider, model: modelFor(provider, taskType, verification) })))
-  const trusted = outcomeSnapshots.filter((snapshot) => snapshot.confidence >= 40 && snapshot.observations > 0)
+  const policyOrder = new Map(candidates.map((provider, index) => [provider, index])); const outcomeSnapshots = recommendByVerifiedOutcome(taskType, candidates.map((provider) => ({ provider, model: modelFor(provider, taskType, verification) }))); const trusted = outcomeSnapshots.filter((snapshot) => snapshot.confidence >= 40 && snapshot.observations > 0)
   if (!trusted.length) return candidates
-  const outcomeRank = new Map(trusted.map((snapshot, index) => [snapshot.provider, index]))
-  return [...candidates].sort((a, b) => { const ar = outcomeRank.get(a); const br = outcomeRank.get(b); if (ar !== undefined && br !== undefined) return ar - br; if (ar !== undefined) return -1; if (br !== undefined) return 1; return (policyOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (policyOrder.get(b) ?? Number.MAX_SAFE_INTEGER) })
+  const outcomeRank = new Map(trusted.map((snapshot, index) => [snapshot.provider, index])); return [...candidates].sort((a, b) => { const ar = outcomeRank.get(a); const br = outcomeRank.get(b); if (ar !== undefined && br !== undefined) return ar - br; if (ar !== undefined) return -1; if (br !== undefined) return 1; return (policyOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (policyOrder.get(b) ?? Number.MAX_SAFE_INTEGER) })
 }
 
 function baseDiagnostic(provider: ActiveProviderId): ProviderRuntimeProbeResult {
-  return { provider, configured: false, success: false, model: null, responseMs: null, states: { credential: 'unknown', network: 'unknown', catalog: 'unknown', governedModel: 'unknown', taskCapability: 'unknown', execution: 'unknown', latency: 'unknown', rateLimit: 'unknown', billing: 'unknown', circuitBreaker: isCircuitOpen(provider) ? 'degraded' : 'healthy' } }
+  const config = PROVIDER_RUNTIME_CONFIG[provider]
+  const credentialConfigured = Boolean(process.env[config.apiKeyEnv]?.trim()) && (!config.accountIdEnv || Boolean(process.env[config.accountIdEnv]?.trim()))
+  return { provider, configured: credentialConfigured, success: false, model: null, responseMs: null, states: { credential: credentialConfigured ? 'healthy' : 'failed', network: 'unknown', catalog: 'unknown', governedModel: 'unknown', taskCapability: 'unknown', execution: 'unknown', latency: 'unknown', rateLimit: 'unknown', billing: 'unknown', circuitBreaker: isCircuitOpen(provider) ? 'degraded' : 'healthy' } }
 }
 
 export async function probeProvider(provider: ActiveProviderId, request?: Partial<ProviderRuntimeRequest>): Promise<ProviderRuntimeProbeResult> {
   const result = baseDiagnostic(provider); const config = PROVIDER_RUNTIME_CONFIG[provider]
-  if (!process.env[config.apiKeyEnv]?.trim() || (config.accountIdEnv && !process.env[config.accountIdEnv]?.trim())) { result.error = `${config.label}: required credentials are not configured`; result.states.credential = 'failed'; result.states.execution = 'failed'; return result }
-  result.configured = true; result.states.credential = 'healthy'
+  if (!result.configured) { result.error = `${config.label}: required credentials are not configured`; result.states.execution = 'failed'; return result }
   if (isCircuitOpen(provider)) { result.error = 'Provider circuit breaker is open'; result.states.circuitBreaker = 'degraded'; result.states.execution = 'degraded'; return result }
   const taskType = request?.taskType ?? 'reasoning'; const verification = request?.verification ?? 'standard'
   const candidates = getGovernedCandidates(provider, taskType, verification); result.governedCandidates = candidates; result.states.taskCapability = candidates.length ? 'healthy' : 'failed'
@@ -99,8 +95,7 @@ export async function probeProvider(provider: ActiveProviderId, request?: Partia
   } catch (error) { result.states.catalog = 'failed'; result.states.execution = 'failed'; result.error = error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700); return result }
   try {
     const started = Date.now(); const execution = await callProvider(provider, { messages: request?.messages ?? [{ role: 'system', content: 'You are a production reasoning health probe. Reply with exactly: OK' }, { role: 'user', content: 'Say OK' }], taskType, verification, model: request?.model, temperature: 0, maxTokens: Math.max(128, request?.maxTokens ?? 128), timeoutMs: request?.timeoutMs ?? 10000 })
-    result.responseMs = Date.now() - started; result.model = execution.model; result.success = /^OK(?:\b|$)/i.test(execution.content.trim()); result.states.network = 'healthy'; result.states.execution = result.success ? 'healthy' : 'degraded'; result.states.latency = result.responseMs <= 1500 ? 'healthy' : result.responseMs <= 5000 ? 'degraded' : 'failed'
-    if (!result.success) result.error = `Unexpected probe response: ${execution.content.trim().slice(0, 120)}`
+    result.responseMs = Date.now() - started; result.model = execution.model; result.success = /^OK(?:\b|$)/i.test(execution.content.trim()); result.states.network = 'healthy'; result.states.execution = result.success ? 'healthy' : 'degraded'; result.states.latency = result.responseMs <= 1500 ? 'healthy' : result.responseMs <= 5000 ? 'degraded' : 'failed'; if (!result.success) result.error = `Unexpected probe response: ${execution.content.trim().slice(0, 120)}`
   } catch (error) {
     result.states.execution = 'failed'
     if (error instanceof ProviderControlPlaneError) { result.states.network = ['NETWORK', 'TIMEOUT', 'UPSTREAM'].includes(error.kind) ? 'failed' : 'healthy'; if (error.kind === 'RATE_LIMIT') result.states.rateLimit = 'failed'; if (error.kind === 'BILLING') result.states.billing = 'failed'; if (error.kind === 'AUTHENTICATION' || error.kind === 'AUTHORIZATION') result.states.credential = 'failed'; if (error.kind === 'MODEL_UNAVAILABLE' || error.kind === 'MODEL_NOT_GOVERNED') result.states.governedModel = 'failed'; result.error = error.message.slice(0, 700) }
@@ -109,7 +104,10 @@ export async function probeProvider(provider: ActiveProviderId, request?: Partia
   return result
 }
 
-export async function probeAllConfiguredProviders(taskType: TaskType = 'reasoning'): Promise<ProviderRuntimeProbeResult[]> { return Promise.all(getConfiguredProviders().map((provider) => probeProvider(provider, { taskType }))) }
+/** Probe every canonical provider, including unconfigured ones, so the Control Tower never hides missing credentials. */
+export async function probeAllProviders(taskType: TaskType = 'reasoning'): Promise<ProviderRuntimeProbeResult[]> { return Promise.all(PROVIDER_ORDER.map((provider) => probeProvider(provider, { taskType }))) }
+/** Backward-compatible name; intentionally probes the full canonical set. */
+export async function probeAllConfiguredProviders(taskType: TaskType = 'reasoning'): Promise<ProviderRuntimeProbeResult[]> { return probeAllProviders(taskType) }
 
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider)); const available = rankAvailableProviders(configured).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]; const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
