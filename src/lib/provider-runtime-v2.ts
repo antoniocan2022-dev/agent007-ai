@@ -1,6 +1,6 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
-import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId } from './provider-control-plane'
+import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId, type ProviderErrorKind } from './provider-control-plane'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
 import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
@@ -33,7 +33,7 @@ function extractContent(data: any): string {
   return ''
 }
 function modelFor(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string { return getModelForProvider(provider, taskType, verification) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel }
-function shouldAffectProviderHealth(kind: ReturnType<typeof classifyProviderError>['kind']): boolean { return ['UPSTREAM', 'TIMEOUT', 'NETWORK', 'CATALOG_UNAVAILABLE', 'UNKNOWN'].includes(kind) }
+function shouldAffectProviderHealth(kind: ProviderErrorKind): boolean { return ['UPSTREAM', 'TIMEOUT', 'NETWORK', 'CATALOG_UNAVAILABLE', 'UNKNOWN'].includes(kind) }
 function buildProviderFailure(provider: ActiveProviderId, status: number | undefined, message: string): ProviderControlPlaneError { return new ProviderControlPlaneError({ ...classifyProviderError(provider, status, message), message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: ${message}` }) }
 function resolveChatEndpoint(provider: ActiveProviderId): string {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
