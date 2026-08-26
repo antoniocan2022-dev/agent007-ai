@@ -8,7 +8,7 @@ export type VerificationTier = 'standard' | 'enhanced' | 'strict' | 'dual-review
  * OpenAI remains a legacy type for backward compatibility only. It is not an
  * active governed provider and is intentionally excluded from PROVIDER_PRIORITY.
  */
-export type ProviderId = 'groq' | 'openai' | 'zai' | 'mistral' | 'gemini' | 'cerebras'
+export type ProviderId = 'groq' | 'openai' | 'cloudflare' | 'mistral' | 'cerebras' | 'openrouter'
 export type TaskType = 'general' | 'research' | 'reasoning' | 'coding' | 'creative' | 'financial' | 'security' | 'operations' | 'analysis'
 
 export interface SubagentGovernanceProfile {
