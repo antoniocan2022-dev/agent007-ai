@@ -102,3 +102,6 @@ The system handles quality scoring, cross-agent verification, tool-boundary enfo
           git add src/lib/orchestrator.ts .github/workflows/repair-orchestrator-canonical-prompt.yml
           git commit -m "fix: derive orchestrator organization prompt canonically"
           git push origin HEAD:main
+
+          # One-time migration: the workflow is removed in the same commit above.
+          # A GITHUB_TOKEN push will not recursively trigger a second workflow run.
