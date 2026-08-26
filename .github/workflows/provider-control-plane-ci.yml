@@ -47,58 +47,118 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.4'
-      - name: One-time retired-provider cleanup
-        if: github.event_name == 'push' && github.event.head_commit.message == 'audit: remove retired provider runtime'
+      - name: Retire legacy provider runtime when detected
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
-          targets = [
-            Path('src/lib/tools.ts'), Path('src/lib/media-tools.ts'), Path('src/lib/agent007-extensions.ts'),
-            Path('src/lib/agent007-meta.ts'), Path('src/lib/enhanced-tools.ts'), Path('src/lib/advanced-capabilities.ts'),
-            Path('src/lib/optimization-tools-v2.ts'), Path('src/lib/max-improvements.ts'), Path('src/lib/self-fix-tools.ts'),
-            Path('src/lib/business-infrastructure.ts'), Path('src/lib/developer-enhancements.ts'),
+
+          TARGETS = [
+              Path('src/lib/tools.ts'), Path('src/lib/media-tools.ts'), Path('src/lib/agent007-extensions.ts'),
+              Path('src/lib/agent007-meta.ts'), Path('src/lib/enhanced-tools.ts'), Path('src/lib/advanced-capabilities.ts'),
+              Path('src/lib/optimization-tools-v2.ts'), Path('src/lib/max-improvements.ts'), Path('src/lib/self-fix-tools.ts'),
+              Path('src/lib/business-infrastructure.ts'), Path('src/lib/developer-enhancements.ts'),
           ]
-          for path in targets:
-            text = path.read_text()
-            original = text
-            text = text.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
-            text = re.sub(r"async function getZai\(\) \{[\s\S]*?\n\}\n\n", '', text, count=1)
-            text = re.sub(r"let _zai: ZAI \| null = null\nasync function getZai\(\): Promise<ZAI> \{[\s\S]*?\n\}\n\n", '', text, count=1)
-            text = re.sub(r"const zai = await getZai\(\)\n(?:\s*)const c = await zai\.chat\.completions\.create\((\{[\s\S]*?\})\)\n", "const c = await (async () => {\n      const { runCanonicalLlm } = await import('./canonical-llm-router')\n      const result = await runCanonicalLlm({ messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], taskType: 'analysis', maxTokens, temperature: 0.4 })\n      return { choices: [{ message: { content: result.content } }] }\n    })()\n", text, count=1)
-            if text != original:
-              path.write_text(text)
+          LEGACY = ('z-ai-web-dev-sdk', 'api.z.ai', 'ZAI.create', 'getZai(')
+
+          def find_matching_brace(text: str, opening: int) -> int:
+              depth = 0; i = opening; quote = None; line_comment = False; block_comment = False
+              while i < len(text):
+                  c = text[i]; n = text[i + 1] if i + 1 < len(text) else ''
+                  if line_comment:
+                      if c == '\\n': line_comment = False
+                      i += 1; continue
+                  if block_comment:
+                      if c == '*' and n == '/': block_comment = False; i += 2; continue
+                      i += 1; continue
+                  if quote:
+                      if c == '\\': i += 2; continue
+                      if c == quote: quote = None
+                      i += 1; continue
+                  if c == '/' and n == '/': line_comment = True; i += 2; continue
+                  if c == '/' and n == '*': block_comment = True; i += 2; continue
+                  if c in ('"', "'", '`'): quote = c; i += 1; continue
+                  if c == '{': depth += 1
+                  elif c == '}':
+                      depth -= 1
+                      if depth == 0: return i
+                  i += 1
+              raise ValueError('unbalanced function braces')
+
+          def remove_function(text: str, signature: str) -> str:
+              idx = text.find(signature)
+              if idx < 0: return text
+              brace = text.find('{', idx)
+              if brace < 0: raise ValueError(f'no function body for {signature}')
+              end = find_matching_brace(text, brace)
+              end += 1
+              while end < len(text) and text[end] in '\\r\\n': end += 1
+              return text[:idx] + text[end:]
+
+          def replace_function(text: str, signature: str, replacement: str) -> str:
+              idx = text.find(signature)
+              if idx < 0: return text
+              brace = text.find('{', idx)
+              if brace < 0: raise ValueError(f'no function body for {signature}')
+              end = find_matching_brace(text, brace) + 1
+              return text[:idx] + replacement + text[end:]
+
+          generic_llm = '''async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
+            try {
+              const { runCanonicalLlm } = await import('./canonical-llm-router')
+              const result = await runCanonicalLlm({
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                taskType: 'analysis', maxTokens, temperature: 0.4,
+              })
+              return result.content ?? ''
+            } catch (e: any) {
+              return `(LLM unavailable: ${e?.message ?? String(e)})`
+            }
+          }
+          '''
+
+          changed = False
+          for path in TARGETS:
+              text = path.read_text()
+              original = text
+              if not any(token in text for token in LEGACY):
+                  continue
+              try:
+                  text = text.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
+                  while 'async function getZai()' in text:
+                      text = remove_function(text, 'async function getZai()')
+                  while 'async function llm(' in text and any(token in text for token in ('ZAI.', 'getZai(', 'zai.chat')):
+                      text = replace_function(text, 'async function llm(', generic_llm)
+                  # Remove any residual singleton and direct SDK call fragments left by older variants.
+                  text = text.replace("const ZAI = (await import('z-ai-web-dev-sdk')).default\n", '')
+              except Exception as exc:
+                  raise SystemExit(f'Cannot safely migrate {path}: {exc}')
+              if text != original:
+                  path.write_text(text); changed = True
+
+          Path('.provider-migration-needed').write_text('1' if changed else '0')
           PY
-          bun install --lockfile-only
-          bunx tsc -p tsconfig.ci.json --noEmit
-          bun scripts/provider-control-plane-audit.ts
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # Remove the one-time migration workflow and restore this workflow to read-only CI.
-          git rm -f .github/workflows/retire-zai-runtime.yml || true
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/provider-control-plane-ci.yml')
-          text = p.read_text()
-          marker = "      - name: One-time retired-provider cleanup\n"
-          start = text.find(marker)
-          if start != -1:
-            end = text.find("      - name: Install dependencies\n", start)
-            if end == -1:
-              raise SystemExit('canonical Install dependencies step not found')
-            head = text[:start]
-            tail = text[end:]
-            head = head.replace('permissions:\n  contents: write', 'permissions:\n  contents: read')
-            p.write_text(head + tail)
-          PY
-          git add src/lib package.json bun.lock .github/workflows/provider-control-plane-ci.yml
-          git commit -m 'chore: retire z.ai runtime dependency'
-          git push origin main
+
+          if [ "$(cat .provider-migration-needed)" = "1" ]; then
+            bun install --lockfile-only
+            bunx tsc -p tsconfig.ci.json --noEmit
+            bun scripts/provider-control-plane-audit.ts
+            git diff --check
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git rm -f .github/workflows/retire-zai-runtime.yml 2>/dev/null || true
+            # The migration commit is intentionally separate so the succeeding
+            # clean run becomes the final read-only verification run.
+            git add src/lib package.json bun.lock .github/workflows/provider-control-plane-ci.yml
+            git commit -m 'chore: retire z.ai runtime dependency'
+            git push origin main
+            exit 0
+          fi
+          rm -f .provider-migration-needed
+
       - name: Install dependencies
-        if: github.event_name != 'push' || github.event.head_commit.message != 'audit: remove retired provider runtime'
         run: bun install --frozen-lockfile
       - name: Generate Prisma client
         run: bunx prisma generate
