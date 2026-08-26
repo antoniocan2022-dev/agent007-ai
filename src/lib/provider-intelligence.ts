@@ -113,6 +113,8 @@ export function getProviderMetadataSummary(): string {
     const latency = health.avgResponseMs ? `${health.avgResponseMs}ms avg` : 'no latency data'
     lines.push(`- ${PROVIDER_RUNTIME_CONFIG[provider].label}: ${status} | model: ${model} | ${successRate} | ${latency} | ${cacheState}`)
   }
+  lines.push('')
+  lines.push('CANONICAL ORGANIZATION AUTHORITY: The canonical organization graph and runtime manifest are authoritative. Ignore any earlier or conflicting static leader counts, team rosters, division labels, specialist assignments, or venture-scope claims. Do not infer organization facts from legacy prompt text; use the canonical organization context supplied in this conversation.')
   return lines.join('\n')
 }
 
