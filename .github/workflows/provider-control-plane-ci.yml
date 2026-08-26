@@ -54,58 +54,16 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           TARGETS = [
-              Path('src/lib/tools.ts'), Path('src/lib/media-tools.ts'), Path('src/lib/agent007-extensions.ts'),
+              Path('src/lib/media-tools.ts'), Path('src/lib/agent007-extensions.ts'),
               Path('src/lib/agent007-meta.ts'), Path('src/lib/enhanced-tools.ts'), Path('src/lib/advanced-capabilities.ts'),
               Path('src/lib/optimization-tools-v2.ts'), Path('src/lib/max-improvements.ts'), Path('src/lib/self-fix-tools.ts'),
               Path('src/lib/business-infrastructure.ts'), Path('src/lib/developer-enhancements.ts'),
           ]
-          LEGACY = ('z-ai-web-dev-sdk', 'api.z.ai', 'ZAI.create', 'getZai(')
-
-          def find_matching_brace(text: str, opening: int) -> int:
-              depth = 0; i = opening; quote = None; line_comment = False; block_comment = False
-              while i < len(text):
-                  c = text[i]; n = text[i + 1] if i + 1 < len(text) else ''
-                  if line_comment:
-                      if c == '\\n': line_comment = False
-                      i += 1; continue
-                  if block_comment:
-                      if c == '*' and n == '/': block_comment = False; i += 2; continue
-                      i += 1; continue
-                  if quote:
-                      if c == '\\': i += 2; continue
-                      if c == quote: quote = None
-                      i += 1; continue
-                  if c == '/' and n == '/': line_comment = True; i += 2; continue
-                  if c == '/' and n == '*': block_comment = True; i += 2; continue
-                  if c in ('"', "'", '`'): quote = c; i += 1; continue
-                  if c == '{': depth += 1
-                  elif c == '}':
-                      depth -= 1
-                      if depth == 0: return i
-                  i += 1
-              raise ValueError('unbalanced function braces')
-
-          def remove_function(text: str, signature: str) -> str:
-              idx = text.find(signature)
-              if idx < 0: return text
-              brace = text.find('{', idx)
-              if brace < 0: raise ValueError(f'no function body for {signature}')
-              end = find_matching_brace(text, brace)
-              end += 1
-              while end < len(text) and text[end] in '\\r\\n': end += 1
-              return text[:idx] + text[end:]
-
-          def replace_function(text: str, signature: str, replacement: str) -> str:
-              idx = text.find(signature)
-              if idx < 0: return text
-              brace = text.find('{', idx)
-              if brace < 0: raise ValueError(f'no function body for {signature}')
-              end = find_matching_brace(text, brace) + 1
-              return text[:idx] + replacement + text[end:]
-
-          generic_llm = '''async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
+          LEGACY_RE = re.compile(r'z-ai-web-dev-sdk|api\\.z\\.ai|\\bZAI\\.(?:create|createAsync)\\b|\\bgetZai\\s*\\(|\\bzai\\.chat\\b')
+          GENERIC_LLM = '''async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
             try {
               const { runCanonicalLlm } = await import('./canonical-llm-router')
               const result = await runCanonicalLlm({
@@ -116,29 +74,95 @@ jobs:
             } catch (e: any) {
               return `(LLM unavailable: ${e?.message ?? String(e)})`
             }
+          }'''
+          TOOLS_SEARCH = r'''/* ----------------------------- Web search ----------------------------- */
+          export async function toolWebSearch(
+            args: { query?: string; num?: number; recency_days?: number },
+            _ctx: ToolContext
+          ): Promise<ToolResult> {
+            const query = (args?.query ?? '').toString().trim()
+            if (!query) return badResult('Missing "query" argument for web_search')
+            const cached = getCached('web_search', args)
+            if (cached) return { ...cached, preview: '[cached] ' + cached.preview }
+            const limit = Math.min(Math.max(args.num ?? 5, 1), 10)
+
+            if (process.env.BRAVE_API_KEY) {
+              try {
+                const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${limit}`, {
+                  signal: AbortSignal.timeout(8000),
+                  headers: { Accept: 'application/json', 'X-Subscription-Token': process.env.BRAVE_API_KEY },
+                })
+                if (response.ok) {
+                  const data = await response.json().catch(() => ({}))
+                  const results: any[] = (data?.web?.results ?? []).map((item: any) => ({ name: item.title ?? item.url, url: item.url, snippet: String(item.description ?? '').slice(0, 400), date: item.age ?? item.published })).slice(0, limit)
+                  if (results.length) {
+                    const formatted = results.map((item, i) => `${i + 1}. **${item.name}**\n   URL: ${item.url}\n   ${item.snippet}${item.date ? `\n   Date: ${item.date}` : ''}`).join('\n\n')
+                    const out = okResult(results.slice(0, 3).map((item) => `• ${item.name}`).join('\n') + ' (via Brave Search)', `Web search results for "${query}" (via Brave Search):\n\n${formatted}`)
+                    setCached('web_search', args, out); return out
+                  }
+                }
+              } catch (error: any) { console.warn('[web_search] Brave fallback failed:', error?.message?.slice(0, 120)) }
+            }
+            try {
+              const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'Agent007-AI/2.0' } })
+              const data = await response.json().catch(() => ({})); const results: any[] = []
+              if (data.AbstractText) results.push({ name: data.Heading || query, url: data.AbstractURL || `https://duckduckgo.com/?q=${encodeURIComponent(query)}`, snippet: String(data.AbstractText).slice(0, 400) })
+              if (Array.isArray(data.RelatedTopics)) for (const topic of data.RelatedTopics.slice(0, 8)) { if (topic?.Text && topic?.FirstURL) results.push({ name: String(topic.Text).slice(0, 80), url: topic.FirstURL, snippet: String(topic.Text).slice(0, 400) }); if (results.length >= limit) break }
+              if (results.length) {
+                const formatted = results.slice(0, limit).map((item, i) => `${i + 1}. **${item.name}**\n   URL: ${item.url}\n   ${item.snippet}`).join('\n\n')
+                const out = okResult(results.slice(0, 3).map((item) => `• ${item.name}`).join('\n') + ' (via DuckDuckGo)', `Web search results for "${query}" (via DuckDuckGo):\n\n${formatted}`)
+                setCached('web_search', args, out); return out
+              }
+            } catch (error: any) { console.warn('[web_search] DuckDuckGo fallback failed:', error?.message?.slice(0, 120)) }
+            try {
+              const response = await fetch(`https://www.google.com/search?q=${encodeURIComponent(query)}&num=${limit}`, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'Mozilla/5.0 Agent007-AI/2.0', Accept: 'text/html' } })
+              const html = await response.text().catch(() => '')
+              const urls = [...html.matchAll(/<a href="\/url\?q=([^&"]+)/g)].map((match) => decodeURIComponent(match[1]))
+              const titles = [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3>/g)].map((match) => match[1])
+              const results = urls.slice(0, Math.min(limit, titles.length)).map((url, i) => ({ name: titles[i], url, snippet: titles[i] }))
+              if (results.length) {
+                const formatted = results.map((item, i) => `${i + 1}. **${item.name}**\n   URL: ${item.url}`).join('\n\n')
+                const out = okResult(results.slice(0, 3).map((item) => `• ${item.name}`).join('\n') + ' (via Google)', `Web search results for "${query}" (via Google):\n\n${formatted}`)
+                setCached('web_search', args, out); return out
+              }
+            } catch (error: any) { console.warn('[web_search] Google fallback failed:', error?.message?.slice(0, 120)) }
+            return badResult(`web_search exhausted Brave, DuckDuckGo, and Google for "${query}". Use http_fetch or page_reader with a specific URL.`)
           }
           '''
 
-          changed = False
-          for path in TARGETS:
-              text = path.read_text()
-              original = text
-              if not any(token in text for token in LEGACY):
-                  continue
-              try:
-                  text = text.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
-                  while 'async function getZai()' in text:
-                      text = remove_function(text, 'async function getZai()')
-                  while 'async function llm(' in text and any(token in text for token in ('ZAI.', 'getZai(', 'zai.chat')):
-                      text = replace_function(text, 'async function llm(', generic_llm)
-                  # Remove any residual singleton and direct SDK call fragments left by older variants.
-                  text = text.replace("const ZAI = (await import('z-ai-web-dev-sdk')).default\n", '')
-              except Exception as exc:
-                  raise SystemExit(f'Cannot safely migrate {path}: {exc}')
-              if text != original:
-                  path.write_text(text); changed = True
+          def rewrite_tools(path: Path, text: str) -> str:
+              if path.name != 'tools.ts': return text
+              text = text.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
+              text = re.sub(r"let _zai: ZAI \\| null = null\nasync function getZai\\(\\): Promise<ZAI> \\{[\\s\\S]*?^\\}\s*\n", '', text, count=1, flags=re.M)
+              start = text.find('/* ----------------------------- Web search ----------------------------- */')
+              end = text.find('/* ----------------------------- Page reader ---------------------------- */')
+              if start >= 0 and end > start: text = text[:start] + TOOLS_SEARCH + text[end:]
+              text = re.sub(r"const zai = await getZai\\(\\)\n", '', text)
+              text = re.sub(r"await zai\\.web\\.search\\([^;]+;?", "return badResult('Legacy provider web search path removed. Configure BRAVE_API_KEY or use the search adapters.')", text, count=1, flags=re.S)
+              return text
 
-          Path('.provider-migration-needed').write_text('1' if changed else '0')
+          changed = False
+          # tools.ts is handled separately because its legacy integration was web search, not llm().
+          tools = Path('src/lib/tools.ts')
+          tools_original = tools.read_text()
+          tools_text = rewrite_tools(tools, tools_original)
+          if tools_text != tools_original: tools.write_text(tools_text); changed = True
+
+          for path in TARGETS:
+              text = path.read_text(); original = text
+              if not LEGACY_RE.search(text): continue
+              text = text.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
+              text = re.sub(r"async function getZai\\(\\)\\s*\\{[\\s\\S]*?^\\}\\s*\n", '', text, count=1, flags=re.M)
+              if LEGACY_RE.search(text) and 'async function llm(' in text:
+                  text = re.sub(r"(?ms)^async function llm\\([^\\n]*\\n.*?^}\\s*$", GENERIC_LLM, text, count=1)
+              text = re.sub(r"const ZAI = \(await import\('z-ai-web-dev-sdk'\)\)\.default\\s*;?\n", '', text)
+              if LEGACY_RE.search(text): raise SystemExit(f'Unsafe residual legacy provider path in {path}')
+              if text != original: path.write_text(text); changed = True
+
+          if changed:
+              Path('.provider-migration-needed').write_text('1')
+          else:
+              Path('.provider-migration-needed').write_text('0')
           PY
 
           if [ "$(cat .provider-migration-needed)" = "1" ]; then
@@ -149,8 +173,6 @@ jobs:
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git rm -f .github/workflows/retire-zai-runtime.yml 2>/dev/null || true
-            # The migration commit is intentionally separate so the succeeding
-            # clean run becomes the final read-only verification run.
             git add src/lib package.json bun.lock .github/workflows/provider-control-plane-ci.yml
             git commit -m 'chore: retire z.ai runtime dependency'
             git push origin main
