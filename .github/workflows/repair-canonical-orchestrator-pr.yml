@@ -1,21 +1,22 @@
 name: Repair Canonical Orchestrator Prompt
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   repair:
-    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR branch
+      - name: Checkout main
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: main
           fetch-depth: 0
 
       - name: Apply canonical organization prompt repair
@@ -85,4 +86,4 @@ The system handles quality scoring, cross-agent verification, tool-boundary enfo
           git add src/lib/orchestrator.ts .github/workflows/repair-canonical-orchestrator-pr.yml
           git diff --cached --check
           git commit -m "fix: derive orchestrator organization prompt canonically"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:main
