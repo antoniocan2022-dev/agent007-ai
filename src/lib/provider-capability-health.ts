@@ -1,15 +1,15 @@
+import { PROVIDER_ORDER } from './provider-control-plane'
 import { discoverProviderModels } from './provider-intelligence'
 import { getCapabilityRuntimeStatePersistent, listCapabilityRuntimeStatesPersistent } from './capability-runtime-state'
 import { registerCapabilityProbe, runCapabilityProbe } from './capability-probe'
 
-const PROVIDERS = ['groq', 'zai', 'mistral', 'gemini', 'cerebras'] as const
 let registered = false
 let latestResults = new Map<string, { discovered: boolean; model: string | null; source?: string; error?: string }>()
 
 function ensureRegistered() {
   if (registered) return
   registered = true
-  for (const provider of PROVIDERS) {
+  for (const provider of PROVIDER_ORDER) {
     registerCapabilityProbe({
       id: `llm:${provider}`,
       async probe() {
@@ -29,15 +29,7 @@ export async function probeLlmCapabilities(forceRefresh = false) {
   ensureRegistered()
   const discovered = await discoverProviderModels(forceRefresh)
   latestResults = new Map(discovered.map((result) => [result.name, result]))
-  return Promise.all(PROVIDERS.map(async (provider) => ({ provider, state: await runCapabilityProbe(`llm:${provider}`, { forceRefresh }) })))
+  return Promise.all(PROVIDER_ORDER.map(async (provider) => ({ provider, state: await runCapabilityProbe(`llm:${provider}`, { forceRefresh }) })))
 }
-
-export async function getLlmCapabilityStates() {
-  ensureRegistered()
-  return (await listCapabilityRuntimeStatesPersistent()).filter((state) => state.id.startsWith('llm:'))
-}
-
-export async function getLlmCapabilityState(provider: string) {
-  ensureRegistered()
-  return getCapabilityRuntimeStatePersistent(`llm:${provider}`)
-}
+export async function getLlmCapabilityStates() { ensureRegistered(); return (await listCapabilityRuntimeStatesPersistent()).filter((state) => state.id.startsWith('llm:')) }
+export async function getLlmCapabilityState(provider: string) { ensureRegistered(); return getCapabilityRuntimeStatePersistent(`llm:${provider}`) }
