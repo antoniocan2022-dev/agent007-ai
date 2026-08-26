@@ -1,30 +1,30 @@
 import { NextResponse } from 'next/server'
 import { getCanonicalProviderTelemetry } from '@/lib/canonical-llm-router'
 import { probeAllConfiguredProviders } from '@/lib/provider-runtime-v2'
+import { PROVIDER_ORDER } from '@/lib/provider-control-plane'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/**
- * Production-safe provider verification endpoint.
- * It never returns API keys and probes each configured governed provider
- * independently, so one working fallback cannot hide another provider failure.
- */
 export async function GET() {
   const startedAt = Date.now()
-  const probes = await probeAllConfiguredProviders()
+  const probes = await probeAllConfiguredProviders('reasoning')
   const telemetry = getCanonicalProviderTelemetry()
   const successful = probes.filter((probe) => probe.success)
-  const configured = probes.filter((probe) => probe.configured)
+  const configuredCount = probes.filter((probe) => probe.configured).length
+  const availableCount = successful.length
+  const overallStatus = availableCount === 0 ? 'failed' : availableCount === configuredCount ? 'healthy' : 'degraded'
 
   return NextResponse.json({
-    ok: successful.length === configured.length && configured.length > 0,
+    ok: availableCount > 0,
+    overallStatus,
     timestamp: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
+    providerOrder: PROVIDER_ORDER,
     providerCount: probes.length,
-    configuredCount: configured.length,
-    workingCount: successful.length,
-    failedCount: configured.length - successful.length,
+    configuredCount,
+    workingCount: availableCount,
+    failedCount: Math.max(0, configuredCount - availableCount),
     providers: probes.map((probe) => {
       const runtime = telemetry.providers.find((item) => item.provider === probe.provider)
       return {
@@ -36,7 +36,11 @@ export async function GET() {
         error: probe.error ?? null,
         telemetryStatus: runtime?.status ?? 'unavailable',
         telemetryHealthScore: runtime?.healthScore ?? 0,
+        states: probe.states,
+        catalogSource: probe.catalogSource ?? null,
+        catalogModelCount: probe.catalogModelCount ?? null,
+        governedCandidates: probe.governedCandidates ?? [],
       }
     }),
-  }, { status: configured.length > 0 && successful.length === configured.length ? 200 : 503 })
+  }, { status: availableCount > 0 ? 200 : 503 })
 }
