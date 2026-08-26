@@ -2,17 +2,23 @@ name: Provider Control Plane CI
 
 on:
   push:
-    branches:
-      - 'fix/provider-control-plane-v3'
+    branches: [main]
   pull_request:
     branches: [main]
     paths:
       - 'src/lib/provider-control-plane.ts'
       - 'src/lib/provider-runtime-v2.ts'
       - 'src/lib/provider-intelligence.ts'
+      - 'src/lib/provider-intelligence-policy.ts'
       - 'src/lib/model-intelligence.ts'
       - 'src/lib/subagent-governance.ts'
+      - 'src/lib/provider-capability-health.ts'
+      - 'src/lib/agent.ts'
+      - 'src/app/api/system/diagnose-providers/route.ts'
+      - 'src/app/api/health/llm-providers/route.ts'
+      - 'src/app/api/health/llm-test/route.ts'
       - 'tests/provider-control-plane.integration.test.ts'
+      - 'tests/provider-live-probe-regression.test.ts'
       - 'tests/provider-live-model-contract.test.ts'
       - 'src/lib/model-intelligence-runtime.test.ts'
       - 'scripts/provider-control-plane-audit.ts'
@@ -43,7 +49,7 @@ jobs:
       - name: Provider control-plane integrity audit
         run: bun scripts/provider-control-plane-audit.ts
       - name: Provider governance unit and integration matrix
-        run: bun test tests/provider-live-model-contract.test.ts src/lib/model-intelligence-runtime.test.ts tests/provider-control-plane.integration.test.ts
+        run: bun test tests/provider-live-model-contract.test.ts tests/provider-live-probe-regression.test.ts src/lib/model-intelligence-runtime.test.ts tests/provider-control-plane.integration.test.ts
       - name: Repository hygiene
         run: |
           git diff --check
