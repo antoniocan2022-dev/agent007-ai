@@ -1,18 +1,12 @@
 import { TOOL_REGISTRY } from './tools'
 import { SUBAGENTS, getAllSubagents } from './subagents'
-import type { ProviderId } from './subagent-governance'
+import { PROVIDER_ORDER } from './provider-control-plane'
 import { getCanonicalProviderTelemetry } from './canonical-llm-router'
 
-export const SYSTEM_MANIFEST_VERSION = 4
+export const SYSTEM_MANIFEST_VERSION = 5
 export const SYSTEM_MANIFEST_ID = 'agent007-system'
 
-const CANONICAL_PROVIDER_COUNT: Record<Exclude<ProviderId, 'openai'>, true> = {
-  groq: true,
-  zai: true,
-  mistral: true,
-  gemini: true,
-  cerebras: true,
-}
+const CANONICAL_PROVIDER_COUNT = Object.fromEntries(PROVIDER_ORDER.map((provider) => [provider, true])) as Record<(typeof PROVIDER_ORDER)[number], true>
 
 export type SystemManifest = {
   manifestId: string
