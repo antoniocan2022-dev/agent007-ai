@@ -1,0 +1,89 @@
+name: Repair Canonical Orchestrator Prompt
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply canonical organization prompt repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/orchestrator.ts')
+          text = path.read_text(encoding='utf-8')
+          stale = 'You orchestrate 20 subagents.'
+          if stale not in text:
+              raise SystemExit('Expected stale orchestrator organization claim was not found; aborting safely.')
+
+          import_line = "import { getCanonicalOrganizationPrompt } from './canonical-organization-prompt'"
+          anchor = "import { assertDelegationAllowed, authorityLevelFor } from './architecture-control-plane'\n"
+          if import_line not in text:
+              if anchor not in text:
+                  raise SystemExit('Canonical orchestrator import anchor not found.')
+              text = text.replace(anchor, anchor + import_line + "\n", 1)
+
+          start_marker = 'const ORCHESTRATOR_PROMPT_ADDENDUM = `'
+          end_marker = '\nexport interface OrchestratorEventEmit {'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start + len(start_marker))
+          if start < 0 or end < 0 or start >= end:
+              raise SystemExit('Canonical orchestrator prompt block markers not found.')
+
+          replacement = r'''const ORCHESTRATOR_PROMPT_ADDENDUM = `
+ORCHESTRATION:
+You are governed by the canonical Agent007 organization graph. Organization facts below are derived at runtime; do not invent, hardcode, or contradict leader, specialist, division, or venture-scope facts.
+
+${getCanonicalOrganizationPrompt()}
+
+For multi-step tasks, dispatch through the currently available sub-agent list supplied later in this prompt.
+Use <dispatch agent="<canonical-id>" task="..."/> or <dispatch_subagent id="<canonical-id>">task</dispatch_subagent>.
+Maximum dispatches per turn: ${MAX_DISPATCHES}.
+After dispatches complete, synthesize and verify the results before answering.
+
+MISSION PIPELINE:
+Type "start mission: <type>: <objective>" to run the full governed pipeline.
+Types: product_launch, content_creation, affiliate_campaign, generic.
+Each stage is executed, independently verified, corrected when required, and then handed to the next stage.
+
+The system handles quality scoring, cross-agent verification, tool-boundary enforcement, learning storage, notifications, and governed delegation automatically.`'''
+
+          text = text[:start] + replacement + text[end:]
+
+          forbidden = [
+              'You orchestrate 20 subagents.',
+              'Plus 2 custom test agents (testfast2, fasttest3).',
+              'TEAM: SCOUT (research)',
+          ]
+          for value in forbidden:
+              if value in text:
+                  raise SystemExit(f'Legacy organization truth remains: {value}')
+
+          if 'getCanonicalOrganizationPrompt' not in text:
+              raise SystemExit('Canonical organization prompt integration missing.')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/orchestrator.ts .github/workflows/repair-canonical-orchestrator-pr.yml
+          git diff --cached --check
+          git commit -m "fix: derive orchestrator organization prompt canonically"
+          git push origin HEAD:main
