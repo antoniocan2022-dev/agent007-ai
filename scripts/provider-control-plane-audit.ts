@@ -16,20 +16,9 @@ function walk(root: string): string[] {
   }
   return results
 }
-
-function stripComments(content: string): string {
-  return content
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|\s)\/\/.*$/gm, '$1')
-}
-
-function isHistoricalArtifact(path: string): boolean {
-  return /(^|\/)(backup|backups)(\/|$)/i.test(path) || /generate-(?:full-backup-final|u78-backup)\.ts$/i.test(path)
-}
-
-function isTestPath(path: string): boolean {
-  return /(^|\/).*\.test\.(?:ts|tsx|js|mjs|cjs)$/i.test(path)
-}
+function stripComments(content: string): string { return content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1') }
+function isHistoricalArtifact(path: string): boolean { return /(^|\/)(backup|backups)(\/|$)/i.test(path) || /generate-(?:full-backup-final|u78-backup)\.ts$/i.test(path) }
+function isTestPath(path: string): boolean { return /(^|\/).*\.test\.(?:ts|tsx|js|mjs|cjs)$/i.test(path) }
 
 const files = ROOTS.flatMap(walk)
 const contents = files.map((path) => [path, readFileSync(path, 'utf8')] as const)
@@ -49,10 +38,7 @@ for (const [path, rawContent] of contents) {
     if (!isApprovedCompatibilityAlias) violations.push(`Duplicate or legacy provider model matrix found: ${path}`)
   }
   if (path === AUDIT_FILE || isHistoricalArtifact(path)) continue
-
   const content = stripComments(rawContent)
-  // Tests may mention retired IDs only to prove they are absent. Runtime source
-  // must not contain executable imports, SDK calls, provider IDs, or endpoints.
   if (!isTestPath(path)) {
     const retiredRuntimePatterns: Array<[string, RegExp]> = [
       ['zai-sdk', /z-ai-web-dev-sdk/],
@@ -68,6 +54,11 @@ for (const [path, rawContent] of contents) {
   if (content.includes('__providerDiscovery') || content.includes('__agent007ProviderModelCache')) violations.push(`Stale provider discovery/cache marker found in ${path}`)
 }
 
+const packageJson = readFileSync('package.json', 'utf8')
+if (/z-ai-web-dev-sdk/i.test(packageJson)) violations.push('Retired ZAI SDK remains in package.json dependencies')
+const lock = readFileSync('bun.lock', 'utf8')
+if (/z-ai-web-dev-sdk/i.test(lock)) violations.push('Retired ZAI SDK remains in bun.lock')
+
 const controlPlane = readFileSync('src/lib/provider-control-plane.ts', 'utf8')
 for (const required of [
   "'groq'", "'cloudflare'", "'mistral'", "'cerebras'", "'openrouter'",
@@ -75,7 +66,6 @@ for (const required of [
   'OPENROUTER_API_KEY', 'openrouter/free', 'resolveLiveCatalog', 'resolveGovernedModel',
   'clearProviderCatalogCache', 'TASK_CAPABILITIES', "'vision'", "'BILLING'", "'RATE_LIMIT'", "'AUTHENTICATION'",
 ]) if (!controlPlane.includes(required)) violations.push(`Control-plane required invariant missing: ${required}`)
-
 const providerOrderMatch = controlPlane.match(/export const PROVIDER_ORDER[^=]*=\s*\[([^\]]+)\]/s)
 if (!providerOrderMatch) violations.push('Canonical PROVIDER_ORDER definition missing')
 else {
@@ -84,12 +74,17 @@ else {
 }
 
 const runtime = readFileSync('src/lib/provider-runtime-v2.ts', 'utf8')
-for (const state of ['credential', 'network', 'catalog', 'governedModel', 'taskCapability', 'execution', 'latency', 'rateLimit', 'billing', 'circuitBreaker']) {
-  if (!runtime.includes(`${state}:`)) violations.push(`Provider Control Tower state missing: ${state}`)
-}
+for (const state of ['credential', 'network', 'catalog', 'governedModel', 'taskCapability', 'execution', 'latency', 'rateLimit', 'billing', 'circuitBreaker']) if (!runtime.includes(`${state}:`)) violations.push(`Provider Control Tower state missing: ${state}`)
 if (!runtime.includes("taskType = request?.taskType ?? 'reasoning'")) violations.push('Provider probes must default to reasoning rather than operations')
 if (!runtime.includes('probeAllProviders')) violations.push('Full canonical provider probe function missing')
+if (!runtime.includes('recordProviderError') || !runtime.includes('recordProviderSuccess')) violations.push('Provider error lifecycle telemetry is not connected to execution')
 
+const lifecycle = readFileSync('src/lib/ceo-cognitive-lifecycle.ts', 'utf8')
+for (const required of ['attemptValidatedReasoningProvider', 'stageExclusions', 'tryDegraded', 'probeProvider']) if (!lifecycle.includes(required)) violations.push(`CEO availability/resilience contract missing: ${required}`)
+const releaseHealth = readFileSync('src/app/api/release-health/route.ts', 'utf8')
+for (const required of ['tripleProof', 'githubMainSha', 'vercelDeploymentSha', 'releaseHealthSha', 'evidenceHierarchy', 'cspInterpretation']) if (!releaseHealth.includes(required)) violations.push(`Release proof invariant missing: ${required}`)
+const canary = readFileSync('src/app/api/health/provider-canary/route.ts', 'utf8')
+for (const required of ['ceo-reasoning', 'executionValidated', 'acceptableLatency', 'PROVIDER_ORDER']) if (!canary.includes(required)) violations.push(`Production provider canary invariant missing: ${required}`)
 const modelIntelligence = readFileSync('src/lib/model-intelligence.ts', 'utf8')
 if (!modelIntelligence.includes("from './provider-control-plane'")) violations.push('Model intelligence must derive from the canonical control plane')
 
@@ -98,5 +93,4 @@ if (violations.length) {
   for (const violation of violations) console.error(`- ${violation}`)
   process.exit(1)
 }
-
 console.log(`Provider control plane audit PASSED: ${files.length} source/test files scanned; canonical providers: ${expectedProviderOrder.join(', ')}`)
