@@ -74,7 +74,6 @@ export async function POST(req: NextRequest) {
       const heartbeat = setInterval(() => safeEnqueue(sse('ping', { ts: Date.now() })), 5000)
 
       beginInteractive()
-      const budget = createAgentRequestBudgetForRoute()
       try {
         if (resolvedPath === 'fast') {
           safeEnqueue(sse('progress', {
@@ -160,7 +159,6 @@ export async function POST(req: NextRequest) {
           safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath }))
         }
       } finally {
-        budget.cancel()
         clearInterval(heartbeat)
         endInteractive()
         try { controller.close() } catch { /* ignore */ }
@@ -178,12 +176,6 @@ export async function POST(req: NextRequest) {
       'X-Accel-Buffering': 'no',
     },
   })
-}
-
-// Route-level holder so both current and future orchestrator implementations
-// receive a single cancellation signal without changing their public shape again.
-function createAgentRequestBudgetForRoute() {
-  return createAgentRequestBudget(AGENT_REQUEST_BUDGET_MS)
 }
 
 interface OrchestratorRunOptionsWithSignal {
