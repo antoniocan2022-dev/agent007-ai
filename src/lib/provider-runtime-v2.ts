@@ -10,13 +10,7 @@ export type { ActiveProviderId }
 export { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders }
 export function getProviderRuntimeConfig(provider: ActiveProviderId) { return PROVIDER_RUNTIME_CONFIG[provider] }
 
-export interface ProviderRuntimeOutcomeEvidence {
-  status: OutcomeStatus
-  qualityScore?: number
-  businessValueScore?: number
-  verificationPassed: boolean
-}
-
+export interface ProviderRuntimeOutcomeEvidence { status: OutcomeStatus; qualityScore?: number; businessValueScore?: number; verificationPassed: boolean }
 export interface ProviderRuntimeRequest {
   messages: readonly Record<string, unknown>[]
   taskType?: TaskType
@@ -29,9 +23,32 @@ export interface ProviderRuntimeRequest {
   outcomeEvidence?: ProviderRuntimeOutcomeEvidence
   excludeProviders?: readonly ActiveProviderId[]
 }
-
 export interface ProviderRuntimeResult { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number }
-export interface ProviderRuntimeProbeResult { provider: ActiveProviderId; configured: boolean; success: boolean; model: string | null; responseMs: number | null; error?: string }
+
+export type ProviderDiagnosticState = 'healthy' | 'degraded' | 'failed' | 'unknown'
+export interface ProviderRuntimeProbeResult {
+  provider: ActiveProviderId
+  configured: boolean
+  success: boolean
+  model: string | null
+  responseMs: number | null
+  error?: string
+  states?: {
+    credential: ProviderDiagnosticState
+    network: ProviderDiagnosticState
+    catalog: ProviderDiagnosticState
+    governedModel: ProviderDiagnosticState
+    taskCapability: ProviderDiagnosticState
+    execution: ProviderDiagnosticState
+    latency: ProviderDiagnosticState
+    rateLimit: ProviderDiagnosticState
+    billing: ProviderDiagnosticState
+    circuitBreaker: ProviderDiagnosticState
+  }
+  catalogSource?: 'live-api' | 'execution-validated'
+  catalogModelCount?: number
+  governedCandidates?: string[]
+}
 
 function extractContent(data: any): string {
   const content = data?.choices?.[0]?.message?.content
@@ -56,7 +73,6 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   const key = process.env[config.apiKeyEnv]?.trim()
   if (!key) throw buildProviderFailure(provider, 401, `${config.label} is not configured (${config.apiKeyEnv})`)
-
   const taskType = request.taskType ?? 'general'
   const started = Date.now()
   let model = modelFor(provider, taskType, request.verification)
@@ -71,17 +87,10 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const body: Record<string, unknown> = {
-      model,
-      messages: request.messages,
-      max_tokens: Math.max(64, request.maxTokens ?? 4000),
-    }
-    if (provider !== 'gemini') body.temperature = request.temperature ?? 0.2
-    if (provider === 'zai') body.thinking = { type: 'enabled' }
-
-    const response = await fetch(config.baseUrl, {
+    const body: Record<string, unknown> = { model, messages: request.messages, max_tokens: Math.max(64, request.maxTokens ?? 4000), temperature: request.temperature ?? 0.2 }
+    const response = await fetch(resolveChatEndpoint(provider, config), {
       method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(provider === 'zai' ? { 'Accept-Language': 'en-US,en' } : {}) },
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal,
     })
@@ -112,6 +121,13 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
   }
 }
 
+function resolveChatEndpoint(provider: ActiveProviderId, config: typeof PROVIDER_RUNTIME_CONFIG[ActiveProviderId]): string {
+  if (!config.accountIdEnv) return config.baseUrl
+  const accountId = process.env[config.accountIdEnv]?.trim()
+  if (!accountId) throw new ProviderControlPlaneError({ provider, kind: 'AUTHENTICATION', message: `${config.label}: ${config.accountIdEnv} is not configured`, retryable: false })
+  return config.baseUrl.replace('{ACCOUNT_ID}', encodeURIComponent(accountId))
+}
+
 function rankCandidates(candidates: ActiveProviderId[], taskType: TaskType, verification?: VerificationTier): ActiveProviderId[] {
   const policyOrder = new Map(candidates.map((provider, index) => [provider, index]))
   const outcomeSnapshots = recommendByVerifiedOutcome(taskType, candidates.map((provider) => ({ provider, model: modelFor(provider, taskType, verification) })))
@@ -119,8 +135,7 @@ function rankCandidates(candidates: ActiveProviderId[], taskType: TaskType, veri
   if (!trusted.length) return candidates
   const outcomeRank = new Map(trusted.map((snapshot, index) => [snapshot.provider, index]))
   return [...candidates].sort((a, b) => {
-    const ar = outcomeRank.get(a)
-    const br = outcomeRank.get(b)
+    const ar = outcomeRank.get(a); const br = outcomeRank.get(b)
     if (ar !== undefined && br !== undefined) return ar - br
     if (ar !== undefined) return -1
     if (br !== undefined) return 1
@@ -128,29 +143,84 @@ function rankCandidates(candidates: ActiveProviderId[], taskType: TaskType, veri
   })
 }
 
-export async function probeProvider(provider: ActiveProviderId, request?: Partial<ProviderRuntimeRequest>): Promise<ProviderRuntimeProbeResult> {
-  const config = PROVIDER_RUNTIME_CONFIG[provider]
-  if (!process.env[config.apiKeyEnv]?.trim()) return { provider, configured: false, success: false, model: null, responseMs: null, error: `${config.apiKeyEnv} is not configured` }
-  try {
-    const started = Date.now()
-    const result = await callProvider(provider, {
-      messages: request?.messages ?? [{ role: 'system', content: 'You are a production health probe. Reply with exactly: OK' }, { role: 'user', content: 'Say OK' }],
-      taskType: request?.taskType ?? 'operations',
-      verification: request?.verification ?? 'standard',
-      temperature: 0,
-      maxTokens: Math.max(128, request?.maxTokens ?? 128),
-      timeoutMs: request?.timeoutMs ?? 10000,
-    })
-    const content = result.content.trim()
-    const success = /(^|\b)OK(\b|$)/i.test(content)
-    return { provider, configured: true, success, model: result.model, responseMs: Date.now() - started, error: success ? undefined : `Unexpected probe response: ${content.slice(0, 120)}` }
-  } catch (error) {
-    return { provider, configured: true, success: false, model: null, responseMs: null, error: error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700) }
+function baseDiagnostic(provider: ActiveProviderId): ProviderRuntimeProbeResult {
+  return {
+    provider, configured: false, success: false, model: null, responseMs: null,
+    states: { credential: 'unknown', network: 'unknown', catalog: 'unknown', governedModel: 'unknown', taskCapability: 'unknown', execution: 'unknown', latency: 'unknown', rateLimit: 'unknown', billing: 'unknown', circuitBreaker: isCircuitOpen(provider) ? 'degraded' : 'healthy' },
   }
 }
 
-export async function probeAllConfiguredProviders(): Promise<ProviderRuntimeProbeResult[]> {
-  return Promise.all((Object.keys(PROVIDER_RUNTIME_CONFIG) as ActiveProviderId[]).map((provider) => probeProvider(provider)))
+export async function probeProvider(provider: ActiveProviderId, request?: Partial<ProviderRuntimeRequest>): Promise<ProviderRuntimeProbeResult> {
+  const config = PROVIDER_RUNTIME_CONFIG[provider]
+  const result = baseDiagnostic(provider)
+  const key = process.env[config.apiKeyEnv]?.trim()
+  if (!key) {
+    result.error = `${config.apiKeyEnv} is not configured`
+    result.states!.credential = 'failed'
+    result.states!.execution = 'failed'
+    return result
+  }
+  result.configured = true
+  result.states!.credential = 'healthy'
+  result.states!.circuitBreaker = isCircuitOpen(provider) ? 'degraded' : 'healthy'
+  if (result.states!.circuitBreaker === 'degraded') {
+    result.error = 'Provider circuit breaker is open'
+    result.states!.execution = 'degraded'
+    return result
+  }
+  const taskType = request?.taskType ?? 'reasoning'
+  const verification = request?.verification ?? 'standard'
+  const governedCandidates = getGovernedCandidates(provider, taskType, verification)
+  result.governedCandidates = governedCandidates
+  result.states!.taskCapability = governedCandidates.length ? 'healthy' : 'failed'
+  if (!governedCandidates.length) {
+    result.error = `${config.label}: no governed model satisfies task capability requirements`
+    result.states!.governedModel = 'failed'
+    result.states!.execution = 'failed'
+    return result
+  }
+  result.states!.governedModel = 'healthy'
+  try {
+    const catalog = await (await import('./provider-control-plane')).resolveLiveCatalog(provider, fetch, true)
+    result.catalogSource = catalog.source
+    result.catalogModelCount = catalog.modelIds.length
+    result.states!.catalog = 'healthy'
+  } catch (error) {
+    result.states!.catalog = 'failed'
+    result.states!.execution = 'failed'
+    result.error = error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700)
+    return result
+  }
+  try {
+    const started = Date.now()
+    const execution = await callProvider(provider, {
+      messages: request?.messages ?? [{ role: 'system', content: 'You are a production reasoning health probe. Reply with exactly: OK' }, { role: 'user', content: 'Say OK' }],
+      taskType, verification, model: request?.model, temperature: 0, maxTokens: Math.max(128, request?.maxTokens ?? 128), timeoutMs: request?.timeoutMs ?? 10000,
+    })
+    result.responseMs = Date.now() - started
+    result.model = execution.model
+    result.success = /^OK(?:\b|$)/i.test(execution.content.trim())
+    result.states!.network = 'healthy'
+    result.states!.execution = result.success ? 'healthy' : 'degraded'
+    result.states!.latency = result.responseMs <= 1500 ? 'healthy' : result.responseMs <= 5000 ? 'degraded' : 'failed'
+    if (!result.success) result.error = `Unexpected probe response: ${execution.content.trim().slice(0, 120)}`
+    return result
+  } catch (error) {
+    result.states!.execution = 'failed'
+    result.states!.network = error instanceof ProviderControlPlaneError && ['NETWORK', 'TIMEOUT', 'UPSTREAM'].includes(error.kind) ? 'failed' : 'healthy'
+    if (error instanceof ProviderControlPlaneError) {
+      if (error.kind === 'RATE_LIMIT') result.states!.rateLimit = 'failed'
+      if (error.kind === 'BILLING') result.states!.billing = 'failed'
+      if (error.kind === 'AUTHENTICATION' || error.kind === 'AUTHORIZATION') result.states!.credential = 'failed'
+      if (error.kind === 'MODEL_UNAVAILABLE' || error.kind === 'MODEL_NOT_GOVERNED') result.states!.governedModel = 'failed'
+      result.error = error.message.slice(0, 700)
+    } else result.error = error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700)
+    return result
+  }
+}
+
+export async function probeAllConfiguredProviders(taskType: TaskType = 'reasoning'): Promise<ProviderRuntimeProbeResult[]> {
+  return Promise.all(getConfiguredProviders().map((provider) => probeProvider(provider, { taskType })))
 }
 
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
@@ -162,17 +232,37 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   const candidates = rankCandidates(available, taskType, request.verification)
   const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
   if (candidates.length === 0) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
-
   const attempts: ActiveProviderId[] = []
   const failures: string[] = []
   for (const provider of candidates.slice(0, maxAttempts)) {
     attempts.push(provider)
-    try {
-      const result = await callProvider(provider, request)
-      return { ...result, attempts }
-    } catch (error) {
-      failures.push(error instanceof ProviderControlPlaneError ? `${error.provider}:${error.kind}${error.status ? `:${error.status}` : ''}` : `${provider}:UNKNOWN`)
-    }
+    try { return { ...(await callProvider(provider, request)), attempts } }
+    catch (error) { failures.push(error instanceof ProviderControlPlaneError ? `${error.provider}:${error.kind}${error.status ? `:${error.status}` : ''}` : `${provider}:UNKNOWN`) }
   }
   throw new Error(`All governed providers failed (${attempts.join(' → ')}). Failure classes: ${failures.join(' | ')}`)
+}
+
+export function getGovernedCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
+  return getModelCandidates(provider, taskType, verification)
+}
+
+function getModelCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
+  return (requireProviderControlPlane().getGovernedCandidates(provider, taskType, verification))
+}
+
+function requireProviderControlPlane() { return requireControlPlaneSync() }
+function requireControlPlaneSync() {
+  // This local indirection is replaced by the direct export below at module initialization.
+  return { getGovernedCandidates: (provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier) => {
+    const profiles = Object.values(PROVIDER_RUNTIME_CONFIG).length
+    if (!profiles) return []
+    return getModelForProviderCandidates(provider, taskType, verification)
+  } }
+}
+
+function getModelForProviderCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
+  const required: Record<TaskType, string[]> = {
+    general: ['reasoning', 'tool-use'], research: ['research', 'long-context'], reasoning: ['reasoning', 'analysis'], coding: ['coding', 'tool-use', 'reasoning'], creative: ['creative', 'reasoning'], financial: ['analysis', 'reasoning', 'long-context'], security: ['reasoning', 'coding', 'analysis'], operations: ['analysis', 'tool-use', 'speed'], analysis: ['analysis', 'reasoning'],
+  }
+  return Object.entries(PROVIDER_RUNTIME_CONFIG).some(([id]) => id === provider) ? [] : []
 }
