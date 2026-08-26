@@ -12,11 +12,7 @@ const originalFetch = globalThis.fetch
 
 afterEach(() => {
   globalThis.fetch = originalFetch
-  delete process.env.GROQ_API_KEY
-  delete process.env.ZAI_API_KEY
-  delete process.env.MISTRAL_API_KEY
-  delete process.env.GEMINI_API_KEY
-  delete process.env.CEREBRAS_API_KEY
+  for (const key of ['GROQ_API_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'MISTRAL_API_KEY', 'CEREBRAS_API_KEY', 'OPENROUTER_API_KEY']) delete process.env[key]
 })
 
 const criticalAnswer = `# Recommendation
@@ -38,6 +34,8 @@ Decision: proceed only after independent review and explicit verification of the
 2. Record the final evidence and decision state.
 3. Proceed only when all mandatory gates are satisfied.`
 
+function jsonResponse(payload: unknown, status = 200): Response { return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } }) }
+
 describe('CEO cognitive lifecycle', () => {
   test('fast requests remain fast, ambiguous resolves to full, and the DecisionPlan enforces the full cognitive floor', () => {
     const fast = preRouteCeoRequest([{ role: 'user', content: 'What is compound interest?' }])
@@ -47,12 +45,7 @@ describe('CEO cognitive lifecycle', () => {
     const fastPlan = buildCeoDecisionPlan({ messages: [{ role: 'user', content: 'What is compound interest?' }], preRoute: fast })
     expect(fastPlan.path).toBe('fast')
 
-    const ambiguousMessages = [
-      'Continue this.',
-      'What about the other one instead?',
-      'Also, can you check that again?',
-      'Can you help with that thing we discussed?',
-    ]
+    const ambiguousMessages = ['Continue this.', 'What about the other one instead?', 'Also, can you check that again?', 'Can you help with that thing we discussed?']
     for (const content of ambiguousMessages) {
       const ambiguous = preRouteCeoRequest([{ role: 'user', content }])
       expect(ambiguous.route).toBe('ambiguous')
@@ -65,8 +58,9 @@ describe('CEO cognitive lifecycle', () => {
   })
 
   test('mission and complex requests produce richer DecisionPlans', () => {
-    const preRoute = preRouteCeoRequest([{ role: 'user', content: 'Design a comprehensive strategy to launch Agent007 revenue operations in production.' }])
-    const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content: 'Design a comprehensive strategy to launch Agent007 revenue operations in production.' }], preRoute, missionId: 'mission-1' })
+    const content = 'Design a comprehensive strategy to launch Agent007 revenue operations in production.'
+    const preRoute = preRouteCeoRequest([{ role: 'user', content }])
+    const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content }], preRoute, missionId: 'mission-1' })
     expect(plan.path).toBe('critical')
     expect(plan.reasoningStrategy).toBe('independent_review')
     expect(plan.cognitiveDepth).toBe(4)
@@ -75,21 +69,9 @@ describe('CEO cognitive lifecycle', () => {
 
   test('execution plan materializes every declared reasoning strategy', () => {
     const plans = [
-      buildCeoExecutionPlan({
-        requestId: 'fast', path: 'fast', objective: 'x', taskClass: 'reasoning', missionRelevant: false,
-        requiredCapabilities: [], qualityTier: 'standard', reasoningStrategy: 'direct', cognitiveDepth: 0,
-        verificationRequired: false, maxEscalations: 0, maxProviderAttempts: 1, latencyBudgetMs: 15000,
-      }),
-      buildCeoExecutionPlan({
-        requestId: 'deep', path: 'full', objective: 'x', taskClass: 'research', missionRelevant: false,
-        requiredCapabilities: ['research'], qualityTier: 'high', reasoningStrategy: 'multi_pass', cognitiveDepth: 2,
-        verificationRequired: true, maxEscalations: 1, maxProviderAttempts: 4, latencyBudgetMs: 60000,
-      }),
-      buildCeoExecutionPlan({
-        requestId: 'critical', path: 'critical', objective: 'x', taskClass: 'financial', missionRelevant: true,
-        requiredCapabilities: ['verification'], qualityTier: 'critical', reasoningStrategy: 'independent_review', cognitiveDepth: 4,
-        verificationRequired: true, maxEscalations: 2, maxProviderAttempts: 5, latencyBudgetMs: 90000,
-      }),
+      buildCeoExecutionPlan({ requestId: 'fast', path: 'fast', objective: 'x', taskClass: 'reasoning', missionRelevant: false, requiredCapabilities: [], qualityTier: 'standard', reasoningStrategy: 'direct', cognitiveDepth: 0, verificationRequired: false, maxEscalations: 0, maxProviderAttempts: 1, latencyBudgetMs: 15000 }),
+      buildCeoExecutionPlan({ requestId: 'deep', path: 'full', objective: 'x', taskClass: 'research', missionRelevant: false, requiredCapabilities: ['research'], qualityTier: 'high', reasoningStrategy: 'multi_pass', cognitiveDepth: 2, verificationRequired: true, maxEscalations: 1, maxProviderAttempts: 4, latencyBudgetMs: 60000 }),
+      buildCeoExecutionPlan({ requestId: 'critical', path: 'critical', objective: 'x', taskClass: 'financial', missionRelevant: true, requiredCapabilities: ['verification'], qualityTier: 'critical', reasoningStrategy: 'independent_review', cognitiveDepth: 4, verificationRequired: true, maxEscalations: 2, maxProviderAttempts: 5, latencyBudgetMs: 90000 }),
     ]
     expect(plans[0].stages.map((stage) => stage.name)).toEqual(['primary'])
     expect(plans[1].stages.map((stage) => stage.name)).toEqual(['primary', 'refinement'])
@@ -99,47 +81,24 @@ describe('CEO cognitive lifecycle', () => {
   test('quality gate rejects weak objective coverage and unsupported live claims', () => {
     const weak = evaluateCeoQuality({ objective: 'Compare the financial risks and recommended next actions for the two options.', content: 'This is a long generic response with unrelated context and no actual comparison, risk analysis, or decision structure. '.repeat(8), path: 'full', reviewed: false, externalExecutionSucceeded: true })
     expect(weak.decision).toBe('ESCALATE')
-
     const unsupportedLiveClaim = evaluateCeoQuality({ objective: 'Give me the latest status.', content: 'The latest live verified status is complete and confirmed.', path: 'full', reviewed: false, externalExecutionSucceeded: true, evidenceProvided: false })
     expect(unsupportedLiveClaim.decision).toBe('ESCALATE')
     expect(unsupportedLiveClaim.checks.evidenceDiscipline).toBe(false)
   })
 
   test('critical responses require supporting evidence before PASS and LIVE_VERIFIED', () => {
-    const reviewedWithoutEvidence = evaluateCeoQuality({
-      objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
-      content: criticalAnswer,
-      path: 'critical',
-      reviewed: true,
-      externalExecutionSucceeded: true,
-      evidenceProvided: false,
-    })
+    const reviewedWithoutEvidence = evaluateCeoQuality({ objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.', content: criticalAnswer, path: 'critical', reviewed: true, externalExecutionSucceeded: true, evidenceProvided: false })
     expect(reviewedWithoutEvidence.decision).toBe('ESCALATE')
     expect(reviewedWithoutEvidence.evidenceState).toBe('PARTIAL_UNCONFIRMED')
     expect(reviewedWithoutEvidence.verificationStatus).toBe('INDEPENDENT_PASS')
-
-    const evidenced = evaluateCeoQuality({
-      objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
-      content: criticalAnswer,
-      path: 'critical',
-      reviewed: true,
-      externalExecutionSucceeded: true,
-      evidenceProvided: true,
-    })
+    const evidenced = evaluateCeoQuality({ objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.', content: criticalAnswer, path: 'critical', reviewed: true, externalExecutionSucceeded: true, evidenceProvided: true })
     expect(evidenced.decision).toBe('PASS')
     expect(evidenced.evidenceState).toBe('LIVE_VERIFIED')
     expect(evidenced.verificationStatus).toBe('INDEPENDENT_PASS')
   })
 
   test('degraded mode recovers relevant persistent evidence when providers are unavailable', async () => {
-    const degraded = await buildCeoDegradedResponse({
-      objective: 'What should Agent007 do about the current mission plan?',
-      missionId: 'mission-42',
-      reason: 'All approved external providers failed.',
-      recall: async () => [
-        { key: 'mission-42-priority', value: 'The mission priority is to preserve verified execution evidence before taking irreversible action.', category: 'mission', createdAt: Date.now(), score: 80, timesRecalled: 0 },
-      ],
-    })
+    const degraded = await buildCeoDegradedResponse({ objective: 'What should Agent007 do about the current mission plan?', missionId: 'mission-42', reason: 'All approved external providers failed.', recall: async () => [{ key: 'mission-42-priority', value: 'The mission priority is to preserve verified execution evidence before taking irreversible action.', category: 'mission', createdAt: Date.now(), score: 80, timesRecalled: 0 }] })
     expect(degraded.evidenceState).toBe('MEMORY_ONLY')
     expect(degraded.sourceKeys).toEqual(['mission-42-priority'])
     expect(degraded.content).toContain('MEMORY-ONLY')
@@ -152,59 +111,61 @@ describe('CEO cognitive lifecycle', () => {
     expect(degraded.content).toContain('will not fabricate a live or verified answer')
   })
 
-  test('provider exclusion guarantees independent review does not reuse the primary provider', async () => {
+  test('provider exclusion prefers an independent canonical provider without reintroducing retired providers', async () => {
     process.env.GROQ_API_KEY = 'test-groq'
-    process.env.ZAI_API_KEY = 'test-zai'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
     const calls: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      const method = String(init?.method ?? 'GET')
-      calls.push(`${url}::${method}`)
-      if (url.includes('api.z.ai') && method === 'GET') return new Response(JSON.stringify({ data: [{ id: 'glm-5.1' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      if (url.includes('api.z.ai') && method === 'POST') return new Response(JSON.stringify({ choices: [{ message: { content: 'independent review response' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      const url = String(input); const method = String(init?.method ?? 'GET'); calls.push(`${url}::${method}`)
+      if (url.includes('groq.com') && method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('/models/search') && method === 'GET') return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+      if (url.includes('cloudflare.com') && method === 'POST') return jsonResponse({ choices: [{ message: { content: 'independent review response' } }] })
       throw new Error(`unexpected provider call: ${url}`)
     }) as typeof fetch
-
     const result = await runGovernedProviderChat({ taskType: 'reasoning', messages: [{ role: 'user', content: 'Review this draft.' }], excludeProviders: ['groq'], maxProviderAttempts: 1 })
-    expect(result.provider).toBe('zai')
-    expect(calls.some((call) => call.includes('groq.com'))).toBe(false)
+    expect(result.provider).toBe('cloudflare')
+    expect(result.model).toBe('@cf/google/gemma-4-26b-a4b-it')
+    expect(calls.some((call) => call.includes('api.z.ai'))).toBe(false)
   })
 
-  test('critical lifecycle executes primary → independent review → synthesis with deterministic verification semantics', async () => {
+  test('CEO availability contract attempts validated reasoning before degraded mode', async () => {
     process.env.GROQ_API_KEY = 'test-groq'
-    process.env.ZAI_API_KEY = 'test-zai'
+    let getCalls = 0; let postCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) { getCalls++; return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] }) }
+      if (method === 'POST' && url.includes('api.groq.com')) { postCalls++; return jsonResponse({ error: { message: 'upstream unavailable' } }, 503) }
+      throw new Error(`unexpected provider call: ${url}`)
+    }) as typeof fetch
+    const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 12000 })
+    expect(result.degraded).toBe(true)
+    expect(getCalls).toBeGreaterThanOrEqual(2)
+    expect(postCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  test('critical lifecycle executes primary → independent review → synthesis on canonical providers', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
     process.env.MISTRAL_API_KEY = 'test-mistral'
     const postProviders: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      const method = String(init?.method ?? 'GET')
+      const url = String(input); const method = String(init?.method ?? 'GET')
       if (method === 'GET') {
-        if (url.includes('api.groq.com')) return new Response(JSON.stringify({ data: [{ id: 'llama-3.3-70b-versatile' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        if (url.includes('api.z.ai')) return new Response(JSON.stringify({ data: [{ id: 'glm-5.1' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        if (url.includes('api.mistral.ai')) return new Response(JSON.stringify({ data: [{ id: 'mistral-large-latest' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('/accounts/account-123/ai/models/search')) return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
       }
       if (method === 'POST') {
-        if (url.includes('api.groq.com')) {
-          postProviders.push('groq')
-          return new Response(JSON.stringify({ choices: [{ message: { content: criticalAnswer } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        }
-        if (url.includes('api.z.ai')) {
-          postProviders.push('zai')
-          return new Response(JSON.stringify({ choices: [{ message: { content: 'Review: the recommendation needs explicit evidence, risks, and a verification checkpoint before any deployment decision.' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        }
-        if (url.includes('api.mistral.ai')) {
-          postProviders.push('mistral')
-          return new Response(JSON.stringify({ choices: [{ message: { content: criticalAnswer } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        }
+        if (url.includes('api.groq.com')) { postProviders.push('groq'); return jsonResponse({ choices: [{ message: { content: criticalAnswer } }] }) }
+        if (url.includes('cloudflare.com')) { postProviders.push('cloudflare'); return jsonResponse({ choices: [{ message: { content: 'Review: add explicit evidence, risks, and a verification checkpoint before deployment.' } }] }) }
+        if (url.includes('api.mistral.ai')) { postProviders.push('mistral'); return jsonResponse({ choices: [{ message: { content: criticalAnswer } }] }) }
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
-
-    const result = await runCeoCognitiveLifecycle({ missionId: 'mission-critical-test', messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }], timeoutMs: 20000, contextualEvidence: 'Verified internal mission evidence is available for this controlled test.' })
-
-    expect(postProviders.length).toBeGreaterThanOrEqual(3)
-    expect(postProviders[0]).not.toBe(postProviders[1])
-    expect(postProviders[2]).not.toBe(postProviders[1])
+    const result = await runCeoCognitiveLifecycle({ missionId: 'mission-critical-test', messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }], timeoutMs: 30000, contextualEvidence: 'Verified internal mission evidence is available for this controlled test.' })
+    expect(postProviders).toEqual(['groq', 'cloudflare', 'mistral'])
     expect(result.executionPlan.stages.map((stage) => stage.name)).toEqual(['primary', 'independent_review', 'synthesis'])
     expect(result.quality.verificationStatus).toBe('INDEPENDENT_PASS')
     expect(result.evidenceState).toBe('LIVE_VERIFIED')
