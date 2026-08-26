@@ -1,0 +1,104 @@
+name: One-Time Canonical Orchestrator Prompt Repair
+
+on:
+  push:
+    paths:
+      - '.github/workflows/repair-orchestrator-canonical-prompt.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Repair orchestrator prompt from canonical organization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/lib/orchestrator.ts')
+          text = path.read_text(encoding='utf-8')
+
+          stale = 'You orchestrate 20 subagents.'
+          if stale not in text:
+              raise SystemExit('Expected stale orchestrator organization claim was not found; aborting without mutation.')
+
+          import_line = "import { getCanonicalOrganizationPrompt } from './canonical-organization-prompt'"
+          anchor = "import { assertDelegationAllowed, authorityLevelFor } from './architecture-control-plane'\n"
+          if import_line not in text:
+              if anchor not in text:
+                  raise SystemExit('Canonical orchestrator import anchor not found; aborting.')
+              text = text.replace(anchor, anchor + import_line + "\n", 1)
+
+          start_marker = 'const ORCHESTRATOR_PROMPT_ADDENDUM = `'
+          end_marker = '\nexport interface OrchestratorEventEmit {'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start + len(start_marker))
+          if start < 0 or end < 0 or start >= end:
+              raise SystemExit('Canonical orchestrator prompt block markers not found; aborting.')
+
+          replacement = r'''const ORCHESTRATOR_PROMPT_ADDENDUM = `
+ORCHESTRATION:
+You are governed by the canonical Agent007 organization graph. Organization facts below are derived at runtime; do not invent, hardcode, or contradict leader, specialist, division, or venture-scope facts.
+
+${getCanonicalOrganizationPrompt()}
+
+For multi-step tasks, dispatch through the currently available sub-agent list supplied later in this prompt.
+Use <dispatch agent="<canonical-id>" task="..."/> or <dispatch_subagent id="<canonical-id>">task</dispatch_subagent>.
+Maximum dispatches per turn: ${MAX_DISPATCHES}.
+After dispatches complete, synthesize and verify the results before answering.
+
+MISSION PIPELINE:
+Type "start mission: <type>: <objective>" to run the full governed pipeline.
+Types: product_launch, content_creation, affiliate_campaign, generic.
+Each stage is executed, independently verified, corrected when required, and then handed to the next stage.
+
+The system handles quality scoring, cross-agent verification, tool-boundary enforcement, learning storage, notifications, and governed delegation automatically.`'''
+
+          text = text[:start] + replacement + text[end:]
+
+          forbidden = [
+              'You orchestrate 20 subagents.',
+              'Plus 2 custom test agents (testfast2, fasttest3).',
+              'TEAM: SCOUT (research)',
+          ]
+          for value in forbidden:
+              if value in text:
+                  raise SystemExit(f'Legacy organizational truth remains after repair: {value}')
+
+          if 'getCanonicalOrganizationPrompt' not in text:
+              raise SystemExit('Canonical organization prompt integration missing after repair.')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify surgical change
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "getCanonicalOrganizationPrompt" src/lib/orchestrator.ts
+          ! grep -q "You orchestrate 20 subagents" src/lib/orchestrator.ts
+          ! grep -q "Plus 2 custom test agents" src/lib/orchestrator.ts
+          ! grep -q "TEAM: SCOUT (research)" src/lib/orchestrator.ts
+          test "$(git diff --numstat -- src/lib/orchestrator.ts | awk '{a+=$1; d+=$2} END {print a+d+0}')" -gt 0
+          git diff --check
+
+      - name: Commit canonical prompt repair and remove migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/orchestrator.ts .github/workflows/repair-orchestrator-canonical-prompt.yml
+          git commit -m "fix: derive orchestrator organization prompt canonically"
+          git push origin HEAD:main
