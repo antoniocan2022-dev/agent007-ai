@@ -5,11 +5,14 @@ import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
+import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+// Keep a safety margin below Vercel's 300s hard ceiling so a request can
+// close cleanly before the platform kills the function.
+export const maxDuration = 240
 
 function sse(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -71,6 +74,7 @@ export async function POST(req: NextRequest) {
       const heartbeat = setInterval(() => safeEnqueue(sse('ping', { ts: Date.now() })), 5000)
 
       beginInteractive()
+      const budget = createAgentRequestBudgetForRoute()
       try {
         if (resolvedPath === 'fast') {
           safeEnqueue(sse('progress', {
@@ -123,7 +127,20 @@ export async function POST(req: NextRequest) {
           // The orchestrator is the tool-runtime lane. Its LLM compatibility
           // import resolves through the canonical bridge, so every model call
           // still enters the bounded cognitive lifecycle with the canonical org context.
-          const result = await runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit })
+          // The request budget prevents a long-running orchestration from ever
+          // reaching Vercel's hard timeout. The signal is passed through now so
+          // cooperative cancellation can be adopted by deeper runtime layers.
+          const result = await runWithAgentRequestBudget(
+            (signal) => runOrchestrator({
+              conversationId,
+              userMessage: message,
+              attachments: atts,
+              language: lang,
+              emit,
+              signal,
+            } as OrchestratorRunOptionsWithSignal),
+            AGENT_REQUEST_BUDGET_MS,
+          )
           safeEnqueue(sse('done', {
             messageId: result.persistedAssistantMessageId,
             steps: result.steps.length,
@@ -131,8 +148,19 @@ export async function POST(req: NextRequest) {
           }))
         }
       } catch (e: any) {
-        safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath }))
+        if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') {
+          await emit('error', {
+            message: 'Agent007 stopped this request before the platform timeout so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.',
+            executionClass: resolvedPath,
+            code: 'AGENT_REQUEST_TIMEOUT',
+            timeoutMs: AGENT_REQUEST_BUDGET_MS,
+            retryable: true,
+          })
+        } else {
+          safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath }))
+        }
       } finally {
+        budget.cancel()
         clearInterval(heartbeat)
         endInteractive()
         try { controller.close() } catch { /* ignore */ }
@@ -150,6 +178,21 @@ export async function POST(req: NextRequest) {
       'X-Accel-Buffering': 'no',
     },
   })
+}
+
+// Route-level holder so both current and future orchestrator implementations
+// receive a single cancellation signal without changing their public shape again.
+function createAgentRequestBudgetForRoute() {
+  return createAgentRequestBudget(AGENT_REQUEST_BUDGET_MS)
+}
+
+interface OrchestratorRunOptionsWithSignal {
+  conversationId: string
+  userMessage: string
+  attachments: AttachmentMeta[]
+  language: 'en' | 'zh'
+  emit: OrchestratorEventEmit
+  signal: AbortSignal
 }
 
 function stripDataUrl(a: AttachmentMeta) {
