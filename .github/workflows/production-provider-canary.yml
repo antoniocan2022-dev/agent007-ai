@@ -1,0 +1,50 @@
+name: Production provider canary
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-canary:
+    if: github.event.deployment_status.state == 'success' && github.event.deployment_status.environment == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Determine deployment URL
+        id: url
+        env:
+          ENVIRONMENT_URL: ${{ github.event.deployment_status.environment_url }}
+          TARGET_URL: ${{ github.event.deployment_status.target_url }}
+        run: |
+          URL="${ENVIRONMENT_URL:-$TARGET_URL}"
+          URL="${URL%/}"
+          test -n "$URL"
+          echo "base=$URL" >> "$GITHUB_OUTPUT"
+      - name: Verify release health and CEO reasoning canary
+        env:
+          BASE_URL: ${{ steps.url.outputs.base }}
+          DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 "$BASE_URL/api/release-health" > release-health.json
+          curl --fail --silent --show-error --max-time 20 "$BASE_URL/api/health/provider-canary" > provider-canary.json
+          node <<'NODE'
+          const fs = require('node:fs')
+          const release = JSON.parse(fs.readFileSync('release-health.json', 'utf8'))
+          const canary = JSON.parse(fs.readFileSync('provider-canary.json', 'utf8'))
+          const deploymentSha = process.env.DEPLOYMENT_SHA
+          const failures = []
+          if (release.ok !== true || release.proof?.tripleProof !== true) failures.push('release-health triple proof is not green')
+          if (release.source?.mainSha !== deploymentSha) failures.push(`GitHub main SHA mismatch: ${release.source?.mainSha} != ${deploymentSha}`)
+          if (release.runtime?.commitSha !== deploymentSha) failures.push(`runtime SHA mismatch: ${release.runtime?.commitSha} != ${deploymentSha}`)
+          if (canary.ok !== true) failures.push('provider canary failed')
+          if (canary.degraded !== false) failures.push('provider canary entered degraded mode')
+          if (canary.nonEmptyResponse !== true) failures.push('provider canary returned empty response')
+          if (canary.executionValidated !== true) failures.push('provider execution was not validated')
+          if (canary.acceptableLatency !== true || canary.responseMs > 5000) failures.push(`provider latency unacceptable: ${canary.responseMs}ms`)
+          if (!canary.provider || !canary.model) failures.push('provider/model identity missing from canary')
+          if (failures.length) { console.error(failures.join('\n')); process.exit(1) }
+          console.log(`Production provider canary PASSED: ${canary.provider}/${canary.model} ${canary.responseMs}ms; SHA ${deploymentSha}`)
+          NODE
