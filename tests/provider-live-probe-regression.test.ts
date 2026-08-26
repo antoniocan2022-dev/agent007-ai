@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'bun:test'
-import { PROVIDER_RUNTIME_CONFIG } from '../src/lib/provider-runtime-v2'
+import { PROVIDER_ORDER, PROVIDER_RUNTIME_CONFIG } from '../src/lib/provider-control-plane'
 
 describe('provider live probe regression contract', () => {
-  it('uses a sufficiently large probe budget for reasoning-capable Groq/Cerebras models', () => {
-    expect(PROVIDER_RUNTIME_CONFIG.groq.preferredModels).toContain('openai/gpt-oss-120b')
-    expect(PROVIDER_RUNTIME_CONFIG.cerebras.defaultModel).toBe('gpt-oss-120b')
+  it('uses the replacement provider order and neutral reasoning probe', () => {
+    expect(PROVIDER_ORDER).toEqual(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
+    expect(PROVIDER_RUNTIME_CONFIG.cloudflare.defaultModel).toBe('@cf/google/gemma-4-26b-a4b-it')
+    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('openrouter/free')
   })
 
-  it('pins Gemini to the current production model preference instead of stale 2.x models', () => {
-    expect(PROVIDER_RUNTIME_CONFIG.gemini.defaultModel).toBe('gemini-3.6-flash')
-    expect(PROVIDER_RUNTIME_CONFIG.gemini.preferredModels).toEqual(['gemini-3.6-flash'])
-    expect(PROVIDER_RUNTIME_CONFIG.gemini.preferredModels).not.toContain('gemini-2.5-flash')
-    expect(PROVIDER_RUNTIME_CONFIG.gemini.preferredModels).not.toContain('gemini-1.5-flash')
+  it('contains no retired Z.AI or Gemini runtime configuration', () => {
+    expect(Object.keys(PROVIDER_RUNTIME_CONFIG)).not.toContain('zai')
+    expect(Object.keys(PROVIDER_RUNTIME_CONFIG)).not.toContain('gemini')
   })
 })
