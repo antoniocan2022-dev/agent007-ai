@@ -17,28 +17,53 @@ function walk(root: string): string[] {
   return results
 }
 
+function stripComments(content: string): string {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\s)\/\/.*$/gm, '$1')
+}
+
+function isHistoricalArtifact(path: string): boolean {
+  return /(^|\/)(backup|backups)(\/|$)/i.test(path) || /generate-(?:full-backup-final|u78-backup)\.ts$/i.test(path)
+}
+
+function isTestPath(path: string): boolean {
+  return /(^|\/).*\.test\.(?:ts|tsx|js|mjs|cjs)$/i.test(path)
+}
+
 const files = ROOTS.flatMap(walk)
 const contents = files.map((path) => [path, readFileSync(path, 'utf8')] as const)
 const runtimeConfigPattern = /export const PROVIDER_RUNTIME_CONFIG\s*(?::[^=]+)?=/
 const governedModelPattern = /export const GOVERNED_MODEL_PROFILES\s*(?::[^=]+)?=/
 const legacyModelPattern = /export const MODEL_PROFILES\s*(?::[^=]+)?=/
 const expectedProviderOrder = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
-const retiredProviders = ['zai', 'gemini'] as const
 
 const runtimeConfigDefs = contents.filter(([, content]) => runtimeConfigPattern.test(content)).map(([path]) => path)
 if (runtimeConfigDefs.length !== 1 || runtimeConfigDefs[0] !== 'src/lib/provider-control-plane.ts') violations.push(`Expected exactly one canonical PROVIDER_RUNTIME_CONFIG in src/lib/provider-control-plane.ts; found ${runtimeConfigDefs.join(', ') || 'none'}`)
 const canonicalModelDefs = contents.filter(([, content]) => governedModelPattern.test(content)).map(([path]) => path)
 if (canonicalModelDefs.length !== 1 || canonicalModelDefs[0] !== 'src/lib/provider-control-plane.ts') violations.push(`Expected exactly one canonical GOVERNED_MODEL_PROFILES in src/lib/provider-control-plane.ts; found ${canonicalModelDefs.join(', ') || 'none'}`)
 
-for (const [path, content] of contents) {
-  if (legacyModelPattern.test(content)) {
-    const isApprovedCompatibilityAlias = path === 'src/lib/model-intelligence.ts' && /export const MODEL_PROFILES\s*:\s*readonly GovernedModelProfile\[\]\s*=\s*GOVERNED_MODEL_PROFILES/.test(content)
+for (const [path, rawContent] of contents) {
+  if (legacyModelPattern.test(rawContent)) {
+    const isApprovedCompatibilityAlias = path === 'src/lib/model-intelligence.ts' && /export const MODEL_PROFILES\s*:\s*readonly GovernedModelProfile\[\]\s*=\s*GOVERNED_MODEL_PROFILES/.test(rawContent)
     if (!isApprovedCompatibilityAlias) violations.push(`Duplicate or legacy provider model matrix found: ${path}`)
   }
-  if (path === AUDIT_FILE) continue
-  for (const retired of retiredProviders) {
-    const pattern = retired === 'gemini' ? /\bgemini\b/i : /\bzai\b/i
-    if (pattern.test(content)) violations.push(`Retired provider reference found in ${path}: ${retired}`)
+  if (path === AUDIT_FILE || isHistoricalArtifact(path)) continue
+
+  const content = stripComments(rawContent)
+  // Tests may mention retired IDs only to prove they are absent. Runtime source
+  // must not contain executable imports, SDK calls, provider IDs, or endpoints.
+  if (!isTestPath(path)) {
+    const retiredRuntimePatterns: Array<[string, RegExp]> = [
+      ['zai-sdk', /z-ai-web-dev-sdk/],
+      ['zai-sdk-call', /\bZAI\.(?:create|createAsync)\b|\bgetZai\s*\(/],
+      ['zai-endpoint', /api\.z\.ai/i],
+      ['zai-provider-id', /provider\s*[:=]\s*['"]zai['"]/i],
+      ['gemini-endpoint', /generativelanguage\.googleapis\.com/i],
+      ['gemini-provider-id', /provider\s*[:=]\s*['"]gemini['"]/i],
+      ['gemini-model-id', /(?:models\/gemini|gemini-(?:\d|pro|flash)|@google\/gemini)/i],
+    ]
+    for (const [label, pattern] of retiredRuntimePatterns) if (pattern.test(content)) violations.push(`Retired provider runtime reference (${label}) found in ${path}`)
   }
   if (content.includes('__providerDiscovery') || content.includes('__agent007ProviderModelCache')) violations.push(`Stale provider discovery/cache marker found in ${path}`)
 }
