@@ -73,6 +73,6 @@ export async function buildCeoDegradedResponse(input: {
     evidenceState: 'UNAVAILABLE',
     reason: input.reason,
     sourceKeys,
-    content: `Evidence state: UNAVAILABLE.\n\nThe live reasoning path did not produce an accepted final answer and no relevant internal evidence was recovered for this request. Agent007 will not fabricate a verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nA stronger answer requires an accepted governed reasoning result or relevant internal evidence.`,
+    content: `Evidence state: UNAVAILABLE.\n\nThe live reasoning path did not produce an accepted final answer and no relevant internal evidence was recovered for this request. Agent007 will not fabricate a live or verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nA stronger answer requires an accepted governed reasoning result or relevant internal evidence.`,
   }
 }
