@@ -16,6 +16,7 @@ describe('CEO execution contract', () => {
     expect(decision.executionContract.toolRequired).toBe(false)
     expect(decision.executionContract.subagentsRequired).toBe(false)
     expect(decision.executionContract.maxRecoveries).toBe(0)
+    expect(decision.executionContract.latencyBudgetMs).toBe(30000)
     expect(decision.route).toBe('fast')
     expect(resolvePreRoute(decision)).toBe('fast')
 
@@ -29,7 +30,8 @@ describe('CEO execution contract', () => {
     expect(plan.cognitiveDepth).toBe(0)
     expect(plan.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
     expect(plan.maxEscalations).toBe(0)
-    expect(plan.latencyBudgetMs).toBe(15000)
+    expect(plan.maxProviderAttempts).toBe(4)
+    expect(plan.latencyBudgetMs).toBe(30000)
   })
 
   test('keeps non-operational analysis CEO-owned even when it is deep', () => {
