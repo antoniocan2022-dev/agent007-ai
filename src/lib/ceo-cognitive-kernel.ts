@@ -29,7 +29,7 @@ export function buildCeoDecisionPlan(input: {
   const qualityTier = critical ? 'critical' : deep ? 'high' : 'standard'
   const verificationRequired = critical || deep
   const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep ? 1 : 0
-  const maxProviderAttempts = selfAssessment ? 2 : critical ? 5 : deep ? 4 : 2
+  const maxProviderAttempts = selfAssessment ? 4 : critical ? 5 : deep ? 4 : 2
   const latencyBudgetMs = selfAssessment
     ? contract.latencyBudgetMs
     : critical
