@@ -34,6 +34,8 @@ on:
       - 'prisma/schema.prisma'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/ceo-execution-contract.test.ts'
+      - 'tests/ceo-recovery-policy.test.ts'
+      - 'tests/ceo-real-request-corpus.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
@@ -80,6 +82,8 @@ on:
       - 'prisma/schema.prisma'
       - 'tests/ceo-cognitive-lifecycle.test.ts'
       - 'tests/ceo-execution-contract.test.ts'
+      - 'tests/ceo-recovery-policy.test.ts'
+      - 'tests/ceo-real-request-corpus.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
@@ -153,6 +157,12 @@ jobs:
 
       - name: Run CEO execution contract regressions
         run: bun test tests/ceo-execution-contract.test.ts
+
+      - name: Run CEO recovery policy tests
+        run: bun test tests/ceo-recovery-policy.test.ts
+
+      - name: Run real CEO request regression corpus
+        run: bun test tests/ceo-real-request-corpus.test.ts
 
       - name: Run mission autonomy supervisor tests
         run: bun test tests/mission-autonomy-supervisor.test.ts
