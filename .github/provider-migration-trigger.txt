@@ -1,1 +1,1 @@
-temporary trigger for provider convergence
+provider convergence trigger — execute migration against current main
