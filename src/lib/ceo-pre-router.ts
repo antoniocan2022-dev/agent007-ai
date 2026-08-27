@@ -14,12 +14,7 @@ const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|de
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 
-// Self-assessment is semantic in shape: the owner asks Agent007/CEO to assess
-// itself, its readiness, capabilities, weaknesses, or performance. This must
-// not be promoted to an external-action path merely because the message also
-// contains words such as "analysis", "strategy", or "business".
 const SELF_ASSESSMENT_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|reflect|self[-\s]?assessment|self[-\s]?analysis|readiness|ready)\b[\s\S]{0,160}\b(?:you|your|yourself|agent007|ceo)\b|\b(?:you|your|yourself|agent007|ceo)\b[\s\S]{0,160}\b(?:ready|capable|prepared|equipped|weakness(?:es)?|strengths?|performing|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?)\b/i
-
 const SELF_ASSESSMENT_ACTION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|production)\b/i
 
 function latestUserText(messages: readonly { role: string; content: string }[]): string {
@@ -51,6 +46,7 @@ function contractFor(input: {
   reason: string
 }): CeoExecutionContract {
   const { intent, adaptiveExecutionClass, missionRelevant, reason } = input
+
   if (intent === 'self_assessment') {
     return buildExecutionContract({
       intent,
@@ -66,15 +62,30 @@ function contractFor(input: {
     })
   }
 
-  if (intent === 'conversation' || adaptiveExecutionClass === 'fast') {
+  if (intent === 'conversation') {
     return buildExecutionContract({
-      intent: intent === 'conversation' ? intent : 'analysis',
+      intent,
       evidenceRequirement: 'none',
       executionRequirement: 'llm_only',
       orchestrationOwner: 'ceo_lifecycle',
       maxTurns: 1,
       maxRecoveries: 0,
       latencyBudgetMs: 15000,
+      toolRequired: false,
+      subagentsRequired: false,
+      reason,
+    })
+  }
+
+  if (intent === 'analysis' || intent === 'opinion' || intent === 'decision') {
+    return buildExecutionContract({
+      intent,
+      evidenceRequirement: 'none',
+      executionRequirement: 'llm_only',
+      orchestrationOwner: 'ceo_lifecycle',
+      maxTurns: adaptiveExecutionClass === 'deep' ? 2 : 1,
+      maxRecoveries: 0,
+      latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 30000 : 15000,
       toolRequired: false,
       subagentsRequired: false,
       reason,
@@ -98,13 +109,13 @@ function contractFor(input: {
 
   return buildExecutionContract({
     intent,
-    evidenceRequirement: intent === 'research' ? 'external_web' : 'none',
-    executionRequirement: intent === 'tool_action' ? 'one_tool' : 'llm_only',
+    evidenceRequirement: intent === 'research' ? 'external_web' : intent === 'tool_action' ? 'internal_state' : 'none',
+    executionRequirement: intent === 'research' || intent === 'tool_action' ? 'one_tool' : 'llm_only',
     orchestrationOwner: 'operational_orchestrator',
     maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
     maxRecoveries: 1,
     latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
-    toolRequired: intent === 'tool_action',
+    toolRequired: intent === 'research' || intent === 'tool_action',
     subagentsRequired: false,
     reason,
   })
@@ -145,14 +156,11 @@ export function preRouteCeoRequest(
   const semanticIntent = inferSemanticIntent(text)
 
   if (!text) {
+    const reason = 'No substantive request detected.'
     return buildDecision({
-      route: 'fast',
-      reason: 'No substantive request detected.',
-      missionRelevant: false,
-      complexitySignals: 0,
-      taskClass,
+      route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass,
       adaptiveExecutionClass: 'fast',
-      executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason: 'No substantive request detected.' }),
+      executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
     })
   }
 
@@ -172,9 +180,6 @@ export function preRouteCeoRequest(
     })
   }
 
-  // Self-assessment takes precedence over generic depth keywords. It is a
-  // conversational CEO evaluation unless the owner explicitly requests an
-  // external/operational action in the same message.
   if (semanticIntent === 'self_assessment') {
     const reason = 'Self-assessment request: evaluate Agent007/CEO readiness from governed internal state without external action.'
     return buildDecision({
@@ -202,29 +207,23 @@ export function preRouteCeoRequest(
     })
   }
 
-  if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
-    const reason = 'Context-dependent request requires richer conversational analysis.'
+  if (semanticIntent === 'conversation' || semanticIntent === 'opinion' || semanticIntent === 'decision' || semanticIntent === 'analysis') {
+    const reason = semanticIntent === 'analysis'
+      ? 'Semantic analysis request remains CEO-owned; depth changes reasoning strategy, not orchestration ownership.'
+      : 'Non-operational executive request remains CEO-owned.'
+    const isDeep = adaptive.executionClass === 'deep' || text.length > DIRECT_CEO_MAX_CHARS
     return buildDecision({
-      route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass,
+      route: isDeep ? 'full' : 'fast', reason, missionRelevant: false, complexitySignals, taskClass,
       adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }),
+      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: isDeep ? 'deep' : 'fast', missionRelevant: false, reason }),
     })
   }
 
-  if (text.length <= DIRECT_CEO_MAX_CHARS && adaptive.executionClass !== 'deep') {
-    const reason = 'Bounded direct CEO lane selected for a non-operational request.'
-    return buildDecision({
-      route: 'fast', reason, missionRelevant, complexitySignals, taskClass,
-      adaptiveExecutionClass: 'fast',
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
-    })
-  }
-
-  const reason = 'Request exceeds the bounded direct CEO lane; defaulting to the operational full path.'
+  const reason = 'Context-dependent request requires richer conversational analysis.'
   return buildDecision({
     route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass,
     adaptiveExecutionClass: adaptive.executionClass,
-    executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }),
+    executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }),
   })
 }
 
