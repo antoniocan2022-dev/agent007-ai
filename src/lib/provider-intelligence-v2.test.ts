@@ -51,16 +51,13 @@ describe('Provider Intelligence 2.0', () => {
     expect(PROVIDER_RUNTIME_CONFIG.openrouter.baseUrl).toBe('https://openrouter.ai/api/v1/chat/completions')
   })
   test('detects configured providers without changing canonical priority', () => {
-    const original = { ...process.env }
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'
     process.env.CEREBRAS_API_KEY = 'test-cerebras'
     delete process.env.MISTRAL_API_KEY
     delete process.env.OPENROUTER_API_KEY
-    try {
-      expect(getConfiguredProviders()).toEqual(['groq', 'cloudflare', 'cerebras'])
-    } finally { process.env = original }
+    expect(getConfiguredProviders()).toEqual(['groq', 'cloudflare', 'cerebras'])
   })
   test('selects task-aware governed models', () => {
     expect(['llama-3.3-70b-versatile', 'openai/gpt-oss-120b']).toContain(getModelForProvider('groq', 'coding'))
@@ -68,17 +65,12 @@ describe('Provider Intelligence 2.0', () => {
     expect(getModelForProvider('cerebras', 'reasoning')).toBe('gpt-oss-120b')
   })
   test('fails over from Groq to Cloudflare after provider request failure', async () => {
-    const originalEnv = { ...process.env }
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'
-    delete process.env.MISTRAL_API_KEY
-    delete process.env.CEREBRAS_API_KEY
-    delete process.env.OPENROUTER_API_KEY
     const calls: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      const method = String(init?.method ?? 'GET')
+      const url = String(input); const method = String(init?.method ?? 'GET')
       calls.push(`${url}::${method}`)
       if (url.includes('api.groq.com') && method === 'GET') return new Response(JSON.stringify({ data: [{ id: 'llama-3.3-70b-versatile' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       if (url.includes('api.groq.com') && method === 'POST') return new Response('temporary failure', { status: 503 })
@@ -86,14 +78,12 @@ describe('Provider Intelligence 2.0', () => {
       if (url.includes('api.cloudflare.com') && method === 'POST') return new Response(JSON.stringify({ choices: [{ message: { content: 'governed success' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
-    try {
-      const result = await runGovernedProviderChat({ taskType: 'reasoning', messages: [{ role: 'user', content: 'test' }], timeoutMs: 5000 })
-      expect(result.provider).toBe('cloudflare')
-      expect(result.model).toBe('@cf/google/gemma-4-26b-a4b-it')
-      expect(result.attempts).toEqual(['groq', 'cloudflare'])
-      expect(calls.some((call) => call.includes('api.groq.com') && call.endsWith('::POST'))).toBe(true)
-      expect(calls.some((call) => call.includes('api.cloudflare.com') && call.endsWith('::POST'))).toBe(true)
-    } finally { process.env = originalEnv }
+    const result = await runGovernedProviderChat({ taskType: 'reasoning', messages: [{ role: 'user', content: 'test' }], timeoutMs: 5000 })
+    expect(result.provider).toBe('cloudflare')
+    expect(result.model).toBe('@cf/google/gemma-4-26b-a4b-it')
+    expect(result.attempts).toEqual(['groq', 'cloudflare'])
+    expect(calls.some((call) => call.includes('api.groq.com') && call.endsWith('::POST'))).toBe(true)
+    expect(calls.some((call) => call.includes('api.cloudflare.com') && call.endsWith('::POST'))).toBe(true)
   })
   test('records verified outcome evidence only when the caller supplies it', async () => {
     const originalEnv = { ...process.env }
@@ -109,8 +99,8 @@ describe('Provider Intelligence 2.0', () => {
       return new Response(JSON.stringify({ choices: [{ message: { content: 'verified result' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }) as typeof fetch
     try {
-      await runGovernedProviderChat({ taskType: 'analysis', messages: [{ role: 'user', content: 'test' }], outcomeEvidence: { status: 'verified_success', qualityScore: 95, businessValueScore: 93, verificationPassed: true } })
-      const snapshot = getOutcomeSnapshot('groq', getModelForProvider('groq', 'analysis')!, 'analysis')
+      const result = await runGovernedProviderChat({ taskType: 'analysis', messages: [{ role: 'user', content: 'test' }], outcomeEvidence: { status: 'verified_success', qualityScore: 95, businessValueScore: 93, verificationPassed: true } })
+      const snapshot = getOutcomeSnapshot(result.provider, result.model, 'analysis')
       expect(snapshot.observations).toBe(1)
       expect(snapshot.verifiedSuccesses).toBe(1)
       expect(snapshot.verificationRate).toBe(100)
