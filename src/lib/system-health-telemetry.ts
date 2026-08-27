@@ -45,9 +45,20 @@ export async function getLiveSystemHealth(): Promise<SystemHealthReport> {
       return { reachable: true, state: 'healthy' }
     }),
     timedCheck('providers', async () => {
-      if (providerTelemetry.configuredCount === 0) return { state: 'failed', configured: 0, healthy: 0, providers: providerTelemetry.providers }
-      if (providerTelemetry.healthyCount === 0) return { state: 'degraded', ...providerTelemetry }
-      return { state: providerTelemetry.healthyCount < providerTelemetry.configuredCount ? 'degraded' : 'healthy', ...providerTelemetry }
+      if (providerTelemetry.configuredCount === 0) {
+        return { state: 'failed', configured: 0, healthy: 0, available: 0, providers: providerTelemetry.providers }
+      }
+      if (providerTelemetry.availableCount === 0) {
+        return { state: 'failed', ...providerTelemetry }
+      }
+      // Overall system health is operational when at least one governed provider
+      // is available. Individual provider degradation remains visible in details.
+      return {
+        state: 'healthy',
+        ...providerTelemetry,
+        operationalProviderCount: providerTelemetry.availableCount,
+        providerHealthSemantics: 'system healthy when at least one governed provider is available; per-provider degradation is retained in details',
+      }
     }),
     timedCheck('proof-infrastructure', async () => ({
       state: 'healthy',
