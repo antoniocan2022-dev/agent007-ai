@@ -1,0 +1,25 @@
+name: Provider Retirement Inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Inventory retired-provider runtime references
+        run: |
+          set -euo pipefail
+          echo '=== Z.AI SDK imports/calls ==='
+          git grep -n -E "z-ai-web-dev-sdk|\bZAI\b|api\.z\.ai|ZAI_API_KEY|Z_AI" -- src package.json bun.lock || true
+          echo '=== Gemini runtime references ==='
+          git grep -n -E "GEMINI_API_KEY|['\"]gemini['\"]|gemini-" -- src || true
+          echo '=== Provider-aware modules ==='
+          git grep -l -E "provider|LLM_PROVIDER_ORDER|GEMINI_API_KEY|ZAI_API_KEY|z-ai-web-dev-sdk" -- src/lib src/app/api | sort -u || true
