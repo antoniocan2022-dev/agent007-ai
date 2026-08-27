@@ -155,7 +155,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const liveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }] : []
   const primaryMessages = [...liveSystemMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({
-    taskType: request.taskType,
+    taskType: request.taskType ?? decisionPlan.taskClass ?? 'reasoning',
     verification: selectedVerification,
     model: request.model,
     temperature: request.temperature,
