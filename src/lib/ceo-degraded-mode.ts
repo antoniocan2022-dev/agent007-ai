@@ -17,6 +17,18 @@ function formatMemoryEvidence(entries: Array<{ key: string; value: string; categ
     .join('\n\n')
 }
 
+function isSelfAssessment(objective: string): boolean {
+  return /\b(?:you|your|yourself|agent007|ceo)\b/i.test(objective)
+    && /\b(?:self[-\s]?(?:analysis|assessment|reflection)|ready|readiness|capable|capability|prepared|equipped|strengths?|weakness(?:es)?|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|how(?:'s|\s+is)\s+(?:it|agent007|the\s+system)\s+going)\b/i.test(objective)
+}
+
+function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string): string {
+  const evidenceBlock = recoveredContext.trim()
+    ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}`
+    : ''
+  return `Evidence state: INTERNAL-STATE-ONLY.\n\nI can still give a truthful self-assessment without pretending live external verification succeeded.\n\n## Self-assessment\n- Architecturally, Agent007 is designed to manage business operations through a governed CEO layer, canonical organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.\n- I am **not yet justified in claiming fully autonomous business management** solely from architecture. Real-world business readiness also requires verified live execution, reliable external integrations, customer outcomes, financial controls, and sustained production results.\n- Therefore the defensible position is: **ready to operate as a governed business-management system with human oversight; not yet proven for unsupervised end-to-end business ownership.**${evidenceBlock}\n\nRequested objective: ${objective.slice(0, 2000)}`
+}
+
 /**
  * Degraded mode is a real internal-evidence recovery path, not a substitute
  * for live reasoning. It queries persistent memory automatically when the
@@ -44,7 +56,16 @@ export async function buildCeoDegradedResponse(input: {
       evidenceState: 'MEMORY_ONLY',
       reason: input.reason,
       sourceKeys,
-      content: `Evidence state: MEMORY-ONLY.\n\nLive external reasoning is currently unavailable, so Agent007 will not present new unverified facts as current. Based only on the internal evidence currently available, the strongest supported information is:\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nWhat still requires live verification: current external facts, new research, and conclusions that depend on unavailable providers.`,
+      content: `Evidence state: MEMORY-ONLY.\n\nThe live reasoning path did not produce an accepted final answer, so Agent007 will not present new unverified facts as current. Based only on the internal evidence currently available, the strongest supported information is:\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nWhat still requires live verification: current external facts, new research, and conclusions that depend on unavailable execution.`,
+    }
+  }
+
+  if (isSelfAssessment(input.objective)) {
+    return {
+      evidenceState: 'PARTIAL_UNCONFIRMED',
+      reason: input.reason,
+      sourceKeys,
+      content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext),
     }
   }
 
@@ -52,6 +73,6 @@ export async function buildCeoDegradedResponse(input: {
     evidenceState: 'UNAVAILABLE',
     reason: input.reason,
     sourceKeys,
-    content: `Evidence state: UNAVAILABLE.\n\nAgent007 cannot currently reach an external reasoning provider and no relevant internal evidence was recovered for this request. Agent007 will not fabricate a live or verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nThe full reasoning path can resume when an approved provider becomes available.`,
+    content: `Evidence state: UNAVAILABLE.\n\nThe live reasoning path did not produce an accepted final answer and no relevant internal evidence was recovered for this request. Agent007 will not fabricate a verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nA stronger answer requires an accepted governed reasoning result or relevant internal evidence.`,
   }
 }
