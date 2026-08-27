@@ -5,20 +5,38 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   inventory:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Regenerate Bun lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --lockfile-only
+          if git diff --quiet -- bun.lock; then
+            echo 'bun.lock already current'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bun.lock
+          git commit -m 'ci: regenerate bun lockfile'
+          git push origin HEAD:main
       - name: Inventory retired-provider runtime references
         shell: bash
         run: |
           set -euo pipefail
           echo '=== Z.AI SDK imports/calls ==='
-          git grep -n -E "z-ai-web-dev-sdk|\bZAI\b|api\.z\.ai|ZAI_API_KEY|Z_AI" -- src package.json bun.lock || true
+          git grep -n -E "z-ai-web-dev-sdk|\bZAI\b|api\.z\.ai|ZAI_API_KEY|Z_AI" -- src package.json bun.lock ':!src/lib/upgrade-manifest.ts' || true
           echo '=== Gemini runtime references ==='
-          git grep -n -E "GEMINI_API_KEY|['\"]gemini['\"]|gemini-" -- src || true
+          git grep -n -E "GEMINI_API_KEY|['\"]gemini['\"]|gemini-" -- src ':!src/lib/upgrade-manifest.ts' || true
           echo '=== Z.AI usage context ==='
-          git grep -n -C 4 -E "z-ai-web-dev-sdk|\bZAI\b|api\.z\.ai|ZAI_API_KEY|Z_AI" -- src || true
+          git grep -n -C 4 -E "z-ai-web-dev-sdk|\bZAI\b|api\.z\.ai|ZAI_API_KEY|Z_AI" -- src ':!src/lib/upgrade-manifest.ts' || true
