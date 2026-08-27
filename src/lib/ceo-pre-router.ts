@@ -107,15 +107,45 @@ function contractFor(input: {
     })
   }
 
+  if (intent === 'production_action') {
+    return buildExecutionContract({
+      intent,
+      evidenceRequirement: 'live_system',
+      executionRequirement: 'production',
+      orchestrationOwner: 'operational_orchestrator',
+      maxTurns: 6,
+      maxRecoveries: 1,
+      latencyBudgetMs: 60000,
+      toolRequired: true,
+      subagentsRequired: false,
+      reason,
+    })
+  }
+
+  if (intent === 'research') {
+    return buildExecutionContract({
+      intent,
+      evidenceRequirement: 'external_web',
+      executionRequirement: 'one_tool',
+      orchestrationOwner: 'operational_orchestrator',
+      maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
+      maxRecoveries: 1,
+      latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
+      toolRequired: true,
+      subagentsRequired: false,
+      reason,
+    })
+  }
+
   return buildExecutionContract({
     intent,
-    evidenceRequirement: intent === 'research' ? 'external_web' : intent === 'tool_action' ? 'internal_state' : 'none',
-    executionRequirement: intent === 'research' || intent === 'tool_action' ? 'one_tool' : 'llm_only',
+    evidenceRequirement: 'internal_state',
+    executionRequirement: 'one_tool',
     orchestrationOwner: 'operational_orchestrator',
     maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
     maxRecoveries: 1,
     latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
-    toolRequired: intent === 'research' || intent === 'tool_action',
+    toolRequired: true,
     subagentsRequired: false,
     reason,
   })
