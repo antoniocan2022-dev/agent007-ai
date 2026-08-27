@@ -23,196 +23,18 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.4'
-      - name: Apply provider retirement and convergence
+      - name: Apply provider retirement
+        run: python3 scripts/retire-legacy-providers.py
+      - name: Regenerate lockfile
+        run: bun install --lockfile-only
+      - name: Verify retired providers are absent
         shell: bash
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          root = Path('.')
-
-          def read(p):
-              return (root/p).read_text()
-          def write(p, s):
-              (root/p).write_text(s)
-
-          # 1) tools.ts: remove the retired SDK and start web search on the
-          #    already-existing neutral search fallbacks (Brave/DDG/Google).
-          p = Path('src/lib/tools.ts')
-          s = p.read_text()
-          s = s.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
-          s = re.sub(r"\nlet _zai: any.*?\nasync function getZai\(\): Promise<any> \{.*?\n\}\n", "\n", s, flags=re.S)
-          s = re.sub(r"\nlet _zai: ZAI \| null = null\nasync function getZai\(\): Promise<ZAI> \{.*?\n\}\n", "\n", s, flags=re.S)
-          s = re.sub(r"    const zai = await getZai\(\)\n    const results = await zai\.functions\.invoke\('web_search', \{\n      query,\n      num: Math\.min\(Math\.max\(args\.num \?\? 5, 1\), 10\),\n      recency_days: args\.recency_days,\n    \}\)\n    if \(!Array\.isArray\(results\) \|\| results\.length === 0\) \{\n      throw new Error\('Z\.ai returned empty results'\)\n    \}", "    throw new Error('Primary provider search path retired; use neutral search fallbacks below')", s)
-          s = s.replace("  } catch (zaiError: any) {", "  } catch (searchError: any) {")
-          s = s.replace("${zaiError?.message ?? 'unknown'}", "${searchError?.message ?? 'unknown'}")
-          s = s.replace("Z.ai SDK unavailable on Vercel", "primary provider search path retired")
-          s = s.replace("Z.ai error: ${zaiError?.message ?? 'unknown'}", "Primary search path: ${searchError?.message ?? 'unknown'}")
-          s = s.replace("web_search failed (Z.ai: ${zaiError?.message ?? 'unknown'}, fallback: ${fallbackError?.message ?? 'unknown'})", "web_search failed (primary: ${searchError?.message ?? 'unknown'}, fallback: ${fallbackError?.message ?? 'unknown'})")
-          p.write_text(s)
-
-          # 2) Add a tiny canonical chat compatibility bridge for legacy
-          #    modules that only need chat.completions.create.
-          bridge = Path('src/lib/canonical-provider-bridge.ts')
-          bridge.write_text('''import { runCanonicalLlm } from './canonical-llm-router'\n\ntype Message = { role: 'system' | 'user' | 'assistant'; content: string }\n\nexport function getCanonicalLlmBridge() {\n  return {\n    chat: {\n      completions: {\n        create: async (request: { messages: Message[]; temperature?: number; max_tokens?: number; max_completion_tokens?: number }) => {\n          const result = await runCanonicalLlm({\n            messages: request.messages,\n            taskType: 'reasoning',\n            verification: 'standard',\n            temperature: request.temperature,\n            maxTokens: request.max_completion_tokens ?? request.max_tokens,\n            timeoutMs: 30000,\n            maxProviderAttempts: 5,\n            executionClass: 'standard',\n          })\n          return {\n            choices: [{ message: { role: 'assistant', content: result.content }, finish_reason: 'stop' }],\n            _provider: result.provider,\n            _model: result.model,\n            _reasoning: undefined,\n            _attempts: result.attempts,\n          }\n        },\n      },\n    },\n  }\n}\n''')
-
-          # 3) Convert simple legacy getZai() chat wrappers to the canonical bridge.
-          for name in [
-              'advanced-capabilities.ts',
-              'agent007-extensions.ts',
-              'agent007-meta.ts',
-              'business-infrastructure.ts',
-              'developer-enhancements.ts',
-              'enhanced-tools.ts',
-          ]:
-              p = Path('src/lib')/name
-              s = p.read_text()
-              if "z-ai-web-dev-sdk" not in s:
-                  continue
-              s = s.replace("import { type ToolContext, type ToolResult } from './tools'", "import { type ToolContext, type ToolResult } from './tools'\nimport { getCanonicalLlmBridge } from './canonical-provider-bridge'")
-              s = re.sub(r"\nasync function getZai\(\) \{.*?\n\}\n", "\n", s, flags=re.S)
-              s = s.replace('getZai()', 'getCanonicalLlmBridge()')
-              s = s.replace("const ZAI = (await import('z-ai-web-dev-sdk')).default\n", '')
-              p.write_text(s)
-
-          # 4) max-improvements: the retired provider's web_search helper is
-          #    replaced by a canonical analysis request; the normal search tool
-          #    remains the source for actual web evidence elsewhere.
-          p = Path('src/lib/max-improvements.ts')
-          s = p.read_text()
-          s = re.sub(r"      const ZAI = \(await import\('z-ai-web-dev-sdk'\)\)\.default\n      let _z: any = \(globalThis as any\)\.__zai_singleton\n      if \(!_z\) \{ _z = await ZAI\.create\(\); \(globalThis as any\)\.__zai_singleton = _z \}\n      const results = await _z\.functions\.invoke\('web_search', \{ query: `\$\{industry\} trends 2025 new opportunities emerging`, num: 5 \}\)\n      searchData = JSON\.stringify\(results\?\.results \?\? ''\)\.slice\(0, 3000\)", "      const { runCanonicalLlm } = await import('./canonical-llm-router')\n      const trend = await runCanonicalLlm({ messages: [\n        { role: 'system', content: 'You are a market adaptation research assistant. Return concise trend hypotheses and search terms; do not present them as verified facts.' },\n        { role: 'user', content: `Identify the most relevant current trend hypotheses and search terms for ${industry}.` },\n      ], taskType: 'research', verification: 'enhanced', executionClass: 'standard', maxProviderAttempts: 3, timeoutMs: 30000 })\n      searchData = trend.content.slice(0, 3000)", s)
-          p.write_text(s)
-
-          # 5) Media tool vision/ASR: use the existing canonical LLM for text
-          #    analysis and OpenAI's dedicated audio endpoints only for audio.
-          #    This removes the retired SDK from executable paths.
-          p = Path('src/lib/media-tools.ts')
-          s = p.read_text()
-          s = s.replace("        const ZAI = (await import('z-ai-web-dev-sdk')).default\n        let _z: any = (globalThis as any).__zai_singleton\n        if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }\n", "")
-          s = re.sub(r"        const resp = await _z\.chat\.completions\.createVision\(\{\n          messages: \[\{ role: 'user', content: \[\{ type: 'text', text: 'Describe this image in detail\.' \}, \{ type: 'image_url', image_url: \{ url: dataUrl \} \} \] \}\],\n        \}\)", "        const { runCanonicalLlm } = await import('./canonical-llm-router')\n        const resp = await runCanonicalLlm({ messages: [{ role: 'user', content: `Describe this image in detail. Image data is attached as a data URL: ${dataUrl.slice(0, 500)}` }], taskType: 'analysis', verification: 'standard', executionClass: 'standard' })", s)
-          s = s.replace("const analysis = resp?.choices?.[0]?.message?.content ?? 'Analysis failed'", "const analysis = resp?.content ?? 'Analysis failed'")
-          s = re.sub(r"        const ZAI = \(await import\('z-ai-web-dev-sdk'\)\)\.default\n        let _z: any = \(globalThis as any\)\.__zai_singleton\n        if \(!_z\) \{ _z = await ZAI\.create\(\); \(globalThis as any\)\.__zai_singleton = _z \}\n", "", s)
-          s = re.sub(r"        const result = await _z\.audio\.asr\.create\(\{ audio: audioBase64, model: 'whisper-1' \}\)", "        const apiKey = process.env.OPENAI_API_KEY\n        if (!apiKey) throw new Error('ASR requires OPENAI_API_KEY')\n        const form = new FormData()\n        form.append('file', new Blob([Buffer.from(audioBase64, 'base64')], { type: 'audio/webm' }), 'audio.webm')\n        form.append('model', 'whisper-1')\n        const asrResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(30000) })\n        if (!asrResponse.ok) throw new Error(`ASR failed: HTTP ${asrResponse.status}`)\n        const result = await asrResponse.json()", s)
-          p.write_text(s)
-
-          # 6) Voice endpoints: replace the retired SDK with OpenAI's dedicated
-          #    audio APIs. These are audio transport providers, not LLM routing.
-          p = Path('src/app/api/voice/asr/route.ts')
-          s = p.read_text().replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
-          s = re.sub(r"\nlet _zai: ZAI \| null = null\nasync function getZai\(\): Promise<ZAI> \{.*?\n\}\n", "\n", s, flags=re.S)
-          s = re.sub(r"  try \{\n    const zai = await getZai\(\)\n    const response = await zai\.audio\.asr\.create\(\{\n      file_base64: audioBase64,\n    \}\)\n\n    const text = \(response as any\)\?\.text \|\| ''", "  try {\n    const apiKey = process.env.OPENAI_API_KEY\n    if (!apiKey) throw new Error('ASR requires OPENAI_API_KEY')\n    const form = new FormData()\n    form.append('file', new Blob([Buffer.from(audioBase64, 'base64')], { type: 'audio/webm' }), 'audio.webm')\n    form.append('model', 'whisper-1')\n    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(30000) })\n    if (!response.ok) throw new Error(`ASR failed: HTTP ${response.status}`)\n    const data = await response.json()\n    const text = data?.text || ''", s)
-          p.write_text(s)
-
-          p = Path('src/app/api/voice/tts/route.ts')
-          s = p.read_text().replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
-          s = re.sub(r"\nlet _zai: ZAI \| null = null\nasync function getZai\(\): Promise<ZAI> \{.*?\n\}\n", "\n", s, flags=re.S)
-          s = re.sub(r"  try \{\n    const zai = await getZai\(\)\n    const response = await zai\.audio\.tts\.create\(\{\n      input: truncated,\n      voice: voice \|\| 'tongtong',\n      speed: typeof speed === 'number' \? Math\.min\(2, Math\.max\(0\.5, speed\)\) : 1\.0,\n      response_format: 'wav',\n      stream: false,\n    \}\)\n\n    // response is a fetch Response object — get the audio bytes\n    const arrayBuffer = await response\.arrayBuffer\(\)", "  try {\n    const apiKey = process.env.OPENAI_API_KEY\n    if (!apiKey) throw new Error('TTS requires OPENAI_API_KEY')\n    const response = await fetch('https://api.openai.com/v1/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: 'gpt-4o-mini-tts', input: truncated, voice: voice || 'alloy', speed: typeof speed === 'number' ? Math.min(2, Math.max(0.25, speed)) : 1.0, response_format: 'wav' }), signal: AbortSignal.timeout(30000) })\n    if (!response.ok) throw new Error(`TTS failed: HTTP ${response.status}`)\n    const arrayBuffer = await response.arrayBuffer()", s)
-          p.write_text(s)
-
-          # 7) Self-fix diagnostics: report canonical provider state instead of
-          #    instantiating or testing the retired SDK.
-          p = Path('src/lib/self-fix-tools.ts')
-          s = p.read_text()
-          s = re.sub(r"  // Test Z\.ai\n  try \{.*?\n  \}\n\n", "  // Canonical provider health\n  try {\n    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')\n    const telemetry = getCanonicalProviderTelemetry()\n    results.llm = { configured: telemetry.configuredCount, healthy: telemetry.healthyCount }\n  }\n\n", s, flags=re.S)
-          s = re.sub(r"  // ── LLM providers ──────────────────────────────────────────────────\n  try \{.*?\n  \}\n", "  // ── LLM providers ──────────────────────────────────────────────────\n  try {\n    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')\n    const telemetry = getCanonicalProviderTelemetry()\n    report.sections.llm = telemetry\n  }\n", s, count=1, flags=re.S)
-          p.write_text(s)
-
-          # 8) Health/capability audits must consume only the canonical set.
-          p = Path('src/app/api/health/full-audit/route.ts')
-          s = p.read_text()
-          s = re.sub(r",?\s*\{ id: 'gemini', env: 'GEMINI_API_KEY' \}", '', s)
-          s = re.sub(r",?\s*\{ id: 'z-ai', env: 'ZAI_API_KEY' \}", '', s)
-          p.write_text(s)
-
-          p = Path('src/app/api/system/capability-audit/route.ts')
-          s = p.read_text()
-          s = re.sub(r"\s*\{ name: 'z\.ai', env: 'ZAI_API_KEY', speed: 'medium', cost: 'free' \},", '', s)
-          p.write_text(s)
-
-          # 9) multi-provider comparison: Gemini/Brave are not LLM providers in
-          #    the canonical matrix. Use only active canonical providers.
-          p = Path('src/lib/multi-provider-comparison.ts')
-          s = p.read_text()
-          s = s.replace('mistral, groq, openrouter, cerebras, brave, gemini', 'mistral, groq, openrouter, cerebras, cloudflare')
-          s = s.replace("      case 'brave': return !!process.env.BRAVE_API_KEY\n", '')
-          s = s.replace("      case 'gemini': return !!process.env.GEMINI_API_KEY\n", '')
-          s = s.replace('OPENROUTER_API_KEY, CEREBRAS_API_KEY, BRAVE_API_KEY, GEMINI_API_KEY', 'OPENROUTER_API_KEY, CEREBRAS_API_KEY, CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID')
-          s = s.replace("      providers: ['gemini'],  // Native vision support", "      providers: ['cloudflare'],  // Governed multimodal-capable provider")
-          s = s.replace("  if (process.env.BRAVE_API_KEY) all.push('brave')\n", '')
-          s = s.replace("  if (process.env.GEMINI_API_KEY) all.push('gemini')\n", '')
-          p.write_text(s)
-
-          # 10) Provider tests: remove retired provider cases and assert the
-          #     canonical five-provider matrix.
-          p = Path('src/lib/model-intelligence-runtime.test.ts')
-          if p.exists():
-              s = p.read_text()
-              s = s.replace("['groq', 'zai', 'mistral', 'gemini', 'cerebras']", "['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter']")
-              s = re.sub(r"\n\s*process\.env\.(ZAI_API_KEY|GEMINI_API_KEY) = 'test'", '', s)
-              s = s.replace("expect(providers).toHaveLength(5)", "expect(providers).toHaveLength(5)")
-              s = re.sub(r"\n\s*const gemini = MODEL_PROFILES\.filter\(.*?\n\s*expect\(gemini\.map\(.*?\n", '\n', s, flags=re.S)
-              p.write_text(s)
-
-          p = Path('src/lib/model-intelligence.test.ts')
-          if p.exists():
-              s = p.read_text()
-              s = s.replace("const ACTIVE = ['cerebras', 'gemini', 'groq', 'mistral', 'zai'] as const", "const ACTIVE = ['cerebras', 'cloudflare', 'groq', 'mistral', 'openrouter'] as const")
-              s = re.sub(r"\n\s*delete process\.env\.(ZAI_API_KEY|GEMINI_API_KEY)", '', s)
-              s = s.replace("['groq', 'zai', 'mistral', 'gemini', 'cerebras']", "['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter']")
-              p.write_text(s)
-
-          # 11) provider-intelligence-v2 tests now validate canonical providers only.
-          p = Path('src/lib/provider-intelligence-v2.test.ts')
-          if p.exists():
-              s = p.read_text()
-              s = re.sub(r"for \(const env of \['GROQ_API_KEY'.*?delete env\]", "for (const env of ['GROQ_API_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'MISTRAL_API_KEY', 'CEREBRAS_API_KEY', 'OPENROUTER_API_KEY']) delete process.env[env]", s)
-              s = s.replace("['groq', 'zai', 'mistral', 'gemini', 'cerebras']", "['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter']")
-              s = s.replace("['cerebras', 'gemini', 'groq', 'mistral', 'zai']", "['cerebras', 'cloudflare', 'groq', 'mistral', 'openrouter']")
-              s = re.sub(r"\n\s*expect\(PROVIDER_RUNTIME_CONFIG\.zai\.baseUrl\).*", '', s)
-              s = re.sub(r"\n\s*process\.env\.ZAI_API_KEY = 'test-zai'", '', s)
-              s = re.sub(r"\n\s*process\.env\.GEMINI_API_KEY = 'test-gemini'", '', s)
-              p.write_text(s)
-
-          # 12) Remove the stale optimization/version ghost.
-          p = Path('src/lib/optimization-tools-v2.ts')
-          if p.exists():
-              s = p.read_text().replace("    `  • z-ai-web-dev-sdk: 1.4.0 → 1.5.1 (minor update available)\\n` +\n", '')
-              p.write_text(s)
-
-          # 13) Provider fallback facade must itself be canonical.
-          p = Path('src/lib/llm-fallback.ts')
-          if p.exists():
-              s = p.read_text()
-              start = s.find('export async function callFallbackLlm')
-              if start != -1:
-                  prefix = s[:start]
-                  prefix = prefix.replace(" * Call the fallback LLM. Returns an object shaped like the Z.ai SDK's\n * chat completion response so callLlmWithRetry's caller can treat both\n * providers uniformly.\n */\n", " * Compatibility wrapper for legacy callers. All reasoning execution is\n * delegated to the canonical provider control plane.\n */\n")
-                  fn = '''export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any> {\n  const { runCanonicalLlm } = await import('./canonical-llm-router')\n  const result = await runCanonicalLlm({\n    messages,\n    taskType: 'reasoning',\n    verification: 'standard',\n    executionClass: 'standard',\n    maxProviderAttempts: 5,\n    timeoutMs: 30000,\n  })\n  return {\n    choices: [{ message: { content: result.content, reasoning: undefined }, finish_reason: 'stop' }],\n    _provider: result.provider,\n    _model: result.model,\n    _reasoning: undefined,\n    _attempts: result.attempts,\n  }\n}\n'''
-                  p.write_text(prefix + fn)
-
-          # 14) Historical manifest entries are preserved as history, but no
-          #    executable provider discovery may depend on them.
-          p = Path('src/lib/upgrade-manifest.ts')
-          if p.exists():
-              s = p.read_text()
-              s = s.replace("const GEMINI_API_KEY", "const RETIRED_GEMINI_API_KEY") if False else s
-              p.write_text(s)
-          PY
-
-          # Regenerate the authoritative lockfile from package.json.
-          bun install --lockfile-only --frozen-lockfile=false
-
-          # Hard source-level retirement scan. Historical upgrade-manifest prose
-          # is allowed, but executable source and dependency metadata are not.
-          echo '=== retired executable scan ==='
-          if git grep -n -E "z-ai-web-dev-sdk|ZAI\.create|ZAI_API_KEY|api\.z\.ai|GEMINI_API_KEY|['\"]gemini['\"]|gemini-" -- src package.json bun.lock ':!src/lib/upgrade-manifest.ts'; then
-            echo 'Retired-provider references remain in executable code.' >&2
+          if git grep -n -E "z-ai-web-dev-sdk|ZAI\.create|ZAI_API_KEY|Z_AI|api\.z\.ai|GEMINI_API_KEY|['\"]gemini['\"]|gemini-" -- src package.json bun.lock; then
+            echo 'FAIL: retired provider references remain.' >&2
             exit 1
           fi
-          echo '=== retired executable scan clean ==='
-
       - name: Phase A-D verification chain
         shell: bash
         run: |
@@ -223,31 +45,24 @@ jobs:
           bun x tsc --noEmit
           bun x eslint .
           bun run build
-
       - name: Commit converged main
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet; then
-            echo 'No migration changes produced.'
-            exit 0
-          fi
+          if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'fix: complete provider convergence and retire legacy SDKs'
           git push origin HEAD:main
-
-      - name: Remove migration workflow after successful commit
+      - name: Remove one-time migration workflow
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main
           git checkout -B cleanup origin/main
           rm -f .github/workflows/phase-a-d-provider-convergence.yml
-          if git diff --quiet; then
-            exit 0
-          fi
+          if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows/phase-a-d-provider-convergence.yml
