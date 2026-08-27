@@ -19,8 +19,6 @@ def remove_zai_imports_and_helpers(s: str) -> str:
     return s
 
 
-# 1. Remove the retired SDK from the generic web-search tool. Its existing
-# neutral fallback chain remains responsible for Brave/DDG/Google search.
 def tools_edit(s: str) -> str:
     s = remove_zai_imports_and_helpers(s)
     s = re.sub(
@@ -35,14 +33,11 @@ def tools_edit(s: str) -> str:
 edit('src/lib/tools.ts', tools_edit)
 
 
-# 2. Canonical chat bridge for legacy chat-shaped callers. Provider selection
-# stays entirely inside canonical-llm-router/provider-control-plane.
 Path('src/lib/canonical-provider-bridge.ts').write_text(
     """import { runCanonicalLlm } from './canonical-llm-router'\n\ntype Message = { role: 'system' | 'user' | 'assistant'; content: string }\n\nexport function getCanonicalLlmBridge() {\n  return {\n    chat: {\n      completions: {\n        create: async (request: { messages: Message[]; temperature?: number; max_tokens?: number; max_completion_tokens?: number }) => {\n          const result = await runCanonicalLlm({\n            messages: request.messages,\n            taskType: 'reasoning',\n            verification: 'standard',\n            executionClass: 'standard',\n            temperature: request.temperature,\n            maxTokens: request.max_completion_tokens ?? request.max_tokens,\n            timeoutMs: 30000,\n            maxProviderAttempts: 5,\n          })\n          return {\n            choices: [{ message: { role: 'assistant', content: result.content }, finish_reason: 'stop' }],\n            _provider: result.provider,\n            _model: result.model,\n            _attempts: result.attempts,\n          }\n        },\n      },\n    },\n  }\n}\n"""
 )
 
 
-# 3. Simple getZai()-based modules now use the canonical bridge.
 for name in [
     'advanced-capabilities.ts',
     'agent007-extensions.ts',
@@ -67,8 +62,6 @@ for name in [
     p.write_text(s)
 
 
-# 4. Market-adaptation trend analysis is canonical; web evidence continues to
-# come from the neutral web-search capability, not an LLM vendor SDK.
 def max_edit(s: str) -> str:
     return re.sub(
         r"      const ZAI = .*?      searchData = JSON\.stringify\(results\?\.results \?\? ''\)\.slice\(0, 3000\)",
@@ -94,8 +87,6 @@ def max_edit(s: str) -> str:
 edit('src/lib/max-improvements.ts', max_edit)
 
 
-# 5. Media operations: vision text analysis goes through the canonical LLM;
-# audio transport uses OpenAI's dedicated audio HTTP API (not LLM routing).
 def media_edit(s: str) -> str:
     s = remove_zai_imports_and_helpers(s)
     s = re.sub(
@@ -136,7 +127,6 @@ def media_edit(s: str) -> str:
 edit('src/lib/media-tools.ts', media_edit)
 
 
-# 6. Voice endpoints use the same OpenAI audio transport directly.
 def voice_asr(s: str) -> str:
     s = remove_zai_imports_and_helpers(s)
     return re.sub(
@@ -189,27 +179,37 @@ edit('src/app/api/voice/asr/route.ts', voice_asr)
 edit('src/app/api/voice/tts/route.ts', voice_tts)
 
 
-# 7. Self-fix diagnostics interrogate canonical telemetry instead of probing a
-# retired SDK.
 def self_fix(s: str) -> str:
+    # Idempotent: once the legacy Z.ai markers are gone, preserve the already-
+    # canonical diagnostic functions byte-for-byte rather than rewriting them.
+    if 'z-ai-web-dev-sdk' not in s and 'Test Z.ai' not in s and 'ZAI_API_KEY' not in s:
+        return s
+
     s = re.sub(
         r"  // Test Z\.ai\n  try \{.*?\n  \}\n\n",
         """  // Canonical provider health
   try {
     const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')
     results.llm = getCanonicalProviderTelemetry()
+  } catch (e: any) {
+    results.llm = { error: e?.message }
   }
 
 """,
         s,
         flags=re.S,
     )
+
     s = re.sub(
-        r"  // ── LLM providers.*?report\.sections\.llm = \{.*?\n    \}\n",
+        r"  // ── LLM providers.*?\n  \}\n",
         """  // ── LLM providers ──────────────────────────────────────────────────
   try {
     const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')
     report.sections.llm = getCanonicalProviderTelemetry()
+  } catch (e: any) {
+    report.sections.llm = { error: e?.message }
+    report.overall = 'fail'
+    report.issueCount++
   }
 """,
         s,
@@ -221,8 +221,6 @@ def self_fix(s: str) -> str:
 edit('src/lib/self-fix-tools.ts', self_fix)
 
 
-# 8. Provider inventories and comparison surfaces no longer advertise retired
-# providers. Canonical five: groq/cloudflare/mistral/cerebras/openrouter.
 edit('src/app/api/health/full-audit/route.ts', lambda s: re.sub(r",?\s*\{ id: '(?:gemini|z-ai)', env: '(?:GEMINI_API_KEY|ZAI_API_KEY)' \}", '', s))
 edit('src/app/api/system/capability-audit/route.ts', lambda s: re.sub(r"\s*\{ name: 'z\.ai', env: 'ZAI_API_KEY', speed: 'medium', cost: 'free' \},", '', s))
 
@@ -239,7 +237,6 @@ def compare(s: str) -> str:
 edit('src/lib/multi-provider-comparison.ts', compare)
 
 
-# 9. Tests are updated to assert the canonical active set and no retired envs.
 for fn in [
     'src/lib/model-intelligence-runtime.test.ts',
     'src/lib/model-intelligence.test.ts',
@@ -255,35 +252,4 @@ for fn in [
     edit(fn, test_edit)
 
 
-# 10. Remove stale package/version ghosts from optimization metadata.
 edit('src/lib/optimization-tools-v2.ts', lambda s: s.replace("    `  • z-ai-web-dev-sdk: 1.4.0 → 1.5.1 (minor update available)\\n` +\n", ''))
-
-
-# 11. Legacy fallback facade delegates to canonical routing.
-p = Path('src/lib/llm-fallback.ts')
-if p.exists():
-    s = p.read_text()
-    start = s.find('export async function callFallbackLlm')
-    if start >= 0:
-        p.write_text(
-            s[:start]
-            + """export async function callFallbackLlm(messages: FallbackMessage[]): Promise<any> {
-  const { runCanonicalLlm } = await import('./canonical-llm-router')
-  const result = await runCanonicalLlm({
-    messages,
-    taskType: 'reasoning',
-    verification: 'standard',
-    executionClass: 'standard',
-    maxProviderAttempts: 5,
-    timeoutMs: 30000,
-  })
-  return {
-    choices: [{ message: { content: result.content, reasoning: undefined }, finish_reason: 'stop' }],
-    _provider: result.provider,
-    _model: result.model,
-    _attempts: result.attempts,
-  }
-}
-"""
-        )
-PY
