@@ -188,6 +188,7 @@ export function preRouteCeoRequest(
   const adaptive = classifyExecution(messages)
   const taskClass = inferTaskType(messages)
   const semanticIntent = inferSemanticIntent(text)
+  const explicitlyOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research'
 
   if (!text) {
     const reason = 'No substantive request detected.'
@@ -198,7 +199,11 @@ export function preRouteCeoRequest(
     })
   }
 
-  const missionRelevant = adaptive.executionClass === 'mission' || semanticIntent === 'mission_action'
+  // Adaptive classification may mark deployment/research/tool commands as
+  // "mission" because of their complexity or verbs. Explicit semantic intent
+  // owns precedence for operational commands, preventing them from becoming
+  // mission_action accidentally.
+  const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitlyOperational)
   const complexitySignals = [
     adaptive.executionClass === 'deep' || adaptive.executionClass === 'mission',
     text.length > DIRECT_CEO_MAX_CHARS,
@@ -223,9 +228,6 @@ export function preRouteCeoRequest(
     })
   }
 
-  // Context-dependent follow-ups retain the richer conversational path before
-  // generic analysis/conversation handling. This preserves the previous floor
-  // for "continue", "that", "again", and similar references.
   if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
     const reason = 'Context-dependent request requires richer conversational analysis.'
     return buildDecision({
@@ -235,21 +237,22 @@ export function preRouteCeoRequest(
     })
   }
 
-  if (adaptive.executionClass === 'mission' || semanticIntent === 'mission_action') {
-    const reason = 'Mission-level execution requires the operational orchestration owner.'
-    return buildDecision({
-      route: 'full', reason, missionRelevant: true, complexitySignals, taskClass,
-      adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: 'mission_action', adaptiveExecutionClass: adaptive.executionClass, missionRelevant: true, reason }),
-    })
-  }
-
+  // Explicit production/tool/research intent outranks adaptive complexity.
   if (semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research') {
     const reason = `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
     return buildDecision({
       route: 'full', reason, missionRelevant, complexitySignals, taskClass,
       adaptiveExecutionClass: adaptive.executionClass,
       executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }),
+    })
+  }
+
+  if (semanticIntent === 'mission_action') {
+    const reason = 'Mission-level execution requires the operational orchestration owner.'
+    return buildDecision({
+      route: 'full', reason, missionRelevant: true, complexitySignals, taskClass,
+      adaptiveExecutionClass: adaptive.executionClass,
+      executionContract: contractFor({ intent: 'mission_action', adaptiveExecutionClass: adaptive.executionClass, missionRelevant: true, reason }),
     })
   }
 
