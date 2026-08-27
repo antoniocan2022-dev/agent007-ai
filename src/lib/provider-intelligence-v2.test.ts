@@ -83,7 +83,7 @@ describe('Provider Intelligence 2.0', () => {
       if (url.includes('api.groq.com') && method === 'GET') return new Response(JSON.stringify({ data: [{ id: 'llama-3.3-70b-versatile' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       if (url.includes('api.groq.com') && method === 'POST') return new Response('temporary failure', { status: 503 })
       if (url.includes('api.cloudflare.com') && method === 'GET') return new Response(JSON.stringify({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      if (url.includes('api.cloudflare.com') && method === 'POST') return new Response(JSON.stringify({ result: 'governed success' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url.includes('api.cloudflare.com') && method === 'POST') return new Response(JSON.stringify({ choices: [{ message: { content: 'governed success' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
     try {
