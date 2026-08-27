@@ -31,6 +31,22 @@ jobs:
           python3 -m py_compile scripts/retire-legacy-providers.py
       - name: Apply provider retirement
         run: python3 scripts/retire-legacy-providers.py
+      - name: Repair migration-generated syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/self-fix-tools.ts')
+          s = p.read_text()
+          dangling = """  try {\n    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')\n    results.llm = getCanonicalProviderTelemetry()\n  }\n\n"""
+          s = s.replace(dangling, """  const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')\n  results.llm = getCanonicalProviderTelemetry()\n\n""")
+          dangling_audit = """  // ── LLM providers ──────────────────────────────────────────────────\n  try {\n    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')\n    report.sections.llm = getCanonicalProviderTelemetry()\n  }\n"""
+          s = s.replace(dangling_audit, """  // ── LLM providers ──────────────────────────────────────────────────\n  try {\n    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')\n    report.sections.llm = getCanonicalProviderTelemetry()\n  } catch (e: any) {\n    report.sections.llm = { error: e?.message }\n    report.overall = 'fail'\n    report.issueCount++\n  }\n""")
+          p.write_text(s)
+          print('migration-generated syntax normalized')
+          PY
+          bun x tsc --noEmit
       - name: Install dependencies and regenerate lockfile
         shell: bash
         run: |
@@ -78,7 +94,7 @@ jobs:
           set -euo pipefail
           if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.email '41898282+users.noreply.github.com'
           git add -A
           git commit -m 'fix: complete provider convergence and retire legacy SDKs'
           git push origin HEAD:main
