@@ -47,6 +47,7 @@ describe('CEO execution contract', () => {
     })
     expect(plan.path).toBe('full')
     expect(plan.reasoningStrategy).toBe('multi_pass')
+    expect(plan.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
   })
 
   test('hands research and operational actions to the operational orchestrator', () => {
@@ -54,11 +55,13 @@ describe('CEO execution contract', () => {
     expect(research.executionContract.intent).toBe('research')
     expect(research.executionContract.orchestrationOwner).toBe('operational_orchestrator')
     expect(research.executionContract.toolRequired).toBe(true)
+    expect(research.executionContract.executionRequirement).toBe('one_tool')
 
     const production = preRouteCeoRequest([{ role: 'user', content: 'Deploy the approved release to production.' }])
     expect(production.executionContract.intent).toBe('production_action')
     expect(production.executionContract.orchestrationOwner).toBe('operational_orchestrator')
-    expect(production.executionContract.executionRequirement).toBe('llm_only')
+    expect(production.executionContract.executionRequirement).toBe('production')
+    expect(production.executionContract.toolRequired).toBe(true)
   })
 
   test('keeps orchestration ownership request-scoped and isolated', async () => {
