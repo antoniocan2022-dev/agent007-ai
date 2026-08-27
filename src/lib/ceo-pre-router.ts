@@ -1,5 +1,6 @@
 import { inferTaskType } from './canonical-llm-router'
 import { classifyExecution } from './adaptive-execution'
+import type { TaskType } from './subagent-governance'
 import type {
   CeoExecutionContract,
   CeoIntent,
@@ -127,7 +128,7 @@ function buildDecision(input: {
   reason: string
   missionRelevant: boolean
   complexitySignals: number
-  taskClass?: Parameters<typeof inferTaskType>[0] extends readonly unknown[] ? any : any
+  taskClass?: TaskType
   adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'
   executionContract: CeoExecutionContract
 }): PreRouteDecision {
