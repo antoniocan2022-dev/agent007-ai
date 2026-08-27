@@ -23,6 +23,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.4'
+      - name: Normalize migration script
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i '/^PY$/d' scripts/retire-legacy-providers.py
+          python3 -m py_compile scripts/retire-legacy-providers.py
       - name: Apply provider retirement
         run: python3 scripts/retire-legacy-providers.py
       - name: Regenerate lockfile
