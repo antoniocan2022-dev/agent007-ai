@@ -20,13 +20,10 @@ def remove_zai_imports_and_helpers(s: str) -> str:
 
 
 def tools_edit(s: str) -> str:
+    # Preserve the web-search implementation. The CI repair step rewires its
+    # provider call to the canonical bridge; this migration must not delete
+    # the `results` declaration or formatting logic.
     s = remove_zai_imports_and_helpers(s)
-    s = re.sub(
-        r"\s*const zai = await getZai\(\).*?\s*if \(!Array\.isArray\(results\) \|\| results\.length === 0\) \{\s*throw new Error\('Z\.ai returned empty results'\)\s*\}",
-        "\n    throw new Error('Primary web-search provider retired')",
-        s,
-        flags=re.S,
-    )
     return s.replace("zaiError", "searchError").replace("Z.ai", "primary provider")
 
 
@@ -148,6 +145,7 @@ def voice_asr(s: str) -> str:
         s,
         flags=re.S,
     )
+    return s
 
 
 def voice_tts(s: str) -> str:
@@ -173,6 +171,7 @@ def voice_tts(s: str) -> str:
         s,
         flags=re.S,
     )
+    return s
 
 
 edit('src/app/api/voice/asr/route.ts', voice_asr)
@@ -180,8 +179,6 @@ edit('src/app/api/voice/tts/route.ts', voice_tts)
 
 
 def self_fix(s: str) -> str:
-    # Idempotent: once the legacy Z.ai markers are gone, preserve the already-
-    # canonical diagnostic functions byte-for-byte rather than rewriting them.
     if 'z-ai-web-dev-sdk' not in s and 'Test Z.ai' not in s and 'ZAI_API_KEY' not in s:
         return s
 
@@ -199,7 +196,6 @@ def self_fix(s: str) -> str:
         s,
         flags=re.S,
     )
-
     s = re.sub(
         r"  // ── LLM providers.*?\n  \}\n",
         """  // ── LLM providers ──────────────────────────────────────────────────
