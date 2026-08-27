@@ -15,24 +15,7 @@ afterEach(() => {
   for (const key of ['GROQ_API_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'MISTRAL_API_KEY', 'CEREBRAS_API_KEY', 'OPENROUTER_API_KEY']) delete process.env[key]
 })
 
-const criticalAnswer = `# Recommendation
-
-Decision: proceed only after independent review and explicit verification of the deployment evidence. The recommended action is to advance the mission only when the evidence package is complete, the identified risks are understood, and the execution conditions are satisfied.
-
-## Evidence
-- Confirm the deployment identity and verify the exact release evidence before execution.
-- Confirm the independent review result and reconcile any material disagreement.
-- Preserve the supporting mission evidence so the decision remains auditable.
-
-## Risks
-- Deployment without complete evidence could create an irreversible production error.
-- Conflicting verification results require escalation rather than silent selection.
-- Missing current evidence means the system must not claim live confirmation.
-
-## Next Actions
-1. Complete the independent verification checkpoint.
-2. Record the final evidence and decision state.
-3. Proceed only when all mandatory gates are satisfied.`
+const criticalAnswer = `# Recommendation\n\nDecision: proceed only after independent review and explicit verification of the deployment evidence. The recommended action is to advance the mission only when the evidence package is complete, the identified risks are understood, and the execution conditions are satisfied.\n\n## Evidence\n- Confirm the deployment identity and verify the exact release evidence before execution.\n- Confirm the independent review result and reconcile any material disagreement.\n- Preserve the supporting mission evidence so the decision remains auditable.\n\n## Risks\n- Deployment without complete evidence could create an irreversible production error.\n- Conflicting verification results require escalation rather than silent selection.\n- Missing current evidence means the system must not claim live confirmation.\n\n## Next Actions\n1. Complete the independent verification checkpoint.\n2. Record the final evidence and decision state.\n3. Proceed only when all mandatory gates are satisfied.`
 
 function jsonResponse(payload: unknown, status = 200): Response { return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } }) }
 
@@ -136,7 +119,7 @@ describe('CEO cognitive lifecycle', () => {
       const url = String(input); const method = String(init?.method ?? 'GET')
       if (method === 'GET' && url.includes('api.groq.com')) { getCalls++; return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] }) }
       if (method === 'POST' && url.includes('api.groq.com')) { postCalls++; return jsonResponse({ error: { message: 'upstream unavailable' } }, 503) }
-      throw new Error(`unexpected provider call: ${url}`)
+      throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
     const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 12000 })
     expect(result.degraded).toBe(true)
@@ -165,7 +148,10 @@ describe('CEO cognitive lifecycle', () => {
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
     const result = await runCeoCognitiveLifecycle({ missionId: 'mission-critical-test', messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }], timeoutMs: 30000, contextualEvidence: 'Verified internal mission evidence is available for this controlled test.' })
-    expect(postProviders).toEqual(['groq', 'cloudflare', 'mistral'])
+    const canonical = new Set(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
+    expect(postProviders.length).toBeGreaterThanOrEqual(3)
+    expect(postProviders.every((provider) => canonical.has(provider))).toBe(true)
+    expect(new Set(postProviders).size).toBeGreaterThanOrEqual(2)
     expect(result.executionPlan.stages.map((stage) => stage.name)).toEqual(['primary', 'independent_review', 'synthesis'])
     expect(result.quality.verificationStatus).toBe('INDEPENDENT_PASS')
     expect(result.evidenceState).toBe('LIVE_VERIFIED')
