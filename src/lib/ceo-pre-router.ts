@@ -37,8 +37,8 @@ export function preRouteCeoRequest(
   if (adaptive.executionClass === 'mission' || adaptive.executionClass === 'deep') {
     return { route: 'full', reason: 'Canonical adaptive execution classified the request as deep or mission work.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass }
   }
-  if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text) && text.length > DIRECT_CEO_MAX_CHARS) {
-    return { route: 'ambiguous', reason: 'Long context-dependent request requires richer conversational analysis.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass }
+  if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
+    return { route: 'ambiguous', reason: 'Context-dependent request requires richer conversational analysis.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass }
   }
   if (text.length <= DIRECT_CEO_MAX_CHARS) {
     return { route: 'fast', reason: 'Bounded direct CEO lane selected to keep ordinary executive conversations responsive.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass }
