@@ -78,3 +78,4 @@ jobs:
           git add -A
           git commit -m 'ci: remove one-time provider migration artifacts'
           git push origin cleanup:main
+          echo 'Provider convergence migration completed.'
