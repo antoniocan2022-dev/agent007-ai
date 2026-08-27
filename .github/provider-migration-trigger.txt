@@ -1,1 +1,1 @@
-provider convergence trigger — execute corrected install, Prisma generation, lockfile, A-D verification
+final provider convergence trigger
