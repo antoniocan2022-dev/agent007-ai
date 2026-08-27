@@ -1,1 +1,1 @@
-provider convergence trigger — execute lockfile publication and full CI
+provider convergence trigger — install dependencies, regenerate lockfile, run A-D
