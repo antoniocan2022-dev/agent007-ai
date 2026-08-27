@@ -1,1 +1,1 @@
-final provider convergence trigger — current repaired main validation v2
+final provider convergence trigger — execute canonicalizer on current main v3
