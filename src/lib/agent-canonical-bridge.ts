@@ -1,13 +1,18 @@
 import { runCeoCognitiveLifecycle } from './ceo-cognitive-lifecycle'
+import { runCanonicalLlm } from './canonical-llm-router'
+import { getOrchestrationOwner } from './ceo-execution-owner'
 import { getProviderTaskPolicy, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import { getCanonicalOrganizationPrompt } from './canonical-organization-prompt'
 
 /**
  * Canonical compatibility bridge.
- * Existing modules retain the legacy completion shape, while CEO-facing LLM
- * requests now pass through the bounded cognitive lifecycle and receive the
- * same canonical organization facts enforced by the authority layer.
+ *
+ * CEO-owned requests enter the governed CEO cognitive lifecycle. Requests
+ * already owned by the operational orchestrator use the canonical provider
+ * runtime directly instead of recursively re-entering the CEO lifecycle.
+ * This preserves one authoritative orchestration owner per request while
+ * keeping the legacy completion shape stable for existing callers.
  */
 export * from './agent'
 
@@ -33,26 +38,9 @@ function withCanonicalOrganization(messages: Array<{ role: 'system' | 'user' | '
     : message)
 }
 
-export async function callLlmWithRetry(
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-  opts?: CanonicalBridgeOptions,
-): Promise<any> {
-  const startedAt = Date.now()
-  const result = await runCeoCognitiveLifecycle({
-    messages: withCanonicalOrganization(messages),
-    attachmentsCount: opts?.attachmentsCount,
-    missionId: opts?.missionId,
-    contextualEvidence: opts?.contextualEvidence,
-    taskType: opts?.taskType,
-    verification: opts?.verification,
-    model: opts?.model,
-    temperature: opts?.temperature,
-    maxTokens: opts?.maxTokens,
-    timeoutMs: opts?.timeoutMs,
-  })
-
-  const policy: ProviderTaskPolicy | undefined = result.decisionPlan.taskClass
-    ? getProviderTaskPolicy(result.decisionPlan.taskClass)
+function buildLegacyResult(result: any, startedAt: number, policyTaskClass?: TaskType) {
+  const policy: ProviderTaskPolicy | undefined = policyTaskClass
+    ? getProviderTaskPolicy(policyTaskClass)
     : undefined
 
   return {
@@ -69,4 +57,45 @@ export async function callLlmWithRetry(
     evidenceState: result.evidenceState,
     degraded: result.degraded,
   }
+}
+
+export async function callLlmWithRetry(
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  opts?: CanonicalBridgeOptions,
+): Promise<any> {
+  const startedAt = Date.now()
+  const owner = getOrchestrationOwner()
+  const normalizedMessages = withCanonicalOrganization(messages)
+
+  if (owner === 'operational_orchestrator') {
+    const result = await runCanonicalLlm({
+      messages: normalizedMessages,
+      taskType: opts?.taskType ?? 'reasoning',
+      verification: opts?.verification ?? 'standard',
+      thinking: opts?.thinking,
+      model: opts?.model,
+      temperature: opts?.temperature ?? 0.2,
+      maxTokens: opts?.maxTokens ?? 4000,
+      timeoutMs: Math.max(1000, Math.min(60000, opts?.timeoutMs ?? 30000)),
+      executionClass: 'standard',
+      maxProviderAttempts: 5,
+    })
+
+    return buildLegacyResult(result, startedAt, opts?.taskType)
+  }
+
+  const result = await runCeoCognitiveLifecycle({
+    messages: normalizedMessages,
+    attachmentsCount: opts?.attachmentsCount,
+    missionId: opts?.missionId,
+    contextualEvidence: opts?.contextualEvidence,
+    taskType: opts?.taskType,
+    verification: opts?.verification,
+    model: opts?.model,
+    temperature: opts?.temperature,
+    maxTokens: opts?.maxTokens,
+    timeoutMs: opts?.timeoutMs,
+  })
+
+  return buildLegacyResult(result, startedAt, result.decisionPlan.taskClass)
 }
