@@ -1,1 +1,1 @@
-provider convergence trigger — install dependencies, regenerate lockfile, run A-D
+provider convergence trigger — execute corrected install, Prisma generation, lockfile, A-D verification
