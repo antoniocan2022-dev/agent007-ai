@@ -5,6 +5,7 @@ import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
+import { RecoveryBudget, RecoveryBudgetExceededError, recoveryEventFromMessage } from '@/lib/ceo-recovery-policy'
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
 import type { AttachmentMeta } from '@/lib/tools'
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
   const preRoute = preRouteCeoRequest([{ role: 'user', content: message }], atts.length)
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract
+  const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
 
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId } })
@@ -72,7 +74,25 @@ export async function POST(req: NextRequest) {
         if (closed) return
         try { controller.enqueue(encoder.encode(s)) } catch { closed = true }
       }
-      const emit: OrchestratorEventEmit = async (event: string, data: any) => safeEnqueue(sse(event, data))
+      const baseEmit: OrchestratorEventEmit = async (event: string, data: any) => safeEnqueue(sse(event, data))
+      const recoveryBudget = new RecoveryBudget(executionContract)
+      const emit: OrchestratorEventEmit = async (event: string, data: any) => {
+        const recoveryEvent = event === 'thought' ? recoveryEventFromMessage(data?.content) : null
+        if (recoveryEvent) {
+          const decision = recoveryBudget.consume(recoveryEvent)
+          if (!decision.allowed) {
+            throw new RecoveryBudgetExceededError(decision.count, decision.maxRecoveries, decision.reason)
+          }
+          await baseEmit('progress', {
+            phase: 'recovery',
+            event: recoveryEvent,
+            count: decision.count,
+            maxRecoveries: decision.maxRecoveries,
+            reason: decision.reason,
+          })
+        }
+        await baseEmit(event, data)
+      }
       const heartbeat = setInterval(() => safeEnqueue(sse('ping', { ts: Date.now() })), 5000)
 
       beginInteractive()
@@ -88,6 +108,9 @@ export async function POST(req: NextRequest) {
               evidenceRequirement: executionContract.evidenceRequirement,
               executionRequirement: executionContract.executionRequirement,
               orchestrationOwner: executionContract.orchestrationOwner,
+              maxTurns: executionContract.maxTurns,
+              maxRecoveries: executionContract.maxRecoveries,
+              latencyBudgetMs: executionContract.latencyBudgetMs,
             },
           }))
 
@@ -146,22 +169,32 @@ export async function POST(req: NextRequest) {
               emit,
               signal,
             } as OrchestratorRunOptionsWithSignal),
-            AGENT_REQUEST_BUDGET_MS,
+            requestBudgetMs,
           ))
           safeEnqueue(sse('done', {
             messageId: result.persistedAssistantMessageId,
             steps: result.steps.length,
             executionClass: preRoute.adaptiveExecutionClass ?? 'standard',
             executionContract,
+            recoveryCount: recoveryBudget.used,
           }))
         }
       } catch (e: any) {
-        if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') {
-          await emit('error', {
-            message: 'Agent007 stopped this request before the platform timeout so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.',
+        if (e instanceof RecoveryBudgetExceededError || e?.code === 'CEO_RECOVERY_BUDGET_EXCEEDED') {
+          await baseEmit('error', {
+            message: 'Agent007 stopped this request after exhausting its governed recovery budget. The request state remains safe; retry is available.',
+            executionClass: resolvedPath,
+            code: 'CEO_RECOVERY_BUDGET_EXCEEDED',
+            recoveryCount: recoveryBudget.used,
+            maxRecoveries: recoveryBudget.remaining + recoveryBudget.used,
+            retryable: true,
+          })
+        } else if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') {
+          await baseEmit('error', {
+            message: 'Agent007 stopped this request before the execution budget so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.',
             executionClass: resolvedPath,
             code: 'AGENT_REQUEST_TIMEOUT',
-            timeoutMs: AGENT_REQUEST_BUDGET_MS,
+            timeoutMs: requestBudgetMs,
             retryable: true,
           })
         } else {
