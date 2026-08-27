@@ -104,7 +104,7 @@ const CASES = [
     toolRequired: true,
     subagentsRequired: false,
     maxRecoveries: 1,
-    path: 'critical',
+    path: 'full',
   },
   {
     name: 'mission action request',
