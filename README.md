@@ -12,6 +12,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 
 **Release execution marker:** 2026-08-24T20:58-04:00
 
+**Current production trigger:** [AUTHORIZED_PRODUCTION_RELEASE]
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
