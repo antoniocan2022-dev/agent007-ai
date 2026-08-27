@@ -13,20 +13,15 @@ import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
+import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
 
-async function getZai() {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default
-  let _z: any = (globalThis as any).__zai_singleton
-  if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }
-  return _z
-}
 
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1800): Promise<string> {
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },

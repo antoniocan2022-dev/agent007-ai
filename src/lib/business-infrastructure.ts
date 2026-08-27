@@ -9,16 +9,11 @@
  */
 import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
+import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function bad(result: string): ToolResult { return { ok: false, preview: result.slice(0, 140), result } }
 
-async function getZai() {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default
-  let _z: any = (globalThis as any).__zai_singleton
-  if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }
-  return _z
-}
 async function getOperatorUserId() {
   const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
   return u?.id ?? null
@@ -31,7 +26,7 @@ export async function toolRealTimeMonitor(args: { focus?: string; interval_minut
   const focus = (args.focus ?? 'all').toString()
   const interval = Math.min(1440, Math.max(5, args.interval_minutes ?? 60))
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const userId = await getOperatorUserId()
     if (!userId) return bad('No operator user')
 
@@ -467,7 +462,7 @@ export async function toolAutonomousRevenue(args: { strategy?: string; target_mo
   const strategy = (args.strategy ?? 'content_agency').toString()
   const target = Number(args.target_monthly ?? 20000)
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const userId = await getOperatorUserId()
     if (!userId) return bad('No operator user')
 
@@ -530,7 +525,7 @@ export async function toolPredictiveBI(args: { market?: string; horizon_months?:
   const market = (args.market ?? 'AI content creation').toString()
   const horizon = Math.min(24, Math.max(3, args.horizon_months ?? 12))
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const userId = await getOperatorUserId()
     if (!userId) return bad('No operator user')
 

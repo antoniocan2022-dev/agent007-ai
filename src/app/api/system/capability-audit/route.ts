@@ -118,7 +118,6 @@ const MARKETING_CHANNELS = {
 const LLM_PROVIDERS = [
   { name: 'Groq', env: 'GROQ_API_KEY', speed: 'fastest', cost: 'free' },
   { name: 'OpenAI', env: 'OPENAI_API_KEY', speed: 'medium', cost: 'paid' },
-  { name: 'z.ai', env: 'ZAI_API_KEY', speed: 'medium', cost: 'free' },
   { name: 'Mistral', env: 'MISTRAL_API_KEY', speed: 'slow', cost: 'free tier' },
 ]
 

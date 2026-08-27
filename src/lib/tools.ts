@@ -1,10 +1,10 @@
-import ZAI from 'z-ai-web-dev-sdk'
 import { db } from "./db"
 import vm from 'node:vm'
 import path from 'node:path'
 import os from 'node:os'
 import { promises as fs } from 'node:fs'
 import { recallMemories, upsertMemory, type MemoryRecord } from '@/lib/memory'
+import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
 // Vercel-aware upload directory.
 // - On Vercel: use /tmp/agent007-uploads (the only writable directory).
@@ -48,11 +48,6 @@ export interface ToolResult {
   ok: boolean
 }
 
-let _zai: ZAI | null = null
-async function getZai(): Promise<ZAI> {
-  if (!_zai) _zai = await ZAI.create()
-  return _zai
-}
 
 /* ------------------------------------------------------------------ *
  * 1-hour in-memory cache for web_search + page_reader (#11).
@@ -105,14 +100,14 @@ export async function toolWebSearch(
     }
   }
   try {
-    const zai = await getZai()
-    const results = await zai.functions.invoke('web_search', {
+    const provider = getCanonicalLlmBridge()
+    const results = await provider.functions.invoke('web_search', {
       query,
       num: Math.min(Math.max(args.num ?? 5, 1), 10),
       recency_days: args.recency_days,
     })
     if (!Array.isArray(results) || results.length === 0) {
-      throw new Error('Z.ai returned empty results')
+      throw new Error('primary provider returned empty results')
     }
     const formatted = results
       .map((r: any, i: number) => {
@@ -127,7 +122,7 @@ export async function toolWebSearch(
     const out = okResult(preview, formatted)
     setCached('web_search', args, out)
     return out
-  } catch (zaiError: any) {
+  } catch (searchError: any) {
     // UPGRADE #178 fix #1b: Brave Search is now the FIRST fallback (was 3rd).
     // On Vercel production, Brave works perfectly (665ms, 5 results) while
     // DuckDuckGo and Google scraping both fail. Putting Brave first means
@@ -171,7 +166,7 @@ export async function toolWebSearch(
     }
 
     // ── FALLBACK 2: DuckDuckGo Instant Answer API (free, no API key needed) ──
-    // The Z.ai SDK's web_search fails on Vercel because the .z-ai-config
+    // The primary provider SDK's web_search fails on Vercel because the .z-ai-config
     // file doesn't exist in the serverless environment. DuckDuckGo's API
     // is free, requires no authentication, and works perfectly on Vercel.
     try {
@@ -233,14 +228,14 @@ export async function toolWebSearch(
         const preview = ddgResults.slice(0, 3).map(r => `• ${r.name}`).join('\n')
         const out = okResult(
           preview + ' (via DuckDuckGo fallback)',
-          `Web search results for "${query}" (via DuckDuckGo fallback — Z.ai SDK unavailable on Vercel):\n\n${formatted}`
+          `Web search results for "${query}" (via DuckDuckGo fallback — primary provider SDK unavailable on Vercel):\n\n${formatted}`
         )
         setCached('web_search', args, out)
         return out
       }
 
       // UPGRADE #178 fix #1b: Old Brave fallback removed — Brave is now the
-      // FIRST fallback (above, right after Z.ai fails). This duplicate was
+      // FIRST fallback (above, right after primary provider fails). This duplicate was
       // the 3rd fallback in the chain (after DDG + Google), which timed out
       // before ever reaching Brave. Now Brave runs first, returns in <1s.
 
@@ -293,10 +288,10 @@ export async function toolWebSearch(
       // All fallbacks failed — return a helpful error with the query
       return okResult(
         `No results for "${query}" (all search methods exhausted)`,
-        `Web search for "${query}" returned no results from Z.ai, DuckDuckGo, or Google.\n\nZ.ai error: ${zaiError?.message ?? 'unknown'}\nDuckDuckGo: returned no results\nGoogle: returned no results\n\nTry using http_fetch to fetch a specific URL directly, or use inspect_url to read a web page.`
+        `Web search for "${query}" returned no results from primary provider, DuckDuckGo, or Google.\n\nprimary provider error: ${searchError?.message ?? 'unknown'}\nDuckDuckGo: returned no results\nGoogle: returned no results\n\nTry using http_fetch to fetch a specific URL directly, or use inspect_url to read a web page.`
       )
     } catch (fallbackError: any) {
-      return badResult(`web_search failed (Z.ai: ${zaiError?.message ?? 'unknown'}, fallback: ${fallbackError?.message ?? 'unknown'}). Try using http_fetch to fetch a specific URL directly.`)
+      return badResult(`web_search failed (primary provider: ${searchError?.message ?? 'unknown'}, fallback: ${fallbackError?.message ?? 'unknown'}). Try using http_fetch to fetch a specific URL directly.`)
     }
   }
 }
@@ -352,8 +347,8 @@ export async function toolPageReader(
   }
 
   try {
-    const zai = await getZai()
-    const res: any = await zai.functions.invoke('page_reader', { url })
+    const provider = getCanonicalLlmBridge()
+    const res: any = await provider.functions.invoke('page_reader', { url })
     const html = res?.data?.html ?? ''
     const title = res?.data?.title ?? url
     const text = stripHtml(html).slice(0, 6000)
@@ -363,11 +358,11 @@ export async function toolPageReader(
     )
     setCached('page_reader', args, out)
     return out
-  } catch (zaiError: any) {
+  } catch (searchError: any) {
     // ── FALLBACK: Use http_fetch to get the page content directly ──────
-    // The Z.ai SDK's page_reader fails on Vercel because the .z-ai-config
+    // The primary provider SDK's page_reader fails on Vercel because the .z-ai-config
     // file doesn't exist. We fall back to fetching the page via http and
-    // stripping the HTML ourselves — same result, no Z.ai needed.
+    // stripping the HTML ourselves — same result, no primary provider needed.
     try {
       const fetchRes = await fetch(url, {
         signal: AbortSignal.timeout(10000),
@@ -400,13 +395,13 @@ export async function toolPageReader(
       }
       const out = okResult(
         `Read page (via fallback): ${title}\n${text.slice(0, 400)}...`,
-        `Page: ${title}\nURL: ${url}\n(via http_fetch fallback — Z.ai page_reader unavailable on Vercel)\n\n${text}`
+        `Page: ${title}\nURL: ${url}\n(via http_fetch fallback — primary provider page_reader unavailable on Vercel)\n\n${text}`
       )
       setCached('page_reader', args, out)
       return out
     } catch (fetchError: any) {
       return badResult(
-        `page_reader failed (Z.ai: ${zaiError?.message ?? 'config not found'}, fallback: ${fetchError?.message ?? 'fetch failed'}). ` +
+        `page_reader failed (primary provider: ${searchError?.message ?? 'config not found'}, fallback: ${fetchError?.message ?? 'fetch failed'}). ` +
         `ALTERNATIVES: Use web_search, ddg_search, or inspect_url instead.`
       )
     }
@@ -447,8 +442,8 @@ export async function toolImageGen(
     ? (args.size as (typeof VALID_SIZES)[number])
     : '1024x1024'
   try {
-    const zai = await getZai()
-    const resp = await zai.images.generations.create({ prompt, size })
+    const provider = getCanonicalLlmBridge()
+    const resp = await provider.images.generations.create({ prompt, size })
     const b64 = resp?.data?.[0]?.base64
     if (!b64) return badResult('image_gen returned no data')
     const dataUrl = `data:image/png;base64,${b64}`
@@ -478,8 +473,8 @@ export async function toolVision(
   }
   const img = images[Math.min(Math.max(idx, 0), images.length - 1)]
   try {
-    const zai = await getZai()
-    const visionResp: any = await zai.chat.completions.createVision({
+    const provider = getCanonicalLlmBridge()
+    const visionResp: any = await provider.chat.completions.createVision({
       model: 'glm-4.5v',
       messages: [
         {
@@ -1880,7 +1875,7 @@ for (const [name, def] of Object.entries(TOOL_ENHANCEMENTS)) {
  * SELF-FIX TOOLS — 12 new tools for Agent007 to repair itself.
  * Full access, no limitations. These let the agent:
  *   - Test any endpoint from inside the server
- *   - Diagnose LLM providers (Z.ai + OpenAI)
+ *   - Diagnose LLM providers (primary provider + OpenAI)
  *   - Force-refresh settings from /tmp fallback
  *   - Verify deployment health (one-shot)
  *   - Inspect any URL
@@ -1908,7 +1903,7 @@ import {
 } from './self-fix-tools'
 
 TOOL_REGISTRY.test_endpoint = { fn: toolTestEndpoint, icon: 'plug', label: 'Test Endpoint (HTTP test any URL from server)' }
-TOOL_REGISTRY.diagnose_llm = { fn: toolDiagnoseLlm, icon: 'cpu', label: 'Diagnose LLM (test Z.ai + OpenAI providers)' }
+TOOL_REGISTRY.diagnose_llm = { fn: toolDiagnoseLlm, icon: 'cpu', label: 'Diagnose LLM (test primary provider + OpenAI providers)' }
 TOOL_REGISTRY.force_refresh_settings = { fn: toolForceRefreshSettings, icon: 'refresh-cw', label: 'Force-Refresh Settings (sync /tmp fallback → DB)' }
 TOOL_REGISTRY.verify_deployment = { fn: toolVerifyDeployment, icon: 'shield-check', label: 'Verify Deployment (comprehensive health check)' }
 TOOL_REGISTRY.inspect_url = { fn: toolInspectUrl, icon: 'search', label: 'Inspect URL (fetch + clean any URL)' }

@@ -106,7 +106,6 @@ export async function toolDependencyUpdater(args: any, _ctx: ToolContext): Promi
     `  • react: 19.0.0 → 19.0.0 ✅ (latest)\n` +
     `  • typescript: 5.6.0 → 5.7.2 (minor update available)\n` +
     `  • prisma: 5.22.0 → 5.22.0 ✅ (latest)\n` +
-    `  • z-ai-web-dev-sdk: 1.4.0 → 1.5.1 (minor update available)\n` +
     `  • @prisma/client: 5.22.0 → 5.22.0 ✅ (latest)\n` +
     `  • tailwindcss: 4.0.0 → 4.0.0 ✅ (latest)\n` +
     `  • bun: 1.1.0 → 1.1.42 (patch update available)\n` +

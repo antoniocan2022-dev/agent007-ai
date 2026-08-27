@@ -165,11 +165,19 @@ export async function toolMarketAdaptationEngine(args: { industry?: string }, _c
     // Search for current trends
     let searchData = ''
     try {
-      const ZAI = (await import('z-ai-web-dev-sdk')).default
-      let _z: any = (globalThis as any).__zai_singleton
-      if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }
-      const results = await _z.functions.invoke('web_search', { query: `${industry} trends 2025 new opportunities emerging`, num: 5 })
-      searchData = JSON.stringify(results?.results ?? '').slice(0, 3000)
+      const { runCanonicalLlm } = await import('./canonical-llm-router')
+      const trend = await runCanonicalLlm({
+        messages: [
+          { role: 'system', content: 'Produce concise trend hypotheses and useful search terms. Do not present unverified claims as facts.' },
+          { role: 'user', content: `Identify relevant trend hypotheses and search terms for ${industry}.` },
+        ],
+        taskType: 'research',
+        verification: 'enhanced',
+        executionClass: 'standard',
+        maxProviderAttempts: 3,
+        timeoutMs: 30000,
+      })
+      searchData = trend.content.slice(0, 3000)
     } catch {
       // Try OpenAI fallback for analysis
       try {

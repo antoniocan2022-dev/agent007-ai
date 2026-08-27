@@ -69,8 +69,6 @@ export async function GET(req: NextRequest) {
     { id: 'groq', env: 'GROQ_API_KEY' },
     { id: 'openrouter', env: 'OPENROUTER_API_KEY' },
     { id: 'brave', env: 'BRAVE_API_KEY' },
-    { id: 'gemini', env: 'GEMINI_API_KEY' },
-    { id: 'z-ai', env: 'ZAI_API_KEY' },
   ]
 
   let activeLlmCount = 0

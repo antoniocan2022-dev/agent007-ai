@@ -122,8 +122,8 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
       case 'groq': return !!process.env.GROQ_API_KEY
       case 'openrouter': return !!process.env.OPENROUTER_API_KEY
       case 'cerebras': return !!process.env.CEREBRAS_API_KEY
-      case 'brave': return !!process.env.BRAVE_API_KEY
-      case 'gemini': return !!process.env.GEMINI_API_KEY
+      
+      case 'cloudflare': return !!(process.env.CLOUDFLARE_API_KEY && process.env.CLOUDFLARE_ACCOUNT_ID)
       default: return false
     }
   })
@@ -132,7 +132,7 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
     return {
       ok: false,
       preview: 'No configured providers available',
-      result: 'Error: None of the requested providers have API keys configured. Set at least one of: MISTRAL_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, BRAVE_API_KEY, GEMINI_API_KEY',
+      result: 'Error: None of the requested providers have API keys configured. Set at least one of: MISTRAL_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, BRAVE_API_KEY, CLOUDFLARE_API_KEY',
     }
   }
 
@@ -247,7 +247,7 @@ export function selectBestProvider(taskDescription: string): string[] {
     },
     {
       patterns: [/image|vision|picture|see|visual/],
-      providers: ['gemini'],  // Native vision support
+      providers: ['cloudflare'],  // Native vision support
     },
   ]
 
@@ -261,8 +261,8 @@ export function selectBestProvider(taskDescription: string): string[] {
           case 'groq': return !!process.env.GROQ_API_KEY
           case 'openrouter': return !!process.env.OPENROUTER_API_KEY
           case 'cerebras': return !!process.env.CEREBRAS_API_KEY
-          case 'brave': return !!process.env.BRAVE_API_KEY
-          case 'gemini': return !!process.env.GEMINI_API_KEY
+          
+          case 'cloudflare': return !!(process.env.CLOUDFLARE_API_KEY && process.env.CLOUDFLARE_ACCOUNT_ID)
           default: return false
         }
       })
@@ -277,6 +277,6 @@ export function selectBestProvider(taskDescription: string): string[] {
   if (process.env.OPENROUTER_API_KEY) all.push('openrouter')
   if (process.env.CEREBRAS_API_KEY) all.push('cerebras')
   if (process.env.BRAVE_API_KEY) all.push('brave')
-  if (process.env.GEMINI_API_KEY) all.push('gemini')
+  if (process.env.CLOUDFLARE_API_KEY && process.env.CLOUDFLARE_ACCOUNT_ID) all.push('cloudflare')
   return all
 }

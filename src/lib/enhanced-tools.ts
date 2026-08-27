@@ -14,20 +14,15 @@
  */
 import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
+import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
 
-async function getZai() {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default
-  let _z: any = (globalThis as any).__zai_singleton
-  if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }
-  return _z
-}
 
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const c = await zai.chat.completions.create({
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       temperature: 0.5, max_tokens: maxTokens,
@@ -96,7 +91,7 @@ export async function toolMarketTrendInsights(args: { industry?: string; region?
   try {
     let searchData = ''
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const results = await zai.functions.invoke('web_search', { query: `${industry} market trends 2025 ${region}`, num: 5 })
       searchData = JSON.stringify(results?.results ?? results ?? '').slice(0, 2000)
     } catch {}
@@ -200,7 +195,7 @@ export async function toolRealtimeMarketData(args: { assets?: string; market?: s
   try {
     let searchData = ''
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const results = await zai.functions.invoke('web_search', { query: `${assets} price today ${market} market`, num: 5 })
       searchData = JSON.stringify(results?.results ?? '').slice(0, 2000)
     } catch {}
@@ -219,7 +214,7 @@ export async function toolCryptoAnalyzer(args: { coin?: string; analysis_type?: 
   try {
     let searchData = ''
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const results = await zai.functions.invoke('web_search', { query: `${coin} crypto analysis price prediction 2025`, num: 5 })
       searchData = JSON.stringify(results?.results ?? '').slice(0, 2000)
     } catch {}
@@ -238,7 +233,7 @@ export async function toolStockScreener(args: { sector?: string; criteria?: stri
   try {
     let searchData = ''
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const results = await zai.functions.invoke('web_search', { query: `best ${sector} stocks 2025 ${criteria} screener`, num: 5 })
       searchData = JSON.stringify(results?.results ?? '').slice(0, 2000)
     } catch {}
@@ -343,7 +338,7 @@ export async function toolNicheDiscoveryAgent(args: { market?: string; budget?: 
   try {
     let searchData = ''
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const results = await zai.functions.invoke('web_search', { query: `profitable niches 2025 ${market} low competition high demand`, num: 5 })
       searchData = JSON.stringify(results?.results ?? '').slice(0, 2000)
     } catch {}
@@ -384,7 +379,7 @@ export async function toolTaxOptimizer(args: { country?: string; income?: number
   try {
     let searchData = ''
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const results = await zai.functions.invoke('web_search', { query: `tax optimization ${country} ${entityType} ${income} deductions 2025`, num: 5 })
       searchData = JSON.stringify(results?.results ?? '').slice(0, 2000)
     } catch {}

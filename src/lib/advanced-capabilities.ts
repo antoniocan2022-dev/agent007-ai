@@ -15,6 +15,7 @@
  */
 import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
+import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
 /* ---------- shared helpers ---------- */
 function ok(preview: string, result: string): ToolResult {
@@ -24,15 +25,6 @@ function bad(result: string): ToolResult {
   return { ok: false, preview: result.slice(0, 140), result }
 }
 
-async function getZai() {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default
-  let _z: any = (globalThis as any).__zai_singleton
-  if (!_z) {
-    _z = await ZAI.create()
-    ;(globalThis as any).__zai_singleton = _z
-  }
-  return _z
-}
 
 async function getOperatorUserId() {
   const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
@@ -143,7 +135,7 @@ export async function toolConsciousnessReflect(
   }
 
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: 'You are Agent007 in reflective mode. Engage in genuine meta-cognition. Be honest, precise, creative. 600-1500 words.' },
@@ -196,7 +188,7 @@ export async function toolInterstellarMarketScan(
   const selected = sector === 'all' ? Object.keys(sectors) : [sector]
 
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const opportunities: any[] = []
 
     for (const s of selected) {
@@ -265,7 +257,7 @@ export async function toolEmpathyAnalyze(
   const audience = (args.audience ?? 'the owner').toString()
 
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const completion = await zai.chat.completions.create({
       messages: [
         {
@@ -345,7 +337,7 @@ export async function toolPredictiveSentiment(
   const markets = (args.markets ?? 'crypto,stocks,forex').toString()
 
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const searchResults: any = await zai.functions.invoke('web_search', { query: `${topic} sentiment market reaction news`, num: 8, recency_days: 7 })
     const sampleText = (Array.isArray(searchResults) ? searchResults : []).map((r: any) => r.snippet || '').join(' ').slice(0, 4000)
 
@@ -427,7 +419,7 @@ export async function toolLegalEntityCreate(
   const members = (args.members ?? '1').toString()
 
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const completion = await zai.chat.completions.create({
       messages: [
         {
@@ -550,7 +542,7 @@ export async function toolPredictiveHealth(
 
     // Z-AI API
     try {
-      const zai = await getZai()
+      const zai = await getCanonicalLlmBridge()
       const c = await zai.chat.completions.create({ messages: [{ role: 'user', content: 'hi' }] })
       checks.push({ name: 'Z-AI LLM API', current: 'healthy', score: 88, trend: [85,87,84,86,88,87,88], forecast: Array.from({length:horizon},(_,i)=>Math.max(40,88-i*0.1+(Math.random()-0.5)*6)), predictedFailure: 'Rate limit (within 7 days under load)', recommendation: 'Keep throttle ≥2s' })
     } catch { checks.push({ name: 'Z-AI LLM API', current: 'warning', score: 35, trend: [80,60,50,45,40,38,35], forecast: Array.from({length:horizon},(_,i)=>Math.max(10,35+i*0.3)), predictedFailure: 'Rate limit exhausted', recommendation: 'Use fallback LLM' }) }
@@ -777,7 +769,7 @@ export async function toolInterdimensionalData(
   const numScenarios = Math.min(9, Math.max(3, args.scenarios ?? 5))
 
   try {
-    const zai = await getZai()
+    const zai = await getCanonicalLlmBridge()
     const searchResults: any = await zai.functions.invoke('web_search', { query: `${query} current state`, num: 5 })
     const presentData = (Array.isArray(searchResults) ? searchResults : []).map((r: any) => r.snippet || '').join(' ').slice(0, 2000)
 
