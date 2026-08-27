@@ -21,8 +21,8 @@ function walk(dir: string): string[] {
 }
 
 // Audited pre-existing compatibility modules. These remain explicit migration
-// boundaries for legacy callers; the CEO entry bridge itself must use the full
-// cognitive lifecycle before reaching the canonical provider runtime.
+// boundaries for legacy callers; the bridge may reference canonical provider
+// runtime directly only for requests already owned by the operational lane.
 const LEGACY_COMPATIBILITY_FILES = new Set([
   'lib/multi-provider-comparison.ts', 'lib/leader-debate.ts', 'lib/super-agent-verifier.ts', 'lib/mission-os.ts',
   'lib/orchestrator.ts', 'lib/predicted-iq.ts', 'lib/business-portfolio.ts', 'lib/self-healing-engine.ts',
@@ -33,10 +33,14 @@ const LEGACY_COMPATIBILITY_FILES = new Set([
 ])
 
 describe('Canonical runtime architecture', () => {
-  test('the @/lib/agent import resolves through the CEO cognitive lifecycle bridge', () => {
+  test('the @/lib/agent import resolves through an owner-aware canonical bridge', () => {
     expect(tsconfig.compilerOptions.paths['@/lib/agent']).toEqual(['./src/lib/agent-canonical-bridge'])
-    expect(bridge).toContain('runCeoCognitiveLifecycle')
-    expect(bridge).not.toContain("from './canonical-llm-router'")
+    expect(bridge).toContain("from './ceo-cognitive-lifecycle'")
+    expect(bridge).toContain("from './canonical-llm-router'")
+    expect(bridge).toContain("from './ceo-execution-owner'")
+    expect(bridge).toContain("owner === 'operational_orchestrator'")
+    expect(bridge).toContain('runCanonicalLlm({')
+    expect(bridge).toContain('runCeoCognitiveLifecycle({')
     expect(bridge).toContain("export * from './agent'")
     expect(typeof callLlmWithRetry).toBe('function')
   })
