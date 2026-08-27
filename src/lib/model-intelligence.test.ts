@@ -1,7 +1,7 @@
 import { describe, expect, test, afterEach } from 'bun:test'
 import { MODEL_PROFILES, selectModelForTask } from './model-intelligence'
 
-const ACTIVE = ['cerebras', 'groq', 'mistral'] as const
+const ACTIVE = ['cerebras', 'cloudflare', 'groq', 'mistral', 'openrouter'] as const
 
 afterEach(() => {
   delete process.env.GROQ_API_KEY
@@ -9,6 +9,7 @@ afterEach(() => {
   delete process.env.MISTRAL_API_KEY
   delete process.env.CLOUDFLARE_ACCOUNT_ID
   delete process.env.CEREBRAS_API_KEY
+  delete process.env.OPENROUTER_API_KEY
 })
 
 describe('Model Intelligence', () => {
