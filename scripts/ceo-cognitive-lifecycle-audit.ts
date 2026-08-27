@@ -64,7 +64,10 @@ if (!lifecycle.includes('await buildCeoDegradedResponse')) violations.push('Degr
 if (!presenter.includes("const generationAuthorized = decisionKernel.decision === 'PROCEED'")) violations.push('CEO presenter does not enforce PROCEED as the generation boundary')
 if (!presenter.includes("if (!generationAuthorized)")) violations.push('CEO HOLD/REJECT path does not short-circuit LLM generation')
 
-if (!tsconfig.includes('"@/lib/agent": ["./src/lib/agent-canonical-bridge"]')) violations.push('tsconfig must alias @/lib/agent to the canonical cognitive bridge')
+// Normalize JSON whitespace so the contract test verifies configuration meaning,
+// not whether the path mapping happened to be formatted on one line.
+const normalizedTsconfig = tsconfig.replace(/\s+/g, '')
+if (!normalizedTsconfig.includes('"@/lib/agent":["./src/lib/agent-canonical-bridge"]')) violations.push('tsconfig must alias @/lib/agent to the canonical cognitive bridge')
 if (!orchestrator.includes("from '@/lib/agent'")) violations.push('Orchestrator lost its canonical bridge compatibility import')
 
 // The repository contains tool/subagent implementations that intentionally use
