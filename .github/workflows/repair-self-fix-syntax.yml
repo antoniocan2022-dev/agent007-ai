@@ -1,0 +1,95 @@
+name: Restore self-fix diagnostics integrity
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Restore intact self-fix module and remove retired provider calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin 3350473012329ae7c8c130d374babda5c5bdb2c2
+          git show 3350473012329ae7c8c130d374babda5c5bdb2c2:src/lib/self-fix-tools.ts > src/lib/self-fix-tools.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('src/lib/self-fix-tools.ts')
+          s = p.read_text()
+
+          start = s.index('/* ------------------------------------------------------------------ */\n/* 2. diagnose_llm')
+          end = s.index('/* ------------------------------------------------------------------ */\n/* 3. force_refresh_settings', start)
+          diag = '''/* ------------------------------------------------------------------ */
+/* 2. diagnose_llm — inspect canonical provider health                  */
+/* ------------------------------------------------------------------ */
+export async function toolDiagnoseLlm(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')
+    const telemetry = getCanonicalProviderTelemetry()
+    const healthy = telemetry.providers.filter((p) => p.status === 'healthy').map((p) => p.provider)
+    return okResult(
+      `LLM diagnosis complete — ${telemetry.healthyCount}/${telemetry.configuredCount} configured providers healthy`,
+      `LLM PROVIDER DIAGNOSIS\\n${'='.repeat(60)}\\nConfigured: ${telemetry.configuredCount}/${telemetry.providerCount}\\nHealthy: ${telemetry.healthyCount}\\nAvailable: ${telemetry.availableCount}\\nHealthy providers: ${healthy.join(', ') || '(none)'}\\n\\nFULL TELEMETRY:\\n${JSON.stringify(telemetry, null, 2)}`
+    )
+  } catch (e: any) {
+    return badResult(`LLM diagnosis failed: ${e?.message ?? String(e)}`)
+  }
+}
+
+'''
+          s = s[:start] + diag + s[end:]
+
+          llm_start = s.index('  // ── LLM providers ──────────────────────────────────────────────────')
+          llm_end = s.index('  // ── Final summary', llm_start)
+          llm = '''  // ── LLM providers ──────────────────────────────────────────────────
+  try {
+    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')
+    const telemetry = getCanonicalProviderTelemetry()
+    report.sections.llm = telemetry
+    if (telemetry.configuredCount === 0) {
+      report.sections.llm.issue = 'No canonical LLM provider is configured'
+      report.overall = 'fail'
+      report.issueCount++
+    }
+  } catch (e: any) {
+    report.sections.llm = { error: e?.message }
+    report.overall = 'fail'
+    report.issueCount++
+  }
+
+'''
+          s = s[:llm_start] + llm + s[llm_end:]
+
+          if any(x in s for x in ['z-ai-web-dev-sdk', 'ZAI.create', 'ZAI_API_KEY', 'GEMINI_API_KEY']):
+              raise SystemExit('retired provider reference remains in self-fix-tools.ts')
+          p.write_text(s)
+          PY
+      - name: Validate self-fix module
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run db:generate
+          bunx tsc -p tsconfig.ci.json --noEmit
+      - name: Commit repair and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/self-fix-tools.ts
+          git rm .github/workflows/repair-self-fix-syntax.yml
+          git commit -m 'fix: restore self-fix diagnostics integrity'
+          git push origin HEAD:main
