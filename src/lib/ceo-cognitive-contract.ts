@@ -7,6 +7,55 @@ export type EvidenceState = 'LIVE_EXECUTED' | 'LIVE_VERIFIED' | 'VERIFIED_CACHED
 export type QualityDecision = 'PASS' | 'ESCALATE' | 'DEGRADED'
 export type VerificationStatus = 'NOT_REQUIRED' | 'NOT_PERFORMED' | 'INDEPENDENT_PASS' | 'FAILED'
 
+/**
+ * Request-level semantic intent. Intent describes what the owner is asking;
+ * evidence and execution requirements are derived from intent instead of
+ * isolated keyword matches.
+ */
+export type CeoIntent =
+  | 'conversation'
+  | 'self_assessment'
+  | 'analysis'
+  | 'opinion'
+  | 'decision'
+  | 'research'
+  | 'tool_action'
+  | 'mission_action'
+  | 'production_action'
+
+export type EvidenceRequirement =
+  | 'none'
+  | 'internal_state'
+  | 'memory'
+  | 'live_system'
+  | 'external_web'
+  | 'database'
+  | 'multi_source'
+
+export type ExecutionRequirement =
+  | 'no_action'
+  | 'llm_only'
+  | 'one_tool'
+  | 'multi_tool'
+  | 'subagent'
+  | 'mission'
+  | 'production'
+
+export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
+
+export interface CeoExecutionContract {
+  intent: CeoIntent
+  evidenceRequirement: EvidenceRequirement
+  executionRequirement: ExecutionRequirement
+  orchestrationOwner: OrchestrationOwner
+  maxTurns: number
+  maxRecoveries: number
+  latencyBudgetMs: number
+  toolRequired: boolean
+  subagentsRequired: boolean
+  reason: string
+}
+
 export interface PreRouteDecision {
   route: PreRoute
   reason: string
@@ -14,6 +63,7 @@ export interface PreRouteDecision {
   complexitySignals: number
   taskClass?: TaskType
   adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'
+  executionContract: CeoExecutionContract
 }
 
 export interface DecisionPlan {
@@ -30,6 +80,7 @@ export interface DecisionPlan {
   maxEscalations: number
   maxProviderAttempts: number
   latencyBudgetMs: number
+  executionContract: CeoExecutionContract
 }
 
 export interface ExecutionStage {
