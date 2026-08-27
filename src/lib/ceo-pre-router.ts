@@ -95,21 +95,10 @@ function contractFor(input: {
     })
   }
 
-  if (missionRelevant || adaptiveExecutionClass === 'mission') {
-    return buildExecutionContract({
-      intent: 'mission_action',
-      evidenceRequirement: 'multi_source',
-      executionRequirement: 'mission',
-      orchestrationOwner: 'operational_orchestrator',
-      maxTurns: 12,
-      maxRecoveries: 2,
-      latencyBudgetMs: 60000,
-      toolRequired: true,
-      subagentsRequired: true,
-      reason,
-    })
-  }
-
+  // Explicit operational intent always outranks adaptive complexity.
+  // A deployment, research request, or tool action may be complex, but it is
+  // still governed by its declared operational contract rather than upgraded
+  // into a generic multi-agent mission contract.
   if (intent === 'production_action') {
     return buildExecutionContract({
       intent,
@@ -136,6 +125,36 @@ function contractFor(input: {
       latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
       toolRequired: true,
       subagentsRequired: false,
+      reason,
+    })
+  }
+
+  if (intent === 'tool_action') {
+    return buildExecutionContract({
+      intent,
+      evidenceRequirement: 'internal_state',
+      executionRequirement: 'one_tool',
+      orchestrationOwner: 'operational_orchestrator',
+      maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
+      maxRecoveries: 1,
+      latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
+      toolRequired: true,
+      subagentsRequired: false,
+      reason,
+    })
+  }
+
+  if (missionRelevant || adaptiveExecutionClass === 'mission') {
+    return buildExecutionContract({
+      intent: 'mission_action',
+      evidenceRequirement: 'multi_source',
+      executionRequirement: 'mission',
+      orchestrationOwner: 'operational_orchestrator',
+      maxTurns: 12,
+      maxRecoveries: 2,
+      latencyBudgetMs: 60000,
+      toolRequired: true,
+      subagentsRequired: true,
       reason,
     })
   }
