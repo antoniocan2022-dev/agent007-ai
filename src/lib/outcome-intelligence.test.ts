@@ -13,9 +13,9 @@ describe('Outcome Intelligence', () => {
 
   test('rewards verified quality and business value', () => {
     for (let i = 0; i < 4; i++) {
-      recordModelOutcome({ provider: 'openai', model: 'gpt-5', taskType: 'financial', status: 'verified_success', qualityScore: 96, businessValueScore: 94, verificationPassed: true })
+      recordModelOutcome({ provider: 'mistral', model: 'mistral-large-latest', taskType: 'financial', status: 'verified_success', qualityScore: 96, businessValueScore: 94, verificationPassed: true })
     }
-    const snapshot = getOutcomeSnapshot('openai', 'gpt-5', 'financial')
+    const snapshot = getOutcomeSnapshot('mistral', 'mistral-large-latest', 'financial')
     expect(snapshot.outcomeScore).toBeGreaterThanOrEqual(90)
     expect(snapshot.confidence).toBeGreaterThan(40)
     expect(snapshot.verificationRate).toBe(100)
@@ -32,8 +32,8 @@ describe('Outcome Intelligence', () => {
   })
 
   test('clamps invalid scores rather than allowing score poisoning', () => {
-    recordModelOutcome({ provider: 'zai', model: 'glm-5.1', taskType: 'research', status: 'partial', qualityScore: 999, businessValueScore: -100, verificationPassed: false })
-    const snapshot = getOutcomeSnapshot('zai', 'glm-5.1', 'research')
+    recordModelOutcome({ provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', taskType: 'research', status: 'partial', qualityScore: 999, businessValueScore: -100, verificationPassed: false })
+    const snapshot = getOutcomeSnapshot('cloudflare', '@cf/google/gemma-4-26b-a4b-it', 'research')
     expect(snapshot.avgQualityScore).toBe(100)
     expect(snapshot.avgBusinessValueScore).toBe(0)
     expect(snapshot.outcomeScore).toBeGreaterThanOrEqual(0)
