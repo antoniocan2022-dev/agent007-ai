@@ -16,8 +16,9 @@ const DIRECT_CEO_MAX_CHARS = 1200
 
 const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo)\b/i
 const SELF_ASSESSMENT_FOCUS_RE = /\b(?:ready|readiness|capable|capability|capabilities|prepared|equipped|weakness(?:es)?|strengths?|performing|performance|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|self[-\s]?(?:analysis|assessment|reflection)|how(?:'s|\s+is)\s+(?:it|agent007|the\s+system)\s+going)\b/i
-const SELF_ASSESSMENT_VERB_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|reflect)\b/i
-const SELF_ASSESSMENT_ACTION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|production)\b/i
+// Only treat an explicit command or concrete target as an operation. Questions
+// such as "Are you ready to deploy?" remain self-assessment/readiness requests.
+const SELF_ASSESSMENT_ACTION_RE = /^(?:please\s+)?(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|run|enable|disable)\b|\b(?:deploy|publish|ship|launch)\s+(?:this|the|it|approved|release|change|version|build)\b|\bproduction\s+(?:change|deployment|release)\b/i
 
 function latestUserText(messages: readonly { role: string; content: string }[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
