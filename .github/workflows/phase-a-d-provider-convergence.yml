@@ -31,8 +31,12 @@ jobs:
           python3 -m py_compile scripts/retire-legacy-providers.py
       - name: Apply provider retirement
         run: python3 scripts/retire-legacy-providers.py
-      - name: Regenerate lockfile
-        run: bun install --lockfile-only
+      - name: Regenerate lockfile and Prisma client
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --lockfile-only
+          bun run db:generate
       - name: Verify retired providers are absent from executable source
         shell: bash
         run: |
@@ -71,7 +75,7 @@ jobs:
           set -euo pipefail
           git fetch origin main
           git checkout -B cleanup origin/main
-          rm -f .github/workflows/phase-a-d-provider-convergence.yml scripts/retire-legacy-providers.py
+          rm -f .github/workflows/phase-a-d-provider-convergence.yml scripts/retire-legacy-providers.py .github/provider-migration-trigger.txt
           if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
