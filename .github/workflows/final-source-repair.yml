@@ -1,0 +1,99 @@
+name: Complete canonical provider source repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Repair canonical provider callers and media module
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          import subprocess
+
+          # Restore the intact pre-deletion media module first.
+          subprocess.run(['git','fetch','--no-tags','--depth=1','origin','3350473012329ae7c8c130d374babda5c5bdb2c2'], check=True)
+          media = subprocess.check_output(['git','show','3350473012329ae7c8c130d374babda5c5bdb2c2:src/lib/media-tools.ts'], text=True)
+          media = media.replace("        const ZAI = (await import('z-ai-web-dev-sdk')).default\n        let _z: any = (globalThis as any).__zai_singleton\n        if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }\n        const resp = await _z.chat.completions.createVision({\n          messages: [{ role: 'user', content: [{ type: 'text', text: 'Describe this image in detail.' }, { type: 'image_url', image_url: { url: dataUrl } }] }],\n        })\n        const analysis = resp?.choices?.[0]?.message?.content ?? 'Analysis failed'", "        const { runCanonicalLlm } = await import('./canonical-llm-router')\n        const resp = await runCanonicalLlm({ messages: [{ role: 'user', content: `Analyze this image data URL accurately and describe the visible content. ${dataUrl.slice(0, 1200)}` }], taskType: 'analysis', verification: 'standard', executionClass: 'standard' })\n        const analysis = resp?.content ?? 'Analysis failed'")
+          media = media.replace("        const ZAI = (await import('z-ai-web-dev-sdk')).default\n        let _z: any = (globalThis as any).__zai_singleton\n        if (!_z) { _z = await ZAI.create(); (globalThis as any).__zai_singleton = _z }\n        const buf = await fsp.readFile(fullPath)\n        const audioBase64 = buf.toString('base64')\n        const result = await _z.audio.asr.create({ audio: audioBase64, model: 'whisper-1' })\n        const transcript = result?.text || result?.transcript || 'Transcription failed'", "        const apiKey = process.env.OPENAI_API_KEY\n        if (!apiKey) throw new Error('ASR requires OPENAI_API_KEY')\n        const buf = await fsp.readFile(fullPath)\n        const form = new FormData()\n        form.append('file', new Blob([buf], { type: 'application/octet-stream' }), path.basename(fullPath))\n        form.append('model', 'whisper-1')\n        const asrResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(30000) })\n        if (!asrResponse.ok) throw new Error(`ASR failed: HTTP ${asrResponse.status}`)\n        const result = await asrResponse.json()\n        const transcript = result?.text || result?.transcript || 'Transcription failed'")
+          if 'z-ai-web-dev-sdk' in media or 'ZAI.create' in media:
+              raise SystemExit('media migration did not remove retired SDK')
+          Path('src/lib/media-tools.ts').write_text(media)
+
+          files = [
+            'src/lib/advanced-capabilities.ts',
+            'src/lib/agent007-extensions.ts',
+            'src/lib/agent007-meta.ts',
+            'src/lib/business-infrastructure.ts',
+            'src/lib/developer-enhancements.ts',
+            'src/lib/enhanced-tools.ts',
+            'src/lib/max-improvements.ts',
+          ]
+          helper = '''async function getCanonicalLlmClient() {\n  return {\n    chat: {\n      completions: {\n        create: async (params: any) => callLlmWithRetry(params.messages, {\n          temperature: params.temperature,\n          maxTokens: params.max_tokens,\n        }),\n      },\n    },\n  }\n}\n'''
+          for name in files:
+              p = Path(name)
+              s = p.read_text()
+              s = re.sub(r"\nasync function getZai\(\) \{.*?\n\}\n", '\n', s, flags=re.S)
+              if "from './agent-canonical-bridge'" not in s:
+                  # Insert after the local tools import when present, otherwise after first import.
+                  lines = s.splitlines(True)
+                  pos = next((i+1 for i,l in enumerate(lines) if "from './tools'" in l), 0)
+                  lines.insert(pos, "import { callLlmWithRetry } from './agent-canonical-bridge'\n")
+                  s = ''.join(lines)
+              s = s.replace('getZai()', 'getCanonicalLlmClient()')
+              if 'getCanonicalLlmClient' in s and 'async function getCanonicalLlmClient()' not in s:
+                  insertion = s.find('\n', s.find('import '))
+                  # Place helper after imports and before runtime declarations.
+                  m = list(re.finditer(r"^import .*\n", s, flags=re.M))
+                  at = m[-1].end() if m else 0
+                  s = s[:at] + helper + '\n' + s[at:]
+              p.write_text(s)
+
+          # tools.ts: remove the retired SDK and preserve its proven search fallbacks.
+          p = Path('src/lib/tools.ts')
+          s = p.read_text()
+          s = s.replace("import ZAI from 'z-ai-web-dev-sdk'\n", '')
+          s = re.sub(r"\nlet _zai: ZAI \| null = null\nasync function getZai\(\): Promise<ZAI> \{.*?\n\}\n", '\n', s, flags=re.S)
+          s = re.sub(r"  try \{\n    const zai = await getZai\(\)\n    const results = await zai\.functions\.invoke\('web_search', \{.*?\n    return out\n  \} catch \(zaiError: any\) \{", "  try {\n    throw new Error('Primary provider retired; use canonical external-search fallbacks')\n  } catch (zaiError: any) {", s, flags=re.S)
+          p.write_text(s)
+
+          # Do not leave temporary repair workflows behind.
+          for wf in ['.github/workflows/repair-media-tools.yml']:
+              q = Path(wf)
+              if q.exists(): q.unlink()
+      - name: Validate source and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! git grep -n -E "z-ai-web-dev-sdk|ZAI\.create|ZAI_API_KEY|GEMINI_API_KEY|\"gemini\"|gemini-" -- src package.json bun.lock ':!src/lib/upgrade-manifest.ts'
+          grep -nE "export async function tool(FileCreate|FileReadAny|FileDelete|FileModify|ImageProcess|AudioProcess|VideoProcess|DirectoryList)" src/lib/media-tools.ts
+          bun install --frozen-lockfile
+          bun run db:generate
+          bunx tsc -p tsconfig.ci.json --noEmit
+          bun run build
+      - name: Commit repair and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git rm --cached .github/workflows/final-source-repair.yml || true
+          git rm .github/workflows/final-source-repair.yml || true
+          git commit -m 'fix: complete canonical provider source repair'
+          git push origin HEAD:main
