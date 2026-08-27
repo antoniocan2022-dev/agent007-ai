@@ -105,61 +105,13 @@ export async function toolTestEndpoint(args: any, _ctx: ToolContext): Promise<To
 /* 2. diagnose_llm — test both Z.ai and OpenAI fallback                */
 /* ------------------------------------------------------------------ */
 export async function toolDiagnoseLlm(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  const results: any = {
-    timestamp: new Date().toISOString(),
-    zai: { configured: false, working: false, error: null as any },
-    openai: { configured: false, working: false, error: null as any },
-    recommendation: '',
-  }
-
-  // Test Z.ai
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    results.zai.configured = true
-    // Quick test — just check if the client instantiated
-    results.zai.working = !!zai
-    if (!zai) results.zai.error = 'ZAI.create() returned null'
-  } catch (e: any) {
-    results.zai.error = e?.message ?? String(e)
-  }
-
-  // Test OpenAI fallback
-  try {
-    const openaiKey = process.env.OPENAI_API_KEY
-    results.openai.configured = !!openaiKey
-    if (openaiKey) {
-      // Just check the key is set — don't actually call OpenAI (costs $)
-      results.openai.working = openaiKey.startsWith('sk-')
-      if (!results.openai.working) {
-        results.openai.error = 'OPENAI_API_KEY does not start with "sk-" — may be invalid format'
-      }
-    } else {
-      results.openai.error = 'OPENAI_API_KEY not set in env'
-    }
-  } catch (e: any) {
-    results.openai.error = e?.message ?? String(e)
-  }
-
-  // Build recommendation
-  const recs: string[] = []
-  if (results.zai.working) recs.push('Z.ai is working — primary LLM provider is healthy.')
-  if (results.openai.working) recs.push('OpenAI fallback is configured and ready.')
-  if (!results.zai.working && !results.openai.working) {
-    recs.push('⚠ NEITHER LLM provider is working — the agent will not be able to respond.')
-    recs.push('Fix: Set OPENAI_API_KEY in Vercel env vars, OR verify Z.ai credentials.')
-  } else if (!results.zai.working) {
-    recs.push('Z.ai is down — OpenAI fallback will be used.')
-  } else if (!results.openai.working) {
-    recs.push('OpenAI fallback not configured — Z.ai will be used (no fallback if it fails).')
-  } else {
-    recs.push('Both LLM providers are healthy — full redundancy.')
-  }
-  results.recommendation = recs.join(' ')
-
+  const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')
+  const telemetry = getCanonicalProviderTelemetry()
+  const healthy = telemetry.providers.filter((provider) => provider.status === 'healthy').map((provider) => provider.provider)
+  const available = telemetry.providers.filter((provider) => provider.configured && provider.status !== 'rate_limited').map((provider) => provider.provider)
   return okResult(
-    `LLM diagnosis complete — Z.ai: ${results.zai.working ? '✅' : '❌'}, OpenAI: ${results.openai.working ? '✅' : '❌'}`,
-    `LLM PROVIDER DIAGNOSIS\n${'='.repeat(60)}\n${JSON.stringify(results, null, 2)}`
+    `LLM diagnosis complete — ${telemetry.healthyCount}/${telemetry.configuredCount} configured providers healthy`,
+    `LLM PROVIDER DIAGNOSIS\n${'='.repeat(60)}\nConfigured: ${telemetry.configuredCount}/${telemetry.providerCount}\nHealthy: ${telemetry.healthyCount}\nAvailable: ${telemetry.availableCount}\nHealthy providers: ${healthy.join(', ') || '(none)'}\nAvailable providers: ${available.join(', ') || '(none)'}\n\nFULL TELEMETRY:\n${JSON.stringify(telemetry, null, 2)}`
   )
 }
 
@@ -698,14 +650,11 @@ export async function toolComprehensiveSelfCheck(args: any, _ctx: ToolContext): 
 
   // ── LLM providers ──────────────────────────────────────────────────
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
-    report.sections.llm = {
-      zai: !!zai,
-      openai: !!process.env.OPENAI_API_KEY,
-    }
-    if (!zai && !process.env.OPENAI_API_KEY) {
-      report.sections.llm.issue = 'No LLM provider available'
+    const { getCanonicalProviderTelemetry } = await import('./canonical-llm-router')
+    const telemetry = getCanonicalProviderTelemetry()
+    report.sections.llm = telemetry
+    if (telemetry.configuredCount === 0) {
+      report.sections.llm.issue = 'No canonical LLM provider is configured'
       report.overall = 'fail'
       report.issueCount++
     }
