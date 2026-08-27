@@ -58,7 +58,7 @@ function contractFor(input: {
       orchestrationOwner: 'ceo_lifecycle',
       maxTurns: 2,
       maxRecoveries: 0,
-      latencyBudgetMs: 15000,
+      latencyBudgetMs: 30000,
       toolRequired: false,
       subagentsRequired: false,
       reason,
@@ -217,7 +217,7 @@ export function preRouteCeoRequest(
   if (semanticIntent === 'self_assessment') {
     const reason = 'Self-assessment request: evaluate Agent007/CEO readiness from governed internal state without external action.'
     return buildDecision({
-      route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass,
+      route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass: 'reasoning',
       adaptiveExecutionClass: 'fast',
       executionContract: contractFor({ intent: 'self_assessment', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
     })
