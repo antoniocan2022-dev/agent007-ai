@@ -8,6 +8,7 @@
  * 5. tool_revenue_prioritization_engine — Prioritize sub-agents by revenue potential (scalability fix)
  */
 import { type ToolContext, type ToolResult } from './tools'
+import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'

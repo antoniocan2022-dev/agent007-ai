@@ -8,6 +8,7 @@
  *   Plus: mission tracker + strategy planner
  */
 import { type ToolContext, type ToolResult } from './tools'
+import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
