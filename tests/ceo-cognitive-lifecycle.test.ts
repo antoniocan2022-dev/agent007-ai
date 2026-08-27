@@ -40,6 +40,21 @@ describe('CEO cognitive lifecycle', () => {
     }
   })
 
+  test('self-assessment stays CEO-owned even when generic analysis keywords are present', () => {
+    const content = 'Hows it going? make a sekf analysis and tell me if you are ready to mange businesses?'
+    const decision = preRouteCeoRequest([{ role: 'user', content }])
+    expect(decision.executionContract.intent).toBe('self_assessment')
+    expect(decision.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
+    expect(decision.executionContract.toolRequired).toBe(false)
+    expect(decision.executionContract.subagentsRequired).toBe(false)
+    expect(decision.executionContract.maxRecoveries).toBe(0)
+    expect(decision.route).toBe('fast')
+    const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content }], preRoute: decision })
+    expect(plan.path).toBe('fast')
+    expect(plan.reasoningStrategy).toBe('direct')
+    expect(plan.cognitiveDepth).toBe(0)
+  })
+
   test('mission and complex requests produce richer DecisionPlans', () => {
     const content = 'Design a comprehensive strategy to launch Agent007 revenue operations in production.'
     const preRoute = preRouteCeoRequest([{ role: 'user', content }])
@@ -158,13 +173,16 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.degraded).toBe(false)
   })
 
-  test('integration points use the cognitive lifecycle and preserve compatibility metadata', () => {
+  test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
     const missionRoute = readFileSync('src/app/api/mission-active/[missionId]/route.ts', 'utf8')
     const agentRoute = readFileSync('src/app/api/agent/route.ts', 'utf8')
     expect(bridge).toContain("from './ceo-cognitive-lifecycle'")
-    expect(bridge).not.toContain("from './canonical-llm-router'")
+    expect(bridge).toContain("from './canonical-llm-router'")
+    expect(bridge).toContain("from './ceo-execution-owner'")
+    expect(bridge).toContain("owner === 'operational_orchestrator'")
+    expect(bridge).toContain('runCanonicalLlm({')
     expect(bridge).toContain('responseMs: result.responseMs')
     expect(bridge).toContain('getProviderTaskPolicy')
     expect(presenter).toContain("from './ceo-cognitive-lifecycle'")
@@ -172,6 +190,8 @@ describe('CEO cognitive lifecycle', () => {
     expect(missionRoute).toContain('runCeoCognitiveLifecycle')
     expect(missionRoute).not.toContain("import('@/lib/agent')")
     expect(agentRoute).toContain('runCeoCognitiveLifecycle')
+    expect(agentRoute).toContain('withOrchestrationOwner')
+    expect(agentRoute).toContain('RecoveryBudget')
     expect(agentRoute).not.toContain('runCanonicalLlm')
     expect(agentRoute).toContain('preRouteCeoRequest')
   })
