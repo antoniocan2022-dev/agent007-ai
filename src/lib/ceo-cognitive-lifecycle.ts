@@ -84,7 +84,7 @@ async function tryDegraded(
     try {
       const recovery = await runCanonicalLlm({
         messages: request.messages,
-        taskType: request.taskType ?? 'general',
+        taskType: request.taskType ?? (decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : 'general'),
         verification: request.verification ?? 'standard',
         model: availability.model,
         temperature: request.temperature ?? 0.2,
