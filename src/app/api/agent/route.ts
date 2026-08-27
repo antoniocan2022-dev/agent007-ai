@@ -4,6 +4,7 @@ import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
+import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
 import type { AttachmentMeta } from '@/lib/tools'
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
   const preRoute = preRouteCeoRequest([{ role: 'user', content: message }], atts.length)
   const resolvedPath = resolvePreRoute(preRoute)
+  const executionContract = preRoute.executionContract
 
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId } })
@@ -75,12 +77,18 @@ export async function POST(req: NextRequest) {
 
       beginInteractive()
       try {
-        if (resolvedPath === 'fast') {
+        if (executionContract.orchestrationOwner === 'ceo_lifecycle') {
           safeEnqueue(sse('progress', {
-            phase: 'fast_lane',
+            phase: preRoute.executionContract.intent === 'self_assessment' ? 'self_assessment' : 'fast_lane',
             route: preRoute.route,
             reason: preRoute.reason,
             taskClass: preRoute.taskClass,
+            executionContract: {
+              intent: executionContract.intent,
+              evidenceRequirement: executionContract.evidenceRequirement,
+              executionRequirement: executionContract.executionRequirement,
+              orchestrationOwner: executionContract.orchestrationOwner,
+            },
           }))
 
           const response = await runCeoCognitiveLifecycle({
@@ -88,13 +96,13 @@ export async function POST(req: NextRequest) {
             messages: [
               {
                 role: 'system',
-                content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.\n\n${getCanonicalOrganizationPrompt()}`,
+                content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification. For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.\n\n${getCanonicalOrganizationPrompt()}`,
               },
               { role: 'user', content: message },
             ],
             taskType: preRoute.taskClass,
             verification: 'standard',
-            timeoutMs: 15000,
+            timeoutMs: executionContract.latencyBudgetMs,
           })
 
           let persistedAssistantMessageId: string | null = null
@@ -102,7 +110,7 @@ export async function POST(req: NextRequest) {
             const assistant = await db.message.create({ data: { conversationId, role: 'assistant', content: response.content } })
             persistedAssistantMessageId = assistant.id
           } catch (persistErr: any) {
-            console.warn('[api/agent] Fast-lane assistant persistence failed:', persistErr?.message?.slice(0, 150))
+            console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150))
           }
 
           safeEnqueue(sse('answer', {
@@ -113,6 +121,7 @@ export async function POST(req: NextRequest) {
             evidenceState: response.evidenceState,
             quality: response.quality,
             responseMs: response.responseMs,
+            executionContract,
           }))
           safeEnqueue(sse('done', {
             messageId: persistedAssistantMessageId,
@@ -121,15 +130,14 @@ export async function POST(req: NextRequest) {
             provider: response.provider,
             model: response.model,
             evidenceState: response.evidenceState,
+            executionContract,
           }))
         } else {
-          // The orchestrator is the tool-runtime lane. Its LLM compatibility
-          // import resolves through the canonical bridge, so every model call
-          // still enters the bounded cognitive lifecycle with the canonical org context.
-          // The request budget prevents a long-running orchestration from ever
-          // reaching Vercel's hard timeout. The signal is passed through now so
-          // cooperative cancellation can be adopted by deeper runtime layers.
-          const result = await runWithAgentRequestBudget(
+          // Operational requests are owned by the operational orchestrator for
+          // the lifetime of this async context. The canonical bridge detects
+          // that owner and uses the provider runtime directly, preventing the
+          // orchestrator from recursively re-entering the CEO lifecycle.
+          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget(
             (signal) => runOrchestrator({
               conversationId,
               userMessage: message,
@@ -139,11 +147,12 @@ export async function POST(req: NextRequest) {
               signal,
             } as OrchestratorRunOptionsWithSignal),
             AGENT_REQUEST_BUDGET_MS,
-          )
+          ))
           safeEnqueue(sse('done', {
             messageId: result.persistedAssistantMessageId,
             steps: result.steps.length,
             executionClass: preRoute.adaptiveExecutionClass ?? 'standard',
+            executionContract,
           }))
         }
       } catch (e: any) {
