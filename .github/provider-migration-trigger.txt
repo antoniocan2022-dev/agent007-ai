@@ -1,1 +1,1 @@
-final provider convergence trigger
+final provider convergence trigger — repaired self-fix diagnostics; run full release matrix
