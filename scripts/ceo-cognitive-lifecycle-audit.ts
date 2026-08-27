@@ -63,6 +63,8 @@ if (!lifecycle.includes('maxEscalations')) violations.push('Escalation loop has 
 if (!lifecycle.includes('excludeProviders')) violations.push('Independent review has no provider independence control')
 if (!lifecycle.includes('quality.evidenceState')) violations.push('Lifecycle does not propagate canonical evidence state')
 if (!lifecycle.includes('await buildCeoDegradedResponse')) violations.push('Degraded recovery does not execute the internal evidence resolver')
+if (!lifecycle.includes("taskType: request.taskType ?? decisionPlan.taskClass ?? 'reasoning'")) violations.push('Lifecycle does not propagate the canonical decision task type into LLM execution')
+if (!lifecycle.includes("decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : 'general'")) violations.push('Degraded recovery can regress self-assessment back to a generic task type')
 
 if (!presenter.includes("const generationAuthorized = decisionKernel.decision === 'PROCEED'")) violations.push('CEO presenter does not enforce PROCEED as the generation boundary')
 if (!presenter.includes("if (!generationAuthorized)")) violations.push('CEO HOLD/REJECT path does not short-circuit LLM generation')
