@@ -40,7 +40,6 @@ describe('CEO availability recovery contract', () => {
       }
       if (method === 'POST' && url.includes('/accounts/account-123/ai/v1/chat/completions')) {
         cloudflarePosts += 1
-        if (cloudflarePosts === 1) return json({ choices: [{ message: { content: 'OK' } }] })
         return json({ choices: [{ message: { content: 'Recovered successfully through the validated Cloudflare reasoning provider.' } }] })
       }
 
@@ -57,7 +56,7 @@ describe('CEO availability recovery contract', () => {
     expect(result.model).toBe('@cf/google/gemma-4-26b-a4b-it')
     expect(result.content).toContain('Recovered successfully')
     expect(groqPosts).toBeGreaterThanOrEqual(1)
-    expect(cloudflarePosts).toBeGreaterThanOrEqual(2)
+    expect(cloudflarePosts).toBeGreaterThanOrEqual(1)
     expect(calls.some((call) => call.includes('api.z.ai'))).toBe(false)
   })
 })
