@@ -37,6 +37,19 @@ jobs:
           set -euo pipefail
           bun install --lockfile-only
           bun run db:generate
+      - name: Publish regenerated lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- bun.lock; then
+            echo 'bun.lock unchanged'
+          else
+            git add bun.lock
+            git commit -m 'ci: regenerate bun lockfile after provider retirement'
+            git push origin HEAD:main
+          fi
       - name: Verify retired providers are absent from executable source
         shell: bash
         run: |
@@ -78,7 +91,7 @@ jobs:
           rm -f .github/workflows/phase-a-d-provider-convergence.yml scripts/retire-legacy-providers.py .github/provider-migration-trigger.txt
           if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.email '41898282+users.noreply.github.com'
           git add -A
           git commit -m 'ci: remove one-time provider migration artifacts'
           git push origin cleanup:main
