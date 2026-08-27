@@ -47,6 +47,9 @@ const presenter = read('src/lib/ceo-presenter.ts')
 const lifecycle = read('src/lib/ceo-cognitive-lifecycle.ts')
 const tsconfig = read('tsconfig.json')
 const orchestrator = read('src/lib/orchestrator.ts')
+const preRouterSource = read('src/lib/ceo-pre-router.ts')
+const kernelSource = read('src/lib/ceo-cognitive-kernel.ts')
+const degradedSource = read('src/lib/ceo-degraded-mode.ts')
 
 if (!bridge.includes("from './ceo-cognitive-lifecycle'")) violations.push('CEO compatibility bridge does not enter the cognitive lifecycle')
 if (!presenter.includes("from './ceo-cognitive-lifecycle'")) violations.push('CEO presenter does not enter the cognitive lifecycle')
@@ -64,17 +67,10 @@ if (!lifecycle.includes('await buildCeoDegradedResponse')) violations.push('Degr
 if (!presenter.includes("const generationAuthorized = decisionKernel.decision === 'PROCEED'")) violations.push('CEO presenter does not enforce PROCEED as the generation boundary')
 if (!presenter.includes("if (!generationAuthorized)")) violations.push('CEO HOLD/REJECT path does not short-circuit LLM generation')
 
-// Normalize JSON whitespace so the contract test verifies configuration meaning,
-// not whether the path mapping happened to be formatted on one line.
 const normalizedTsconfig = tsconfig.replace(/\s+/g, '')
 if (!normalizedTsconfig.includes('"@/lib/agent":["./src/lib/agent-canonical-bridge"]')) violations.push('tsconfig must alias @/lib/agent to the canonical cognitive bridge')
 if (!orchestrator.includes("from '@/lib/agent'")) violations.push('Orchestrator lost its canonical bridge compatibility import')
 
-// The repository contains tool/subagent implementations that intentionally use
-// the Tool Runtime as a peer to the CEO Provider Runtime. They are not CEO
-// entry-point bypasses. The audit therefore enforces the strict lifecycle only
-// at authoritative CEO entry points, while allowing the lifecycle itself to
-// invoke the canonical provider runtime as its execution stage.
 const authoritativeCeoFiles = files.filter((file) => ceoEntrypoints.has(file))
 for (const file of authoritativeCeoFiles) {
   const source = read(file)
@@ -92,6 +88,29 @@ const legacyAgent = read('src/lib/agent.ts')
 if (!legacyAgent.includes('export async function callLlmWithRetry')) violations.push('Expected legacy agent compatibility export is missing; migrate consumers before deleting the module')
 
 // Behavioral invariants: execute the real planner/gate logic, not merely source-text checks.
+const exactSelfAssessment = 'Hows it going? make a self-analysis and tell me if you are ready to mange businesses?'
+const selfAssessmentPreRoute = preRouteCeoRequest([{ role: 'user', content: exactSelfAssessment }])
+const selfAssessmentPlan = buildCeoDecisionPlan({
+  messages: [{ role: 'user', content: exactSelfAssessment }],
+  preRoute: selfAssessmentPreRoute,
+})
+if (selfAssessmentPreRoute.executionContract.intent !== 'self_assessment') violations.push('Behavioral invariant failed: exact CEO self-assessment prompt did not route to self_assessment')
+if (selfAssessmentPreRoute.taskClass !== 'reasoning') violations.push('Behavioral invariant failed: self-assessment did not use the canonical reasoning task lane')
+if (selfAssessmentPreRoute.executionContract.latencyBudgetMs < 30000) violations.push('Behavioral invariant failed: self-assessment latency budget regressed below 30 seconds')
+if (selfAssessmentPlan.maxProviderAttempts < 4) violations.push('Behavioral invariant failed: self-assessment provider failover budget regressed below four attempts')
+if (!preRouterSource.includes("taskClass: 'reasoning'")) violations.push('Source invariant failed: self-assessment route must explicitly select the reasoning task lane')
+if (!kernelSource.includes('const maxProviderAttempts = selfAssessment ? 4')) violations.push('Source invariant failed: self-assessment must allow four provider attempts')
+if (!degradedSource.includes('INTERNAL-STATE-ONLY')) violations.push('Source invariant failed: degraded self-assessment must have a truthful internal-state fallback')
+
+const exactSelfAssessmentFallback = await buildCeoDegradedResponse({
+  objective: exactSelfAssessment,
+  reason: 'Controlled self-assessment fallback test.',
+  recall: async () => [],
+})
+if (exactSelfAssessmentFallback.evidenceState !== 'PARTIAL_UNCONFIRMED' || !exactSelfAssessmentFallback.content.includes('ready to operate as a governed business-management system')) {
+  violations.push('Behavioral invariant failed: exact self-assessment fallback still returns unavailable instead of a truthful internal-state answer')
+}
+
 const ambiguousMessages = [
   'Continue this.',
   'What about the other one instead?',
