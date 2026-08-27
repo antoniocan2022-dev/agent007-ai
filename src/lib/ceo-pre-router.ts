@@ -14,7 +14,9 @@ const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|de
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 
-const SELF_ASSESSMENT_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|reflect|self[-\s]?assessment|self[-\s]?analysis|readiness|ready)\b[\s\S]{0,160}\b(?:you|your|yourself|agent007|ceo)\b|\b(?:you|your|yourself|agent007|ceo)\b[\s\S]{0,160}\b(?:ready|capable|prepared|equipped|weakness(?:es)?|strengths?|performing|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?)\b/i
+const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo)\b/i
+const SELF_ASSESSMENT_FOCUS_RE = /\b(?:ready|readiness|capable|capability|capabilities|prepared|equipped|weakness(?:es)?|strengths?|performing|performance|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|self[-\s]?(?:analysis|assessment|reflection)|how(?:'s|\s+is)\s+(?:it|agent007|the\s+system)\s+going)\b/i
+const SELF_ASSESSMENT_VERB_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|reflect)\b/i
 const SELF_ASSESSMENT_ACTION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|production)\b/i
 
 function latestUserText(messages: readonly { role: string; content: string }[]): string {
@@ -152,7 +154,8 @@ function contractFor(input: {
 }
 
 function inferSemanticIntent(text: string): CeoIntent {
-  if (SELF_ASSESSMENT_RE.test(text) && !SELF_ASSESSMENT_ACTION_RE.test(text)) return 'self_assessment'
+  const selfAssessment = SELF_REFERENCE_RE.test(text) && SELF_ASSESSMENT_FOCUS_RE.test(text) && !SELF_ASSESSMENT_ACTION_RE.test(text)
+  if (selfAssessment) return 'self_assessment'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
@@ -219,6 +222,18 @@ export function preRouteCeoRequest(
     })
   }
 
+  // Context-dependent follow-ups retain the richer conversational path before
+  // generic analysis/conversation handling. This preserves the previous floor
+  // for "continue", "that", "again", and similar references.
+  if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
+    const reason = 'Context-dependent request requires richer conversational analysis.'
+    return buildDecision({
+      route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass,
+      adaptiveExecutionClass: 'standard',
+      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }),
+    })
+  }
+
   if (adaptive.executionClass === 'mission' || semanticIntent === 'mission_action') {
     const reason = 'Mission-level execution requires the operational orchestration owner.'
     return buildDecision({
@@ -249,11 +264,11 @@ export function preRouteCeoRequest(
     })
   }
 
-  const reason = 'Context-dependent request requires richer conversational analysis.'
+  const reason = 'Request requires the standard governed path.'
   return buildDecision({
     route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass,
-    adaptiveExecutionClass: adaptive.executionClass,
-    executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }),
+    adaptiveExecutionClass: 'standard',
+    executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant, reason }),
   })
 }
 
