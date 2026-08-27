@@ -22,6 +22,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 
 **Authorized production release — 2026-08-27:** [AUTHORIZED_PRODUCTION_RELEASE] — deploy current GitHub `main` through the governed production watchdog after green CI validation.
 
+**CEO reasoning reliability release — 2026-08-27:** [AUTHORIZED_PRODUCTION_RELEASE] — self-assessment requests preserve the canonical reasoning task type, use resilient provider failover, recover truthful internal evidence in degraded mode, and keep explicit operational intent ahead of adaptive mission classification.
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
