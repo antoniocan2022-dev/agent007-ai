@@ -65,17 +65,17 @@ describe('permanent production release architecture', () => {
   it('requires exact main SHA before any production mutation', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     const identity = content.indexOf('Establish immutable release identity')
-    const deploy = content.indexOf('Validate or build immutable target deployment')
+    const deploy = content.indexOf('Validate or build immutable production target')
     expect(identity).toBeGreaterThanOrEqual(0)
     expect(deploy).toBeGreaterThan(identity)
     expect(content).toContain('git ls-remote origin refs/heads/main')
-    expect(content).toContain('Wait for exact-SHA Autonomy CI and Heartbeat')
+    expect(content).toContain('Wait for exact-SHA CI gates')
   })
 
-  it('makes traffic ownership the first-class proof before broad SHA/fingerprint checks', () => {
+  it('makes real production traffic ownership the first proof before broad SHA/fingerprint checks', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    const alias = content.indexOf('Verify alias state with explicit failure states')
-    const traffic = content.indexOf('Generate protected /api/agent traffic canary')
+    const alias = content.indexOf('Verify alias ownership and legacy exclusion')
+    const traffic = content.indexOf('Generate production traffic canary')
     const trafficOwnership = content.indexOf('Verify fresh traffic ownership and legacy runtime exclusion')
     const broadProof = content.indexOf('Verify release health and broader SHA/fingerprint proof')
     expect(alias).toBeGreaterThanOrEqual(0)
@@ -88,10 +88,10 @@ describe('permanent production release architecture', () => {
     expect(content).toContain('DUAL_ALIAS_CONFLICT')
   })
 
-  it('uses Vercel authenticated curl for protected /api/agent traffic', () => {
+  it('uses the production URL, not a deployment URL, for the protected /api/agent canary', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('vercel@$VERCEL_CLI_VERSION curl /api/agent')
-    expect(content).toContain('--deployment "$TARGET_DEPLOYMENT_URL"')
+    expect(content).toContain('vercel@$VERCEL_CLI_VERSION curl "$PRODUCTION_URL/api/agent"')
+    expect(content).not.toContain('curl /api/agent --deployment "$TARGET_DEPLOYMENT_URL"')
     expect(content).toContain('EXPECTED_RELEASE_SHA')
     expect(content).toContain('TARGET_DEPLOYMENT_ID')
   })
@@ -100,7 +100,6 @@ describe('permanent production release architecture', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     expect(content).toContain('/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID')
     expect(content).toContain('/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases')
-    expect(content).toContain('production-alias-snapshot.jsonl')
   })
 
   it('keeps broader SHA and organization fingerprint proof after traffic', () => {
