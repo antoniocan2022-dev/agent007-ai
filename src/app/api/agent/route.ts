@@ -12,19 +12,40 @@ import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-// Keep a safety margin below Vercel's 300s hard ceiling so a request can
-// close cleanly before the platform kills the function.
 export const maxDuration = 240
 
-function sse(event: string, data: any): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+type DeploymentIdentity = {
+  deploymentId: string | null
+  releaseCommit: string | null
 }
 
-function getDeploymentIdentity() {
+function getDeploymentIdentity(): DeploymentIdentity {
   return {
-    deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
-    releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+    deploymentId: process.env.VERCEL_DEPLOYMENT_ID?.trim() || null,
+    releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null,
   }
+}
+
+/**
+ * Every SSE envelope is stamped here, at the single serialization boundary.
+ * This intentionally covers ping/progress/thought/answer/done/error as well as
+ * any future event that uses the canonical sse() helper, preventing identity
+ * metadata from being added only to selected event types.
+ */
+function sse(event: string, data: unknown): string {
+  const identity = getDeploymentIdentity()
+  const payload = data && typeof data === 'object' && !Array.isArray(data)
+    ? {
+        ...(data as Record<string, unknown>),
+        deploymentId: identity.deploymentId,
+        releaseCommit: identity.releaseCommit,
+      }
+    : {
+        data,
+        deploymentId: identity.deploymentId,
+        releaseCommit: identity.releaseCommit,
+      }
+  return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
 export async function POST(req: NextRequest) {
@@ -167,10 +188,6 @@ export async function POST(req: NextRequest) {
             executionContract,
           }))
         } else {
-          // Operational requests are owned by the operational orchestrator for
-          // the lifetime of this async context. The canonical bridge detects
-          // that owner and uses the provider runtime directly, preventing the
-          // orchestrator from recursively re-entering the CEO lifecycle.
           const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget(
             (signal) => runOrchestrator({
               conversationId,
