@@ -15,7 +15,10 @@ function workflowContent(name: string): string {
 }
 
 function productionDeploymentOperation(content: string): boolean {
-  return /\bvercel(?:@[^\s]+)?\s+(?:deploy|promote)\b/i.test(content) && /--prod\b|target\s*[:=]\s*["']?production\b/i.test(content)
+  const directDeploy = /\b(?:npx\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b[\s\S]{0,500}(?:--prod\b|--target\s+production\b|target\s*[:=]\s*["']?production\b)/i
+  const shorthandDeploy = /\b(?:npx\s+)?vercel(?:@[^\s]+)?\s+--prod\b/i
+  const apiDeploy = /(?:POST|POST\s+request)[\s\S]{0,500}\/v\d+\/deployments(?:\?|\s|["'])/i
+  return directDeploy.test(content) || shorthandDeploy.test(content) || apiDeploy.test(content)
 }
 
 function productionScriptFiles(): string[] {
