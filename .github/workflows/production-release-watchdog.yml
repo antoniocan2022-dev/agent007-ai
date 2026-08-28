@@ -193,18 +193,45 @@ jobs:
           fi
           echo "Promotion result accepted as idempotent when Vercel reports the target already current."
 
-      - name: Reassert production aliases on repaired deployment
+      - name: Reconcile production aliases by Vercel alias registry
         if: steps.release.outputs.mode == 'promote-existing'
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
           TARGET_URL: ${{ steps.existing.outputs.deployment_url }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.release.outputs.previous_deployment_id }}
         run: |
           set -euo pipefail
           target_host="${TARGET_URL#https://}"
           for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
-            npx --yes vercel@$VERCEL_CLI_VERSION alias set "$target_host" "$domain" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+            registry="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases?projectId=$VERCEL_PROJECT_ID&domain=$domain&teamId=$VERCEL_ORG_ID&limit=100")"
+            old_alias_ids="$(printf '%s' "$registry" | jq -r --arg old "$PREVIOUS_DEPLOYMENT_ID" '.aliases[]? | select(.deploymentId == $old and (.deletedAt == null or .deletedAt == 0)) | .uid' | sort -u)"
+            while IFS= read -r alias_id; do
+              [ -z "$alias_id" ] && continue
+              curl --fail-with-body --silent --show-error --request DELETE -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v2/aliases/$alias_id?teamId=$VERCEL_ORG_ID" >/dev/null
+              echo "Removed stale alias record $alias_id from previous deployment $PREVIOUS_DEPLOYMENT_ID ($domain)."
+            done <<< "$old_alias_ids"
+
+            assign="$(curl --fail-with-body --silent --show-error --request POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' "https://api.vercel.com/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases?teamId=$VERCEL_ORG_ID" --data "{\"alias\":\"$domain\",\"redirect\":null}")"
+            echo "$assign"
+            test "$(jq -r '.alias // ""' <<<"$assign")" = "$domain"
           done
+
+          for attempt in $(seq 1 12); do
+            all_ok=true
+            for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
+              registry="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases?projectId=$VERCEL_PROJECT_ID&domain=$domain&teamId=$VERCEL_ORG_ID&limit=100")"
+              target_count="$(printf '%s' "$registry" | jq -r --arg target "$TARGET_DEPLOYMENT_ID" '.aliases[]? | select(.deploymentId == $target and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
+              previous_count="$(printf '%s' "$registry" | jq -r --arg old "$PREVIOUS_DEPLOYMENT_ID" '.aliases[]? | select(.deploymentId == $old and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
+              echo "$domain: target=$target_count previous=$previous_count"
+              if [ "$target_count" -ne 1 ] || [ "$previous_count" -ne 0 ]; then all_ok=false; fi
+            done
+            if [ "$all_ok" = true ]; then exit 0; fi
+            sleep 5
+          done
+          echo "PRODUCTION_ALIAS_CONFLICT: alias registry did not converge to one owner after reassignment." >&2
+          exit 42
 
       - name: Deterministic Vercel production deployment
         id: deploy
@@ -269,18 +296,15 @@ jobs:
             target_id="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$target_host?teamId=$VERCEL_ORG_ID" | jq -r '.id // .uid // ""')"
           fi
           test -n "$target_id"
-          target_aliases="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v2/deployments/$target_id/aliases?teamId=$VERCEL_ORG_ID")"
           for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
-            if ! printf '%s' "$target_aliases" | jq -e --arg domain "$domain" 'any(.aliases[]?; (.domain // .alias // .name // .url // "") == $domain or endswith($domain))' >/dev/null 2>&1; then
-              echo "PRODUCTION_ALIAS_CONFLICT: target deployment does not own $domain" >&2; exit 42
+            registry="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases?projectId=$VERCEL_PROJECT_ID&domain=$domain&teamId=$VERCEL_ORG_ID&limit=100")"
+            target_count="$(printf '%s' "$registry" | jq -r --arg target "$target_id" '.aliases[]? | select(.deploymentId == $target and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
+            previous_count="$(printf '%s' "$registry" | jq -r --arg old "$PREVIOUS_DEPLOYMENT_ID" '.aliases[]? | select(.deploymentId == $old and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
+            if [ "$target_count" -ne 1 ] || [ "$previous_count" -ne 0 ]; then
+              echo "PRODUCTION_ALIAS_CONFLICT: $domain target=$target_count previous=$previous_count" >&2
+              exit 42
             fi
           done
-          if [ -n "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$PREVIOUS_DEPLOYMENT_ID" != "$target_id" ]; then
-            previous_aliases="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v2/deployments/$PREVIOUS_DEPLOYMENT_ID/aliases?teamId=$VERCEL_ORG_ID")"
-            if printf '%s' "$previous_aliases" | jq -e 'any(.aliases[]?; (.domain // .alias // .name // .url // "") == "agent007-ai.vercel.app" or (.domain // .alias // .name // .url // "") == "agent007-ai-antoniocan2022-devs-projects.vercel.app")' >/dev/null 2>&1; then
-              echo "PRODUCTION_ALIAS_CONFLICT: previous deployment still owns a production alias" >&2; exit 42
-            fi
-          fi
 
       - name: Compute expected organization graph fingerprint
         id: graph
@@ -329,13 +353,13 @@ jobs:
           target_id="${{ steps.release.outputs.existing_deployment_id }}"
           if [ -z "$target_id" ]; then target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"; target_id="$(curl --fail-with-body --silent --show-error -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$target_host?teamId=$VERCEL_ORG_ID" | jq -r '.id // .uid // ""')"; fi
           test -n "$target_id"
-          echo "Waiting for the fresh traffic window to exclude pre-promotion requests..."
           sleep 20
           log_output="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --since 30s --limit 200 --token "$VERCEL_TOKEN" 2>&1 || true)"
           printf '%s\n' "$log_output"
-          target_count="$(grep -o "$target_id" <<<"$log_output" | wc -l | tr -d ' ')"
-          old_count=0
-          if [ -n "$PREVIOUS_DEPLOYMENT_ID" ]; then old_count="$(grep -o "$PREVIOUS_DEPLOYMENT_ID" <<<"$log_output" | wc -l | tr -d ' ')"; fi
+          target_count="$(grep -o "$target_id" production-traffic.log 2>/dev/null | wc -l | tr -d ' ' || true)"
+          old_count="0"
+          if [ -n "$PREVIOUS_DEPLOYMENT_ID" ]; then old_count="$(printf '%s' "$log_output" | grep -o "$PREVIOUS_DEPLOYMENT_ID" | wc -l | tr -d ' ')"; fi
+          target_count="$(printf '%s' "$log_output" | grep -o "$target_id" | wc -l | tr -d ' ')"
           echo "Fresh production traffic counts: target=$target_count previous=$old_count"
           if [ "$old_count" -ne 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: previous deployment still receives fresh production traffic" >&2; exit 43; fi
           if [ "$target_count" -eq 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: no observable fresh production traffic reached the promoted deployment" >&2; exit 43; fi
