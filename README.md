@@ -32,6 +32,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 
 **Final alias-registry reconciliation authorization — corrected — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — rerun alias assignment using Vercel's documented assignment semantics and verify registry ownership and zero legacy traffic without an explicit alias-delete loop.
 
+**Final production traffic integrity reconciliation authorization — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — execute the bounded alias-registry reassignment and production traffic integrity verification for the already-built repaired deployment.
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
