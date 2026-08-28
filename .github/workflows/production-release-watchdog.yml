@@ -86,9 +86,9 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then test "$sha" = "$expected"; fi
 
           message="$(git log -1 --format=%B)"
-          target_id="${EXISTING_DEPLOYMENT_ID_INPUT}"
-          target_sha="${EXISTING_DEPLOYMENT_SHA_INPUT}"
-          previous_id="${PREVIOUS_DEPLOYMENT_ID_INPUT}"
+          target_id="$EXISTING_DEPLOYMENT_ID_INPUT"
+          target_sha="$EXISTING_DEPLOYMENT_SHA_INPUT"
+          previous_id="$PREVIOUS_DEPLOYMENT_ID_INPUT"
 
           if printf '%s' "$message" | grep -Eq '\[AUTHORIZED_EXISTING_PRODUCTION_PROMOTION\]'; then
             target_id="$(printf '%s\n' "$message" | sed -n 's/.*\[PROMOTE_EXISTING_DEPLOYMENT:\([^ ]*\)\].*/\1/p')"
@@ -116,17 +116,13 @@ jobs:
             heartbeat_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100" --jq '.workflow_runs[] | select(.name == "Venture OS 24x7 Heartbeat") | .id' | head -n 1 || true)"
             autonomy_conclusion=""
             heartbeat_conclusion=""
-            autonomy_status=""
-            heartbeat_status=""
             if [ -n "$autonomy_id" ]; then
-              autonomy_status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${autonomy_id}" --jq '.status')"
               autonomy_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${autonomy_id}" --jq '.conclusion // ""')"
             fi
             if [ -n "$heartbeat_id" ]; then
-              heartbeat_status="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${heartbeat_id}" --jq '.status')"
               heartbeat_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${heartbeat_id}" --jq '.conclusion // ""')"
             fi
-            echo "Attempt $attempt/60 — Autonomy=${autonomy_status}/${autonomy_conclusion}; Heartbeat=${heartbeat_status}/${heartbeat_conclusion}"
+            echo "Attempt $attempt/60 — Autonomy=${autonomy_conclusion:-pending}; Heartbeat=${heartbeat_conclusion:-pending}"
             if [ "$autonomy_conclusion" = "success" ] && [ "$heartbeat_conclusion" = "success" ]; then exit 0; fi
             if [[ "$autonomy_conclusion" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]] || [[ "$heartbeat_conclusion" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]]; then
               echo "A required exact-SHA gate failed; production deployment is blocked." >&2
@@ -171,7 +167,7 @@ jobs:
           test "$(jq -r '.target // .targets[0] // ""' <<<"$deployment_json")" = production
           test "$(jq -r '.meta.githubCommitRepo // .gitSource.repo // .gitMetadata.repo // ""' <<<"$deployment_json")" = agent007-ai
           test "$(jq -r '.meta.githubCommitRef // .gitSource.ref // .gitMetadata.commitRef // ""' <<<"$deployment_json")" = main
-          if [ -n "$EXPECTED_SOURCE_SHA" ]; then test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$EXPECTED_SOURCE_SHA"; fi
+          test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$EXPECTED_SOURCE_SHA"
           echo "deployment_url=https://$(jq -r '.url' <<<"$deployment_json")" >> "$GITHUB_OUTPUT"
 
       - name: Promote existing repaired Vercel deployment
@@ -199,32 +195,37 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
-          TARGET_URL: ${{ steps.existing.outputs.deployment_url }}
           PREVIOUS_DEPLOYMENT_ID: ${{ steps.release.outputs.previous_deployment_id }}
         run: |
           set -euo pipefail
-          for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
+          domains=(agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app)
+          for domain in "${domains[@]}"; do
             assign="$(curl --fail-with-body --silent --show-error --max-time 20 --request POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' "https://api.vercel.com/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases?teamId=$VERCEL_ORG_ID" --data "{\"alias\":\"$domain\",\"redirect\":null}")"
-            echo "$assign"
             assigned_domain="$(jq -r '.alias // ""' <<<"$assign")"
             test "$assigned_domain" = "$domain"
-            old_deployment="$(jq -r '.oldDeploymentId // ""' <<<"$assign")"
-            if [ -n "$old_deployment" ]; then echo "Vercel reassigned $domain from $old_deployment to $TARGET_DEPLOYMENT_ID."; fi
+            echo "$domain assignment accepted: $(jq -r '.oldDeploymentId // "none"' <<<"$assign") -> $TARGET_DEPLOYMENT_ID"
           done
 
           for attempt in $(seq 1 18); do
             all_ok=true
-            for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
-              registry="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases?projectId=$VERCEL_PROJECT_ID&domain=$domain&teamId=$VERCEL_ORG_ID&limit=100")"
-              target_count="$(printf '%s' "$registry" | jq -r --arg domain "$domain" --arg target "$TARGET_DEPLOYMENT_ID" '.aliases[]? | select((.alias // "") == $domain and .deploymentId == $target and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
-              previous_count="$(printf '%s' "$registry" | jq -r --arg domain "$domain" --arg old "$PREVIOUS_DEPLOYMENT_ID" '.aliases[]? | select((.alias // "") == $domain and .deploymentId == $old and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
-              echo "$domain: target=$target_count previous=$previous_count"
-              if [ "$target_count" -ne 1 ] || [ "$previous_count" -ne 0 ]; then all_ok=false; fi
+            for domain in "${domains[@]}"; do
+              alias_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
+              alias_name="$(jq -r '.alias // ""' <<<"$alias_json")"
+              current_owner="$(jq -r '.deploymentId // ""' <<<"$alias_json")"
+              alias_project="$(jq -r '.projectId // ""' <<<"$alias_json")"
+              echo "$domain: owner=$current_owner project=$alias_project"
+              if [ "$alias_name" != "$domain" ] || [ "$alias_project" != "$VERCEL_PROJECT_ID" ] || [ "$current_owner" != "$TARGET_DEPLOYMENT_ID" ]; then
+                all_ok=false
+              fi
+              if [ -n "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$current_owner" = "$PREVIOUS_DEPLOYMENT_ID" ]; then
+                echo "PRODUCTION_ALIAS_CONFLICT: $domain still resolves to previous deployment $PREVIOUS_DEPLOYMENT_ID." >&2
+                exit 42
+              fi
             done
             if [ "$all_ok" = true ]; then exit 0; fi
             sleep 5
           done
-          echo "PRODUCTION_ALIAS_CONFLICT: alias registry did not converge to exactly one repaired deployment owner." >&2
+          echo "PRODUCTION_ALIAS_CONFLICT: production alias registry did not resolve both aliases to exactly the repaired deployment." >&2
           exit 42
 
       - name: Deterministic Vercel production deployment
@@ -272,8 +273,9 @@ jobs:
           deployment_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$deployment_host?teamId=$VERCEL_ORG_ID")"
           test "$(jq -r '.readyState // .state' <<<"$deployment_json")" = READY
           test "$(jq -r '.target // .targets[0] // "null"' <<<"$deployment_json")" = production
-          expected_sha="$RELEASE_SHA"; if [ "${{ steps.release.outputs.mode }}" = "promote-existing" ]; then expected_sha="$EXISTING_SOURCE_SHA"; fi
-          if [ -n "$expected_sha" ]; then test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$expected_sha"; fi
+          expected_sha="$RELEASE_SHA"
+          if [ "${{ steps.release.outputs.mode }}" = "promote-existing" ]; then expected_sha="$EXISTING_SOURCE_SHA"; fi
+          test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$expected_sha"
           test "$(jq -r '.meta.githubCommitRepo // .gitSource.repo // .gitMetadata.repo // ""' <<<"$deployment_json")" = agent007-ai
 
       - name: Verify single production owner and clear legacy aliases
@@ -291,11 +293,16 @@ jobs:
           fi
           test -n "$target_id"
           for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
-            registry="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases?projectId=$VERCEL_PROJECT_ID&domain=$domain&teamId=$VERCEL_ORG_ID&limit=100")"
-            target_count="$(printf '%s' "$registry" | jq -r --arg domain "$domain" --arg target "$target_id" '.aliases[]? | select((.alias // "") == $domain and .deploymentId == $target and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
-            previous_count="$(printf '%s' "$registry" | jq -r --arg domain "$domain" --arg old "$PREVIOUS_DEPLOYMENT_ID" '.aliases[]? | select((.alias // "") == $domain and .deploymentId == $old and (.deletedAt == null or .deletedAt == 0)) | .uid' | wc -l | tr -d ' ' )"
-            if [ "$target_count" -ne 1 ] || [ "$previous_count" -ne 0 ]; then
-              echo "PRODUCTION_ALIAS_CONFLICT: $domain target=$target_count previous=$previous_count" >&2
+            alias_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
+            alias_name="$(jq -r '.alias // ""' <<<"$alias_json")"
+            current_owner="$(jq -r '.deploymentId // ""' <<<"$alias_json")"
+            alias_project="$(jq -r '.projectId // ""' <<<"$alias_json")"
+            if [ "$alias_name" != "$domain" ] || [ "$alias_project" != "$VERCEL_PROJECT_ID" ] || [ "$current_owner" != "$target_id" ]; then
+              echo "PRODUCTION_ALIAS_CONFLICT: $domain owner=$current_owner project=$alias_project target=$target_id" >&2
+              exit 42
+            fi
+            if [ -n "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$current_owner" = "$PREVIOUS_DEPLOYMENT_ID" ]; then
+              echo "PRODUCTION_ALIAS_CONFLICT: $domain still resolves to previous deployment" >&2
               exit 42
             fi
           done
@@ -319,43 +326,59 @@ jobs:
           for attempt in $(seq 1 18); do
             body="$(curl --silent --show-error --max-time 30 "$PRODUCTION_URL/api/release-health")"
             echo "$body"
-            expected_sha="$RELEASE_SHA"; if [ -z "$expected_sha" ]; then expected_sha="$(printf '%s' "$body" | jq -r '.releaseCommit // ""')"; fi
+            expected_sha="$RELEASE_SHA"
+            if [ -z "$expected_sha" ]; then expected_sha="$(printf '%s' "$body" | jq -r '.releaseCommit // ""')"; fi
             if printf '%s' "$body" | grep -q '"ok":true' && [ -n "$expected_sha" ] && printf '%s' "$body" | grep -q "\"releaseCommit\":\"$expected_sha\"" && printf '%s' "$body" | grep -q "\"organizationGraphFingerprint\":\"$EXPECTED_GRAPH_FINGERPRINT\""; then exit 0; fi
             sleep 5
           done
-          echo "Production did not report the expected release identity and organization graph fingerprint." >&2; exit 1
+          echo "Production did not report the expected release identity and organization graph fingerprint." >&2
+          exit 1
 
       - name: Generate /api/agent production traffic canary
         id: agent_canary
         shell: bash
+        env:
+          EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.existing_deployment_sha }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
         run: |
           set -euo pipefail
           conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          expected_sha="$EXPECTED_RELEASE_SHA"
+          if [ -z "$expected_sha" ]; then expected_sha="${{ steps.release.outputs.sha }}"; fi
+          target_id="$TARGET_DEPLOYMENT_ID"
+          if [ -z "$target_id" ]; then target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"; target_id="unknown"; fi
           curl --silent --show-error --fail-with-body --max-time 45 -N \
             -H 'Content-Type: application/json' \
             --data "{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}" \
             "$PRODUCTION_URL/api/agent" | tee agent-canary.txt
           grep -q 'event: done' agent-canary.txt
+          grep -q '"deploymentId"' agent-canary.txt
+          grep -q '"releaseCommit"' agent-canary.txt
+          grep -q "\"releaseCommit\":\"$expected_sha\"" agent-canary.txt
+          if [ "$target_id" != "unknown" ]; then grep -q "\"deploymentId\":\"$target_id\"" agent-canary.txt; fi
+          echo "conversation_id=$conversation_id" >> "$GITHUB_OUTPUT"
 
       - name: Verify /api/agent deployment identity and fresh traffic ownership
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           PREVIOUS_DEPLOYMENT_ID: ${{ steps.release.outputs.previous_deployment_id }}
+          CANARY_CONVERSATION_ID: ${{ steps.agent_canary.outputs.conversation_id }}
         run: |
           set -euo pipefail
           target_id="${{ steps.release.outputs.existing_deployment_id }}"
           if [ -z "$target_id" ]; then target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"; target_id="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$target_host?teamId=$VERCEL_ORG_ID" | jq -r '.id // .uid // ""')"; fi
           test -n "$target_id"
           sleep 20
-          log_output="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --since 30s --limit 200 --token "$VERCEL_TOKEN" 2>&1 || true)"
+          log_output="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --since 2m --limit 200 --token "$VERCEL_TOKEN" 2>&1 || true)"
           printf '%s\n' "$log_output"
           old_count=0
           if [ -n "$PREVIOUS_DEPLOYMENT_ID" ]; then old_count="$(printf '%s' "$log_output" | grep -o "$PREVIOUS_DEPLOYMENT_ID" | wc -l | tr -d ' ')"; fi
           target_count="$(printf '%s' "$log_output" | grep -o "$target_id" | wc -l | tr -d ' ')"
-          echo "Fresh production traffic counts: target=$target_count previous=$old_count"
+          canary_count="$(printf '%s' "$log_output" | grep -o "$CANARY_CONVERSATION_ID" | wc -l | tr -d ' ')"
+          echo "Fresh production traffic counts: target=$target_count previous=$old_count canary=$canary_count"
           if [ "$old_count" -ne 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: previous deployment still receives fresh production traffic" >&2; exit 43; fi
-          if [ "$target_count" -eq 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: no observable fresh production traffic reached the promoted deployment" >&2; exit 43; fi
+          if [ "$target_count" -eq 0 ] && [ "$canary_count" -eq 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: no fresh canary traffic was attributable to the promoted deployment" >&2; exit 43; fi
 
       - name: Verify immediate production error surface
         shell: bash
