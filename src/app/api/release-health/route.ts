@@ -16,7 +16,10 @@ async function readGitHubMainSha(): Promise<{ sha: string | null; error?: string
     })
     if (!response.ok) return { sha: null, error: `GitHub main lookup HTTP ${response.status}` }
     const data = await response.json()
-    return { sha: typeof data?.sha === 'string' ? data.sha : null, error: typeof data?.sha === 'string' ? undefined : 'GitHub main response contained no commit SHA' }
+    return {
+      sha: typeof data?.sha === 'string' ? data.sha : null,
+      error: typeof data?.sha === 'string' ? undefined : 'GitHub main response contained no commit SHA',
+    }
   } catch (error) {
     return { sha: null, error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) }
   }
@@ -63,12 +66,19 @@ async function verifyActualExecution(): Promise<{
 
 export async function GET() {
   const github = await readGitHubMainSha()
+  const deploymentId = process.env.VERCEL_DEPLOYMENT_ID?.trim() || null
   const vercelCommitSha = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null
   const releaseHealthSha = process.env.RELEASE_COMMIT_SHA?.trim() || vercelCommitSha
-  const tripleProof = Boolean(github.sha && vercelCommitSha && releaseHealthSha && github.sha === vercelCommitSha && vercelCommitSha === releaseHealthSha)
+  const tripleProof = Boolean(
+    github.sha &&
+    vercelCommitSha &&
+    releaseHealthSha &&
+    github.sha === vercelCommitSha &&
+    vercelCommitSha === releaseHealthSha,
+  )
   const environment = process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'unknown'
   const actualExecution = await verifyActualExecution()
-  const releaseGate = tripleProof && actualExecution.verified
+  const releaseGate = tripleProof && actualExecution.verified && Boolean(deploymentId)
 
   return NextResponse.json(
     {
@@ -76,12 +86,13 @@ export async function GET() {
       service: 'agent007',
       environment,
       releaseGate,
+      deploymentId: deploymentId ?? 'unknown',
       releaseCommit: releaseHealthSha ?? 'unknown',
       organizationGraphFingerprint: organizationGraphFingerprint(),
       source: { system: 'github', mainSha: github.sha, verified: Boolean(github.sha), error: github.error ?? null },
-      build: { system: 'vercel', commitSha: vercelCommitSha, verified: Boolean(vercelCommitSha) },
-      deployment: { system: 'vercel-runtime', commitSha: vercelCommitSha, verified: Boolean(vercelCommitSha) },
-      runtime: { system: 'release-health', commitSha: releaseHealthSha, verified: Boolean(releaseHealthSha) },
+      build: { system: 'vercel', deploymentId, commitSha: vercelCommitSha, verified: Boolean(vercelCommitSha && deploymentId) },
+      deployment: { system: 'vercel-runtime', deploymentId, commitSha: vercelCommitSha, verified: Boolean(vercelCommitSha && deploymentId) },
+      runtime: { system: 'release-health', deploymentId, commitSha: releaseHealthSha, verified: Boolean(releaseHealthSha && deploymentId) },
       actualExecution: {
         system: 'governed-provider-runtime',
         verified: actualExecution.verified,
@@ -94,9 +105,11 @@ export async function GET() {
       evidenceHierarchy: ['source', 'build', 'deployment', 'runtime', 'actualExecution'],
       proof: {
         githubMainSha: github.sha,
+        vercelDeploymentId: deploymentId,
         vercelDeploymentSha: vercelCommitSha,
         releaseHealthSha,
         tripleProof,
+        deploymentIdentityVerified: Boolean(deploymentId && vercelCommitSha),
         actualExecutionVerified: actualExecution.verified,
         cspInterpretation: 'CSP whitelist is a browser policy signal, not provider health or execution proof.',
       },
