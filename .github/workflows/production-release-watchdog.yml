@@ -242,7 +242,7 @@ jobs:
           set -euo pipefail
           conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
-          npx --yes vercel@$VERCEL_CLI_VERSION curl "$PRODUCTION_URL/api/agent" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" -- \
+          npx --yes vercel@$VERCEL_CLI_VERSION --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" curl "$PRODUCTION_URL/api/agent" -- \
             --request POST --header 'Content-Type: application/json' --data "$payload" > agent-canary.txt
           node <<'NODE'
           const fs = require('node:fs')
