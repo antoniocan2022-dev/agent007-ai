@@ -15,10 +15,26 @@ function workflowContent(name: string): string {
 }
 
 function productionDeploymentOperation(content: string): boolean {
-  const directDeploy = /\b(?:npx\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b[\s\S]{0,500}(?:--prod\b|--target\s+production\b|target\s*[:=]\s*["']?production\b)/i
-  const shorthandDeploy = /\b(?:npx\s+)?vercel(?:@[^\s]+)?\s+--prod\b/i
-  const apiDeploy = /(?:POST|POST\s+request)[\s\S]{0,500}\/v\d+\/deployments(?:\?|\s|["'])/i
-  return directDeploy.test(content) || shorthandDeploy.test(content) || apiDeploy.test(content)
+  const executableLines = content
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+#.*$/, '').trim())
+    .filter(Boolean)
+
+  const directDeployCommand = /^(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b.*(?:--prod\b|--target\s+production\b|production\b)/i
+  const shorthandDeployCommand = /^(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+--prod\b/i
+  const childProcessDeploy = /\b(?:execFileSync|execSync|spawn|spawnSync)\(\s*['"`]?(?:[^'"`]*\/)?vercel(?:@[^'"`\s]+)?['"`]?[,)]/i
+  const childProcessArgsDeploy = /\b(?:execFileSync|spawn|spawnSync)\([^\n]*(?:deploy|promote)[^\n]*(?:--prod|production)/i
+  const shellCurlDeploy = /^(?:curl|\$\{[^}]+\})[^\n]*(?:POST[^\n]*)?\/v\d+\/deployments(?:\?|\s|["'])/i
+  const childProcessCurlDeploy = /\b(?:execFileSync|execSync|spawn|spawnSync)\([^\n]*(?:POST|--request\s+POST)[^\n]*\/v\d+\/deployments(?:\?|\s|["'])/i
+
+  return executableLines.some((line) =>
+    directDeployCommand.test(line) ||
+    shorthandDeployCommand.test(line) ||
+    childProcessDeploy.test(line) ||
+    childProcessArgsDeploy.test(line) ||
+    shellCurlDeploy.test(line) ||
+    childProcessCurlDeploy.test(line),
+  )
 }
 
 function productionScriptFiles(): string[] {
@@ -90,8 +106,8 @@ describe('permanent production release architecture', () => {
 
   it('uses the production URL, not a deployment URL, for the protected /api/agent canary', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('vercel@$VERCEL_CLI_VERSION curl "$PRODUCTION_URL/api/agent"')
-    expect(content).not.toContain('curl /api/agent --deployment "$TARGET_DEPLOYMENT_URL"')
+    expect(content).toContain('vercel@$VERCEL_CLI_VERSION curl \"$PRODUCTION_URL/api/agent\"')
+    expect(content).not.toContain('curl /api/agent --deployment \"$TARGET_DEPLOYMENT_URL\"')
     expect(content).toContain('EXPECTED_RELEASE_SHA')
     expect(content).toContain('TARGET_DEPLOYMENT_ID')
   })
