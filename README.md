@@ -24,6 +24,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 
 **CEO reasoning reliability release — 2026-08-27:** [AUTHORIZED_PRODUCTION_RELEASE] — self-assessment requests preserve the canonical reasoning task type, use resilient provider failover, recover truthful internal evidence in degraded mode, and keep explicit operational intent ahead of adaptive mission classification.
 
+**Authorized existing-production promotion — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] — promote existing repaired Vercel deployment `dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX` for source SHA `894ad178299d30c891bd33f74c14bc3722e6eff9`; verify legacy deployment `dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U` loses production aliases and traffic.
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
