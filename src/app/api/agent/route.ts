@@ -20,6 +20,13 @@ function sse(event: string, data: any): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
+function getDeploymentIdentity() {
+  return {
+    deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+    releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+  }
+}
+
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
 
@@ -50,6 +57,7 @@ export async function POST(req: NextRequest) {
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
+  const deploymentIdentity = getDeploymentIdentity()
 
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId } })
@@ -103,6 +111,7 @@ export async function POST(req: NextRequest) {
             route: preRoute.route,
             reason: preRoute.reason,
             taskClass: preRoute.taskClass,
+            deployment: deploymentIdentity,
             executionContract: {
               intent: executionContract.intent,
               evidenceRequirement: executionContract.evidenceRequirement,
@@ -144,6 +153,7 @@ export async function POST(req: NextRequest) {
             evidenceState: response.evidenceState,
             quality: response.quality,
             responseMs: response.responseMs,
+            deployment: deploymentIdentity,
             executionContract,
           }))
           safeEnqueue(sse('done', {
@@ -153,6 +163,7 @@ export async function POST(req: NextRequest) {
             provider: response.provider,
             model: response.model,
             evidenceState: response.evidenceState,
+            deployment: deploymentIdentity,
             executionContract,
           }))
         } else {
@@ -176,6 +187,7 @@ export async function POST(req: NextRequest) {
             steps: result.steps.length,
             executionClass: preRoute.adaptiveExecutionClass ?? 'standard',
             executionContract,
+            deployment: deploymentIdentity,
             recoveryCount: recoveryBudget.used,
           }))
         }
@@ -188,6 +200,7 @@ export async function POST(req: NextRequest) {
             recoveryCount: recoveryBudget.used,
             maxRecoveries: recoveryBudget.remaining + recoveryBudget.used,
             retryable: true,
+            deployment: deploymentIdentity,
           })
         } else if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') {
           await baseEmit('error', {
@@ -196,9 +209,10 @@ export async function POST(req: NextRequest) {
             code: 'AGENT_REQUEST_TIMEOUT',
             timeoutMs: requestBudgetMs,
             retryable: true,
+            deployment: deploymentIdentity,
           })
         } else {
-          safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath }))
+          safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath, deployment: deploymentIdentity }))
         }
       } finally {
         clearInterval(heartbeat)
@@ -216,6 +230,8 @@ export async function POST(req: NextRequest) {
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
+      'X-Agent007-Deployment-Id': deploymentIdentity.deploymentId ?? 'unknown',
+      'X-Agent007-Release-Commit': deploymentIdentity.releaseCommit ?? 'unknown',
     },
   })
 }
