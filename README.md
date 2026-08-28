@@ -3,7 +3,7 @@
 > Autonomous AI organization with governed providers, model intelligence, outcome intelligence, self-repair, revenue controls, disaster recovery, and evidence-based autonomy.
 
 [![Deploy on Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black.svg)](https://vercel.com/new)
-[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg](https://nextjs.org)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 [![TypeScript-strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org)
 
 ## Release marker
@@ -29,6 +29,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 **Corrected existing-production promotion authorization — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — rerun the corrected, idempotent promotion/alias/traffic watchdog without rebuilding the repaired deployment.
 
 **Final alias-registry reconciliation authorization — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — use the authoritative Vercel alias registry to remove stale legacy alias records, reassign production aliases to the repaired deployment, and prove zero old-deployment traffic.
+
+**Final alias-registry reconciliation authorization — corrected — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — rerun alias assignment using Vercel's documented assignment semantics and verify registry ownership and zero legacy traffic without an explicit alias-delete loop.
 
 ## Architecture truth
 
