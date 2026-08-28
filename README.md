@@ -26,6 +26,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 
 **Authorized existing-production promotion — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] — promote existing repaired Vercel deployment `dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX` for source SHA `894ad178299d30c891bd33f74c14bc3722e6eff9`; verify legacy deployment `dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U` loses production aliases and traffic.
 
+**Corrected existing-production promotion authorization — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — rerun the corrected, idempotent promotion/alias/traffic watchdog without rebuilding the repaired deployment.
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
