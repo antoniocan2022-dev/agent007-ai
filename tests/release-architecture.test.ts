@@ -21,6 +21,7 @@ function productionDeploymentOperation(content: string): boolean {
     .filter(Boolean)
 
   const directDeployCommand = /^(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b.*(?:--prod\b|--target\s+production\b|production\b)/i
+  const commandSubstitutionDeploy = /\$\(\s*(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b.*(?:--prod\b|--target\s+production\b|production\b)/i
   const shorthandDeployCommand = /^(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+--prod\b/i
   const childProcessDeploy = /\b(?:execFileSync|execSync|spawn|spawnSync)\(\s*['"`]?(?:[^'"`]*\/)?vercel(?:@[^'"`\s]+)?['"`]?[,)]/i
   const childProcessArgsDeploy = /\b(?:execFileSync|spawn|spawnSync)\([^\n]*(?:deploy|promote)[^\n]*(?:--prod|production)/i
@@ -29,6 +30,7 @@ function productionDeploymentOperation(content: string): boolean {
 
   return executableLines.some((line) =>
     directDeployCommand.test(line) ||
+    commandSubstitutionDeploy.test(line) ||
     shorthandDeployCommand.test(line) ||
     childProcessDeploy.test(line) ||
     childProcessArgsDeploy.test(line) ||
