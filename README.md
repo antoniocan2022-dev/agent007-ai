@@ -38,6 +38,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 
 **Final existing deployment promotion authorization — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — run the production watchdog in promote-existing mode only; prove single owner, legacy alias zero, `/api/agent` deployment identity, fresh traffic ownership, release health, and CEO canary.
 
+**Corrected production build + final verification authorization — 2026-08-28:** [AUTHORIZED_PRODUCTION_RELEASE] — build the current fully validated GitHub `main` exactly once because the previous repaired deployment predates the mandatory CEO SSE deployment identity metadata; verify the new production deployment, alias ownership, zero traffic on all previous production deployments, release health, `/api/agent` identity, and CEO canary.
+
 ## Architecture truth
 
 Agent007's runtime inventory is intentionally **not represented by hard-coded counts in this README**. The repository registries, Prisma schema, governance contracts, and CI audits are the sources of truth. This prevents documentation from becoming stale after rapid upgrades.
