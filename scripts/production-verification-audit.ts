@@ -10,17 +10,18 @@ if (expectedSha !== actualSha) throw new Error(`GitHub release SHA mismatch: exp
 
 const fingerprint = organizationGraphFingerprint()
 const releaseWorkflow = readFileSync(resolve(root, '.github/workflows/production-release-watchdog.yml'), 'utf8')
-if (!releaseWorkflow.includes('on:\n  push:\n    branches: [main]')) throw new Error('Production release workflow must observe main pushes for the explicit authorized-release path.')
-if (!releaseWorkflow.includes('[AUTHORIZED_PRODUCTION_RELEASE]')) throw new Error('Production release workflow is missing the explicit main-push authorization marker.')
-if (!releaseWorkflow.includes("github.actor == 'antoniocan2022-dev'")) throw new Error('Production release workflow is missing the authorized GitHub actor guard.')
-if (!releaseWorkflow.includes('workflow_dispatch:')) throw new Error('Production release workflow is missing the manual authorization path.')
-if (!releaseWorkflow.includes('DEPLOY_AGENT007_MAIN')) throw new Error('Production release workflow is missing the explicit deployment authorization gate.')
+if (!releaseWorkflow.includes('on:\n  workflow_dispatch:')) throw new Error('Production release workflow must use workflow_dispatch as the explicit authorization path.')
+if (releaseWorkflow.includes('on:\n  push:\n')) throw new Error('Production release workflow must not authorize production from main pushes.')
+if (!releaseWorkflow.includes("if: ${{ inputs.authorization == 'DEPLOY_AGENT007_MAIN' }}")) throw new Error('Production release workflow is missing the explicit deployment authorization gate.')
+if (!releaseWorkflow.includes('environment: production')) throw new Error('Production release workflow is missing the production environment boundary.')
+if (!releaseWorkflow.includes('Wait for exact-SHA CI gates')) throw new Error('Production release workflow is missing the exact-SHA CI gate.')
+if (!releaseWorkflow.includes('Generate production traffic canary')) throw new Error('Production release workflow is missing the production traffic ownership proof.')
 if (!releaseWorkflow.includes('/api/release-health')) throw new Error('Production release workflow is missing the canonical production health verification.')
 
 const manifest = {
   schemaVersion: 1,
   status: 'READY_FOR_AUTHORIZED_VERCEL_DEPLOY',
-  deploymentStatus: 'AUTHORIZATION_VERIFIED_RELEASE_PATH',
+  deploymentStatus: 'MANUAL_AUTHORIZATION_REQUIRED',
   githubMainSha: actualSha,
   organizationGraphFingerprint: fingerprint,
   canonicalOrganization: 'src/lib/commercial-organization.ts',
@@ -38,5 +39,5 @@ const manifest = {
 
 mkdirSync(resolve(root, '.artifacts'), { recursive: true })
 writeFileSync(resolve(root, '.artifacts/production-verification-manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
-console.log(`Phase 8 production verification readiness PASSED for ${actualSha}. Deployment is authorized only through the guarded release controller.`)
+console.log(`Phase 8 production verification readiness PASSED for ${actualSha}. Deployment is authorized only through the guarded manual release controller.`)
 console.log(`Organization graph fingerprint: ${fingerprint}`)
