@@ -108,10 +108,18 @@ describe('permanent production release architecture', () => {
 
   it('uses the production URL, not a deployment URL, for the protected /api/agent canary', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('vercel@$VERCEL_CLI_VERSION curl \"$PRODUCTION_URL/api/agent\"')
-    expect(content).not.toContain('curl /api/agent --deployment \"$TARGET_DEPLOYMENT_URL\"')
+    expect(content).toContain('vercel@$VERCEL_CLI_VERSION --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" curl "$PRODUCTION_URL/api/agent"')
+    expect(content).not.toContain('curl /api/agent --deployment "$TARGET_DEPLOYMENT_URL"')
     expect(content).toContain('EXPECTED_RELEASE_SHA')
     expect(content).toContain('TARGET_DEPLOYMENT_ID')
+  })
+
+  it('keeps protected vercel curl options before the curl subcommand', () => {
+    const content = workflowContent(CANONICAL_WORKFLOW)
+    const marker = 'npx --yes vercel@$VERCEL_CLI_VERSION --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" curl "$PRODUCTION_URL/api/agent" --'
+    const forbidden = 'npx --yes vercel@$VERCEL_CLI_VERSION curl "$PRODUCTION_URL/api/agent" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" --'
+    expect(content).toContain(marker)
+    expect(content).not.toContain(forbidden)
   })
 
   it('keeps alias verification authoritative and project-scoped', () => {
