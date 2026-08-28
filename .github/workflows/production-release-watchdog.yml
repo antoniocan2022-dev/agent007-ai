@@ -1,31 +1,31 @@
 name: Agent007 Production Release Watchdog
-run-name: Authorized production release · ${{ github.sha }}
+run-name: Authorized production release · ${{ inputs.release_sha || github.sha }}
 
-# Production deployment is intentionally authorization-gated.
-# Normal main pushes never deploy; only the explicit release marker below or
-# workflow_dispatch with DEPLOY_AGENT007_MAIN can authorize production.
+# Permanent production authority: this is the only workflow allowed to deploy
+# or promote production. Git pushes are never production authorization.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       authorization:
-        description: Type DEPLOY_AGENT007_MAIN to authorize the current main commit for production
+        description: Type DEPLOY_AGENT007_MAIN to authorize production
         required: true
-        default: ''
+        type: string
+      release_sha:
+        description: Exact GitHub main SHA to release
+        required: true
         type: string
       existing_deployment_id:
-        description: Optional existing READY Vercel deployment ID to promote instead of creating a new deployment
+        description: Optional READY Vercel deployment ID to promote instead of building
         required: false
         default: ''
         type: string
       existing_deployment_sha:
-        description: Git SHA the existing Vercel deployment must represent
+        description: Required source SHA when promoting an existing deployment
         required: false
         default: ''
         type: string
-      previous_deployment_id:
-        description: Optional previous production deployment ID that must lose all production aliases after promotion
+      previous_deployment_ids:
+        description: Optional comma-separated legacy production deployment IDs that must receive zero fresh traffic
         required: false
         default: ''
         type: string
@@ -43,68 +43,46 @@ env:
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_CLI_VERSION: 59.3.0
   PRODUCTION_URL: https://agent007-ai.vercel.app
-  PRODUCTION_TEAM_SCOPE: ${{ secrets.VERCEL_ORG_ID }}
+  PRODUCTION_SCOPE: ${{ secrets.VERCEL_ORG_ID }}
+  CANONICAL_WORKFLOW: production-release-watchdog.yml
 
 jobs:
   production-release:
-    if: >-
-      ${{
-        (github.event_name == 'workflow_dispatch' && inputs.authorization == 'DEPLOY_AGENT007_MAIN') ||
-        (github.event_name == 'push' && github.actor == 'antoniocan2022-dev' && (contains(github.event.head_commit.message, '[AUTHORIZED_PRODUCTION_RELEASE]') || contains(github.event.head_commit.message, '[AUTHORIZED_EXISTING_PRODUCTION_PROMOTION]')))
-      }}
+    if: ${{ inputs.authorization == 'DEPLOY_AGENT007_MAIN' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    environment: production
+    timeout-minutes: 30
     steps:
-      - name: Checkout triggering main SHA exactly
+      - name: Checkout exact authorized SHA
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
+          ref: ${{ inputs.release_sha }}
           fetch-depth: 1
 
-      - name: Setup Node.js 24 for release tooling
+      - name: Setup Node.js 24
         uses: actions/setup-node@v7
         with:
           node-version: '24'
           package-manager-cache: false
 
-      - name: Setup Bun 1.3.4 for release verification
+      - name: Setup Bun 1.3.4
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.4'
 
-      - name: Establish exact release SHA and release mode
+      - name: Establish immutable release identity
         id: release
         shell: bash
         env:
-          EXISTING_DEPLOYMENT_ID_INPUT: ${{ inputs.existing_deployment_id }}
-          EXISTING_DEPLOYMENT_SHA_INPUT: ${{ inputs.existing_deployment_sha }}
-          PREVIOUS_DEPLOYMENT_ID_INPUT: ${{ inputs.previous_deployment_id }}
+          RELEASE_SHA_INPUT: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          expected="${GITHUB_SHA}"
-          if [ "${{ github.event_name }}" = "push" ]; then test "$sha" = "$expected"; fi
-
-          message="$(git log -1 --format=%B)"
-          target_id="$EXISTING_DEPLOYMENT_ID_INPUT"
-          target_sha="$EXISTING_DEPLOYMENT_SHA_INPUT"
-          previous_id="$PREVIOUS_DEPLOYMENT_ID_INPUT"
-
-          if printf '%s' "$message" | grep -Eq '\[AUTHORIZED_EXISTING_PRODUCTION_PROMOTION\]'; then
-            target_id="$(printf '%s\n' "$message" | sed -n 's/.*\[PROMOTE_EXISTING_DEPLOYMENT:\([^ ]*\)\].*/\1/p')"
-            target_sha="$(printf '%s\n' "$message" | sed -n 's/.*\[PROMOTE_EXISTING_SOURCE_SHA:\([^ ]*\)\].*/\1/p')"
-            previous_id="$(printf '%s\n' "$message" | sed -n 's/.*\[PREVIOUS_PRODUCTION_DEPLOYMENT:\([^ ]*\)\].*/\1/p')"
-          fi
-
-          mode="deploy"
-          if [ -n "$target_id" ]; then mode="promote-existing"; fi
+          test "$sha" = "$RELEASE_SHA_INPUT"
+          test "$sha" = "$(git ls-remote origin refs/heads/main | awk '{print $1}')"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
-          echo "existing_deployment_id=$target_id" >> "$GITHUB_OUTPUT"
-          echo "existing_deployment_sha=$target_sha" >> "$GITHUB_OUTPUT"
-          echo "previous_deployment_id=$previous_id" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for exact main Autonomy CI and Heartbeat to be green
+      - name: Wait for exact-SHA Autonomy CI and Heartbeat
         shell: bash
         env:
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
@@ -112,28 +90,28 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 60); do
-            autonomy_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100" --jq '.workflow_runs[] | select(.name == "Agent007 Autonomy CI") | .id' | head -n 1 || true)"
-            heartbeat_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100" --jq '.workflow_runs[] | select(.name == "Venture OS 24x7 Heartbeat") | .id' | head -n 1 || true)"
-            autonomy_conclusion=""
-            heartbeat_conclusion=""
-            if [ -n "$autonomy_id" ]; then
-              autonomy_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${autonomy_id}" --jq '.conclusion // ""')"
-            fi
-            if [ -n "$heartbeat_id" ]; then
-              heartbeat_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${heartbeat_id}" --jq '.conclusion // ""')"
-            fi
-            echo "Attempt $attempt/60 — Autonomy=${autonomy_conclusion:-pending}; Heartbeat=${heartbeat_conclusion:-pending}"
-            if [ "$autonomy_conclusion" = "success" ] && [ "$heartbeat_conclusion" = "success" ]; then exit 0; fi
-            if [[ "$autonomy_conclusion" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]] || [[ "$heartbeat_conclusion" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]]; then
-              echo "A required exact-SHA gate failed; production deployment is blocked." >&2
-              exit 1
-            fi
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100")"
+            autonomy_id="$(jq -r '.workflow_runs[] | select(.name == "Agent007 Autonomy CI") | .id' <<<"$runs" | head -n1)"
+            heartbeat_id="$(jq -r '.workflow_runs[] | select(.name == "Venture OS 24x7 Heartbeat") | .id' <<<"$runs" | head -n1)"
+            autonomy="$(test -n "$autonomy_id" && gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${autonomy_id}" --jq '.conclusion // ""' || true)"
+            heartbeat="$(test -n "$heartbeat_id" && gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${heartbeat_id}" --jq '.conclusion // ""' || true)"
+            echo "Attempt $attempt/60 — Autonomy=${autonomy:-pending}; Heartbeat=${heartbeat:-pending}"
+            if [ "$autonomy" = success ] && [ "$heartbeat" = success ]; then exit 0; fi
+            if [[ "$autonomy" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]] || [[ "$heartbeat" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]]; then exit 1; fi
             sleep 10
           done
-          echo "Timed out waiting for exact-SHA Autonomy CI and Venture OS Heartbeat." >&2
           exit 1
 
-      - name: Verify required release credentials
+      - name: Verify permanent production-release authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_WORKFLOW" = "Agent007 Production Release Watchdog"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$CANONICAL_WORKFLOW" = "production-release-watchdog.yml"
+          bun test tests/release-architecture.test.ts
+
+      - name: Verify Vercel credentials
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -143,241 +121,188 @@ jobs:
           test -n "$VERCEL_ORG_ID"
           test -n "$VERCEL_PROJECT_ID"
 
-      - name: Verify exact main CI commit before production change
-        shell: bash
-        env:
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-        run: |
-          set -euo pipefail
-          test -n "$RELEASE_SHA"
-
-      - name: Locate and validate existing Vercel deployment for promotion
-        id: existing
-        if: steps.release.outputs.mode == 'promote-existing'
+      - name: Snapshot production aliases before cutover
+        id: aliases_before
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
-          EXPECTED_SOURCE_SHA: ${{ steps.release.outputs.existing_deployment_sha }}
         run: |
           set -euo pipefail
-          test -n "$TARGET_DEPLOYMENT_ID"
-          deployment_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$TARGET_DEPLOYMENT_ID?teamId=$VERCEL_ORG_ID")"
-          test "$(jq -r '.readyState // .state // ""' <<<"$deployment_json")" = READY
-          test "$(jq -r '.target // .targets[0] // ""' <<<"$deployment_json")" = production
-          test "$(jq -r '.meta.githubCommitRepo // .gitSource.repo // .gitMetadata.repo // ""' <<<"$deployment_json")" = agent007-ai
-          test "$(jq -r '.meta.githubCommitRef // .gitSource.ref // .gitMetadata.commitRef // ""' <<<"$deployment_json")" = main
-          test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$EXPECTED_SOURCE_SHA"
-          echo "deployment_url=https://$(jq -r '.url' <<<"$deployment_json")" >> "$GITHUB_OUTPUT"
-
-      - name: Promote existing repaired Vercel deployment
-        if: steps.release.outputs.mode == 'promote-existing'
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
-        run: |
-          set -euo pipefail
-          output_file="$(mktemp)"
-          set +e
-          npx --yes vercel@$VERCEL_CLI_VERSION promote "$TARGET_DEPLOYMENT_ID" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" 2>&1 | tee "$output_file"
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ] && ! grep -Fqi 'already the current production deployment' "$output_file"; then
-            echo "Vercel promotion failed unexpectedly." >&2
-            exit "$status"
-          fi
-          echo "Promotion result accepted as idempotent when Vercel reports the target already current."
-
-      - name: Reconcile production aliases by Vercel alias registry
-        if: steps.release.outputs.mode == 'promote-existing'
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
-          PREVIOUS_DEPLOYMENT_ID: ${{ steps.release.outputs.previous_deployment_id }}
-        run: |
-          set -euo pipefail
-          domains=(agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app)
-          for domain in "${domains[@]}"; do
-            assign="$(curl --fail-with-body --silent --show-error --max-time 20 --request POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' "https://api.vercel.com/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases?teamId=$VERCEL_ORG_ID" --data "{\"alias\":\"$domain\",\"redirect\":null}")"
-            assigned_domain="$(jq -r '.alias // ""' <<<"$assign")"
-            test "$assigned_domain" = "$domain"
-            echo "$domain assignment accepted: $(jq -r '.oldDeploymentId // "none"' <<<"$assign") -> $TARGET_DEPLOYMENT_ID"
+          : > production-alias-snapshot.jsonl
+          for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
+            body="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
+            jq -c --arg domain "$domain" '{domain:$domain, alias:(.alias // null), projectId:(.projectId // null), deploymentId:(.deploymentId // null)}' <<<"$body" | tee -a production-alias-snapshot.jsonl
           done
+          cp production-alias-snapshot.jsonl "$GITHUB_WORKSPACE/production-alias-snapshot.jsonl"
 
-          for attempt in $(seq 1 18); do
-            all_ok=true
-            for domain in "${domains[@]}"; do
-              alias_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
-              alias_name="$(jq -r '.alias // ""' <<<"$alias_json")"
-              current_owner="$(jq -r '.deploymentId // ""' <<<"$alias_json")"
-              alias_project="$(jq -r '.projectId // ""' <<<"$alias_json")"
-              echo "$domain: owner=$current_owner project=$alias_project"
-              if [ "$alias_name" != "$domain" ] || [ "$alias_project" != "$VERCEL_PROJECT_ID" ] || [ "$current_owner" != "$TARGET_DEPLOYMENT_ID" ]; then
-                all_ok=false
-              fi
-              if [ -n "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$current_owner" = "$PREVIOUS_DEPLOYMENT_ID" ]; then
-                echo "PRODUCTION_ALIAS_CONFLICT: $domain still resolves to previous deployment $PREVIOUS_DEPLOYMENT_ID." >&2
-                exit 42
-              fi
-            done
-            if [ "$all_ok" = true ]; then exit 0; fi
-            sleep 5
-          done
-          echo "PRODUCTION_ALIAS_CONFLICT: production alias registry did not resolve both aliases to exactly the repaired deployment." >&2
-          exit 42
-
-      - name: Deterministic Vercel production deployment
-        id: deploy
-        if: steps.release.outputs.mode == 'deploy'
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-        run: |
-          set -euo pipefail
-          output="$(npx --yes vercel@$VERCEL_CLI_VERSION deploy --prod --yes --token "$VERCEL_TOKEN" \
-            -m githubCommitAuthorName=antoniocan2022-dev \
-            -m githubCommitMessage="authorized production deployment" \
-            -m githubCommitOrg=antoniocan2022-dev \
-            -m githubCommitRef=main \
-            -m githubCommitRepo=agent007-ai \
-            -m githubCommitSha="$RELEASE_SHA" \
-            -m githubDeployment=1 \
-            -m githubOrg=antoniocan2022-dev \
-            -m githubRepo=agent007-ai 2>&1)"
-          printf '%s\n' "$output"
-          url="$(printf '%s\n' "$output" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1)"
-          test -n "$url"
-          echo "deployment_url=$url" >> "$GITHUB_OUTPUT"
-
-      - name: Establish promoted or deployed target
+      - name: Validate or build immutable target deployment
         id: target
         shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT_ID_INPUT: ${{ inputs.existing_deployment_id }}
+          TARGET_DEPLOYMENT_SHA_INPUT: ${{ inputs.existing_deployment_sha }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.release.outputs.mode }}" = "promote-existing" ]; then url="${{ steps.existing.outputs.deployment_url }}"; else url="${{ steps.deploy.outputs.deployment_url }}"; fi
-          test -n "$url"
-          echo "deployment_url=$url" >> "$GITHUB_OUTPUT"
+          if [ -n "$TARGET_DEPLOYMENT_ID_INPUT" ]; then
+            test -n "$TARGET_DEPLOYMENT_SHA_INPUT"
+            body="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$TARGET_DEPLOYMENT_ID_INPUT?teamId=$VERCEL_ORG_ID")"
+            test "$(jq -r '.readyState // .state // ""' <<<"$body")" = READY
+            test "$(jq -r '.target // .targets[0] // ""' <<<"$body")" = production
+            test "$(jq -r '.meta.githubCommitRepo // .gitSource.repo // .gitMetadata.repo // ""' <<<"$body")" = agent007-ai
+            test "$(jq -r '.meta.githubCommitRef // .gitSource.ref // .gitMetadata.commitRef // ""' <<<"$body")" = main
+            test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$body")" = "$TARGET_DEPLOYMENT_SHA_INPUT"
+            test "$TARGET_DEPLOYMENT_SHA_INPUT" = "$RELEASE_SHA"
+            url="https://$(jq -r '.url' <<<"$body")"
+          else
+            output="$(npx --yes vercel@$VERCEL_CLI_VERSION deploy --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" \
+              -m githubCommitAuthorName=antoniocan2022-dev \
+              -m githubCommitMessage="authorized production deployment" \
+              -m githubCommitOrg=antoniocan2022-dev \
+              -m githubCommitRef=main \
+              -m githubCommitRepo=agent007-ai \
+              -m githubCommitSha="$RELEASE_SHA" \
+              -m githubDeployment=1 \
+              -m githubOrg=antoniocan2022-dev \
+              -m githubRepo=agent007-ai 2>&1)"
+            printf '%s\n' "$output"
+            url="$(printf '%s\n' "$output" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n1)"
+            test -n "$url"
+          fi
+          host="${url#https://}"
+          for attempt in $(seq 1 36); do
+            body="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$host?teamId=$VERCEL_ORG_ID")"
+            state="$(jq -r '.readyState // .state // ""' <<<"$body")"
+            echo "Target deployment state: $state"
+            if [ "$state" = READY ]; then
+              id="$(jq -r '.id // .uid // ""' <<<"$body")"
+              sha="$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$body")"
+              test "$sha" = "$RELEASE_SHA"
+              echo "deployment_id=$id" >> "$GITHUB_OUTPUT"
+              echo "deployment_url=$url" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$state" = ERROR ]; then exit 1; fi
+            sleep 5
+          done
+          exit 1
 
-      - name: Verify exact deployment identity
+      - name: Reconcile canonical production aliases
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          EXISTING_SOURCE_SHA: ${{ steps.release.outputs.existing_deployment_sha }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
+            curl --fail-with-body --silent --show-error --max-time 20 \
+              --request POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H 'Content-Type: application/json' \
+              "https://api.vercel.com/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases?teamId=$VERCEL_ORG_ID" \
+              --data "{\"alias\":\"$domain\",\"redirect\":null}" >/dev/null
+          done
+
+      - name: Verify alias state with explicit failure states
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          owners=()
+          for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
+            body="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
+            alias_name="$(jq -r '.alias // ""' <<<"$body")"
+            owner="$(jq -r '.deploymentId // ""' <<<"$body")"
+            project="$(jq -r '.projectId // ""' <<<"$body")"
+            echo "$domain: owner=$owner project=$project"
+            [ "$alias_name" = "$domain" ] || { echo 'STALE_ALIAS'; exit 44; }
+            [ "$project" = "$VERCEL_PROJECT_ID" ] || { echo 'STALE_ALIAS'; exit 44; }
+            owners+=("$owner")
+          done
+          if [ "${owners[0]}" != "${owners[1]}" ]; then echo 'DUAL_ALIAS_CONFLICT'; exit 45; fi
+          if [ "${owners[0]}" != "$TARGET_DEPLOYMENT_ID" ]; then echo 'STALE_ALIAS'; exit 44; fi
+
+      # Traffic is deliberately first-class and runs before broad SHA/fingerprint proof.
+      - name: Generate protected /api/agent traffic canary
+        id: traffic_canary
+        shell: bash
+        env:
+          EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
+          TARGET_DEPLOYMENT_URL: ${{ steps.target.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
+          npx --yes vercel@$VERCEL_CLI_VERSION curl /api/agent --deployment "$TARGET_DEPLOYMENT_URL" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" -- \
+            --request POST --header 'Content-Type: application/json' --data "$payload" > agent-canary.txt
+          node <<'NODE'
+          const fs = require('node:fs')
+          const expectedSha = process.env.EXPECTED_RELEASE_SHA
+          const targetId = process.env.TARGET_DEPLOYMENT_ID
+          const text = fs.readFileSync('agent-canary.txt', 'utf8')
+          const dataLines = text.split(/\r?\n/).filter(line => line.startsWith('data: ')).map(line => line.slice(6)).filter(Boolean)
+          if (dataLines.length === 0) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN: no SSE data envelopes')
+          for (const line of dataLines) {
+            let envelope
+            try { envelope = JSON.parse(line) } catch { throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN: invalid SSE JSON envelope') }
+            if (!Object.prototype.hasOwnProperty.call(envelope, 'deploymentId') || !Object.prototype.hasOwnProperty.call(envelope, 'releaseCommit')) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN: missing deployment identity in SSE envelope')
+            if (envelope.deploymentId !== targetId) throw new Error(`TRAFFIC_OWNERSHIP_UNPROVEN: deployment ${envelope.deploymentId} != ${targetId}`)
+            if (envelope.releaseCommit !== expectedSha) throw new Error(`TRAFFIC_OWNERSHIP_UNPROVEN: release ${envelope.releaseCommit} != ${expectedSha}`)
+          }
+          if (!text.includes('event: done')) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN: done event missing')
+          NODE
+          echo "conversation_id=$conversation_id" >> "$GITHUB_OUTPUT"
+
+      - name: Verify fresh traffic ownership and legacy runtime exclusion
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
+          CANARY_CONVERSATION_ID: ${{ steps.traffic_canary.outputs.conversation_id }}
+          PREVIOUS_DEPLOYMENT_IDS: ${{ inputs.previous_deployment_ids }}
+        run: |
+          set -euo pipefail
+          sleep 15
+          logs="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --since 2m --limit 300 --token "$VERCEL_TOKEN" 2>&1 || true)"
+          printf '%s\n' "$logs" | tee production-traffic-proof.log
+          target_count="$(printf '%s' "$logs" | grep -o "$TARGET_DEPLOYMENT_ID" | wc -l | tr -d ' ')"
+          canary_count="$(printf '%s' "$logs" | grep -o "$CANARY_CONVERSATION_ID" | wc -l | tr -d ' ')"
+          echo "target_count=$target_count canary_count=$canary_count"
+          if [ "$target_count" -eq 0 ] && [ "$canary_count" -eq 0 ]; then echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; fi
+          IFS=',' read -r -a legacy_ids <<< "$PREVIOUS_DEPLOYMENT_IDS"
+          for legacy in "${legacy_ids[@]}"; do
+            [ -n "$legacy" ] || continue
+            legacy_count="$(printf '%s' "$logs" | grep -o "$legacy" | wc -l | tr -d ' ')"
+            if [ "$legacy_count" -ne 0 ]; then echo "LEGACY_RUNTIME: $legacy received $legacy_count fresh log references"; exit 47; fi
+          done
+
+      # Broader source/build/runtime proof is intentionally after traffic proof.
+      - name: Verify release health and SHA/fingerprint proof
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
+          EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
           deployment_host="${{ steps.target.outputs.deployment_url }}"; deployment_host="${deployment_host#https://}"
           deployment_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$deployment_host?teamId=$VERCEL_ORG_ID")"
-          test "$(jq -r '.readyState // .state' <<<"$deployment_json")" = READY
-          test "$(jq -r '.target // .targets[0] // "null"' <<<"$deployment_json")" = production
-          expected_sha="$RELEASE_SHA"
-          if [ "${{ steps.release.outputs.mode }}" = "promote-existing" ]; then expected_sha="$EXISTING_SOURCE_SHA"; fi
-          test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$expected_sha"
-          test "$(jq -r '.meta.githubCommitRepo // .gitSource.repo // .gitMetadata.repo // ""' <<<"$deployment_json")" = agent007-ai
-
-      - name: Verify single production owner and clear legacy aliases
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
-          PREVIOUS_DEPLOYMENT_ID: ${{ steps.release.outputs.previous_deployment_id }}
-        run: |
-          set -euo pipefail
-          target_id="$TARGET_DEPLOYMENT_ID"
-          if [ -z "$target_id" ]; then
-            target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"
-            target_id="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$target_host?teamId=$VERCEL_ORG_ID" | jq -r '.id // .uid // ""')"
-          fi
-          test -n "$target_id"
-          for domain in agent007-ai.vercel.app agent007-ai-antoniocan2022-devs-projects.vercel.app; do
-            alias_json="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
-            alias_name="$(jq -r '.alias // ""' <<<"$alias_json")"
-            current_owner="$(jq -r '.deploymentId // ""' <<<"$alias_json")"
-            alias_project="$(jq -r '.projectId // ""' <<<"$alias_json")"
-            if [ "$alias_name" != "$domain" ] || [ "$alias_project" != "$VERCEL_PROJECT_ID" ] || [ "$current_owner" != "$target_id" ]; then
-              echo "PRODUCTION_ALIAS_CONFLICT: $domain owner=$current_owner project=$alias_project target=$target_id" >&2
-              exit 42
-            fi
-            if [ -n "$PREVIOUS_DEPLOYMENT_ID" ] && [ "$current_owner" = "$PREVIOUS_DEPLOYMENT_ID" ]; then
-              echo "PRODUCTION_ALIAS_CONFLICT: $domain still resolves to previous deployment" >&2
-              exit 42
-            fi
-          done
-
-      - name: Compute expected organization graph fingerprint
-        id: graph
-        shell: bash
-        run: |
-          set -euo pipefail
-          fingerprint="$(bun -e "import { organizationGraphFingerprint } from './src/lib/organization-graph-fingerprint'; console.log(organizationGraphFingerprint())" | tail -n 1)"
-          test -n "$fingerprint"
-          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-
-      - name: Verify canonical production exact SHA and organization graph
-        shell: bash
-        env:
-          RELEASE_SHA: ${{ steps.release.outputs.existing_deployment_sha }}
-          EXPECTED_GRAPH_FINGERPRINT: ${{ steps.graph.outputs.fingerprint }}
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 18); do
-            body="$(curl --silent --show-error --max-time 30 "$PRODUCTION_URL/api/release-health")"
-            echo "$body"
-            expected_sha="$RELEASE_SHA"
-            if [ -z "$expected_sha" ]; then expected_sha="$(printf '%s' "$body" | jq -r '.releaseCommit // ""')"; fi
-            if printf '%s' "$body" | grep -q '"ok":true' && [ -n "$expected_sha" ] && printf '%s' "$body" | grep -q "\"releaseCommit\":\"$expected_sha\"" && printf '%s' "$body" | grep -q "\"organizationGraphFingerprint\":\"$EXPECTED_GRAPH_FINGERPRINT\""; then exit 0; fi
-            sleep 5
-          done
-          echo "Production did not report the expected release identity and organization graph fingerprint." >&2
-          exit 1
-
-      - name: Generate /api/agent production traffic canary
-        id: agent_canary
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.existing_deployment_sha }}
-          TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
-        run: |
-          set -euo pipefail
-          conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          expected_sha="$EXPECTED_RELEASE_SHA"
-          if [ -z "$expected_sha" ]; then expected_sha="${{ steps.release.outputs.sha }}"; fi
-          target_id="$TARGET_DEPLOYMENT_ID"
-          if [ -z "$target_id" ]; then target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"; target_id="unknown"; fi
-          payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
-          npx --yes vercel@$VERCEL_CLI_VERSION curl /api/agent --deployment "$PRODUCTION_URL" --token "$VERCEL_TOKEN" -- --request POST --header 'Content-Type: application/json' --data "$payload" | tee agent-canary.txt
-          grep -q 'event: done' agent-canary.txt
-          grep -q '"deploymentId"' agent-canary.txt
-          grep -q '"releaseCommit"' agent-canary.txt
-          grep -q "\"releaseCommit\":\"$expected_sha\"" agent-canary.txt
-          if [ "$target_id" != "unknown" ]; then grep -q "\"deploymentId\":\"$target_id\"" agent-canary.txt; fi
-          echo "conversation_id=$conversation_id" >> "$GITHUB_OUTPUT"
-
-      - name: Verify /api/agent deployment identity and fresh traffic ownership
-        shell: bash
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          PREVIOUS_DEPLOYMENT_ID: ${{ steps.release.outputs.previous_deployment_id }}
-          CANARY_CONVERSATION_ID: ${{ steps.agent_canary.outputs.conversation_id }}
-        run: |
-          set -euo pipefail
-          target_id="${{ steps.release.outputs.existing_deployment_id }}"
-          if [ -z "$target_id" ]; then target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"; target_id="$(curl --fail-with-body --silent --show-error --max-time 15 -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v13/deployments/$target_host?teamId=$VERCEL_ORG_ID" | jq -r '.id // .uid // ""')"; fi
-          test -n "$target_id"
-          sleep 20
-          log_output="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --since 2m --limit 200 --token "$VERCEL_TOKEN" 2>&1 || true)"
-          printf '%s\n' "$log_output"
-          old_count=0
-          if [ -n "$PREVIOUS_DEPLOYMENT_ID" ]; then old_count="$(printf '%s' "$log_output" | grep -o "$PREVIOUS_DEPLOYMENT_ID" | wc -l | tr -d ' ')"; fi
-          target_count="$(printf '%s' "$log_output" | grep -o "$target_id" | wc -l | tr -d ' ')"
-          canary_count="$(printf '%s' "$log_output" | grep -o "$CANARY_CONVERSATION_ID" | wc -l | tr -d ' ')"
-          echo "Fresh production traffic counts: target=$target_count previous=$old_count canary=$canary_count"
-          if [ "$old_count" -ne 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: previous deployment still receives fresh production traffic" >&2; exit 43; fi
-          if [ "$target_count" -eq 0 ] && [ "$canary_count" -eq 0 ]; then echo "PRODUCTION_TRAFFIC_MISMATCH: no fresh canary traffic was attributable to the promoted deployment" >&2; exit 43; fi
+          test "$(jq -r '.readyState // .state // ""' <<<"$deployment_json")" = READY
+          test "$(jq -r '.meta.githubCommitSha // .gitSource.sha // .gitMetadata.commitSha // ""' <<<"$deployment_json")" = "$EXPECTED_RELEASE_SHA"
+          body="$(curl --silent --show-error --max-time 45 "$PRODUCTION_URL/api/release-health")"
+          printf '%s\n' "$body"
+          test "$(jq -r '.ok' <<<"$body")" = true
+          test "$(jq -r '.releaseCommit' <<<"$body")" = "$EXPECTED_RELEASE_SHA"
+          test "$(jq -r '.deploymentId' <<<"$body")" = "$TARGET_DEPLOYMENT_ID"
+          test "$(jq -r '.proof.tripleProof' <<<"$body")" = true
+          test "$(jq -r '.proof.deploymentIdentityVerified' <<<"$body")" = true
+          test "$(jq -r '.actualExecution.verified' <<<"$body")" = true
+          expected_graph="$(bun -e "import { organizationGraphFingerprint } from './src/lib/organization-graph-fingerprint'; console.log(organizationGraphFingerprint())" | tail -n1)"
+          test "$(jq -r '.organizationGraphFingerprint' <<<"$body")" = "$expected_graph"
 
       - name: Verify immediate production error surface
         shell: bash
@@ -385,15 +310,15 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          log_output="$(npx --yes vercel@$VERCEL_CLI_VERSION logs --environment production --level error --since 5m --limit 50 --token "$VERCEL_TOKEN" 2>&1 || true)"
-          echo "$log_output"
-          if printf '%s' "$log_output" | grep -Eiq '(error|fatal)'; then exit 1; fi
+          logs="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --level error --since 5m --limit 100 --token "$VERCEL_TOKEN" 2>&1 || true)"
+          echo "$logs"
+          if printf '%s' "$logs" | grep -Eiq '(error|fatal)'; then exit 1; fi
 
-      - name: Post deployment release summary
+      - name: Persist release evidence summary
         if: always()
         shell: bash
         run: |
-          echo "Authorized main SHA: ${{ steps.release.outputs.sha }}"
-          echo "Release mode: ${{ steps.release.outputs.mode }}"
-          echo "Deployment URL: ${{ steps.target.outputs.deployment_url }}"
+          echo "Authorized SHA: ${{ steps.release.outputs.sha }}"
+          echo "Deployment: ${{ steps.target.outputs.deployment_id }}"
           echo "Production URL: $PRODUCTION_URL"
+          echo "Traffic proof conversation: ${{ steps.traffic_canary.outputs.conversation_id }}"
