@@ -3,7 +3,7 @@
 > Autonomous AI organization with governed providers, model intelligence, outcome intelligence, self-repair, revenue controls, disaster recovery, and evidence-based autonomy.
 
 [![Deploy on Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black.svg)](https://vercel.com/new)
-[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg](https://nextjs.org)
 [![TypeScript-strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org)
 
 ## Release marker
@@ -39,6 +39,8 @@ Production release authorized on **2026-08-24** from GitHub `main`. This marker 
 **Final existing deployment promotion authorization — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_F9SzTZ6Si6LnajzE2GWFsckAxfHX] [PROMOTE_EXISTING_SOURCE_SHA:894ad178299d30c891bd33f74c14bc3722e6eff9] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_6gpKhJ8up8Yhg6ujWHCGV4TgHJ1U] — run the production watchdog in promote-existing mode only; prove single owner, legacy alias zero, `/api/agent` deployment identity, fresh traffic ownership, release health, and CEO canary.
 
 **Corrected production build + final verification authorization — 2026-08-28:** [AUTHORIZED_PRODUCTION_RELEASE] — build the current fully validated GitHub `main` exactly once because the previous repaired deployment predates the mandatory CEO SSE deployment identity metadata; verify the new production deployment, alias ownership, zero traffic on all previous production deployments, release health, `/api/agent` identity, and CEO canary.
+
+**Final existing deployment verification authorization after protected-canary fix — 2026-08-28:** [AUTHORIZED_EXISTING_PRODUCTION_PROMOTION] [PROMOTE_EXISTING_DEPLOYMENT:dpl_BFTygmB2k8PL7MSKgxzFExmAaLoG] [PROMOTE_EXISTING_SOURCE_SHA:bb01c15fa5d97e7fb3e34ad3641ae3de562caf69] [PREVIOUS_PRODUCTION_DEPLOYMENT:dpl_oKWWfa979FyxD5T26jeXRnWsjzyF] — re-verify the already-built READY deployment after replacing the raw protected `/api/agent` canary with Vercel authenticated curl; no new deployment build is authorized.
 
 ## Architecture truth
 
