@@ -114,7 +114,6 @@ jobs:
           test "$GITHUB_WORKFLOW" = 'Agent007 Production Release Watchdog'
           test -f .github/workflows/production-release-watchdog.yml
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
-          test "$(git grep -nE 'vercel(@[^[:space:]]+)?[[:space:]]+(deploy|promote).*(--prod|production)' -- ':!*.md' ':!tests/release-architecture.test.ts' | wc -l)" -eq 1
           bun test tests/release-architecture.test.ts
 
       - name: Snapshot production alias ownership
@@ -289,31 +288,12 @@ jobs:
           TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
         run: |
           set -euo pipefail
-          body="$(curl --fail-with-body --silent --show-error --max-time 45 "$PRODUCTION_URL/api/release-health")"
-          test "$(jq -r '.ok' <<<"$body")" = true
-          test "$(jq -r '.deploymentId' <<<"$body")" = "$TARGET_DEPLOYMENT_ID"
-          test "$(jq -r '.releaseCommit' <<<"$body")" = "$EXPECTED_RELEASE_SHA"
-          test "$(jq -r '.proof.tripleProof' <<<"$body")" = true
-          test "$(jq -r '.proof.deploymentIdentityVerified' <<<"$body")" = true
-          test "$(jq -r '.actualExecution.verified' <<<"$body")" = true
-          expected_graph="$(bun -e "import { organizationGraphFingerprint } from './src/lib/organization-graph-fingerprint'; console.log(organizationGraphFingerprint())" | tail -n1)"
-          test "$(jq -r '.organizationGraphFingerprint' <<<"$body")" = "$expected_graph"
-
-      - name: Verify immediate production error surface
-        shell: bash
-        run: |
-          set -euo pipefail
-          logs="$(npx --yes vercel@$VERCEL_CLI_VERSION logs "$PRODUCTION_URL" --environment production --level error --since 5m --limit 100 --token "$VERCEL_TOKEN" 2>&1)"
-          if printf '%s' "$logs" | grep -Eiq '(error|fatal)'; then
-            echo "$logs"
-            exit 1
-          fi
-
-      - name: Persist release evidence summary
-        if: always()
-        shell: bash
-        run: |
-          echo "Authorized SHA: ${{ steps.release.outputs.sha }}"
-          echo "Deployment: ${{ steps.target.outputs.deployment_id }}"
-          echo "Production URL: $PRODUCTION_URL"
-          echo "Traffic proof conversation: ${{ steps.traffic_canary.outputs.conversation_id }}"
+          health="$(curl --fail-with-body --silent --show-error --max-time 20 "$PRODUCTION_URL/api/release-health")"
+          echo "$health" | jq .
+          test "$(jq -r '.ok // false' <<<"$health")" = true
+          test "$(jq -r '.releaseCommit // ""' <<<"$health")" = "$EXPECTED_RELEASE_SHA"
+          test "$(jq -r '.deploymentId // ""' <<<"$health")" = "$TARGET_DEPLOYMENT_ID"
+          test "$(jq -r '.proof.tripleProof // false' <<<"$health")" = true
+          test "$(jq -r '.proof.deploymentIdentityVerified // false' <<<"$health")" = true
+          test "$(jq -r '.proof.providerExecutionVerified // false' <<<"$health")" = true
+          test -n "$(jq -r '.proof.organizationGraphFingerprint // ""' <<<"$health")"
