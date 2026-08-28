@@ -338,6 +338,7 @@ jobs:
         id: agent_canary
         shell: bash
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.existing_deployment_sha }}
           TARGET_DEPLOYMENT_ID: ${{ steps.release.outputs.existing_deployment_id }}
         run: |
@@ -347,10 +348,8 @@ jobs:
           if [ -z "$expected_sha" ]; then expected_sha="${{ steps.release.outputs.sha }}"; fi
           target_id="$TARGET_DEPLOYMENT_ID"
           if [ -z "$target_id" ]; then target_host="${{ steps.target.outputs.deployment_url }}"; target_host="${target_host#https://}"; target_id="unknown"; fi
-          curl --silent --show-error --fail-with-body --max-time 45 -N \
-            -H 'Content-Type: application/json' \
-            --data "{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}" \
-            "$PRODUCTION_URL/api/agent" | tee agent-canary.txt
+          payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
+          npx --yes vercel@$VERCEL_CLI_VERSION curl /api/agent --deployment "$PRODUCTION_URL" --token "$VERCEL_TOKEN" -- --request POST --header 'Content-Type: application/json' --data "$payload" | tee agent-canary.txt
           grep -q 'event: done' agent-canary.txt
           grep -q '"deploymentId"' agent-canary.txt
           grep -q '"releaseCommit"' agent-canary.txt
