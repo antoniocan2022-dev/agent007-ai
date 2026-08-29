@@ -33,9 +33,7 @@ function objectiveCoverage(objective: string, content: string, path: EvaluationP
 function consistency(content: string): boolean {
   if (!content.trim()) return false
   const contradictionPairs: Array<[RegExp, RegExp]> = [
-    /\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i,
-  ].map((_, index) => index === 0 ? [/\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i] as [RegExp, RegExp] : [/x^/, /x^/] as [RegExp, RegExp])
-  contradictionPairs.push(
+    [/\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i],
     [/\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i],
     [/\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i],
     [/\bnever\b/i, /\balways\b/i],
@@ -43,7 +41,7 @@ function consistency(content: string): boolean {
     [/\bunverified\b/i, /\bconfirmed\b/i],
     [/\bfailed\b/i, /\bsucceeded\b/i],
     [/\bunavailable\b/i, /\bavailable\b/i],
-  )
+  ]
   if (contradictionPairs.some(([left, right]) => left.test(content) && right.test(content))) return false
   const numericClaims = [...content.toLowerCase().matchAll(/\b(\d+(?:\.\d+)?)\s*(%|percent|ms|seconds?|minutes?|hours?|days?)\b/g)]
     .map((match) => `${match[1]} ${match[2]}`)
@@ -99,16 +97,15 @@ export function evaluateCeoQuality(input: {
   const claims = claimScopes(input.content)
   const fresh = validFreshness(input.evidenceFreshness) && evidenceIsFresh(input.evidenceFreshness!)
   const externalClaims = claims.includes('external_web') || claims.includes('live_system')
-  const evidenceVerificationApplicable = input.evidenceVerificationApplicable ?? true
-  const evidenceCheckingApplies = evidenceVerificationApplicable || externalClaims
+  const evidenceVerificationApplicable = input.evidenceVerificationApplicable ?? (input.path === 'critical' || Boolean(input.evidenceScope) || evidenceProvided || externalClaims)
   const bundle = input.evidenceBundle
-  const claimVerification = externalClaims && evidenceCheckingApplies && bundle
+  const claimVerification = externalClaims && evidenceVerificationApplicable && bundle
     ? verifyClaimEvidence(input.content, bundle)
     : { passed: true }
   const scope = input.evidenceScope
   const evidenceOk = (() => {
     if (!nonEmpty) return false
-    if (!evidenceCheckingApplies) return true
+    if (!evidenceVerificationApplicable) return true
     if (claims.includes('live_system') && ((scope !== 'live_system' && scope !== 'mixed') || !fresh)) return false
     if (claims.includes('external_web') && ((scope !== 'external_web' && scope !== 'mixed') || !fresh)) return false
     if (claims.includes('internal_state') && scope && scope !== 'internal_state' && scope !== 'mixed' && scope !== 'live_system') return false
