@@ -24,6 +24,7 @@ function capabilityForFailure(reason: CeoFailureReason): DegradedResponse['recov
   if (reason.startsWith('tool_')) return 'tool'
   if (reason === 'context_unavailable') return 'context'
   if (reason === 'production_verification_failure') return 'production'
+  if (reason === 'mission_failure') return 'mission'
   return 'conversation'
 }
 
@@ -33,6 +34,7 @@ function inferFailureReason(message: string): CeoFailureReason {
   if (/evidence|source|research/i.test(message)) return 'evidence_unavailable'
   if (/quality|contradiction|claim/i.test(message)) return 'quality_failure'
   if (/tool/i.test(message)) return 'tool_error'
+  if (/mission|workflow|orchestrat/i.test(message)) return 'mission_failure'
   if (/context|conversation|memory/i.test(message)) return 'context_unavailable'
   return 'unknown'
 }
