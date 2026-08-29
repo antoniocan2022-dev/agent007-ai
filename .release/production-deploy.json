@@ -1,0 +1,11 @@
+{
+  "authorization": "DEPLOY_AGENT007_MAIN",
+  "repository": "antoniocan2022-dev/agent007-ai",
+  "ref": "main",
+  "target": "production",
+  "authorized": false,
+  "authorizedAt": "2026-08-29T15:51:43-04:00",
+  "expiresAt": "2026-08-29T17:51:43-04:00",
+  "sourceMainSha": null,
+  "reason": "Production deployment authorization revoked. A new explicit owner authorization is required before any Vercel production deployment."
+}
