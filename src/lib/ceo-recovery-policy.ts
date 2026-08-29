@@ -1,4 +1,5 @@
 import type { CeoExecutionContract } from './ceo-cognitive-contract'
+import type { CeoFailureReason } from './ceo-failure-reason'
 
 export type RecoveryEvent =
   | 'auto_recovery'
@@ -12,10 +13,12 @@ export interface RecoveryDecision {
   count: number
   maxRecoveries: number
   reason: string
+  failureReason: CeoFailureReason
 }
 
 export class RecoveryBudgetExceededError extends Error {
   readonly code = 'CEO_RECOVERY_BUDGET_EXCEEDED'
+  readonly failureReason: CeoFailureReason = 'recovery_budget_exhausted'
   readonly count: number
   readonly maxRecoveries: number
 
@@ -27,37 +30,33 @@ export class RecoveryBudgetExceededError extends Error {
   }
 }
 
-/**
- * Request-scoped recovery guard.
- *
- * The legacy orchestrator still emits generic [AUTO-RECOVERY] events while it
- * is being migrated. This guard provides a hard request-level ceiling so one
- * false-positive detector cannot consume the entire HTTP budget.
- *
- * Non-operational CEO contracts are never permitted to recover through the
- * operational orchestrator. Operational contracts may consume only the
- * recovery budget explicitly declared by their execution contract.
- */
+/** Request-scoped recovery guard with canonical failure reasons. */
 export class RecoveryBudget {
   private count = 0
 
   constructor(private readonly contract: CeoExecutionContract) {}
 
-  get used(): number {
-    return this.count
-  }
-
-  get remaining(): number {
-    return Math.max(0, this.contract.maxRecoveries - this.count)
-  }
+  get used(): number { return this.count }
+  get remaining(): number { return Math.max(0, this.contract.maxRecoveries - this.count) }
 
   consume(event: RecoveryEvent): RecoveryDecision {
+    const failureReason: CeoFailureReason = event === 'provider_failure'
+      ? 'provider_error'
+      : event === 'tool_failure'
+        ? 'tool_error'
+        : event === 'quality_failure'
+          ? 'quality_failure'
+          : event === 'timeout_risk'
+            ? 'provider_timeout'
+            : 'unknown'
+
     if (event === 'auto_recovery' && !this.contract.toolRequired && !this.contract.subagentsRequired) {
       return {
         allowed: false,
         count: this.count,
         maxRecoveries: this.contract.maxRecoveries,
         reason: `Recovery denied: ${this.contract.intent} is non-operational and does not permit execution recovery.`,
+        failureReason,
       }
     }
 
@@ -67,6 +66,7 @@ export class RecoveryBudget {
         count: this.count,
         maxRecoveries: this.contract.maxRecoveries,
         reason: `Recovery budget exhausted (${this.contract.maxRecoveries}) for ${this.contract.intent}.`,
+        failureReason: 'recovery_budget_exhausted',
       }
     }
 
@@ -76,6 +76,7 @@ export class RecoveryBudget {
       count: this.count,
       maxRecoveries: this.contract.maxRecoveries,
       reason: `${event} recovery ${this.count}/${this.contract.maxRecoveries} permitted.`,
+      failureReason,
     }
   }
 }
@@ -83,6 +84,5 @@ export class RecoveryBudget {
 export function recoveryEventFromMessage(message: unknown): RecoveryEvent | null {
   const text = String(message ?? '').trim()
   if (!text.startsWith('[AUTO-RECOVERY]')) return null
-  if (/promise|waiting|stuck|continue/i.test(text)) return 'auto_recovery'
   return 'auto_recovery'
 }
