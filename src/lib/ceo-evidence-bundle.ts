@@ -65,13 +65,19 @@ function extractClaimCandidates(text: string): string[] {
     .slice(0, 20)
 }
 
+/**
+ * Conservative source classification. Tier 1 is reserved for clearly
+ * authoritative regulatory endpoints; company IR is promoted by the executor
+ * only when its identity is explicitly established, not merely because a
+ * hostname contains words such as "investor" or "ir".
+ */
 export function sourceTierForUrl(url: string): 1 | 2 | 3 | 4 {
   try {
     const host = new URL(url).hostname.toLowerCase()
     if (host === 'sec.gov' || host.endsWith('.sec.gov')) return 1
-    if (host.startsWith('investor.') || host.includes('ir.') || host.includes('investors.')) return 1
-    if (host.includes('nasdaq.com') || host.includes('nyse.com') || host.includes('stockanalysis.com')) return 2
-    if (host.includes('reuters.com') || host.includes('bloomberg.com') || host.includes('wsj.com') || host.includes('cnbc.com')) return 3
+    if (host === 'data.sec.gov') return 1
+    if (host === 'nasdaq.com' || host.endsWith('.nasdaq.com') || host === 'nyse.com' || host.endsWith('.nyse.com') || host === 'stockanalysis.com' || host.endsWith('.stockanalysis.com')) return 2
+    if (host === 'reuters.com' || host.endsWith('.reuters.com') || host === 'bloomberg.com' || host.endsWith('.bloomberg.com') || host === 'wsj.com' || host.endsWith('.wsj.com') || host === 'cnbc.com' || host.endsWith('.cnbc.com')) return 3
   } catch {
     return 4
   }
