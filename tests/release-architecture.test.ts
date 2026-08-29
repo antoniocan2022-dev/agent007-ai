@@ -106,20 +106,18 @@ describe('permanent production release architecture', () => {
     expect(content).toContain('DUAL_ALIAS_CONFLICT')
   })
 
-  it('uses the production URL, not a deployment URL, for the protected /api/agent canary', () => {
+  it('uses native HTTPS curl against the canonical production URL for the protected /api/agent canary', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('vercel@$VERCEL_CLI_VERSION --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" curl "$PRODUCTION_URL/api/agent"')
-    expect(content).not.toContain('curl /api/agent --deployment "$TARGET_DEPLOYMENT_URL"')
-    expect(content).toContain('EXPECTED_RELEASE_SHA')
-    expect(content).toContain('TARGET_DEPLOYMENT_ID')
-  })
-
-  it('keeps protected vercel curl options before the curl subcommand', () => {
-    const content = workflowContent(CANONICAL_WORKFLOW)
-    const marker = 'npx --yes vercel@$VERCEL_CLI_VERSION --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" curl "$PRODUCTION_URL/api/agent" --'
-    const forbidden = 'npx --yes vercel@$VERCEL_CLI_VERSION curl "$PRODUCTION_URL/api/agent" --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" --'
-    expect(content).toContain(marker)
-    expect(content).not.toContain(forbidden)
+    const canary = content.slice(content.indexOf('Generate production traffic canary'), content.indexOf('Verify fresh traffic ownership and legacy runtime exclusion'))
+    expect(canary).toContain('curl --fail-with-body --silent --show-error --no-buffer --location')
+    expect(canary).toContain('"$PRODUCTION_URL/api/agent"')
+    expect(canary).toContain("--header 'Accept: text/event-stream'")
+    expect(canary).toContain('--max-time 180')
+    expect(canary).not.toContain('vercel@$VERCEL_CLI_VERSION curl')
+    expect(canary).not.toContain('--token "$VERCEL_TOKEN"')
+    expect(canary).not.toContain('--scope "$VERCEL_ORG_ID"')
+    expect(canary).toContain('EXPECTED_RELEASE_SHA')
+    expect(canary).toContain('TARGET_DEPLOYMENT_ID')
   })
 
   it('keeps alias verification authoritative and project-scoped', () => {
