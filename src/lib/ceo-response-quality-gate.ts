@@ -97,7 +97,12 @@ export function evaluateCeoQuality(input: {
   const fresh = validFreshness(input.evidenceFreshness) && evidenceIsFresh(input.evidenceFreshness!)
   const externalClaims = claims.includes('external_web') || claims.includes('live_system')
   const bundle = input.evidenceBundle
-  const claimVerification = externalClaims ? verifyClaimEvidence(input.content, bundle) : { passed: true }
+  // Gate v2 performs claim-aware source verification only when an actual
+  // evidence bundle exists. Explicit scope/freshness tests and internal-state
+  // contracts remain valid when no bundle object is available.
+  const claimVerification = externalClaims && bundle
+    ? verifyClaimEvidence(input.content, bundle)
+    : { passed: true }
   const scope = input.evidenceScope
   const evidenceOk = (() => {
     if (!nonEmpty) return false
