@@ -176,6 +176,12 @@ jobs:
       - name: Venture OS contract tests
         run: bun test src/lib/venture-os.test.ts src/lib/venture-decision-engine.test.ts
 
+      - name: CEO claim-aware, readiness and incident regression corpus
+        run: bun test tests/ceo-self-reflection.test.ts
+
+      - name: CEO real-request contract corpus
+        run: bun test tests/ceo-real-request-corpus.test.ts
+
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
@@ -196,6 +202,58 @@ jobs:
         with:
           name: production-verification-${{ github.sha }}
           path: .artifacts/production-verification-manifest.json
+          if-no-files-found: error
+
+  certification:
+    name: CI certification
+    needs: static-integrity
+    if: needs.static-integrity.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact certified commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Assert exact SHA and generate certification manifest
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          mkdir -p .artifacts
+          cat > .artifacts/ci-certification.json <<EOF
+          {
+            "schemaVersion": 1,
+            "status": "CERTIFIED",
+            "certification": "github-actions-ci",
+            "repository": "${GITHUB_REPOSITORY}",
+            "branch": "${REF_NAME}",
+            "commit": "${ACTUAL_SHA}",
+            "workflow": "${WORKFLOW}",
+            "runId": "${RUN_ID}",
+            "runNumber": "${RUN_NUMBER}",
+            "event": "${EVENT_NAME}",
+            "sourceGate": "static-integrity",
+            "deploymentStatus": "MANUAL_AUTHORIZATION_REQUIRED",
+            "vercelDeploymentPerformed": false,
+            "certifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat .artifacts/ci-certification.json
+
+      - name: Upload CI certification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-certification-${{ github.sha }}
+          path: .artifacts/ci-certification.json
           if-no-files-found: error
 
 # Release execution is intentionally separate and authorization-gated in production-release-watchdog.yml.
