@@ -15,6 +15,17 @@ const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|de
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 
+// Public-equity questions depend on current external facts (price, filings,
+// earnings, valuation, guidance, competitors, etc.). They must never fall
+// into the internal CEO-only analysis lane, because that lane explicitly does
+// not fetch or require external evidence.
+const EQUITY_RESEARCH_RE = /\b(?:stock|stocks|share|shares|equity|ticker|invest|investing|investment|buy|sell|hold|market\s+cap|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|cash\s+flow|10-k|10-q|sec\s+filing)\b/i
+const EQUITY_ANALYSIS_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend|recommendation|should|invest|buy|sell|hold)\b/i
+
+function isExternalEquityResearch(text: string): boolean {
+  return EQUITY_RESEARCH_RE.test(text) && EQUITY_ANALYSIS_ACTION_RE.test(text)
+}
+
 function latestUserText(messages: readonly { role: string; content: string }[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === 'user') return String(messages[index].content ?? '').trim()
@@ -171,6 +182,7 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (selfReflection.isSelfReflective) return 'self_assessment'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
+  if (isExternalEquityResearch(text)) return 'research'
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
   if (/\b(?:create|delete|edit|update|change|schedule|send|run|execute|fix)\b/i.test(text)) return 'tool_action'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
@@ -247,11 +259,13 @@ export function preRouteCeoRequest(
   }
 
   if (semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action') {
-    const reason = `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
+    const reason = semanticIntent === 'research' && isExternalEquityResearch(text)
+      ? 'Public-equity research requires fresh external evidence and the operational research owner.'
+      : `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
     return buildDecision({
       route: 'full', reason, missionRelevant, complexitySignals, taskClass,
-      adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }),
+      adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass,
+      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass, missionRelevant, reason }),
     })
   }
 
