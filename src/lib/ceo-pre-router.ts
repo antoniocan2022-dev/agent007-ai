@@ -209,10 +209,14 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') {
     return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
   }
-  const useFast = adaptive.executionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS) && !CONTEXT_RE.test(text)
+  if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
+    const reason = 'Context-dependent request requires richer conversational analysis.'
+    return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) })
+  }
+  const useFast = adaptive.executionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS)
   return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : adaptive.executionClass, executionContract })
 }
 
 export function resolvePreRoute(decision: PreRouteDecision): 'fast' | 'full' {
-  return decision.route === 'fast' && decision.executionContract.toolRequired ? 'full' : decision.route
+  return decision.route === 'fast' && !decision.executionContract.toolRequired ? 'fast' : 'full'
 }
