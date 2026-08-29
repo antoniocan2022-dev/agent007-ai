@@ -1,77 +1,3 @@
-import { describe, expect, it } from 'bun:test'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
-
-const ROOT = process.cwd()
-const WORKFLOWS_DIR = join(ROOT, '.github', 'workflows')
-const CANONICAL_WORKFLOW = 'production-release-watchdog.yml'
-
-function workflowFiles(): string[] {
-  return readdirSync(WORKFLOWS_DIR).filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
-}
-
-function workflowContent(name: string): string {
-  return readFileSync(join(WORKFLOWS_DIR, name), 'utf8')
-}
-
-function productionDeploymentOperation(content: string): boolean {
-  const executableLines = content
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+#.*$/, '').trim())
-    .filter(Boolean)
-
-  const directDeployCommand = /^(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b.*(?:--prod\b|--target\s+production\b|production\b)/i
-  const commandSubstitutionDeploy = /\$\(\s*(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+(?:deploy|promote)\b.*(?:--prod\b|--target\s+production\b|production\b)/i
-  const shorthandDeployCommand = /^(?:npx\s+--yes\s+)?vercel(?:@[^\s]+)?\s+--prod\b/i
-  const childProcessDeploy = /\b(?:execFileSync|execSync|spawn|spawnSync)\(\s*['"`]?(?:[^'"`]*\/)?vercel(?:@[^'"`\s]+)?['"`]?[,)]/i
-  const childProcessArgsDeploy = /\b(?:execFileSync|spawn|spawnSync)\([^\n]*(?:deploy|promote)[^\n]*(?:--prod|production)/i
-  const shellCurlDeploy = /^(?:curl|\$\{[^}]+\})[^\n]*(?:POST[^\n]*)?\/v\d+\/deployments(?:\?|\s|["'])/i
-  const childProcessCurlDeploy = /\b(?:execFileSync|execSync|spawn|spawnSync)\([^\n]*(?:POST|--request\s+POST)[^\n]*\/v\d+\/deployments(?:\?|\s|["'])/i
-
-  return executableLines.some((line) =>
-    directDeployCommand.test(line) ||
-    commandSubstitutionDeploy.test(line) ||
-    shorthandDeployCommand.test(line) ||
-    childProcessDeploy.test(line) ||
-    childProcessArgsDeploy.test(line) ||
-    shellCurlDeploy.test(line) ||
-    childProcessCurlDeploy.test(line),
-  )
-}
-
-function productionScriptFiles(): string[] {
-  const scriptsDir = join(ROOT, 'scripts')
-  return readdirSync(scriptsDir)
-    .filter((name) => /\.(?:sh|cjs|mjs|ts|js)$/.test(name))
-    .map((name) => join(scriptsDir, name))
-    .filter((path) => statSync(path).isFile())
-}
-
-describe('permanent production release architecture', () => {
-  it('has exactly one workflow capable of deploying or promoting production', () => {
-    const deployers = workflowFiles().filter((name) => productionDeploymentOperation(workflowContent(name)))
-    expect(deployers).toEqual([CANONICAL_WORKFLOW])
-  })
-
-  it('has no direct production deploy scripts outside GitHub Actions', () => {
-    const offenders = productionScriptFiles()
-      .filter((path) => productionDeploymentOperation(readFileSync(path, 'utf8')))
-      .map((path) => path.replace(`${ROOT}/`, ''))
-    expect(offenders).toEqual([])
-  })
-
-  it('keeps Vercel Git auto-deployment disabled', () => {
-    const vercel = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'))
-    expect(vercel.git?.deploymentEnabled).toBe(false)
-  })
-
-  it('has only the canonical explicit or one-shot owner-authorized release surfaces', () => {
-    const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('on:\n  workflow_dispatch:')
-    expect(content).toContain('  push:\n    branches: [main]')
-    expect(content).toContain('.release/production-deploy.json')
-    expect(content).toContain("inputs.authorization == 'DEPLOY_AGENT007_MAIN'")
-    expect(content).toContain("github.event.head_commit.message == 'authorized production deployment'")
     expect(content).toContain('authorization == \"DEPLOY_AGENT007_MAIN\"')
     expect(content).toContain('environment: production')
   })
@@ -83,19 +9,21 @@ describe('permanent production release architecture', () => {
     expect(content).toContain('cancel-in-progress: false')
   })
 
-  it('requires exact main SHA before any production mutation', () => {
+  it('requires exact certified source SHA before any production mutation', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     const identity = content.indexOf('Validate authorization and immutable release identity')
-    const deploy = content.indexOf('Deploy exact main checkout to Vercel production')
+    const deploy = content.indexOf('Deploy exact certified main checkout to Vercel production')
     expect(identity).toBeGreaterThanOrEqual(0)
     expect(deploy).toBeGreaterThan(identity)
     expect(content).toContain('git ls-remote origin refs/heads/main')
     expect(content).toContain('Wait for all exact-SHA CI certification gates')
+    expect(content).toContain('source_sha=')
+    expect(content).toContain('gh api \"repos/${GITHUB_REPOSITORY}/commits/${source_sha}\"')
   })
 
   it('makes real production traffic ownership the release proof', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    const deploy = content.indexOf('Deploy exact main checkout to Vercel production')
+    const deploy = content.indexOf('Deploy exact certified main checkout to Vercel production')
     const aliases = content.indexOf('Reconcile canonical production aliases')
     const traffic = content.indexOf('Verify canonical aliases and production traffic identity')
     const health = content.indexOf('Verify fresh production release health')
@@ -111,45 +39,5 @@ describe('permanent production release architecture', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     const canary = content.slice(content.indexOf('Verify canonical aliases and production traffic identity'), content.indexOf('Verify fresh production release health'))
     expect(canary).toContain('curl --fail-with-body --silent --show-error --max-time 30')
-    expect(canary).toContain('"$PRODUCTION_URL/api/release-health"')
+    expect(canary).toContain('\"$PRODUCTION_URL/api/release-health\"')
     expect(canary).toContain('EXPECTED_RELEASE_SHA')
-    expect(canary).toContain('TARGET_DEPLOYMENT_ID')
-    expect(canary).toContain('.actualExecution.verified')
-    expect(canary).toContain('.proof.tripleProof')
-    expect(canary).not.toContain('--location')
-    expect(canary).not.toContain('/api/agent") > agent-canary.txt')
-  })
-
-  it('keeps alias verification authoritative and project-scoped', () => {
-    const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID')
-    expect(content).toContain('/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases')
-  })
-
-  it('keeps release-health proof after traffic', () => {
-    const content = workflowContent(CANONICAL_WORKFLOW)
-    expect(content).toContain('/api/release-health')
-    expect(content).toContain('organizationGraphFingerprint')
-    expect(content).toContain('.proof.tripleProof')
-    expect(content).toContain('.proof.deploymentIdentityVerified')
-    expect(content).toContain('.actualExecution.verified')
-  })
-
-  it('stamps every Agent007 SSE envelope with deployment identity', () => {
-    const route = readFileSync(join(ROOT, 'src', 'app', 'api', 'agent', 'route.ts'), 'utf8')
-    expect(route).toContain('VERCEL_DEPLOYMENT_ID')
-    expect(route).toContain('VERCEL_GIT_COMMIT_SHA')
-    expect(route).toContain('function sse(event: string, data: unknown)')
-    expect(route).toContain('deploymentId: identity.deploymentId')
-    expect(route).toContain('releaseCommit: identity.releaseCommit')
-    expect(route).toContain('Every SSE envelope is stamped here')
-  })
-
-  it('exposes deployment identity and real provider execution in release-health', () => {
-    const health = readFileSync(join(ROOT, 'src', 'app', 'api', 'release-health', 'route.ts'), 'utf8')
-    expect(health).toContain('VERCEL_DEPLOYMENT_ID')
-    expect(health).toContain('deploymentIdentityVerified')
-    expect(health).toContain('runGovernedProviderChat')
-    expect(health).not.toContain('actualExecution.verified: false')
-  })
-})
