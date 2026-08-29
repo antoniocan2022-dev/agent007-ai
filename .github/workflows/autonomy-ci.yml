@@ -185,6 +185,9 @@ jobs:
       - name: CEO real-request contract corpus
         run: bun test tests/ceo-real-request-corpus.test.ts
 
+      - name: Full Recommendations 1-8 audit
+        run: bun scripts/recommendations-1-8-audit.ts
+
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
 
