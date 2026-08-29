@@ -87,6 +87,8 @@ jobs:
             source_sha="$INPUT_RELEASE_SHA"
             test "$INPUT_AUTHORIZATION" = "DEPLOY_AGENT007_MAIN"
             test -n "$source_sha"
+            # P0 invariant: a manual release may never deploy a stale certified commit.
+            test "$source_sha" = "$main_sha"
           else
             test -f .release/production-deploy.json
             source_sha="$(jq -r '.sourceMainSha // ""' .release/production-deploy.json)"
@@ -104,6 +106,7 @@ jobs:
             expires_epoch="$(date -d "$expires_at" +%s 2>/dev/null || true)"
             test -n "$expires_epoch"
             test "$expires_epoch" -gt "$(date +%s)"
+            test "$source_sha" = "$main_sha"
           fi
 
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
@@ -309,5 +312,6 @@ jobs:
       - name: Upload release certification artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agent007-production-release-certification
+          name: agent007-production-release-${{ steps.release.outputs.sha }}
           path: production-release-certification.json
+          if-no-files-found: error
