@@ -54,7 +54,7 @@ if (!releaseWorkflow.includes('/api/release-health')) {
 if (!releaseWorkflow.includes('.proof.tripleProof')) {
   throw new Error('Production release workflow is missing triple-proof verification.')
 }
-if (!releaseWorkflow.includes('.proof.providerExecutionVerified')) {
+if (!releaseWorkflow.includes('.actualExecution.verified')) {
   throw new Error('Production release workflow is missing real provider-execution verification.')
 }
 
@@ -80,7 +80,7 @@ const manifest = {
     githubGraph: 'fingerprint generated from canonical organization source',
     deployedCode: 'must report the exact GitHub main SHA through /api/release-health',
     runtimeGraph: 'must report the same organizationGraphFingerprint through /api/release-health',
-    liveTraffic: 'must report the exact release SHA and Vercel deployment identity in /api/agent SSE envelopes',
+    liveTraffic: 'must report the exact release SHA and Vercel deployment identity through /api/release-health',
   },
   generatedAt: new Date().toISOString(),
 }
