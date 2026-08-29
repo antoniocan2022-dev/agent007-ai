@@ -90,25 +90,38 @@ jobs:
           fi
           echo "sha=$actual_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for exact-SHA CI certification gates
+      - name: Wait for all exact-SHA CI certification gates
         shell: bash
         env:
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          expected=(
+            "Agent007 Autonomy CI"
+            "Venture OS 24x7 Heartbeat"
+            "Agent007 Memory Integrity CI"
+            "Provider Control Plane CI"
+            "Provider Retirement Inventory"
+            "Agent007 Revenue Foundation CI"
+            "Operational KPIs + Venture 001 Verification"
+          )
           for attempt in $(seq 1 60); do
             runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100")"
-            autonomy_id="$(jq -r '.workflow_runs[] | select(.name == "Agent007 Autonomy CI") | .id' <<<"$runs" | head -n1)"
-            heartbeat_id="$(jq -r '.workflow_runs[] | select(.name == "Venture OS 24x7 Heartbeat") | .id' <<<"$runs" | head -n1)"
-            autonomy="$(if [ -n "$autonomy_id" ]; then gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${autonomy_id}" --jq '.conclusion // ""'; fi)"
-            heartbeat="$(if [ -n "$heartbeat_id" ]; then gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${heartbeat_id}" --jq '.conclusion // ""'; fi)"
-            echo "Attempt $attempt/60 — Autonomy=${autonomy:-pending}; Heartbeat=${heartbeat:-pending}"
-            if [ "$autonomy" = success ] && [ "$heartbeat" = success ]; then exit 0; fi
-            if [[ "$autonomy" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]] || [[ "$heartbeat" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]]; then
-              echo 'CI_GATE_FAILED'
-              exit 1
-            fi
+            all_green=true
+            for workflow_name in "${expected[@]}"; do
+              conclusion="$(jq -r --arg name "$workflow_name" '.workflow_runs[] | select(.name == $name) | .conclusion // ""' <<<"$runs" | head -n1)"
+              status="$(jq -r --arg name "$workflow_name" '.workflow_runs[] | select(.name == $name) | .status // ""' <<<"$runs" | head -n1)"
+              echo "$workflow_name — status=${status:-missing}; conclusion=${conclusion:-pending}"
+              if [ "$conclusion" != "success" ]; then
+                all_green=false
+              fi
+              if [[ "$conclusion" =~ ^(failure|cancelled|timed_out|action_required|startup_failure|stale)$ ]]; then
+                echo "CI_GATE_FAILED: $workflow_name"
+                exit 1
+              fi
+            done
+            if [ "$all_green" = true ]; then exit 0; fi
             sleep 10
           done
           echo 'CI_GATE_TIMEOUT'
