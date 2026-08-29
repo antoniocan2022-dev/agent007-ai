@@ -12,7 +12,10 @@ function workflowContent(path = CANONICAL_WORKFLOW): string {
 describe('permanent production release architecture', () => {
   test('has exactly one workflow capable of deploying or promoting production', () => {
     const workflows = readdirSync(join(ROOT, '.github/workflows')).filter((file: string) => file.endsWith('.yml') || file.endsWith('.yaml'))
-    const deployers = workflows.filter((file: string) => /vercel|deploy|production/i.test(file))
+    const deployers = workflows.filter((file) => {
+      const content = readFileSync(join(ROOT, '.github/workflows', file), 'utf8')
+      return /vercel@\S+\s+deploy\s+--prod|api\.vercel\.com\/v\d+\/deployments.*POST/i.test(content)
+    })
     expect(deployers).toEqual(['production-release-watchdog.yml'])
   })
 
@@ -26,7 +29,8 @@ describe('permanent production release architecture', () => {
         else files.push(full)
       }
     }
-    walk(join(ROOT, 'scripts'))
+    const scriptsDir = join(ROOT, 'scripts')
+    if (existsSync(scriptsDir)) walk(scriptsDir)
     for (const file of files) {
       const content = readFileSync(file, 'utf8')
       expect(content).not.toMatch(/vercel\s+--prod|vercel\.com\/v\d+\/deployments/i)
