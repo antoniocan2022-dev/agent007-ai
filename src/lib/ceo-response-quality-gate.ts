@@ -101,8 +101,6 @@ function evidenceDiscipline(input: {
   const hasEvidenceSource = input.evidenceProvided || Boolean(scope && scope !== 'none')
   const hasFreshEvidence = validFreshness(input.evidenceFreshness) && evidenceIsFresh(input.evidenceFreshness)
 
-  // Claim-aware policy: live and external claims may not fall back to a generic
-  // evidenceProvided boolean. They require an explicit matching evidence scope.
   if (claims.includes('live_system')) {
     if (scope !== 'live_system' && scope !== 'mixed') return false
     if (!hasFreshEvidence) return false
@@ -117,8 +115,6 @@ function evidenceDiscipline(input: {
     if (scope !== 'internal_state' && scope !== 'mixed' && scope !== 'live_system') return false
   }
 
-  // Critical decisions require an explicit evidence source, even when the
-  // prose itself does not contain an obvious live/external keyword.
   if (input.path === 'critical' && !hasEvidenceSource) return false
   return true
 }
@@ -158,15 +154,18 @@ export function evaluateCeoQuality(input: {
   if (!contractValid) reasons.push('The response violates the canonical response-size contract.')
   if (!coverage) reasons.push('The response does not adequately cover the requested objective.')
   if (!consistent) reasons.push('The response contains a detected contradiction or conflicting claim.')
-  if (!evidenceOk) reasons.push(input.evidenceFreshness && claims.some((claim) => claim === 'live_system' || claim === 'external_web') ? 'A live/external claim lacks a matching fresh evidence source.' : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
+  if (!evidenceOk) reasons.push(claims.some((claim) => claim === 'live_system' || claim === 'external_web') ? 'A live/external claim lacks a matching fresh evidence source.' : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
   if (!structureOk) reasons.push('The response does not meet the structural requirements for the requested execution depth.')
   if (input.path === 'critical' && !reviewed) reasons.push('Critical execution requires an independent review stage before acceptance.')
 
   const passed = nonEmpty && contractValid && coverage && consistent && evidenceOk && structureOk && (input.path !== 'critical' || reviewed)
+  const evidenceIsVerifiedLive = passed
+    && (input.evidenceScope === 'live_system' || input.evidenceScope === 'mixed')
+    && Boolean(input.evidenceFreshness)
+    && evidenceIsFresh(input.evidenceFreshness!)
   let evidenceState: EvidenceState
   if (!input.externalExecutionSucceeded) evidenceState = 'UNAVAILABLE'
-  else if (passed && input.evidenceScope === 'live_system' && input.evidenceFreshness) evidenceState = 'LIVE_VERIFIED'
-  else if (passed && evidenceProvided) evidenceState = 'LIVE_VERIFIED'
+  else if (evidenceIsVerifiedLive) evidenceState = 'LIVE_VERIFIED'
   else if (passed) evidenceState = 'LIVE_EXECUTED'
   else evidenceState = 'PARTIAL_UNCONFIRMED'
 
