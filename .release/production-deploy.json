@@ -2,7 +2,10 @@
   "authorization": "DEPLOY_AGENT007_MAIN",
   "repository": "antoniocan2022-dev/agent007-ai",
   "ref": "main",
-  "reason": "Explicit owner authorization to deploy the corrected main release to Vercel production",
-  "authorizedAt": "2026-08-29T09:25:00-04:00",
-  "sourceMainSha": "049b2ba797f65082a42b6a2bc90267af76ad8d4c"
+  "target": "production",
+  "authorized": true,
+  "authorizedAt": "2026-08-29T15:51:43-04:00",
+  "expiresAt": "2026-08-29T17:51:43-04:00",
+  "sourceMainSha": "0b4ff3d693da04b24fb282cbca3f03edd141768a",
+  "reason": "Explicit owner authorization to deploy the fully audited and certified main release to Vercel production"
 }
