@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }) }
   const { message, conversationId, attachments, language } = body as { message?: string; conversationId?: string; attachments?: AttachmentMeta[]; language?: 'en' | 'zh' }
   if (!message || typeof message !== 'string') return new Response(JSON.stringify({ error: 'Missing \"message\"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
-  if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing \"conversationId\"' }), { status: 400, headers: { 'Content-Type': 'application/json' }) }
+  if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing \"conversationId\"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
   const deploymentIdentity = getDeploymentIdentity()
@@ -82,7 +82,12 @@ export async function POST(req: NextRequest) {
   }
 
   const contextData = await loadConversationContext(conversationId, message)
-  const contextSeed: CeoContextComposition = composeCeoContext({ systemPrompt: 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Understand the user naturally and use prior conversation context when relevant.', currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories })
+  const contextSeed: CeoContextComposition = composeCeoContext({
+    systemPrompt: 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Understand the user naturally and use prior conversation context when relevant.',
+    currentUserMessage: message,
+    persistedMessages: contextData.rows,
+    memories: contextData.memories,
+  })
   const preRoute = preRouteCeoRequest(contextSeed.messages, atts.length)
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract
@@ -92,7 +97,10 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false
-      const safeEnqueue = (value: string) => { if (closed) return; try { controller.enqueue(encoder.encode(value)) } catch { closed = true } }
+      const safeEnqueue = (value: string) => {
+        if (closed) return
+        try { controller.enqueue(encoder.encode(value)) } catch { closed = true }
+      }
       const baseEmit: OrchestratorEventEmit = async (event: string, data: any) => safeEnqueue(sse(event, data))
       const recoveryBudget = new RecoveryBudget(executionContract)
       const emit: OrchestratorEventEmit = async (event: string, data: any) => {
