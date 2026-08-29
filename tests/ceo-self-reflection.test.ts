@@ -89,13 +89,14 @@ describe('CEO self-reflection canonical classifier', () => {
   })
 
   test('fresh live evidence passes while stale live evidence fails', () => {
+    const now = Date.now()
     const fresh = evaluateCeoQuality({
       objective: 'What is your current production status?',
       content: 'The current production runtime is verified.',
       path: 'fast',
       externalExecutionSucceeded: true,
       evidenceScope: 'live_system',
-      evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 60_000 },
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
     })
     expect(fresh.decision).toBe('PASS')
 
@@ -105,7 +106,7 @@ describe('CEO self-reflection canonical classifier', () => {
       path: 'fast',
       externalExecutionSucceeded: true,
       evidenceScope: 'live_system',
-      evidenceFreshness: { observedAt: Date.now() - 61_000, maxAgeMs: 60_000 },
+      evidenceFreshness: { observedAt: now - 61_000, maxAgeMs: 60_000 },
     })
     expect(stale.decision).not.toBe('PASS')
     expect(stale.checks.evidenceDiscipline).toBe(false)
@@ -184,6 +185,22 @@ describe('CEO self-reflection canonical classifier', () => {
       now,
     })
     expect(stale.level).toBe('B')
+  })
+
+  test('executive readiness requires sustained autonomy in addition to outcomes for Level E', () => {
+    const now = Date.now()
+    const e = synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
+      liveExecutionVerified: true,
+      productionTrafficVerified: true,
+      repeatableBusinessOutcomesVerified: true,
+      sustainedAutonomyVerified: true,
+      observedAt: now,
+      maxEvidenceAgeMs: 60_000,
+      now,
+    })
+    expect(e.level).toBe('E')
+    expect(e.label).toBe('Sustained autonomy')
   })
 
   test('the exact original 5–10 minute incident stays on the bounded path', () => {
