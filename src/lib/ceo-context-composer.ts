@@ -28,7 +28,6 @@ export interface CeoContextModules {
   evidence?: string
   mission?: string
   memory?: string
-  conversation?: string
 }
 
 const STOPWORDS = new Set([
@@ -46,39 +45,23 @@ const DEFAULT_MEMORY_ITEMS = 4
 const MAX_CONTEXT_CHARS = 48_000
 const MAX_MESSAGE_CHARS = 12_000
 
-function normalize(value: string): string {
-  return value.replace(/\s+/g, ' ').trim()
-}
-
+function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
 function tokenize(value: string): Set<string> {
-  return new Set(
-    normalize(value)
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 4 && !STOPWORDS.has(token)),
-  )
+  return new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))
 }
-
 function asTimestamp(value: Date | string | number): number {
   if (value instanceof Date) return value.getTime()
   if (typeof value === 'number') return value
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
-
-function clampMessage(content: string): string {
-  return normalize(content).slice(0, MAX_MESSAGE_CHARS)
-}
-
+function clampMessage(content: string): string { return normalize(content).slice(0, MAX_MESSAGE_CHARS) }
 function scoreOverlap(text: string, queryTokens: Set<string>): number {
   if (!queryTokens.size) return 0
-  const tokens = tokenize(text)
   let score = 0
-  for (const token of tokens) if (queryTokens.has(token)) score += 1
+  for (const token of tokenize(text)) if (queryTokens.has(token)) score += 1
   return score
 }
-
 function uniqueRows(rows: PersistedConversationRow[]): PersistedConversationRow[] {
   const seen = new Set<string>()
   return rows.filter((row) => {
@@ -88,16 +71,11 @@ function uniqueRows(rows: PersistedConversationRow[]): PersistedConversationRow[
     return true
   })
 }
-
 function summarizeOlder(rows: PersistedConversationRow[]): string {
   if (!rows.length) return ''
-  const lines = rows.slice(-DEFAULT_SUMMARY_MESSAGES).map((row) => {
-    const prefix = row.role === 'assistant' ? 'CEO' : 'User'
-    return `- ${prefix}: ${clampMessage(row.content).slice(0, 220)}`
-  })
+  const lines = rows.slice(-DEFAULT_SUMMARY_MESSAGES).map((row) => `- ${row.role === 'assistant' ? 'CEO' : 'User'}: ${clampMessage(row.content).slice(0, 220)}`)
   return `OLDER CONVERSATION SUMMARY (compressed, context only; not evidence):\n${lines.join('\n')}`
 }
-
 function rankMemories(memories: PersistedMemoryRow[], queryTokens: Set<string>): PersistedMemoryRow[] {
   return memories
     .map((memory) => ({ memory, score: scoreOverlap(`${memory.key} ${memory.value} ${memory.category}`, queryTokens) }))
@@ -114,12 +92,7 @@ function buildConversationModule(input: {
   relevantOlderLimit: number
 }): { messages: Array<{ role: CeoContextRole; content: string }>; recent: PersistedConversationRow[]; relevantOlder: PersistedConversationRow[]; summarizedCount: number } {
   const normalizedCurrent = normalize(input.currentUserMessage)
-  const rows = uniqueRows(
-    input.persistedMessages
-      .filter((row) => row && (row.role === 'user' || row.role === 'assistant'))
-      .sort((a, b) => asTimestamp(a.createdAt) - asTimestamp(b.createdAt)),
-  )
-
+  const rows = uniqueRows(input.persistedMessages.filter((row) => row && (row.role === 'user' || row.role === 'assistant')).sort((a, b) => asTimestamp(a.createdAt) - asTimestamp(b.createdAt)))
   let removedCurrent = false
   const priorRows = [...rows].reverse().filter((row) => {
     if (!removedCurrent && row.role === 'user' && normalize(row.content) === normalizedCurrent) {
@@ -128,22 +101,19 @@ function buildConversationModule(input: {
     }
     return true
   }).reverse()
-
   const recent = priorRows.slice(-input.recentMessageLimit)
   const older = priorRows.slice(0, Math.max(0, priorRows.length - recent.length))
   const queryTokens = tokenize([normalizedCurrent, ...recent.filter((row) => row.role === 'user').map((row) => row.content)].join(' '))
-  const relevantOlder = older
-    .map((row, index) => ({ row, index, score: scoreOverlap(row.content, queryTokens) }))
+  const relevantOlder = older.map((row, index) => ({ row, index, score: scoreOverlap(row.content, queryTokens) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score || b.index - a.index)
     .slice(0, input.relevantOlderLimit)
     .sort((a, b) => a.index - b.index)
     .map(({ row }) => row)
-
   const relevantKeys = new Set(relevantOlder.map((row) => `${row.role}\u0000${normalize(row.content)}\u0000${asTimestamp(row.createdAt)}`))
   const summarizedCandidates = older.filter((row) => !relevantKeys.has(`${row.role}\u0000${normalize(row.content)}\u0000${asTimestamp(row.createdAt)}`))
   const messages: Array<{ role: CeoContextRole; content: string }> = []
-  const summary = summarizedCandidates.length > 0 ? summarizeOlder(summarizedCandidates) : ''
+  const summary = summarizedCandidates.length ? summarizeOlder(summarizedCandidates) : ''
   if (summary) messages.push({ role: 'system', content: summary })
   if (relevantOlder.length) {
     messages.push({ role: 'system', content: 'RELEVANT PRIOR CONVERSATION (context only; previous assistant claims are not factual proof):' })
@@ -151,15 +121,9 @@ function buildConversationModule(input: {
   }
   for (const row of recent) messages.push({ role: row.role === 'assistant' ? 'assistant' : 'user', content: clampMessage(row.content) })
   messages.push({ role: 'user', content: normalizedCurrent })
-
   return { messages, recent, relevantOlder, summarizedCount: summarizedCandidates.length }
 }
 
-/**
- * Canonical composable CEO context construction. Each domain module is
- * optional; conversation remains context-only and evidence is never inferred
- * from persisted assistant messages.
- */
 export function composeCeoContext(input: {
   systemPrompt: string
   currentUserMessage: string
@@ -172,21 +136,21 @@ export function composeCeoContext(input: {
   const recentLimit = Math.max(2, Math.min(input.recentMessageLimit ?? DEFAULT_RECENT_MESSAGES, 20))
   const relevantOlderLimit = Math.max(0, Math.min(input.relevantOlderLimit ?? DEFAULT_RELEVANT_OLDER_MESSAGES, 10))
   const conversation = buildConversationModule({ currentUserMessage: input.currentUserMessage, persistedMessages: input.persistedMessages, recentMessageLimit: recentLimit, relevantOlderLimit })
-  const priorUserText = conversation.recent.filter((row) => row.role === 'user').map((row) => row.content)
-  const queryTokens = tokenize([input.currentUserMessage, ...priorUserText].join(' '))
+  const queryTokens = tokenize([input.currentUserMessage, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content)].join(' '))
   const selectedMemories = rankMemories(input.memories ? [...input.memories] : [], queryTokens)
-  const selectedModules: CeoContextModuleName[] = ['conversation']
-
   const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: input.systemPrompt }]
-  if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); selectedModules.push('organization') }
-  if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); selectedModules.push('mission') }
-  if (input.modules?.evidence?.trim()) { messages.push({ role: 'system', content: `EVIDENCE CONTEXT (separate from conversation; provenance required):\n${input.modules.evidence.trim()}` }); selectedModules.push('evidence') }
-  messages.push(...conversation.messages)
-  if (selectedMemories.length) {
-    const memoryText = selectedMemories.map((memory) => `- ${memory.key} [${memory.category}]: ${clampMessage(memory.value).slice(0, 1000)}`).join('\n')
-    messages.push({ role: 'system', content: `SELECTED PERSISTENT MEMORY (context only; not external proof):\n${memoryText}` })
-    selectedModules.push('memory')
+  const modules: CeoContextModuleName[] = ['conversation']
+
+  if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); modules.push('organization') }
+  if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); modules.push('mission') }
+  if (input.modules?.evidence?.trim()) { messages.push({ role: 'system', content: `EVIDENCE CONTEXT (separate from conversation; provenance required):\n${input.modules.evidence.trim()}` }); modules.push('evidence') }
+  if (selectedMemories.length || input.modules?.memory?.trim()) {
+    const selectedMemoryText = selectedMemories.map((memory) => `- ${memory.key} [${memory.category}]: ${clampMessage(memory.value).slice(0, 1000)}`).join('\n')
+    const suppliedMemory = input.modules?.memory?.trim() ? `\n${input.modules.memory.trim()}` : ''
+    messages.push({ role: 'system', content: `SELECTED MEMORY (context only; not factual proof):${selectedMemoryText ? `\n${selectedMemoryText}` : ''}${suppliedMemory}` })
+    modules.push('memory')
   }
+  messages.push(...conversation.messages)
 
   let total = messages.reduce((sum, message) => sum + message.content.length, 0)
   const currentIndex = messages.length - 1
@@ -207,6 +171,6 @@ export function composeCeoContext(input: {
     relevantOlderMessages: conversation.relevantOlder.length,
     summarizedOlderMessages: conversation.summarizedCount,
     selectedMemoryKeys: selectedMemories.map((memory) => memory.key),
-    modules: selectedModules,
+    modules,
   }
 }
