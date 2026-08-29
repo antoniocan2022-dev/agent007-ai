@@ -33,6 +33,8 @@ describe('CEO self-reflection canonical classifier', () => {
     'Create a new venture.',
     'Manage this business for me.',
     'Can you analyze this architecture?',
+    'Run this business transaction for me.',
+    'Review this customer churn report.',
   ])('does not steal operational or analytical request: %s', (text) => {
     expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
   })
@@ -70,7 +72,7 @@ describe('CEO self-reflection canonical classifier', () => {
       evidenceScope: 'internal_state',
     })
     expect(result.decision).toBe('PASS')
-    expect(result.evidenceDiscipline).toBeUndefined()
+    expect(result.checks.evidenceDiscipline).toBe(true)
     expect(result.claimScopes).toContain('internal_state')
   })
 
@@ -83,6 +85,7 @@ describe('CEO self-reflection canonical classifier', () => {
       evidenceScope: 'internal_state',
     })
     expect(result.decision).not.toBe('PASS')
+    expect(result.checks.evidenceDiscipline).toBe(false)
   })
 
   test('fresh live evidence passes while stale live evidence fails', () => {
@@ -105,6 +108,18 @@ describe('CEO self-reflection canonical classifier', () => {
       evidenceFreshness: { observedAt: Date.now() - 61_000, maxAgeMs: 60_000 },
     })
     expect(stale.decision).not.toBe('PASS')
+    expect(stale.checks.evidenceDiscipline).toBe(false)
+  })
+
+  test('negative evidence statements do not become unsupported positive claims', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Are you ready to manage businesses?',
+      content: 'I am not yet proven for unsupervised business ownership, and sustained customer and revenue outcomes remain unverified.',
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceScope: 'internal_state',
+    })
+    expect(result.checks.evidenceDiscipline).toBe(true)
   })
 
   test('executive readiness remains conservative without live or outcome proof', () => {
@@ -119,14 +134,16 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(readiness.notProven).toContain('not established')
   })
 
-  test('executive readiness advances only with explicitly supplied evidence', () => {
+  test('executive readiness advances only with explicitly supplied fresh evidence', () => {
+    const now = Date.now()
     const live = synthesizeExecutiveReadiness({
       liveExecutionVerified: true,
       productionTrafficVerified: true,
       repeatableBusinessOutcomesVerified: false,
       sustainedAutonomyVerified: false,
-      observedAt: Date.now(),
+      observedAt: now,
       maxEvidenceAgeMs: 60_000,
+      now,
     })
     expect(live.level).toBe('C')
 
@@ -135,9 +152,32 @@ describe('CEO self-reflection canonical classifier', () => {
       productionTrafficVerified: true,
       repeatableBusinessOutcomesVerified: true,
       sustainedAutonomyVerified: false,
-      observedAt: Date.now(),
+      observedAt: now,
       maxEvidenceAgeMs: 60_000,
+      now,
     })
     expect(outcomes.level).toBe('D')
+
+    const stale = synthesizeExecutiveReadiness({
+      liveExecutionVerified: true,
+      productionTrafficVerified: true,
+      repeatableBusinessOutcomesVerified: false,
+      sustainedAutonomyVerified: false,
+      observedAt: now - 61_000,
+      maxEvidenceAgeMs: 60_000,
+      now,
+    })
+    expect(stale.level).toBe('A')
+  })
+
+  test('the exact original 5–10 minute incident stays on the bounded path', () => {
+    const exact = 'Hows it going? make a self-analysis and tell me if you are ready to manage businesses?'
+    const decision = preRouteCeoRequest(user(exact))
+    const execution = classifyExecution(user(exact), classifyCeoSelfReflection(exact))
+    expect(decision.executionContract.intent).toBe('self_assessment')
+    expect(decision.executionContract.selfReflectionKind).toBe('readiness_assessment')
+    expect(decision.route).toBe('fast')
+    expect(execution.executionClass).toBe('fast')
+    expect(decision.executionContract.latencyBudgetMs).toBeLessThanOrEqual(30000)
   })
 })
