@@ -33,16 +33,12 @@ function cacheBypassArgs(args: Record<string, unknown>): Record<string, unknown>
 function urlsFromSearchResult(result: ToolResult): string[] { return [...result.result.matchAll(/URL:\s*(https?:\/\/[^\s]+)/gi)].map((match) => match[1]) }
 function titleFromSearchResult(result: ToolResult, url: string): string { const line = result.result.split('\n').find((candidate) => candidate.includes(url)); return line ? line.replace(/^[0-9]+\.\s*/, '').replace(/\*\*/g, '').trim() || url : url }
 
-function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType {
+/** Search-query preference never establishes source authority by itself. */
+export function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType {
   if (query.sourcePreference === 'market') return sourceTierForUrl(url) <= 2 ? 'market_data' : 'web'
-  if (query.sourcePreference === 'company') {
-    try {
-      const host = new URL(url).hostname.toLowerCase()
-      const isLikelyCompanyHost = !['google.com', 'bing.com', 'yahoo.com', 'reuters.com', 'bloomberg.com', 'wsj.com', 'cnbc.com', 'sec.gov', 'data.sec.gov'].some((domain) => host === domain || host.endsWith(`.${domain}`))
-      return isLikelyCompanyHost ? 'company_ir' : 'web'
-    } catch { return 'web' }
-  }
-  if (query.sourcePreference === 'news') return 'news'
+  if (query.sourcePreference === 'news') return sourceTierForUrl(url) === 3 ? 'news' : 'web'
+  // Company IR requires independent identity verification; search results alone
+  // are not enough to establish that identity, so remain generic web evidence.
   return 'web'
 }
 async function executeSearch(query: EvidenceQuery): Promise<{ result: ToolResult; sources: EvidenceSource[] }> {
@@ -58,12 +54,13 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = ''): Promis
   const failures: string[] = [], queries = plan.queries.slice(0, plan.maxSearchQueries).map((query) => querySuffix ? { ...query, query: `${query.query} ${querySuffix}` } : query)
   const searchResults = await Promise.all(queries.map(async (query) => { try { return await executeSearch(query) } catch (error) { failures.push(`${query.id}: ${error instanceof Error ? error.message : String(error)}`); return { result: { ok: false, preview: '', result: '' } as ToolResult, sources: [] } } }))
   const searchSources = searchResults.flatMap((entry) => entry.sources), discoveredUrls = [...new Set(searchSources.map((source) => source.url))]
-  let pageSources: EvidenceSource[] = []
   const pagesToRead = discoveredUrls.filter((url) => sourceTierForUrl(url) <= 2).slice(0, plan.maxPageReads)
+  let pageSources: EvidenceSource[] = []
   if (pagesToRead.length) try { pageSources = await readPages(pagesToRead) } catch (error) { failures.push(`page_reader: ${error instanceof Error ? error.message : String(error)}`) }
   let secSources: EvidenceSource[] = []
   if (plan.profile === 'public_equity') {
-    const tickers = [...new Set(plan.queries.map((query) => query.ticker).filter((ticker): ticker is string => Boolean(ticker)))], secResults = await Promise.all(tickers.map(async (ticker) => { try { return await fetchSecSource(ticker) } catch (error) { failures.push(`SEC ${ticker}: ${error instanceof Error ? error.message : String(error)}`); return null } }))
+    const tickers = [...new Set(plan.queries.map((query) => query.ticker).filter((ticker): ticker is string => Boolean(ticker)))]
+    const secResults = await Promise.all(tickers.map(async (ticker) => { try { return await fetchSecSource(ticker) } catch (error) { failures.push(`SEC ${ticker}: ${error instanceof Error ? error.message : String(error)}`); return null } }))
     secSources = secResults.filter((source): source is EvidenceSource => source !== null)
   }
   return { bundle: buildEvidenceBundle({ profile: plan.profile, sources: [...secSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 }), attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, failures }
