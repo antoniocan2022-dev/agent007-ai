@@ -24,6 +24,7 @@ function buildSelfAssessmentArchitectureFallback(objective: string, recoveredCon
     : ''
   const readiness = selfReflectionKind === 'readiness_assessment'
     ? synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
       liveExecutionVerified: false,
       productionTrafficVerified: false,
       repeatableBusinessOutcomesVerified: false,
