@@ -1,4 +1,4 @@
-import type { QualityResult, EvidenceState, VerificationStatus } from './ceo-cognitive-contract'
+import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness } from './ceo-cognitive-contract'
 
 const STOPWORDS = new Set([
   'about', 'after', 'again', 'also', 'because', 'before', 'being', 'between', 'could', 'from',
@@ -32,6 +32,8 @@ function consistency(content: string): boolean {
   if (!normalized.trim()) return false
 
   const contradictionPairs: Array<[RegExp, RegExp]> = [
+    /\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i,
+  ].length ? [
     [/\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i],
     [/\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i],
     [/\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i],
@@ -40,7 +42,7 @@ function consistency(content: string): boolean {
     [/\bunverified\b/i, /\bconfirmed\b/i],
     [/\bfailed\b/i, /\bsucceeded\b/i],
     [/\bunavailable\b/i, /\bavailable\b/i],
-  ]
+  ] : []
 
   for (const [left, right] of contradictionPairs) {
     if (left.test(content) && right.test(content)) return false
@@ -57,12 +59,57 @@ function consistency(content: string): boolean {
   return true
 }
 
-function evidenceDiscipline(content: string, evidenceProvided: boolean, path: 'fast' | 'full' | 'critical'): boolean {
-  if (!content.trim()) return false
-  const claimsLive = /\b(current|today|latest|live|verified|confirmed|proven|according to\b)/i.test(content)
-  if (claimsLive && !evidenceProvided) return false
-  if (path === 'critical' && /\b(recommend|decide|approve|deploy|invest|commit)\b/i.test(content) && !evidenceProvided) {
-    return !/\bI recommend|I would recommend|recommendation\b/i.test(content) || /\bshould\b/i.test(content)
+const LIVE_CLAIM_RE = /\b(?:current|today|latest|live|verified|confirmed|proven|deployed|serving|production\s+traffic|in\s+production)\b/i
+const EXTERNAL_CLAIM_RE = /\b(?:according\s+to|market|customer(?:s)?|competitor(?:s)?|industry|study|studies|report|reports|revenue|sales|financial\s+results)\b/i
+const INTERNAL_CLAIM_RE = /\b(?:architectur(?:e|al)|designed|implemented|configured|codebase|workflow|contract|module|repository|system\s+design|execution\s+path)\b/i
+
+function claimScopes(content: string): EvidenceScope[] {
+  const scopes: EvidenceScope[] = []
+  if (INTERNAL_CLAIM_RE.test(content)) scopes.push('internal_state')
+  if (LIVE_CLAIM_RE.test(content)) scopes.push('live_system')
+  if (EXTERNAL_CLAIM_RE.test(content)) scopes.push('external_web')
+  return scopes
+}
+
+function evidenceDiscipline(input: {
+  content: string
+  evidenceProvided: boolean
+  path: 'fast' | 'full' | 'critical'
+  evidenceScope?: EvidenceScope
+  evidenceFreshness?: EvidenceFreshness
+}): boolean {
+  if (!input.content.trim()) return false
+  const scopes = claimScopes(input.content)
+  const scope = input.evidenceScope
+
+  if (scopes.includes('live_system')) {
+    if (scope) {
+      if (scope !== 'live_system' && scope !== 'mixed') return false
+      if (input.evidenceFreshness) {
+        const age = Date.now() - input.evidenceFreshness.observedAt
+        if (age < 0 || age > input.evidenceFreshness.maxAgeMs) return false
+      }
+    } else if (!input.evidenceProvided) {
+      return false
+    }
+  }
+
+  if (scopes.includes('external_web')) {
+    if (scope) {
+      if (scope !== 'external_web' && scope !== 'mixed') return false
+    } else if (!input.evidenceProvided) {
+      return false
+    }
+  }
+
+  if (scopes.includes('internal_state')) {
+    if (scope) {
+      if (scope !== 'internal_state' && scope !== 'mixed' && scope !== 'live_system') return false
+    }
+  }
+
+  if (input.path === 'critical' && /\b(recommend|decide|approve|deploy|invest|commit)\b/i.test(input.content) && !input.evidenceProvided && !scope) {
+    return !/\bI recommend|I would recommend|recommendation\b/i.test(input.content) || /\bshould\b/i.test(input.content)
   }
   return true
 }
@@ -83,13 +130,22 @@ export function evaluateCeoQuality(input: {
   reviewed?: boolean
   externalExecutionSucceeded?: boolean
   evidenceProvided?: boolean
+  evidenceScope?: EvidenceScope
+  evidenceFreshness?: EvidenceFreshness
 }): QualityResult {
   const nonEmpty = Boolean(input.content.trim())
   const contractValid = nonEmpty && input.content.length <= 100_000
   const coverage = objectiveCoverage(input.objective, input.content, input.path)
   const consistent = consistency(input.content)
   const evidenceProvided = Boolean(input.evidenceProvided)
-  const evidenceOk = evidenceDiscipline(input.content, evidenceProvided, input.path)
+  const claims = claimScopes(input.content)
+  const evidenceOk = evidenceDiscipline({
+    content: input.content,
+    evidenceProvided,
+    path: input.path,
+    evidenceScope: input.evidenceScope,
+    evidenceFreshness: input.evidenceFreshness,
+  })
   const structureOk = actionableStructure(input.content, input.path)
   const reviewed = Boolean(input.reviewed)
   const verificationStatus: VerificationStatus = reviewed ? 'INDEPENDENT_PASS' : input.path === 'critical' ? 'NOT_PERFORMED' : 'NOT_REQUIRED'
@@ -99,13 +155,18 @@ export function evaluateCeoQuality(input: {
   if (!contractValid) reasons.push('The response violates the canonical response-size contract.')
   if (!coverage) reasons.push('The response does not adequately cover the requested objective.')
   if (!consistent) reasons.push('The response contains a detected contradiction or conflicting claim.')
-  if (!evidenceOk) reasons.push('The response makes live/verified/current claims without supplied evidence.')
+  if (!evidenceOk) {
+    reasons.push(input.evidenceFreshness && claims.includes('live_system')
+      ? 'A live/current claim depends on stale or incorrectly scoped evidence.'
+      : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
+  }
   if (!structureOk) reasons.push('The response does not meet the structural requirements for the requested execution depth.')
   if (input.path === 'critical' && !reviewed) reasons.push('Critical execution requires an independent review stage before acceptance.')
 
   const passed = nonEmpty && contractValid && coverage && consistent && evidenceOk && structureOk && (input.path !== 'critical' || reviewed)
   let evidenceState: EvidenceState
   if (!input.externalExecutionSucceeded) evidenceState = 'UNAVAILABLE'
+  else if (passed && input.evidenceScope === 'live_system' && input.evidenceFreshness) evidenceState = 'LIVE_VERIFIED'
   else if (passed && evidenceProvided) evidenceState = 'LIVE_VERIFIED'
   else if (passed) evidenceState = 'LIVE_EXECUTED'
   else evidenceState = 'PARTIAL_UNCONFIRMED'
@@ -122,6 +183,9 @@ export function evaluateCeoQuality(input: {
       evidenceDiscipline: evidenceOk,
       actionableStructure: structureOk,
     },
+    evidenceScope: input.evidenceScope,
+    evidenceFreshness: input.evidenceFreshness,
+    claimScopes: claims,
     reasons: reasons.length ? reasons : ['Response satisfied the applicable deterministic quality contract.'],
   }
 }
