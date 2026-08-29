@@ -3,9 +3,8 @@
 Agent007 VID Full Backup Generator (v2)
 ========================================
 Generates a complete backup of the Agent007 project. This v2 includes
-LIVE data fetched from https://agent007-ai.vercel.app so the backup
-contains both source code AND the current production state (portfolio,
-KPIs, subagents, pods).
+LIVE data fetched from the configured production URL so the backup can
+contain both source code AND a production-state snapshot.
 
 Outputs (saved to /home/z/my-project/download/ AND /home/z/my-project/public/download/):
   agent007-backup-{timestamp}.json
@@ -46,7 +45,7 @@ EXCLUDE_PATTERNS = [
     ".next/", "node_modules/", ".git/", ".vercel/", "__pycache__/",
     "*.pyc", "*.log", "dev.pid", ".DS_Store",
     "db/custom.db-journal", "db/custom.db-wal", "db/custom.db-shm",
-    "/download/",  # don't recurse into our own output dir
+    "/download/",
 ]
 
 def matches_exclude(path: str) -> bool:
@@ -81,27 +80,16 @@ def collect_files():
 def get_git_info():
     info = {"available": False}
     try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True
-        ).strip()
-        branch = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=PROJECT_ROOT, text=True
-        ).strip()
-        message = subprocess.check_output(
-            ["git", "log", "-1", "--pretty=%s"], cwd=PROJECT_ROOT, text=True
-        ).strip()
-        info = {
-            "available": True,
-            "commit": commit,
-            "branch": branch,
-            "message": message,
-        }
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True).strip()
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=PROJECT_ROOT, text=True).strip()
+        message = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], cwd=PROJECT_ROOT, text=True).strip()
+        info = {"available": True, "commit": commit, "branch": branch, "message": message}
     except Exception as e:
         info["error"] = str(e)
     return info
 
 def fetch_live(url):
-    """Fetch JSON from live Vercel deployment."""
+    """Fetch JSON from the configured production endpoint for backup evidence."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "agent007-backup/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -116,17 +104,16 @@ def fetch_live(url):
         return {"ok": False, "error": str(e)}
 
 def snapshot_live_vercel():
-    """Snapshot all the live Vercel endpoints for inclusion in the backup."""
     endpoints = {
-        "version":            "/api/version",
-        "health":              "/api/health",
-        "subagents":           "/api/subagents",
-        "pods":                "/api/team/scout?action=pods",
-        "vid_status":          "/api/team/vid?action=status",
-        "portfolio":           "/api/system/portfolio",
-        "portfolio_value":     "/api/system/portfolio?value=true",
-        "portfolio_health":   "/api/system/portfolio-health",
-        "vid_kpis":            "/api/system/vid-kpis",
+        "version": "/api/version",
+        "health": "/api/health",
+        "subagents": "/api/subagents",
+        "pods": "/api/team/scout?action=pods",
+        "vid_status": "/api/team/vid?action=status",
+        "portfolio": "/api/system/portfolio",
+        "portfolio_value": "/api/system/portfolio?value=true",
+        "portfolio_health": "/api/system/portfolio-health",
+        "vid_kpis": "/api/system/vid-kpis",
     }
     snapshot = {}
     for name, path in endpoints.items():
@@ -143,29 +130,10 @@ def build_json_manifest(files, git_info, live_snapshot, timestamp):
             with open(abs_path, "rb") as f:
                 content = f.read()
             sha = hashlib.sha256(content).hexdigest()
-            file_entries.append({
-                "path": rel_path,
-                "size": stat.st_size,
-                "sha256": sha,
-                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            })
+            file_entries.append({"path": rel_path, "size": stat.st_size, "sha256": sha, "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()})
         except Exception as e:
             file_entries.append({"path": rel_path, "error": str(e)})
-
-    manifest = {
-        "backup_metadata": {
-            "generated_at": timestamp,
-            "tool": "agent007-vid-backup-generator v2.0",
-            "project": "Agent007 AI",
-            "live_url": LIVE_BASE,
-            "git": git_info,
-            "total_files": len(file_entries),
-            "total_size_bytes": sum(f.get("size", 0) for f in file_entries if "size" in f),
-        },
-        "live_vercel_snapshot": live_snapshot,
-        "files": file_entries,
-    }
-    return manifest
+    return {"backup_metadata": {"generated_at": timestamp, "tool": "agent007-vid-backup-generator v2.0", "project": "Agent007 AI", "live_url": LIVE_BASE, "git": git_info, "total_files": len(file_entries), "total_size_bytes": sum(f.get("size", 0) for f in file_entries if "size" in f)}, "live_vercel_snapshot": live_snapshot, "files": file_entries}
 
 def write_json_backup(manifest, timestamp):
     json_path = DOWNLOAD_DIR / f"agent007-backup-{timestamp}.json"
@@ -182,83 +150,45 @@ def write_zip_backup(files, manifest, timestamp):
             try:
                 zf.write(abs_path, f"src/{rel_path}")
             except Exception as e:
-                print(f"  ⚠ Skipped {rel_path}: {e}")
-        # Save the live snapshot as a separate JSON inside the zip
-        snapshot_json = json.dumps(manifest.get("live_vercel_snapshot", {}), indent=2, default=str)
-        zf.writestr("LIVE-VERCEL-SNAPSHOT.json", snapshot_json)
+                print(f"  Skipped {rel_path}: {e}")
+        zf.writestr("LIVE-PRODUCTION-SNAPSHOT.json", json.dumps(manifest.get("live_vercel_snapshot", {}), indent=2, default=str))
     return zip_path
 
 def main():
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    print(f"═══════════════════════════════════════════════════════════════")
-    print(f"  Agent007 VID Full Backup v2.0 — {timestamp}")
-    print(f"═══════════════════════════════════════════════════════════════")
-    print()
-
+    print(f"Agent007 VID Full Backup v2.0 — {timestamp}")
     print("Step 1: Collecting files...")
     files = collect_files()
     total_size = sum(f[0].stat().st_size for f in files)
-    print(f"  ✓ {len(files)} files, {total_size / 1024:.1f} KB total")
-
+    print(f"  {len(files)} files, {total_size / 1024:.1f} KB total")
     print("Step 2: Git info...")
     git_info = get_git_info()
     if git_info["available"]:
-        print(f"  ✓ commit: {git_info['commit']}")
-        print(f"  ✓ branch: {git_info['branch']}")
-        print(f"  ✓ msg:    {git_info['message']}")
-
-    print("Step 3: Snapshotting LIVE Vercel data...")
+        print(f"  commit: {git_info['commit']}")
+        print(f"  branch: {git_info['branch']}")
+    print("Step 3: Snapshotting configured production data...")
     live_snapshot = snapshot_live_vercel()
     ok_count = sum(1 for v in live_snapshot.values() if v.get("ok"))
-    print(f"  ✓ {ok_count}/{len(live_snapshot)} endpoints snapshot OK")
-
+    print(f"  {ok_count}/{len(live_snapshot)} endpoints snapshot OK")
     print("Step 4: Building JSON manifest...")
     manifest = build_json_manifest(files, git_info, live_snapshot, timestamp)
     json_path = write_json_backup(manifest, timestamp)
-    print(f"  ✓ {json_path}")
-
+    print(f"  {json_path}")
     print("Step 5: Building ZIP archive...")
     zip_path = write_zip_backup(files, manifest, timestamp)
-    print(f"  ✓ {zip_path}")
-
+    print(f"  {zip_path}")
     print("Step 6: Creating LATEST copies...")
     latest_json = DOWNLOAD_DIR / "agent007-backup-LATEST.json"
     latest_zip = DOWNLOAD_DIR / "agent007-backup-LATEST.zip"
     shutil.copy2(json_path, latest_json)
     shutil.copy2(zip_path, latest_zip)
-    print(f"  ✓ {latest_json}")
-    print(f"  ✓ {latest_zip}")
-
-    print("Step 7: Copying to /public/download/ for static Vercel serving...")
+    print(f"  {latest_json}")
+    print(f"  {latest_zip}")
+    print("Step 7: Copying to /public/download/ for static serving...")
     for src in [json_path, zip_path, latest_json, latest_zip]:
         shutil.copy2(src, PUBLIC_DOWNLOAD / src.name)
-    print(f"  ✓ All 4 files copied to public/download/")
-
-    json_size = json_path.stat().st_size
-    zip_size = zip_path.stat().st_size
-
-    print()
-    print(f"═══════════════════════════════════════════════════════════════")
-    print(f"  BACKUP COMPLETE — DEPLOY TO ACTIVATE PUBLIC DOWNLOAD URLS")
-    print(f"═══════════════════════════════════════════════════════════════")
-    print(f"  Local files:")
-    print(f"    {json_path} ({json_size:,} bytes)")
-    print(f"    {zip_path}  ({zip_size:,} bytes)")
-    print()
-    print(f"  Public download URLs (LIVE on Vercel after `vercel --prod`):")
-    print(f"    {LIVE_BASE}/download/agent007-backup-LATEST.json")
-    print(f"    {LIVE_BASE}/download/agent007-backup-LATEST.zip")
-    print()
-    print(f"  Timestamped URLs:")
-    print(f"    {LIVE_BASE}/download/agent007-backup-{timestamp}.json")
-    print(f"    {LIVE_BASE}/download/agent007-backup-{timestamp}.zip")
-    print()
-    print(f"  Manifest summary:")
-    print(f"    Files:           {manifest['backup_metadata']['total_files']}")
-    print(f"    Source size:     {manifest['backup_metadata']['total_size_bytes']:,} bytes")
-    print(f"    Live endpoints:  {ok_count}/{len(live_snapshot)} OK")
-    print(f"    Git commit:      {git_info.get('commit', 'N/A')[:8]}")
-    print(f"═══════════════════════════════════════════════════════════════")
+    print("  All 4 files copied to public/download/")
+    print("BACKUP COMPLETE — public download URLs require the normal authorized production release path.")
     return json_path, zip_path
 
 if __name__ == "__main__":
