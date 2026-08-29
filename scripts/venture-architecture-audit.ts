@@ -46,11 +46,14 @@ for (const dir of ['src','scripts']) {
   collect(base)
 }
 
+// The audit script intentionally contains the compatibility tokens it scans for.
+// Exclude itself so the warning channel reports repository findings, not the detector implementation.
+const scannedSource = allSource.filter(({ path }) => path !== 'scripts/venture-architecture-audit.ts')
 for (const token of ['organizational_knowledge_base','business_blueprint','ltv_cac_calculator','portfolio_health_check','pricing_scenario_sim','business_flywheel','market_validation_score','experiments_api','a_b_test_runner','feedback_loop','adaptive_weights','predicted_iq','leader_debate','closed_loop_improvement']) {
-  if (allSource.some(({ text }) => text.includes(token))) warnings.push(`Legacy token still present somewhere in source: ${token}`)
+  if (scannedSource.some(({ text }) => text.includes(token))) warnings.push(`Legacy token still present somewhere in source: ${token}`)
 }
 for (const token of ['generate passive income','0K/month passive income','$0K/month']) {
-  const hits = allSource.filter(({ text }) => text.toLowerCase().includes(token.toLowerCase())).map(({ path }) => path)
+  const hits = scannedSource.filter(({ text }) => text.toLowerCase().includes(token.toLowerCase())).map(({ path }) => path)
   if (hits.length) warnings.push(`Stale mission phrase '${token}' found in: ${hits.join(', ')}`)
 }
 
