@@ -37,6 +37,7 @@ describe('Stage 8 — golden external evidence corpus', () => {
     const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [source], minimumSources: 1, minimumTierOneSources: 1 })
     expect(verifyClaimEvidence('Revenue was 100 million dollars [S1-PLACEHOLDER].', bundle).passed).toBe(true)
     expect(verifyClaimEvidence(`Revenue was 100 million dollars [${bundle.sources[0].id}].`, bundle).passed).toBe(true)
+    expect(verifyClaimEvidence('Revenue was 250 million dollars based on the same filing.', bundle).passed).toBe(false)
     expect(verifyClaimEvidence('The company announced a new 50 million dollar contract today.', bundle).passed).toBe(false)
   })
 
