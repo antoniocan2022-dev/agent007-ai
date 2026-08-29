@@ -1,4 +1,5 @@
 import type { TaskType } from './subagent-governance'
+import type { SelfReflectionKind } from './ceo-self-reflection'
 
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
 export type CognitivePath = 'fast' | 'full' | 'critical'
@@ -6,6 +7,12 @@ export type ReasoningStrategy = 'direct' | 'multi_pass' | 'independent_review'
 export type EvidenceState = 'LIVE_EXECUTED' | 'LIVE_VERIFIED' | 'VERIFIED_CACHED' | 'MEMORY_ONLY' | 'PARTIAL_UNCONFIRMED' | 'UNAVAILABLE'
 export type QualityDecision = 'PASS' | 'ESCALATE' | 'DEGRADED'
 export type VerificationStatus = 'NOT_REQUIRED' | 'NOT_PERFORMED' | 'INDEPENDENT_PASS' | 'FAILED'
+export type EvidenceScope = 'none' | 'internal_state' | 'live_system' | 'external_web' | 'mixed'
+
+export interface EvidenceFreshness {
+  observedAt: number
+  maxAgeMs: number
+}
 
 /**
  * Request-level semantic intent. Intent describes what the owner is asking;
@@ -45,6 +52,7 @@ export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 
 export interface CeoExecutionContract {
   intent: CeoIntent
+  selfReflectionKind?: SelfReflectionKind
   evidenceRequirement: EvidenceRequirement
   executionRequirement: ExecutionRequirement
   orchestrationOwner: OrchestrationOwner
@@ -109,6 +117,9 @@ export interface QualityResult {
     evidenceDiscipline: boolean
     actionableStructure: boolean
   }
+  evidenceScope?: EvidenceScope
+  evidenceFreshness?: EvidenceFreshness
+  claimScopes?: EvidenceScope[]
   reasons: string[]
 }
 
