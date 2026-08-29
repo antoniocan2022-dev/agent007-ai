@@ -31,8 +31,8 @@ const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|L
 const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 
 const INTERNAL_CONTEXT_RE = /\b(?:our|we|us|my|internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
-const INTERNAL_FINANCE_RE = /\b(?:our|my|internal)?\s*(?:cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|financials?|budget|accounts?|bookkeeping|accounting)\b/i
-const INTERNAL_OPERATIONS_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server(?:s)?|equipment|procurement|purchase\s+order|meeting|review\s+meeting|co-?founder(?:s)?|ownership\s+split|operations?|operational)\b/i
+const INTERNAL_FINANCE_RE = /\b(?:our|my|internal)?\s*(?:earnings\s+report|financial\s+forecast|financials?|budget|accounts?|bookkeeping|accounting)\b/i
+const INTERNAL_OPERATIONS_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server(?:s)?|equipment|procurement|purchase\s+order|meeting|review\s+meeting|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|operations?|operational)\b/i
 const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|execute|fix|hold\s+(?:a|the)?\s*(?:review\s+)?meeting)\b/i
 
 function isExternalEquityResearch(text: string): boolean {
@@ -52,8 +52,8 @@ function inferExternalDomain(text: string): EvidenceDomain {
   if (/\b(?:market|markets|industry|sector|macro(?:economic)?)\b/i.test(text)) return 'market'
   if (/\b(?:regulation|regulatory|law|legal requirement|filing|compliance|rule|rules)\b/i.test(text)) return 'regulatory'
   if (/\b(?:due diligence|acquisition|acquire|supplier|vendor|customer|company profile)\b/i.test(text)) return 'business_due_diligence'
-  if (INTERNAL_FINANCE_RE.test(text)) return 'internal_finance'
   if (INTERNAL_OPERATIONS_RE.test(text)) return 'internal_operations'
+  if (INTERNAL_FINANCE_RE.test(text)) return 'internal_finance'
   return 'general_web'
 }
 
