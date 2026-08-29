@@ -72,7 +72,7 @@ export async function buildCeoDegradedResponse(input: {
       sourceKeys,
       failureReason,
       recoveredCapability,
-      content: `Recovered capability: ${recoveredCapability}.\n\nThe primary ${recoveredCapability} path did not produce an accepted final answer, so Agent007 is using the strongest safe contextual fallback available. Prior conversation, memory, and supplied context are context only and are not treated as new external proof.\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nStill requires the failed capability to verify: current external facts, new research, live execution, or unsupported conclusions.`,
+      content: `Evidence state: MEMORY-ONLY.\n\nRecovered capability: ${recoveredCapability}. The primary ${recoveredCapability} path did not produce an accepted final answer, so Agent007 is using the strongest safe contextual fallback available. Prior conversation, memory, and supplied context are context only and are not treated as new external proof.\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nStill requires the failed capability to verify: current external facts, new research, live execution, or unsupported conclusions.`,
     }
   }
 
