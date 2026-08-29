@@ -1,4 +1,4 @@
-import type { EvidenceState } from './ceo-cognitive-contract'
+import type { CeoIntent, EvidenceState } from './ceo-cognitive-contract'
 import { recallPersistentMemory } from './persistent-memory'
 
 export interface DegradedResponse {
@@ -17,11 +17,6 @@ function formatMemoryEvidence(entries: Array<{ key: string; value: string; categ
     .join('\n\n')
 }
 
-function isSelfAssessment(objective: string): boolean {
-  return /\b(?:you|your|yourself|agent007|ceo)\b/i.test(objective)
-    && /\b(?:self[-\s]?(?:analysis|assessment|reflection)|ready|readiness|capable|capability|prepared|equipped|strengths?|weakness(?:es)?|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|how(?:'s|\s+is)\s+(?:it|agent007|the\s+system)\s+going)\b/i.test(objective)
-}
-
 function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string): string {
   const evidenceBlock = recoveredContext.trim()
     ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}`
@@ -31,14 +26,15 @@ function buildSelfAssessmentArchitectureFallback(objective: string, recoveredCon
 
 /**
  * Degraded mode is a real internal-evidence recovery path, not a substitute
- * for live reasoning. It queries persistent memory automatically when the
- * caller did not provide a pre-assembled evidence string.
+ * for live reasoning. The caller supplies the already-decided CEO intent so
+ * this layer never reclassifies the original request from raw text.
  *
  * `recall` is injectable only for deterministic tests; production defaults to
  * the canonical persistent-memory implementation.
  */
 export async function buildCeoDegradedResponse(input: {
   objective: string
+  intent: CeoIntent
   reason: string
   missionId?: string
   contextualEvidence?: string
@@ -60,7 +56,7 @@ export async function buildCeoDegradedResponse(input: {
     }
   }
 
-  if (isSelfAssessment(input.objective)) {
+  if (input.intent === 'self_assessment') {
     return {
       evidenceState: 'PARTIAL_UNCONFIRMED',
       reason: input.reason,
