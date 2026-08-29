@@ -57,8 +57,11 @@ function consistency(content: string): boolean {
   return true
 }
 
-const LIVE_ASSERTION_RE = /\b(?:current(?:ly)?|today|latest|live|deployed|serving|confirmed|verified|proven|in\s+production|production\s+traffic)\b/i
-const EXTERNAL_ASSERTION_RE = /\b(?:according\s+to|market\s+(?:is|shows|grew|declined)|customer(?:s)?\s+(?:are|have|said|reported)|competitor(?:s)?\s+(?:are|have|offer)|industry\s+(?:is|shows|grew|declined)|(?:study|studies|report|reports)\s+(?:show|shows|found|find)|revenue\s+(?:is|was|grew|declined|increased|decreased)|sales\s+(?:are|were|grew|declined|increased|decreased))\b/i
+// Live scope is reserved for explicitly time-sensitive runtime assertions.
+// “Latest” is intentionally handled by the external-claims detector because
+// market/report/customer/competitor language may refer to an external source.
+const LIVE_ASSERTION_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|confirmed|verified|proven|in\s+production|production\s+traffic)\b/i
+const EXTERNAL_ASSERTION_RE = /\b(?:according\s+to|latest\s+(?:market|industry|customer|competitor|report|study)|market\s+(?:is|shows|grew|declined)|customer(?:s)?\s+(?:are|have|said|reported)|competitor(?:s)?\s+(?:are|have|offer)|industry\s+(?:is|shows|grew|declined)|(?:study|studies|report|reports)\s+(?:show|shows|found|find)|revenue\s+(?:is|was|grew|declined|increased|decreased)|sales\s+(?:are|were|grew|declined|increased|decreased))\b/i
 const INTERNAL_ASSERTION_RE = /\b(?:architectur(?:e|al)|designed|implemented|configured|codebase|workflow|contract|module|repository|system\s+design|execution\s+path)\b/i
 const NEGATION_RE = /\b(?:not|no|without|unverified|unknown|unclear|uncertain|cannot|can't|never)\b/i
 
