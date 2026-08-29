@@ -48,6 +48,7 @@ const READINESS_RE = /\b(?:ready|readiness|prepared|equipped|fit\s+to|able\s+to\
 export function classifyCeoSelfReflection(text: string): SelfReflectionClassification {
   const normalized = text.replace(/\s+/g, ' ').trim()
   if (!normalized) return { kind: 'none', isSelfReflective: false, reason: 'No substantive request.' }
+  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: true, reason: 'Short conversational check-in directed to the CEO context.' }
   if (!SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
 
   if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized)) {
