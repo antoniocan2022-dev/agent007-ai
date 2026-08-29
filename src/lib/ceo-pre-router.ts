@@ -26,16 +26,23 @@ function latestUserText(messages: readonly { role: string; content: string }[]):
 
 const MARKET_SECURITY_RE = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|market\s+cap(?:italization)?|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|dividend|cash\s+flow|10-k|10-q|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend(?:ation)?|should|invest|buy|sell|hold|trade|value|price)\b/i
-const MARKET_ENTITY_RE = /\b[A-Z]{2,5}\b|\([A-Z]{1,5}\)|\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/
-const INTERNAL_CONTEXT_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server|equipment|founder(?:s)?|ownership\s+split|our\s+(?:cash|earnings|financials?|equity)|internal|meeting|review\s+(?:meeting|cycle)|operational|budget|forecast|procurement|purchase\s+order)\b/i
+const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
+const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
+const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
+
+const INTERNAL_CONTEXT_RE = /\b(?:our|we|us|my|internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
+const INTERNAL_FINANCE_RE = /\b(?:our|my|internal)?\s*(?:cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|financials?|budget|accounts?|bookkeeping|accounting)\b/i
+const INTERNAL_OPERATIONS_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server(?:s)?|equipment|procurement|purchase\s+order|meeting|review\s+meeting|co-?founder(?:s)?|ownership\s+split|operations?|operational)\b/i
+const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|execute|fix|hold\s+(?:a|the)?\s*(?:review\s+)?meeting)\b/i
 
 function isExternalEquityResearch(text: string): boolean {
   if (!MARKET_SECURITY_RE.test(text) || !MARKET_ACTION_RE.test(text)) return false
-  if (INTERNAL_CONTEXT_RE.test(text) && !MARKET_ENTITY_RE.test(text)) return false
-  const explicitTicker = /\([A-Z]{1,5}\)/.test(text)
-  const likelyCompany = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i.test(text)
-  const marketPhrase = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i.test(text)
-  return explicitTicker || likelyCompany || (marketPhrase && !INTERNAL_CONTEXT_RE.test(text))
+  if (INTERNAL_CONTEXT_RE.test(text)) return false
+  return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
+}
+
+function isExternalDomain(domain: EvidenceDomain): boolean {
+  return domain !== 'none' && domain !== 'unknown' && !domain.startsWith('internal_')
 }
 
 function inferExternalDomain(text: string): EvidenceDomain {
@@ -45,6 +52,8 @@ function inferExternalDomain(text: string): EvidenceDomain {
   if (/\b(?:market|markets|industry|sector|macro(?:economic)?)\b/i.test(text)) return 'market'
   if (/\b(?:regulation|regulatory|law|legal requirement|filing|compliance|rule|rules)\b/i.test(text)) return 'regulatory'
   if (/\b(?:due diligence|acquisition|acquire|supplier|vendor|customer|company profile)\b/i.test(text)) return 'business_due_diligence'
+  if (INTERNAL_FINANCE_RE.test(text)) return 'internal_finance'
+  if (INTERNAL_OPERATIONS_RE.test(text)) return 'internal_operations'
   return 'general_web'
 }
 
@@ -55,17 +64,17 @@ function inferTemporalScope(text: string): TemporalScope {
   return 'current'
 }
 
-function inferEvidenceProfile(domain: EvidenceDomain, temporalScope: TemporalScope): EvidenceProfile {
+function inferEvidenceProfile(domain: EvidenceDomain, _temporalScope: TemporalScope): EvidenceProfile {
   if (domain === 'public_equity') return 'public_equity'
   if (domain === 'market') return 'market_current'
   if (domain === 'news') return 'news_recent'
   if (domain === 'competitor') return 'competitor_research'
   if (domain === 'business_due_diligence') return 'business_due_diligence'
-  return temporalScope === 'current' || temporalScope === 'recent' ? 'general_research' : 'general_research'
+  return 'general_research'
 }
 
 function inferEvidenceOperation(text: string): EvidenceOperation {
-  if (/\b(?:would\s+you\s+invest|should\s+i|should\s+we|buy|sell|hold|recommend|recommendation|invest(?:ing|ment)?)\b/i.test(text)) return 'recommend'
+  if (/\b(?:would\s+you\s+invest|should\s+i|should\s+we|recommend(?:ation)?|invest(?:ing|ment)?|buy|sell|hold)\b/i.test(text)) return 'recommend'
   if (/\b(?:compare|versus|vs\.?|better|stronger|weaker)\b/i.test(text)) return 'compare'
   if (/\b(?:forecast|project|outlook|future|estimate)\b/i.test(text)) return 'forecast'
   if (/\b(?:verify|validate|confirm|fact[- ]check)\b/i.test(text)) return 'verify'
@@ -130,7 +139,7 @@ function contractFor(input: {
     return buildExecutionContract({ intent, evidenceClass, domain, operation, temporalScope, evidenceProfile, evidenceRequirement: evidenceClass === 'external_web' ? 'external_web' : 'none', executionRequirement: evidenceClass === 'external_web' ? 'multi_source' : 'llm_only', orchestrationOwner: 'ceo_lifecycle', maxTurns: adaptiveExecutionClass === 'deep' ? 3 : 1, maxRecoveries: evidenceClass === 'external_web' ? 1 : 0, latencyBudgetMs: evidenceClass === 'external_web' ? 120000 : (adaptiveExecutionClass === 'deep' ? 30000 : 15000), toolRequired: evidenceClass === 'external_web', subagentsRequired: false, reason })
   }
   if (intent === 'production_action') {
-    return buildExecutionContract({ intent, evidenceClass: 'live_system', domain: 'internal_operations', operation: 'verify', temporalScope: 'current', evidenceProfile: 'none', evidenceRequirement: 'live_system', executionRequirement: 'production', orchestrationOwner: 'operational_orchestrator', maxTurns: 6, maxRecoveries: 1, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: false, reason })
+    return buildExecutionContract({ intent, evidenceClass: 'internal_state', domain: 'internal_operations', operation: 'verify', temporalScope: 'current', evidenceProfile: 'none', evidenceRequirement: 'live_system', executionRequirement: 'production', orchestrationOwner: 'operational_orchestrator', maxTurns: 6, maxRecoveries: 1, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: false, reason })
   }
   if (intent === 'research') {
     const isEquity = domain === 'public_equity'
@@ -139,7 +148,7 @@ function contractFor(input: {
   if (intent === 'tool_action') {
     return buildExecutionContract({ intent, evidenceClass: 'internal_state', domain: 'internal_operations', operation, temporalScope: 'current', evidenceProfile: 'none', evidenceRequirement: 'internal_state', executionRequirement: 'one_tool', orchestrationOwner: 'operational_orchestrator', maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4, maxRecoveries: 1, latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000, toolRequired: true, subagentsRequired: false, reason })
   }
-  if (missionRelevant || adaptiveExecutionClass === 'mission') {
+  if (missionRelevant || intent === 'mission_action') {
     return buildExecutionContract({ intent: 'mission_action', evidenceClass: 'mixed', domain: 'business_due_diligence', operation: 'decide', temporalScope: 'current', evidenceProfile: 'business_due_diligence', evidenceRequirement: 'multi_source', executionRequirement: 'mission', orchestrationOwner: 'operational_orchestrator', maxTurns: 12, maxRecoveries: 2, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: true, reason })
   }
   return buildExecutionContract({ intent, evidenceClass, domain, operation, temporalScope, evidenceProfile, evidenceRequirement: evidenceClass === 'external_web' ? 'external_web' : 'internal_state', executionRequirement: evidenceClass === 'external_web' ? 'multi_source' : 'one_tool', orchestrationOwner: evidenceClass === 'external_web' ? 'ceo_lifecycle' : 'operational_orchestrator', maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4, maxRecoveries: 1, latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000, toolRequired: evidenceClass === 'external_web' || intent === 'tool_action', subagentsRequired: false, reason })
@@ -151,10 +160,10 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
   if (isExternalEquityResearch(text)) return 'research'
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
-  if (/\b(?:create|delete|edit|update|change|schedule|send|run|execute|fix)\b/i.test(text)) return 'tool_action'
+  if (TOOL_ACTION_RE.test(text)) return 'tool_action'
+  if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
   if (/\b(?:think|opinion|take on|agree|disagree|feel)\b/i.test(text)) return 'opinion'
-  if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|ok|okay|great|perfect)\b/i.test(text)) return 'conversation'
   return 'conversation'
 }
@@ -169,22 +178,29 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
   const semanticIntent = inferSemanticIntent(text, selfReflection)
-  const explicitlyOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
+  const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
+  const externalSubjectDomain = inferExternalDomain(text)
+  const shouldUseExternalEvidence = isExternalDomain(externalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
+  const evidenceClass: EvidenceClass | undefined = shouldUseExternalEvidence ? 'external_web' : undefined
+  const domain: EvidenceDomain | undefined = semanticIntent === 'research' || shouldUseExternalEvidence || externalSubjectDomain.startsWith('internal_') ? externalSubjectDomain : undefined
+  const effectiveExecutionClass = externalSubjectDomain === 'public_equity' ? 'deep' : adaptive.executionClass
 
   if (!text) {
     const reason = 'No substantive request detected.'
     return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) })
   }
 
-  const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitlyOperational)
-  const complexitySignals = [adaptive.executionClass === 'deep' || adaptive.executionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
+  const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational)
+  const complexitySignals = [effectiveExecutionClass === 'deep' || effectiveExecutionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
 
   if (attachmentsCount > 0) {
     const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'
-    const domain = semanticIntent === 'research' ? inferExternalDomain(text) : undefined
-    const temporalScope = semanticIntent === 'research' ? inferTemporalScope(text) : undefined
-    return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason, ...(domain ? { evidenceClass: 'external_web' as EvidenceClass, domain, operation: inferEvidenceOperation(text), temporalScope, evidenceProfile: inferEvidenceProfile(domain, temporalScope!) } : {}) }) })
+    const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(text) : undefined
+    const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(text) : undefined
+    const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined
+    return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass,
+      executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason,
+        ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) })
   }
 
   if (semanticIntent === 'self_assessment') {
@@ -192,29 +208,27 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
     return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) })
   }
 
-  const inferredDomain = semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion' ? inferExternalDomain(text) : undefined
-  const evidenceClass: EvidenceClass | undefined = semanticIntent === 'research' || (semanticIntent === 'decision' && Boolean(inferredDomain && inferredDomain !== 'general_web')) ? 'external_web' : undefined
-  const domain = inferredDomain
-  const temporalScope = domain ? inferTemporalScope(text) : undefined
-  const operation = domain ? inferEvidenceOperation(text) : undefined
-  const evidenceProfile = domain ? inferEvidenceProfile(domain, temporalScope!) : undefined
-  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason: 'Canonical semantic routing decision.', ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
+  const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(text) : undefined
+  const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(text) : undefined
+  const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined
+  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: 'Canonical semantic routing decision.',
+    ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
 
   if (semanticIntent === 'research' || evidenceClass === 'external_web') {
-    return buildDecision({ route: 'full', reason: 'External evidence requires governed execution.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
+    return buildDecision({ route: 'full', reason: 'External evidence requires governed execution.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   }
   if (semanticIntent === 'mission_action' || missionRelevant) {
-    return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
+    return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   }
   if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') {
-    return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
+    return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   }
   if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
     const reason = 'Context-dependent request requires richer conversational analysis.'
     return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) })
   }
-  const useFast = adaptive.executionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS)
-  return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : adaptive.executionClass, executionContract })
+  const useFast = effectiveExecutionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS)
+  return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : effectiveExecutionClass, executionContract })
 }
 
 export function resolvePreRoute(decision: PreRouteDecision): 'fast' | 'full' {
