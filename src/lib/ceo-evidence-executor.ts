@@ -1,5 +1,5 @@
 import { dispatchTool, type ToolContext, type ToolResult } from './tools'
-import { buildEvidenceBundle, createEvidenceSource, type EvidenceSource, sourceTierForUrl } from './ceo-evidence-bundle'
+import { buildEvidenceBundle, createEvidenceSource, type EvidenceSource, sourceTierForUrl, type EvidenceSourceType } from './ceo-evidence-bundle'
 import type { EvidenceProfile } from './ceo-cognitive-contract'
 import type { ExternalEvidencePlan, EvidenceQuery } from './ceo-evidence-planner'
 
@@ -32,10 +32,23 @@ async function fetchSecSource(ticker: string): Promise<EvidenceSource | null> {
 function cacheBypassArgs(args: Record<string, unknown>): Record<string, unknown> { return { ...args, evidence_refresh_nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } }
 function urlsFromSearchResult(result: ToolResult): string[] { return [...result.result.matchAll(/URL:\s*(https?:\/\/[^\s]+)/gi)].map((match) => match[1]) }
 function titleFromSearchResult(result: ToolResult, url: string): string { const line = result.result.split('\n').find((candidate) => candidate.includes(url)); return line ? line.replace(/^[0-9]+\.\s*/, '').replace(/\*\*/g, '').trim() || url : url }
+
+function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType {
+  if (query.sourcePreference === 'market') return sourceTierForUrl(url) <= 2 ? 'market_data' : 'web'
+  if (query.sourcePreference === 'company') {
+    try {
+      const host = new URL(url).hostname.toLowerCase()
+      const isLikelyCompanyHost = !['google.com', 'bing.com', 'yahoo.com', 'reuters.com', 'bloomberg.com', 'wsj.com', 'cnbc.com', 'sec.gov', 'data.sec.gov'].some((domain) => host === domain || host.endsWith(`.${domain}`))
+      return isLikelyCompanyHost ? 'company_ir' : 'web'
+    } catch { return 'web' }
+  }
+  if (query.sourcePreference === 'news') return 'news'
+  return 'web'
+}
 async function executeSearch(query: EvidenceQuery): Promise<{ result: ToolResult; sources: EvidenceSource[] }> {
   const result = await dispatch('web_search', cacheBypassArgs({ query: query.query, num: 6, recency_days: query.recencyDays })); if (!result.ok) return { result, sources: [] }
   const retrievedAt = Date.now(), urls = urlsFromSearchResult(result).slice(0, 6)
-  return { result, sources: urls.map((url, index) => createEvidenceSource({ url, title: titleFromSearchResult(result, url), sourceType: query.sourcePreference === 'market' ? 'market_data' : query.sourcePreference === 'company' ? 'company_ir' : 'web', sourceTier: sourceTierForUrl(url), retrievedAt, text: result.result.slice(0, 6000), id: `${query.id}-${index + 1}` })) }
+  return { result, sources: urls.map((url, index) => createEvidenceSource({ url, title: titleFromSearchResult(result, url), sourceType: deriveSearchSourceType(url, query), sourceTier: sourceTierForUrl(url), retrievedAt, text: result.result.slice(0, 6000), id: `${query.id}-${index + 1}` })) }
 }
 async function readPages(urls: string[]): Promise<EvidenceSource[]> {
   const outputs = await Promise.all(urls.map(async (url, index) => { const result = await dispatch('page_reader', cacheBypassArgs({ url })); if (!result.ok) return null; return createEvidenceSource({ url, title: result.preview.replace(/^Read page(?: \(via fallback\))?:\s*/i, '').slice(0, 240) || url, sourceType: 'page', sourceTier: sourceTierForUrl(url), retrievedAt: Date.now(), text: result.result, id: `PAGE-${index + 1}` }) }))
@@ -56,8 +69,4 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = ''): Promis
   return { bundle: buildEvidenceBundle({ profile: plan.profile, sources: [...secSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 }), attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, failures }
 }
 export async function executeExternalEvidencePlan(plan: ExternalEvidencePlan): Promise<ExternalEvidenceExecution> { return executeOnce(plan) }
-
-/** Separate evidence recovery from LLM reasoning recovery. Uses a distinct bounded acquisition pass. */
-export async function recoverExternalEvidencePlan(plan: ExternalEvidencePlan): Promise<ExternalEvidenceExecution> {
-  return executeOnce({ ...plan, maxSearchQueries: Math.min(plan.maxSearchQueries, 4), maxPageReads: Math.min(plan.maxPageReads, 3) }, 'official primary source filing')
-}
+export async function recoverExternalEvidencePlan(plan: ExternalEvidencePlan): Promise<ExternalEvidenceExecution> { return executeOnce({ ...plan, maxSearchQueries: Math.min(plan.maxSearchQueries, 4), maxPageReads: Math.min(plan.maxPageReads, 3) }, 'official primary source filing') }
