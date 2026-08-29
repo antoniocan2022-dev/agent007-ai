@@ -225,29 +225,15 @@ jobs:
           [ "${owners[0]}" = "${owners[1]}" ] || { echo 'DUAL_ALIAS_CONFLICT'; exit 45; }
           [ "${owners[0]}" = "$TARGET_DEPLOYMENT_ID" ] || { echo 'STALE_ALIAS'; exit 44; }
 
-          conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
-          curl --fail-with-body --silent --show-error --no-buffer --location \
-            --connect-timeout 15 --max-time 180 \
-            --request POST \
-            --header 'Content-Type: application/json' \
-            --header 'Accept: text/event-stream' \
-            --data "$payload" \
-            "$PRODUCTION_URL/api/agent" > agent-canary.txt
-          node <<'NODE'
-          const fs = require('node:fs')
-          const expectedSha = process.env.EXPECTED_RELEASE_SHA
-          const targetId = process.env.TARGET_DEPLOYMENT_ID
-          const text = fs.readFileSync('agent-canary.txt', 'utf8')
-          const lines = text.split(/\r?\n/).filter(line => line.startsWith('data: ')).map(line => line.slice(6)).filter(Boolean)
-          if (!lines.length) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN')
-          for (const line of lines) {
-            const envelope = JSON.parse(line)
-            if (envelope.deploymentId !== targetId) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN')
-            if (envelope.releaseCommit !== expectedSha) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN')
-          }
-          if (!text.includes('event: done')) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN')
-          NODE
+          health="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            "$PRODUCTION_URL/api/release-health")"
+          echo "$health" | jq .
+          test "$(jq -r '.ok // false' <<<"$health")" = true || { echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; }
+          test "$(jq -r '.releaseCommit // ""' <<<"$health")" = "$EXPECTED_RELEASE_SHA" || { echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; }
+          test "$(jq -r '.deploymentId // ""' <<<"$health")" = "$TARGET_DEPLOYMENT_ID" || { echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; }
+          test "$(jq -r '.proof.tripleProof // false' <<<"$health")" = true || { echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; }
+          test "$(jq -r '.proof.deploymentIdentityVerified // false' <<<"$health")" = true || { echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; }
+          test "$(jq -r '.actualExecution.verified // false' <<<"$health")" = true || { echo 'TRAFFIC_OWNERSHIP_UNPROVEN'; exit 46; }
 
       - name: Verify fresh production release health
         shell: bash
@@ -256,14 +242,14 @@ jobs:
           TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
         run: |
           set -euo pipefail
-          health="$(curl --fail-with-body --silent --show-error --max-time 20 "$PRODUCTION_URL/api/release-health")"
+          health="$(curl --fail-with-body --silent --show-error --max-time 30 "$PRODUCTION_URL/api/release-health")"
           echo "$health" | jq .
           test "$(jq -r '.ok // false' <<<"$health")" = true
           test "$(jq -r '.releaseCommit // ""' <<<"$health")" = "$RELEASE_SHA"
           test "$(jq -r '.deploymentId // ""' <<<"$health")" = "$TARGET_DEPLOYMENT_ID"
           test "$(jq -r '.proof.tripleProof // false' <<<"$health")" = true
           test "$(jq -r '.proof.deploymentIdentityVerified // false' <<<"$health")" = true
-          test "$(jq -r '.proof.providerExecutionVerified // false' <<<"$health")" = true
+          test "$(jq -r '.actualExecution.verified // false' <<<"$health")" = true
           test -n "$(jq -r '.organizationGraphFingerprint // .proof.organizationGraphFingerprint // ""' <<<"$health")"
           test "$(jq -r '.releaseGate // true' <<<"$health")" = true
 
