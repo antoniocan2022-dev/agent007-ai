@@ -20,7 +20,7 @@ export interface AdaptiveExecutionPlan {
   parallelizable: boolean
 }
 
-const GREETING_RE = /^(hi|hello|hey|good\s+(morning|afternoon|evening)|thanks|thank\s+you|thx|ok|okay|great|perfect|goodbye|bye)[!.?\s]*$/i
+const GREETING_RE = /^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|thx|ok|okay|great|perfect|goodbye|bye|how\s+do\s+you\s+do)[!.?\s]*$/i
 const MISSION_ACTION_RE = /\b(deploy|production\s+change|launch|publish|send|buy|sell|invest|transfer|commit|execute|run|implement|fix|refactor|create\s+(a|an)\s+(mission|venture|artifact|campaign)|start\s+(a|the)\s+mission)\b/i
 const MISSION_CONTEXT_RE = /\b(mission|autonom(?:y|ous)|venture|revenue|customer|transaction|production)\b/i
 const DEEP_RE = /\b(deep|detailed|comprehensive|compare|comparison|strategy|strategic|architecture|analyze|analysis|diagnose|research|evidence|verify|verification|evaluate|plan|design|security|financial|legal|optimi[sz]e|root\s+cause)\b/i
