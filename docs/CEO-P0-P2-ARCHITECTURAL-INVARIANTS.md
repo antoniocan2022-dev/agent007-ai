@@ -61,3 +61,7 @@ The canonical manifest generator is `scripts/build-release-integrity-manifest.ts
 ## 14. Release-candidate hygiene
 
 Historical backup, migration, and direct-deployment utilities are not part of the governed production release surface. They must be removed or made deployment-neutral when they are no longer runtime dependencies. This keeps the repository invariant aligned with the single production release workflow and prevents dormant bypass paths from reappearing.
+
+## 15. Certification-cycle freshness
+
+Every production release must be certified against the exact current `refs/heads/main` SHA. A certification result from an earlier SHA is invalid, even when the earlier run completed successfully. Release automation must resolve workflow results by exact SHA and reject stale or mismatched attempts.
