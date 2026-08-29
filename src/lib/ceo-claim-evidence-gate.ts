@@ -16,11 +16,14 @@ const STOPWORDS = new Set(['about','after','again','also','because','before','be
 
 const NUMBER_RE = /(?:[$€£]\s*)?(\d+(?:\.\d+)?)\s*(k|thousand|m|mn|million|b|bn|billion|percent|%|usd|cad|dollars?)?/gi
 const METRIC_RE = /\b(revenue|sales|earnings|eps|cash|debt|assets|liabilities|income|loss|margin|guidance|backlog|price|market\s+cap|valuation|shares?|contract|dividend)\b/i
+const EVIDENCE_MARKER_RE = /\[(?:S\d+-[0-9a-f]+|SEC-[A-Z0-9]+|PAGE-\d+)\]/gi
 
-function tokens(value: string): string[] {
-  return [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))]
+function stripEvidenceMarkers(text: string): string {
+  return text.replace(EVIDENCE_MARKER_RE, ' ')
 }
-
+function tokens(value: string): string[] {
+  return [...new Set(stripEvidenceMarkers(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))]
+}
 function normalizeNumber(value: string, unit?: string): string {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return `${value.toLowerCase()} ${unit?.toLowerCase() ?? ''}`.trim()
@@ -32,26 +35,20 @@ function normalizeNumber(value: string, unit?: string): string {
   const normalized = numeric * multiplier
   return `${Number.isInteger(normalized) ? normalized : normalized.toFixed(6)} ${normalizedUnit.replace('dollars', 'usd').replace('percent', '%')}`.trim()
 }
-
 function numericSignatures(text: string): string[] {
-  return [...text.matchAll(NUMBER_RE)].map((match) => normalizeNumber(match[1], match[2]))
+  return [...stripEvidenceMarkers(text).matchAll(NUMBER_RE)].map((match) => normalizeNumber(match[1], match[2]))
 }
-
 function metricTokens(text: string): string[] {
-  return [...new Set((text.match(new RegExp(METRIC_RE.source, 'gi')) ?? []).map((metric) => metric.toLowerCase()))]
+  return [...new Set((stripEvidenceMarkers(text).match(new RegExp(METRIC_RE.source, 'gi')) ?? []).map((metric) => metric.toLowerCase()))]
 }
-
 function claimValueSupported(sentence: string, sources: EvidenceSource[]): boolean {
   const claimNumbers = numericSignatures(sentence)
   if (!claimNumbers.length) return true
-
   const claimMetrics = metricTokens(sentence)
   const candidateLines = sources.flatMap((source) => source.text.split(/\n+/).filter((line) => line.trim()))
     .filter((line) => claimMetrics.length === 0 || claimMetrics.some((metric) => new RegExp(`\\b${metric.replace(/\\s+/g, '\\s+')}\\b`, 'i').test(line)))
-
   return claimNumbers.every((number) => candidateLines.some((line) => numericSignatures(line).includes(number)))
 }
-
 function claimScope(sentence: string): ClaimVerification['scope'] | null {
   if (LIVE_CLAIM_RE.test(sentence)) return 'live_system'
   if (EXTERNAL_CLAIM_RE.test(sentence)) return 'external_web'
