@@ -29,6 +29,8 @@ function getDeploymentIdentity(): DeploymentIdentity {
   }
 }
 
+// Every SSE envelope is stamped here with the deployment identity. This is the
+// authoritative traffic-to-release binding used by the production proof path.
 function sse(event: string, data: unknown): string {
   const identity = getDeploymentIdentity()
   const payload = data && typeof data === 'object' && !Array.isArray(data)
@@ -72,14 +74,7 @@ export async function POST(req: NextRequest) {
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId } })
     if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50) } })
-    await db.message.create({
-      data: {
-        conversationId,
-        role: 'user',
-        content: message,
-        attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null,
-      },
-    })
+    await db.message.create({ data: { conversationId, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null } })
   } catch (dbErr: any) {
     console.warn('[api/agent] Pre-stream DB persistence failed:', dbErr?.message?.slice(0, 150))
   }
@@ -122,20 +117,8 @@ export async function POST(req: NextRequest) {
           }))
 
           if (executionContract.evidenceClass === 'external_web' || executionContract.evidenceClass === 'mixed') {
-            const evidencePlan = buildExternalEvidencePlan({
-              objective: message,
-              evidenceClass: executionContract.evidenceClass,
-              domain: executionContract.domain,
-              operation: executionContract.operation,
-              temporalScope: executionContract.temporalScope,
-              evidenceProfile: executionContract.evidenceProfile,
-            })
-            safeEnqueue(sse('progress', {
-              phase: 'evidence_acquisition',
-              profile: evidencePlan.profile,
-              queryCount: evidencePlan.queries.length,
-              minimumSources: evidencePlan.minimumSources,
-            }))
+            const evidencePlan = buildExternalEvidencePlan({ objective: message, evidenceClass: executionContract.evidenceClass, domain: executionContract.domain, operation: executionContract.operation, temporalScope: executionContract.temporalScope, evidenceProfile: executionContract.evidenceProfile })
+            safeEnqueue(sse('progress', { phase: 'evidence_acquisition', profile: evidencePlan.profile, queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources }))
             try {
               const evidenceExecution = await executeExternalEvidencePlan(evidencePlan)
               if (evidenceExecution.bundle.sources.length > 0) {
@@ -143,36 +126,17 @@ export async function POST(req: NextRequest) {
                 externalEvidenceScope = evidenceExecution.bundle.scope === 'mixed' ? 'mixed' : 'external_web'
                 externalEvidenceFreshness = evidenceExecution.bundle.freshness
               }
-              safeEnqueue(sse('progress', {
-                phase: 'evidence_complete',
-                sources: evidenceExecution.bundle.sources.length,
-                claims: evidenceExecution.bundle.claims.length,
-                attemptedQueries: evidenceExecution.attemptedQueries,
-                successfulQueries: evidenceExecution.successfulQueries,
-                pageReads: evidenceExecution.pageReads,
-                secSources: evidenceExecution.secSources,
-                failures: evidenceExecution.failures.slice(0, 5),
-              }))
+              safeEnqueue(sse('progress', { phase: 'evidence_complete', sources: evidenceExecution.bundle.sources.length, claims: evidenceExecution.bundle.claims.length, attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, pageReads: evidenceExecution.pageReads, secSources: evidenceExecution.secSources, failures: evidenceExecution.failures.slice(0, 5) }))
             } catch (e: any) {
-              safeEnqueue(sse('progress', {
-                phase: 'evidence_failed',
-                error: String(e?.message ?? e).slice(0, 500),
-                fallback: 'The CEO will not invent current external facts; the final answer will be limited by the evidence state.',
-              }))
+              safeEnqueue(sse('progress', { phase: 'evidence_failed', error: String(e?.message ?? e).slice(0, 500), fallback: 'The CEO will not invent current external facts; the final answer will be limited by the evidence state.' }))
             }
           }
 
-          const evidenceMessage = externalEvidenceContext
-            ? `\n\n${externalEvidenceContext}\n\nUse only these source-backed facts for current external claims. Keep source markers such as [S1-...] attached to supported claims. If a needed fact is missing, say so instead of inventing it.`
-            : ''
-
+          const evidenceMessage = externalEvidenceContext ? `\n\n${externalEvidenceContext}\n\nUse only these source-backed facts for current external claims. Keep source markers such as [S1-...] attached to supported claims. If a needed fact is missing, say so instead of inventing it.` : ''
           const response = await runCeoCognitiveLifecycle({
             attachmentsCount: atts.length,
             messages: [
-              {
-                role: 'system',
-                content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification. For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.${evidenceMessage}\n\n${getCanonicalOrganizationPrompt()}`,
-              },
+              { role: 'system', content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification. For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.${evidenceMessage}\n\n${getCanonicalOrganizationPrompt()}` },
               { role: 'user', content: message },
             ],
             taskType: preRoute.taskClass,
@@ -191,40 +155,11 @@ export async function POST(req: NextRequest) {
             console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150))
           }
 
-          safeEnqueue(sse('answer', {
-            content: response.content,
-            provider: response.provider,
-            model: response.model,
-            executionClass: response.decisionPlan.path,
-            evidenceState: response.evidenceState,
-            quality: response.quality,
-            responseMs: response.responseMs,
-            deployment: deploymentIdentity,
-            executionContract,
-          }))
-          safeEnqueue(sse('done', {
-            messageId: persistedAssistantMessageId,
-            steps: executionContract.evidenceClass === 'external_web' ? 2 : 1,
-            executionClass: response.decisionPlan.path,
-            provider: response.provider,
-            model: response.model,
-            evidenceState: response.evidenceState,
-            deployment: deploymentIdentity,
-            executionContract,
-          }))
+          safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, responseMs: response.responseMs, deployment: deploymentIdentity, executionContract }))
+          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, executionContract }))
         } else {
-          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget(
-            (signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal),
-            requestBudgetMs,
-          ))
-          safeEnqueue(sse('done', {
-            messageId: result.persistedAssistantMessageId,
-            steps: result.steps.length,
-            executionClass: preRoute.adaptiveExecutionClass ?? 'standard',
-            executionContract,
-            deployment: deploymentIdentity,
-            recoveryCount: recoveryBudget.used,
-          }))
+          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs))
+          safeEnqueue(sse('done', { messageId: result.persistedAssistantMessageId, steps: result.steps.length, executionClass: preRoute.adaptiveExecutionClass ?? 'standard', executionContract, deployment: deploymentIdentity, recoveryCount: recoveryBudget.used }))
         }
       } catch (e: any) {
         if (e instanceof RecoveryBudgetExceededError || e?.code === 'CEO_RECOVERY_BUDGET_EXCEEDED') {
@@ -244,33 +179,8 @@ export async function POST(req: NextRequest) {
     cancel() { /* client aborted; nothing to do */ },
   })
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-      'X-Agent007-Deployment-Id': deploymentIdentity.deploymentId ?? 'unknown',
-      'X-Agent007-Release-Commit': deploymentIdentity.releaseCommit ?? 'unknown',
-    },
-  })
+  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no', 'X-Agent007-Deployment-Id': deploymentIdentity.deploymentId ?? 'unknown', 'X-Agent007-Release-Commit': deploymentIdentity.releaseCommit ?? 'unknown' } })
 }
 
-interface OrchestratorRunOptionsWithSignal {
-  conversationId: string
-  userMessage: string
-  attachments: AttachmentMeta[]
-  language: 'en' | 'zh'
-  emit: OrchestratorEventEmit
-  signal: AbortSignal
-}
-
-function stripDataUrl(a: AttachmentMeta) {
-  return {
-    filename: a.filename,
-    originalName: a.originalName,
-    mimeType: a.mimeType,
-    size: a.size,
-    textContent: a.textContent ? a.textContent.slice(0, 8000) : undefined,
-  }
-}
+interface OrchestratorRunOptionsWithSignal { conversationId: string; userMessage: string; attachments: AttachmentMeta[]; language: 'en' | 'zh'; emit: OrchestratorEventEmit; signal: AbortSignal }
+function stripDataUrl(a: AttachmentMeta) { return { filename: a.filename, originalName: a.originalName, mimeType: a.mimeType, size: a.size, textContent: a.textContent ? a.textContent.slice(0, 8000) : undefined } }
