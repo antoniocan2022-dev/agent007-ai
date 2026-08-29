@@ -45,7 +45,7 @@ record(!downloadLink.includes('agent007-ai.vercel.app'), 'Download-link flow con
 record(stripeWebhook.includes('pg_advisory_xact_lock'), 'Stripe derived-ledger path lacks concurrency locking')
 record(stripeWebhook.includes('ownerUserId: owner.id'), 'Stripe fulfillment is not bound to verified owner')
 record(stripeWebhook.includes('checkoutSessionId'), 'Stripe fulfillment does not pass checkout-session identity')
-record(autonomyWorkflow.includes("- main"), 'Autonomy CI does not run on main pushes')
+record(/(?:^|\n)\s*-\s*main\b/m.test(autonomyWorkflow) || /branches:\s*\[[^\]]*\bmain\b[^\]]*\]/m.test(autonomyWorkflow), 'Autonomy CI does not run on main pushes')
 
 record(proofLedger.includes('recordExecutionReceipt'), 'Execution proof service does not expose receipt persistence')
 record(proofLedger.includes('persistEvidenceLedger'), 'Evidence proof service does not expose ledger persistence')
