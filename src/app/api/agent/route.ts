@@ -73,8 +73,8 @@ export async function POST(req: NextRequest) {
   let body: any
   try { body = await req.json() } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }) }
   const { message, conversationId, attachments, language } = body as { message?: string; conversationId?: string; attachments?: AttachmentMeta[]; language?: 'en' | 'zh' }
-  if (!message || typeof message !== 'string') return new Response(JSON.stringify({ error: 'Missing "message"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
-  if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing "conversationId"' }), { status: 400, headers: { 'Content-Type': 'application/json' }) }
+  if (!message || typeof message !== 'string') return new Response(JSON.stringify({ error: 'Missing \"message\"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing \"conversationId\"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
   const deploymentIdentity = getDeploymentIdentity()
