@@ -7,8 +7,10 @@ import { listMemories, upsertMemory } from '@/lib/memory'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-function isAuthenticated(session: Awaited<ReturnType<typeof getServerSession>>): boolean {
-  return typeof (session?.user as { id?: unknown } | undefined)?.id === 'string' && Boolean((session?.user as { id: string }).id)
+type SessionLike = { user?: { id?: unknown } } | null
+function isAuthenticated(session: unknown): boolean {
+  const user = (session as SessionLike)?.user
+  return typeof user?.id === 'string' && user.id.length > 0
 }
 
 export async function GET(req: NextRequest) {
@@ -35,9 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
   const { key, value, category } = body as { key?: string; value?: string; category?: string }
-  if (!key || !value) {
-    return NextResponse.json({ error: 'Missing key or value' }, { status: 400 })
-  }
+  if (!key || !value) return NextResponse.json({ error: 'Missing key or value' }, { status: 400 })
   try {
     const rec = await upsertMemory(key, value, category ?? 'general')
     return NextResponse.json({ memory: rec })
