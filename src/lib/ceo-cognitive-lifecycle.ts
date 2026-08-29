@@ -13,6 +13,8 @@ import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState } from './ceo-cognitive-contract'
+import type { CeoFailureReason } from './ceo-failure-reason'
+import type { PersistedConversationRow } from './ceo-context-composer'
 
 export interface CeoCognitiveRequest {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -28,6 +30,8 @@ export interface CeoCognitiveRequest {
   temperature?: number
   maxTokens?: number
   timeoutMs?: number
+  priorConversation?: readonly PersistedConversationRow[]
+  relevantOlderConversation?: readonly PersistedConversationRow[]
 }
 
 type ValidatedAvailability = { provider: ActiveProviderId; model: string; responseMs: number } | null
@@ -75,79 +79,29 @@ async function tryDegraded(
   executionPlan: ReturnType<typeof buildCeoExecutionPlan>,
   availabilityAttempted = false,
   validatedAvailability: ValidatedAvailability = null,
+  failureReason?: CeoFailureReason,
 ): Promise<CognitiveLifecycleResult> {
   const started = Date.now()
   let availability = validatedAvailability
-  if (!availability && !availabilityAttempted) {
-    availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
-  }
-
+  if (!availability && !availabilityAttempted) availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
   const evidenceScope = request.evidenceScope ?? (decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
   const evidenceFreshness = request.evidenceFreshness
-
   if (availability) {
     try {
-      const recovery = await runCanonicalLlm({
-        messages: request.messages,
-        taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? (decisionPlan.taskClass ?? 'reasoning')),
-        verification: request.verification ?? 'standard',
-        model: availability.model,
-        temperature: request.temperature ?? 0.2,
-        maxTokens: request.maxTokens ?? 4000,
-        timeoutMs: Math.max(1000, Math.min(30000, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - (Date.now() - started))),
-        maxProviderAttempts: 1,
-        excludeProviders: PROVIDER_ORDER.filter((provider) => provider !== availability!.provider),
-      })
-      const recoveryQuality = evaluateCeoQuality({
-        objective: objectiveFrom(request.messages),
-        content: recovery.content,
-        path: decisionPlan.path,
-        reviewed: false,
-        externalExecutionSucceeded: true,
-        evidenceProvided: Boolean(request.contextualEvidence?.trim()),
-        evidenceScope,
-        evidenceFreshness,
-      })
+      const recovery = await runCanonicalLlm({ messages: request.messages, taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? (decisionPlan.taskClass ?? 'reasoning')), verification: request.verification ?? 'standard', model: availability.model, temperature: request.temperature ?? 0.2, maxTokens: request.maxTokens ?? 4000, timeoutMs: Math.max(1000, Math.min(30000, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - (Date.now() - started))), maxProviderAttempts: 1, excludeProviders: PROVIDER_ORDER.filter((provider) => provider !== availability!.provider) })
+      const recoveryQuality = evaluateCeoQuality({ objective: objectiveFrom(request.messages), content: recovery.content, path: decisionPlan.path, reviewed: false, externalExecutionSucceeded: true, evidenceProvided: Boolean(request.contextualEvidence?.trim()), evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
       const mergedAttempts = [...new Set([...attempts, availability.provider, ...recovery.attempts])]
       if (recovery.content.trim() && recoveryQuality.decision === 'PASS') {
-        return {
-          content: composeCeoResponse({ content: recovery.content, evidenceState: recoveryQuality.evidenceState, quality: recoveryQuality, degraded: false }),
-          provider: recovery.provider,
-          model: recovery.model,
-          responseMs: responseMsBeforeDegraded + (Date.now() - started),
-          attempts: mergedAttempts,
-          executionPlan,
-          decisionPlan,
-          quality: recoveryQuality,
-          evidenceState: recoveryQuality.evidenceState,
-          degraded: false,
-        }
+        return { content: composeCeoResponse({ content: recovery.content, evidenceState: recoveryQuality.evidenceState, quality: recoveryQuality, degraded: false }), provider: recovery.provider, model: recovery.model, responseMs: responseMsBeforeDegraded + (Date.now() - started), attempts: mergedAttempts, executionPlan, decisionPlan, quality: recoveryQuality, evidenceState: recoveryQuality.evidenceState, degraded: false, failureReason: recoveryQuality.failureReason }
       }
     } catch {
       // Recovery failed genuinely; proceed to persistent-evidence degraded mode.
     }
   }
-
-  const degraded = await buildCeoDegradedResponse({
-    objective: objectiveFrom(request.messages),
-    intent: decisionPlan.executionContract.intent,
-    selfReflectionKind: decisionPlan.executionContract.selfReflectionKind,
-    reason,
-    missionId: request.missionId,
-    contextualEvidence: request.contextualEvidence,
-  })
+  const degraded = await buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), intent: decisionPlan.executionContract.intent, selfReflectionKind: decisionPlan.executionContract.selfReflectionKind, reason, failureReason, missionId: request.missionId, contextualEvidence: request.contextualEvidence })
   const responseMs = responseMsBeforeDegraded + (Date.now() - started)
-  const quality = {
-    decision: 'DEGRADED' as const,
-    evidenceState: degraded.evidenceState,
-    verificationStatus: 'NOT_PERFORMED' as const,
-    checks: { nonEmpty: Boolean(degraded.content.trim()), contractValid: degraded.content.length <= 100_000, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true },
-    evidenceScope,
-    evidenceFreshness,
-    claimScopes: [],
-    reasons: [reason, ...(degraded.sourceKeys.length ? [`Recovered ${degraded.sourceKeys.length} internal evidence item(s).`] : [])],
-  }
-  return { content: composeCeoResponse({ content: degraded.content, evidenceState: degraded.evidenceState, quality, degraded: true }), responseMs, attempts, executionPlan, decisionPlan, quality, evidenceState: degraded.evidenceState, degraded: true }
+  const quality = { decision: 'DEGRADED' as const, evidenceState: degraded.evidenceState, verificationStatus: 'NOT_PERFORMED' as const, checks: { nonEmpty: Boolean(degraded.content.trim()), contractValid: degraded.content.length <= 100_000, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, evidenceScope, evidenceFreshness, claimScopes: [], failureReason: degraded.failureReason, reasons: [reason, ...(degraded.sourceKeys.length ? [`Recovered ${degraded.sourceKeys.length} internal evidence item(s).`] : [])] }
+  return { content: composeCeoResponse({ content: degraded.content, evidenceState: degraded.evidenceState, quality, degraded: true }), responseMs, attempts, executionPlan, decisionPlan, quality, evidenceState: degraded.evidenceState, degraded: true, failureReason: degraded.failureReason }
 }
 
 export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Promise<CognitiveLifecycleResult> {
@@ -159,7 +113,6 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const startedAt = Date.now()
   const deadline = startedAt + (request.timeoutMs ?? decisionPlan.latencyBudgetMs)
   const selectedVerification: VerificationTier = request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard')
-
   let ventureEvidence: { ventureId: string; evidence: string } | null = null
   let ventureEvidenceFreshness: EvidenceFreshness | undefined
   try {
@@ -168,109 +121,52 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   } catch (error) {
     if (/\bventure_\d{3}\b/i.test(objective)) {
       const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
-      return tryDegraded(request, `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), [], Date.now() - startedAt, decisionPlan, executionPlan, true, availability)
+      return tryDegraded(request, `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), [], Date.now() - startedAt, decisionPlan, executionPlan, true, availability, 'context_unavailable')
     }
   }
-
   const evidenceProvided = Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)
   const evidenceScope: EvidenceScope | undefined = request.evidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
   const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness
-  const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment'
-    ? synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: evidenceScope === 'live_system' && Boolean(evidenceFreshness),
-      productionTrafficVerified: request.productionTrafficVerified === true,
-      repeatableBusinessOutcomesVerified: false,
-      sustainedAutonomyVerified: false,
-      observedAt: evidenceFreshness?.observedAt,
-      maxEvidenceAgeMs: evidenceFreshness?.maxAgeMs,
-    })
-    : null
+  const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: evidenceScope === 'live_system' && Boolean(evidenceFreshness), productionTrafficVerified: request.productionTrafficVerified === true, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false, observedAt: evidenceFreshness?.observedAt, maxEvidenceAgeMs: evidenceFreshness?.maxAgeMs }) : null
   const liveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }] : []
   const readinessMessages = readinessSynthesis ? [{ role: 'system' as const, content: `GOVERNED EXECUTIVE READINESS BASELINE (INTERNAL):\nLevel ${readinessSynthesis.level} — ${readinessSynthesis.label}.\n${readinessSynthesis.capability}\n${readinessSynthesis.verified}\n${readinessSynthesis.notProven}\nNext evidence: ${readinessSynthesis.nextEvidence}` }] : []
   const primaryMessages = [...liveSystemMessages, ...readinessMessages, ...request.messages]
-  const stageOptions = (overrides: Record<string, unknown> = {}) => ({
-    taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'),
-    verification: selectedVerification,
-    model: request.model,
-    temperature: request.temperature,
-    maxTokens: request.maxTokens,
-    maxProviderAttempts: decisionPlan.maxProviderAttempts,
-    timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())),
-    executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const,
-    ...overrides,
-  })
-
+  const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
   let primary: CanonicalLlmResult | undefined
   let review: CanonicalLlmResult | undefined
   let final: CanonicalLlmResult | undefined
   let escalation = 0
-
   try {
     primary = await runCanonicalLlm({ ...stageOptions(), messages: primaryMessages })
     if (executionPlan.reasoningStrategy === 'multi_pass') {
-      const refinement = await runCanonicalLlm({
-        ...stageOptions({ maxProviderAttempts: 2 }),
-        messages: [...primaryMessages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)],
-        excludeProviders: stageExclusions(primary.provider),
-      })
+      const refinement = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...primaryMessages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
       review = refinement; final = refinement
     } else if (executionPlan.reasoningStrategy === 'independent_review') {
-      review = await runCanonicalLlm({
-        ...stageOptions({ maxProviderAttempts: 2 }),
-        messages: [
-          ...liveSystemMessages,
-          ...readinessMessages,
-          { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' },
-          buildReviewPrompt(objective, primary.content),
-        ],
-        excludeProviders: stageExclusions(primary.provider),
-      })
-      final = await runCanonicalLlm({
-        ...stageOptions({ maxProviderAttempts: 2 }),
-        messages: [
-          ...liveSystemMessages,
-          ...readinessMessages,
-          { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
-          buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined),
-        ],
-        excludeProviders: stageExclusions(review.provider),
-      })
+      review = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
+      final = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined)], excludeProviders: stageExclusions(review.provider) })
     }
-
     let output = final ?? primary
-    if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan)
-    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness })
-
+    if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan, false, null, 'provider_unavailable')
+    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
       const lastProvider = final?.provider ?? review?.provider ?? primary?.provider
       try {
-        const escalated = await runCanonicalLlm({
-          ...stageOptions({ maxProviderAttempts: 2 }),
-          messages: [
-            ...liveSystemMessages,
-            ...readinessMessages,
-            { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' },
-            { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` },
-          ],
-          excludeProviders: stageExclusions(lastProvider),
-        })
+        const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) })
         final = escalated
         output = escalated
-        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness })
+        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
         if (quality.decision === 'PASS') break
       } catch { break }
     }
-
     const result = final ?? primary
-    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
-    if (quality.decision !== 'PASS') return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan)
-
+    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable')
+    if (quality.decision !== 'PASS') return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason)
     const evidenceState: EvidenceState = quality.evidenceState
-    return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false }
+    return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false, failureReason: quality.failureReason }
   } catch (error) {
     const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
-    return tryDegraded(request, error instanceof Error ? error.message.slice(0, 500) : 'All governed external execution paths failed.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, availability)
+    const failureReason: CeoFailureReason = error instanceof Error && /timeout|timed out/i.test(error.message) ? 'execution_timeout' : 'provider_error'
+    return tryDegraded(request, error instanceof Error ? error.message.slice(0, 500) : 'All governed external execution paths failed.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, availability, failureReason)
   }
 }
