@@ -50,34 +50,27 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   if (!normalized) return { kind: 'none', isSelfReflective: false, reason: 'No substantive request.' }
   if (!SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
 
-  // Explicit work always outranks self-reflection. Questions about readiness
-  // to act are still reflective unless they name a concrete operational target.
   if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized)) {
     return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, or external-analysis language takes precedence.' }
   }
 
-  if (CASUAL_CHECKIN_RE.test(normalized)) {
-    return { kind: 'casual_checkin', isSelfReflective: true, reason: 'Short self-referential check-in.' }
-  }
-  if (READINESS_RE.test(normalized)) {
-    return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
-  }
-  if (CAPABILITY_RE.test(normalized)) {
-    return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }
-  }
-  if (PERFORMANCE_RE.test(normalized) || /\b(?:how|where)\s+are\s+you\b/i.test(normalized)) {
-    return { kind: 'performance_reflection', isSelfReflective: true, reason: 'Self-performance or progress reflection.' }
-  }
+  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: true, reason: 'Short self-referential check-in.' }
+  if (READINESS_RE.test(normalized)) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
+  if (CAPABILITY_RE.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }
+  if (PERFORMANCE_RE.test(normalized) || /\b(?:how|where)\s+are\s+you\b/i.test(normalized)) return { kind: 'performance_reflection', isSelfReflective: true, reason: 'Self-performance or progress reflection.' }
 
   return { kind: 'none', isSelfReflective: false, reason: 'Self-reference detected but no safe reflective intent established.' }
 }
 
 /**
  * Deterministic executive-readiness synthesis over already-governed evidence.
- * It deliberately refuses to infer real-world business outcomes or sustained
- * autonomy from source architecture alone.
+ * Levels are cumulative and conservative: architecture supports A, explicit
+ * governed operational capability supports B, current live execution plus
+ * production-traffic proof supports C, repeatable outcomes supports D, and
+ * sustained autonomy supports E. Stale evidence cannot advance readiness.
  */
 export function synthesizeExecutiveReadiness(input: {
+  operationalCapabilityVerified: boolean
   liveExecutionVerified: boolean
   productionTrafficVerified: boolean
   repeatableBusinessOutcomesVerified: boolean
@@ -87,18 +80,14 @@ export function synthesizeExecutiveReadiness(input: {
   now?: number
 }): ExecutiveReadinessSynthesis {
   const now = input.now ?? Date.now()
-  const evidenceFresh = input.observedAt === undefined || input.maxEvidenceAgeMs === undefined
-    ? true
-    : now - input.observedAt <= input.maxEvidenceAgeMs
+  const evidenceFresh = input.observedAt !== undefined && input.maxEvidenceAgeMs !== undefined
+    ? now - input.observedAt >= 0 && now - input.observedAt <= input.maxEvidenceAgeMs
+    : false
   const liveVerified = input.liveExecutionVerified && input.productionTrafficVerified && evidenceFresh
-  let level: ExecutiveReadinessLevel = 'A'
-  if (liveVerified) level = 'C'
-  if (input.repeatableBusinessOutcomesVerified) level = 'D'
-  if (input.sustainedAutonomyVerified) level = 'E'
 
-  if (level === 'E') {
+  if (liveVerified && input.sustainedAutonomyVerified && input.repeatableBusinessOutcomesVerified) {
     return {
-      level,
+      level: 'E',
       label: 'Sustained autonomy',
       capability: 'The system has evidence supporting autonomous business operation over a sustained period.',
       verified: 'Sustained autonomous operation is explicitly evidenced by governed outcome data.',
@@ -108,27 +97,38 @@ export function synthesizeExecutiveReadiness(input: {
     }
   }
 
-  if (level === 'D') {
+  if (liveVerified && input.repeatableBusinessOutcomesVerified) {
     return {
-      level,
+      level: 'D',
       label: 'Repeatable business outcomes',
       capability: 'The architecture can execute governed business work and has demonstrated repeatable outcomes.',
-      verified: 'Repeatable customer/revenue/KPI outcomes are explicitly evidenced.',
+      verified: 'Repeatable customer/revenue/KPI outcomes are explicitly evidenced by current live execution context.',
       notProven: 'Sustained autonomous operation has not yet been established by this evidence set.',
       nextEvidence: 'Accumulate durable evidence across multiple operating cycles.',
       observedAt: input.observedAt,
     }
   }
 
-  if (level === 'C') {
+  if (liveVerified) {
     return {
-      level,
+      level: 'C',
       label: 'Live execution capability',
-      capability: 'The system is architecturally capable and has current evidence of successful production execution.',
+      capability: 'The system is architecturally and operationally capable and has current evidence of successful production execution.',
       verified: 'The verified execution evidence is current and production traffic reaches the intended runtime.',
       notProven: 'Repeatable business outcomes and sustained autonomy are not established by execution evidence alone.',
       nextEvidence: 'Demonstrate repeatable customer, revenue, and KPI outcomes over time.',
       observedAt: input.observedAt,
+    }
+  }
+
+  if (input.operationalCapabilityVerified) {
+    return {
+      level: 'B',
+      label: 'Governed operational capability',
+      capability: 'The system has governed operational mechanisms for business-management work, with human oversight and explicit execution controls.',
+      verified: 'Operational orchestration, execution contracts, provider controls, memory, and verification mechanisms are established in the internal architecture.',
+      notProven: 'Current live execution, production-traffic correctness, repeatable business outcomes, and sustained autonomy are not established by architecture alone.',
+      nextEvidence: 'Verify current production traffic and successful live business execution before claiming Level C.',
     }
   }
 
@@ -137,8 +137,8 @@ export function synthesizeExecutiveReadiness(input: {
     label: 'Architectural capability',
     capability: 'Agent007 has governed CEO, orchestration, provider, memory, execution-contract, and verification mechanisms for business-management work.',
     verified: 'These capabilities are supported by the internal system architecture and its automated validation suite.',
-    notProven: 'Current live business execution, repeatable customer/revenue outcomes, and sustained autonomy are not established by architecture alone.',
-    nextEvidence: 'Verify production traffic, live execution, then accumulate repeatable business outcomes.',
+    notProven: 'Governed operational execution, current live business execution, repeatable customer/revenue outcomes, and sustained autonomy are not established by architecture alone.',
+    nextEvidence: 'Verify governed operational capability, then production traffic and live execution.',
     observedAt: input.observedAt,
   }
 }
