@@ -139,7 +139,11 @@ export function buildEvidenceBundle(input: {
       claims.push({ claim, sourceIds: [source.id], sourceUrls: [source.url] })
     }
   }
-  const observedAt = sources.reduce((latest, source) => Math.max(latest, source.retrievedAt), createdAt)
+  // Evidence freshness must be tied to actual source observations. Never use
+  // a later bundle-construction timestamp to make a cached source appear fresh.
+  const observedAt = sources.length > 0
+    ? sources.reduce((latest, source) => Math.max(latest, source.retrievedAt), 0)
+    : createdAt
   const profileMaxAge = PROFILE_MAX_AGE_MS[input.profile]
   const contextText = sources
     .map((source) => `[${source.id}] ${source.title}\nURL: ${source.url}\nTier: ${source.sourceTier}\nRetrieved: ${new Date(source.retrievedAt).toISOString()}${source.publishedAt ? `\nPublished: ${new Date(source.publishedAt).toISOString()}` : ''}\n\n${source.text.slice(0, 2800)}`)
