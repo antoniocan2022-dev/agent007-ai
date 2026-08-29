@@ -4,5 +4,5 @@
   "ref": "main",
   "reason": "Explicit owner authorization to deploy the corrected main release to Vercel production",
   "authorizedAt": "2026-08-29T09:25:00-04:00",
-  "sourceMainSha": "2ff6e5d18a043e8ddee0b39a2f4fb77df7fd071b"
+  "sourceMainSha": "fe8d9e38338e5f6cc1401b2137b79208d33e5cc0"
 }
