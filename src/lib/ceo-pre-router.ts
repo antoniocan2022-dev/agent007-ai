@@ -20,6 +20,10 @@ const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|de
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 
+function latestUserText(messages: readonly { role: string; content: string }[]): string {
+  return [...messages].reverse().find((message) => message.role === 'user' && typeof message.content === 'string')?.content ?? ''
+}
+
 const MARKET_SECURITY_RE = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|market\s+cap(?:italization)?|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|dividend|cash\s+flow|10-k|10-q|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend(?:ation)?|should|invest|buy|sell|hold|trade|value|price)\b/i
 const MARKET_ENTITY_RE = /\b[A-Z]{2,5}\b|\([A-Z]{1,5}\)|\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/
@@ -184,40 +188,31 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   }
 
   if (semanticIntent === 'self_assessment') {
-    const reason = 'Self-assessment request: evaluate Agent007/CEO readiness from governed internal organizational state without external action.'
-    return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass: 'reasoning', adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) })
+    const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'
+    return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) })
   }
 
-  if (isExternalEquityResearch(text)) {
-    const reason = 'Public-equity research requires governed external evidence acquisition before executive synthesis.'
-    const operation = inferEvidenceOperation(text)
-    return buildDecision({ route: 'full', reason, missionRelevant: false, complexitySignals: Math.max(2, complexitySignals), taskClass, adaptiveExecutionClass: 'deep', executionContract: contractFor({ intent: 'research', adaptiveExecutionClass: 'deep', missionRelevant: false, reason, evidenceClass: 'external_web', domain: 'public_equity', operation, temporalScope: inferTemporalScope(text), evidenceProfile: 'public_equity' }) })
-  }
+  const inferredDomain = semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion' ? inferExternalDomain(text) : undefined
+  const evidenceClass: EvidenceClass | undefined = semanticIntent === 'research' || (semanticIntent === 'decision' && Boolean(inferredDomain && inferredDomain !== 'general_web')) ? 'external_web' : undefined
+  const domain = inferredDomain
+  const temporalScope = domain ? inferTemporalScope(text) : undefined
+  const operation = domain ? inferEvidenceOperation(text) : undefined
+  const evidenceProfile = domain ? inferEvidenceProfile(domain, temporalScope!) : undefined
+  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason: 'Canonical semantic routing decision.', ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
 
-  if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
-    const reason = 'Context-dependent request requires richer conversational analysis.'
-    return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) })
+  if (semanticIntent === 'research' || evidenceClass === 'external_web') {
+    return buildDecision({ route: 'full', reason: 'External evidence requires governed execution.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
   }
-
-  if (semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action') {
-    const reason = `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
-    const domain = semanticIntent === 'research' ? inferExternalDomain(text) : undefined
-    const temporalScope = semanticIntent === 'research' ? inferTemporalScope(text) : undefined
-    const evidenceProfile = semanticIntent === 'research' && domain && temporalScope ? inferEvidenceProfile(domain, temporalScope) : undefined
-    return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass, missionRelevant, reason, ...(domain && temporalScope && evidenceProfile ? { evidenceClass: 'external_web' as EvidenceClass, domain, operation: inferEvidenceOperation(text), temporalScope, evidenceProfile } : {}) }) })
+  if (semanticIntent === 'mission_action' || missionRelevant) {
+    return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
   }
-
-  if (semanticIntent === 'conversation' || semanticIntent === 'opinion' || semanticIntent === 'decision' || semanticIntent === 'analysis') {
-    const reason = semanticIntent === 'analysis' ? 'Semantic analysis request remains CEO-owned; depth changes reasoning strategy, not orchestration ownership.' : 'Non-operational executive request remains CEO-owned.'
-    const isDeep = adaptive.executionClass === 'deep' || text.length > DIRECT_CEO_MAX_CHARS
-    return buildDecision({ route: isDeep ? 'full' : 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: isDeep ? 'deep' : 'fast', missionRelevant: false, reason }) })
+  if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') {
+    return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: adaptive.executionClass, executionContract })
   }
-
-  const reason = 'Request requires the standard governed path.'
-  return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant, reason }) })
+  const useFast = adaptive.executionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS) && !CONTEXT_RE.test(text)
+  return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : adaptive.executionClass, executionContract })
 }
 
-export function resolvePreRoute(decision: PreRouteDecision): Exclude<PreRouteDecision['route'], 'ambiguous'> {
-  return decision.route === 'fast' ? 'fast' : 'full'
+export function resolvePreRoute(decision: PreRouteDecision): 'fast' | 'full' {
+  return decision.route === 'fast' && decision.executionContract.toolRequired ? 'full' : decision.route
 }
