@@ -122,8 +122,21 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(result.checks.evidenceDiscipline).toBe(true)
   })
 
-  test('executive readiness remains conservative without live or outcome proof', () => {
+  test('executive readiness reaches governed operational capability at Level B', () => {
     const readiness = synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
+      liveExecutionVerified: false,
+      productionTrafficVerified: false,
+      repeatableBusinessOutcomesVerified: false,
+      sustainedAutonomyVerified: false,
+    })
+    expect(readiness.level).toBe('B')
+    expect(readiness.label).toBe('Governed operational capability')
+  })
+
+  test('executive readiness remains conservative without operational proof', () => {
+    const readiness = synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: false,
       liveExecutionVerified: false,
       productionTrafficVerified: false,
       repeatableBusinessOutcomesVerified: false,
@@ -137,6 +150,7 @@ describe('CEO self-reflection canonical classifier', () => {
   test('executive readiness advances only with explicitly supplied fresh evidence', () => {
     const now = Date.now()
     const live = synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
       liveExecutionVerified: true,
       productionTrafficVerified: true,
       repeatableBusinessOutcomesVerified: false,
@@ -148,6 +162,7 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(live.level).toBe('C')
 
     const outcomes = synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
       liveExecutionVerified: true,
       productionTrafficVerified: true,
       repeatableBusinessOutcomesVerified: true,
@@ -159,6 +174,7 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(outcomes.level).toBe('D')
 
     const stale = synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
       liveExecutionVerified: true,
       productionTrafficVerified: true,
       repeatableBusinessOutcomesVerified: false,
@@ -167,7 +183,7 @@ describe('CEO self-reflection canonical classifier', () => {
       maxEvidenceAgeMs: 60_000,
       now,
     })
-    expect(stale.level).toBe('A')
+    expect(stale.level).toBe('B')
   })
 
   test('the exact original 5–10 minute incident stays on the bounded path', () => {
