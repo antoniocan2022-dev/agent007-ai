@@ -7,6 +7,8 @@
  * and preserves the deep path for complex or mission-level work.
  */
 
+import { classifyCeoSelfReflection } from './ceo-self-reflection'
+
 export type ExecutionClass = 'fast' | 'standard' | 'deep' | 'mission'
 
 export interface AdaptiveExecutionPlan {
@@ -38,6 +40,18 @@ export function classifyExecution(messages: readonly { role: string; content: st
 
   if (!normalized) return { executionClass: 'fast', reason: 'No substantive user request detected.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
   if (GREETING_RE.test(normalized)) return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
+
+  const selfReflection = classifyCeoSelfReflection(normalized)
+  if (selfReflection.isSelfReflective) {
+    return {
+      executionClass: 'fast',
+      reason: `CEO self-reflection (${selfReflection.kind}) uses the bounded CEO lifecycle and is not promoted by deep-work keywords.`,
+      maxProviderAttempts: 4,
+      maxTokens: 4000,
+      timeoutMs: 30000,
+      parallelizable: false,
+    }
+  }
 
   const missionContext = MISSION_CONTEXT_RE.test(normalized)
   const missionAction = MISSION_ACTION_RE.test(normalized)
