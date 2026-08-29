@@ -38,10 +38,28 @@ jobs:
           fi
 
       - uses: actions/checkout@v5
+        with:
+          clean: true
+          fetch-depth: 1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.4
       - run: bun install --frozen-lockfile
+
+      - name: Reassert exact Git tree after dependency setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(git rev-parse HEAD)"
+          remote="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$expected" = "$remote" || { echo "WORKTREE_SHA_DRIFT: expected=$expected remote=$remote"; exit 1; }
+          git reset --hard "$expected"
+          # Dependency/cache setup must not be able to resurrect deleted repository artifacts.
+          # Remove only untracked files under scripts; all tracked release files remain intact.
+          git clean -ffdx -- scripts
+          test -z "$(git status --porcelain -- scripts)"
+          echo "Exact Git tree reasserted at $expected; scripts workspace is clean."
+
       - run: bunx prisma generate
 
       - name: Verify operation-loop and autonomy contracts
