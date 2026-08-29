@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { composeCeoContext } from '@/lib/ceo-context-composer'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
+import { evaluateClaimConsistency, scoreContextContinuity } from '@/lib/ceo-context-intelligence'
 
 function row(role: 'user' | 'assistant', content: string, createdAt: number) {
   return { role, content, createdAt }
@@ -66,6 +67,42 @@ describe('CEO conversation continuity', () => {
     expect(decision.route).toBe('full')
   })
 
+  test('anaphoric follow-up requires a real prior anchor', () => {
+    const score = scoreContextContinuity({
+      currentUserMessage: 'Would you buy it?',
+      response: 'I would compare the valuation and financial strength before deciding.',
+      priorTurns: [
+        row('user', 'Let\'s compare GEOS and MIND.', 1),
+        row('assistant', 'We should examine valuation, cash flow, and risk.', 2),
+      ],
+    })
+    expect(score.anaphoraDetected).toBe(true)
+    expect(score.relevantTurnCount).toBeGreaterThan(0)
+    expect(score.understood).toBe(true)
+  })
+
+  test('does not claim continuity when an anaphoric follow-up has no usable history', () => {
+    const score = scoreContextContinuity({
+      currentUserMessage: 'Would you buy it?',
+      response: 'I cannot tell yet what you are referring to.',
+      priorTurns: [],
+    })
+    expect(score.anaphoraDetected).toBe(true)
+    expect(score.understood).toBe(false)
+    expect(score.score).toBeLessThan(60)
+  })
+
+  test('claim-level consistency ignores modal alternatives', () => {
+    const result = evaluateClaimConsistency('The company could improve margins if demand recovers. The company may remain profitable even if demand stays uneven.')
+    expect(result.consistent).toBe(true)
+  })
+
+  test('claim-level consistency catches overlapping incompatible facts', () => {
+    const result = evaluateClaimConsistency('Revenue was 10 percent higher this year. Revenue was 5 percent lower this year.')
+    expect(result.consistent).toBe(false)
+    expect(result.contradictions.length).toBeGreaterThan(0)
+  })
+
   test('conversation quality remains active while evidence verification is not applicable', () => {
     const quality = evaluateCeoQuality({
       objective: 'How do you do?',
@@ -78,5 +115,6 @@ describe('CEO conversation continuity', () => {
     expect(quality.checks.nonEmpty).toBe(true)
     expect(quality.checks.objectiveCoverage).toBe(true)
     expect(quality.checks.evidenceDiscipline).toBe(true)
+    expect(quality.evidenceState).toBe('NOT_APPLICABLE')
   })
 })
