@@ -95,7 +95,7 @@ export function evaluateCeoQuality(input: {
   }
   let evidenceState: EvidenceState
   if (!evidenceVerificationApplicable && !externalClaims) evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
-  else if (!externalClaims && evidenceScope === 'none') evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
+  else if (!externalClaims && scope === 'none') evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
   else if (input.externalExecutionSucceeded === false && (externalClaims || evidenceVerificationApplicable)) evidenceState = 'UNAVAILABLE'
   else evidenceState = evidenceIsVerifiedLive ? 'LIVE_VERIFIED' : passed ? 'LIVE_EXECUTED' : 'PARTIAL_UNCONFIRMED'
   return {
