@@ -2,6 +2,7 @@ import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, E
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import { verifyClaimEvidence } from './ceo-claim-evidence-gate'
 import { evaluateClaimConsistency } from './ceo-context-intelligence'
+import type { CeoFailureReason } from './ceo-failure-reason'
 
 const STOPWORDS = new Set([
   'about', 'after', 'again', 'also', 'because', 'before', 'being', 'between', 'could', 'from',
@@ -13,13 +14,8 @@ const STOPWORDS = new Set([
 type EvaluationPath = 'fast' | 'full' | 'critical'
 
 function normalize(value: string): string[] {
-  return value.toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 4 && !STOPWORDS.has(token))
-    .slice(0, 160)
+  return value.toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)).slice(0, 160)
 }
-
 function objectiveCoverage(objective: string, content: string, path: EvaluationPath): boolean {
   const wanted = [...new Set(normalize(objective))]
   if (!wanted.length) return Boolean(content.trim())
@@ -35,13 +31,8 @@ const LIVE_ASSERTION_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|confi
 const EXTERNAL_ASSERTION_RE = /\b(?:according\s+to|latest\s+(?:market|industry|customer|competitor|report|study)|market\s+(?:is|shows|grew|declined)|customer(?:s)?\s+(?:are|have|said|reported)|competitor(?:s)?\s+(?:are|have|offer)|industry\s+(?:is|shows|grew|declined)|(?:study|studies|report|reports)\s+(?:show|shows|found|find)|revenue\s+(?:is|was|grew|declined|increased|decreased)|sales\s+(?:are|were|grew|declined|increased|decreased)|stock(?:s)?\s+(?:price|trades?|is)|shares?\s+(?:trade|are)|valuation\s+(?:is|looks|appears))\b/i
 const INTERNAL_ASSERTION_RE = /\b(?:architectur(?:e|al)|designed|implemented|configured|codebase|workflow|contract|module|repository|system\s+design|execution\s+path)\b/i
 const NEGATION_RE = /\b(?:not|no|without|unverified|unknown|unclear|uncertain|cannot|can't|never)\b/i
-
-function sentences(content: string): string[] {
-  return content.split('\n').flatMap((line) => line.split(/[.!?]+/)).map((sentence) => sentence.trim()).filter(Boolean)
-}
-function positiveAssertionExists(content: string, pattern: RegExp): boolean {
-  return sentences(content).some((sentence) => pattern.test(sentence) && !NEGATION_RE.test(sentence))
-}
+function sentences(content: string): string[] { return content.split('\n').flatMap((line) => line.split(/[.!?]+/)).map((sentence) => sentence.trim()).filter(Boolean) }
+function positiveAssertionExists(content: string, pattern: RegExp): boolean { return sentences(content).some((sentence) => pattern.test(sentence) && !NEGATION_RE.test(sentence)) }
 function claimScopes(content: string): EvidenceScope[] {
   const scopes: EvidenceScope[] = []
   if (positiveAssertionExists(content, INTERNAL_ASSERTION_RE)) scopes.push('internal_state')
@@ -49,15 +40,8 @@ function claimScopes(content: string): EvidenceScope[] {
   if (positiveAssertionExists(content, EXTERNAL_ASSERTION_RE)) scopes.push('external_web')
   return scopes
 }
-
-function validFreshness(freshness?: EvidenceFreshness): freshness is EvidenceFreshness {
-  return Boolean(freshness && Number.isFinite(freshness.observedAt) && Number.isFinite(freshness.maxAgeMs) && freshness.maxAgeMs >= 0)
-}
-function evidenceIsFresh(freshness: EvidenceFreshness): boolean {
-  if (!validFreshness(freshness)) return false
-  const age = Date.now() - freshness.observedAt
-  return age >= 0 && age <= freshness.maxAgeMs
-}
+function validFreshness(freshness?: EvidenceFreshness): freshness is EvidenceFreshness { return Boolean(freshness && Number.isFinite(freshness.observedAt) && Number.isFinite(freshness.maxAgeMs) && freshness.maxAgeMs >= 0) }
+function evidenceIsFresh(freshness: EvidenceFreshness): boolean { const age = Date.now() - freshness.observedAt; return age >= 0 && age <= freshness.maxAgeMs }
 
 export function evaluateCeoQuality(input: {
   objective: string
@@ -81,9 +65,7 @@ export function evaluateCeoQuality(input: {
   const externalClaims = claims.includes('external_web') || claims.includes('live_system')
   const evidenceVerificationApplicable = input.evidenceVerificationApplicable ?? (input.path === 'critical' || Boolean(input.evidenceScope) || evidenceProvided || externalClaims)
   const bundle = input.evidenceBundle
-  const claimVerification = externalClaims && evidenceVerificationApplicable && bundle
-    ? verifyClaimEvidence(input.content, bundle)
-    : { passed: true }
+  const claimVerification = externalClaims && evidenceVerificationApplicable && bundle ? verifyClaimEvidence(input.content, bundle) : { passed: true }
   const scope = input.evidenceScope
   const evidenceOk = (() => {
     if (!nonEmpty) return false
@@ -100,9 +82,7 @@ export function evaluateCeoQuality(input: {
   const hasHeadings = lines.some((line) => /^\s*#{1,4}\s+\S+/.test(line))
   const hasBullets = lines.some((line) => /^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(line))
   const hasDecisionLanguage = /\b(recommendation|decision|risks?|next steps?|actions?|evidence|assumptions?)\b/i.test(input.content)
-  const structureOk = input.path === 'fast'
-    ? true
-    : (hasHeadings || hasBullets || hasDecisionLanguage) && input.content.length >= (input.path === 'critical' ? 320 : 180)
+  const structureOk = input.path === 'fast' ? true : (hasHeadings || hasBullets || hasDecisionLanguage) && input.content.length >= (input.path === 'critical' ? 320 : 180)
   const reviewed = Boolean(input.reviewed)
   const verificationStatus: VerificationStatus = reviewed ? 'INDEPENDENT_PASS' : input.path === 'critical' ? 'NOT_PERFORMED' : 'NOT_REQUIRED'
   const reasons: string[] = []
@@ -115,13 +95,14 @@ export function evaluateCeoQuality(input: {
   if (input.path === 'critical' && !reviewed) reasons.push('Critical execution requires an independent review stage before acceptance.')
   const passed = nonEmpty && contractValid && coverage && claimConsistency.consistent && evidenceOk && structureOk && (input.path !== 'critical' || reviewed)
   const evidenceIsVerifiedLive = passed && (scope === 'live_system' || scope === 'mixed') && fresh
-  const evidenceState: EvidenceState = !input.externalExecutionSucceeded
-    ? 'UNAVAILABLE'
-    : evidenceIsVerifiedLive
-      ? 'LIVE_VERIFIED'
-      : passed
-        ? 'LIVE_EXECUTED'
-        : 'PARTIAL_UNCONFIRMED'
+  const evidenceState: EvidenceState = !input.externalExecutionSucceeded ? 'UNAVAILABLE' : evidenceIsVerifiedLive ? 'LIVE_VERIFIED' : passed ? 'LIVE_EXECUTED' : 'PARTIAL_UNCONFIRMED'
+  let failureReason: CeoFailureReason | undefined
+  if (!passed) {
+    if (!claimConsistency.consistent) failureReason = 'claim_consistency_failure'
+    else if (!evidenceOk) failureReason = claims.includes('external_web') || claims.includes('live_system') ? 'evidence_insufficient' : 'quality_failure'
+    else if (!coverage || !structureOk) failureReason = 'quality_failure'
+    else if (!nonEmpty || !contractValid) failureReason = 'quality_failure'
+  }
   return {
     decision: passed ? 'PASS' : input.path === 'fast' ? 'DEGRADED' : 'ESCALATE',
     evidenceState,
@@ -130,6 +111,7 @@ export function evaluateCeoQuality(input: {
     evidenceScope: input.evidenceScope,
     evidenceFreshness: input.evidenceFreshness,
     claimScopes: claims,
+    failureReason,
     reasons: reasons.length ? reasons : ['Response satisfied the applicable deterministic quality contract.'],
   }
 }
