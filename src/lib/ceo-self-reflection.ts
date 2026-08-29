@@ -23,10 +23,11 @@ export interface SelfReflectionClassification {
 }
 
 const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo|the\s+(?:agent|system|assistant))\b/i
-const EXPLICIT_OPERATION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|run|enable|disable|schedule|commit)\b/i
+const OPERATIONAL_COMMAND_RE = /^(?:please\s+)?(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|enable|disable|schedule|commit)\b/i
+const TARGETED_OPERATION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|enable|disable|schedule|commit)\s+(?:this|the|my|our|approved|production|release|build|customer|invoice|mission|venture|business|company|campaign)\b/i
 const RESEARCH_RE = /\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i
-const MISSION_RE = /\b(?:mission|venture|revenue|transaction|production)\b/i
-const MISSION_TARGET_RE = /\b(?:manage|run)\s+(?:this|the|my|our)\s+(?:business|company|venture)\b/i
+const MISSION_ACTION_RE = /\b(?:start|run|manage|execute|launch)\s+(?:this|the|my|our)\s+(?:mission|venture|business|company)\b|\b(?:start|execute|launch)\s+(?:a|an)\s+(?:mission|venture)\b/i
+const ANALYSIS_TARGET_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|compare|design|plan)\b.*\b(?:this|that|these|those|the\s+(?:architecture|system|data|market|report|document|problem|request)|customer|churn|competitor|financial|legal)\b/i
 const CASUAL_CHECKIN_RE = /^(?:how(?:'s|\s+is)\s+(?:it|everything|things?)\s+going|how\s+are\s+(?:you|things?)(?:\s+doing)?|how\s+is\s+(?:agent007|the\s+(?:system|ceo|agent))\s+doing|you\s+(?:good|okay|alright)|what(?:'s|\s+is)\s+new(?:\s+with\s+you)?)[!.?\s]*$/i
 const PERFORMANCE_RE = /\b(?:improving|getting\s+better|performance|performing|progress|progressing|better|worse|declining|evolving|evolution|learning|developing|growth|how\s+have\s+you\s+been|how\s+are\s+you\s+performing)\b/i
 const CAPABILITY_RE = /\b(?:strengths?|weakness(?:es)?|capabilit(?:y|ies)|capable|skills?|limitations?|what\s+can\s+you\s+do|what\s+are\s+you\s+good\s+at)\b/i
@@ -37,10 +38,10 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   if (!normalized) return { kind: 'none', isSelfReflective: false, reason: 'No substantive request.' }
   if (!SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
 
-  // Explicit work always outranks self-reflection. This prevents phrases such
-  // as "can you deploy" or "run the business" from stealing an operational lane.
-  if (EXPLICIT_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_RE.test(normalized) || MISSION_TARGET_RE.test(normalized)) {
-    return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, or mission language takes precedence.' }
+  // Explicit work always outranks self-reflection. Questions about readiness
+  // to act are still reflective unless they name a concrete operational target.
+  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized)) {
+    return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, or external-analysis language takes precedence.' }
   }
 
   if (CASUAL_CHECKIN_RE.test(normalized)) {
