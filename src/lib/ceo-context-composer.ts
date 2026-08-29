@@ -36,7 +36,7 @@ export interface CeoContextModulePolicyInput {
   intent: string
   missionRelevant: boolean
   evidenceClass: string
-  taskClass: string
+  taskClass?: string
   executionRequirement: string
   evidence?: string
   mission?: string
@@ -44,10 +44,11 @@ export interface CeoContextModulePolicyInput {
 }
 
 export function buildCeoContextModules(input: CeoContextModulePolicyInput): CeoContextModules {
+  const taskClass = input.taskClass ?? ''
   const includeOrganization = input.intent !== 'conversation'
     || input.missionRelevant
     || input.evidenceClass !== 'none'
-    || input.taskClass === 'financial'
+    || taskClass === 'financial'
     || input.executionRequirement === 'production'
   return {
     organization: includeOrganization ? getCanonicalOrganizationPrompt() : undefined,
