@@ -18,28 +18,22 @@ export function startEvidenceTrace(input: { objective: string; profile?: string;
   return { traceId: `evidence_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, requestId: input.requestId, objective: input.objective.slice(0, 500), profile: input.profile ?? 'unknown', startedAt: Date.now(), events: [] }
 }
 export function addEvidenceTraceEvent(trace: EvidenceTrace, event: EvidenceTraceEvent, data: Record<string, unknown> = {}): void {
-  trace.events.push({ at: Date.now(), event, data: Object.fromEntries(Object.entries(data).slice(0, 20).map(([key, value]) => [key, sanitize(value)])) })
+  trace.events.push({ at: Date.now(), event, data: Object.fromEntries(Object.entries(data).slice(0, 20).map(([key, value]) => [key.slice(0, 80), sanitize(value)])) })
   if (trace.events.length > 100) trace.events.splice(0, trace.events.length - 100)
 }
 export function completeEvidenceTrace(trace: EvidenceTrace, finalState: EvidenceTraceState): EvidenceTrace {
-  trace.completedAt = Date.now(); trace.finalState = finalState
+  if (trace.completedAt) return trace
+  trace.completedAt = Date.now()
+  trace.finalState = finalState
   console.info('[evidence-trace]', JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, profile: trace.profile, finalState, eventCount: trace.events.length, durationMs: trace.completedAt - trace.startedAt }))
+  if (process.env.NODE_ENV !== 'test' && process.env.CI !== 'true') void persistEvidenceTrace(trace)
   return trace
 }
 
 /** Persist the bounded, redacted trace through the existing durable memory store. */
 export async function persistEvidenceTrace(trace: EvidenceTrace): Promise<boolean> {
   try {
-    const value = JSON.stringify({
-      traceId: trace.traceId,
-      requestId: trace.requestId,
-      objective: trace.objective,
-      profile: trace.profile,
-      startedAt: trace.startedAt,
-      completedAt: trace.completedAt,
-      finalState: trace.finalState,
-      events: trace.events.map((entry) => ({ at: entry.at, event: entry.event, data: entry.data })),
-    })
+    const value = JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, objective: trace.objective, profile: trace.profile, startedAt: trace.startedAt, completedAt: trace.completedAt, finalState: trace.finalState, events: trace.events.map((entry) => ({ at: entry.at, event: entry.event, data: entry.data })) })
     await db.memory.upsert({
       where: { key: `evidence_trace_${trace.traceId}` },
       create: { key: `evidence_trace_${trace.traceId}`, value, category: 'evidence_trace' },
