@@ -132,7 +132,7 @@ describe('permanent production release architecture', () => {
     expect(content).toContain('organizationGraphFingerprint')
     expect(content).toContain('.proof.tripleProof')
     expect(content).toContain('.proof.deploymentIdentityVerified')
-    expect(content).toContain('.proof.providerExecutionVerified')
+    expect(content).toContain('.actualExecution.verified')
   })
 
   it('stamps every Agent007 SSE envelope with deployment identity', () => {
