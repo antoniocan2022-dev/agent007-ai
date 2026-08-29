@@ -21,6 +21,7 @@ export interface CeoCognitiveRequest {
   contextualEvidence?: string
   evidenceScope?: EvidenceScope
   evidenceFreshness?: EvidenceFreshness
+  productionTrafficVerified?: boolean
   taskType?: TaskType
   verification?: VerificationTier
   model?: string
@@ -176,8 +177,8 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness
   const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment'
     ? synthesizeExecutiveReadiness({
-      liveExecutionVerified: evidenceScope === 'live_system',
-      productionTrafficVerified: evidenceScope === 'live_system',
+      liveExecutionVerified: evidenceScope === 'live_system' && Boolean(evidenceFreshness),
+      productionTrafficVerified: request.productionTrafficVerified === true,
       repeatableBusinessOutcomesVerified: false,
       sustainedAutonomyVerified: false,
       observedAt: evidenceFreshness?.observedAt,
