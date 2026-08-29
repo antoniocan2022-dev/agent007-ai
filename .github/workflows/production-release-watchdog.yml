@@ -193,6 +193,7 @@ jobs:
         shell: bash
         env:
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.sha }}
           TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
         run: |
           set -euo pipefail
@@ -201,12 +202,15 @@ jobs:
             body="$(curl --fail-with-body --silent --show-error --max-time 20 \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
               "https://api.vercel.com/v4/aliases/$domain?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID")"
-            test "$(jq -r '.alias // ""' <<<"$body")" = "$domain"
-            test "$(jq -r '.projectId // ""' <<<"$body")" = "$VERCEL_PROJECT_ID"
-            owners+=("$(jq -r '.deploymentId // ""' <<<"$body")")
+            alias_name="$(jq -r '.alias // ""' <<<"$body")"
+            project_id="$(jq -r '.projectId // ""' <<<"$body")"
+            owner_id="$(jq -r '.deploymentId // ""' <<<"$body")"
+            [ "$alias_name" = "$domain" ] || { echo 'STALE_ALIAS'; exit 44; }
+            [ "$project_id" = "$VERCEL_PROJECT_ID" ] || { echo 'STALE_ALIAS'; exit 44; }
+            owners+=("$owner_id")
           done
-          test "${owners[0]}" = "${owners[1]}"
-          test "${owners[0]}" = "$TARGET_DEPLOYMENT_ID"
+          [ "${owners[0]}" = "${owners[1]}" ] || { echo 'DUAL_ALIAS_CONFLICT'; exit 45; }
+          [ "${owners[0]}" = "$TARGET_DEPLOYMENT_ID" ] || { echo 'STALE_ALIAS'; exit 44; }
 
           conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
@@ -219,7 +223,7 @@ jobs:
             "$PRODUCTION_URL/api/agent" > agent-canary.txt
           node <<'NODE'
           const fs = require('node:fs')
-          const expectedSha = process.env.RELEASE_SHA
+          const expectedSha = process.env.EXPECTED_RELEASE_SHA
           const targetId = process.env.TARGET_DEPLOYMENT_ID
           const text = fs.readFileSync('agent-canary.txt', 'utf8')
           const lines = text.split(/\r?\n/).filter(line => line.startsWith('data: ')).map(line => line.slice(6)).filter(Boolean)
