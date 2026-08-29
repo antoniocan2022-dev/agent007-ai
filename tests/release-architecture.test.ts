@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const CANONICAL_WORKFLOW = join(ROOT, '.github/workflows/production-release-watchdog.yml')
+const PROVIDER_CANARY_WORKFLOW = join(ROOT, '.github/workflows/production-provider-canary.yml')
 
 function workflowContent(path = CANONICAL_WORKFLOW): string {
   return readFileSync(path, 'utf8')
@@ -17,6 +18,14 @@ describe('permanent production release architecture', () => {
       return /vercel@\S+\s+deploy\s+--prod|api\.vercel\.com\/v\d+\/deployments.*POST/i.test(content)
     })
     expect(deployers).toEqual(['production-release-watchdog.yml'])
+  })
+
+  test('keeps the production provider canary verification-only', () => {
+    expect(existsSync(PROVIDER_CANARY_WORKFLOW)).toBe(true)
+    const content = workflowContent(PROVIDER_CANARY_WORKFLOW)
+    expect(content).not.toMatch(/vercel@\S+\s+deploy\s+--prod|api\.vercel\.com\/v\d+\/deployments.*POST/i)
+    expect(content).toContain('/api/release-health')
+    expect(content).toContain('/api/health/provider-canary')
   })
 
   test('has no direct production deploy scripts outside GitHub Actions', () => {
