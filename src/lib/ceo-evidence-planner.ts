@@ -30,13 +30,18 @@ export interface ExternalEvidencePlan {
 const TICKER_STOPWORDS = new Set([
   'THE', 'AND', 'WITH', 'THIS', 'THAT', 'THOSE', 'STOCK', 'STOCKS', 'SHARE', 'SHARES',
   'MARKET', 'PRICE', 'TARGET', 'BUY', 'SELL', 'HOLD', 'CASH', 'FLOW', 'EPS', 'SEC', 'FILING',
+  'CEO', 'CFO', 'COO', 'CTO', 'CIO', 'CMO', 'CPO', 'CHRO', 'CRO', 'VP', 'SVP', 'EVP', 'HR', 'IR',
+  'AI', 'API', 'CI', 'CD', 'DB', 'SQL', 'URL', 'HTTP', 'HTTPS', 'SSE', 'UI', 'UX', 'QA', 'RCA', 'KPI',
 ])
 
 /** Extract explicit market identifiers first; conservative by design so that
- * internal words like "stock of spare parts" are not promoted to securities. */
+ * internal words and common executive/technical acronyms are not promoted to securities. */
 export function extractEquityTickers(text: string): string[] {
   const matches = new Set<string>()
-  for (const match of text.matchAll(/\(([A-Z]{1,5})\)/g)) matches.add(match[1])
+  for (const match of text.matchAll(/\(([A-Z]{1,5})\)/g)) {
+    const candidate = match[1]
+    if (!TICKER_STOPWORDS.has(candidate)) matches.add(candidate)
+  }
   for (const match of text.matchAll(/\b([A-Z]{2,5})\b/g)) {
     const candidate = match[1]
     if (!TICKER_STOPWORDS.has(candidate)) matches.add(candidate)
