@@ -32,15 +32,15 @@ function consistency(content: string): boolean {
   if (!normalized.trim()) return false
 
   const contradictionPairs: Array<[RegExp, RegExp]> = [
-    [/\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i],
-    [/\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i],
-    [/\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i],
-    [/\bnever\b/i, /\balways\b/i],
-    [/\bno evidence\b/i, /\bverified\b/i],
-    [/\bunverified\b/i, /\bconfirmed\b/i],
-    [/\bfailed\b/i, /\bsucceeded\b/i],
-    [/\bunavailable\b/i, /\bavailable\b/i],
-  ]
+    /\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i,
+    /\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i,
+    /\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i,
+    /\bnever\b/i, /\balways\b/i,
+    /\bno evidence\b/i, /\bverified\b/i,
+    /\bunverified\b/i, /\bconfirmed\b/i,
+    /\bfailed\b/i, /\bsucceeded\b/i,
+    /\bunavailable\b/i, /\bavailable\b/i,
+  ] as Array<[RegExp, RegExp]>
 
   for (const [left, right] of contradictionPairs) {
     if (left.test(content) && right.test(content)) return false
@@ -74,6 +74,19 @@ function claimScopes(content: string): EvidenceScope[] {
   return scopes
 }
 
+function validFreshness(freshness?: EvidenceFreshness): freshness is EvidenceFreshness {
+  if (!freshness) return false
+  return Number.isFinite(freshness.observedAt)
+    && Number.isFinite(freshness.maxAgeMs)
+    && freshness.maxAgeMs >= 0
+}
+
+function evidenceIsFresh(freshness: EvidenceFreshness): boolean {
+  if (!validFreshness(freshness)) return false
+  const age = Date.now() - freshness.observedAt
+  return age >= 0 && age <= freshness.maxAgeMs
+}
+
 function evidenceDiscipline(input: {
   content: string
   evidenceProvided: boolean
@@ -82,22 +95,22 @@ function evidenceDiscipline(input: {
   evidenceFreshness?: EvidenceFreshness
 }): boolean {
   if (!input.content.trim()) return false
+
   const claims = claimScopes(input.content)
   const scope = input.evidenceScope
+  const hasEvidenceSource = input.evidenceProvided || Boolean(scope && scope !== 'none')
+  const hasFreshEvidence = validFreshness(input.evidenceFreshness) && evidenceIsFresh(input.evidenceFreshness)
 
+  // Claim-aware policy: live and external claims may not fall back to a generic
+  // evidenceProvided boolean. They require an explicit matching evidence scope.
   if (claims.includes('live_system')) {
-    if (scope) {
-      if (scope !== 'live_system' && scope !== 'mixed') return false
-      if (!input.evidenceFreshness) return false
-      const age = Date.now() - input.evidenceFreshness.observedAt
-      if (age < 0 || age > input.evidenceFreshness.maxAgeMs) return false
-    } else if (!input.evidenceProvided) return false
+    if (scope !== 'live_system' && scope !== 'mixed') return false
+    if (!hasFreshEvidence) return false
   }
 
   if (claims.includes('external_web')) {
-    if (scope) {
-      if (scope !== 'external_web' && scope !== 'mixed') return false
-    } else if (!input.evidenceProvided) return false
+    if (scope !== 'external_web' && scope !== 'mixed') return false
+    if (!hasFreshEvidence) return false
   }
 
   if (claims.includes('internal_state') && scope) {
@@ -106,7 +119,7 @@ function evidenceDiscipline(input: {
 
   // Critical decisions require an explicit evidence source, even when the
   // prose itself does not contain an obvious live/external keyword.
-  if (input.path === 'critical' && !input.evidenceProvided && !scope) return false
+  if (input.path === 'critical' && !hasEvidenceSource) return false
   return true
 }
 
@@ -145,7 +158,7 @@ export function evaluateCeoQuality(input: {
   if (!contractValid) reasons.push('The response violates the canonical response-size contract.')
   if (!coverage) reasons.push('The response does not adequately cover the requested objective.')
   if (!consistent) reasons.push('The response contains a detected contradiction or conflicting claim.')
-  if (!evidenceOk) reasons.push(input.evidenceFreshness && claims.includes('live_system') ? 'A live/current claim depends on stale or incorrectly scoped evidence.' : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
+  if (!evidenceOk) reasons.push(input.evidenceFreshness && claims.some((claim) => claim === 'live_system' || claim === 'external_web') ? 'A live/external claim lacks a matching fresh evidence source.' : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
   if (!structureOk) reasons.push('The response does not meet the structural requirements for the requested execution depth.')
   if (input.path === 'critical' && !reviewed) reasons.push('Critical execution requires an independent review stage before acceptance.')
 
