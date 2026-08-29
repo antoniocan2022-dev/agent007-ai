@@ -24,6 +24,7 @@ function latestUserText(messages: readonly { role: string; content: string }[]):
 
 function buildExecutionContract(input: {
   intent: CeoIntent
+  selfReflectionKind?: SelfReflectionClassification['kind']
   evidenceRequirement: EvidenceRequirement
   executionRequirement: ExecutionRequirement
   orchestrationOwner: OrchestrationOwner
@@ -39,15 +40,17 @@ function buildExecutionContract(input: {
 
 function contractFor(input: {
   intent: CeoIntent
+  selfReflectionKind?: SelfReflectionClassification['kind']
   adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'
   missionRelevant: boolean
   reason: string
 }): CeoExecutionContract {
-  const { intent, adaptiveExecutionClass, missionRelevant, reason } = input
+  const { intent, selfReflectionKind, adaptiveExecutionClass, missionRelevant, reason } = input
 
   if (intent === 'self_assessment') {
     return buildExecutionContract({
       intent,
+      selfReflectionKind,
       evidenceRequirement: 'internal_state',
       executionRequirement: 'llm_only',
       orchestrationOwner: 'ceo_lifecycle',
@@ -221,7 +224,7 @@ export function preRouteCeoRequest(
     return buildDecision({
       route: 'full', reason, missionRelevant, complexitySignals, taskClass,
       adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }),
+      executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }),
     })
   }
 
@@ -230,7 +233,7 @@ export function preRouteCeoRequest(
     return buildDecision({
       route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass: 'reasoning',
       adaptiveExecutionClass: 'fast',
-      executionContract: contractFor({ intent: 'self_assessment', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
+      executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
     })
   }
 
