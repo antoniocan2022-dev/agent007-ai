@@ -36,6 +36,7 @@ on:
       - 'tests/ceo-execution-contract.test.ts'
       - 'tests/ceo-recovery-policy.test.ts'
       - 'tests/ceo-real-request-corpus.test.ts'
+      - 'tests/ceo-self-reflection.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
@@ -84,6 +85,7 @@ on:
       - 'tests/ceo-execution-contract.test.ts'
       - 'tests/ceo-recovery-policy.test.ts'
       - 'tests/ceo-real-request-corpus.test.ts'
+      - 'tests/ceo-self-reflection.test.ts'
       - 'tests/mission-autonomy-supervisor.test.ts'
       - 'tests/commercial-venture-foundation.test.ts'
       - 'tests/commercial-lifecycle-integration.test.ts'
@@ -160,6 +162,9 @@ jobs:
 
       - name: Run CEO recovery policy tests
         run: bun test tests/ceo-recovery-policy.test.ts
+
+      - name: Run CEO claim-aware, readiness and incident regression corpus
+        run: bun test tests/ceo-self-reflection.test.ts
 
       - name: Run real CEO request regression corpus
         run: bun test tests/ceo-real-request-corpus.test.ts
