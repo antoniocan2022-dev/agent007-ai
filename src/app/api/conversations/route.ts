@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
 import { db, ensureDbReady } from '@/lib/db'
+import { authOptions } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function sessionUserId(session: Awaited<ReturnType<typeof getServerSession>>): string {
+  return typeof (session?.user as { id?: unknown } | undefined)?.id === 'string' ? (session!.user as { id: string }).id : ''
+}
+
 export async function GET() {
-  // UPGRADE #126: Add error handling + ensureDbReady
-  // Previously: if DB query failed, the route threw an unhandled error → 500
-  // → client got HTML error page → safeJson returned {error: text} →
-  // data.conversations was undefined → conversations list stayed empty
   try {
+    const userId = sessionUserId(await getServerSession(authOptions))
+    if (!userId) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
     await ensureDbReady().catch(() => {})
     const conversations = await db.conversation.findMany({
+      where: { userId },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
@@ -25,13 +30,14 @@ export async function GET() {
     return NextResponse.json({ conversations })
   } catch (e: any) {
     console.error('[api/conversations] GET failed:', e?.message?.slice(0, 200))
-    // Return empty array instead of crashing — lets the UI render
     return NextResponse.json({ conversations: [], error: e?.message?.slice(0, 150) }, { status: 200 })
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = sessionUserId(await getServerSession(authOptions))
+    if (!userId) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
     await ensureDbReady().catch(() => {})
     let body: any = {}
     try {
@@ -40,7 +46,7 @@ export async function POST(req: NextRequest) {
       /* allow empty body */
     }
     const title = (body?.title ?? 'New Conversation').toString().slice(0, 120)
-    const conv = await db.conversation.create({ data: { title } })
+    const conv = await db.conversation.create({ data: { title, userId } })
     return NextResponse.json({ conversation: conv })
   } catch (e: any) {
     console.error('[api/conversations] POST failed:', e?.message?.slice(0, 200))
