@@ -232,6 +232,8 @@ jobs:
           done
 
       # Architecture 7: first-class proof is the real production URL, not a deployment URL.
+      # Do NOT use `vercel curl` here. Vercel CLI 59.x can forward --token to its
+      # embedded curl implementation, where it becomes an invalid curl option.
       - name: Generate production traffic canary
         id: traffic_canary
         shell: bash
@@ -242,14 +244,22 @@ jobs:
           set -euo pipefail
           conversation_id="release-canary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           payload="{\"message\":\"Agent007 production traffic canary. Reply with OK only.\",\"conversationId\":\"$conversation_id\",\"attachments\":[],\"language\":\"en\"}"
-          npx --yes vercel@$VERCEL_CLI_VERSION --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" curl "$PRODUCTION_URL/api/agent" -- \
-            --request POST --header 'Content-Type: application/json' --data "$payload" > agent-canary.txt
+          curl --fail-with-body --silent --show-error --no-buffer --location \
+            --connect-timeout 15 --max-time 180 \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --header 'Accept: text/event-stream' \
+            --data "$payload" \
+            "$PRODUCTION_URL/api/agent" > agent-canary.txt
           node <<'NODE'
           const fs = require('node:fs')
           const expectedSha = process.env.EXPECTED_RELEASE_SHA
           const targetId = process.env.TARGET_DEPLOYMENT_ID
           const text = fs.readFileSync('agent-canary.txt', 'utf8')
-          const lines = text.split(/\r?\n/).filter(line => line.startsWith('data: ')).map(line => line.slice(6)).filter(Boolean)
+          const lines = text.split(/\r?\n/)
+            .filter(line => line.startsWith('data: '))
+            .map(line => line.slice(6))
+            .filter(Boolean)
           if (!lines.length) throw new Error('TRAFFIC_OWNERSHIP_UNPROVEN: no SSE data envelopes')
           for (const line of lines) {
             let envelope
