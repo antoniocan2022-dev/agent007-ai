@@ -4,6 +4,8 @@ run-name: Authorized production release · ${{ inputs.release_sha || github.sha 
 # This is the single production deployer. Production may be released only by:
 # 1) an explicit workflow_dispatch with DEPLOY_AGENT007_MAIN, or
 # 2) the one-shot authorized release marker committed to main by the owner.
+# The release marker is a pointer to an already-certified source SHA; deployment never
+# treats the marker commit itself as the application release.
 # Vercel Git auto-deployment remains disabled.
 on:
   workflow_dispatch:
@@ -13,7 +15,7 @@ on:
         required: true
         type: string
       release_sha:
-        description: Exact GitHub main SHA to release
+        description: Exact certified GitHub main SHA to release
         required: true
         type: string
       previous_deployment_ids:
@@ -51,10 +53,10 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout exact authorized main SHA
+      - name: Checkout release pointer
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.release_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Setup Node.js 24
@@ -76,19 +78,38 @@ jobs:
           INPUT_AUTHORIZATION: ${{ inputs.authorization }}
         run: |
           set -euo pipefail
-          actual_sha="$(git rev-parse HEAD)"
-          expected_sha="${INPUT_RELEASE_SHA:-$actual_sha}"
-          test "$actual_sha" = "$expected_sha"
+          pointer_sha="$(git rev-parse HEAD)"
           main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-          test "$actual_sha" = "$main_sha"
+          test "$pointer_sha" = "$main_sha"
+
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            source_sha="$INPUT_RELEASE_SHA"
             test "$INPUT_AUTHORIZATION" = "DEPLOY_AGENT007_MAIN"
+            test -n "$source_sha"
           else
             test -f .release/production-deploy.json
-            jq -e '.authorization == "DEPLOY_AGENT007_MAIN" and .repository == "antoniocan2022-dev/agent007-ai" and .ref == "main"' .release/production-deploy.json >/dev/null
+            source_sha="$(jq -r '.sourceMainSha // ""' .release/production-deploy.json)"
+            authorized="$(jq -r '.authorized // false' .release/production-deploy.json)"
+            repository="$(jq -r '.repository // ""' .release/production-deploy.json)"
+            ref_name="$(jq -r '.ref // ""' .release/production-deploy.json)"
+            target="$(jq -r '.target // ""' .release/production-deploy.json)"
+            expires_at="$(jq -r '.expiresAt // ""' .release/production-deploy.json)"
+            jq -e '.authorization == "DEPLOY_AGENT007_MAIN"' .release/production-deploy.json >/dev/null
+            test "$authorized" = true
+            test "$repository" = "antoniocan2022-dev/agent007-ai"
+            test "$ref_name" = "main"
+            test "$target" = "production"
             test "$(git log -1 --pretty=%s)" = "authorized production deployment"
+            expires_epoch="$(date -d "$expires_at" +%s 2>/dev/null || true)"
+            test -n "$expires_epoch"
+            test "$expires_epoch" -gt "$(date +%s)"
           fi
-          echo "sha=$actual_sha" >> "$GITHUB_OUTPUT"
+
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${source_sha}" --jq .sha | grep -Fx "$source_sha" >/dev/null
+
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "pointer_sha=$pointer_sha" >> "$GITHUB_OUTPUT"
 
       - name: Wait for all exact-SHA CI certification gates
         shell: bash
@@ -135,6 +156,15 @@ jobs:
           test "$(jq -r '.git.deploymentEnabled // false' vercel.json)" = false
           bun test tests/release-architecture.test.ts
 
+      - name: Checkout exact certified source
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$RELEASE_SHA" --depth=1
+          git checkout --detach "$RELEASE_SHA"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+
       - name: Capture current production deployment
         id: previous
         shell: bash
@@ -147,7 +177,7 @@ jobs:
           echo "deployment_id=$current" >> "$GITHUB_OUTPUT"
           echo "previous_deployment_ids=${current}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy exact main checkout to Vercel production
+      - name: Deploy exact certified main checkout to Vercel production
         id: target
         shell: bash
         env:
@@ -205,7 +235,6 @@ jobs:
       - name: Verify canonical aliases and production traffic identity
         shell: bash
         env:
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
           EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.sha }}
           TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
         run: |
@@ -264,15 +293,17 @@ jobs:
         shell: bash
         env:
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          POINTER_SHA: ${{ steps.release.outputs.pointer_sha }}
           TARGET_DEPLOYMENT_ID: ${{ steps.target.outputs.deployment_id }}
           TARGET_DEPLOYMENT_URL: ${{ steps.target.outputs.deployment_url }}
         run: |
           set -euo pipefail
           jq -n \
             --arg sha "$RELEASE_SHA" \
+            --arg pointerSha "$POINTER_SHA" \
             --arg deploymentId "$TARGET_DEPLOYMENT_ID" \
             --arg deploymentUrl "$TARGET_DEPLOYMENT_URL" \
-            '{status:"CERTIFIED_PRODUCTION_RELEASE",repository:"antoniocan2022-dev/agent007-ai",ref:"main",releaseSha:$sha,deploymentId:$deploymentId,deploymentUrl:$deploymentUrl,authorization:"DEPLOY_AGENT007_MAIN",gitAutoDeployment:false}' > production-release-certification.json
+            '{status:"CERTIFIED_PRODUCTION_RELEASE",repository:"antoniocan2022-dev/agent007-ai",ref:"main",releaseSha:$sha,releasePointerSha:$pointerSha,deploymentId:$deploymentId,deploymentUrl:$deploymentUrl,authorization:"DEPLOY_AGENT007_MAIN",gitAutoDeployment:false}' > production-release-certification.json
 
       - name: Upload release certification artifact
         uses: actions/upload-artifact@v4
