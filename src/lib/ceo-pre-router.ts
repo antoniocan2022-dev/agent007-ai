@@ -5,37 +5,56 @@ import type { TaskType } from './subagent-governance'
 import type {
   CeoExecutionContract,
   CeoIntent,
+  EvidenceClass,
+  EvidenceDomain,
+  EvidenceOperation,
+  EvidenceProfile,
   EvidenceRequirement,
   ExecutionRequirement,
   OrchestrationOwner,
   PreRouteDecision,
+  TemporalScope,
 } from './ceo-cognitive-contract'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 
-// Public-equity questions depend on current external facts (price, filings,
-// earnings, valuation, guidance, competitors, etc.). They must never fall
-// into the internal CEO-only analysis lane, because that lane explicitly does
-// not fetch or require external evidence.
-const EQUITY_RESEARCH_RE = /\b(?:stock|stocks|share|shares|equity|ticker|invest|investing|investment|buy|sell|hold|market\s+cap|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|cash\s+flow|10-k|10-q|sec\s+filing)\b/i
-const EQUITY_ANALYSIS_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend|recommendation|should|invest|buy|sell|hold)\b/i
+/** Public-equity detection is deliberately multi-signal. A single generic
+ * word such as "stock", "buy", "equity", "hold", or "earnings" is not
+ * enough because those terms are common in internal business work. */
+const MARKET_SECURITY_RE = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|market\s+cap(?:italization)?|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|dividend|cash\s+flow|10-k|10-q|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
+const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend(?:ation)?|should|invest|buy|sell|hold|trade|value|price)\b/i
+const MARKET_ENTITY_RE = /\b[A-Z]{1,5}\b|\([^)]{1,8}\)|\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
+const INTERNAL_CONTEXT_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server|equipment|founder(?:s)?|ownership\s+split|our\s+(?:cash|earnings|financials?|equity)|internal|meeting|review\s+(?:meeting|cycle)|operational|budget|forecast|procurement|purchase\s+order)\b/i
 
 function isExternalEquityResearch(text: string): boolean {
-  return EQUITY_RESEARCH_RE.test(text) && EQUITY_ANALYSIS_ACTION_RE.test(text)
+  if (!MARKET_SECURITY_RE.test(text) || !MARKET_ACTION_RE.test(text)) return false
+  if (INTERNAL_CONTEXT_RE.test(text) && !MARKET_ENTITY_RE.test(text)) return false
+  const explicitTicker = /\([A-Z]{1,5}\)/.test(text)
+  const likelyCompany = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i.test(text)
+  const marketPhrase = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i.test(text)
+  return explicitTicker || likelyCompany || (marketPhrase && !INTERNAL_CONTEXT_RE.test(text))
 }
 
-function latestUserText(messages: readonly { role: string; content: string }[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === 'user') return String(messages[index].content ?? '').trim()
-  }
-  return ''
+function inferEvidenceOperation(text: string): EvidenceOperation {
+  if (/\b(?:would\s+you\s+invest|should\s+i|should\s+we|buy|sell|hold|recommend|recommendation|invest(?:ing|ment)?)\b/i.test(text)) return 'recommend'
+  if (/\b(?:compare|versus|vs\.?|better|stronger|weaker)\b/i.test(text)) return 'compare'
+  if (/\b(?:forecast|project|outlook|future|estimate)\b/i.test(text)) return 'forecast'
+  if (/\b(?:verify|validate|confirm|fact[- ]check)\b/i.test(text)) return 'verify'
+  if (/\b(?:explain|what\s+is|who\s+is)\b/i.test(text)) return 'explain'
+  if (/\b(?:research|look\s+up|find\s+(?:out|information))\b/i.test(text)) return 'research'
+  return /\b(?:analy[sz]e|analysis|assess|evaluate|review)\b/i.test(text) ? 'analyze' : 'research'
 }
 
 function buildExecutionContract(input: {
   intent: CeoIntent
   selfReflectionKind?: SelfReflectionClassification['kind']
+  evidenceClass: EvidenceClass
+  domain: EvidenceDomain
+  operation: EvidenceOperation
+  temporalScope: TemporalScope
+  evidenceProfile: EvidenceProfile
   evidenceRequirement: EvidenceRequirement
   executionRequirement: ExecutionRequirement
   orchestrationOwner: OrchestrationOwner
@@ -55,126 +74,102 @@ function contractFor(input: {
   adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'
   missionRelevant: boolean
   reason: string
+  evidenceClass?: EvidenceClass
+  domain?: EvidenceDomain
+  operation?: EvidenceOperation
+  temporalScope?: TemporalScope
+  evidenceProfile?: EvidenceProfile
 }): CeoExecutionContract {
-  const { intent, selfReflectionKind, adaptiveExecutionClass, missionRelevant, reason } = input
+  const {
+    intent,
+    selfReflectionKind,
+    adaptiveExecutionClass,
+    missionRelevant,
+    reason,
+    evidenceClass = intent === 'conversation' ? 'none' : 'internal_state',
+    domain = intent === 'conversation' ? 'none' : 'internal_operations',
+    operation = intent === 'conversation' ? 'none' : 'analyze',
+    temporalScope = intent === 'conversation' ? 'none' : 'timeless',
+    evidenceProfile = intent === 'conversation' ? 'none' : 'none',
+  } = input
 
   if (intent === 'self_assessment') {
     return buildExecutionContract({
-      intent,
-      selfReflectionKind,
-      evidenceRequirement: 'internal_state',
-      executionRequirement: 'llm_only',
-      orchestrationOwner: 'ceo_lifecycle',
-      maxTurns: 2,
-      maxRecoveries: 0,
-      latencyBudgetMs: 30000,
-      toolRequired: false,
-      subagentsRequired: false,
-      reason,
+      intent, selfReflectionKind,
+      evidenceClass: 'internal_state', domain: 'internal_operations', operation: 'analyze', temporalScope: 'current', evidenceProfile: 'none',
+      evidenceRequirement: 'internal_state', executionRequirement: 'llm_only', orchestrationOwner: 'ceo_lifecycle',
+      maxTurns: 2, maxRecoveries: 0, latencyBudgetMs: 30000, toolRequired: false, subagentsRequired: false, reason,
     })
   }
 
   if (intent === 'conversation') {
     return buildExecutionContract({
-      intent,
-      evidenceRequirement: 'none',
-      executionRequirement: 'llm_only',
-      orchestrationOwner: 'ceo_lifecycle',
-      maxTurns: 1,
-      maxRecoveries: 0,
-      latencyBudgetMs: 15000,
-      toolRequired: false,
-      subagentsRequired: false,
-      reason,
+      intent, evidenceClass: 'none', domain: 'none', operation: 'none', temporalScope: 'none', evidenceProfile: 'none',
+      evidenceRequirement: 'none', executionRequirement: 'llm_only', orchestrationOwner: 'ceo_lifecycle',
+      maxTurns: 1, maxRecoveries: 0, latencyBudgetMs: 15000, toolRequired: false, subagentsRequired: false, reason,
     })
   }
 
   if (intent === 'analysis' || intent === 'opinion' || intent === 'decision') {
     return buildExecutionContract({
-      intent,
-      evidenceRequirement: 'none',
-      executionRequirement: 'llm_only',
-      orchestrationOwner: 'ceo_lifecycle',
-      maxTurns: adaptiveExecutionClass === 'deep' ? 2 : 1,
-      maxRecoveries: 0,
-      latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 30000 : 15000,
-      toolRequired: false,
-      subagentsRequired: false,
-      reason,
+      intent, evidenceClass, domain, operation, temporalScope, evidenceProfile,
+      evidenceRequirement: evidenceClass === 'external_web' ? 'external_web' : 'none',
+      executionRequirement: evidenceClass === 'external_web' ? 'multi_source' : 'llm_only',
+      orchestrationOwner: evidenceClass === 'external_web' ? 'ceo_lifecycle' : 'ceo_lifecycle',
+      maxTurns: adaptiveExecutionClass === 'deep' ? 3 : 1,
+      maxRecoveries: evidenceClass === 'external_web' ? 1 : 0,
+      latencyBudgetMs: evidenceClass === 'external_web' ? 120000 : (adaptiveExecutionClass === 'deep' ? 30000 : 15000),
+      toolRequired: evidenceClass === 'external_web', subagentsRequired: false, reason,
     })
   }
 
   if (intent === 'production_action') {
     return buildExecutionContract({
-      intent,
-      evidenceRequirement: 'live_system',
-      executionRequirement: 'production',
-      orchestrationOwner: 'operational_orchestrator',
-      maxTurns: 6,
-      maxRecoveries: 1,
-      latencyBudgetMs: 60000,
-      toolRequired: true,
-      subagentsRequired: false,
-      reason,
+      intent, evidenceClass: 'live_system', domain: 'internal_operations', operation: 'verify', temporalScope: 'current', evidenceProfile: 'none',
+      evidenceRequirement: 'live_system', executionRequirement: 'production', orchestrationOwner: 'operational_orchestrator',
+      maxTurns: 6, maxRecoveries: 1, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: false, reason,
     })
   }
 
   if (intent === 'research') {
+    const isEquity = domain === 'public_equity'
     return buildExecutionContract({
       intent,
-      evidenceRequirement: 'external_web',
-      executionRequirement: 'one_tool',
-      orchestrationOwner: 'operational_orchestrator',
-      maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
-      maxRecoveries: 1,
-      latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
-      toolRequired: true,
-      subagentsRequired: false,
-      reason,
+      evidenceClass: 'external_web', domain, operation, temporalScope, evidenceProfile,
+      evidenceRequirement: isEquity ? 'multi_source' : 'external_web',
+      executionRequirement: isEquity ? 'multi_source' : 'one_tool',
+      orchestrationOwner: isEquity ? 'ceo_lifecycle' : 'operational_orchestrator',
+      maxTurns: isEquity ? 8 : (adaptiveExecutionClass === 'deep' ? 6 : 4),
+      maxRecoveries: isEquity ? 2 : 1,
+      latencyBudgetMs: isEquity ? 120000 : (adaptiveExecutionClass === 'deep' ? 60000 : 30000),
+      toolRequired: true, subagentsRequired: false, reason,
     })
   }
 
   if (intent === 'tool_action') {
     return buildExecutionContract({
-      intent,
-      evidenceRequirement: 'internal_state',
-      executionRequirement: 'one_tool',
-      orchestrationOwner: 'operational_orchestrator',
-      maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
-      maxRecoveries: 1,
-      latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
-      toolRequired: true,
-      subagentsRequired: false,
-      reason,
+      intent, evidenceClass: 'internal_state', domain: 'internal_operations', operation, temporalScope: 'current', evidenceProfile: 'none',
+      evidenceRequirement: 'internal_state', executionRequirement: 'one_tool', orchestrationOwner: 'operational_orchestrator',
+      maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4, maxRecoveries: 1, latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
+      toolRequired: true, subagentsRequired: false, reason,
     })
   }
 
   if (missionRelevant || adaptiveExecutionClass === 'mission') {
     return buildExecutionContract({
-      intent: 'mission_action',
-      evidenceRequirement: 'multi_source',
-      executionRequirement: 'mission',
-      orchestrationOwner: 'operational_orchestrator',
-      maxTurns: 12,
-      maxRecoveries: 2,
-      latencyBudgetMs: 60000,
-      toolRequired: true,
-      subagentsRequired: true,
-      reason,
+      intent: 'mission_action', evidenceClass: 'mixed', domain: 'business_due_diligence', operation: 'decide', temporalScope: 'current', evidenceProfile: 'business_due_diligence',
+      evidenceRequirement: 'multi_source', executionRequirement: 'mission', orchestrationOwner: 'operational_orchestrator',
+      maxTurns: 12, maxRecoveries: 2, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: true, reason,
     })
   }
 
   return buildExecutionContract({
-    intent,
-    evidenceRequirement: 'internal_state',
-    executionRequirement: 'one_tool',
-    orchestrationOwner: 'operational_orchestrator',
-    maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4,
-    maxRecoveries: 1,
-    latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
-    toolRequired: true,
-    subagentsRequired: false,
-    reason,
+    intent, evidenceClass, domain, operation, temporalScope, evidenceProfile,
+    evidenceRequirement: evidenceClass === 'external_web' ? 'external_web' : 'internal_state',
+    executionRequirement: evidenceClass === 'external_web' ? 'multi_source' : 'one_tool',
+    orchestrationOwner: evidenceClass === 'external_web' ? 'ceo_lifecycle' : 'operational_orchestrator',
+    maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4, maxRecoveries: 1, latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000,
+    toolRequired: evidenceClass === 'external_web' || intent === 'tool_action', subagentsRequired: false, reason,
   })
 }
 
@@ -187,7 +182,7 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (/\b(?:create|delete|edit|update|change|schedule|send|run|execute|fix)\b/i.test(text)) return 'tool_action'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
   if (/\b(?:think|opinion|take on|agree|disagree|feel)\b/i.test(text)) return 'opinion'
-  if (/\b(?:analy[sz]e|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
+  if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|ok|okay|great|perfect)\b/i.test(text)) return 'conversation'
   return 'conversation'
 }
@@ -217,11 +212,8 @@ export function preRouteCeoRequest(
 
   if (!text) {
     const reason = 'No substantive request detected.'
-    return buildDecision({
-      route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass,
-      adaptiveExecutionClass: 'fast',
-      executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
-    })
+    return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass,
+      adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) })
   }
 
   const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitlyOperational)
@@ -233,40 +225,44 @@ export function preRouteCeoRequest(
 
   if (attachmentsCount > 0) {
     const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'
-    return buildDecision({
-      route: 'full', reason, missionRelevant, complexitySignals, taskClass,
+    return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass,
       adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }),
-    })
+      executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: adaptive.executionClass, missionRelevant, reason }) })
   }
 
   if (semanticIntent === 'self_assessment') {
     const reason = 'Self-assessment request: evaluate Agent007/CEO readiness from governed internal state without external action.'
+    return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass: 'reasoning', adaptiveExecutionClass: 'fast',
+      executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) })
+  }
+
+  // External-world classification MUST precede generic context ambiguity. This
+  // prevents words like "those" in a legitimate market request from demoting
+  // a governed research task to the ambiguous conversation lane.
+  if (isExternalEquityResearch(text)) {
+    const reason = 'Public-equity research requires governed external evidence acquisition before executive synthesis.'
+    const operation = inferEvidenceOperation(text)
     return buildDecision({
-      route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass: 'reasoning',
-      adaptiveExecutionClass: 'fast',
-      executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }),
+      route: 'full', reason, missionRelevant: false, complexitySignals: Math.max(2, complexitySignals), taskClass,
+      adaptiveExecutionClass: 'deep',
+      executionContract: contractFor({
+        intent: 'research', adaptiveExecutionClass: 'deep', missionRelevant: false, reason,
+        evidenceClass: 'external_web', domain: 'public_equity', operation, temporalScope: 'current', evidenceProfile: 'public_equity',
+      }),
     })
   }
 
   if (CONTEXT_RE.test(text) && !SIMPLE_RE.test(text)) {
     const reason = 'Context-dependent request requires richer conversational analysis.'
-    return buildDecision({
-      route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass,
-      adaptiveExecutionClass: 'standard',
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }),
-    })
+    return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard',
+      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) })
   }
 
   if (semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action') {
-    const reason = semanticIntent === 'research' && isExternalEquityResearch(text)
-      ? 'Public-equity research requires fresh external evidence and the operational research owner.'
-      : `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
-    return buildDecision({
-      route: 'full', reason, missionRelevant, complexitySignals, taskClass,
+    const reason = `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
+    return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass,
       adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass, missionRelevant, reason }),
-    })
+      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: semanticIntent === 'research' ? 'deep' : adaptive.executionClass, missionRelevant, reason }) })
   }
 
   if (semanticIntent === 'conversation' || semanticIntent === 'opinion' || semanticIntent === 'decision' || semanticIntent === 'analysis') {
@@ -274,19 +270,14 @@ export function preRouteCeoRequest(
       ? 'Semantic analysis request remains CEO-owned; depth changes reasoning strategy, not orchestration ownership.'
       : 'Non-operational executive request remains CEO-owned.'
     const isDeep = adaptive.executionClass === 'deep' || text.length > DIRECT_CEO_MAX_CHARS
-    return buildDecision({
-      route: isDeep ? 'full' : 'fast', reason, missionRelevant: false, complexitySignals, taskClass,
+    return buildDecision({ route: isDeep ? 'full' : 'fast', reason, missionRelevant: false, complexitySignals, taskClass,
       adaptiveExecutionClass: adaptive.executionClass,
-      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: isDeep ? 'deep' : 'fast', missionRelevant: false, reason }),
-    })
+      executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: isDeep ? 'deep' : 'fast', missionRelevant: false, reason }) })
   }
 
   const reason = 'Request requires the standard governed path.'
-  return buildDecision({
-    route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass,
-    adaptiveExecutionClass: 'standard',
-    executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant, reason }),
-  })
+  return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard',
+    executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant, reason }) })
 }
 
 export function resolvePreRoute(decision: PreRouteDecision): Exclude<PreRouteDecision['route'], 'ambiguous'> {
