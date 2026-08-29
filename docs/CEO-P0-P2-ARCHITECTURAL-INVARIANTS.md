@@ -57,3 +57,7 @@ The canonical manifest generator is `scripts/build-release-integrity-manifest.ts
 ## 13. Regression corpus
 
 `tests/ceo-context-boundary-integrity.test.ts`, `tests/release-integrity-contract.test.ts`, `tests/release-integrity-manifest.test.ts`, `tests/critical-file-integrity.test.ts`, and `tests/governance-release-regression.test.ts` form the P0–P2 governance regression corpus. The autonomy CI gate executes this corpus before certification.
+
+## 14. Release-candidate hygiene
+
+Historical backup, migration, and direct-deployment utilities are not part of the governed production release surface. They must be removed or made deployment-neutral when they are no longer runtime dependencies. This keeps the repository invariant aligned with the single production release workflow and prevents dormant bypass paths from reappearing.
