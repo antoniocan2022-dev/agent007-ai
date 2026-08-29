@@ -1,6 +1,6 @@
 import { inferTaskType } from './canonical-llm-router'
 import { classifyExecution } from './adaptive-execution'
-import { classifyCeoSelfReflection } from './ceo-self-reflection'
+import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
 import type { TaskType } from './subagent-governance'
 import type {
   CeoExecutionContract,
@@ -90,7 +90,6 @@ function contractFor(input: {
     })
   }
 
-  // Explicit operational intent always outranks adaptive complexity.
   if (intent === 'production_action') {
     return buildExecutionContract({
       intent,
@@ -165,11 +164,7 @@ function contractFor(input: {
   })
 }
 
-function inferSemanticIntent(text: string): CeoIntent {
-  // Shared classifier owns CEO self-reflection semantics. It deliberately
-  // yields `none` for operational/research/mission requests so those lanes
-  // retain precedence over reflective interpretation.
-  const selfReflection = classifyCeoSelfReflection(text)
+function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassification): CeoIntent {
   if (selfReflection.isSelfReflective) return 'self_assessment'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
@@ -199,9 +194,10 @@ export function preRouteCeoRequest(
   attachmentsCount = 0,
 ): PreRouteDecision {
   const text = latestUserText(messages).replace(/\s+/g, ' ').trim()
-  const adaptive = classifyExecution(messages)
+  const selfReflection = classifyCeoSelfReflection(text)
+  const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
-  const semanticIntent = inferSemanticIntent(text)
+  const semanticIntent = inferSemanticIntent(text, selfReflection)
   const explicitlyOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
 
   if (!text) {
@@ -213,9 +209,6 @@ export function preRouteCeoRequest(
     })
   }
 
-  // Adaptive classification may mark complex language as mission/deep. The
-  // canonical self-reflection classifier has already been applied above, so
-  // self-assessment takes a bounded CEO path instead of deep orchestration.
   const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitlyOperational)
   const complexitySignals = [
     adaptive.executionClass === 'deep' || adaptive.executionClass === 'mission',
@@ -250,7 +243,6 @@ export function preRouteCeoRequest(
     })
   }
 
-  // Explicit production/tool/research/mission intent outranks adaptive complexity.
   if (semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action') {
     const reason = `Semantic intent ${semanticIntent} requires the operational orchestration owner.`
     return buildDecision({
