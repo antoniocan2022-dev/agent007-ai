@@ -15,6 +15,7 @@ export type CeoFailureReason =
   | 'recovery_budget_exhausted'
   | 'execution_timeout'
   | 'production_verification_failure'
+  | 'mission_failure'
   | 'unknown'
 
 export type CeoFailureCapability = 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context'
@@ -44,6 +45,7 @@ export const CEO_FAILURE_RETRYABLE: Record<CeoFailureReason, boolean> = {
   recovery_budget_exhausted: false,
   execution_timeout: true,
   production_verification_failure: true,
+  mission_failure: true,
   unknown: true,
 }
 
@@ -55,6 +57,7 @@ export function inferCeoFailureReason(error: unknown): CeoFailureReason {
   if (/claim.{0,40}consisten|contradiction/i.test(text)) return 'claim_consistency_failure'
   if (/quality|objective coverage/i.test(text)) return 'quality_failure'
   if (/tool/i.test(text)) return /unavailable|missing/i.test(text) ? 'tool_unavailable' : 'tool_error'
+  if (/mission|workflow|orchestrat/i.test(text)) return 'mission_failure'
   if (/provider|model|llm/i.test(text)) return /unavailable|no provider/i.test(text) ? 'provider_unavailable' : 'provider_error'
   if (/context|conversation|memory/i.test(text)) return 'context_unavailable'
   if (/production|release|traffic|deployment/i.test(text)) return 'production_verification_failure'
