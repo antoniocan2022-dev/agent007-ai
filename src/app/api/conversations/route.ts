@@ -6,8 +6,10 @@ import { authOptions } from '@/lib/auth'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-function sessionUserId(session: Awaited<ReturnType<typeof getServerSession>>): string {
-  return typeof (session?.user as { id?: unknown } | undefined)?.id === 'string' ? (session!.user as { id: string }).id : ''
+type SessionLike = { user?: { id?: unknown } } | null
+function sessionUserId(session: unknown): string {
+  const user = (session as SessionLike)?.user
+  return typeof user?.id === 'string' ? user.id : ''
 }
 
 export async function GET() {
