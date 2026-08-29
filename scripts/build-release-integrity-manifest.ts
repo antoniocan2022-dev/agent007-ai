@@ -18,11 +18,6 @@ function git(...args: string[]): string {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim()
 }
 
-function sha256File(relative: string): string {
-  const bytes = readFileSync(path.join(ROOT, relative))
-  return createHash('sha256').update(bytes).digest('hex')
-}
-
 function blobSha(relative: string): string {
   return git('rev-parse', `HEAD:${relative}`)
 }
@@ -56,6 +51,8 @@ const manifest = {
   })),
 }
 
-const outputPath = path.join(ROOT, 'release-integrity-manifest.json')
+const outputPath = process.env.OUTPUT_PATH
+  ? path.resolve(ROOT, process.env.OUTPUT_PATH)
+  : path.join(ROOT, 'release-integrity-manifest.json')
 writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 console.log(outputPath)
