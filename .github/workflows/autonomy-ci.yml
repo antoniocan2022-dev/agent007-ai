@@ -2,21 +2,9 @@ name: Agent007 Autonomy CI
 
 on:
   push:
-    branches:
-      - main
-      - 'development/**'
-      - 'feat/**'
-      - 'fix/**'
-      - 'integration/**'
-      - 'arch/**'
+    branches: [main, 'development/**', 'feat/**', 'fix/**', 'integration/**', 'arch/**']
   pull_request:
-    branches:
-      - main
-      - 'development/**'
-      - 'feat/**'
-      - 'fix/**'
-      - 'integration/**'
-      - 'arch/**'
+    branches: [main, 'development/**', 'feat/**', 'fix/**', 'integration/**', 'arch/**']
 
 permissions:
   contents: read
@@ -39,170 +27,116 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: agent007_test
-        ports:
-          - 5432:5432
+        ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres -d agent007_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.4'
-
+        with: { bun-version: '1.3.4' }
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Generate Prisma client
         run: bunx prisma generate
-
       - name: Prepare test database
         run: bunx prisma db push --skip-generate
-
       - name: Reconcile commercial database schema contract
         run: bun run db:reconcile
-
       - name: Commercial database integrity integration suite
         run: bun test tests/commercial-database-integration.test.ts
-
       - name: Commercial lifecycle integration contract suite
         run: bun test tests/commercial-lifecycle-integration.test.ts
-
       - name: Commercial autonomy P0/P1 proof suite
         run: bun test tests/commercial-autonomy-loop.integration.test.ts
-
       - name: P0/P1 end-to-end contract audit
         run: bun scripts/p0-p1-autonomy-audit.ts
-
       - name: Phase A-C integrity certification gate
         run: bun test tests/phase-a-c-integrity.test.ts tests/stripe-economic-idempotency.integration.test.ts
-
       - name: CEO canonical decision integration
         run: bun test tests/ceo-venture-decision-integration.test.ts
-
       - name: CEO machine-verifiable authority envelope
         run: bun test tests/venture-authority-envelope.test.ts
-
       - name: Portfolio continuous learning integration
         run: bun test tests/portfolio-learning.integration.test.ts
-
       - name: Real-money proof architecture audit
         run: bun scripts/real-money-proof-audit.ts
-
       - name: Canonical organization, authority and venture-scope integrity
         run: bun test tests/architecture-control-plane.test.ts
-
       - name: Five-layer organization architecture audit
         run: bun scripts/organization-architecture-audit.ts
-
       - name: Phase 7 organizational single-source audit
         run: bun scripts/organizational-single-source-audit.ts
-
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
-
       - name: Recommendations 5-8 deep audit
         run: bun scripts/recommendations-5-8-audit.ts
-
       - name: Repository coherence audit
         run: bun scripts/repository-coherence-audit.ts
-
       - name: Venture architecture regression audit
         run: bun scripts/venture-architecture-audit.ts
-
       - name: Authentication integrity contract
         run: bun test tests/auth-login-integrity.test.ts tests/owner-bootstrap-login-contract.test.ts tests/login-2fa-flow-contract.test.ts
-
       - name: Truthful execution contract
         run: bun test tests/execution-contract.test.ts
-
       - name: Proof infrastructure contracts
         run: bun test tests/proof-ledger-contract.test.ts
-
       - name: Proof infrastructure database integration
         run: bun test tests/proof-ledger.integration.test.ts
-
       - name: Five-phase integrity and duplicate-file audit
         run: bun test tests/five-phase-integrity.test.ts
-
       - name: CEO verification hard gate
         run: bun test tests/ceo-verification-gate.test.ts
-
       - name: System proof, context, health and artifact contracts
         run: bun test tests/system-proof-and-context-contract.test.ts
-
       - name: Canonical runtime architecture
         run: bun test tests/canonical-runtime-integrity.test.ts
-
       - name: Adaptive execution architecture
         run: bun test tests/adaptive-execution.test.ts
-
       - name: CEO Decision Kernel
         run: bun test tests/ceo-decision-kernel.test.ts
-
       - name: Artifact evidence verification
         run: bun test tests/artifact-evidence.test.ts
-
       - name: CEO static shell and message navigation contract
         run: bun test tests/chat-layout-integrity.test.ts
-
       - name: Phase 5 independent verification officer
         run: bun test tests/verification-officer.test.ts tests/verification-gate.test.ts
-
       - name: Provider selection integrity
         run: bun test tests/provider-selection-contract.test.ts tests/provider-live-model-contract.test.ts
-
       - name: Hugging Face governed runtime
         run: bun test tests/huggingface-runtime.test.ts
-
       - name: Architecture 5-13 integration contract
         run: bun test src/lib/venture-foundation-contract.test.ts
-
       - name: Venture OS upgrades 14-17 contract
         run: bun test src/lib/venture-autonomy-14-17.test.ts
-
       - name: Venture OS 5-17 deep audit
         run: bun test src/lib/venture-os-5-17-deep-audit.test.ts
-
       - name: Subagent Governance validation
         run: bun scripts/validate-subagent-governance.ts
-
       - name: Governance + Provider + Model + Performance + Outcome Intelligence tests
         run: bun test src/lib/provider-intelligence-v2.test.ts src/lib/model-intelligence.test.ts src/lib/model-intelligence-runtime.test.ts src/lib/performance-intelligence.test.ts src/lib/outcome-intelligence.test.ts
-
       - name: Venture OS contract tests
         run: bun test src/lib/venture-os.test.ts src/lib/venture-decision-engine.test.ts
-
       - name: CEO claim-aware, readiness and incident regression corpus
         run: bun test tests/ceo-self-reflection.test.ts
-
       - name: CEO real-request contract corpus
         run: bun test tests/ceo-real-request-corpus.test.ts
-
+      - name: CEO external evidence golden corpus
+        run: bun test tests/ceo-evidence-golden.test.ts
       - name: Full Recommendations 1-8 audit
         run: bun scripts/recommendations-1-8-audit.ts
-
       - name: TypeScript check
         run: bunx tsc -p tsconfig.ci.json --noEmit
-
       - name: Autonomy domain tests
         run: bun test src/lib/autonomy/autonomy.test.ts src/lib/autonomy/autonomy-runtime.test.ts src/lib/autonomy/autonomy-runtime.integration.test.ts src/lib/autonomy/capability-registry.test.ts src/lib/autonomy/owner-authorization.test.ts src/lib/autonomy/autonomy-scorecard.test.ts src/lib/autonomy/operational-evidence-bridge.test.ts src/lib/tools-runtime.test.ts src/lib/mission-telemetry.autonomy.test.ts src/lib/runtime/background-tasks.test.ts tests/autonomy-graduation.integration.test.ts tests/phase-d-e-integration.test.ts
-
       - name: Phase A-E structural integrity
         run: bun test tests/phase-a-e-structural-integrity.test.ts
-
       - name: Lint
         run: bun run lint
-
       - name: Phase 8 production verification readiness
         run: bun scripts/production-verification-audit.ts
-
       - name: Upload production verification manifest
         uses: actions/upload-artifact@v4
         with:
@@ -219,10 +153,7 @@ jobs:
     steps:
       - name: Checkout exact certified commit
         uses: actions/checkout@v5
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-
+        with: { ref: '${{ github.sha }}', fetch-depth: 1 }
       - name: Assert exact SHA and generate certification manifest
         env:
           EXPECTED_SHA: ${{ github.sha }}
@@ -254,7 +185,6 @@ jobs:
           }
           EOF
           cat .artifacts/ci-certification.json
-
       - name: Upload CI certification artifact
         uses: actions/upload-artifact@v4
         with:
