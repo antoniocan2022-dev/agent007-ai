@@ -3,120 +3,75 @@ import { buildCeoDecisionPlan } from '@/lib/ceo-cognitive-kernel'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 
 /**
- * Small permanent corpus of real owner-style requests.
- *
- * The purpose is behavioral regression coverage: these fixtures assert the
- * intended execution contract, not a particular model's wording. They are
- * deliberately free of credentials/network calls so CI can run them safely.
+ * Permanent corpus of real owner-style requests.
+ * These fixtures assert the execution contract and routing behavior, not model wording.
  */
 const CASES = [
   {
     name: 'exact failing self-assessment',
     message: 'Hows it going? make a sekf analysis and tell me if you are ready to mange businesses?',
-    intent: 'self_assessment',
-    owner: 'ceo_lifecycle',
-    route: 'fast',
-    execution: 'llm_only',
-    toolRequired: false,
-    subagentsRequired: false,
-    maxRecoveries: 0,
-    path: 'fast',
+    intent: 'self_assessment', owner: 'ceo_lifecycle', route: 'fast', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'fast',
   },
   {
-    name: 'direct conversational status',
+    name: 'casual self-checkin',
     message: 'How are you doing?',
-    intent: 'conversation',
-    owner: 'ceo_lifecycle',
-    route: 'fast',
-    execution: 'llm_only',
-    toolRequired: false,
-    subagentsRequired: false,
-    maxRecoveries: 0,
-    path: 'fast',
+    intent: 'self_assessment', owner: 'ceo_lifecycle', route: 'fast', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'fast',
+  },
+  {
+    name: 'performance reflection',
+    message: 'Are you improving?',
+    intent: 'self_assessment', owner: 'ceo_lifecycle', route: 'fast', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'fast',
+  },
+  {
+    name: 'capability assessment',
+    message: 'What are your weaknesses?',
+    intent: 'self_assessment', owner: 'ceo_lifecycle', route: 'fast', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'fast',
+  },
+  {
+    name: 'readiness question',
+    message: 'Are you ready to manage businesses?',
+    intent: 'self_assessment', owner: 'ceo_lifecycle', route: 'fast', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'fast',
   },
   {
     name: 'non-operational deep analysis',
     message: 'Analyze the full architecture and identify the most important weaknesses.',
-    intent: 'analysis',
-    owner: 'ceo_lifecycle',
-    route: 'full',
-    execution: 'llm_only',
-    toolRequired: false,
-    subagentsRequired: false,
-    maxRecoveries: 0,
-    path: 'full',
-  },
-  {
-    name: 'readiness question mentioning deployment',
-    message: 'Are you ready to deploy?',
-    intent: 'self_assessment',
-    owner: 'ceo_lifecycle',
-    route: 'fast',
-    execution: 'llm_only',
-    toolRequired: false,
-    subagentsRequired: false,
-    maxRecoveries: 0,
-    path: 'fast',
+    intent: 'analysis', owner: 'ceo_lifecycle', route: 'full', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'full',
   },
   {
     name: 'contextual continuation',
     message: 'Continue this.',
-    intent: 'conversation',
-    owner: 'ceo_lifecycle',
-    route: 'ambiguous',
-    execution: 'llm_only',
-    toolRequired: false,
-    subagentsRequired: false,
-    maxRecoveries: 0,
-    path: 'full',
+    intent: 'conversation', owner: 'ceo_lifecycle', route: 'ambiguous', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'full',
   },
   {
     name: 'contextual verification follow-up',
     message: 'Also, can you check that again?',
-    intent: 'conversation',
-    owner: 'ceo_lifecycle',
-    route: 'ambiguous',
-    execution: 'llm_only',
-    toolRequired: false,
-    subagentsRequired: false,
-    maxRecoveries: 0,
-    path: 'full',
+    intent: 'conversation', owner: 'ceo_lifecycle', route: 'ambiguous', execution: 'llm_only',
+    toolRequired: false, subagentsRequired: false, maxRecoveries: 0, path: 'full',
   },
   {
     name: 'web research request',
     message: 'Research the latest competitors in the AI executive software market.',
-    intent: 'research',
-    owner: 'operational_orchestrator',
-    route: 'full',
-    execution: 'one_tool',
-    toolRequired: true,
-    subagentsRequired: false,
-    maxRecoveries: 1,
-    path: 'full',
+    intent: 'research', owner: 'operational_orchestrator', route: 'full', execution: 'one_tool',
+    toolRequired: true, subagentsRequired: false, maxRecoveries: 1, path: 'full',
   },
   {
     name: 'production action request',
     message: 'Deploy the approved release to production.',
-    intent: 'production_action',
-    owner: 'operational_orchestrator',
-    route: 'full',
-    execution: 'production',
-    toolRequired: true,
-    subagentsRequired: false,
-    maxRecoveries: 1,
-    path: 'full',
+    intent: 'production_action', owner: 'operational_orchestrator', route: 'full', execution: 'production',
+    toolRequired: true, subagentsRequired: false, maxRecoveries: 1, path: 'full',
   },
   {
     name: 'mission action request',
     message: 'Run the autonomous venture mission for our revenue operation.',
-    intent: 'mission_action',
-    owner: 'operational_orchestrator',
-    route: 'full',
-    execution: 'mission',
-    toolRequired: true,
-    subagentsRequired: true,
-    maxRecoveries: 2,
-    path: 'critical',
+    intent: 'mission_action', owner: 'operational_orchestrator', route: 'full', execution: 'mission',
+    toolRequired: true, subagentsRequired: true, maxRecoveries: 2, path: 'critical',
   },
 ] as const
 
@@ -133,10 +88,7 @@ describe('CEO real-request regression corpus', () => {
       expect(decision.executionContract.maxRecoveries, fixture.name).toBe(fixture.maxRecoveries)
       expect(resolvePreRoute(decision), fixture.name).toBe(fixture.route === 'ambiguous' ? 'full' : fixture.route)
 
-      const plan = buildCeoDecisionPlan({
-        messages: [{ role: 'user', content: fixture.message }],
-        preRoute: decision,
-      })
+      const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content: fixture.message }], preRoute: decision })
       expect(plan.executionContract.orchestrationOwner, fixture.name).toBe(fixture.owner)
       expect(plan.path, fixture.name).toBe(fixture.path)
     }
