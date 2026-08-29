@@ -41,11 +41,11 @@ async function loadConversationContext(conversationId: string, currentUserMessag
     })
     const memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
     const rows = (conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))
-    if (!rows.length) rows.push({ role: 'user', content: currentUserMessage, createdAt: Date.now() })
+    if (!rows.length) rows.push({ role: 'user', content: currentUserMessage, createdAt: new Date() })
     return { rows, memories }
   } catch (error) {
     console.warn('[api/agent] Conversation context load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180))
-    return { rows: [{ role: 'user', content: currentUserMessage, createdAt: Date.now() }], memories: [] }
+    return { rows: [{ role: 'user', content: currentUserMessage, createdAt: new Date() }], memories: [] }
   }
 }
 
