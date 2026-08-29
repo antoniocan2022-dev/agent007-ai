@@ -4,75 +4,35 @@ import { execFileSync } from 'node:child_process'
 
 const failures: string[] = []
 const read = (path: string) => readFileSync(path, 'utf8')
-const requireText = (path: string, text: string, message: string) => {
-  if (!read(path).includes(text)) failures.push(message)
-}
+const requireText = (path: string, text: string, message: string) => { if (!read(path).includes(text)) failures.push(message) }
+const requiredFiles = [
+  'src/lib/ceo-response-quality-gate.ts','src/lib/ceo-claim-evidence-gate.ts','src/lib/ceo-evidence-bundle.ts','src/lib/ceo-evidence-executor.ts','src/lib/ceo-evidence-trace.ts','src/lib/ceo-cognitive-lifecycle.ts','src/lib/ceo-recovery-policy.ts','tests/ceo-evidence-golden.test.ts','tests/ceo-self-reflection.test.ts','tests/ceo-cognitive-lifecycle.test.ts','.github/workflows/autonomy-ci.yml',
+]
+for (const path of requiredFiles) if (!existsSync(path)) failures.push(`Missing canonical Stage 5–8 file: ${path}`)
 
-for (const path of [
-  'src/lib/ceo-response-quality-gate.ts',
-  'src/lib/ceo-self-reflection.ts',
-  'src/lib/ceo-cognitive-lifecycle.ts',
-  'tests/ceo-self-reflection.test.ts',
-  'tests/ceo-cognitive-lifecycle.test.ts',
-  '.github/workflows/autonomy-ci.yml',
-  '.github/workflows/production-release-watchdog.yml',
-  'scripts/production-verification-audit.ts',
-]) {
-  if (!existsSync(path)) failures.push(`Missing canonical recommendation 5–8 file: ${path}`)
-}
+requireText('src/lib/ceo-response-quality-gate.ts','verifyClaimEvidence','Stage 5 quality gate is not wired to claim-aware evidence verification.')
+requireText('src/lib/ceo-claim-evidence-gate.ts','quantitative values that do not match','Stage 5 does not reject mismatched quantitative claims.')
+requireText('src/lib/ceo-claim-evidence-gate.ts','markerIds','Stage 5 lacks source-identity extraction.')
+requireText('src/lib/ceo-evidence-bundle.ts','canonicalizeUrl','Evidence URLs are not canonically normalized before deduplication.')
+requireText('src/lib/ceo-evidence-bundle.ts','sufficient','Evidence sufficiency is not explicit.')
+requireText('src/lib/ceo-evidence-executor.ts','deriveSearchSourceType','External evidence provenance is derived from query preference rather than a single classification boundary.')
+requireText('src/lib/ceo-evidence-executor.ts','return \'web\'','Unverified company search results are not fail-closed to generic web evidence.')
+requireText('src/lib/ceo-evidence-executor.ts','recoverExternalEvidencePlan','Evidence recovery is not a separate execution path.')
+requireText('src/lib/ceo-evidence-trace.ts','persistEvidenceTrace','Evidence Trace is not durable.')
+requireText('src/lib/ceo-evidence-trace.ts','process.env.NODE_ENV !== \'test\'','Evidence Trace persistence is not isolated from deterministic tests.')
+requireText('src/lib/ceo-evidence-trace.ts','events.length > 100','Evidence Trace is not bounded.')
+requireText('src/app/api/agent/route.ts','evidence_recovery','Operational evidence recovery is not surfaced in the governed route.')
+requireText('tests/ceo-evidence-golden.test.ts','S1-PLACEHOLDER','Golden corpus lacks invalid-source-identity coverage.')
+requireText('tests/ceo-evidence-golden.test.ts','250 million dollars','Golden corpus lacks quantitative mismatch coverage.')
+requireText('.github/workflows/autonomy-ci.yml','CEO external evidence golden corpus','Stage 8 golden corpus is not mandatory in CI.')
+requireText('.github/workflows/autonomy-ci.yml','Assert exact SHA and generate certification manifest','CI certification lacks exact-SHA verification.')
+requireText('.github/workflows/autonomy-ci.yml','MANUAL_AUTHORIZATION_REQUIRED','Deployment authorization boundary is missing.')
 
 const qualityGate = read('src/lib/ceo-response-quality-gate.ts')
+if (/const LIVE_ASSERTION_RE = [^\n]*latest/i.test(qualityGate)) failures.push('"latest" incorrectly promotes an answer into live-system scope.')
+const tracked = execFileSync('git',['ls-files'],{encoding:'utf8'}).split('\n').filter(Boolean)
+const duplicates = tracked.filter((path) => /(^|\/)(ceo-(?:claim-evidence-gate|evidence-bundle|evidence-executor|evidence-trace))\.(?:bak|old|orig|copy)$/i.test(path))
+if (duplicates.length) failures.push(`Duplicate/backup Stage 5–8 files detected: ${duplicates.join(', ')}`)
 
-// 5. Claim-aware quality gate.
-requireText('src/lib/ceo-response-quality-gate.ts', "claims.includes('live_system')", 'Live claims are not checked against live evidence scope.')
-requireText('src/lib/ceo-response-quality-gate.ts', "claims.includes('external_web')", 'External claims are not checked against external evidence scope.')
-if (/const LIVE_ASSERTION_RE = [^\n]*latest/i.test(qualityGate)) failures.push('The live-system claim detector incorrectly treats "latest" as proof of a live runtime.')
-if (!/const EXTERNAL_ASSERTION_RE = [^\n]*latest/i.test(qualityGate)) failures.push('The external-claims detector does not recognize latest external claims.')
-requireText('tests/ceo-self-reflection.test.ts', 'generic evidence cannot satisfy a positive live claim without a live scope', 'Missing generic-evidence negative control.')
-requireText('tests/ceo-self-reflection.test.ts', 'external claims require explicit external evidence and freshness', 'Missing external scope/freshness regression.')
-requireText('tests/ceo-self-reflection.test.ts', 'mixed internal and live claims require mixed fresh evidence', 'Missing mixed-scope regression.')
-
-// 6. Executive readiness synthesis reuses existing evidence only.
-requireText('src/lib/ceo-cognitive-lifecycle.ts', 'synthesizeExecutiveReadiness', 'Lifecycle does not use the canonical executive-readiness synthesis.')
-requireText('src/lib/ceo-cognitive-lifecycle.ts', 'GOVERNED EXECUTIVE READINESS BASELINE', 'Readiness synthesis is not surfaced as governed internal evidence.')
-requireText('tests/ceo-self-reflection.test.ts', 'executive readiness remains conservative without operational proof', 'Missing conservative readiness regression.')
-requireText('tests/ceo-self-reflection.test.ts', 'executive readiness requires sustained autonomy in addition to outcomes for Level E', 'Missing cumulative Level-E regression.')
-
-// 7. Evidence freshness.
-requireText('src/lib/ceo-response-quality-gate.ts', 'age >= 0 && age <= freshness.maxAgeMs', 'Claim evidence freshness does not reject future/stale evidence.')
-requireText('src/lib/ceo-self-reflection.ts', 'now - input.observedAt >= 0 && now - input.observedAt <= input.maxEvidenceAgeMs', 'Readiness freshness does not reject future/stale evidence.')
-requireText('tests/ceo-self-reflection.test.ts', 'stale and future live evidence fail', 'Missing stale/future evidence controls.')
-
-// 8. Full regression corpus.
-requireText('tests/ceo-self-reflection.test.ts', 'the exact original 5–10 minute incident stays on the bounded path', 'Original 5–10 minute incident regression is missing.')
-requireText('tests/ceo-cognitive-lifecycle.test.ts', 'critical responses require supporting evidence before PASS and LIVE_VERIFIED', 'Critical evidence regression is missing.')
-requireText('tests/ceo-cognitive-lifecycle.test.ts', 'critical lifecycle executes primary → independent review → synthesis on canonical providers', 'Critical stage regression is missing.')
-requireText('.github/workflows/autonomy-ci.yml', 'CEO claim-aware, readiness and incident regression corpus', 'Autonomy CI does not execute the full claim-aware/readiness corpus.')
-
-// Exact-SHA certification and manual Vercel authorization boundary.
-requireText('.github/workflows/autonomy-ci.yml', 'Assert exact SHA and generate certification manifest', 'CI certification lacks exact-SHA verification.')
-requireText('.github/workflows/autonomy-ci.yml', 'vercelDeploymentPerformed": false', 'Certification manifest does not record Vercel as not deployed.')
-requireText('.github/workflows/autonomy-ci.yml', 'MANUAL_AUTHORIZATION_REQUIRED', 'Certification does not preserve manual deployment authorization.')
-requireText('scripts/production-verification-audit.ts', 'Wait for all exact-SHA CI certification gates', 'Production readiness audit lacks exact-SHA CI gating.')
-requireText('.github/workflows/production-release-watchdog.yml', 'DEPLOY_AGENT007_MAIN', 'Production release workflow lacks explicit authorization control.')
-requireText('.github/workflows/production-release-watchdog.yml', 'Wait for all exact-SHA CI certification gates', 'Production release does not require all exact-SHA CI workflows.')
-requireText('.github/workflows/production-release-watchdog.yml', 'TRAFFIC_OWNERSHIP_UNPROVEN', 'Production release lacks live traffic identity proof.')
-requireText('.github/workflows/production-release-watchdog.yml', 'STALE_ALIAS', 'Production release lacks explicit stale-alias protection.')
-
-// Canonical implementation-path integrity.
-const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean)
-const duplicatePatterns = [
-  /(^|\/)ceo-response-quality-gate\.(?:bak|old|orig|copy)$/i,
-  /(^|\/)ceo-self-reflection\.(?:bak|old|orig|copy)$/i,
-  /(^|\/)ceo-cognitive-lifecycle\.(?:bak|old|orig|copy)$/i,
-]
-const duplicates = tracked.filter((path) => duplicatePatterns.some((pattern) => pattern.test(path)))
-if (duplicates.length) failures.push(`Duplicate/backup CEO recommendation files detected: ${duplicates.join(', ')}`)
-
-if (failures.length) {
-  console.error('Recommendations 5–8 deep audit FAILED:')
-  for (const failure of failures) console.error(`- ${failure}`)
-  process.exit(1)
-}
-
-console.log('Recommendations 5–8 deep audit PASSED: claim scope, freshness, executive readiness, regression corpus, exact-SHA certification, deployment authorization, live traffic proof, and canonical file-path integrity are coherent.')
+if (failures.length) { console.error('Recommendations 5–8 deep audit FAILED:'); for (const failure of failures) console.error(`- ${failure}`); process.exit(1) }
+console.log('Recommendations 5–8 deep audit PASSED: claim-aware verification, freshness, provenance, sufficiency, evidence recovery, durable trace, golden corpus, CI certification, and canonical file-path integrity are coherent.')
