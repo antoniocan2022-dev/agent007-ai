@@ -78,8 +78,6 @@ async function tryDegraded(
     availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
   }
 
-  // A successful availability probe is not itself a response, but it proves a
-  // governed reasoning path exists. Use that path before declaring degraded.
   if (availability) {
     try {
       const recovery = await runCanonicalLlm({
