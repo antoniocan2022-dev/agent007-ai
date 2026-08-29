@@ -272,11 +272,8 @@ Generate $20,000/month passive income with 20% monthly + 20% daily growth.
 - KRAKEN_API_KEY + SECRET — Kraken crypto trading (private)
 - PAYPAL_CLIENT_ID + SECRET — PayPal REST API
 
-## How to Set Keys
-1. Go to Vercel Dashboard → agent007-ai → Settings → Environment Variables
-2. Add key + value (mark as Sensitive)
-3. Set target: Production
-4. Redeploy (vercel --prod --yes)
+## Deployment Governance
+Production deployment is controlled exclusively by the governed GitHub Actions release workflow. Direct deployment commands are intentionally not documented here.
 `
   }
 ]
