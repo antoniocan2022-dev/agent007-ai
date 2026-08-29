@@ -17,7 +17,9 @@ afterEach(() => {
 
 const criticalAnswer = `# Recommendation\n\nDecision: proceed only after independent review and explicit verification of the deployment evidence. The recommended action is to advance the mission only when the evidence package is complete, the identified risks are understood, and the execution conditions are satisfied.\n\n## Evidence\n- Confirm the deployment identity and verify the exact release evidence before execution.\n- Confirm the independent review result and reconcile any material disagreement.\n- Preserve the supporting mission evidence so the decision remains auditable.\n\n## Risks\n- Deployment without complete evidence could create an irreversible production error.\n- Conflicting verification results require escalation rather than silent selection.\n- Missing current evidence means the system must not claim live confirmation.\n\n## Next Actions\n1. Complete the independent verification checkpoint.\n2. Record the final evidence and decision state.\n3. Proceed only when all mandatory gates are satisfied.`
 
-function jsonResponse(payload: unknown, status = 200): Response { return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } }) }
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } })
+}
 
 describe('CEO cognitive lifecycle', () => {
   test('fast requests remain fast, ambiguous resolves to full, and the DecisionPlan enforces the full cognitive floor', () => {
@@ -91,7 +93,16 @@ describe('CEO cognitive lifecycle', () => {
     expect(reviewedWithoutEvidence.verificationStatus).toBe('INDEPENDENT_PASS')
 
     const now = Date.now()
-    const evidenced = evaluateCeoQuality({ objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.', content: criticalAnswer, path: 'critical', reviewed: true, externalExecutionSucceeded: true, evidenceProvided: true, evidenceScope: 'live_system', evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 } })
+    const evidenced = evaluateCeoQuality({
+      objective: 'Decide whether to deploy this mission and explain risks, evidence, and next actions.',
+      content: criticalAnswer,
+      path: 'critical',
+      reviewed: true,
+      externalExecutionSucceeded: true,
+      evidenceProvided: true,
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
     expect(evidenced.decision).toBe('PASS')
     expect(evidenced.evidenceState).toBe('LIVE_VERIFIED')
     expect(evidenced.verificationStatus).toBe('INDEPENDENT_PASS')
@@ -164,7 +175,15 @@ describe('CEO cognitive lifecycle', () => {
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
-    const result = await runCeoCognitiveLifecycle({ missionId: 'mission-critical-test', messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }], timeoutMs: 30000, contextualEvidence: 'Verified internal mission evidence is available for this controlled test.' })
+    const now = Date.now()
+    const result = await runCeoCognitiveLifecycle({
+      missionId: 'mission-critical-test',
+      messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }],
+      timeoutMs: 30000,
+      contextualEvidence: 'Verified live mission evidence is available for this controlled test.',
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
     const canonical = new Set(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
     expect(postProviders.length).toBeGreaterThanOrEqual(3)
     expect(postProviders.every((provider) => canonical.has(provider))).toBe(true)
@@ -180,3 +199,24 @@ describe('CEO cognitive lifecycle', () => {
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
     const missionRoute = readFileSync('src/app/api/mission-active/[missionId]/route.ts', 'utf8')
     const agentRoute = readFileSync('src/app/api/agent/route.ts', 'utf8')
+
+    expect(bridge).toContain("runCeoCognitiveLifecycle")
+    expect(bridge).toContain("getOrchestrationOwner")
+    expect(bridge).toContain("if (owner === 'operational_orchestrator')")
+    expect(bridge).toContain("runCanonicalLlm")
+
+    expect(presenter).toContain("runCeoCognitiveLifecycle")
+    expect(presenter).toContain("evaluateCeoDecision")
+    expect(presenter).toContain("executeVerificationOfficerChallenge")
+
+    expect(missionRoute).toContain("runCeoCognitiveLifecycle")
+    expect(missionRoute).toContain("assertDelegationAllowed")
+    expect(missionRoute).toContain("resolveMissionOwnerId")
+
+    expect(agentRoute).toContain("runCeoCognitiveLifecycle")
+    expect(agentRoute).toContain("preRouteCeoRequest")
+    expect(agentRoute).toContain("withOrchestrationOwner")
+    expect(agentRoute).toContain("runOrchestrator")
+    expect(agentRoute).toContain("evidenceState: response.evidenceState")
+  })
+})
