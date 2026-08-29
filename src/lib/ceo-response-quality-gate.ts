@@ -1,4 +1,4 @@
-import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness } from './ceo-cognitive-contract'
+import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness, CeoIntent } from './ceo-cognitive-contract'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import { verifyClaimEvidence } from './ceo-claim-evidence-gate'
 import { evaluateClaimConsistency, scoreContextContinuity, type ContextContinuityScore } from './ceo-context-intelligence'
@@ -18,6 +18,7 @@ function objectiveCoverage(objective: string, content: string, path: EvaluationP
   const minimumLength = path === 'critical' ? 320 : Math.min(500, Math.max(180, Math.floor(objective.length * 0.55)))
   return coverage >= minimumCoverage && content.trim().length >= minimumLength
 }
+const CASUAL_CONVERSATION_RE = /^(?:hi|hello|hey|how(?:'s|\s+is)\s+(?:it|everything|things?)\s+going|how\s+are\s+(?:you|things?)(?:\s+doing)?|how\s+do\s+you\s+do|how\s+is\s+(?:agent007|the\s+(?:system|ceo|agent))\s+doing|you\s+(?:good|okay|alright)|what(?:'s|\s+is)\s+new(?:\s+with\s+you)?|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s,!.?]*$/i
 const LIVE_ASSERTION_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|confirmed|verified|proven|in\s+production|production\s+traffic)\b/i
 const EXTERNAL_ASSERTION_RE = /\b(?:according\s+to|latest\s+(?:market|industry|customer|competitor|report|study)|market\s+(?:is|shows|grew|declined)|customer(?:s)?\s+(?:are|have|said|reported)|competitor(?:s)?\s+(?:are|have|offer)|industry\s+(?:is|shows|grew|declined)|(?:study|studies|report|reports)\s+(?:show|shows|found|find)|revenue\s+(?:is|was|grew|declined|increased|decreased)|sales\s+(?:are|were|grew|declined|increased|decreased)|stock(?:s)?\s+(?:price|trades?|is)|shares?\s+(?:trade|are)|valuation\s+(?:is|looks|appears))\b/i
 const INTERNAL_ASSERTION_RE = /\b(?:architectur(?:e|al)|designed|implemented|configured|codebase|workflow|contract|module|repository|system\s+design|execution\s+path)\b/i
@@ -32,6 +33,7 @@ export function evaluateCeoQuality(input: {
   objective: string
   content: string
   path: EvaluationPath
+  intent?: CeoIntent
   reviewed?: boolean
   externalExecutionSucceeded?: boolean
   evidenceProvided?: boolean
@@ -44,37 +46,37 @@ export function evaluateCeoQuality(input: {
 }): QualityResult {
   const nonEmpty = Boolean(input.content.trim())
   const contractValid = nonEmpty && input.content.length <= 100_000
-  const coverage = objectiveCoverage(input.objective, input.content, input.path)
+  const conversational = input.intent === 'conversation' || CASUAL_CONVERSATION_RE.test(input.objective.trim())
+  const coverage = conversational ? nonEmpty : objectiveCoverage(input.objective, input.content, input.path)
   const claimConsistency = evaluateClaimConsistency(input.content)
   const claims = claimScopes(input.content)
   const externalClaims = claims.includes('external_web') || claims.includes('live_system')
-  const evidenceVerificationApplicable = input.evidenceVerificationApplicable ?? (input.path === 'critical' || Boolean(input.evidenceScope) || Boolean(input.evidenceProvided) || externalClaims)
+  const evidenceVerificationApplicable = conversational ? false : (input.evidenceVerificationApplicable ?? (input.path === 'critical' || Boolean(input.evidenceScope) || Boolean(input.evidenceProvided) || externalClaims))
   const bundle = input.evidenceBundle
   const fresh = validFreshness(input.evidenceFreshness) && evidenceIsFresh(input.evidenceFreshness!)
   const claimVerification = externalClaims && evidenceVerificationApplicable && bundle ? verifyClaimEvidence(input.content, bundle) : { passed: true }
-  const scope = input.evidenceScope
   const evidenceOk = (() => {
     if (!nonEmpty) return false
     if (!evidenceVerificationApplicable) return true
-    if (claims.includes('live_system') && ((scope !== 'live_system' && scope !== 'mixed') || !fresh)) return false
-    if (claims.includes('external_web') && ((scope !== 'external_web' && scope !== 'mixed') || !fresh)) return false
-    if (claims.includes('internal_state') && scope && scope !== 'internal_state' && scope !== 'mixed' && scope !== 'live_system') return false
+    if (claims.includes('live_system') && ((input.evidenceScope !== 'live_system' && input.evidenceScope !== 'mixed') || !fresh)) return false
+    if (claims.includes('external_web') && ((input.evidenceScope !== 'external_web' && input.evidenceScope !== 'mixed') || !fresh)) return false
+    if (claims.includes('internal_state') && input.evidenceScope && input.evidenceScope !== 'internal_state' && input.evidenceScope !== 'mixed' && input.evidenceScope !== 'live_system') return false
     if (externalClaims && bundle && !bundle.sufficient && input.path !== 'fast') return false
     if (externalClaims && bundle && !claimVerification.passed) return false
-    if (externalClaims && !bundle && !input.evidenceProvided && !(scope && scope !== 'none' && fresh)) return false
-    return input.path !== 'critical' || Boolean(input.evidenceProvided) || Boolean(scope && scope !== 'none')
+    if (externalClaims && !bundle && !input.evidenceProvided && !(input.evidenceScope && input.evidenceScope !== 'none' && fresh)) return false
+    return input.path !== 'critical' || Boolean(input.evidenceProvided) || Boolean(input.evidenceScope && input.evidenceScope !== 'none')
   })()
-  const continuity: ContextContinuityScore | undefined = input.priorTurns && input.priorTurns.length
+  const continuity: ContextContinuityScore | undefined = !conversational && input.priorTurns && input.priorTurns.length
     ? scoreContextContinuity({ currentUserMessage: input.objective, response: input.content, priorTurns: input.priorTurns, relevantOlderMessages: input.relevantOlderMessages })
     : undefined
-  const continuityOk = continuity ? continuity.understood : true
+  const continuityOk = conversational ? true : (continuity ? continuity.understood : true)
   const lines = input.content.split('\n')
   const hasHeadings = lines.some((line) => /^\s*#{1,4}\s+\S+/.test(line))
   const hasBullets = lines.some((line) => /^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(line))
   const hasDecisionLanguage = /\b(recommendation|decision|risks?|next steps?|actions?|evidence|assumptions?)\b/i.test(input.content)
-  const structureOk = input.path === 'fast' ? true : (hasHeadings || hasBullets || hasDecisionLanguage) && input.content.length >= (input.path === 'critical' ? 320 : 180)
+  const structureOk = conversational ? true : input.path === 'fast' ? true : (hasHeadings || hasBullets || hasDecisionLanguage) && input.content.length >= (input.path === 'critical' ? 320 : 180)
   const reviewed = Boolean(input.reviewed)
-  const verificationStatus: VerificationStatus = reviewed ? 'INDEPENDENT_PASS' : input.path === 'critical' ? 'NOT_PERFORMED' : 'NOT_REQUIRED'
+  const verificationStatus: VerificationStatus = conversational ? 'NOT_REQUIRED' : reviewed ? 'INDEPENDENT_PASS' : input.path === 'critical' ? 'NOT_PERFORMED' : 'NOT_REQUIRED'
   const reasons: string[] = []
   if (!nonEmpty) reasons.push('The response is empty.')
   if (!contractValid) reasons.push('The response violates the canonical response-size contract.')
@@ -83,9 +85,9 @@ export function evaluateCeoQuality(input: {
   if (!continuityOk) reasons.push(`The response did not demonstrate sufficient continuity with relevant prior context (score ${continuity?.score ?? 0}).`)
   if (!evidenceOk) reasons.push(externalClaims ? 'One or more claims lack sufficient, fresh, provenance-matched evidence.' : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
   if (!structureOk) reasons.push('The response does not meet the structural requirements for the requested execution depth.')
-  if (input.path === 'critical' && !reviewed) reasons.push('Critical execution requires an independent review stage before acceptance.')
-  const passed = nonEmpty && contractValid && coverage && claimConsistency.consistent && continuityOk && evidenceOk && structureOk && (input.path !== 'critical' || reviewed)
-  const evidenceIsVerifiedLive = passed && (scope === 'live_system' || scope === 'mixed') && fresh
+  if (input.path === 'critical' && !reviewed && !conversational) reasons.push('Critical execution requires an independent review stage before acceptance.')
+  const passed = nonEmpty && contractValid && coverage && claimConsistency.consistent && continuityOk && evidenceOk && structureOk && (input.path !== 'critical' || reviewed || conversational)
+  const evidenceIsVerifiedLive = passed && (input.evidenceScope === 'live_system' || input.evidenceScope === 'mixed') && fresh
   let failureReason: CeoFailureReason | undefined
   if (!passed) {
     if (!continuityOk) failureReason = 'continuity_failure'
@@ -94,8 +96,9 @@ export function evaluateCeoQuality(input: {
     else failureReason = 'quality_failure'
   }
   let evidenceState: EvidenceState
-  if (!evidenceVerificationApplicable && !externalClaims) evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
-  else if (!externalClaims && scope === 'none') evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
+  if (conversational) evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
+  else if (!evidenceVerificationApplicable && !externalClaims) evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
+  else if (!externalClaims && input.evidenceScope === 'none') evidenceState = passed ? 'NOT_APPLICABLE' : 'PARTIAL_UNCONFIRMED'
   else if (input.externalExecutionSucceeded === false && (externalClaims || evidenceVerificationApplicable)) evidenceState = 'UNAVAILABLE'
   else evidenceState = evidenceIsVerifiedLive ? 'LIVE_VERIFIED' : passed ? 'LIVE_EXECUTED' : 'PARTIAL_UNCONFIRMED'
   return {
@@ -113,5 +116,5 @@ export function evaluateCeoQuality(input: {
 }
 
 export function evaluateFastResponse(content: string, objective: string): QualityResult {
-  return evaluateCeoQuality({ objective, content, path: 'fast', reviewed: false, externalExecutionSucceeded: true, evidenceVerificationApplicable: false })
+  return evaluateCeoQuality({ objective, content, path: 'fast', intent: 'conversation', reviewed: false, externalExecutionSucceeded: true, evidenceVerificationApplicable: false })
 }
