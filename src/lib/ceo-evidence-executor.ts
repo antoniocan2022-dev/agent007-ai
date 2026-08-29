@@ -36,7 +36,6 @@ function titleFromSearchResult(result: ToolResult, url: string): string { const 
 /** Search-query preference never establishes source authority by itself. */
 export function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType {
   if (query.sourcePreference === 'market') return sourceTierForUrl(url) <= 2 ? 'market_data' : 'web'
-  if (query.sourcePreference === 'news') return sourceTierForUrl(url) === 3 ? 'news' : 'web'
   // Company IR requires independent identity verification; search results alone
   // are not enough to establish that identity, so remain generic web evidence.
   return 'web'
