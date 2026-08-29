@@ -107,6 +107,9 @@ jobs:
       - name: Deep integrated audit
         run: bun scripts/deep-integrity-audit.ts
 
+      - name: Recommendations 5-8 deep audit
+        run: bun scripts/recommendations-5-8-audit.ts
+
       - name: Repository coherence audit
         run: bun scripts/repository-coherence-audit.ts
 
