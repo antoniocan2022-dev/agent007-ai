@@ -46,7 +46,6 @@ function buildSelfAssessmentArchitectureFallback(objective: string, recoveredCon
   return `Evidence state: INTERNAL-STATE-ONLY.\n\nI can still give a truthful self-assessment without pretending live external verification succeeded.\n\n## Self-assessment\n- Architecturally, Agent007 is designed to manage business operations through a governed CEO layer, canonical organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.\n- I am **not yet justified in claiming fully autonomous business management** solely from architecture. Real-world business readiness also requires verified live execution, reliable external integrations, customer outcomes, financial controls, and sustained production results.\n- Therefore the defensible position is: **ready to operate as a governed business-management system with human oversight; not yet proven for unsupervised end-to-end business ownership.**${readinessBlock}${evidenceBlock}\n\nRequested objective: ${objective.slice(0, 2000)}`
 }
 
-/** Recover the failed capability first; never silently convert missing reasoning into evidence. */
 export async function buildCeoDegradedResponse(input: {
   objective: string
   intent: CeoIntent
@@ -77,7 +76,7 @@ export async function buildCeoDegradedResponse(input: {
     }
   }
 
-  if (input.intent === 'self_assessment' || recoveredCapability === 'conversation' || recoveredCapability === 'context') {
+  if (input.intent === 'self_assessment') {
     return {
       evidenceState: 'PARTIAL_UNCONFIRMED',
       reason: input.reason,
@@ -88,12 +87,23 @@ export async function buildCeoDegradedResponse(input: {
     }
   }
 
+  if (recoveredCapability === 'conversation' || recoveredCapability === 'context') {
+    return {
+      evidenceState: 'PARTIAL_UNCONFIRMED',
+      reason: input.reason,
+      sourceKeys,
+      failureReason,
+      recoveredCapability,
+      content: `I couldn't complete the conversational response because the ${recoveredCapability} capability was unavailable. The system did not recover enough trusted context to answer reliably. Agent007 will not fabricate a response.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+    }
+  }
+
   return {
     evidenceState: 'UNAVAILABLE',
     reason: input.reason,
     sourceKeys,
     failureReason,
     recoveredCapability,
-    content: `Evidence state: UNAVAILABLE.\n\nThe failed capability was ${recoveredCapability}. No safe fallback source was available for this request, so Agent007 will not fabricate a result.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+    content: `Evidence state: UNAVAILABLE.\n\nThe failed capability was ${recoveredCapability}. No safe fallback source was available for this request, so Agent007 will not fabricate a live or verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
   }
 }
