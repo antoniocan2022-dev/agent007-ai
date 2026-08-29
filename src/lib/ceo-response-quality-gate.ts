@@ -1,6 +1,7 @@
 import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness } from './ceo-cognitive-contract'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import { verifyClaimEvidence } from './ceo-claim-evidence-gate'
+import { evaluateClaimConsistency } from './ceo-context-intelligence'
 
 const STOPWORDS = new Set([
   'about', 'after', 'again', 'also', 'because', 'before', 'being', 'between', 'could', 'from',
@@ -28,25 +29,6 @@ function objectiveCoverage(objective: string, content: string, path: EvaluationP
   const minimumCoverage = path === 'critical' ? 0.35 : 0.25
   const minimumLength = path === 'critical' ? 320 : Math.min(500, Math.max(180, Math.floor(objective.length * 0.55)))
   return coverage >= minimumCoverage && content.trim().length >= minimumLength
-}
-
-function consistency(content: string): boolean {
-  if (!content.trim()) return false
-  const contradictionPairs: Array<[RegExp, RegExp]> = [
-    [/\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i],
-    [/\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i],
-    [/\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i],
-    [/\bnever\b/i, /\balways\b/i],
-    [/\bno evidence\b/i, /\bverified\b/i],
-    [/\bunverified\b/i, /\bconfirmed\b/i],
-    [/\bfailed\b/i, /\bsucceeded\b/i],
-    [/\bunavailable\b/i, /\bavailable\b/i],
-  ]
-  if (contradictionPairs.some(([left, right]) => left.test(content) && right.test(content))) return false
-  const numericClaims = [...content.toLowerCase().matchAll(/\b(\d+(?:\.\d+)?)\s*(%|percent|ms|seconds?|minutes?|hours?|days?)\b/g)]
-    .map((match) => `${match[1]} ${match[2]}`)
-  const duplicateCount = numericClaims.length - new Set(numericClaims).size
-  return !(numericClaims.length >= 4 && duplicateCount > 2)
 }
 
 const LIVE_ASSERTION_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|confirmed|verified|proven|in\s+production|production\s+traffic)\b/i
@@ -92,7 +74,7 @@ export function evaluateCeoQuality(input: {
   const nonEmpty = Boolean(input.content.trim())
   const contractValid = nonEmpty && input.content.length <= 100_000
   const coverage = objectiveCoverage(input.objective, input.content, input.path)
-  const consistent = consistency(input.content)
+  const claimConsistency = evaluateClaimConsistency(input.content)
   const evidenceProvided = Boolean(input.evidenceProvided)
   const claims = claimScopes(input.content)
   const fresh = validFreshness(input.evidenceFreshness) && evidenceIsFresh(input.evidenceFreshness!)
@@ -127,11 +109,11 @@ export function evaluateCeoQuality(input: {
   if (!nonEmpty) reasons.push('The response is empty.')
   if (!contractValid) reasons.push('The response violates the canonical response-size contract.')
   if (!coverage) reasons.push('The response does not adequately cover the requested objective.')
-  if (!consistent) reasons.push('The response contains a detected contradiction or conflicting claim.')
+  if (!claimConsistency.consistent) reasons.push(`The response contains claim-level contradictions: ${claimConsistency.contradictions.slice(0, 3).map((item) => item.reason).join('; ')}`)
   if (!evidenceOk) reasons.push(externalClaims ? 'One or more claims lack sufficient, fresh, provenance-matched evidence.' : 'The response makes a claim that requires evidence outside the supplied evidence scope.')
   if (!structureOk) reasons.push('The response does not meet the structural requirements for the requested execution depth.')
   if (input.path === 'critical' && !reviewed) reasons.push('Critical execution requires an independent review stage before acceptance.')
-  const passed = nonEmpty && contractValid && coverage && consistent && evidenceOk && structureOk && (input.path !== 'critical' || reviewed)
+  const passed = nonEmpty && contractValid && coverage && claimConsistency.consistent && evidenceOk && structureOk && (input.path !== 'critical' || reviewed)
   const evidenceIsVerifiedLive = passed && (scope === 'live_system' || scope === 'mixed') && fresh
   const evidenceState: EvidenceState = !input.externalExecutionSucceeded
     ? 'UNAVAILABLE'
@@ -144,7 +126,7 @@ export function evaluateCeoQuality(input: {
     decision: passed ? 'PASS' : input.path === 'fast' ? 'DEGRADED' : 'ESCALATE',
     evidenceState,
     verificationStatus,
-    checks: { nonEmpty, contractValid, objectiveCoverage: coverage, internalConsistency: consistent, evidenceDiscipline: evidenceOk, actionableStructure: structureOk },
+    checks: { nonEmpty, contractValid, objectiveCoverage: coverage, internalConsistency: claimConsistency.consistent, evidenceDiscipline: evidenceOk, actionableStructure: structureOk },
     evidenceScope: input.evidenceScope,
     evidenceFreshness: input.evidenceFreshness,
     claimScopes: claims,
