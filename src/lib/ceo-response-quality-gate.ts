@@ -32,15 +32,15 @@ function consistency(content: string): boolean {
   if (!normalized.trim()) return false
 
   const contradictionPairs: Array<[RegExp, RegExp]> = [
-    /\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i,
-    /\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i,
-    /\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i,
-    /\bnever\b/i, /\balways\b/i,
-    /\bno evidence\b/i, /\bverified\b/i,
-    /\bunverified\b/i, /\bconfirmed\b/i,
-    /\bfailed\b/i, /\bsucceeded\b/i,
-    /\bunavailable\b/i, /\bavailable\b/i,
-  ] as Array<[RegExp, RegExp]>
+    [/\bdo not\b/i, /\bmust\b[^.\n]{0,160}\bdo\b/i],
+    [/\bmust not\b/i, /\bmust\b(?! not)[^.\n]{0,160}\b/i],
+    [/\bcannot\b/i, /\bcan\b[^.\n]{0,160}\b/i],
+    [/\bnever\b/i, /\balways\b/i],
+    [/\bno evidence\b/i, /\bverified\b/i],
+    [/\bunverified\b/i, /\bconfirmed\b/i],
+    [/\bfailed\b/i, /\bsucceeded\b/i],
+    [/\bunavailable\b/i, /\bavailable\b/i],
+  ]
 
   for (const [left, right] of contradictionPairs) {
     if (left.test(content) && right.test(content)) return false
