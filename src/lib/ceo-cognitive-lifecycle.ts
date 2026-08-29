@@ -177,6 +177,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness
   const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment'
     ? synthesizeExecutiveReadiness({
+      operationalCapabilityVerified: true,
       liveExecutionVerified: evidenceScope === 'live_system' && Boolean(evidenceFreshness),
       productionTrafficVerified: request.productionTrafficVerified === true,
       repeatableBusinessOutcomesVerified: false,
