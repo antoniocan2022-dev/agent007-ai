@@ -84,7 +84,7 @@ async function tryDegraded(
     try {
       const recovery = await runCanonicalLlm({
         messages: request.messages,
-        taskType: request.taskType ?? (decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : 'general'),
+        taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? (decisionPlan.taskClass ?? 'reasoning')),
         verification: request.verification ?? 'standard',
         model: availability.model,
         temperature: request.temperature ?? 0.2,
@@ -121,7 +121,13 @@ async function tryDegraded(
     }
   }
 
-  const degraded = await buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), reason, missionId: request.missionId, contextualEvidence: request.contextualEvidence })
+  const degraded = await buildCeoDegradedResponse({
+    objective: objectiveFrom(request.messages),
+    intent: decisionPlan.executionContract.intent,
+    reason,
+    missionId: request.missionId,
+    contextualEvidence: request.contextualEvidence,
+  })
   const responseMs = responseMsBeforeDegraded + (Date.now() - started)
   const quality = {
     decision: 'DEGRADED' as const,
@@ -155,7 +161,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const liveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }] : []
   const primaryMessages = [...liveSystemMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({
-    taskType: request.taskType ?? decisionPlan.taskClass ?? 'reasoning',
+    taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'),
     verification: selectedVerification,
     model: request.model,
     temperature: request.temperature,
