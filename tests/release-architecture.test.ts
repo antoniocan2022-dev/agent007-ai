@@ -1,27 +1,25 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const CANONICAL_WORKFLOW = join(ROOT, '.github/workflows/production-release-watchdog.yml')
 
 function workflowContent(path = CANONICAL_WORKFLOW): string {
-  const fs = require('node:fs')
-  return fs.readFileSync(path, 'utf8')
+  return readFileSync(path, 'utf8')
 }
 
 describe('permanent production release architecture', () => {
   test('has exactly one workflow capable of deploying or promoting production', () => {
-    const fs = require('node:fs')
-    const workflows = fs.readdirSync(join(ROOT, '.github/workflows')).filter((file: string) => file.endsWith('.yml') || file.endsWith('.yaml'))
+    const workflows = readdirSync(join(ROOT, '.github/workflows')).filter((file: string) => file.endsWith('.yml') || file.endsWith('.yaml'))
     const deployers = workflows.filter((file: string) => /vercel|deploy|production/i.test(file))
     expect(deployers).toEqual(['production-release-watchdog.yml'])
   })
 
   test('has no direct production deploy scripts outside GitHub Actions', () => {
-    const fs = require('node:fs')
     const files: string[] = []
     const walk = (dir: string) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next') continue
         const full = join(dir, entry.name)
         if (entry.isDirectory()) walk(full)
@@ -30,14 +28,13 @@ describe('permanent production release architecture', () => {
     }
     walk(join(ROOT, 'scripts'))
     for (const file of files) {
-      const content = fs.readFileSync(file, 'utf8')
+      const content = readFileSync(file, 'utf8')
       expect(content).not.toMatch(/vercel\s+--prod|vercel\.com\/v\d+\/deployments/i)
     }
   })
 
   test('keeps Vercel Git auto-deployment disabled', () => {
-    const fs = require('node:fs')
-    const vercel = JSON.parse(fs.readFileSync(join(ROOT, 'vercel.json'), 'utf8'))
+    const vercel = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'))
     expect(vercel.git?.deploymentEnabled ?? false).toBe(false)
   })
 
@@ -110,21 +107,20 @@ describe('permanent production release architecture', () => {
   })
 
   test('stamps every Agent007 SSE envelope with deployment identity', () => {
-    const content = workflowContent(join(ROOT, 'src/app/api/agent/route.ts'))
+    const content = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf8')
     expect(content).toContain('releaseCommit')
     expect(content).toContain('deploymentId')
     expect(content).toContain('event: ${event}')
   })
 
   test('exposes deployment identity and real provider execution in release-health', () => {
-    const fs = require('node:fs')
     const candidates = [
       join(ROOT, 'src/app/api/release-health/route.ts'),
       join(ROOT, 'src/app/api/release-health/route.js'),
     ]
-    const path = candidates.find((candidate) => fs.existsSync(candidate))
+    const path = candidates.find((candidate) => existsSync(candidate))
     expect(path).toBeTruthy()
-    const content = fs.readFileSync(path, 'utf8')
+    const content = readFileSync(path!, 'utf8')
     expect(content).toContain('actualExecution')
     expect(content).toContain('tripleProof')
     expect(content).toContain('organizationGraphFingerprint')
