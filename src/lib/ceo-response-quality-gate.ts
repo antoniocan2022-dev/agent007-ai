@@ -88,10 +88,9 @@ function evidenceDiscipline(input: {
   if (claims.includes('live_system')) {
     if (scope) {
       if (scope !== 'live_system' && scope !== 'mixed') return false
-      if (input.evidenceFreshness) {
-        const age = Date.now() - input.evidenceFreshness.observedAt
-        if (age < 0 || age > input.evidenceFreshness.maxAgeMs) return false
-      }
+      if (!input.evidenceFreshness) return false
+      const age = Date.now() - input.evidenceFreshness.observedAt
+      if (age < 0 || age > input.evidenceFreshness.maxAgeMs) return false
     } else if (!input.evidenceProvided) return false
   }
 
@@ -105,9 +104,9 @@ function evidenceDiscipline(input: {
     if (scope !== 'internal_state' && scope !== 'mixed' && scope !== 'live_system') return false
   }
 
-  if (input.path === 'critical' && /\b(recommend|decide|approve|deploy|invest|commit)\b/i.test(input.content) && !input.evidenceProvided && !scope) {
-    return !/\bI recommend|I would recommend|recommendation\b/i.test(input.content) || /\bshould\b/i.test(input.content)
-  }
+  // Critical decisions require an explicit evidence source, even when the
+  // prose itself does not contain an obvious live/external keyword.
+  if (input.path === 'critical' && !input.evidenceProvided && !scope) return false
   return true
 }
 
