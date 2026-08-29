@@ -74,6 +74,7 @@ jobs:
         id: release
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT_RELEASE_SHA: ${{ inputs.release_sha }}
           INPUT_AUTHORIZATION: ${{ inputs.authorization }}
         run: |
