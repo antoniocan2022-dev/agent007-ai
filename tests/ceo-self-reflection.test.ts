@@ -74,6 +74,7 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(result.decision).toBe('PASS')
     expect(result.checks.evidenceDiscipline).toBe(true)
     expect(result.claimScopes).toContain('internal_state')
+    expect(result.evidenceState).toBe('LIVE_EXECUTED')
   })
 
   test('claim-aware quality rejects a positive live claim under internal-only evidence', () => {
@@ -111,6 +112,7 @@ describe('CEO self-reflection canonical classifier', () => {
       evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
     })
     expect(fresh.decision).toBe('PASS')
+    expect(fresh.evidenceState).toBe('LIVE_VERIFIED')
 
     const stale = evaluateCeoQuality({
       objective: 'What is your current production status?',
