@@ -1,5 +1,6 @@
 import type { CeoIntent, EvidenceState } from './ceo-cognitive-contract'
 import { recallPersistentMemory } from './persistent-memory'
+import { synthesizeExecutiveReadiness, type SelfReflectionKind } from './ceo-self-reflection'
 
 export interface DegradedResponse {
   content: string
@@ -17,24 +18,33 @@ function formatMemoryEvidence(entries: Array<{ key: string; value: string; categ
     .join('\n\n')
 }
 
-function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string): string {
+function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string {
   const evidenceBlock = recoveredContext.trim()
     ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}`
     : ''
-  return `Evidence state: INTERNAL-STATE-ONLY.\n\nI can still give a truthful self-assessment without pretending live external verification succeeded.\n\n## Self-assessment\n- Architecturally, Agent007 is designed to manage business operations through a governed CEO layer, canonical organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.\n- I am **not yet justified in claiming fully autonomous business management** solely from architecture. Real-world business readiness also requires verified live execution, reliable external integrations, customer outcomes, financial controls, and sustained production results.\n- Therefore the defensible position is: **ready to operate as a governed business-management system with human oversight; not yet proven for unsupervised end-to-end business ownership.**${evidenceBlock}\n\nRequested objective: ${objective.slice(0, 2000)}`
+  const readiness = selfReflectionKind === 'readiness_assessment'
+    ? synthesizeExecutiveReadiness({
+      liveExecutionVerified: false,
+      productionTrafficVerified: false,
+      repeatableBusinessOutcomesVerified: false,
+      sustainedAutonomyVerified: false,
+    })
+    : null
+  const readinessBlock = readiness
+    ? `\n\nExecutive readiness synthesis:\nLevel ${readiness.level} — ${readiness.label}.\n${readiness.capability}\n${readiness.verified}\n${readiness.notProven}\nNext evidence: ${readiness.nextEvidence}`
+    : ''
+  return `Evidence state: INTERNAL-STATE-ONLY.\n\nI can still give a truthful self-assessment without pretending live external verification succeeded.\n\n## Self-assessment\n- Architecturally, Agent007 is designed to manage business operations through a governed CEO layer, canonical organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.\n- I am **not yet justified in claiming fully autonomous business management** solely from architecture. Real-world business readiness also requires verified live execution, reliable external integrations, customer outcomes, financial controls, and sustained production results.\n- Therefore the defensible position is: **ready to operate as a governed business-management system with human oversight; not yet proven for unsupervised end-to-end business ownership.**${readinessBlock}${evidenceBlock}\n\nRequested objective: ${objective.slice(0, 2000)}`
 }
 
 /**
  * Degraded mode is a real internal-evidence recovery path, not a substitute
  * for live reasoning. The caller supplies the already-decided CEO intent so
  * this layer never reclassifies the original request from raw text.
- *
- * `recall` is injectable only for deterministic tests; production defaults to
- * the canonical persistent-memory implementation.
  */
 export async function buildCeoDegradedResponse(input: {
   objective: string
   intent: CeoIntent
+  selfReflectionKind?: SelfReflectionKind
   reason: string
   missionId?: string
   contextualEvidence?: string
@@ -61,7 +71,7 @@ export async function buildCeoDegradedResponse(input: {
       evidenceState: 'PARTIAL_UNCONFIRMED',
       reason: input.reason,
       sourceKeys,
-      content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext),
+      content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind),
     }
   }
 
