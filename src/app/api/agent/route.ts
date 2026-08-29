@@ -8,14 +8,13 @@ import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 import { RecoveryBudget, RecoveryBudgetExceededError, recoveryEventFromMessage } from '@/lib/ceo-recovery-policy'
-import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
 import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
 import { executeExternalEvidencePlan, recoverExternalEvidencePlan } from '@/lib/ceo-evidence-executor'
 import { renderEvidenceBundleForPrompt, type EvidenceBundle } from '@/lib/ceo-evidence-bundle'
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
-import { composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
+import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -47,21 +46,15 @@ async function loadConversationContext(conversationId: string, currentUserMessag
     if (!rows.length) rows.push({ role: 'user', content: currentUserMessage, createdAt: new Date() })
     return { rows, memories }
   } catch (error) {
-    console.warn('[api/agent] Conversation context load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180))
+    console.warn('[api/agent] Conversation context load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
     return { rows: [{ role: 'user', content: currentUserMessage, createdAt: new Date() }], memories: [] }
   }
 }
 
-function shouldInjectFullOrganizationContext(preRoute: ReturnType<typeof preRouteCeoRequest>): boolean {
-  const contract = preRoute.executionContract
-  return contract.intent !== 'conversation' || preRoute.missionRelevant || contract.evidenceClass !== 'none' || preRoute.taskClass === 'financial' || contract.executionRequirement === 'production'
-}
-
-function buildSystemPrompt(preRoute: ReturnType<typeof preRouteCeoRequest>, evidenceMessage = ''): string {
+function buildSystemPrompt(): string {
   const identity = 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.'
   const governance = 'For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.'
-  const organization = shouldInjectFullOrganizationContext(preRoute) ? `\n\n${getCanonicalOrganizationPrompt()}` : '\n\nCEO IDENTITY CONTEXT: You are CEO_AGENT007. Prioritize natural, direct conversation and the user’s immediate intent.'
-  return `${identity} ${governance}${evidenceMessage}${organization}`
+  return `${identity} ${governance}`
 }
 
 export async function POST(req: NextRequest) {
@@ -91,7 +84,7 @@ export async function POST(req: NextRequest) {
 
   const contextData = await loadConversationContext(conversationId, message, sessionUserId)
   const contextSeed: CeoContextComposition = composeCeoContext({
-    systemPrompt: 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Understand the user naturally and use prior conversation context when relevant.',
+    systemPrompt: buildSystemPrompt(),
     currentUserMessage: message,
     persistedMessages: contextData.rows,
     memories: contextData.memories,
@@ -156,9 +149,16 @@ export async function POST(req: NextRequest) {
             addEvidenceTraceEvent(evidenceTrace, externalEvidenceBundle.sufficient ? 'source_accepted' : 'source_rejected', { sources: externalEvidenceBundle.sources.length, sufficient: externalEvidenceBundle.sufficient })
             safeEnqueue(sse('progress', { phase: 'evidence_complete', sources: externalEvidenceBundle.sources.length, claims: externalEvidenceBundle.claims.length, sufficient: externalEvidenceBundle.sufficient, attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, pageReads: evidenceExecution.pageReads, secSources: evidenceExecution.secSources, failures: evidenceExecution.failures.slice(0, 5) }))
           }
-          const evidenceMessage = externalEvidenceContext ? `\n\n${externalEvidenceContext}\n\nUse only these source-backed facts for current external claims. Keep source markers such as [S1-...] attached to supported claims. If a needed fact is missing, say so instead of inventing it.` : ''
-          const finalSystemPrompt = buildSystemPrompt(preRoute, evidenceMessage)
-          const composed = composeCeoContext({ systemPrompt: finalSystemPrompt, currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories })
+          const finalSystemPrompt = buildSystemPrompt()
+          const contextModules = buildCeoContextModules({
+            intent: executionContract.intent,
+            missionRelevant: preRoute.missionRelevant,
+            evidenceClass: executionContract.evidenceClass,
+            taskClass: preRoute.taskClass,
+            executionRequirement: executionContract.executionRequirement,
+            evidence: externalEvidenceContext,
+          })
+          const composed = composeCeoContext({ systemPrompt: finalSystemPrompt, currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: contextModules })
           let response = await runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, verification: 'standard', timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows })
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) {
             const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle)
@@ -169,16 +169,23 @@ export async function POST(req: NextRequest) {
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
           let persistedAssistantMessageId: string | null = null
           try { const assistant = await db.message.create({ data: { conversationId, role: 'assistant', content: response.content } }); persistedAssistantMessageId = assistant.id } catch (persistErr: any) { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)) }
-          safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, responseMs: response.responseMs, deployment: deploymentIdentity, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys } }))
+          safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, responseMs: response.responseMs, deployment: deploymentIdentity, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composed.modules } }))
           safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, executionContract }))
         } else {
-          const composedOperational = composeCeoContext({ systemPrompt: buildSystemPrompt(preRoute), currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories })
+          const operationalModules = buildCeoContextModules({
+            intent: executionContract.intent,
+            missionRelevant: preRoute.missionRelevant,
+            evidenceClass: executionContract.evidenceClass,
+            taskClass: preRoute.taskClass,
+            executionRequirement: executionContract.executionRequirement,
+          })
+          const composedOperational = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: operationalModules })
           const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs))
           const operationalEvidence = `OPERATIONAL EXECUTION RESULT\nFinal answer: ${result.finalAnswer.slice(0, 24000)}\nCompleted steps: ${result.steps.length}\nTool steps: ${result.steps.filter((step) => Boolean(step.toolName)).length}`
           const synthesis = await runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: [...composedOperational.messages, { role: 'user', content: operationalEvidence }], taskType: preRoute.taskClass, verification: 'standard', timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows })
           const persistedAssistantMessageId = result.persistedAssistantMessageId
           try { await db.message.update({ where: { id: result.persistedAssistantMessageId }, data: { content: synthesis.content } }) } catch (persistErr: any) { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)) }
-          safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, responseMs: synthesis.responseMs, deployment: deploymentIdentity, executionContract, operationalSteps: result.steps.length }))
+          safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, responseMs: synthesis.responseMs, deployment: deploymentIdentity, executionContract, operationalSteps: result.steps.length, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composedOperational.modules } }))
           safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length + 1, executionClass: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, evidenceState: synthesis.evidenceState, deployment: deploymentIdentity, executionContract, recoveryCount: recoveryBudget.used }))
         }
       } catch (e: any) {
