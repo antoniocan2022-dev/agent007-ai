@@ -173,7 +173,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   }
 
   const evidenceProvided = Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)
-  const evidenceScope: EvidenceScope | undefined = request.evidenceScope ?? (ventureEvidence ? 'internal_state' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
+  const evidenceScope: EvidenceScope | undefined = request.evidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
   const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness
   const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment'
     ? synthesizeExecutiveReadiness({
