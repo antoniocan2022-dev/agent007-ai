@@ -53,8 +53,11 @@ requireText('.github/workflows/autonomy-ci.yml', 'CEO claim-aware, readiness and
 requireText('.github/workflows/autonomy-ci.yml', 'Assert exact SHA and generate certification manifest', 'CI certification lacks exact-SHA verification.')
 requireText('.github/workflows/autonomy-ci.yml', 'vercelDeploymentPerformed": false', 'Certification manifest does not record Vercel as not deployed.')
 requireText('.github/workflows/autonomy-ci.yml', 'MANUAL_AUTHORIZATION_REQUIRED', 'Certification does not preserve manual deployment authorization.')
-requireText('scripts/production-verification-audit.ts', 'Wait for exact-SHA CI gates', 'Production readiness audit lacks exact-SHA CI gating.')
+requireText('scripts/production-verification-audit.ts', 'Wait for all exact-SHA CI certification gates', 'Production readiness audit lacks exact-SHA CI gating.')
 requireText('.github/workflows/production-release-watchdog.yml', 'DEPLOY_AGENT007_MAIN', 'Production release workflow lacks explicit authorization control.')
+requireText('.github/workflows/production-release-watchdog.yml', 'Wait for all exact-SHA CI certification gates', 'Production release does not require all exact-SHA CI workflows.')
+requireText('.github/workflows/production-release-watchdog.yml', 'TRAFFIC_OWNERSHIP_UNPROVEN', 'Production release lacks live traffic identity proof.')
+requireText('.github/workflows/production-release-watchdog.yml', 'STALE_ALIAS', 'Production release lacks explicit stale-alias protection.')
 
 // Canonical implementation-path integrity.
 const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean)
@@ -72,4 +75,4 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log('Recommendations 5–8 deep audit PASSED: claim scope, freshness, executive readiness, regression corpus, exact-SHA certification, deployment authorization, and canonical file-path integrity are coherent.')
+console.log('Recommendations 5–8 deep audit PASSED: claim scope, freshness, executive readiness, regression corpus, exact-SHA certification, deployment authorization, live traffic proof, and canonical file-path integrity are coherent.')
