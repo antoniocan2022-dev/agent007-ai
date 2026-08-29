@@ -54,13 +54,26 @@ jobs:
           remote="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
           test "$expected" = "$remote" || { echo "WORKTREE_SHA_DRIFT: expected=$expected remote=$remote"; exit 1; }
           git reset --hard "$expected"
-          # Dependency/cache setup must not be able to resurrect deleted repository artifacts.
-          # Remove only untracked files under scripts; all tracked release files remain intact.
           git clean -ffdx -- scripts
           test -z "$(git status --porcelain -- scripts)"
           echo "Exact Git tree reasserted at $expected; scripts workspace is clean."
 
       - run: bunx prisma generate
+
+      - name: Final exact-tree and scripts hygiene check
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(git rev-parse HEAD)"
+          remote="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$expected" = "$remote" || { echo "WORKTREE_SHA_DRIFT: expected=$expected remote=$remote"; exit 1; }
+          git reset --hard "$expected"
+          git clean -ffdx -- scripts
+          forbidden="$(git ls-files -- scripts | grep -E '(^|/)(vid-full-backup|post-deploy|lock-project|generate-.*backup|final-.*upgrade)' || true)"
+          test -z "$forbidden" || { echo "FORBIDDEN_TRACKED_LEGACY_ARTIFACTS: $forbidden"; exit 1; }
+          test ! -e scripts/vid-full-backup.py
+          test -z "$(git status --porcelain -- scripts)"
+          echo "Final scripts hygiene verified at exact main SHA $expected."
 
       - name: Verify operation-loop and autonomy contracts
         shell: bash
@@ -124,9 +137,6 @@ jobs:
 
       - name: Run Venture OS contract tests
         env:
-          # These tests are intentionally deterministic and must never depend on a
-          # production database being reachable. This prevents a paused/unavailable
-          # Postgres service from turning static contract verification into a false CI failure.
           DATABASE_URL: ''
         run: |
           set -euo pipefail
