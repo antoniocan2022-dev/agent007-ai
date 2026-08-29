@@ -1,12 +1,15 @@
 import type { CeoIntent, EvidenceState } from './ceo-cognitive-contract'
 import { recallPersistentMemory } from './persistent-memory'
 import { synthesizeExecutiveReadiness, type SelfReflectionKind } from './ceo-self-reflection'
+import type { CeoFailureReason } from './ceo-failure-reason'
 
 export interface DegradedResponse {
   content: string
   evidenceState: EvidenceState
   reason: string
   sourceKeys: string[]
+  failureReason: CeoFailureReason
+  recoveredCapability: 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context'
 }
 
 type MemoryRecall = typeof recallPersistentMemory
@@ -18,18 +21,19 @@ function formatMemoryEvidence(entries: Array<{ key: string; value: string; categ
     .join('\n\n')
 }
 
+function capabilityForFailure(reason: CeoFailureReason): DegradedResponse['recoveredCapability'] {
+  if (reason.startsWith('provider_') || reason === 'execution_timeout' || reason === 'quality_failure' || reason === 'claim_consistency_failure') return 'reasoning'
+  if (reason.startsWith('evidence_')) return 'evidence'
+  if (reason.startsWith('tool_')) return 'tool'
+  if (reason === 'context_unavailable') return 'context'
+  if (reason === 'production_verification_failure') return 'production'
+  return 'conversation'
+}
+
 function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string {
-  const evidenceBlock = recoveredContext.trim()
-    ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}`
-    : ''
+  const evidenceBlock = recoveredContext.trim() ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}` : ''
   const readiness = selfReflectionKind === 'readiness_assessment'
-    ? synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: false,
-      productionTrafficVerified: false,
-      repeatableBusinessOutcomesVerified: false,
-      sustainedAutonomyVerified: false,
-    })
+    ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false })
     : null
   const readinessBlock = readiness
     ? `\n\nExecutive readiness synthesis:\nLevel ${readiness.level} — ${readiness.label}.\n${readiness.capability}\n${readiness.verified}\n${readiness.notProven}\nNext evidence: ${readiness.nextEvidence}`
@@ -38,15 +42,16 @@ function buildSelfAssessmentArchitectureFallback(objective: string, recoveredCon
 }
 
 /**
- * Degraded mode is a real internal-evidence recovery path, not a substitute
- * for live reasoning. The caller supplies the already-decided CEO intent so
- * this layer never reclassifies the original request from raw text.
+ * Degraded mode recovers the failed capability first. It never silently turns
+ * a reasoning/provider failure into evidence, and it never invents a stronger
+ * evidence state than the recovered source supports.
  */
 export async function buildCeoDegradedResponse(input: {
   objective: string
   intent: CeoIntent
   selfReflectionKind?: SelfReflectionKind
   reason: string
+  failureReason: CeoFailureReason
   missionId?: string
   contextualEvidence?: string
   recall?: MemoryRecall
@@ -57,21 +62,26 @@ export async function buildCeoDegradedResponse(input: {
   const memories = suppliedContext ? [] : await recall(query, 5)
   const recoveredContext = suppliedContext || formatMemoryEvidence(memories)
   const sourceKeys = memories.map((entry) => entry.key)
+  const recoveredCapability = capabilityForFailure(input.failureReason)
 
   if (recoveredContext.trim()) {
     return {
-      evidenceState: 'MEMORY_ONLY',
+      evidenceState: suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY',
       reason: input.reason,
       sourceKeys,
-      content: `Evidence state: MEMORY-ONLY.\n\nThe live reasoning path did not produce an accepted final answer, so Agent007 will not present new unverified facts as current. Based only on the internal evidence currently available, the strongest supported information is:\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nWhat still requires live verification: current external facts, new research, and conclusions that depend on unavailable execution.`,
+      failureReason: input.failureReason,
+      recoveredCapability,
+      content: `Recovered capability: ${recoveredCapability}.\n\nThe primary ${recoveredCapability} path did not produce an accepted final answer, so Agent007 is using the strongest safe contextual fallback available. Prior conversation, memory, and supplied context are context only and are not treated as new external proof.\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nStill requires the failed capability to verify: current external facts, new research, live execution, or unsupported conclusions.`
     }
   }
 
-  if (input.intent === 'self_assessment') {
+  if (input.intent === 'self_assessment' || recoveredCapability === 'conversation' || recoveredCapability === 'context') {
     return {
       evidenceState: 'PARTIAL_UNCONFIRMED',
       reason: input.reason,
       sourceKeys,
+      failureReason: input.failureReason,
+      recoveredCapability,
       content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind),
     }
   }
@@ -80,6 +90,8 @@ export async function buildCeoDegradedResponse(input: {
     evidenceState: 'UNAVAILABLE',
     reason: input.reason,
     sourceKeys,
-    content: `Evidence state: UNAVAILABLE.\n\nThe live reasoning path did not produce an accepted final answer and no relevant internal evidence was recovered for this request. Agent007 will not fabricate a live or verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nA stronger answer requires an accepted governed reasoning result or relevant internal evidence.`,
+    failureReason: input.failureReason,
+    recoveredCapability,
+    content: `Evidence state: UNAVAILABLE.\n\nThe failed capability was ${recoveredCapability}. No safe fallback source was available for this request, so Agent007 will not fabricate a result.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
   }
 }
