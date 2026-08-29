@@ -4,6 +4,7 @@ import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { getOrchestrationOwner, withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 
 const exactFailingMessage = 'Hows it going? make a sekf analysis and tell me if you are ready to mange businesses?'
+const exactStockResearchMessage = 'Make a deep analysis of the stocks: Geospace Technologies Corporation (GEOS) and MIND Technology, Inc. (MIND). make a deep comprehension and tell me would you invest in those stock? make me a comprehensible and simple explanation.'
 
 describe('CEO execution contract', () => {
   test('routes the exact failed self-analysis message to the CEO lifecycle without operations', () => {
@@ -52,7 +53,30 @@ describe('CEO execution contract', () => {
     expect(plan.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
   })
 
-  test('hands research and operational actions to the operational orchestrator', () => {
+  test('routes named public-equity analysis to fresh external research', () => {
+    const decision = preRouteCeoRequest([{ role: 'user', content: exactStockResearchMessage }])
+
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.evidenceRequirement).toBe('external_web')
+    expect(decision.executionContract.orchestrationOwner).toBe('operational_orchestrator')
+    expect(decision.executionContract.toolRequired).toBe(true)
+    expect(decision.executionContract.executionRequirement).toBe('one_tool')
+    expect(decision.adaptiveExecutionClass).toBe('deep')
+    expect(decision.route).toBe('full')
+    expect(resolvePreRoute(decision)).toBe('full')
+
+    const plan = buildCeoDecisionPlan({
+      messages: [{ role: 'user', content: exactStockResearchMessage }],
+      preRoute: decision,
+    })
+    expect(plan.path).toBe('full')
+    expect(plan.qualityTier).toBe('high')
+    expect(plan.reasoningStrategy).toBe('multi_pass')
+    expect(plan.executionContract.evidenceRequirement).toBe('external_web')
+    expect(plan.executionContract.orchestrationOwner).toBe('operational_orchestrator')
+  })
+
+  test('hands generic research and operational actions to the operational orchestrator', () => {
     const research = preRouteCeoRequest([{ role: 'user', content: 'Research the latest competitors in the AI executive software market.' }])
     expect(research.executionContract.intent).toBe('research')
     expect(research.executionContract.orchestrationOwner).toBe('operational_orchestrator')
