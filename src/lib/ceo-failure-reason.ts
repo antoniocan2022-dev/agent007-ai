@@ -17,11 +17,13 @@ export type CeoFailureReason =
   | 'production_verification_failure'
   | 'unknown'
 
+export type CeoFailureCapability = 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context'
+
 export interface CeoFailure {
   reason: CeoFailureReason
   message: string
   retryable: boolean
-  capability?: 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context'
+  capability?: CeoFailureCapability
   stage?: string
   cause?: string
 }
@@ -45,9 +47,21 @@ export const CEO_FAILURE_RETRYABLE: Record<CeoFailureReason, boolean> = {
   unknown: true,
 }
 
+export function inferCeoFailureReason(error: unknown): CeoFailureReason {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error ?? '')
+  if (/CEO_RECOVERY_BUDGET_EXCEEDED|recovery budget/i.test(text)) return 'recovery_budget_exhausted'
+  if (/AGENT_REQUEST_TIMEOUT|timeout|timed out/i.test(text)) return 'execution_timeout'
+  if (/evidence|source|research/i.test(text)) return /insufficient/i.test(text) ? 'evidence_insufficient' : 'evidence_unavailable'
+  if (/claim.{0,40}consisten|contradiction/i.test(text)) return 'claim_consistency_failure'
+  if (/quality|objective coverage/i.test(text)) return 'quality_failure'
+  if (/tool/i.test(text)) return /unavailable|missing/i.test(text) ? 'tool_unavailable' : 'tool_error'
+  if (/provider|model|llm/i.test(text)) return /unavailable|no provider/i.test(text) ? 'provider_unavailable' : 'provider_error'
+  if (/context|conversation|memory/i.test(text)) return 'context_unavailable'
+  if (/production|release|traffic|deployment/i.test(text)) return 'production_verification_failure'
+  if (/invalid|missing .*request|bad request/i.test(text)) return 'invalid_request'
+  return 'unknown'
+}
+
 export function createCeoFailure(input: Omit<CeoFailure, 'retryable'> & { retryable?: boolean }): CeoFailure {
-  return {
-    ...input,
-    retryable: input.retryable ?? CEO_FAILURE_RETRYABLE[input.reason],
-  }
+  return { ...input, retryable: input.retryable ?? CEO_FAILURE_RETRYABLE[input.reason] }
 }
