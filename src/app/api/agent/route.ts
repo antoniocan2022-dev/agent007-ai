@@ -27,6 +27,7 @@ function getDeploymentIdentity(): DeploymentIdentity {
 
 function sse(event: string, data: unknown): string {
   const identity = getDeploymentIdentity()
+  // Every SSE envelope is stamped here with deployment and release identity.
   const payload = data && typeof data === 'object' && !Array.isArray(data)
     ? { ...(data as Record<string, unknown>), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }
     : { data, deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }) }
   const { message, conversationId, attachments, language } = body as { message?: string; conversationId?: string; attachments?: AttachmentMeta[]; language?: 'en' | 'zh' }
   if (!message || typeof message !== 'string') return new Response(JSON.stringify({ error: 'Missing "message"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
-  if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing "conversationId"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing "conversationId"' }), { status: 400, headers: { 'Content-Type': 'application/json' }) }
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
   const deploymentIdentity = getDeploymentIdentity()
