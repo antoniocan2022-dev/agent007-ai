@@ -51,18 +51,8 @@ async function getSecTickerMap(): Promise<SecTickerMap> {
   return normalized
 }
 
-interface SecFactUnit {
-  fy?: number
-  fp?: string
-  form?: string
-  filed?: string
-  val?: number
-  frame?: string
-}
-interface SecFacts {
-  entityName?: string
-  facts?: Record<string, Record<string, { units?: Record<string, SecFactUnit[]> }>>
-}
+interface SecFactUnit { fy?: number; fp?: string; form?: string; filed?: string; val?: number; frame?: string }
+interface SecFacts { entityName?: string; facts?: Record<string, Record<string, { units?: Record<string, SecFactUnit[]> }>> }
 
 const FACT_CANDIDATES: Array<{ key: string; label: string }> = [
   { key: 'RevenueFromContractWithCustomerExcludingAssessedTax', label: 'Revenue' },
@@ -112,6 +102,13 @@ async function fetchSecSource(ticker: string): Promise<EvidenceSource | null> {
   })
 }
 
+function cacheBypassArgs(args: Record<string, unknown>): Record<string, unknown> {
+  // The shared search/page tools currently use a one-hour cache. Governed
+  // external research cannot truthfully label a cached response as freshly
+  // observed, so an ephemeral ignored-by-tool nonce changes the cache key.
+  return { ...args, evidence_refresh_nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` }
+}
+
 function urlsFromSearchResult(result: ToolResult): string[] {
   return [...result.result.matchAll(/URL:\s*(https?:\/\/[^\s]+)/gi)].map((match) => match[1])
 }
@@ -123,11 +120,11 @@ function titleFromSearchResult(result: ToolResult, url: string): string {
 }
 
 async function executeSearch(query: EvidenceQuery): Promise<{ result: ToolResult; sources: EvidenceSource[] }> {
-  const result = await dispatch('web_search', {
+  const result = await dispatch('web_search', cacheBypassArgs({
     query: query.query,
     num: 6,
     recency_days: query.recencyDays,
-  })
+  }))
   if (!result.ok) return { result, sources: [] }
   const retrievedAt = Date.now()
   const urls = urlsFromSearchResult(result).slice(0, 6)
@@ -145,7 +142,7 @@ async function executeSearch(query: EvidenceQuery): Promise<{ result: ToolResult
 
 async function readPages(urls: string[]): Promise<EvidenceSource[]> {
   const outputs = await Promise.all(urls.map(async (url, index) => {
-    const result = await dispatch('page_reader', { url })
+    const result = await dispatch('page_reader', cacheBypassArgs({ url }))
     if (!result.ok) return null
     return createEvidenceSource({
       url,
@@ -168,7 +165,7 @@ export async function executeExternalEvidencePlan(plan: ExternalEvidencePlan): P
       return await executeSearch(query)
     } catch (error) {
       failures.push(`${query.id}: ${error instanceof Error ? error.message : String(error)}`)
-      return { result: { ok: false, preview: '', result: '', } as ToolResult, sources: [] }
+      return { result: { ok: false, preview: '', result: '' } as ToolResult, sources: [] }
     }
   }))
 
@@ -197,11 +194,7 @@ export async function executeExternalEvidencePlan(plan: ExternalEvidencePlan): P
     secSources = secResults.filter((source): source is EvidenceSource => source !== null)
   }
 
-  const bundle = buildEvidenceBundle({
-    profile: plan.profile,
-    scope: 'external_web',
-    sources: [...secSources, ...pageSources, ...searchSources],
-  })
+  const bundle = buildEvidenceBundle({ profile: plan.profile, sources: [...secSources, ...pageSources, ...searchSources], scope: 'external_web' })
 
   return {
     bundle,
