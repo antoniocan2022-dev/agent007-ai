@@ -28,7 +28,6 @@ function getDeploymentIdentity(): DeploymentIdentity {
 
 function sse(event: string, data: unknown): string {
   const identity = getDeploymentIdentity()
-  // Every SSE envelope is stamped here with deployment and release identity.
   const payload = data && typeof data === 'object' && !Array.isArray(data)
     ? { ...(data as Record<string, unknown>), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }
     : { data, deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }
@@ -172,24 +171,11 @@ export async function POST(req: NextRequest) {
           safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, responseMs: response.responseMs, deployment: deploymentIdentity, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composed.modules } }))
           safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, executionContract }))
         } else {
-          const operationalModules = buildCeoContextModules({
-            intent: executionContract.intent,
-            missionRelevant: preRoute.missionRelevant,
-            evidenceClass: executionContract.evidenceClass,
-            taskClass: preRoute.taskClass,
-            executionRequirement: executionContract.executionRequirement,
-          })
+          const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement })
           const baseOperationalContext = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: operationalModules })
           const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs))
           const operationalEvidence = `OPERATIONAL EXECUTION RESULT\nFinal answer: ${result.finalAnswer.slice(0, 24000)}\nCompleted steps: ${result.steps.length}\nTool steps: ${result.steps.filter((step) => Boolean(step.toolName)).length}`
-          const synthesisModules = buildCeoContextModules({
-            intent: executionContract.intent,
-            missionRelevant: preRoute.missionRelevant,
-            evidenceClass: executionContract.evidenceClass,
-            taskClass: preRoute.taskClass,
-            executionRequirement: executionContract.executionRequirement,
-            execution: operationalEvidence,
-          })
+          const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence })
           const composedOperational = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: synthesisModules })
           const synthesis = await runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, verification: 'standard', timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows })
           const persistedAssistantMessageId = result.persistedAssistantMessageId
@@ -214,4 +200,4 @@ export async function POST(req: NextRequest) {
 }
 
 interface OrchestratorRunOptionsWithSignal { conversationId: string; userMessage: string; attachments: AttachmentMeta[]; language: 'en' | 'zh'; emit: OrchestratorEventEmit; signal: AbortSignal }
-function stripDataUrl(a: AttachmentMeta) { return { filename: a.filename, originalName: a.originalName, mimeType: a.mimeType, size: a.size, textContent: a.textContent ? a.textContent.slice(0, 8000) : undefined }
+function stripDataUrl(a: AttachmentMeta) { return { filename: a.filename, originalName: a.originalName, mimeType: a.mimeType, size: a.size, textContent: a.textContent ? a.textContent.slice(0, 8000) : undefined } }
