@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
+import { getServerSession } from 'next-auth'
 import { db, ensureDbReady } from '@/lib/db'
+import { authOptions } from '@/lib/auth'
 import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
@@ -34,10 +36,10 @@ function sse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
-async function loadConversationContext(conversationId: string, currentUserMessage: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
+async function loadConversationContext(conversationId: string, currentUserMessage: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
   try {
-    const conversation = await db.conversation.findUnique({
-      where: { id: conversationId },
+    const conversation = await db.conversation.findFirst({
+      where: { id: conversationId, userId },
       select: { Message: { orderBy: { createdAt: 'asc' }, select: { role: true, content: true, createdAt: true } } },
     })
     const memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
@@ -64,6 +66,10 @@ function buildSystemPrompt(preRoute: ReturnType<typeof preRouteCeoRequest>, evid
 
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
+  const session = await getServerSession(authOptions)
+  const sessionUserId = typeof (session?.user as { id?: unknown } | undefined)?.id === 'string' ? (session!.user as { id: string }).id : ''
+  if (!sessionUserId) return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+
   let body: any
   try { body = await req.json() } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }) }
   const { message, conversationId, attachments, language } = body as { message?: string; conversationId?: string; attachments?: AttachmentMeta[]; language?: 'en' | 'zh' }
@@ -74,14 +80,16 @@ export async function POST(req: NextRequest) {
   const deploymentIdentity = getDeploymentIdentity()
 
   try {
-    let conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50) } })
-    await db.message.create({ data: { conversationId, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null } })
+    let conv = await db.conversation.findUnique({ where: { id: conversationId }, select: { id: true, userId: true } })
+    if (conv && conv.userId !== sessionUserId) return new Response(JSON.stringify({ error: 'Conversation not found.' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+    if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50), userId: sessionUserId }, select: { id: true, userId: true } })
+    await db.message.create({ data: { conversationId: conv.id, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null } })
   } catch (dbErr: any) {
     console.warn('[api/agent] Pre-stream DB persistence failed:', dbErr?.message?.slice(0, 150))
+    return new Response(JSON.stringify({ error: 'Unable to persist the conversation securely.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
   }
 
-  const contextData = await loadConversationContext(conversationId, message)
+  const contextData = await loadConversationContext(conversationId, message, sessionUserId)
   const contextSeed: CeoContextComposition = composeCeoContext({
     systemPrompt: 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Understand the user naturally and use prior conversation context when relevant.',
     currentUserMessage: message,
