@@ -22,6 +22,18 @@ export interface SelfReflectionClassification {
   reason: string
 }
 
+export type ExecutiveReadinessLevel = 'A' | 'B' | 'C' | 'D' | 'E'
+
+export interface ExecutiveReadinessSynthesis {
+  level: ExecutiveReadinessLevel
+  label: string
+  capability: string
+  verified: string
+  notProven: string
+  nextEvidence: string
+  observedAt?: number
+}
+
 const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo|the\s+(?:agent|system|assistant))\b/i
 const OPERATIONAL_COMMAND_RE = /^(?:please\s+)?(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|enable|disable|schedule|commit)\b/i
 const TARGETED_OPERATION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|enable|disable|schedule|commit)\s+(?:this|the|my|our|approved|production|release|build|customer|invoice|mission|venture|business|company|campaign)\b/i
@@ -58,4 +70,75 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   }
 
   return { kind: 'none', isSelfReflective: false, reason: 'Self-reference detected but no safe reflective intent established.' }
+}
+
+/**
+ * Deterministic executive-readiness synthesis over already-governed evidence.
+ * It deliberately refuses to infer real-world business outcomes or sustained
+ * autonomy from source architecture alone.
+ */
+export function synthesizeExecutiveReadiness(input: {
+  liveExecutionVerified: boolean
+  productionTrafficVerified: boolean
+  repeatableBusinessOutcomesVerified: boolean
+  sustainedAutonomyVerified: boolean
+  observedAt?: number
+  maxEvidenceAgeMs?: number
+  now?: number
+}): ExecutiveReadinessSynthesis {
+  const now = input.now ?? Date.now()
+  const evidenceFresh = input.observedAt === undefined || input.maxEvidenceAgeMs === undefined
+    ? true
+    : now - input.observedAt <= input.maxEvidenceAgeMs
+  const liveVerified = input.liveExecutionVerified && input.productionTrafficVerified && evidenceFresh
+  let level: ExecutiveReadinessLevel = 'A'
+  if (liveVerified) level = 'C'
+  if (input.repeatableBusinessOutcomesVerified) level = 'D'
+  if (input.sustainedAutonomyVerified) level = 'E'
+
+  if (level === 'E') {
+    return {
+      level,
+      label: 'Sustained autonomy',
+      capability: 'The system has evidence supporting autonomous business operation over a sustained period.',
+      verified: 'Sustained autonomous operation is explicitly evidenced by governed outcome data.',
+      notProven: 'No higher readiness category remains in this model.',
+      nextEvidence: 'Continue monitoring sustained outcomes and governance exceptions.',
+      observedAt: input.observedAt,
+    }
+  }
+
+  if (level === 'D') {
+    return {
+      level,
+      label: 'Repeatable business outcomes',
+      capability: 'The architecture can execute governed business work and has demonstrated repeatable outcomes.',
+      verified: 'Repeatable customer/revenue/KPI outcomes are explicitly evidenced.',
+      notProven: 'Sustained autonomous operation has not yet been established by this evidence set.',
+      nextEvidence: 'Accumulate durable evidence across multiple operating cycles.',
+      observedAt: input.observedAt,
+    }
+  }
+
+  if (level === 'C') {
+    return {
+      level,
+      label: 'Live execution capability',
+      capability: 'The system is architecturally capable and has current evidence of successful production execution.',
+      verified: 'The verified execution evidence is current and production traffic reaches the intended runtime.',
+      notProven: 'Repeatable business outcomes and sustained autonomy are not established by execution evidence alone.',
+      nextEvidence: 'Demonstrate repeatable customer, revenue, and KPI outcomes over time.',
+      observedAt: input.observedAt,
+    }
+  }
+
+  return {
+    level: 'A',
+    label: 'Architectural capability',
+    capability: 'Agent007 has governed CEO, orchestration, provider, memory, execution-contract, and verification mechanisms for business-management work.',
+    verified: 'These capabilities are supported by the internal system architecture and its automated validation suite.',
+    notProven: 'Current live business execution, repeatable customer/revenue outcomes, and sustained autonomy are not established by architecture alone.',
+    nextEvidence: 'Verify production traffic, live execution, then accumulate repeatable business outcomes.',
+    observedAt: input.observedAt,
+  }
 }
