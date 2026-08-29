@@ -25,11 +25,14 @@ describe('critical-file integrity', () => {
     }
   })
 
-  test('critical JSON release metadata remains syntactically valid', () => {
+  test('critical JSON release metadata remains syntactically valid and revoked by default', () => {
     const content = readFileSync(path.join(root, '.release/production-deploy.json'), 'utf8')
     const parsed = JSON.parse(content) as Record<string, unknown>
     expect(parsed.repository).toBe('antoniocan2022-dev/agent007-ai')
     expect(parsed.ref).toBe('main')
     expect(parsed.authorization).toBe('DEPLOY_AGENT007_MAIN')
+    expect(parsed.target).toBe('production')
+    expect(parsed.authorized).toBe(false)
+    expect(parsed.sourceMainSha).toBeNull()
   })
 })
