@@ -1,3 +1,5 @@
+import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
+
 export type CeoContextRole = 'system' | 'user' | 'assistant'
 export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'conversation'
 
@@ -28,6 +30,31 @@ export interface CeoContextModules {
   evidence?: string
   mission?: string
   memory?: string
+}
+
+export interface CeoContextModulePolicyInput {
+  intent: string
+  missionRelevant: boolean
+  evidenceClass: string
+  taskClass: string
+  executionRequirement: string
+  evidence?: string
+  mission?: string
+  memory?: string
+}
+
+export function buildCeoContextModules(input: CeoContextModulePolicyInput): CeoContextModules {
+  const includeOrganization = input.intent !== 'conversation'
+    || input.missionRelevant
+    || input.evidenceClass !== 'none'
+    || input.taskClass === 'financial'
+    || input.executionRequirement === 'production'
+  return {
+    organization: includeOrganization ? getCanonicalOrganizationPrompt() : undefined,
+    evidence: input.evidence?.trim() || undefined,
+    mission: input.mission?.trim() || undefined,
+    memory: input.memory?.trim() || undefined,
+  }
 }
 
 const STOPWORDS = new Set([
