@@ -107,18 +107,17 @@ describe('permanent production release architecture', () => {
     expect(content).toContain('STALE_ALIAS')
   })
 
-  it('uses native HTTPS curl against the canonical production URL for the protected /api/agent canary', () => {
+  it('uses canonical release-health over HTTPS for production traffic identity proof', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     const canary = content.slice(content.indexOf('Verify canonical aliases and production traffic identity'), content.indexOf('Verify fresh production release health'))
-    expect(canary).toContain('curl --fail-with-body --silent --show-error --no-buffer --location')
-    expect(canary).toContain('"$PRODUCTION_URL/api/agent"')
-    expect(canary).toContain("--header 'Accept: text/event-stream'")
-    expect(canary).toContain('--max-time 180')
-    expect(canary).not.toContain('vercel@$VERCEL_CLI_VERSION curl')
-    expect(canary).not.toContain('--token "$VERCEL_TOKEN"')
-    expect(canary).not.toContain('--scope "$VERCEL_ORG_ID"')
+    expect(canary).toContain('curl --fail-with-body --silent --show-error --max-time 30')
+    expect(canary).toContain('"$PRODUCTION_URL/api/release-health"')
     expect(canary).toContain('EXPECTED_RELEASE_SHA')
     expect(canary).toContain('TARGET_DEPLOYMENT_ID')
+    expect(canary).toContain('.actualExecution.verified')
+    expect(canary).toContain('.proof.tripleProof')
+    expect(canary).not.toContain('--location')
+    expect(canary).not.toContain('/api/agent") > agent-canary.txt')
   })
 
   it('keeps alias verification authoritative and project-scoped', () => {
