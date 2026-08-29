@@ -94,7 +94,7 @@ export async function buildCeoDegradedResponse(input: {
       sourceKeys,
       failureReason,
       recoveredCapability,
-      content: `I couldn't complete the conversational response because the ${recoveredCapability} capability was unavailable. The system did not recover enough trusted context to answer reliably. Agent007 will not fabricate a response.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+      content: `The ${recoveredCapability} capability failed before a reliable answer could be produced. Agent007 will not fabricate a response.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
     }
   }
 
