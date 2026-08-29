@@ -65,11 +65,14 @@ describe('permanent production release architecture', () => {
     expect(vercel.git?.deploymentEnabled).toBe(false)
   })
 
-  it('uses workflow_dispatch as the only production authorization surface', () => {
+  it('has only the canonical explicit or one-shot owner-authorized release surfaces', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     expect(content).toContain('on:\n  workflow_dispatch:')
-    expect(content).not.toContain('on:\n  push:')
-    expect(content).toContain("if: ${{ inputs.authorization == 'DEPLOY_AGENT007_MAIN' }}")
+    expect(content).toContain('  push:\n    branches: [main]')
+    expect(content).toContain('.release/production-deploy.json')
+    expect(content).toContain("inputs.authorization == 'DEPLOY_AGENT007_MAIN'")
+    expect(content).toContain("github.event.head_commit.message == 'authorized production deployment'")
+    expect(content).toContain('authorization == \"DEPLOY_AGENT007_MAIN\"')
     expect(content).toContain('environment: production')
   })
 
@@ -82,33 +85,31 @@ describe('permanent production release architecture', () => {
 
   it('requires exact main SHA before any production mutation', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    const identity = content.indexOf('Establish immutable release identity')
-    const deploy = content.indexOf('Validate or build immutable production target')
+    const identity = content.indexOf('Validate authorization and immutable release identity')
+    const deploy = content.indexOf('Deploy exact main checkout to Vercel production')
     expect(identity).toBeGreaterThanOrEqual(0)
     expect(deploy).toBeGreaterThan(identity)
     expect(content).toContain('git ls-remote origin refs/heads/main')
-    expect(content).toContain('Wait for exact-SHA CI gates')
+    expect(content).toContain('Wait for exact-SHA CI certification gates')
   })
 
-  it('makes real production traffic ownership the first proof before broad SHA/fingerprint checks', () => {
+  it('makes real production traffic ownership the release proof', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    const alias = content.indexOf('Verify alias ownership and legacy exclusion')
-    const traffic = content.indexOf('Generate production traffic canary')
-    const trafficOwnership = content.indexOf('Verify fresh traffic ownership and legacy runtime exclusion')
-    const broadProof = content.indexOf('Verify release health and broader SHA/fingerprint proof')
-    expect(alias).toBeGreaterThanOrEqual(0)
-    expect(traffic).toBeGreaterThan(alias)
-    expect(trafficOwnership).toBeGreaterThan(traffic)
-    expect(broadProof).toBeGreaterThan(trafficOwnership)
+    const deploy = content.indexOf('Deploy exact main checkout to Vercel production')
+    const aliases = content.indexOf('Reconcile canonical production aliases')
+    const traffic = content.indexOf('Verify canonical aliases and production traffic identity')
+    const health = content.indexOf('Verify fresh production release health')
+    expect(deploy).toBeGreaterThanOrEqual(0)
+    expect(aliases).toBeGreaterThan(deploy)
+    expect(traffic).toBeGreaterThan(aliases)
+    expect(health).toBeGreaterThan(traffic)
     expect(content).toContain('TRAFFIC_OWNERSHIP_UNPROVEN')
-    expect(content).toContain('LEGACY_RUNTIME')
     expect(content).toContain('STALE_ALIAS')
-    expect(content).toContain('DUAL_ALIAS_CONFLICT')
   })
 
   it('uses native HTTPS curl against the canonical production URL for the protected /api/agent canary', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
-    const canary = content.slice(content.indexOf('Generate production traffic canary'), content.indexOf('Verify fresh traffic ownership and legacy runtime exclusion'))
+    const canary = content.slice(content.indexOf('Verify canonical aliases and production traffic identity'), content.indexOf('Verify fresh production release health'))
     expect(canary).toContain('curl --fail-with-body --silent --show-error --no-buffer --location')
     expect(canary).toContain('"$PRODUCTION_URL/api/agent"')
     expect(canary).toContain("--header 'Accept: text/event-stream'")
@@ -126,12 +127,13 @@ describe('permanent production release architecture', () => {
     expect(content).toContain('/v2/deployments/$TARGET_DEPLOYMENT_ID/aliases')
   })
 
-  it('keeps broader SHA and organization fingerprint proof after traffic', () => {
+  it('keeps release-health proof after traffic', () => {
     const content = workflowContent(CANONICAL_WORKFLOW)
     expect(content).toContain('/api/release-health')
     expect(content).toContain('organizationGraphFingerprint')
     expect(content).toContain('.proof.tripleProof')
     expect(content).toContain('.proof.deploymentIdentityVerified')
+    expect(content).toContain('.proof.providerExecutionVerified')
   })
 
   it('stamps every Agent007 SSE envelope with deployment identity', () => {
