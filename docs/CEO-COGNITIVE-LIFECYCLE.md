@@ -52,7 +52,35 @@ CEO application entry points must use `runCeoCognitiveLifecycle`. The legacy `ag
 
 System health probing is an explicit exception: `src/app/api/system/diagnose-llm/route.ts` may call the canonical provider runtime directly because it is a read-only health probe, not CEO response generation.
 
-## Quality and evidence
+## Claim-aware quality and evidence freshness
+
+The **Response Quality Gate** is claim-aware. It distinguishes three evidence scopes in generated prose:
+
+- `internal_state` — claims about the repository, architecture, configuration, workflows, contracts, and other governed internal system state.
+- `live_system` — claims about current runtime state, deployment state, production traffic, or other time-sensitive live behavior.
+- `external_web` — claims about markets, customers, competitors, reports, studies, revenue/sales data, or other facts that depend on an external source.
+
+A mixed response may use `mixed` when it legitimately contains more than one evidence scope. A generic `evidenceProvided=true` flag is not enough for positive live or external claims: the response must carry the matching evidence scope and fresh evidence metadata.
+
+`EvidenceFreshness` is canonical metadata (`observedAt` + `maxAgeMs`). Live and external claims fail closed when evidence is missing, future-dated, stale, or attached to the wrong scope. This prevents a cached, internal, or otherwise unrelated observation from being presented as current production or external truth.
+
+Negative statements such as “not proven” or “unverified” are not promoted into positive claims by the gate. Critical decisions still require an explicit evidence source regardless of whether the prose uses obvious live/external keywords.
+
+## Executive readiness synthesis
+
+`src/lib/ceo-self-reflection.ts` remains the single deterministic executive-readiness synthesis function. No parallel readiness subsystem is introduced.
+
+Readiness is cumulative and conservative:
+
+- **A — Architectural capability**: internal architecture and automated validation exist.
+- **B — Governed operational capability**: the governed operational mechanisms are established.
+- **C — Live execution capability**: current live execution plus verified production-traffic evidence is present and fresh.
+- **D — Repeatable business outcomes**: current live evidence also demonstrates repeatable customer/revenue/KPI outcomes.
+- **E — Sustained autonomy**: D-level evidence plus sustained autonomous operation is explicitly demonstrated.
+
+Stale evidence cannot advance the readiness level. Existing venture/runtime evidence is preferred over synthetic evidence. For example, the canonical CEO Venture OS read path is treated as `live_system` evidence when no narrower scope is explicitly supplied, while production-traffic verification remains a separate requirement for Level C+.
+
+## Quality and evidence states
 
 Fast-path responses use deterministic lightweight validation. Full and critical paths use the **Response Quality Gate**. A provider returning HTTP 200 is never treated as proof that the response is verified.
 
@@ -70,6 +98,16 @@ No fabricated numeric confidence is introduced by this lifecycle.
 ## Degraded mode
 
 `src/lib/ceo-degraded-mode.ts` is a **Degraded-Mode Responder**, not a substitute for live reasoning. When providers are unavailable, it first uses explicitly supplied context when present; otherwise it automatically queries the canonical `persistent-memory` layer using the mission/request objective. If relevant internal evidence is recovered, the result is labeled `MEMORY_ONLY`; if nothing relevant is recovered, it honestly returns `UNAVAILABLE`. All degraded responses use the same Response Composer as normal responses.
+
+## Regression corpus
+
+The canonical CEO regression corpus covers both positive and negative controls for routing, claim scope, evidence freshness, cumulative readiness, critical evidence requirements, and the exact original self-analysis request that previously expanded into the 5–10 minute latency incident. The corpus is intentionally deterministic: it validates execution contracts and evidence policy rather than provider-specific wording.
+
+## CI certification and release boundary
+
+`Agent007 Autonomy CI` is the merge-quality authority. Its final **CI certification** job runs only after the complete static-integrity suite succeeds, checks out the exact `github.sha`, and emits a machine-readable certification artifact. The artifact records the certified commit, workflow run, source gate, timestamp, and the production boundary.
+
+Certification does **not** perform a production deployment. Production remains separately controlled by the guarded release workflow and requires explicit human authorization. Vercel automatic production deployment remains disabled.
 
 ## Integration boundaries
 
