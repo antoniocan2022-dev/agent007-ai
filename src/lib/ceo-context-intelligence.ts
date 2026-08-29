@@ -20,7 +20,7 @@ const STOPWORDS = new Set([
   'have', 'into', 'more', 'most', 'other', 'should', 'that', 'their', 'there', 'these', 'they',
   'this', 'those', 'through', 'under', 'what', 'when', 'where', 'which', 'while', 'with', 'would',
   'your', 'please', 'then', 'than', 'just', 'like', 'really', 'very', 'doing', 'does', 'dont',
-  'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'into', 'from', 'such',
+  'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'such',
 ])
 
 function normalize(value: string): string {
@@ -45,11 +45,6 @@ function containsAnaphora(value: string): boolean {
   return /\b(?:this|that|these|those|it|they|them|above|previous|prior|same|again|continue|instead|as before)\b/i.test(value)
 }
 
-/**
- * Scores whether the generated response appears to have used relevant prior
- * conversation. This is intentionally a diagnostic score, not evidence and
- * not an authority signal.
- */
 export function scoreContextContinuity(input: {
   currentUserMessage: string
   response: string
@@ -61,7 +56,6 @@ export function scoreContextContinuity(input: {
   const currentTokens = tokens(input.currentUserMessage)
   const responseTokens = tokens(input.response)
   const anaphoraDetected = containsAnaphora(input.currentUserMessage)
-
   const relevant = prior
     .map((row) => ({ row, relevance: overlap(currentTokens, tokens(row.content)) }))
     .filter((entry) => entry.relevance > 0)
@@ -87,15 +81,16 @@ export function scoreContextContinuity(input: {
 
 function sentenceClaims(content: string): string[] {
   return normalize(content)
-    .split(/[.!?]+/) 
+    .split(/[.!?]+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => sentence.length >= 18)
     .slice(0, 120)
 }
 
 function polarity(claim: string): 'positive' | 'negative' | 'neutral' {
-  if (/\b(?:not|never|cannot|can't|no|without|unavailable|failed|unknown|unverified|uncertain)\b/i.test(claim)) return 'negative'
-  if (/\b(?:is|are|has|have|can|will|verified|confirmed|available|succeeded|proven)\b/i.test(claim)) return 'positive'
+  const normalized = claim.toLowerCase()
+  if (/\b(?:must not|should not|do not|does not|did not|cannot|can't|never|no|without|unavailable|failed|unknown|unverified|uncertain)\b/i.test(normalized)) return 'negative'
+  if (/\b(?:is|are|was|were|has|have|had|can|will|available|succeeded|proven|confirmed|verified)\b/i.test(normalized) && !/\b(?:is not|are not|was not|were not|has not|have not|had not|cannot|can't)\b/i.test(normalized)) return 'positive'
   return 'neutral'
 }
 
@@ -103,11 +98,6 @@ function numericValues(claim: string): string[] {
   return [...claim.toLowerCase().matchAll(/\b\d+(?:\.\d+)?\s*(?:%|percent|ms|seconds?|minutes?|hours?|days?)\b/g)].map((m) => m[0])
 }
 
-/**
- * Claim-level consistency replaces brittle global word-pair contradiction
- * checks. Only compare claims with meaningful topic overlap; opposite polarity
- * or incompatible numeric values on the same topic are treated as conflicts.
- */
 export function evaluateClaimConsistency(content: string): ClaimConsistencyResult {
   const claims = sentenceClaims(content)
   const contradictions: ClaimConsistencyResult['contradictions'] = []
@@ -116,7 +106,7 @@ export function evaluateClaimConsistency(content: string): ClaimConsistencyResul
   for (let i = 0; i < claims.length; i += 1) {
     for (let j = i + 1; j < claims.length; j += 1) {
       const shared = overlap(claimTokens[i]!, claimTokens[j]!)
-      if (shared < 3) continue
+      if (shared < 4) continue
       const leftPolarity = polarity(claims[i]!)
       const rightPolarity = polarity(claims[j]!)
       if ((leftPolarity === 'positive' && rightPolarity === 'negative') || (leftPolarity === 'negative' && rightPolarity === 'positive')) {
