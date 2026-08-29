@@ -90,7 +90,7 @@ describe('permanent production release architecture', () => {
     expect(identity).toBeGreaterThanOrEqual(0)
     expect(deploy).toBeGreaterThan(identity)
     expect(content).toContain('git ls-remote origin refs/heads/main')
-    expect(content).toContain('Wait for exact-SHA CI certification gates')
+    expect(content).toContain('Wait for all exact-SHA CI certification gates')
   })
 
   it('makes real production traffic ownership the release proof', () => {
