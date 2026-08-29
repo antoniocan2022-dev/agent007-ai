@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["authorization", "repository", "ref", "target", "authorized", "authorizedAt", "expiresAt", "sourceMainSha", "reason"],
+  "properties": {
+    "authorization": { "const": "DEPLOY_AGENT007_MAIN" },
+    "repository": { "const": "antoniocan2022-dev/agent007-ai" },
+    "ref": { "const": "main" },
+    "target": { "const": "production" },
+    "authorized": { "type": "boolean" },
+    "authorizedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "sourceMainSha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+  }
+}
