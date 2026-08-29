@@ -5,6 +5,10 @@ import { join } from 'node:path'
 const ROOT = process.cwd()
 const CANONICAL_WORKFLOW = join(ROOT, '.github/workflows/production-release-watchdog.yml')
 const PROVIDER_CANARY_WORKFLOW = join(ROOT, '.github/workflows/production-provider-canary.yml')
+const RETIRED_DEPLOY_ARTIFACTS = [
+  'scripts/generate-owner-backup-59.ts',
+  'scripts/generate-upgrade61-backup.ts',
+]
 
 function workflowContent(path = CANONICAL_WORKFLOW): string {
   return readFileSync(path, 'utf8')
@@ -26,6 +30,10 @@ describe('permanent production release architecture', () => {
     expect(content).not.toMatch(/vercel@\S+\s+deploy\s+--prod|api\.vercel\.com\/v\d+\/deployments.*POST/i)
     expect(content).toContain('/api/release-health')
     expect(content).toContain('/api/health/provider-canary')
+  })
+
+  test('keeps retired credentialed/direct-deploy artifacts absent', () => {
+    for (const relativePath of RETIRED_DEPLOY_ARTIFACTS) expect(existsSync(join(ROOT, relativePath))).toBe(false)
   })
 
   test('has no direct production deploy scripts outside GitHub Actions', () => {
