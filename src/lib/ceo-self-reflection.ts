@@ -48,14 +48,14 @@ const READINESS_RE = /\b(?:ready|readiness|prepared|equipped|fit\s+to|able\s+to\
 export function classifyCeoSelfReflection(text: string): SelfReflectionClassification {
   const normalized = text.replace(/\s+/g, ' ').trim()
   if (!normalized) return { kind: 'none', isSelfReflective: false, reason: 'No substantive request.' }
-  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: true, reason: 'Short conversational check-in directed to the CEO context.' }
+  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
   if (!SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
 
   if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized)) {
     return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, or external-analysis language takes precedence.' }
   }
 
-  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: true, reason: 'Short self-referential check-in.' }
+  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
   if (READINESS_RE.test(normalized)) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
   if (CAPABILITY_RE.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }
   if (PERFORMANCE_RE.test(normalized) || /\b(?:how|where)\s+are\s+you\b/i.test(normalized)) return { kind: 'performance_reflection', isSelfReflective: true, reason: 'Self-performance or progress reflection.' }
@@ -101,11 +101,11 @@ export function synthesizeExecutiveReadiness(input: {
   if (liveVerified && input.repeatableBusinessOutcomesVerified) {
     return {
       level: 'D',
-      label: 'Repeatable business outcomes',
-      capability: 'The architecture can execute governed business work and has demonstrated repeatable outcomes.',
-      verified: 'Repeatable customer/revenue/KPI outcomes are explicitly evidenced by current live execution context.',
-      notProven: 'Sustained autonomous operation has not yet been established by this evidence set.',
-      nextEvidence: 'Accumulate durable evidence across multiple operating cycles.',
+      label: 'Repeatable outcomes',
+      capability: 'The system has evidence of repeatable business outcomes from live execution.',
+      verified: 'Repeatable outcomes are explicitly evidenced by governed result data.',
+      notProven: 'Sustained autonomous operation is not yet proven.',
+      nextEvidence: 'Accumulate sustained autonomous-operation evidence.',
       observedAt: input.observedAt,
     }
   }
@@ -113,11 +113,11 @@ export function synthesizeExecutiveReadiness(input: {
   if (liveVerified) {
     return {
       level: 'C',
-      label: 'Live execution capability',
-      capability: 'The system is architecturally and operationally capable and has current evidence of successful production execution.',
-      verified: 'The verified execution evidence is current and production traffic reaches the intended runtime.',
-      notProven: 'Repeatable business outcomes and sustained autonomy are not established by execution evidence alone.',
-      nextEvidence: 'Demonstrate repeatable customer, revenue, and KPI outcomes over time.',
+      label: 'Live governed execution',
+      capability: 'The system has evidence of successful governed execution in production.',
+      verified: 'Live execution and production traffic are explicitly evidenced within the freshness window.',
+      notProven: 'Repeatable business outcomes and sustained autonomy are not yet proven.',
+      nextEvidence: 'Accumulate repeatable governed business outcomes.',
       observedAt: input.observedAt,
     }
   }
@@ -126,20 +126,21 @@ export function synthesizeExecutiveReadiness(input: {
     return {
       level: 'B',
       label: 'Governed operational capability',
-      capability: 'The system has governed operational mechanisms for business-management work, with human oversight and explicit execution controls.',
-      verified: 'Operational orchestration, execution contracts, provider controls, memory, and verification mechanisms are established in the internal architecture.',
-      notProven: 'Current live execution, production-traffic correctness, repeatable business outcomes, and sustained autonomy are not established by architecture alone.',
-      nextEvidence: 'Verify current production traffic and successful live business execution before claiming Level C.',
+      capability: 'The system has governed operational capabilities that are structurally verified.',
+      verified: 'Operational capability is supported by repository and workflow verification.',
+      notProven: 'Live production execution, repeatable outcomes, and sustained autonomy are not yet proven.',
+      nextEvidence: 'Verify successful live execution against current production traffic.',
+      observedAt: input.observedAt,
     }
   }
 
   return {
     level: 'A',
-    label: 'Architectural capability',
-    capability: 'Agent007 has governed CEO, orchestration, provider, memory, execution-contract, and verification mechanisms for business-management work.',
-    verified: 'These capabilities are supported by the internal system architecture and its automated validation suite.',
-    notProven: 'Governed operational execution, current live business execution, repeatable customer/revenue outcomes, and sustained autonomy are not established by architecture alone.',
-    nextEvidence: 'Verify governed operational capability, then production traffic and live execution.',
+    label: 'Architectural foundation',
+    capability: 'The system has an established executive architecture and governance foundation.',
+    verified: 'Architectural capability is supported by code and CI contracts.',
+    notProven: 'Operational capability, live execution, repeatable outcomes, and sustained autonomy are not yet proven.',
+    nextEvidence: 'Establish explicit governed operational execution evidence.',
     observedAt: input.observedAt,
   }
 }
