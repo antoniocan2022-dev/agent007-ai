@@ -9,6 +9,34 @@ export type QualityDecision = 'PASS' | 'ESCALATE' | 'DEGRADED'
 export type VerificationStatus = 'NOT_REQUIRED' | 'NOT_PERFORMED' | 'INDEPENDENT_PASS' | 'FAILED'
 export type EvidenceScope = 'none' | 'internal_state' | 'live_system' | 'external_web' | 'mixed'
 
+/** Evidence is the first-class boundary that determines whether a request
+ * can be answered from internal state, needs external research, or combines
+ * both. This is deliberately deterministic and testable; the LLM never picks
+ * the evidence class. */
+export type EvidenceClass = 'none' | 'internal_state' | 'external_web' | 'mixed'
+export type EvidenceDomain =
+  | 'none'
+  | 'public_equity'
+  | 'general_web'
+  | 'market'
+  | 'news'
+  | 'competitor'
+  | 'regulatory'
+  | 'business_due_diligence'
+  | 'internal_finance'
+  | 'internal_operations'
+  | 'unknown'
+export type EvidenceOperation = 'none' | 'explain' | 'research' | 'compare' | 'analyze' | 'forecast' | 'recommend' | 'decide' | 'verify'
+export type TemporalScope = 'none' | 'historical' | 'recent' | 'current' | 'timeless'
+export type EvidenceProfile =
+  | 'none'
+  | 'general_research'
+  | 'public_equity'
+  | 'market_current'
+  | 'news_recent'
+  | 'competitor_research'
+  | 'business_due_diligence'
+
 export interface EvidenceFreshness {
   observedAt: number
   maxAgeMs: number
@@ -44,6 +72,7 @@ export type ExecutionRequirement =
   | 'llm_only'
   | 'one_tool'
   | 'multi_tool'
+  | 'multi_source'
   | 'subagent'
   | 'mission'
   | 'production'
@@ -53,6 +82,13 @@ export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export interface CeoExecutionContract {
   intent: CeoIntent
   selfReflectionKind?: SelfReflectionKind
+  /** First-class evidence classification used by routing and downstream
+   * evidence acquisition. */
+  evidenceClass: EvidenceClass
+  domain: EvidenceDomain
+  operation: EvidenceOperation
+  temporalScope: TemporalScope
+  evidenceProfile: EvidenceProfile
   evidenceRequirement: EvidenceRequirement
   executionRequirement: ExecutionRequirement
   orchestrationOwner: OrchestrationOwner
