@@ -7,7 +7,7 @@
  * and preserves the deep path for complex or mission-level work.
  */
 
-import { classifyCeoSelfReflection } from './ceo-self-reflection'
+import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
 
 export type ExecutionClass = 'fast' | 'standard' | 'deep' | 'mission'
 
@@ -34,14 +34,17 @@ function latestUserMessage(messages: readonly { role: string; content: string }[
   return ''
 }
 
-export function classifyExecution(messages: readonly { role: string; content: string }[]): AdaptiveExecutionPlan {
+export function classifyExecution(
+  messages: readonly { role: string; content: string }[],
+  precomputedSelfReflection?: SelfReflectionClassification,
+): AdaptiveExecutionPlan {
   const text = latestUserMessage(messages)
   const normalized = text.replace(/\s+/g, ' ').trim()
 
   if (!normalized) return { executionClass: 'fast', reason: 'No substantive user request detected.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
   if (GREETING_RE.test(normalized)) return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
 
-  const selfReflection = classifyCeoSelfReflection(normalized)
+  const selfReflection = precomputedSelfReflection ?? classifyCeoSelfReflection(normalized)
   if (selfReflection.isSelfReflective) {
     return {
       executionClass: 'fast',
