@@ -88,7 +88,19 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(result.checks.evidenceDiscipline).toBe(false)
   })
 
-  test('fresh live evidence passes while stale live evidence fails', () => {
+  test('generic evidence cannot satisfy a positive live claim without a live scope', () => {
+    const result = evaluateCeoQuality({
+      objective: 'What is your current production status?',
+      content: 'The current production runtime is verified.',
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceProvided: true,
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.checks.evidenceDiscipline).toBe(false)
+  })
+
+  test('fresh live evidence passes while stale and future live evidence fail', () => {
     const now = Date.now()
     const fresh = evaluateCeoQuality({
       objective: 'What is your current production status?',
@@ -110,6 +122,77 @@ describe('CEO self-reflection canonical classifier', () => {
     })
     expect(stale.decision).not.toBe('PASS')
     expect(stale.checks.evidenceDiscipline).toBe(false)
+
+    const future = evaluateCeoQuality({
+      objective: 'What is your current production status?',
+      content: 'The current production runtime is verified.',
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now + 1_000, maxAgeMs: 60_000 },
+    })
+    expect(future.decision).not.toBe('PASS')
+    expect(future.checks.evidenceDiscipline).toBe(false)
+  })
+
+  test('external claims require explicit external evidence and freshness', () => {
+    const content = 'According to the latest market report, competitors are offering similar executive software products.'
+    const missingScope = evaluateCeoQuality({
+      objective: 'What does the latest market report say about competitors?',
+      content,
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceProvided: true,
+    })
+    expect(missingScope.decision).not.toBe('PASS')
+    expect(missingScope.checks.evidenceDiscipline).toBe(false)
+
+    const missingFreshness = evaluateCeoQuality({
+      objective: 'What does the latest market report say about competitors?',
+      content,
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceScope: 'external_web',
+    })
+    expect(missingFreshness.decision).not.toBe('PASS')
+    expect(missingFreshness.checks.evidenceDiscipline).toBe(false)
+
+    const now = Date.now()
+    const fresh = evaluateCeoQuality({
+      objective: 'What does the latest market report say about competitors?',
+      content,
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceScope: 'external_web',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 300_000 },
+    })
+    expect(fresh.decision).toBe('PASS')
+    expect(fresh.claimScopes).toContain('external_web')
+  })
+
+  test('mixed internal and live claims require mixed fresh evidence', () => {
+    const now = Date.now()
+    const content = 'Architecturally, Agent007 is implemented with governed execution contracts. The current production runtime is verified.'
+    const wrongScope = evaluateCeoQuality({
+      objective: 'How is the current architecture and production runtime?',
+      content,
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceScope: 'internal_state',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
+    expect(wrongScope.checks.evidenceDiscipline).toBe(false)
+
+    const mixed = evaluateCeoQuality({
+      objective: 'How is the current architecture and production runtime?',
+      content,
+      path: 'fast',
+      externalExecutionSucceeded: true,
+      evidenceScope: 'mixed',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
+    expect(mixed.decision).toBe('PASS')
+    expect(mixed.claimScopes).toEqual(expect.arrayContaining(['internal_state', 'live_system']))
   })
 
   test('negative evidence statements do not become unsupported positive claims', () => {
@@ -121,6 +204,19 @@ describe('CEO self-reflection canonical classifier', () => {
       evidenceScope: 'internal_state',
     })
     expect(result.checks.evidenceDiscipline).toBe(true)
+  })
+
+  test('critical answers require evidence even without a detected live or external phrase', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Approve the mission decision.',
+      content: '# Decision\n\nApprove the mission decision.\n\n- Action: approve\n- Risk: controlled\n- Evidence: unavailable',
+      path: 'critical',
+      externalExecutionSucceeded: true,
+      reviewed: true,
+      evidenceScope: 'none',
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.checks.evidenceDiscipline).toBe(false)
   })
 
   test('executive readiness reaches governed operational capability at Level B', () => {
