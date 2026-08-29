@@ -42,7 +42,7 @@ function isExternalEquityResearch(text: string): boolean {
 }
 
 function isExternalDomain(domain: EvidenceDomain): boolean {
-  return domain !== 'none' && domain !== 'unknown' && !domain.startsWith('internal_')
+  return domain !== 'none' && domain !== 'unknown' && domain !== 'general_web' && !domain.startsWith('internal_')
 }
 
 function inferExternalDomain(text: string): EvidenceDomain {
