@@ -6,18 +6,21 @@ import { evaluateCeoQuality } from './ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from './ceo-degraded-mode'
 import { composeCeoResponse } from './ceo-response-composer'
 import { getCeoVentureEvidenceForObjective } from './ceo-venture-state'
+import { synthesizeExecutiveReadiness } from './ceo-self-reflection'
 import { getConfiguredProviders, PROVIDER_ORDER } from './provider-control-plane'
 import { isCircuitOpen } from './provider-intelligence'
 import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
-import type { CognitiveLifecycleResult, EvidenceState } from './ceo-cognitive-contract'
+import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState } from './ceo-cognitive-contract'
 
 export interface CeoCognitiveRequest {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
   attachmentsCount?: number
   missionId?: string
   contextualEvidence?: string
+  evidenceScope?: EvidenceScope
+  evidenceFreshness?: EvidenceFreshness
   taskType?: TaskType
   verification?: VerificationTier
   model?: string
@@ -40,8 +43,8 @@ function buildRefinementPrompt(objective: string, draft: string): { role: 'user'
 function buildReviewPrompt(objective: string, draft: string): { role: 'user'; content: string } {
   return { role: 'user', content: `Review the draft answer below against the original objective. Identify material omissions, unsupported claims, contradictions, and incorrect assumptions. Do not write a new answer; return a concise review that a synthesis step can act on.\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}` }
 }
-function buildSynthesisPrompt(objective: string, draft: string, review: string, ventureEvidence?: string): { role: 'user'; content: string } {
-  return { role: 'user', content: `Produce the final executive answer. Preserve correct information from the draft, fix every material issue identified by the review, and do not invent facts. The answer must directly satisfy the original objective and clearly distinguish verified facts from assumptions when relevant.${ventureEvidence ? `\n\nLIVE VENTURE EVIDENCE:\n${ventureEvidence}` : ''}\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}\n\nINDEPENDENT REVIEW:\n${review.slice(0, 20000)}` }
+function buildSynthesisPrompt(objective: string, draft: string, review: string, ventureEvidence?: string, readinessEvidence?: string): { role: 'user'; content: string } {
+  return { role: 'user', content: `Produce the final executive answer. Preserve correct information from the draft, fix every material issue identified by the review, and do not invent facts. The answer must directly satisfy the original objective and clearly distinguish verified facts from assumptions when relevant.${ventureEvidence ? `\n\nLIVE VENTURE EVIDENCE:\n${ventureEvidence}` : ''}${readinessEvidence ? `\n\nGOVERNED EXECUTIVE READINESS SYNTHESIS (INTERNAL EVIDENCE; DO NOT UPGRADE UNPROVEN LEVELS):\n${readinessEvidence}` : ''}\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}\n\nINDEPENDENT REVIEW:\n${review.slice(0, 20000)}` }
 }
 function stageExclusions(previous?: ActiveProviderId): ActiveProviderId[] {
   const operational = getConfiguredProviders().filter((provider) => !isCircuitOpen(provider))
@@ -78,6 +81,9 @@ async function tryDegraded(
     availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
   }
 
+  const evidenceScope = request.evidenceScope ?? (decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
+  const evidenceFreshness = request.evidenceFreshness
+
   if (availability) {
     try {
       const recovery = await runCanonicalLlm({
@@ -98,6 +104,8 @@ async function tryDegraded(
         reviewed: false,
         externalExecutionSucceeded: true,
         evidenceProvided: Boolean(request.contextualEvidence?.trim()),
+        evidenceScope,
+        evidenceFreshness,
       })
       const mergedAttempts = [...new Set([...attempts, availability.provider, ...recovery.attempts])]
       if (recovery.content.trim() && recoveryQuality.decision === 'PASS') {
@@ -122,6 +130,7 @@ async function tryDegraded(
   const degraded = await buildCeoDegradedResponse({
     objective: objectiveFrom(request.messages),
     intent: decisionPlan.executionContract.intent,
+    selfReflectionKind: decisionPlan.executionContract.selfReflectionKind,
     reason,
     missionId: request.missionId,
     contextualEvidence: request.contextualEvidence,
@@ -132,6 +141,9 @@ async function tryDegraded(
     evidenceState: degraded.evidenceState,
     verificationStatus: 'NOT_PERFORMED' as const,
     checks: { nonEmpty: Boolean(degraded.content.trim()), contractValid: degraded.content.length <= 100_000, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true },
+    evidenceScope,
+    evidenceFreshness,
+    claimScopes: [],
     reasons: [reason, ...(degraded.sourceKeys.length ? [`Recovered ${degraded.sourceKeys.length} internal evidence item(s).`] : [])],
   }
   return { content: composeCeoResponse({ content: degraded.content, evidenceState: degraded.evidenceState, quality, degraded: true }), responseMs, attempts, executionPlan, decisionPlan, quality, evidenceState: degraded.evidenceState, degraded: true }
@@ -148,7 +160,11 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const selectedVerification: VerificationTier = request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard')
 
   let ventureEvidence: { ventureId: string; evidence: string } | null = null
-  try { ventureEvidence = await getCeoVentureEvidenceForObjective(objective) } catch (error) {
+  let ventureEvidenceFreshness: EvidenceFreshness | undefined
+  try {
+    ventureEvidence = await getCeoVentureEvidenceForObjective(objective)
+    if (ventureEvidence) ventureEvidenceFreshness = { observedAt: Date.now(), maxAgeMs: 300000 }
+  } catch (error) {
     if (/\bventure_\d{3}\b/i.test(objective)) {
       const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
       return tryDegraded(request, `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), [], Date.now() - startedAt, decisionPlan, executionPlan, true, availability)
@@ -156,8 +172,21 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   }
 
   const evidenceProvided = Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)
+  const evidenceScope: EvidenceScope | undefined = request.evidenceScope ?? (ventureEvidence ? 'internal_state' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
+  const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness
+  const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment'
+    ? synthesizeExecutiveReadiness({
+      liveExecutionVerified: evidenceScope === 'live_system',
+      productionTrafficVerified: evidenceScope === 'live_system',
+      repeatableBusinessOutcomesVerified: false,
+      sustainedAutonomyVerified: false,
+      observedAt: evidenceFreshness?.observedAt,
+      maxEvidenceAgeMs: evidenceFreshness?.maxAgeMs,
+    })
+    : null
   const liveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }] : []
-  const primaryMessages = [...liveSystemMessages, ...request.messages]
+  const readinessMessages = readinessSynthesis ? [{ role: 'system' as const, content: `GOVERNED EXECUTIVE READINESS BASELINE (INTERNAL):\nLevel ${readinessSynthesis.level} — ${readinessSynthesis.label}.\n${readinessSynthesis.capability}\n${readinessSynthesis.verified}\n${readinessSynthesis.notProven}\nNext evidence: ${readinessSynthesis.nextEvidence}` }] : []
+  const primaryMessages = [...liveSystemMessages, ...readinessMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({
     taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'),
     verification: selectedVerification,
@@ -188,7 +217,8 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       review = await runCanonicalLlm({
         ...stageOptions({ maxProviderAttempts: 2 }),
         messages: [
-          ...(ventureEvidence ? [{ role: 'system' as const, content: ventureEvidence.evidence }] : []),
+          ...liveSystemMessages,
+          ...readinessMessages,
           { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' },
           buildReviewPrompt(objective, primary.content),
         ],
@@ -197,9 +227,10 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       final = await runCanonicalLlm({
         ...stageOptions({ maxProviderAttempts: 2 }),
         messages: [
-          ...(ventureEvidence ? [{ role: 'system' as const, content: ventureEvidence.evidence }] : []),
+          ...liveSystemMessages,
+          ...readinessMessages,
           { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' },
-          buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence),
+          buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined),
         ],
         excludeProviders: stageExclusions(review.provider),
       })
@@ -207,7 +238,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
 
     let output = final ?? primary
     if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan)
-    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided })
+    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness })
 
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
@@ -216,7 +247,8 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         const escalated = await runCanonicalLlm({
           ...stageOptions({ maxProviderAttempts: 2 }),
           messages: [
-            ...(ventureEvidence ? [{ role: 'system' as const, content: ventureEvidence.evidence }] : []),
+            ...liveSystemMessages,
+            ...readinessMessages,
             { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' },
             { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` },
           ],
@@ -224,7 +256,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         })
         final = escalated
         output = escalated
-        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true, evidenceProvided })
+        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness })
         if (quality.decision === 'PASS') break
       } catch { break }
     }
