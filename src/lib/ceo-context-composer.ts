@@ -1,7 +1,7 @@
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 
 export type CeoContextRole = 'system' | 'user' | 'assistant'
-export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'conversation'
+export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation'
 
 export interface PersistedConversationRow {
   role: string
@@ -30,6 +30,7 @@ export interface CeoContextModules {
   evidence?: string
   mission?: string
   memory?: string
+  execution?: string
 }
 
 export interface CeoContextModulePolicyInput {
@@ -41,6 +42,7 @@ export interface CeoContextModulePolicyInput {
   evidence?: string
   mission?: string
   memory?: string
+  execution?: string
 }
 
 export function buildCeoContextModules(input: CeoContextModulePolicyInput): CeoContextModules {
@@ -55,6 +57,7 @@ export function buildCeoContextModules(input: CeoContextModulePolicyInput): CeoC
     evidence: input.evidence?.trim() || undefined,
     mission: input.mission?.trim() || undefined,
     memory: input.memory?.trim() || undefined,
+    execution: input.execution?.trim() || undefined,
   }
 }
 
@@ -172,6 +175,7 @@ export function composeCeoContext(input: {
   if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); modules.push('organization') }
   if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); modules.push('mission') }
   if (input.modules?.evidence?.trim()) { messages.push({ role: 'system', content: `EVIDENCE CONTEXT (separate from conversation; provenance required):\n${input.modules.evidence.trim()}` }); modules.push('evidence') }
+  if (input.modules?.execution?.trim()) { messages.push({ role: 'system', content: `EXECUTION CONTEXT (internal execution result; do not treat as external evidence):\n${input.modules.execution.trim()}` }); modules.push('execution') }
   if (selectedMemories.length || input.modules?.memory?.trim()) {
     const selectedMemoryText = selectedMemories.map((memory) => `- ${memory.key} [${memory.category}]: ${clampMessage(memory.value).slice(0, 1000)}`).join('\n')
     const suppliedMemory = input.modules?.memory?.trim() ? `\n${input.modules.memory.trim()}` : ''
