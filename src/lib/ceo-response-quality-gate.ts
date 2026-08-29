@@ -111,7 +111,7 @@ export function evaluateCeoQuality(input: {
     if (claims.includes('internal_state') && scope && scope !== 'internal_state' && scope !== 'mixed' && scope !== 'live_system') return false
     if (externalClaims && bundle && !bundle.sufficient && input.path !== 'fast') return false
     if (externalClaims && bundle && !claimVerification.passed) return false
-    if (externalClaims && !bundle && !evidenceProvided) return false
+    if (externalClaims && !bundle && !evidenceProvided && !(scope && scope !== 'none' && fresh)) return false
     return input.path !== 'critical' || evidenceProvided || Boolean(scope && scope !== 'none')
   })()
   const lines = input.content.split('\n')
