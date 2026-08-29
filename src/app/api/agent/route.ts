@@ -8,6 +8,9 @@ import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 import { RecoveryBudget, RecoveryBudgetExceededError, recoveryEventFromMessage } from '@/lib/ceo-recovery-policy'
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
+import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
+import { executeExternalEvidencePlan } from '@/lib/ceo-evidence-executor'
+import { renderEvidenceBundleForPrompt } from '@/lib/ceo-evidence-bundle'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -26,25 +29,11 @@ function getDeploymentIdentity(): DeploymentIdentity {
   }
 }
 
-/**
- * Every SSE envelope is stamped here, at the single serialization boundary.
- * This intentionally covers ping/progress/thought/answer/done/error as well as
- * any future event that uses the canonical sse() helper, preventing identity
- * metadata from being added only to selected event types.
- */
 function sse(event: string, data: unknown): string {
   const identity = getDeploymentIdentity()
   const payload = data && typeof data === 'object' && !Array.isArray(data)
-    ? {
-        ...(data as Record<string, unknown>),
-        deploymentId: identity.deploymentId,
-        releaseCommit: identity.releaseCommit,
-      }
-    : {
-        data,
-        deploymentId: identity.deploymentId,
-        releaseCommit: identity.releaseCommit,
-      }
+    ? { ...(data as Record<string, unknown>), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }
+    : { data, deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
@@ -109,16 +98,8 @@ export async function POST(req: NextRequest) {
         const recoveryEvent = event === 'thought' ? recoveryEventFromMessage(data?.content) : null
         if (recoveryEvent) {
           const decision = recoveryBudget.consume(recoveryEvent)
-          if (!decision.allowed) {
-            throw new RecoveryBudgetExceededError(decision.count, decision.maxRecoveries, decision.reason)
-          }
-          await baseEmit('progress', {
-            phase: 'recovery',
-            event: recoveryEvent,
-            count: decision.count,
-            maxRecoveries: decision.maxRecoveries,
-            reason: decision.reason,
-          })
+          if (!decision.allowed) throw new RecoveryBudgetExceededError(decision.count, decision.maxRecoveries, decision.reason)
+          await baseEmit('progress', { phase: 'recovery', event: recoveryEvent, count: decision.count, maxRecoveries: decision.maxRecoveries, reason: decision.reason })
         }
         await baseEmit(event, data)
       }
@@ -127,35 +108,79 @@ export async function POST(req: NextRequest) {
       beginInteractive()
       try {
         if (executionContract.orchestrationOwner === 'ceo_lifecycle') {
+          let externalEvidenceContext: string | undefined
+          let externalEvidenceScope: 'external_web' | 'mixed' | undefined
+          let externalEvidenceFreshness: { observedAt: number; maxAgeMs: number } | undefined
+
           safeEnqueue(sse('progress', {
-            phase: preRoute.executionContract.intent === 'self_assessment' ? 'self_assessment' : 'fast_lane',
+            phase: executionContract.evidenceClass === 'external_web' ? 'evidence_aware' : (executionContract.intent === 'self_assessment' ? 'self_assessment' : 'fast_lane'),
             route: preRoute.route,
             reason: preRoute.reason,
             taskClass: preRoute.taskClass,
             deployment: deploymentIdentity,
-            executionContract: {
-              intent: executionContract.intent,
-              evidenceRequirement: executionContract.evidenceRequirement,
-              executionRequirement: executionContract.executionRequirement,
-              orchestrationOwner: executionContract.orchestrationOwner,
-              maxTurns: executionContract.maxTurns,
-              maxRecoveries: executionContract.maxRecoveries,
-              latencyBudgetMs: executionContract.latencyBudgetMs,
-            },
+            executionContract,
           }))
+
+          if (executionContract.evidenceClass === 'external_web' || executionContract.evidenceClass === 'mixed') {
+            const evidencePlan = buildExternalEvidencePlan({
+              objective: message,
+              evidenceClass: executionContract.evidenceClass,
+              domain: executionContract.domain,
+              operation: executionContract.operation,
+              temporalScope: executionContract.temporalScope,
+              evidenceProfile: executionContract.evidenceProfile,
+            })
+            safeEnqueue(sse('progress', {
+              phase: 'evidence_acquisition',
+              profile: evidencePlan.profile,
+              queryCount: evidencePlan.queries.length,
+              minimumSources: evidencePlan.minimumSources,
+            }))
+            try {
+              const evidenceExecution = await executeExternalEvidencePlan(evidencePlan)
+              if (evidenceExecution.bundle.sources.length > 0) {
+                externalEvidenceContext = renderEvidenceBundleForPrompt(evidenceExecution.bundle)
+                externalEvidenceScope = evidenceExecution.bundle.scope === 'mixed' ? 'mixed' : 'external_web'
+                externalEvidenceFreshness = evidenceExecution.bundle.freshness
+              }
+              safeEnqueue(sse('progress', {
+                phase: 'evidence_complete',
+                sources: evidenceExecution.bundle.sources.length,
+                claims: evidenceExecution.bundle.claims.length,
+                attemptedQueries: evidenceExecution.attemptedQueries,
+                successfulQueries: evidenceExecution.successfulQueries,
+                pageReads: evidenceExecution.pageReads,
+                secSources: evidenceExecution.secSources,
+                failures: evidenceExecution.failures.slice(0, 5),
+              }))
+            } catch (e: any) {
+              safeEnqueue(sse('progress', {
+                phase: 'evidence_failed',
+                error: String(e?.message ?? e).slice(0, 500),
+                fallback: 'The CEO will not invent current external facts; the final answer will be limited by the evidence state.',
+              }))
+            }
+          }
+
+          const evidenceMessage = externalEvidenceContext
+            ? `\n\n${externalEvidenceContext}\n\nUse only these source-backed facts for current external claims. Keep source markers such as [S1-...] attached to supported claims. If a needed fact is missing, say so instead of inventing it.`
+            : ''
 
           const response = await runCeoCognitiveLifecycle({
             attachmentsCount: atts.length,
             messages: [
               {
                 role: 'system',
-                content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification. For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.\n\n${getCanonicalOrganizationPrompt()}`,
+                content: `You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification. For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.${evidenceMessage}\n\n${getCanonicalOrganizationPrompt()}`,
               },
               { role: 'user', content: message },
             ],
             taskType: preRoute.taskClass,
             verification: 'standard',
             timeoutMs: executionContract.latencyBudgetMs,
+            contextualEvidence: externalEvidenceContext,
+            evidenceScope: externalEvidenceScope,
+            evidenceFreshness: externalEvidenceFreshness,
           })
 
           let persistedAssistantMessageId: string | null = null
@@ -179,7 +204,7 @@ export async function POST(req: NextRequest) {
           }))
           safeEnqueue(sse('done', {
             messageId: persistedAssistantMessageId,
-            steps: 1,
+            steps: executionContract.evidenceClass === 'external_web' ? 2 : 1,
             executionClass: response.decisionPlan.path,
             provider: response.provider,
             model: response.model,
@@ -189,14 +214,7 @@ export async function POST(req: NextRequest) {
           }))
         } else {
           const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget(
-            (signal) => runOrchestrator({
-              conversationId,
-              userMessage: message,
-              attachments: atts,
-              language: lang,
-              emit,
-              signal,
-            } as OrchestratorRunOptionsWithSignal),
+            (signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal),
             requestBudgetMs,
           ))
           safeEnqueue(sse('done', {
@@ -210,24 +228,9 @@ export async function POST(req: NextRequest) {
         }
       } catch (e: any) {
         if (e instanceof RecoveryBudgetExceededError || e?.code === 'CEO_RECOVERY_BUDGET_EXCEEDED') {
-          await baseEmit('error', {
-            message: 'Agent007 stopped this request after exhausting its governed recovery budget. The request state remains safe; retry is available.',
-            executionClass: resolvedPath,
-            code: 'CEO_RECOVERY_BUDGET_EXCEEDED',
-            recoveryCount: recoveryBudget.used,
-            maxRecoveries: recoveryBudget.remaining + recoveryBudget.used,
-            retryable: true,
-            deployment: deploymentIdentity,
-          })
+          await baseEmit('error', { message: 'Agent007 stopped this request after exhausting its governed recovery budget. The request state remains safe; retry is available.', executionClass: resolvedPath, code: 'CEO_RECOVERY_BUDGET_EXCEEDED', recoveryCount: recoveryBudget.used, maxRecoveries: recoveryBudget.remaining + recoveryBudget.used, retryable: true, deployment: deploymentIdentity })
         } else if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') {
-          await baseEmit('error', {
-            message: 'Agent007 stopped this request before the execution budget so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.',
-            executionClass: resolvedPath,
-            code: 'AGENT_REQUEST_TIMEOUT',
-            timeoutMs: requestBudgetMs,
-            retryable: true,
-            deployment: deploymentIdentity,
-          })
+          await baseEmit('error', { message: 'Agent007 stopped this request before the execution budget so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.', executionClass: resolvedPath, code: 'AGENT_REQUEST_TIMEOUT', timeoutMs: requestBudgetMs, retryable: true, deployment: deploymentIdentity })
         } else {
           safeEnqueue(sse('error', { message: e?.message ?? String(e), executionClass: resolvedPath, deployment: deploymentIdentity }))
         }
