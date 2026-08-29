@@ -1,0 +1,7 @@
+{
+  "authorization": "DEPLOY_AGENT007_MAIN",
+  "repository": "antoniocan2022-dev/agent007-ai",
+  "ref": "main",
+  "reason": "Explicit owner authorization to deploy the certified main release to Vercel production",
+  "authorizedAt": "2026-08-29T09:25:00-04:00"
+}
