@@ -196,6 +196,7 @@ describe('CEO self-reflection canonical classifier', () => {
     })
     expect(mixed.decision).toBe('PASS')
     expect(mixed.claimScopes).toEqual(expect.arrayContaining(['internal_state', 'live_system']))
+    expect(mixed.evidenceState).toBe('LIVE_VERIFIED')
   })
 
   test('negative evidence statements do not become unsupported positive claims', () => {
