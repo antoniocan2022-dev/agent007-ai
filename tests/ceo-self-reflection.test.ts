@@ -65,7 +65,7 @@ describe('CEO self-reflection canonical classifier', () => {
 
   test('claim-aware quality allows internal architecture statements without live evidence', () => {
     const result = evaluateCeoQuality({
-      objective: 'How capable are you?',
+      objective: 'What architecture capabilities are implemented?',
       content: 'Architecturally, Agent007 is designed with governed CEO execution contracts and a persistent memory layer. Live business outcomes are not yet proven.',
       path: 'fast',
       externalExecutionSucceeded: true,
@@ -170,6 +170,7 @@ describe('CEO self-reflection canonical classifier', () => {
     })
     expect(fresh.decision).toBe('PASS')
     expect(fresh.claimScopes).toContain('external_web')
+    expect(fresh.claimScopes).not.toContain('live_system')
   })
 
   test('mixed internal and live claims require mixed fresh evidence', () => {
