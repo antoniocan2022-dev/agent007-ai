@@ -22,8 +22,8 @@ describe('CEO self-reflection canonical classifier', () => {
     ['Hows it going? make a sekf analysis and tell me if you are ready to mange businesses?', 'readiness_assessment'],
   ] as const)('classifies %j as %s', (text, expected) => {
     const result = classifyCeoSelfReflection(text)
-    expect(result.isSelfReflective).toBe(true)
     expect(result.kind).toBe(expected)
+    expect(result.isSelfReflective).toBe(expected !== 'casual_checkin')
   })
 
   test.each([
@@ -42,7 +42,7 @@ describe('CEO self-reflection canonical classifier', () => {
   test('keeps casual self-reflection on the bounded fast execution class', () => {
     const plan = classifyExecution(user('How are you doing?'))
     expect(plan.executionClass).toBe('fast')
-    expect(plan.maxProviderAttempts).toBe(4)
+    expect(plan.maxProviderAttempts).toBe(2)
     expect(plan.timeoutMs).toBe(30000)
     expect(plan.parallelizable).toBe(false)
   })
@@ -68,6 +68,7 @@ describe('CEO self-reflection canonical classifier', () => {
       objective: 'What is Agent007 designed with?',
       content: 'Architecturally, Agent007 is designed with governed CEO execution contracts and a persistent memory layer. Live business outcomes are not yet proven.',
       path: 'fast',
+      intent: 'analysis',
       externalExecutionSucceeded: true,
       evidenceScope: 'internal_state',
     })
@@ -82,6 +83,7 @@ describe('CEO self-reflection canonical classifier', () => {
       objective: 'How are you doing?',
       content: 'The current production deployment is verified and serving traffic.',
       path: 'fast',
+      intent: 'self_assessment',
       externalExecutionSucceeded: true,
       evidenceScope: 'internal_state',
     })
@@ -94,6 +96,7 @@ describe('CEO self-reflection canonical classifier', () => {
       objective: 'What is your current production status?',
       content: 'The current production runtime is verified.',
       path: 'fast',
+      intent: 'self_assessment',
       externalExecutionSucceeded: true,
       evidenceProvided: true,
     })
@@ -103,71 +106,27 @@ describe('CEO self-reflection canonical classifier', () => {
 
   test('fresh live evidence passes while stale and future live evidence fail', () => {
     const now = Date.now()
-    const fresh = evaluateCeoQuality({
-      objective: 'What is your current production status?',
-      content: 'The current production runtime is verified.',
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'live_system',
-      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
-    })
+    const fresh = evaluateCeoQuality({ objective: 'What is your current production status?', content: 'The current production runtime is verified.', path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true, evidenceScope: 'live_system', evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 } })
     expect(fresh.decision).toBe('PASS')
     expect(fresh.evidenceState).toBe('LIVE_VERIFIED')
-
-    const stale = evaluateCeoQuality({
-      objective: 'What is your current production status?',
-      content: 'The current production runtime is verified.',
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'live_system',
-      evidenceFreshness: { observedAt: now - 61_000, maxAgeMs: 60_000 },
-    })
+    const stale = evaluateCeoQuality({ objective: 'What is your current production status?', content: 'The current production runtime is verified.', path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true, evidenceScope: 'live_system', evidenceFreshness: { observedAt: now - 61_000, maxAgeMs: 60_000 } })
     expect(stale.decision).not.toBe('PASS')
     expect(stale.checks.evidenceDiscipline).toBe(false)
-
-    const future = evaluateCeoQuality({
-      objective: 'What is your current production status?',
-      content: 'The current production runtime is verified.',
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'live_system',
-      evidenceFreshness: { observedAt: now + 1_000, maxAgeMs: 60_000 },
-    })
+    const future = evaluateCeoQuality({ objective: 'What is your current production status?', content: 'The current production runtime is verified.', path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true, evidenceScope: 'live_system', evidenceFreshness: { observedAt: now + 1_000, maxAgeMs: 60_000 } })
     expect(future.decision).not.toBe('PASS')
     expect(future.checks.evidenceDiscipline).toBe(false)
   })
 
   test('external claims require explicit external evidence and freshness', () => {
     const content = 'According to the latest market report, competitors are offering similar executive software products.'
-    const missingScope = evaluateCeoQuality({
-      objective: 'What does the latest market report say about competitors?',
-      content,
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceProvided: true,
-    })
+    const missingScope = evaluateCeoQuality({ objective: 'What does the latest market report say about competitors?', content, path: 'fast', intent: 'research', externalExecutionSucceeded: true, evidenceProvided: true })
     expect(missingScope.decision).not.toBe('PASS')
     expect(missingScope.checks.evidenceDiscipline).toBe(false)
-
-    const missingFreshness = evaluateCeoQuality({
-      objective: 'What does the latest market report say about competitors?',
-      content,
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'external_web',
-    })
+    const missingFreshness = evaluateCeoQuality({ objective: 'What does the latest market report say about competitors?', content, path: 'fast', intent: 'research', externalExecutionSucceeded: true, evidenceScope: 'external_web' })
     expect(missingFreshness.decision).not.toBe('PASS')
     expect(missingFreshness.checks.evidenceDiscipline).toBe(false)
-
     const now = Date.now()
-    const fresh = evaluateCeoQuality({
-      objective: 'What does the latest market report say about competitors?',
-      content,
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'external_web',
-      evidenceFreshness: { observedAt: now, maxAgeMs: 300_000 },
-    })
+    const fresh = evaluateCeoQuality({ objective: 'What does the latest market report say about competitors?', content, path: 'fast', intent: 'research', externalExecutionSucceeded: true, evidenceScope: 'external_web', evidenceFreshness: { observedAt: now, maxAgeMs: 300_000 } })
     expect(fresh.decision).toBe('PASS')
     expect(fresh.claimScopes).toContain('external_web')
     expect(fresh.claimScopes).not.toContain('live_system')
@@ -176,129 +135,51 @@ describe('CEO self-reflection canonical classifier', () => {
   test('mixed internal and live claims require mixed fresh evidence', () => {
     const now = Date.now()
     const content = 'Architecturally, Agent007 is implemented with governed execution contracts. The current production runtime is verified.'
-    const wrongScope = evaluateCeoQuality({
-      objective: 'How is the current architecture and production runtime?',
-      content,
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'internal_state',
-      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
-    })
+    const wrongScope = evaluateCeoQuality({ objective: 'How is the current architecture and production runtime?', content, path: 'fast', intent: 'analysis', externalExecutionSucceeded: true, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 } })
     expect(wrongScope.checks.evidenceDiscipline).toBe(false)
-
-    const mixed = evaluateCeoQuality({
-      objective: 'How is the current architecture and production runtime?',
-      content,
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'mixed',
-      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
-    })
+    const mixed = evaluateCeoQuality({ objective: 'How is the current architecture and production runtime?', content, path: 'fast', intent: 'analysis', externalExecutionSucceeded: true, evidenceScope: 'mixed', evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 } })
     expect(mixed.decision).toBe('PASS')
     expect(mixed.claimScopes).toEqual(expect.arrayContaining(['internal_state', 'live_system']))
     expect(mixed.evidenceState).toBe('LIVE_VERIFIED')
   })
 
   test('negative evidence statements do not become unsupported positive claims', () => {
-    const result = evaluateCeoQuality({
-      objective: 'Are you ready to manage businesses?',
-      content: 'I am not yet proven for unsupervised business ownership, and sustained customer and revenue outcomes remain unverified.',
-      path: 'fast',
-      externalExecutionSucceeded: true,
-      evidenceScope: 'internal_state',
-    })
+    const result = evaluateCeoQuality({ objective: 'Are you ready to manage businesses?', content: 'I am not yet proven for unsupervised business ownership, and sustained customer and revenue outcomes remain unverified.', path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true, evidenceScope: 'internal_state' })
     expect(result.checks.evidenceDiscipline).toBe(true)
   })
 
   test('critical answers require evidence even without a detected live or external phrase', () => {
-    const result = evaluateCeoQuality({
-      objective: 'Approve the mission decision.',
-      content: '# Decision\n\nApprove the mission decision.\n\n- Action: approve\n- Risk: controlled\n- Evidence: unavailable',
-      path: 'critical',
-      externalExecutionSucceeded: true,
-      reviewed: true,
-      evidenceScope: 'none',
-    })
+    const result = evaluateCeoQuality({ objective: 'Approve the mission decision.', content: '# Decision\n\nApprove the mission decision.\n\n- Action: approve\n- Risk: controlled\n- Evidence: unavailable', path: 'critical', intent: 'mission_action', externalExecutionSucceeded: true, reviewed: true, evidenceScope: 'none' })
     expect(result.decision).not.toBe('PASS')
     expect(result.checks.evidenceDiscipline).toBe(false)
   })
 
   test('executive readiness reaches governed operational capability at Level B', () => {
-    const readiness = synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: false,
-      productionTrafficVerified: false,
-      repeatableBusinessOutcomesVerified: false,
-      sustainedAutonomyVerified: false,
-    })
+    const readiness = synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false })
     expect(readiness.level).toBe('B')
     expect(readiness.label).toBe('Governed operational capability')
   })
 
   test('executive readiness remains conservative without operational proof', () => {
-    const readiness = synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: false,
-      liveExecutionVerified: false,
-      productionTrafficVerified: false,
-      repeatableBusinessOutcomesVerified: false,
-      sustainedAutonomyVerified: false,
-    })
+    const readiness = synthesizeExecutiveReadiness({ operationalCapabilityVerified: false, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false })
     expect(readiness.level).toBe('A')
-    expect(readiness.label).toBe('Architectural capability')
-    expect(readiness.notProven).toContain('not established')
+    expect(readiness.label).toBe('Architectural foundation')
+    expect(readiness.notProven).toContain('Operational capability')
   })
 
   test('executive readiness advances only with explicitly supplied fresh evidence', () => {
     const now = Date.now()
-    const live = synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: true,
-      productionTrafficVerified: true,
-      repeatableBusinessOutcomesVerified: false,
-      sustainedAutonomyVerified: false,
-      observedAt: now,
-      maxEvidenceAgeMs: 60_000,
-      now,
-    })
+    const live = synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: true, productionTrafficVerified: true, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false, observedAt: now, maxEvidenceAgeMs: 60_000, now })
     expect(live.level).toBe('C')
-
-    const outcomes = synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: true,
-      productionTrafficVerified: true,
-      repeatableBusinessOutcomesVerified: true,
-      sustainedAutonomyVerified: false,
-      observedAt: now,
-      maxEvidenceAgeMs: 60_000,
-      now,
-    })
+    const outcomes = synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: true, productionTrafficVerified: true, repeatableBusinessOutcomesVerified: true, sustainedAutonomyVerified: false, observedAt: now, maxEvidenceAgeMs: 60_000, now })
     expect(outcomes.level).toBe('D')
-
-    const stale = synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: true,
-      productionTrafficVerified: true,
-      repeatableBusinessOutcomesVerified: false,
-      sustainedAutonomyVerified: false,
-      observedAt: now - 61_000,
-      maxEvidenceAgeMs: 60_000,
-      now,
-    })
+    const stale = synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: true, productionTrafficVerified: true, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false, observedAt: now - 61_000, maxEvidenceAgeMs: 60_000, now })
     expect(stale.level).toBe('B')
   })
 
   test('executive readiness requires sustained autonomy in addition to outcomes for Level E', () => {
     const now = Date.now()
-    const e = synthesizeExecutiveReadiness({
-      operationalCapabilityVerified: true,
-      liveExecutionVerified: true,
-      productionTrafficVerified: true,
-      repeatableBusinessOutcomesVerified: true,
-      sustainedAutonomyVerified: true,
-      observedAt: now,
-      maxEvidenceAgeMs: 60_000,
-      now,
-    })
+    const e = synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: true, productionTrafficVerified: true, repeatableBusinessOutcomesVerified: true, sustainedAutonomyVerified: true, observedAt: now, maxEvidenceAgeMs: 60_000, now })
     expect(e.level).toBe('E')
     expect(e.label).toBe('Sustained autonomy')
   })
