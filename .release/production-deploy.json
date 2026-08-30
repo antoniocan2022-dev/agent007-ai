@@ -3,9 +3,9 @@
   "repository": "antoniocan2022-dev/agent007-ai",
   "ref": "main",
   "target": "production",
-  "authorized": true,
-  "authorizedAt": "2026-08-30T17:35:00-04:00",
-  "expiresAt": "2026-08-30T19:35:00-04:00",
-  "sourceMainSha": "f0b494896e5db5f432a12636b460fa18027e3603",
-  "reason": "Explicit owner authorization for the controlled production release of the current main SHA."
+  "authorized": false,
+  "authorizedAt": null,
+  "expiresAt": null,
+  "sourceMainSha": null,
+  "reason": "Revoked by default. Set authorized:true with a real sourceMainSha only as part of an explicit, time-boxed authorization action."
 }
