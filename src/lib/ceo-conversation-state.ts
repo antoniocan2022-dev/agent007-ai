@@ -167,6 +167,9 @@ export function buildConversationStatePrompt(state: CeoConversationState, refere
   ].join('\n')
 }
 
+/** Backward-compatible alias retained for existing Context Composer call sites. */
+export const buildCeoConversationStatePrompt = buildConversationStatePrompt
+
 export function buildCeoPersonalityContract(): string {
   return [
     'CEO NATURAL CONVERSATION CONTRACT:',
