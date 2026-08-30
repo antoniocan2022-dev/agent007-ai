@@ -27,14 +27,13 @@ export interface ConversationReference {
 
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want','were','will','been','them','theyre'])
 const REFERENCE_RE = /\b(?:it|this|that|these|those|the\s+(?:first|second|third|last|other)\s+(?:one|thing|problem|issue|option|idea)|same\s+(?:thing|issue|problem)|what\s+we\s+(?:said|did|decided)|yesterday|earlier|before|continue)\b/i
+const ORDINAL_RE = /\bthe\s+(first|second|third|last|other)\s+(?:one|thing|problem|issue|option|idea)\b/i
 const QUESTION_RE = /\?\s*$|\b(?:what|why|how|when|where|who|which|should|can|could|would|is|are|do|does)\b/i
 const DECISION_RE = /\b(?:decided|decision|we(?:'ll|\s+will)|let'?s\s+(?:use|do|build|keep|choose)|agreed|selected|going\s+with)\b/i
 const ENTITY_RE = /\b(?:Agent007|CEO|Vercel|GitHub|OpenAI|Groq|Mistral|Cerebras|Cloudflare|OpenRouter|Context Composer|Conversation State|Memory|Revenue|Venture OS|Mission OS)\b/g
 
 function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
-function tokens(value: string): string[] {
-  return [...new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STOPWORDS.has(t)))]
-}
+function tokens(value: string): string[] { return [...new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !STOPWORDS.has(t)))] }
 function sentenceClauses(value: string): string[] { return normalize(value).split(/[.!?]+/).map((s) => s.trim()).filter(Boolean) }
 function toneOf(text: string): ConversationTone {
   const lower = text.toLowerCase()
@@ -46,6 +45,29 @@ function toneOf(text: string): ConversationTone {
   return 'neutral'
 }
 function uniqueRecent(items: string[], max = 6): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
+function dateValue(value: PersistedConversationRow['createdAt']): number {
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return value
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+function dayKey(timestamp: number): string { const d = new Date(timestamp); return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}` }
+function dayBefore(day: string): string | null {
+  const [year, month, date] = day.split('-').map(Number)
+  if (![year, month, date].every(Number.isFinite)) return null
+  return dayKey(Date.UTC(year, month, date) - 86_400_000)
+}
+function ordinalNumber(value: string): number | null {
+  const normalized = value.toLowerCase()
+  if (normalized === 'first') return 1
+  if (normalized === 'second') return 2
+  if (normalized === 'third') return 3
+  return null
+}
+function extractNumberedCandidates(text: string): string[] {
+  const parts = text.split(/(?:^|\n)\s*(?:[-*]|\d+[.)])\s+/).map(normalize).filter(Boolean)
+  return parts.length >= 2 ? parts.slice(0, 12) : []
+}
 
 export function deriveCeoConversationState(rows: readonly PersistedConversationRow[], currentUserMessage = ''): CeoConversationState {
   const clean = rows.filter((row) => row && (row.role === 'user' || row.role === 'assistant') && typeof row.content === 'string')
@@ -54,21 +76,17 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
   const latest = normalize(currentUserMessage || userRows.at(-1)?.content || '')
   const corpus = clean.slice(-24).map((row) => row.content).join(' ')
   const allTokens = tokens(corpus)
-  const topicCandidates = allTokens
-    .map((token) => ({ token, count: corpus.toLowerCase().split(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')).length - 1 }))
-    .sort((a, b) => b.count - a.count || a.token.localeCompare(b.token))
-    .slice(0, 8)
-    .map((item) => item.token)
+  const topicCandidates = allTokens.map((token) => ({ token, count: corpus.toLowerCase().split(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')).length - 1 })).sort((a, b) => b.count - a.count || a.token.localeCompare(b.token)).slice(0, 8).map((item) => item.token)
   const entities = [...new Set((corpus.match(ENTITY_RE) ?? []).map((value) => normalize(value)))]
   const questions = uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 5)
   const decisions = uniqueRecent(clean.filter((row) => DECISION_RE.test(row.content)).map((row) => normalize(row.content)), 5)
   const threadCandidates = clean.filter((row) => row.role === 'user' && row.content.length > 24).slice(-6).map((row) => normalize(row.content))
-  const topic = entities[0] || topicCandidates.slice(0, 3).join(', ') || normalize(userRows[0]?.content || latest).slice(0, 120)
+  const topic = topicCandidates.slice(0, 3).join(', ') || entities.slice(-3).join(', ') || normalize(userRows.at(-1)?.content || latest).slice(0, 120)
   return {
     schemaVersion: 1,
     topic,
     topicCandidates,
-    entities: entities.slice(0, 12),
+    entities: entities.slice(-12),
     activeThreads: uniqueRecent(threadCandidates, 5),
     unresolvedQuestions: questions,
     decisions,
@@ -82,20 +100,50 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
 }
 
 function overlapScore(a: string, b: string): number {
-  const left = new Set(tokens(a)); const right = new Set(tokens(b));
+  const left = new Set(tokens(a)); const right = new Set(tokens(b))
   if (!left.size || !right.size) return 0
   let matches = 0
   for (const token of left) if (right.has(token)) matches += 1
   return matches / Math.max(1, Math.min(left.size, right.size))
 }
 
+function findOrdinalResolution(message: string, rows: readonly PersistedConversationRow[]): { text: string | null; confidence: number; sourceRole?: 'user' | 'assistant' } {
+  const match = message.match(ORDINAL_RE)
+  if (!match) return { text: null, confidence: 0 }
+  const word = match[1].toLowerCase()
+  const ordinal = ordinalNumber(word)
+  const anchors = rows.filter((row) => row.role === 'user' || row.role === 'assistant').slice(-12).reverse()
+  for (const row of anchors) {
+    const numbered = extractNumberedCandidates(row.content)
+    if (ordinal && numbered.length >= ordinal) return { text: numbered[ordinal - 1], confidence: 0.94, sourceRole: row.role as 'user' | 'assistant' }
+    if (word === 'last' && numbered.length) return { text: numbered[numbered.length - 1], confidence: 0.94, sourceRole: row.role as 'user' | 'assistant' }
+  }
+  return { text: null, confidence: 0 }
+}
+
+function findDateResolution(message: string, rows: readonly PersistedConversationRow[]): { text: string | null; confidence: number; sourceRole?: 'user' | 'assistant' } {
+  if (!/\byesterday\b/i.test(message)) return { text: null, confidence: 0 }
+  const latestTimestamp = rows.length ? Math.max(...rows.map((row) => dateValue(row.createdAt))) : 0
+  if (!latestTimestamp) return { text: null, confidence: 0 }
+  const targetDay = dayBefore(dayKey(latestTimestamp))
+  if (!targetDay) return { text: null, confidence: 0 }
+  const matching = rows.filter((row) => dayKey(dateValue(row.createdAt)) === targetDay).sort((a, b) => dateValue(b.createdAt) - dateValue(a.createdAt))
+  const row = matching[0]
+  return row ? { text: row.content, confidence: 0.9, sourceRole: row.role as 'user' | 'assistant' } : { text: null, confidence: 0 }
+}
+
 export function resolveConversationReferences(currentMessage: string, rows: readonly PersistedConversationRow[], state?: CeoConversationState): ConversationReference[] {
   const message = normalize(currentMessage)
   if (!REFERENCE_RE.test(message)) return []
-  const anchors = rows.filter((row) => row.role === 'user' || row.role === 'assistant').slice(-14).reverse()
-  const candidates = anchors.map((row, index) => ({ row, score: Math.max(0, 1 - index * 0.06) * (0.55 + overlapScore(message, row.content) * 0.45) }))
-  const strongest = candidates.sort((a, b) => b.score - a.score)[0]
-  const stateAnchor = state?.activeThreads?.[state.activeThreads.length - 1]
+  const ordinal = findOrdinalResolution(message, rows)
+  if (ordinal.text) return [{ phrase: message.match(ORDINAL_RE)?.[0] ?? message, resolvedText: ordinal.text, confidence: ordinal.confidence, sourceRole: ordinal.sourceRole }]
+  const dated = findDateResolution(message, rows)
+  if (dated.text) return [{ phrase: 'yesterday', resolvedText: dated.text, confidence: dated.confidence, sourceRole: dated.sourceRole }]
+  if (/\bcontinue\b/i.test(message) && state?.activeThreads?.length) return [{ phrase: 'continue', resolvedText: state.activeThreads.at(-1) ?? null, confidence: 0.96, sourceRole: 'user' }]
+  const anchors = rows.filter((row) => row.role === 'user' || row.role === 'assistant').slice(-16).reverse()
+  const candidates = anchors.map((row, index) => ({ row, score: Math.max(0, 1 - index * 0.055) * (0.55 + overlapScore(message, row.content) * 0.45) })).sort((a, b) => b.score - a.score)
+  const strongest = candidates[0]
+  const stateAnchor = state?.activeThreads?.at(-1)
   const resolvedText = strongest && strongest.score >= 0.35 ? strongest.row.content : stateAnchor || null
   const confidence = resolvedText ? Math.min(0.98, Math.max(0.35, strongest?.score ?? 0.35)) : 0
   return [{ phrase: message.match(REFERENCE_RE)?.[0] ?? message, resolvedText, confidence, sourceRole: strongest?.row.role as 'user' | 'assistant' | undefined }]
