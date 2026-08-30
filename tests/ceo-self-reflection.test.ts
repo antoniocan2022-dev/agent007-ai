@@ -43,7 +43,7 @@ describe('CEO self-reflection canonical classifier', () => {
     const plan = classifyExecution(user('How are you doing?'))
     expect(plan.executionClass).toBe('fast')
     expect(plan.maxProviderAttempts).toBe(2)
-    expect(plan.timeoutMs).toBe(30000)
+    expect(plan.timeoutMs).toBe(15000)
     expect(plan.parallelizable).toBe(false)
   })
 

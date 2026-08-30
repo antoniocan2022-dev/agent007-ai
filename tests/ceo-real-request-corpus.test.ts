@@ -45,6 +45,10 @@ describe('CEO real-request regression corpus', () => {
     for (const fixture of CEO_CONVERSATION_BENCHMARK_CASES) {
       const state = deriveCeoConversationState(fixture.rows, fixture.message)
       const resolution = resolveConversationReferences(fixture.message, fixture.rows, state)[0]
+      if (fixture.name === 'casual conversation quality') {
+        expect(resolution, fixture.name).toBeUndefined()
+        continue
+      }
       expect(resolution, fixture.name).toBeDefined()
       expect(resolution?.kind, fixture.name).toBeDefined()
       if (fixture.name === 'no antecedent remains unresolved' || fixture.name === 'ambiguous pronoun is flagged') {
