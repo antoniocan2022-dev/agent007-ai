@@ -86,6 +86,21 @@ export interface ContextContinuitySummary {
   understood: boolean
 }
 
+export interface ConversationQualitySummary {
+  score: number
+  continuity: number
+  relevance: number
+  naturalness: number
+  toneAlignment: number
+  coherence: number
+  nonRepetition: number
+  initiative: number
+  referenceResolution: number
+  personalityConsistency: number
+  progression: number
+  issues: string[]
+}
+
 export interface QualityResult {
   decision: QualityDecision
   evidenceState: EvidenceState
@@ -102,6 +117,7 @@ export interface QualityResult {
   evidenceFreshness?: EvidenceFreshness
   claimScopes?: EvidenceScope[]
   contextContinuity?: ContextContinuitySummary
+  conversationQuality?: ConversationQualitySummary
   failureReason?: CeoFailureReason
   failure?: CeoFailure
   reasons: string[]
