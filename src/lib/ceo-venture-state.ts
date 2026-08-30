@@ -20,17 +20,9 @@ export function extractVentureId(objective: string): string | null {
 
 function parseCheckpoint(value: string | null): Record<string, unknown> | null {
   if (!value) return null
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null
-  } catch {
-    return null
-  }
+  try { const parsed = JSON.parse(value) as unknown; return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null } catch { return null }
 }
-
-function normalizeName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
-}
+function normalizeName(value: string): string { return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase() }
 
 async function readCanonicalVentureDecision(venture: Awaited<ReturnType<typeof getVenture>>): Promise<VentureDecisionResult | null> {
   if (!venture) return null
@@ -46,27 +38,18 @@ export async function readCeoVentureState(ventureId: string): Promise<CeoVenture
   if (!/^venture_\d{3}$/.test(normalized)) throw new Error(`Invalid venture identifier: ${ventureId}`)
   const venture = await getVenture(normalized)
   if (!venture) throw new Error(`Venture not found: ${normalized}.`)
-
   const [commercial, kpi, decision, checkpointRow] = await Promise.all([
     getVentureCommercialSnapshot(normalized),
     calculateOperationalKpis(normalized, 24),
     readCanonicalVentureDecision(venture),
     db.memory.findUnique({ where: { key: `venture-os:operation:${normalized}` }, select: { value: true } }),
   ])
-
   return { ventureId: normalized, venture, commercial, kpi, decision, operationCheckpoint: parseCheckpoint(checkpointRow?.value ?? null) }
 }
 
-function money(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(2) : 'unavailable'
-}
-
+function money(value: number): string { return Number.isFinite(value) ? value.toFixed(2) : 'unavailable' }
 export function formatCeoVentureEvidence(state: CeoVentureState): string {
-  const venture = state.venture
-  const commercial = state.commercial
-  const kpi = state.kpi
-  const decision = state.decision
-  const checkpoint = state.operationCheckpoint
+  const venture = state.venture, commercial = state.commercial, kpi = state.kpi, decision = state.decision, checkpoint = state.operationCheckpoint
   return [
     `SOURCE: Agent007 live Venture OS read path; venture=${state.ventureId}; read-only evidence.`,
     `IDENTITY: name=${venture?.name ?? 'unknown'}; status=${venture?.status ?? 'unknown'}; productionState=${venture?.productionState ?? 'unknown'}; owner=${venture?.ownerUserId ?? 'unknown'}.`,
@@ -78,7 +61,18 @@ export function formatCeoVentureEvidence(state: CeoVentureState): string {
   ].join('\n')
 }
 
+const CASUAL_ONLY_RE = /^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect|how\s+(?:are|is)\s+(?:you|everything|things?|agent007|the\s+(?:system|ceo|agent))|how\s+do\s+you\s+do)[\s,!.?]*$/i
+const CONVERSATION_ONLY_RE = /^(?:what'?s\s+new|how'?s\s+it\s+going|what\s+are\s+you\s+up\s+to)[\s,!.?]*$/i
+function isConversationOnlyObjective(objective: string): boolean {
+  const text = objective.trim()
+  if (!text) return false
+  if (extractVentureId(text)) return false
+  if (CASUAL_ONLY_RE.test(text) || CONVERSATION_ONLY_RE.test(text)) return true
+  return !/[?]/.test(text) && /\b(?:thanks|thank\s+you|great|perfect|nice|awesome|sounds\s+good|good\s+job|well\s+done)\b/i.test(text)
+}
+
 export async function getCeoVentureEvidenceForObjective(objective: string): Promise<{ ventureId: string; evidence: string } | null> {
+  if (isConversationOnlyObjective(objective)) return null
   const ventureId = extractVentureId(objective)
   if (!ventureId) return null
   const state = await readCeoVentureState(ventureId)
