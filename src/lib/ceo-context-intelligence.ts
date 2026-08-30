@@ -1,4 +1,5 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
+import { extractEnumeratedItems, resolveOrdinalReference } from './ceo-reference-resolution'
 
 export interface ContextContinuityScore {
   score: number
@@ -42,8 +43,33 @@ function containsAnaphora(value: string): boolean {
   return /\b(?:this|that|these|those|it|they|them|above|previous|prior|same|again|continue|instead|as before|itself|themself)\b/i.test(value)
 }
 
+function containsReferenceSelection(value: string): boolean {
+  return /\b(?:which\s+one|what\s+about\s+(?:the\s+)?(?:one|option|idea|item)|the\s+(?:first|second|third|last|other)\s+(?:one|thing|problem|issue|option|idea))\b/i.test(value)
+}
+
 function recentUserAnchor(prior: readonly PersistedConversationRow[]): string {
-  return [...prior].reverse().find((row) => row.role === 'user')?.content ?? ''
+  return [...prior].reverse().find((message) => message.role === 'user')?.content ?? ''
+}
+
+function substantivePrior(prior: readonly PersistedConversationRow[]): PersistedConversationRow[] {
+  return prior.filter((row) => (row.role === 'user' || row.role === 'assistant') && normalize(row.content).length >= 20)
+}
+
+function semanticReferenceAnchor(currentUserMessage: string, prior: readonly PersistedConversationRow[]): string {
+  const ordinal = resolveOrdinalReference(currentUserMessage, prior)
+  if (ordinal?.resolvedText) return ordinal.resolvedText
+
+  if (containsReferenceSelection(currentUserMessage)) {
+    const listItems = extractEnumeratedItems(prior)
+    if (listItems.length) {
+      const latestListId = listItems.at(-1)?.listId
+      const latestList = listItems.filter((item) => item.listId === latestListId)
+      if (latestList.length) return latestList.map((item) => item.text).join(' | ')
+    }
+    return recentUserAnchor(prior)
+  }
+
+  return containsAnaphora(currentUserMessage) ? recentUserAnchor(prior) : ''
 }
 
 export function scoreContextContinuity(input: {
@@ -56,32 +82,79 @@ export function scoreContextContinuity(input: {
   const currentTokens = tokens(input.currentUserMessage)
   const responseTokens = tokens(input.response)
   const anaphoraDetected = containsAnaphora(input.currentUserMessage)
-  const anchor = anaphoraDetected ? recentUserAnchor(prior) : input.currentUserMessage
+  const referenceSelection = containsReferenceSelection(input.currentUserMessage)
+  const semanticAnchor = semanticReferenceAnchor(input.currentUserMessage, prior)
+  const anchor = semanticAnchor || (anaphoraDetected ? recentUserAnchor(prior) : '')
   const anchorTokens = tokens(anchor)
-  const candidateRows = anaphoraDetected
-    ? prior.slice(-8)
-    : prior.map((row) => ({ row, relevance: overlap(currentTokens, tokens(row.content)) })).filter((entry) => entry.relevance > 0).map((entry) => entry.row).slice(-8)
+
+  const candidateRows = (anaphoraDetected || referenceSelection)
+    ? substantivePrior(prior).slice(-10)
+    : prior
+      .map((row) => ({ row, relevance: overlap(currentTokens, tokens(row.content)) }))
+      .filter((entry) => entry.relevance > 0)
+      .map((entry) => entry.row)
+      .slice(-8)
+
   const relevant = candidateRows.length
     ? candidateRows
-    : (anaphoraDetected && anchor ? [prior.find((row) => row.role === 'user' && normalize(row.content) === normalize(anchor)) ?? prior[prior.length - 1]].filter(Boolean) as PersistedConversationRow[] : [])
+    : ((anaphoraDetected || referenceSelection) && anchor
+      ? [prior.find((row) => normalize(row.content) === normalize(anchor)) ?? prior[prior.length - 1]].filter(Boolean) as PersistedConversationRow[]
+      : [])
 
   if (!relevant.length) {
-    return { score: anaphoraDetected ? 40 : 100, relevantTurnCount: 0, matchedTurnCount: 0, anaphoraDetected, understood: !anaphoraDetected, reasons: [anaphoraDetected ? 'Context-dependent wording was used but no prior conversational anchor was available.' : 'No relevant prior turns were detected; continuity was not materially required.'] }
+    return {
+      score: anaphoraDetected || referenceSelection ? 40 : 100,
+      relevantTurnCount: 0,
+      matchedTurnCount: 0,
+      anaphoraDetected: anaphoraDetected || referenceSelection,
+      understood: !(anaphoraDetected || referenceSelection),
+      reasons: [anaphoraDetected || referenceSelection
+        ? 'Context-dependent wording was used but no prior conversational anchor was available.'
+        : 'No relevant prior turns were detected; continuity was not materially required.'],
+    }
   }
 
-  const historyEvidence = relevant.map((row) => ({ row, relevance: overlap(anchorTokens, tokens(row.content)) })).filter((entry) => entry.relevance > 0)
-  const matched = historyEvidence.filter((entry) => overlap(responseTokens, tokens(entry.row.content)) >= Math.min(2, Math.max(1, Math.min(3, entry.relevance)))).length
-  const anchorCoverage = anaphoraDetected && anchorTokens.size ? Math.min(1, overlap(anchorTokens, responseTokens) / Math.max(1, Math.min(6, anchorTokens.size))) : 0
+  const referenceTokens = tokens(anchor)
+  const historyEvidence = relevant
+    .map((row) => ({ row, relevance: overlap(referenceTokens, tokens(row.content)) }))
+    .filter((entry) => entry.relevance > 0)
+
+  const semanticTargetTokens = referenceSelection && anchorTokens.size ? anchorTokens : referenceTokens
+  const matched = historyEvidence.filter((entry) => {
+    const historicalTokens = tokens(entry.row.content)
+    const responseToHistory = overlap(responseTokens, historicalTokens)
+    const responseToTarget = semanticTargetTokens.size ? overlap(responseTokens, semanticTargetTokens) : 0
+    return responseToHistory >= 1 || responseToTarget >= Math.min(3, Math.max(1, Math.ceil(semanticTargetTokens.size * 0.18)))
+  }).length
+
+  const anchorCoverage = anchorTokens.size
+    ? Math.min(1, overlap(anchorTokens, responseTokens) / Math.max(1, Math.min(8, anchorTokens.size)))
+    : 0
   const historyCoverage = historyEvidence.length ? matched / historyEvidence.length : 0
-  const recencyWeight = anaphoraDetected && matched > 0 ? 0.15 : 0
-  const anchorWeight = anaphoraDetected ? 0.45 : 0
-  const historyWeight = anaphoraDetected ? 0.4 : 0.85
-  const score = Math.round(Math.max(0, Math.min(100, (anchorCoverage * anchorWeight + historyCoverage * historyWeight + recencyWeight) * 100)))
+  const contextualWeight = (anaphoraDetected || referenceSelection) ? 0.35 : 0.15
+  const historyWeight = 1 - contextualWeight
+  const score = Math.round(Math.max(0, Math.min(100, (
+    historyCoverage * historyWeight +
+    anchorCoverage * contextualWeight
+  ) * 100)))
+
   const reasons: string[] = []
   if (matched > 0) reasons.push('The response is grounded in relevant prior conversational context.')
   else reasons.push('The response did not demonstrate sufficient grounding in the relevant prior context.')
-  if (anaphoraDetected) reasons.push(matched > 0 ? 'Context-dependent wording was resolved against a prior conversational anchor.' : 'Context-dependent wording was present but not adequately grounded.')
-  return { score, relevantTurnCount: relevant.length, matchedTurnCount: matched, anaphoraDetected, understood: score >= 60, reasons }
+  if (anaphoraDetected || referenceSelection) {
+    reasons.push(matched > 0
+      ? 'Context-dependent wording was evaluated against the resolved conversational anchor.'
+      : 'Context-dependent wording was present but was not adequately grounded.')
+  }
+
+  return {
+    score,
+    relevantTurnCount: relevant.length,
+    matchedTurnCount: matched,
+    anaphoraDetected: anaphoraDetected || referenceSelection,
+    understood: score >= 60,
+    reasons,
+  }
 }
 
 function sentenceClaims(content: string): string[] {
