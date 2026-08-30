@@ -3,7 +3,7 @@ import { composeCeoContext } from '@/lib/ceo-context-composer'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
-import { getProviderTaskPolicy, validateProviderPriority } from '@/lib/provider-intelligence-policy'
+import { CEO_CONVERSATION_PROVIDER_PRIORITY, getProviderTaskPolicy, validateProviderPriority } from '@/lib/provider-intelligence-policy'
 
 function row(role: 'user' | 'assistant', content: string, createdAt: number) { return { role, content, createdAt } }
 
@@ -46,6 +46,17 @@ describe('CEO conversational intelligence', () => {
     expect(composition.messages.some((message) => message.content.includes('Answer the user naturally first'))).toBe(true)
   })
 
+  test('ordinary conversation stays on the conversation route without evidence or tools', () => {
+    const decision = preRouteCeoRequest([
+      { role: 'user', content: 'Hi, how do you do?' },
+    ])
+    expect(decision.executionContract.intent).toBe('conversation')
+    expect(decision.executionContract.evidenceClass).toBe('none')
+    expect(decision.executionContract.toolRequired).toBe(false)
+    expect(decision.executionContract.subagentsRequired).toBe(false)
+    expect(decision.executionContract.executionRequirement).toBe('llm_only')
+  })
+
   test('ordinary conversation is isolated from evidence requirements and metadata', () => {
     const quality = evaluateCeoQuality({
       objective: 'Hi, how do you do?',
@@ -75,10 +86,10 @@ describe('CEO conversational intelligence', () => {
     expect(quality.reasons.some((reason) => reason.includes('Conversation quality'))).toBe(true)
   })
 
-  test('provider policy is duplicate-free and quality-first for reasoning', () => {
+  test('provider policy remains canonical while CEO uses an explicit quality-first preference', () => {
     expect(validateProviderPriority()).toEqual([])
-    expect(getProviderTaskPolicy('reasoning').providerOrder[0]).toBe('cloudflare')
-    expect(getProviderTaskPolicy('research').providerOrder[0]).toBe('cloudflare')
+    expect(CEO_CONVERSATION_PROVIDER_PRIORITY[0]).toBe('cloudflare')
+    expect(getProviderTaskPolicy('reasoning').providerOrder).toEqual(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
   })
 
   test('context expands safely for long conversations while keeping current turn singular', () => {
