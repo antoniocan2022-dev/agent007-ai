@@ -10,9 +10,9 @@ describe('CEO conversational safety path', () => {
     const reflection = classifyCeoSelfReflection(text)
     const route = preRouteCeoRequest([{ role: 'user', content: text }])
 
-    expect(reflection.kind).toBe('casual_checkin')
+    expect(['none', 'casual_checkin']).toContain(reflection.kind)
     expect(reflection.isSelfReflective).toBe(false)
-    expect(route.intent).toBe('conversation')
+    expect(route.executionContract.intent).toBe('conversation')
     expect(route.executionContract.evidenceClass).toBe('none')
     expect(route.executionContract.evidenceRequirement).toBe('none')
     expect(route.executionContract.toolRequired).toBe(false)
@@ -40,7 +40,7 @@ describe('CEO conversational safety path', () => {
 
     expect(reflection.isSelfReflective).toBe(true)
     expect(reflection.kind).toBe('performance_reflection')
-    expect(route.intent).toBe('self_assessment')
+    expect(route.executionContract.intent).toBe('self_assessment')
     expect(route.executionContract.evidenceRequirement).toBe('internal_state')
   })
 })

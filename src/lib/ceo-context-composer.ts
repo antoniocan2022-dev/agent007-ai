@@ -177,7 +177,7 @@ export function composeCeoContext(input: {
   const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: `${input.systemPrompt}\n\n${buildCeoPersonalityContract()}` }]
   const modules: CeoContextModuleName[] = ['conversation', 'conversation_state']
 
-  messages.push({ role: 'system', content: buildConversationStatePrompt(conversationState, references) })
+  messages.push({ role: 'system', content: buildCeoConversationStatePrompt(conversationState, references) })
   if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); modules.push('organization') }
   if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); modules.push('mission') }
   if (input.modules?.evidence?.trim()) { messages.push({ role: 'system', content: `EVIDENCE CONTEXT (separate from conversation; provenance required):\n${input.modules.evidence.trim()}` }); modules.push('evidence') }

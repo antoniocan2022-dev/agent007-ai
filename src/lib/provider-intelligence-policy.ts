@@ -1,4 +1,5 @@
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
+import type { ActiveProviderId } from './provider-control-plane'
 
 /**
  * Authoritative Agent007 provider policy.
@@ -6,8 +7,8 @@ import type { ProviderId, TaskType, VerificationTier } from './subagent-governan
  * conversation/reasoning can use the quality-first preference below without
  * changing the platform-wide provider contract.
  */
-export const PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
-export const CEO_CONVERSATION_PROVIDER_PRIORITY: readonly ProviderId[] = ['cloudflare', 'mistral', 'groq', 'cerebras', 'openrouter'] as const
+export const PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
+export const CEO_CONVERSATION_PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['cloudflare', 'mistral', 'groq', 'cerebras', 'openrouter'] as const
 
 const STRICT_TASKS = new Set<TaskType>(['financial', 'security'])
 const ENHANCED_TASKS = new Set<TaskType>(['research', 'reasoning', 'coding', 'analysis', 'operations'])
