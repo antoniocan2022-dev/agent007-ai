@@ -30,8 +30,11 @@ function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
   return overrides[request.executionClass]
 }
 export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<CanonicalLlmResult> {
-  const adaptivePlan = explicitPlan(request); const taskType = request.taskType ?? inferTaskType(request.messages); const policy = getProviderTaskPolicy(taskType, request.verification)
-  const providerOrder = request.providerOrder ?? (request.executionClass === 'fast' && (taskType === 'reasoning' || taskType === 'general') ? CEO_CONVERSATION_PROVIDER_PRIORITY : policy.providerOrder)
+  const adaptivePlan = explicitPlan(request)
+  const taskType = request.taskType ?? inferTaskType(request.messages)
+  const policy = getProviderTaskPolicy(taskType, request.verification)
+  const safePolicyOrder = policy.providerOrder.filter((provider): provider is ActiveProviderId => provider !== 'openai')
+  const providerOrder = request.providerOrder ?? (request.executionClass === 'fast' && (taskType === 'reasoning' || taskType === 'general') ? CEO_CONVERSATION_PROVIDER_PRIORITY : safePolicyOrder)
   const result = await runGovernedProviderChat({ messages: request.messages, taskType, verification: request.verification, model: request.model, temperature: request.temperature ?? (request.thinking === false ? 0.2 : 0.35), maxTokens: request.maxTokens ?? adaptivePlan.maxTokens, timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs, maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts, outcomeEvidence: request.outcomeEvidence, excludeProviders: request.excludeProviders, providerOrder })
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
