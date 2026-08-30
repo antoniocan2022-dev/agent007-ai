@@ -22,7 +22,7 @@ function capabilityForFailure(reason: CeoFailureReason): DegradedResponse['recov
   if (reason.startsWith('provider_') || reason === 'execution_timeout' || reason === 'quality_failure' || reason === 'claim_consistency_failure') return 'reasoning'
   if (reason.startsWith('evidence_')) return 'evidence'
   if (reason.startsWith('tool_')) return 'tool'
-  if (reason === 'context_unavailable') return 'context'
+  if (reason === 'context_unavailable' || reason === 'continuity_failure') return 'context'
   if (reason === 'production_verification_failure') return 'production'
   if (reason === 'mission_failure') return 'mission'
   return 'conversation'
