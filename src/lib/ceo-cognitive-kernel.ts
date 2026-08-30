@@ -22,7 +22,7 @@ export function buildCeoDecisionPlan(input: {
   const selfAssessment = contract.intent === 'self_assessment'
   const critical = !selfAssessment && (missionRelevant || taskClass === 'financial' || taskClass === 'security')
   const preRouteFloor = input.preRoute.route === 'fast' ? 'fast' : 'full'
-  const deep = !selfAssessment && (critical || preRouteFloor === 'full' || input.preRoute.complexitySignals > 0 || adaptiveClass === 'deep' || missionRelevant)
+  const deep = !selfAssessment && (critical || preRouteFloor === 'full' || adaptiveClass === 'deep' || missionRelevant)
   const path = selfAssessment ? 'fast' : critical ? 'critical' : deep ? 'full' : 'fast'
   const reasoningStrategy = selfAssessment ? 'direct' : critical ? 'independent_review' : deep ? 'multi_pass' : 'direct'
   const cognitiveDepth = selfAssessment ? 0 : critical ? 4 : deep ? 2 : 0
