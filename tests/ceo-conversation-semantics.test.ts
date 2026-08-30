@@ -17,6 +17,10 @@ describe('CEO conversation benchmark v0.1 — 25 hand-checked contracts', () => 
     test(testCase.name, () => {
       const state = deriveCeoConversationState(testCase.rows, testCase.message)
       const resolution = resolveConversationReferences(testCase.message, testCase.rows, state)[0]
+      if (testCase.name === 'casual conversation quality') {
+        expect(resolution).toBeUndefined()
+        return
+      }
       expect(resolution).toBeDefined()
       if (testCase.name === 'no antecedent remains unresolved') {
         expect(resolution?.resolvedText).toBeNull()

@@ -46,26 +46,43 @@ function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewer
   return 'active'
 }
 function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now()): ConversationThreadRecord[] {
-  const users = rows.filter((row) => row.role === 'user' && row.content.trim().length > 24)
+  const users = rows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
   const threads: ConversationThreadRecord[] = []
+  const mergeInto = (thread: ConversationThreadRecord, content: string, topicTokens: string[], row: PersistedConversationRow) => {
+    thread.currentObjective = content
+    thread.topic = [...new Set([...tokens(thread.topic), ...topicTokens])].slice(0, 6).join(', ')
+    thread.entities = [...new Set([...thread.entities, ...(content.match(ENTITY_RE) ?? [])])].slice(-12)
+    if (QUESTION_RE.test(content)) thread.unresolvedQuestions = uniqueRecent([...thread.unresolvedQuestions, content], 4)
+    if (DECISION_RE.test(content)) thread.decisions = uniqueRecent([...thread.decisions, content], 4)
+    thread.lastTouchedAt = timestamp(row.createdAt)
+    thread.status = threadStatus(content, now, thread.lastTouchedAt, false)
+  }
   for (const row of users.slice(-24)) {
     const content = normalize(row.content)
     const topicTokens = tokens(content).slice(0, 8)
-    const candidate = [...threads].reverse().find((thread) => overlap(thread.currentObjective, content) >= 0.25 && thread.status !== 'resolved' && thread.status !== 'abandoned')
-    if (candidate) {
-      candidate.currentObjective = content
-      candidate.topic = [...new Set([...tokens(candidate.topic), ...topicTokens])].slice(0, 6).join(', ')
-      candidate.entities = [...new Set([...candidate.entities, ...(content.match(ENTITY_RE) ?? [])])].slice(-12)
-      if (QUESTION_RE.test(content)) candidate.unresolvedQuestions = uniqueRecent([...candidate.unresolvedQuestions, content], 4)
-      if (DECISION_RE.test(content)) candidate.decisions = uniqueRecent([...candidate.decisions, content], 4)
-      candidate.lastTouchedAt = timestamp(row.createdAt)
-      candidate.status = threadStatus(content, now, candidate.lastTouchedAt, SUPERSESSION_RE.test(content))
+    const supersedes = SUPERSESSION_RE.test(content)
+    const lexicalMatch = [...threads].reverse().find((thread) => overlap(thread.currentObjective, content) >= 0.25 && thread.status !== 'resolved' && thread.status !== 'abandoned')
+    const currentActive = threads.find((thread) => thread.status === 'active')
+    if (!supersedes && lexicalMatch) {
+      mergeInto(lexicalMatch, content, topicTokens, row)
+    } else if (!supersedes && currentActive && currentActive.status !== 'resolved' && currentActive.status !== 'abandoned') {
+      // Default to continuing the current active thread: natural follow-ups (short replies,
+      // pronouns, "the second one") rarely repeat the vocabulary that started the thread --
+      // that is precisely the discourse gap reference resolution exists to bridge, so requiring
+      // lexical overlap here would fragment a single continuous conversation into unrelated threads.
+      mergeInto(currentActive, content, topicTokens, row)
     } else {
-      const earlierActive = threads.find((thread) => thread.status === 'active')
-      if (earlierActive && overlap(earlierActive.currentObjective, content) < 0.12) earlierActive.status = 'paused'
+      if (currentActive) currentActive.status = supersedes ? 'superseded' : 'paused'
       const id = `conversation-thread-${threads.length + 1}`
-      threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: threadStatus(content, now, timestamp(row.createdAt), false) })
+      const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
+      threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
     }
+  }
+  const assistantRows = rows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
+  const mostRecentAssistantReply = assistantRows.at(-1)?.content
+  for (const thread of threads) {
+    const reply = assistantRows.find((entry) => entry.at > thread.lastTouchedAt)?.content ?? (thread.status === 'active' ? mostRecentAssistantReply : undefined)
+    if (reply) thread.lastAssistantReply = reply
   }
   const newestTimestamp = Math.max(0, ...threads.map((thread) => thread.lastTouchedAt))
   for (const thread of threads) if (thread.status === 'active' && newestTimestamp - thread.lastTouchedAt > 1000 * 60 * 60 * 24 * 2) thread.status = 'paused'
