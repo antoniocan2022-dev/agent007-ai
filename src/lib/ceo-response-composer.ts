@@ -12,16 +12,17 @@ export function composeCeoResponse(input: {
 
   const naturalConversation = Boolean(
     input.conversational
+    || input.quality.conversationQuality
     || (input.evidenceState === 'NOT_APPLICABLE' && input.quality.verificationStatus === 'NOT_REQUIRED'),
   )
 
-  // Conversational replies stay conversational. Internal evidence and quality
-  // state are machine metadata, not user-facing dialogue.
+  // Conversation is a user-facing dialogue surface, not an observability dump.
+  // Evidence, routing, and quality metadata remain available in the SSE answer
+  // envelope but never leak into ordinary conversational text.
   if (naturalConversation) return content
 
-  // Live provider execution can be successful without independent evidence
-  // verification. Surface the evidence state only when it materially explains
-  // a non-conversational result.
+  // Non-conversational degraded/cached/partial results may surface their state
+  // because that state can materially change how the user should interpret the answer.
   if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return content
 
   const evidenceLabel = `Evidence state: ${input.evidenceState}.`
