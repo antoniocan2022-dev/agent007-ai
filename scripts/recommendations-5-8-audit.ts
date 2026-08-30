@@ -26,7 +26,7 @@ requireText('tests/ceo-evidence-golden.test.ts','S1-PLACEHOLDER','Golden corpus 
 requireText('tests/ceo-evidence-golden.test.ts','250 million dollars','Golden corpus lacks quantitative mismatch coverage.')
 requireText('.github/workflows/autonomy-ci.yml','CEO external evidence golden corpus','Stage 8 golden corpus is not mandatory in CI.')
 requireText('.github/workflows/autonomy-ci.yml','Assert exact SHA and generate certification manifest','CI certification lacks exact-SHA verification.')
-requireText('.github/workflows/autonomy-ci.yml','MANUAL_AUTHORIZATION_REQUIRED','Deployment authorization boundary is missing.')
+requireText('.github/workflows/production-release-watchdog.yml','DEPLOY_AGENT007_MAIN','Deployment authorization boundary is missing.')
 
 const qualityGate = read('src/lib/ceo-response-quality-gate.ts')
 if (/const LIVE_ASSERTION_RE = [^\n]*latest/i.test(qualityGate)) failures.push('"latest" incorrectly promotes an answer into live-system scope.')
