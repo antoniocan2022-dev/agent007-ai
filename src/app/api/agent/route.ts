@@ -34,7 +34,7 @@ function sse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
-async function loadConversationContext(conversationId: string, currentUserMessage: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
+async function loadConversationContext(conversationId: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
   try {
     const conversation = await db.conversation.findFirst({
       where: { id: conversationId, userId },
@@ -42,11 +42,10 @@ async function loadConversationContext(conversationId: string, currentUserMessag
     })
     const memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
     const rows = (conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))
-    if (!rows.length) rows.push({ role: 'user', content: currentUserMessage, createdAt: new Date() })
     return { rows, memories }
   } catch (error) {
     console.warn('[api/agent] Conversation context load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
-    return { rows: [{ role: 'user', content: currentUserMessage, createdAt: new Date() }], memories: [] }
+    return { rows: [], memories: [] }
   }
 }
 
@@ -71,17 +70,18 @@ export async function POST(req: NextRequest) {
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
   const deploymentIdentity = getDeploymentIdentity()
 
+  let contextData: { rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId }, select: { id: true, userId: true } })
     if (conv && conv.userId !== sessionUserId) return new Response(JSON.stringify({ error: 'Conversation not found.' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
     if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50), userId: sessionUserId }, select: { id: true, userId: true } })
+    contextData = await loadConversationContext(conversationId, sessionUserId)
     await db.message.create({ data: { conversationId: conv.id, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null } })
   } catch (dbErr: any) {
     console.warn('[api/agent] Pre-stream DB persistence failed:', dbErr?.message?.slice(0, 150))
     return new Response(JSON.stringify({ error: 'Unable to persist the conversation securely.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
   }
 
-  const contextData = await loadConversationContext(conversationId, message, sessionUserId)
   const contextSeed: CeoContextComposition = composeCeoContext({
     systemPrompt: buildSystemPrompt(),
     currentUserMessage: message,
