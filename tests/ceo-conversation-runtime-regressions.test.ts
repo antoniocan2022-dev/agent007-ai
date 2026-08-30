@@ -17,7 +17,35 @@ const PRIORITIES: Row[] = [
   },
 ]
 
+const FIRST_TURN_OBJECTIVE = 'I think there are three priorities: better memory, better reference resolution, and better response quality.'
+const FIRST_TURN_RESPONSE = 'Those are the right pillars. Memory gives the CEO continuity, reference resolution lets it understand what you mean across turns, and response quality determines whether that understanding becomes useful conversation. I would treat them as one connected system rather than three isolated features.'
+
 describe('CEO production conversational regressions', () => {
+  test('first-turn conversational bootstrap is not penalized for having no prior continuity', () => {
+    const result = scoreCeoConversationQuality({
+      objective: FIRST_TURN_OBJECTIVE,
+      content: FIRST_TURN_RESPONSE,
+      priorTurns: [],
+    })
+    expect(result.continuity).toBe(100)
+    expect(result.score).toBeGreaterThanOrEqual(78)
+    expect(result.issues.some((issue) => issue.includes('continuity is weak'))).toBe(false)
+  })
+
+  test('exact production-style first-turn statement passes the CEO quality gate', () => {
+    const result = evaluateCeoQuality({
+      objective: FIRST_TURN_OBJECTIVE,
+      content: FIRST_TURN_RESPONSE,
+      path: 'fast',
+      intent: 'conversation',
+      priorTurns: [],
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).toBe('PASS')
+    expect(result.evidenceState).toBe('NOT_APPLICABLE')
+    expect(result.checks.internalConsistency).toBe(true)
+  })
+
   test('which-one question is judged against prior conversation rather than question-word echo', () => {
     const result = scoreContextContinuity({
       currentUserMessage: 'Which one would you prioritize first, and why?',
