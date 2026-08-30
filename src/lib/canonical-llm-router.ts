@@ -1,11 +1,11 @@
-import { getProviderTaskPolicy, type ProviderTaskPolicy } from './provider-intelligence-policy'
+import { getProviderTaskPolicy, CEO_CONVERSATION_PROVIDER_PRIORITY, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, runGovernedProviderChat, type ProviderRuntimeOutcomeEvidence, type ActiveProviderId } from './provider-runtime-v2'
 import { getHealthScore, isCircuitOpen } from './provider-intelligence'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import { classifyExecution, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
 
 export type ProviderId = ActiveProviderId
-export type CanonicalLlmRequest = { messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]; taskType?: TaskType; verification?: VerificationTier; thinking?: boolean; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; executionClass?: ExecutionClass; excludeProviders?: readonly ActiveProviderId[] }
+export type CanonicalLlmRequest = { messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]; taskType?: TaskType; verification?: VerificationTier; thinking?: boolean; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; executionClass?: ExecutionClass; excludeProviders?: readonly ActiveProviderId[]; providerOrder?: readonly ActiveProviderId[] }
 export type CanonicalLlmResult = { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number; policy: ProviderTaskPolicy; executionClass: ExecutionClass; adaptivePlan: AdaptiveExecutionPlan }
 export type ParallelCanonicalResult = { index: number; result?: CanonicalLlmResult; error?: unknown }
 
@@ -31,7 +31,8 @@ function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
 }
 export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<CanonicalLlmResult> {
   const adaptivePlan = explicitPlan(request); const taskType = request.taskType ?? inferTaskType(request.messages); const policy = getProviderTaskPolicy(taskType, request.verification)
-  const result = await runGovernedProviderChat({ messages: request.messages, taskType, verification: request.verification, model: request.model, temperature: request.temperature ?? (request.thinking === false ? 0.2 : 0.35), maxTokens: request.maxTokens ?? adaptivePlan.maxTokens, timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs, maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts, outcomeEvidence: request.outcomeEvidence, excludeProviders: request.excludeProviders })
+  const providerOrder = request.providerOrder ?? (request.executionClass === 'fast' && (taskType === 'reasoning' || taskType === 'general') ? CEO_CONVERSATION_PROVIDER_PRIORITY : policy.providerOrder)
+  const result = await runGovernedProviderChat({ messages: request.messages, taskType, verification: request.verification, model: request.model, temperature: request.temperature ?? (request.thinking === false ? 0.2 : 0.35), maxTokens: request.maxTokens ?? adaptivePlan.maxTokens, timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs, maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts, outcomeEvidence: request.outcomeEvidence, excludeProviders: request.excludeProviders, providerOrder })
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
 export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmRequest[], concurrency = 4): Promise<ParallelCanonicalResult[]> {
