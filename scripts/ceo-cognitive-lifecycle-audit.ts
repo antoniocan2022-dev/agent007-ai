@@ -98,14 +98,20 @@ const cases = [
 ] as const
 for (const [text, expectedKind] of cases) {
   const classification = classifyCeoSelfReflection(text)
-  if (!classification.isSelfReflective || classification.kind !== expectedKind) {
+  const expectedSelfReflective = expectedKind !== 'casual_checkin'
+  if (classification.isSelfReflective !== expectedSelfReflective || classification.kind !== expectedKind) {
     violations.push(`Self-reflection classifier failed for ${JSON.stringify(text)}: expected ${expectedKind}`)
   }
 
   const decision = preRouteCeoRequest([{ role: 'user', content: text }])
-  if (decision.executionContract.intent !== 'self_assessment') violations.push(`Pre-router did not preserve self_assessment for ${JSON.stringify(text)}`)
+  if (expectedSelfReflective) {
+    if (decision.executionContract.intent !== 'self_assessment') violations.push(`Pre-router did not preserve self_assessment for ${JSON.stringify(text)}`)
+    if (decision.executionContract.latencyBudgetMs !== 30000) violations.push(`Self-assessment budget changed for ${JSON.stringify(text)}`)
+  } else {
+    if (decision.executionContract.intent !== 'conversation') violations.push(`Casual check-in did not remain on the conversation intent for ${JSON.stringify(text)}`)
+    if (decision.executionContract.latencyBudgetMs !== 15000) violations.push(`Casual check-in did not remain on the standard fast-path budget for ${JSON.stringify(text)}`)
+  }
   if (decision.route !== 'fast') violations.push(`Self-assessment did not remain on fast lane for ${JSON.stringify(text)}`)
-  if (decision.executionContract.latencyBudgetMs !== 30000) violations.push(`Self-assessment budget changed for ${JSON.stringify(text)}`)
 }
 
 const negativeOperational = [
