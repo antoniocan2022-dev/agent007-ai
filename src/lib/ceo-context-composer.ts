@@ -1,7 +1,8 @@
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
+import { buildCeoConversationStatePrompt, buildCeoPersonalityContract, deriveCeoConversationState, resolveConversationReferences, type CeoConversationState } from './ceo-conversation-state'
 
 export type CeoContextRole = 'system' | 'user' | 'assistant'
-export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation'
+export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation' | 'conversation_state'
 
 export interface PersistedConversationRow {
   role: string
@@ -23,6 +24,8 @@ export interface CeoContextComposition {
   summarizedOlderMessages: number
   selectedMemoryKeys: string[]
   modules: CeoContextModuleName[]
+  conversationState: CeoConversationState
+  resolvedReferences: string[]
 }
 
 export interface CeoContextModules {
@@ -69,10 +72,10 @@ const STOPWORDS = new Set([
   'doesnt', 'dont', 'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want',
 ])
 
-const DEFAULT_RECENT_MESSAGES = 12
-const DEFAULT_RELEVANT_OLDER_MESSAGES = 6
-const DEFAULT_SUMMARY_MESSAGES = 8
-const DEFAULT_MEMORY_ITEMS = 4
+const DEFAULT_RECENT_MESSAGES = 16
+const DEFAULT_RELEVANT_OLDER_MESSAGES = 8
+const DEFAULT_SUMMARY_MESSAGES = 10
+const DEFAULT_MEMORY_ITEMS = 6
 const MAX_CONTEXT_CHARS = 48_000
 const MAX_MESSAGE_CHARS = 12_000
 
@@ -104,7 +107,7 @@ function uniqueRows(rows: PersistedConversationRow[]): PersistedConversationRow[
 }
 function summarizeOlder(rows: PersistedConversationRow[]): string {
   if (!rows.length) return ''
-  const lines = rows.slice(-DEFAULT_SUMMARY_MESSAGES).map((row) => `- ${row.role === 'assistant' ? 'CEO' : 'User'}: ${clampMessage(row.content).slice(0, 220)}`)
+  const lines = rows.slice(-DEFAULT_SUMMARY_MESSAGES).map((row) => `- ${row.role === 'assistant' ? 'CEO' : 'User'}: ${clampMessage(row.content).slice(0, 280)}`)
   return `OLDER CONVERSATION SUMMARY (compressed, context only; not evidence):\n${lines.join('\n')}`
 }
 function rankMemories(memories: PersistedMemoryRow[], queryTokens: Set<string>): PersistedMemoryRow[] {
@@ -164,20 +167,23 @@ export function composeCeoContext(input: {
   recentMessageLimit?: number
   relevantOlderLimit?: number
 }): CeoContextComposition {
-  const recentLimit = Math.max(2, Math.min(input.recentMessageLimit ?? DEFAULT_RECENT_MESSAGES, 20))
-  const relevantOlderLimit = Math.max(0, Math.min(input.relevantOlderLimit ?? DEFAULT_RELEVANT_OLDER_MESSAGES, 10))
+  const recentLimit = Math.max(4, Math.min(input.recentMessageLimit ?? DEFAULT_RECENT_MESSAGES, 24))
+  const relevantOlderLimit = Math.max(0, Math.min(input.relevantOlderLimit ?? DEFAULT_RELEVANT_OLDER_MESSAGES, 12))
   const conversation = buildConversationModule({ currentUserMessage: input.currentUserMessage, persistedMessages: input.persistedMessages, recentMessageLimit: recentLimit, relevantOlderLimit })
-  const queryTokens = tokenize([input.currentUserMessage, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content)].join(' '))
+  const conversationState = deriveCeoConversationState(input.persistedMessages, input.currentUserMessage)
+  const references = resolveConversationReferences(input.currentUserMessage, input.persistedMessages, conversationState)
+  const queryTokens = tokenize([input.currentUserMessage, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content), conversationState.topic, ...conversationState.entities].join(' '))
   const selectedMemories = rankMemories(input.memories ? [...input.memories] : [], queryTokens)
-  const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: input.systemPrompt }]
-  const modules: CeoContextModuleName[] = ['conversation']
+  const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: `${input.systemPrompt}\n\n${buildCeoPersonalityContract()}` }]
+  const modules: CeoContextModuleName[] = ['conversation', 'conversation_state']
 
+  messages.push({ role: 'system', content: buildConversationStatePrompt(conversationState, references) })
   if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); modules.push('organization') }
   if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); modules.push('mission') }
   if (input.modules?.evidence?.trim()) { messages.push({ role: 'system', content: `EVIDENCE CONTEXT (separate from conversation; provenance required):\n${input.modules.evidence.trim()}` }); modules.push('evidence') }
   if (input.modules?.execution?.trim()) { messages.push({ role: 'system', content: `EXECUTION CONTEXT (internal execution result; do not treat as external evidence):\n${input.modules.execution.trim()}` }); modules.push('execution') }
   if (selectedMemories.length || input.modules?.memory?.trim()) {
-    const selectedMemoryText = selectedMemories.map((memory) => `- ${memory.key} [${memory.category}]: ${clampMessage(memory.value).slice(0, 1000)}`).join('\n')
+    const selectedMemoryText = selectedMemories.map((memory) => `- ${memory.key} [${memory.category}]: ${clampMessage(memory.value).slice(0, 1200)}`).join('\n')
     const suppliedMemory = input.modules?.memory?.trim() ? `\n${input.modules.memory.trim()}` : ''
     messages.push({ role: 'system', content: `SELECTED MEMORY (context only; not factual proof):${selectedMemoryText ? `\n${selectedMemoryText}` : ''}${suppliedMemory}` })
     modules.push('memory')
@@ -190,7 +196,7 @@ export function composeCeoContext(input: {
     for (let index = 1; index < currentIndex && total > MAX_CONTEXT_CHARS; index += 1) {
       const message = messages[index]
       if (message && (message.role === 'assistant' || message.role === 'user')) {
-        const reduced = message.content.slice(0, Math.max(200, Math.floor(message.content.length * 0.55)))
+        const reduced = message.content.slice(0, Math.max(400, Math.floor(message.content.length * 0.62)))
         total -= message.content.length - reduced.length
         message.content = reduced
       }
@@ -204,5 +210,7 @@ export function composeCeoContext(input: {
     summarizedOlderMessages: conversation.summarizedCount,
     selectedMemoryKeys: selectedMemories.map((memory) => memory.key),
     modules,
+    conversationState,
+    resolvedReferences: references.filter((reference) => reference.resolvedText).map((reference) => `${reference.phrase} → ${reference.resolvedText}`),
   }
 }
