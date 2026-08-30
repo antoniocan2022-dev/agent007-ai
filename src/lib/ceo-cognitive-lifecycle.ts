@@ -81,6 +81,8 @@ function logCeoDegradedTrace(context: {
   qualityChecks?: Record<string, boolean>
   qualityReasons?: string[]
   conversationQuality?: unknown
+  priorTurns?: readonly PersistedConversationRow[]
+  relevantOlderMessages?: readonly PersistedConversationRow[]
 }): void {
   console.log('[ceo-degraded-trace]', JSON.stringify({
     objective: context.objective.slice(0, 200),
@@ -94,6 +96,9 @@ function logCeoDegradedTrace(context: {
     qualityChecks: context.qualityChecks,
     qualityReasons: context.qualityReasons,
     conversationQuality: context.conversationQuality,
+    priorTurnCount: context.priorTurns?.length ?? 0,
+    priorTurnsSummary: context.priorTurns?.slice(-4).map((row) => ({ role: row.role, length: row.content.length, snippet: row.content.slice(0, 120) })),
+    relevantOlderMessageCount: context.relevantOlderMessages?.length ?? 0,
   }))
 }
 
@@ -189,7 +194,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     }
     const result = final ?? primary
     if (!result) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: 'Provider execution exhausted before a final answer was available.', failureReason: 'provider_unavailable', attempts: mergeAttempts(primary, review, final), rawContent: output?.content }); return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable') }
-    if (quality.decision !== 'PASS') { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, failureReason: quality.failureReason, attempts: mergeAttempts(primary, review, final), rawContent: result.content, qualityChecks: quality.checks, qualityReasons: quality.reasons, conversationQuality: (quality as { conversationQuality?: unknown }).conversationQuality }); return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason) }
+    if (quality.decision !== 'PASS') { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, failureReason: quality.failureReason, attempts: mergeAttempts(primary, review, final), rawContent: result.content, qualityChecks: quality.checks, qualityReasons: quality.reasons, conversationQuality: (quality as { conversationQuality?: unknown }).conversationQuality, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation }); return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason) }
     const evidenceState: EvidenceState = quality.evidenceState
     console.log('[ceo-runtime-trace]', JSON.stringify({ intent: decisionPlan.executionContract.intent, path: decisionPlan.path, provider: result.provider, model: result.model, contentLength: result.content.length, qualityDecision: quality.decision, evidenceState, responseMs: Date.now() - startedAt, degraded: false }))
     return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false, failureReason: quality.failureReason }
