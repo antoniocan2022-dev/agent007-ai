@@ -116,7 +116,7 @@ async function tryDegraded(
   if (availability) {
     try {
       const recovery = await runCanonicalLlm({ messages: request.messages, taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? (decisionPlan.taskClass ?? 'reasoning')), verification: request.verification ?? 'standard', model: availability.model, temperature: request.temperature ?? 0.2, maxTokens: request.maxTokens ?? 4000, timeoutMs: Math.max(1000, Math.min(30000, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - (Date.now() - started))), maxProviderAttempts: 1, excludeProviders: PROVIDER_ORDER.filter((provider) => provider !== availability!.provider) })
-      const recoveryQuality = evaluateCeoQuality({ objective: objectiveFrom(request.messages), content: recovery.content, path: decisionPlan.path, reviewed: false, externalExecutionSucceeded: true, evidenceProvided: Boolean(request.contextualEvidence?.trim()), evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
+      const recoveryQuality = evaluateCeoQuality({ objective: objectiveFrom(request.messages), content: recovery.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: false, externalExecutionSucceeded: true, evidenceProvided: Boolean(request.contextualEvidence?.trim()), evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
       const mergedAttempts = [...new Set([...attempts, availability.provider, ...recovery.attempts])]
       if (recovery.content.trim() && recoveryQuality.decision === 'PASS') {
         return { content: composeCeoResponse({ content: recovery.content, evidenceState: recoveryQuality.evidenceState, quality: recoveryQuality, degraded: false }), provider: recovery.provider, model: recovery.model, responseMs: responseMsBeforeDegraded + (Date.now() - started), attempts: mergedAttempts, executionPlan, decisionPlan, quality: recoveryQuality, evidenceState: recoveryQuality.evidenceState, degraded: false, failureReason: recoveryQuality.failureReason }
@@ -175,7 +175,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     }
     let output = final ?? primary
     if (!output) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: 'No usable provider output was produced.', failureReason: 'provider_unavailable', attempts: [] }); return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan, false, null, 'provider_unavailable') }
-    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
+    let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
       const lastProvider = final?.provider ?? review?.provider ?? primary?.provider
@@ -183,7 +183,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) })
         final = escalated
         output = escalated
-        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
+        quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
         if (quality.decision === 'PASS') break
       } catch { break }
     }
