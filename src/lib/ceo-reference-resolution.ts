@@ -1,0 +1,228 @@
+import type { PersistedConversationRow } from './ceo-context-composer'
+
+export type ConversationReferenceKind =
+  | 'ordinal'
+  | 'temporal'
+  | 'continuation'
+  | 'pronoun'
+  | 'demonstrative'
+  | 'contextual'
+
+export interface EnumeratedItem {
+  index: number
+  ordinal: number
+  text: string
+  sourceRole: 'user' | 'assistant'
+  sourceTimestamp: number
+}
+
+export interface ReferenceCandidate {
+  text: string
+  sourceRole: 'user' | 'assistant'
+  sourceTimestamp: number
+  score: number
+  reasons: string[]
+}
+
+export interface ReferenceResolution {
+  phrase: string
+  kind: ConversationReferenceKind
+  resolvedText: string | null
+  confidence: number
+  sourceRole?: 'user' | 'assistant'
+  ambiguous: boolean
+  candidates: ReferenceCandidate[]
+}
+
+export interface ConversationThreadRecord {
+  id: string
+  title: string
+  topic: string
+  entities: string[]
+  currentObjective: string
+  unresolvedQuestions: string[]
+  decisions: string[]
+  lastTouchedAt: number
+  status: 'active' | 'paused' | 'resolved' | 'superseded' | 'abandoned'
+}
+
+const REFERENCE_PATTERNS = [
+  /\b(it|this|that|these|those)\b/i,
+  /\bthe\s+(first|second|third|last|other)\s+(one|thing|problem|issue|option|idea)\b/i,
+  /\b(same\s+(thing|issue|problem))\b/i,
+  /\bwhat\s+we\s+(said|did|decided)\b/i,
+  /\b(yesterday|today|earlier|before|last\s+week|two\s+days?\s+ago)\b/i,
+  /\bcontinue\b/i,
+]
+
+const ORDINAL_PATTERN = /\bthe\s+(first|second|third|last|other)\s+(one|thing|problem|issue|option|idea)\b/i
+const TEMPORAL_PATTERN = /\b(yesterday|today|earlier|before|last\s+week|two\s+days?\s+ago)\b/i
+const CONTINUE_PATTERN = /^\s*(?:please\s+)?continue\.?\s*$/i
+const PRONOUN_PATTERN = /\b(it|they|them|this|that|these|those|same\s+(?:thing|issue|problem))\b/i
+const STOPWORDS = new Set([
+  'about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want','were','will','been','them','theyre','from','with','have','has','had',
+])
+
+function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
+function timestamp(value: PersistedConversationRow['createdAt']): number {
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return value
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+function tokenize(value: string): Set<string> {
+  return new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))
+}
+function overlap(a: string, b: string): number {
+  const left = tokenize(a); const right = tokenize(b)
+  if (!left.size || !right.size) return 0
+  let matches = 0
+  for (const token of left) if (right.has(token)) matches += 1
+  return matches / Math.max(1, Math.min(left.size, right.size))
+}
+function detectedReference(message: string): string | null {
+  for (const pattern of REFERENCE_PATTERNS) {
+    const match = message.match(pattern)
+    if (match?.[0]) return normalize(match[0])
+  }
+  return null
+}
+function kindFor(message: string): ConversationReferenceKind {
+  if (ORDINAL_PATTERN.test(message)) return 'ordinal'
+  if (TEMPORAL_PATTERN.test(message)) return 'temporal'
+  if (CONTINUE_PATTERN.test(message)) return 'continuation'
+  if (/\b(it|they|them)\b/i.test(message)) return 'pronoun'
+  if (/\b(this|that|these|those|same)\b/i.test(message)) return 'demonstrative'
+  return 'contextual'
+}
+function dayKey(timestampMs: number, timeZone = 'UTC'): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+  return formatter.format(new Date(timestampMs))
+}
+function offsetCalendarDay(key: string, deltaDays: number): string | null {
+  const match = key.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return null
+  const base = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  const shifted = new Date(base + deltaDays * 86_400_000)
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`
+}
+
+export function extractEnumeratedItems(rows: readonly PersistedConversationRow[], maxItems = 12): EnumeratedItem[] {
+  const items: EnumeratedItem[] = []
+  for (const row of rows.slice(-20)) {
+    if (row.role !== 'user' && row.role !== 'assistant') continue
+    const sourceTimestamp = timestamp(row.createdAt)
+    const lines = row.content.split(/\r?\n/)
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = normalize(lines[lineIndex])
+      const match = line.match(/^(\d{1,2})[.)]\s+(.+)$/)
+      if (!match) continue
+      const ordinal = Number(match[1])
+      if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > maxItems) continue
+      items.push({ index: items.length, ordinal, text: normalize(match[2]), sourceRole: row.role, sourceTimestamp })
+      if (items.length >= maxItems) return items
+    }
+  }
+  return items
+}
+
+export function resolveOrdinalReference(message: string, rows: readonly PersistedConversationRow[]): ReferenceResolution | null {
+  const match = message.match(ORDINAL_PATTERN)
+  if (!match) return null
+  const word = match[1].toLowerCase()
+  const ordinal = word === 'first' ? 1 : word === 'second' ? 2 : word === 'third' ? 3 : null
+  const items = extractEnumeratedItems(rows)
+  if (!items.length) return { phrase: normalize(match[0]), kind: 'ordinal', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  let selected: EnumeratedItem | undefined
+  if (ordinal) selected = [...items].reverse().find((item) => item.ordinal === ordinal)
+  else selected = items.at(-1)
+  if (!selected) return { phrase: normalize(match[0]), kind: 'ordinal', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  return {
+    phrase: normalize(match[0]),
+    kind: 'ordinal',
+    resolvedText: selected.text,
+    confidence: 0.98,
+    sourceRole: selected.sourceRole,
+    ambiguous: false,
+    candidates: [{ text: selected.text, sourceRole: selected.sourceRole, sourceTimestamp: selected.sourceTimestamp, score: 0.98, reasons: ['explicit numbered-list ordinal'] }],
+  }
+}
+
+export function resolveTemporalReference(message: string, rows: readonly PersistedConversationRow[], options: { nowMs?: number; timeZone?: string } = {}): ReferenceResolution | null {
+  const match = message.match(TEMPORAL_PATTERN)
+  if (!match) return null
+  const phrase = normalize(match[1])
+  const timeZone = options.timeZone ?? 'UTC'
+  const anchor = options.nowMs ?? Math.max(0, ...rows.map((row) => timestamp(row.createdAt)))
+  if (!anchor) return { phrase, kind: 'temporal', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  const anchorDay = dayKey(anchor, timeZone)
+  let targetStart: string | null = null
+  let targetEnd: string | null = null
+  if (phrase.toLowerCase() === 'yesterday') {
+    targetStart = offsetCalendarDay(anchorDay, -1)
+    targetEnd = targetStart
+  } else if (phrase.toLowerCase() === 'today') {
+    targetStart = anchorDay
+    targetEnd = anchorDay
+  } else if (phrase.toLowerCase() === 'last week') {
+    const dayBefore = offsetCalendarDay(anchorDay, -1)
+    if (dayBefore) {
+      const currentDate = new Date(`${anchorDay}T00:00:00Z`)
+      const dayOfWeek = currentDate.getUTCDay()
+      const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+      const thisMonday = offsetCalendarDay(anchorDay, -mondayOffset)
+      targetEnd = thisMonday ? offsetCalendarDay(thisMonday, -1) : null
+      targetStart = targetEnd ? offsetCalendarDay(targetEnd, -6) : null
+    }
+  } else if (/two\s+days?\s+ago/i.test(phrase)) {
+    targetStart = offsetCalendarDay(anchorDay, -2)
+    targetEnd = targetStart
+  } else {
+    return { phrase, kind: 'temporal', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  }
+  if (!targetStart || !targetEnd) return { phrase, kind: 'temporal', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  const matches = rows
+    .filter((row) => row.role === 'user' || row.role === 'assistant')
+    .filter((row) => {
+      const key = dayKey(timestamp(row.createdAt), timeZone)
+      return key >= targetStart! && key <= targetEnd!
+    })
+    .sort((a, b) => timestamp(b.createdAt) - timestamp(a.createdAt))
+  const best = matches[0]
+  if (!best) return { phrase, kind: 'temporal', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  const candidates = matches.slice(0, 5).map((row, index) => ({ text: row.content, sourceRole: row.role as 'user' | 'assistant', sourceTimestamp: timestamp(row.createdAt), score: 0.96 - index * 0.03, reasons: ['calendar-bound temporal window', 'recency within target window'] }))
+  return { phrase, kind: 'temporal', resolvedText: best.content, confidence: candidates[0]?.score ?? 0.96, sourceRole: best.role as 'user' | 'assistant', ambiguous: false, candidates }
+}
+
+export function resolveActiveThread(message: string, threads: readonly ConversationThreadRecord[]): ReferenceResolution | null {
+  if (!CONTINUE_PATTERN.test(message)) return null
+  const candidates = threads
+    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
+    .slice(0, 5)
+  const best = candidates[0]
+  if (!best) return { phrase: 'continue', kind: 'continuation', resolvedText: null, confidence: 0, ambiguous: true, candidates: [] }
+  const candidateRows = candidates.map((thread, index) => ({ text: `${thread.title}: ${thread.currentObjective}`, sourceRole: 'user' as const, sourceTimestamp: thread.lastTouchedAt, score: Math.max(0.55, 0.97 - index * 0.08), reasons: [thread.status === 'active' ? 'active thread' : 'paused thread', `last touched ${index === 0 ? 'most recently' : 'previously'}`] }))
+  const margin = candidateRows.length > 1 ? (candidateRows[0]!.score - candidateRows[1]!.score) : 1
+  return { phrase: 'continue', kind: 'continuation', resolvedText: `${best.title}: ${best.currentObjective}`, confidence: candidateRows[0]?.score ?? 0.97, sourceRole: 'user', ambiguous: margin < 0.08, candidates: candidateRows }
+}
+
+export function resolveGeneralReference(message: string, rows: readonly PersistedConversationRow[], stateAnchor?: string): ReferenceResolution | null {
+  const phrase = detectedReference(message)
+  if (!phrase) return null
+  const kind = kindFor(message)
+  if (!PRONOUN_PATTERN.test(message)) return { phrase, kind, resolvedText: stateAnchor ?? null, confidence: stateAnchor ? 0.52 : 0, ambiguous: true, candidates: stateAnchor ? [{ text: stateAnchor, sourceRole: 'user', sourceTimestamp: 0, score: 0.52, reasons: ['active conversation-state anchor'] }] : [] }
+  const anchors = rows.filter((row) => row.role === 'user' || row.role === 'assistant').slice(-16).reverse()
+  const candidates = anchors.map((row, index) => {
+    const recency = Math.max(0, 1 - index * 0.055)
+    const lexical = overlap(message, row.content)
+    const score = 0.45 * recency + 0.35 * lexical + 0.20
+    return { text: row.content, sourceRole: row.role as 'user' | 'assistant', sourceTimestamp: timestamp(row.createdAt), score, reasons: [`recency=${recency.toFixed(2)}`, `lexical=${lexical.toFixed(2)}`] }
+  }).sort((a, b) => b.score - a.score).slice(0, 5)
+  const best = candidates[0]
+  const second = candidates[1]
+  if (!best || best.score < 0.48) return { phrase, kind, resolvedText: stateAnchor ?? null, confidence: stateAnchor ? 0.52 : 0, ambiguous: true, candidates }
+  const margin = second ? best.score - second.score : 1
+  const ambiguous = margin < 0.08 || best.score < 0.62
+  return { phrase, kind, resolvedText: ambiguous ? null : best.text, confidence: Math.min(0.98, best.score), sourceRole: ambiguous ? undefined : best.sourceRole, ambiguous, candidates }
+}
