@@ -70,6 +70,33 @@ async function attemptValidatedReasoningProvider(timeoutMs: number): Promise<Val
   return null
 }
 
+function logCeoDegradedTrace(context: {
+  objective: string
+  intent: string
+  path: string
+  reason: string
+  failureReason?: CeoFailureReason
+  attempts: string[]
+  rawContent?: string
+  qualityChecks?: Record<string, boolean>
+  qualityReasons?: string[]
+  conversationQuality?: unknown
+}): void {
+  console.log('[ceo-degraded-trace]', JSON.stringify({
+    objective: context.objective.slice(0, 200),
+    intent: context.intent,
+    path: context.path,
+    reason: context.reason.slice(0, 300),
+    failureReason: context.failureReason,
+    attempts: context.attempts,
+    rawContentLength: context.rawContent?.length ?? 0,
+    rawContentSnippet: context.rawContent?.slice(0, 300),
+    qualityChecks: context.qualityChecks,
+    qualityReasons: context.qualityReasons,
+    conversationQuality: context.conversationQuality,
+  }))
+}
+
 async function tryDegraded(
   request: CeoCognitiveRequest,
   reason: string,
@@ -121,6 +148,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   } catch (error) {
     if (/\bventure_\d{3}\b/i.test(objective)) {
       const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
+      logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), failureReason: 'context_unavailable', attempts: [] })
       return tryDegraded(request, `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), [], Date.now() - startedAt, decisionPlan, executionPlan, true, availability, 'context_unavailable')
     }
   }
@@ -146,7 +174,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       final = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined)], excludeProviders: stageExclusions(review.provider) })
     }
     let output = final ?? primary
-    if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan, false, null, 'provider_unavailable')
+    if (!output) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: 'No usable provider output was produced.', failureReason: 'provider_unavailable', attempts: [] }); return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan, false, null, 'provider_unavailable') }
     let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
@@ -160,13 +188,14 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       } catch { break }
     }
     const result = final ?? primary
-    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable')
-    if (quality.decision !== 'PASS') return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason)
+    if (!result) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: 'Provider execution exhausted before a final answer was available.', failureReason: 'provider_unavailable', attempts: mergeAttempts(primary, review, final), rawContent: output?.content }); return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable') }
+    if (quality.decision !== 'PASS') { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, failureReason: quality.failureReason, attempts: mergeAttempts(primary, review, final), rawContent: result.content, qualityChecks: quality.checks, qualityReasons: quality.reasons, conversationQuality: (quality as { conversationQuality?: unknown }).conversationQuality }); return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason) }
     const evidenceState: EvidenceState = quality.evidenceState
     return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false, failureReason: quality.failureReason }
   } catch (error) {
     const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
     const failureReason: CeoFailureReason = error instanceof Error && /timeout|timed out/i.test(error.message) ? 'execution_timeout' : 'provider_error'
+    logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, reason: error instanceof Error ? error.message.slice(0, 500) : 'All governed external execution paths failed.', failureReason, attempts: mergeAttempts(primary, review, final), rawContent: (final ?? primary)?.content })
     return tryDegraded(request, error instanceof Error ? error.message.slice(0, 500) : 'All governed external execution paths failed.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, availability, failureReason)
   }
 }
