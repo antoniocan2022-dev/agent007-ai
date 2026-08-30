@@ -71,10 +71,12 @@ export function scoreContextContinuity(input: {
 
   const historyEvidence = relevant.map((row) => ({ row, relevance: overlap(anchorTokens, tokens(row.content)) })).filter((entry) => entry.relevance > 0)
   const matched = historyEvidence.filter((entry) => overlap(responseTokens, tokens(entry.row.content)) >= Math.min(2, Math.max(1, Math.min(3, entry.relevance)))).length
-  const anchorCoverage = anchorTokens.size ? Math.min(1, overlap(anchorTokens, responseTokens) / Math.max(1, Math.min(6, anchorTokens.size))) : 0
+  const anchorCoverage = anaphoraDetected && anchorTokens.size ? Math.min(1, overlap(anchorTokens, responseTokens) / Math.max(1, Math.min(6, anchorTokens.size))) : 0
   const historyCoverage = historyEvidence.length ? matched / historyEvidence.length : 0
   const recencyWeight = anaphoraDetected && matched > 0 ? 0.15 : 0
-  const score = Math.round(Math.max(0, Math.min(100, (anchorCoverage * 0.45 + historyCoverage * 0.4 + recencyWeight) * 100)))
+  const anchorWeight = anaphoraDetected ? 0.45 : 0
+  const historyWeight = anaphoraDetected ? 0.4 : 0.85
+  const score = Math.round(Math.max(0, Math.min(100, (anchorCoverage * anchorWeight + historyCoverage * historyWeight + recencyWeight) * 100)))
   const reasons: string[] = []
   if (matched > 0) reasons.push('The response is grounded in relevant prior conversational context.')
   else reasons.push('The response did not demonstrate sufficient grounding in the relevant prior context.')

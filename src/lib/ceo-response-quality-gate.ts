@@ -37,7 +37,7 @@ export function scoreCeoConversationQuality(input: { objective:string; content:s
   const toneAlignment=EMOTIONAL_TONE_RE.test(objective)?(EMOTIONAL_TONE_RE.test(content)?100:72):88
   const coherence=evaluateClaimConsistency(content).consistent?96:45
   const nonRepetition=REPETITION_RE.test(content)?45:96
-  const referenceDetected=/\b(?:it|this|that|these|those|same|earlier|yesterday|previous|continue|second|first|other)\b/i.test(objective)
+  const referenceDetected=/\b(?:it|this|that|these|those|same|earlier|yesterday|previous|continue)\b|\bthe\s+(?:second|first|third|last|other)\b/i.test(objective)
   const resolutions=input.resolvedReferences??(referenceDetected&&prior.length?resolveConversationReferences(objective,prior,deriveCeoConversationState(prior,objective)):[])
   const resolvedUsable=resolutions.filter((reference)=>Boolean(reference.resolvedText)&&!reference.ambiguous&&reference.confidence>=0.7).length
   const referenceResolution=!referenceDetected?90:resolutions.length===0?35:Math.round((resolvedUsable/resolutions.length)*100)
