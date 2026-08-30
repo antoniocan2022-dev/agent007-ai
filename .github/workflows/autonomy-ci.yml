@@ -123,6 +123,8 @@ jobs:
         run: bun test tests/ceo-self-reflection.test.ts
       - name: CEO real-request contract corpus
         run: bun test tests/ceo-real-request-corpus.test.ts
+      - name: CEO conversation benchmark v0.1
+        run: bun run test:conversation
       - name: CEO external evidence golden corpus
         run: bun test tests/ceo-evidence-golden.test.ts
       - name: P0/P1/P2 context and release integrity corpus
@@ -182,18 +184,12 @@ jobs:
             "runId": "${RUN_ID}",
             "runNumber": "${RUN_NUMBER}",
             "event": "${EVENT_NAME}",
-            "sourceGate": "static-integrity",
-            "deploymentStatus": "MANUAL_AUTHORIZATION_REQUIRED",
-            "vercelDeploymentPerformed": false,
-            "certifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
-          cat .artifacts/ci-certification.json
-      - name: Upload CI certification artifact
+      - name: Upload CI certification manifest
         uses: actions/upload-artifact@v4
         with:
           name: ci-certification-${{ github.sha }}
           path: .artifacts/ci-certification.json
           if-no-files-found: error
-
-# Release execution is intentionally separate and authorization-gated in production-release-watchdog.yml.
