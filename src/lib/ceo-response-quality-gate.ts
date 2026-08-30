@@ -30,9 +30,12 @@ export interface ConversationQualityScore { score:number; continuity:number; rel
 
 export function scoreCeoConversationQuality(input: { objective:string; content:string; priorTurns?:readonly PersistedConversationRow[]; relevantOlderMessages?:readonly PersistedConversationRow[]; resolvedReferences?:readonly ConversationReference[] }): ConversationQualityScore {
   const objective=input.objective.trim(); const content=input.content.trim(); const prior=[...(input.priorTurns??[])].filter((row)=>row.role==='user'||row.role==='assistant')
-  const continuity=prior.length?scoreContextContinuity({currentUserMessage:objective,response:content,priorTurns:prior,relevantOlderMessages:input.relevantOlderMessages}).score:70
+  const hasEstablishedContext = prior.length > 0
+  const continuity=hasEstablishedContext?scoreContextContinuity({currentUserMessage:objective,response:content,priorTurns:prior,relevantOlderMessages:input.relevantOlderMessages}).score:100
   const wanted=new Set(normalize(objective)); const answer=new Set(normalize(content)); const overlap=wanted.size?[...wanted].filter((token)=>answer.has(token)).length/wanted.size:1
-  const relevance=Math.round(Math.min(100,overlap*80+(content.length>0?20:0)))
+  const relevance=hasEstablishedContext
+    ? Math.round(Math.min(100,overlap*80+(content.length>0?20:0)))
+    : content.length >= 80 ? 92 : content.length >= 20 ? 82 : 40
   const naturalness=Math.max(0,100-(CONVERSATIONAL_ROBOTIC_RE.test(content)?45:0)-(content.length>1600?10:0)-(/\b(?:first|second|third)\s+step\b/i.test(content)&&objective.length<100?10:0))
   const toneAlignment=EMOTIONAL_TONE_RE.test(objective)?(EMOTIONAL_TONE_RE.test(content)?100:72):88
   const coherence=evaluateClaimConsistency(content).consistent?96:45
@@ -46,7 +49,7 @@ export function scoreCeoConversationQuality(input: { objective:string; content:s
   const progression=content.length>40?90:65
   const score=Math.round((continuity+relevance+naturalness+toneAlignment+coherence+nonRepetition+referenceResolution+initiative+personalityConsistency+progression)/10)
   const issues:string[]=[]
-  if(continuity<70) issues.push(`continuity is weak (${Math.round(continuity)}/100)`)
+  if(hasEstablishedContext && continuity<70) issues.push(`continuity is weak (${Math.round(continuity)}/100)`)
   if(naturalness<80) issues.push('response uses robotic or procedural language')
   if(toneAlignment<80) issues.push('tone does not sufficiently match the conversation')
   if(nonRepetition<80) issues.push('response appears repetitive')
