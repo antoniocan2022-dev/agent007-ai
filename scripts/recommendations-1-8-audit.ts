@@ -58,7 +58,7 @@ has('.github/workflows/autonomy-ci.yml','CEO external evidence golden corpus','S
 // Exact-SHA certification and deployment boundary.
 has('.github/workflows/autonomy-ci.yml','CI certification','CI lacks exact certification stage.')
 has('.github/workflows/autonomy-ci.yml','Assert exact SHA and generate certification manifest','Certification does not bind to exact commit.')
-has('.github/workflows/autonomy-ci.yml','MANUAL_AUTHORIZATION_REQUIRED','Deployment authorization boundary missing.')
+has('.github/workflows/production-release-watchdog.yml','DEPLOY_AGENT007_MAIN','Deployment authorization boundary missing.')
 
 // Cross-layer single-source + duplicate-file integrity.
 const tracked = execFileSync('git',['ls-files'],{encoding:'utf8'}).split('\n').filter(Boolean)
@@ -67,7 +67,7 @@ if (badBackups.length) failures.push(`Canonical Stage 1–8 backup/duplicate fil
 
 const qualityGate = read('src/lib/ceo-response-quality-gate.ts')
 if (/const LIVE_ASSERTION_RE = [^\n]*latest/i.test(qualityGate)) failures.push('"latest" incorrectly promotes an answer into live-system scope.')
-if (!qualityGate.includes('evidenceBundle?: EvidenceBundle')) failures.push('Quality gate lacks structured evidence-bundle input.')
+if (!/evidenceBundle\?:\s*EvidenceBundle/.test(qualityGate)) failures.push('Quality gate lacks structured evidence-bundle input.')
 
 const evidenceBundle = read('src/lib/ceo-evidence-bundle.ts')
 if (!evidenceBundle.includes('canonicalizeUrl')) failures.push('Evidence bundle lacks canonical URL normalization.')
