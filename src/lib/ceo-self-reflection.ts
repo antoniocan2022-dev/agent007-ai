@@ -44,6 +44,7 @@ const CASUAL_CHECKIN_RE = /^(?:how(?:'s|\s+is)\s+(?:it|everything|things?)\s+goi
 const PERFORMANCE_RE = /\b(?:improving|getting\s+better|performance|performing|progress|progressing|better|worse|declining|evolving|evolution|learning|developing|growth|how\s+have\s+you\s+been|how\s+are\s+you\s+performing)\b/i
 const CAPABILITY_RE = /\b(?:strengths?|weakness(?:es)?|capabilit(?:y|ies)|capable|skills?|limitations?|what\s+can\s+you\s+do|what\s+are\s+you\s+good\s+at)\b/i
 const READINESS_RE = /\b(?:ready|readiness|prepared|equipped|fit\s+to|able\s+to\s+manage|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?compan(?:y|ies)|business\s+management|autonom(?:y|ous))\b/i
+const IMPROVEMENT_REQUEST_RE = /\b(?:i\s+want\s+to\s+(?:improve|build|change|update|work\s+on|develop)|let'?s\s+(?:improve|focus\s+on|work\s+on|build|develop)|help\s+(?:me\s+)?(?:improve|build)|can\s+(?:we|you)\s+(?:improve|work\s+on|focus\s+on))\b/i
 
 export function classifyCeoSelfReflection(text: string): SelfReflectionClassification {
   const normalized = text.replace(/\s+/g, ' ').trim()
@@ -51,8 +52,8 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
   if (!SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
 
-  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized)) {
-    return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, or external-analysis language takes precedence.' }
+  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized)) {
+    return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, external-analysis, or improvement-planning language takes precedence.' }
   }
 
   if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
