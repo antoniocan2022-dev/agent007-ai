@@ -2,10 +2,12 @@ import type { ProviderId, TaskType, VerificationTier } from './subagent-governan
 
 /**
  * Authoritative Agent007 provider policy.
- * OpenAI remains a legacy type only; active runtime providers are:
- * Groq → Cloudflare Workers AI → Mistral → Cerebras → OpenRouter emergency fallback.
+ * Provider quality is prioritized for the CEO conversational/reasoning lane;
+ * operations retain a speed-first order. All configured providers remain
+ * governed fallbacks rather than hard dependencies on one vendor.
  */
-export const PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
+export const PROVIDER_PRIORITY: readonly ProviderId[] = ['cloudflare', 'mistral', 'groq', 'cerebras', 'openrouter'] as const
+export const FAST_PROVIDER_PRIORITY: readonly ProviderId[] = ['groq', 'cerebras', 'cloudflare', 'mistral', 'openrouter'] as const
 
 const STRICT_TASKS = new Set<TaskType>(['financial', 'security'])
 const ENHANCED_TASKS = new Set<TaskType>(['research', 'reasoning', 'coding', 'analysis', 'operations'])
@@ -14,14 +16,14 @@ export interface ProviderTaskPolicy { providerOrder: readonly ProviderId[]; task
 
 export function getProviderTaskPolicy(taskType: TaskType, verification?: VerificationTier): ProviderTaskPolicy {
   const minVerification = verification ?? (STRICT_TASKS.has(taskType) ? 'dual-review' : ENHANCED_TASKS.has(taskType) ? 'enhanced' : 'standard')
-  return { providerOrder: PROVIDER_PRIORITY, taskType, minVerification, allowFallback: true, requireIndependentVerification: minVerification === 'dual-review' }
+  const providerOrder = taskType === 'operations' ? FAST_PROVIDER_PRIORITY : PROVIDER_PRIORITY
+  return { providerOrder, taskType, minVerification, allowFallback: true, requireIndependentVerification: minVerification === 'dual-review' }
 }
-export function rankAvailableProviders(available: readonly ProviderId[]): ProviderId[] { const set = new Set(available); return PROVIDER_PRIORITY.filter((provider) => set.has(provider)) }
+export function rankAvailableProviders(available: readonly ProviderId[], order: readonly ProviderId[] = PROVIDER_PRIORITY): ProviderId[] { const set = new Set(available); return order.filter((provider) => set.has(provider)) }
 export function validateProviderPriority(order: readonly ProviderId[] = PROVIDER_PRIORITY): string[] {
   const errors: string[] = []
   if (order.length !== PROVIDER_PRIORITY.length) errors.push(`Provider priority must contain ${PROVIDER_PRIORITY.length} providers`)
   if (new Set(order).size !== order.length) errors.push('Provider priority contains duplicates')
-  PROVIDER_PRIORITY.forEach((provider, index) => { if (order[index] !== provider) errors.push(`Provider priority mismatch at position ${index + 1}: expected ${provider}`) })
   if (order.includes('openai')) errors.push('OpenAI is disabled and must not appear in provider priority')
   return errors
 }
