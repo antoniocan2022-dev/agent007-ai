@@ -1,0 +1,63 @@
+name: CEO Conversation Completion CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/ceo-conversation-state.ts'
+      - 'src/lib/ceo-reference-resolution.ts'
+      - 'src/lib/ceo-venture-state.ts'
+      - 'tests/ceo-conversation-*.test.ts'
+      - 'tests/ceo-conversation-completion.test.ts'
+      - 'tests/fixtures/ceo-conversation-benchmark-cases.ts'
+      - '.github/workflows/ceo-conversation-completion-ci.yml'
+      - 'package.json'
+      - 'bun.lock'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/ceo-conversation-state.ts'
+      - 'src/lib/ceo-reference-resolution.ts'
+      - 'src/lib/ceo-venture-state.ts'
+      - 'tests/ceo-conversation-*.test.ts'
+      - 'tests/ceo-conversation-completion.test.ts'
+      - 'tests/fixtures/ceo-conversation-benchmark-cases.ts'
+      - '.github/workflows/ceo-conversation-completion-ci.yml'
+      - 'package.json'
+      - 'bun.lock'
+
+permissions:
+  contents: read
+
+env:
+  NEXTAUTH_SECRET: ci-only-agent007-nextauth-secret
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_ci
+
+jobs:
+  completion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run CEO semantic benchmark
+        run: bun run test:conversation
+      - name: Run sustained golden conversations
+        run: bun test tests/ceo-conversation-golden.test.ts
+      - name: Run complete conversation architecture contracts
+        run: bun test tests/ceo-conversation-completion.test.ts
+      - name: Typecheck conversation architecture
+        run: bunx tsc -p tsconfig.json --noEmit
+      - name: Lint conversation architecture
+        run: bunx eslint src/lib/ceo-conversation-state.ts src/lib/ceo-reference-resolution.ts src/lib/ceo-venture-state.ts tests/ceo-conversation-completion.test.ts
