@@ -7,6 +7,7 @@
     "build": "if [ \"$AGENT007_RELEASE_SCHEMA_RECONCILE\" = \"1\" ]; then bun run db:reconcile; fi && next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "test:conversation": "bun test tests/ceo-conversation-semantics.test.ts tests/ceo-conversation-golden.test.ts",
     "audit:deep": "bun scripts/deep-integrity-audit.ts",
     "audit:coherence": "bun scripts/repository-coherence-audit.ts",
