@@ -1,0 +1,28 @@
+name: CEO Long Conversation Certification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  long-conversation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Long conversation certification
+        run: bun test tests/ceo-conversation-long-certification.test.ts tests/ceo-cognitive-conversation.test.ts tests/ceo-conversation-runtime-regressions.test.ts
