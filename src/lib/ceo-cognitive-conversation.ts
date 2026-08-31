@@ -70,6 +70,15 @@ export function classifyCognitiveDepth(message: string, state: CeoConversationSt
   return 'direct'
 }
 
+export function classifyCognitiveDepthFromMessages(message: string, priorTurnCount: number, referenceCount: number): CognitiveDepth {
+  const safeTurns = Math.max(0, Math.floor(priorTurnCount))
+  const text = message.trim()
+  if (/\b(?:decide|decision|recommend|trade[- ]offs?|strategy|strategic|root\s+cause|architecture|compare|evaluate|assess)\b/i.test(text) || hasExplicitDepthSignal(text)) return 'strategic'
+  if (safeTurns >= 20 || referenceCount >= 2) return 'deep'
+  if (referenceCount > 0 || safeTurns >= 2 || /\b(?:why|how|which|what)\b/i.test(text)) return 'contextual'
+  return 'direct'
+}
+
 function referenceScope(references: readonly ConversationReference[], currentMessage: string): ReferenceScope {
   if (!references.length) return 'none'
   const hasSameTurn = /\b(?:it|they|them|this|that|these|those)\b/i.test(currentMessage) && /\b(?:and|,|both|each)\b/i.test(currentMessage)
