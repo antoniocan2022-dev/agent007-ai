@@ -1,213 +1,115 @@
-/**
- * persistent-memory.ts — Persistent memory layer (upgrade #52, #171, #172)
- *
- * Two-tier store: /tmp file → DB. Ensures learnings survive Vercel cold starts.
- *
- * UPGRADE #172: Removed the misleading "Triple-store: Redis (if configured)"
- * claim from the header. A prior audit (AUDIT-REDIS-ACCURACY) confirmed:
- *   - This file has ZERO Redis code (only fs, path, os, db imports)
- *   - The Redis tier was aspirational in the original #52 design but never
- *     implemented.
- *   - Production Vercel has REDIS_API_KEY, UPSTASH_REDIS_REST_URL,
- *     UPSTASH_REDIS_REST_TOKEN env vars set, but they're EMPTY (length 0)
- *     and not read by this file anyway.
- * If a future agent wants Redis, they need to actually implement it here
- * (import ioredis, ping REDIS_URL on init, fallback to file+DB on failure).
- *
- * UPGRADE #171: Memory TTL changed from 90 days to Infinity — Antonio wants
- * memory forever. decayFactor is 1 (no age decay). Antonio can still update
- * scores via updateMemoryScore (±10 per outcome).
- */
-
-import { db } from './db'
-import { sanitizeMemoryFields, sanitizeMemoryText } from './memory-text'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import * as os from 'node:os'
-import { emitConversationIncident } from './ceo-conversation-incident'
+import { recallPersistentMemory } from './persistent-memory'
+import { synthesizeExecutiveReadiness, type SelfReflectionKind } from './ceo-self-reflection'
 import type { CeoIntent } from './ceo-cognitive-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
+import { emitConversationIncident } from './ceo-conversation-incident'
 
-const MEMORY_FILE = path.join(os.tmpdir(), 'agent007-persistent-memory.json')
-const MEMORY_TTL_MS = Infinity
-
-interface MemoryEntry {
-  key: string
-  value: string
-  category: string
-  createdAt: number
-  score: number
-  timesRecalled: number
+export interface DegradedResponse {
+  content: string
+  evidenceState: 'NOT_APPLICABLE' | 'LIVE_EXECUTED' | 'LIVE_VERIFIED' | 'VERIFIED_CACHED' | 'MEMORY_ONLY' | 'PARTIAL_UNCONFIRMED' | 'UNAVAILABLE'
+  reason: string
+  sourceKeys: string[]
+  failureReason: CeoFailureReason
+  recoveredCapability: 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context'
 }
 
-let _fileCache: MemoryEntry[] | null = null
-let _fileCacheAt = 0
-const FILE_CACHE_TTL = 30 * 1000
+type MemoryRecall = typeof recallPersistentMemory
 
-function sanitizeEntry(entry: MemoryEntry): MemoryEntry {
-  const fields = sanitizeMemoryFields({
-    key: entry.key,
-    value: entry.value,
-    category: entry.category,
-  })
-  return { ...entry, ...fields }
+function formatMemoryEvidence(entries: Array<{ key: string; value: string; category: string }>): string {
+  return entries.slice(0, 5).map((entry, index) => `${index + 1}. [${entry.category}] ${entry.key}: ${entry.value.slice(0, 5000)}`).join('\n\n')
 }
 
-function loadFromFile(): MemoryEntry[] {
-  if (_fileCache && Date.now() - _fileCacheAt < FILE_CACHE_TTL) return _fileCache
-  try {
-    if (fs.existsSync(MEMORY_FILE)) {
-      const raw = fs.readFileSync(MEMORY_FILE, 'utf-8')
-      const parsed = JSON.parse(raw)
-      _fileCache = Array.isArray(parsed) ? parsed.map(sanitizeEntry) : []
-      _fileCacheAt = Date.now()
-      return _fileCache
+function capabilityForFailure(reason: CeoFailureReason): DegradedResponse['recoveredCapability'] {
+  if (reason.startsWith('provider_') || reason === 'execution_timeout' || reason === 'quality_failure' || reason === 'claim_consistency_failure') return 'reasoning'
+  if (reason.startsWith('evidence_')) return 'evidence'
+  if (reason.startsWith('tool_')) return 'tool'
+  if (reason === 'context_unavailable' || reason === 'continuity_failure') return 'context'
+  if (reason === 'production_verification_failure') return 'production'
+  if (reason === 'mission_failure') return 'mission'
+  return 'conversation'
+}
+
+function inferFailureReason(message: string): CeoFailureReason {
+  if (/timeout|timed out/i.test(message)) return 'execution_timeout'
+  if (/provider|model|llm/i.test(message)) return 'provider_error'
+  if (/evidence|source|research/i.test(message)) return 'evidence_unavailable'
+  if (/quality|contradiction|claim/i.test(message)) return 'quality_failure'
+  if (/tool/i.test(message)) return 'tool_error'
+  if (/mission|workflow|orchestrat/i.test(message)) return 'mission_failure'
+  if (/context|conversation|memory/i.test(message)) return 'context_unavailable'
+  return 'unknown'
+}
+
+function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string {
+  const evidenceBlock = recoveredContext.trim() ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}` : ''
+  const readiness = selfReflectionKind === 'readiness_assessment'
+    ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false })
+    : null
+  const readinessBlock = readiness ? `\n\nExecutive readiness synthesis:\nLevel ${readiness.level} — ${readiness.label}.\n${readiness.capability}\n${readiness.verified}\n${readiness.notProven}\nNext evidence: ${readiness.nextEvidence}` : ''
+  return `Evidence state: INTERNAL-STATE-ONLY.\n\nI can still give a truthful self-assessment without pretending live external verification succeeded.\n\n## Self-assessment\n- Architecturally, Agent007 is designed to manage business operations through a governed CEO layer, canonical organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.\n- I am **not yet justified in claiming fully autonomous business management** solely from architecture. Real-world business readiness also requires verified live execution, reliable external integrations, customer outcomes, financial controls, and sustained production results.\n- Therefore the defensible position is: **ready to operate as a governed business-management system with human oversight; not yet proven for unsupervised end-to-end business ownership.**${readinessBlock}${evidenceBlock}\n\nRequested objective: ${objective.slice(0, 2000)}`
+}
+
+export async function buildCeoDegradedResponse(input: {
+  objective: string
+  intent: CeoIntent
+  selfReflectionKind?: SelfReflectionKind
+  reason: string
+  failureReason?: CeoFailureReason
+  missionId?: string
+  contextualEvidence?: string
+  recall?: MemoryRecall
+}): Promise<DegradedResponse> {
+  const failureReason = input.failureReason ?? inferFailureReason(input.reason)
+  if (input.intent === 'conversation' || input.intent === 'opinion') {
+    emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason })
+  }
+  const suppliedContext = input.contextualEvidence?.trim()
+  const recall = input.recall ?? recallPersistentMemory
+  const query = [input.missionId, input.objective].filter(Boolean).join(' ')
+  const memories = suppliedContext ? [] : await recall(query, 5)
+  const recoveredContext = suppliedContext || formatMemoryEvidence(memories)
+  const sourceKeys = memories.map((entry) => entry.key)
+  const recoveredCapability = capabilityForFailure(failureReason)
+
+  if (recoveredContext.trim()) {
+    return {
+      evidenceState: suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY',
+      reason: input.reason,
+      sourceKeys,
+      failureReason,
+      recoveredCapability,
+      content: `Evidence state: MEMORY-ONLY.\n\nRecovered capability: ${recoveredCapability}. The primary ${recoveredCapability} path did not produce an accepted final answer, so Agent007 is using the strongest safe contextual fallback available. Prior conversation, memory, and supplied context are context only and are not treated as new external proof.\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nStill requires the failed capability to verify: current external facts, new research, live execution, or unsupported conclusions.`,
     }
-  } catch {}
-  _fileCache = []
-  _fileCacheAt = Date.now()
-  return _fileCache
-}
-
-function saveToFile(entries: MemoryEntry[]): void {
-  try {
-    const safeEntries = entries.map(sanitizeEntry)
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify(safeEntries, null, 2))
-    _fileCache = safeEntries
-    _fileCacheAt = Date.now()
-  } catch {}
-}
-
-/**
- * Store a memory persistently (file + DB).
- * All text is sanitized before either persistence path receives it.
- */
-export async function storePersistentMemory(
-  key: string,
-  value: string,
-  category: string = 'general',
-  score: number = 50
-): Promise<void> {
-  const safeFields = sanitizeMemoryFields({ key, value, category })
-  const entry: MemoryEntry = {
-    ...safeFields,
-    createdAt: Date.now(),
-    score: Math.max(0, Math.min(100, score)),
-    timesRecalled: 0,
   }
 
-  const entries = loadFromFile()
-  const existingIdx = entries.findIndex((e) => e.key === entry.key)
-  if (existingIdx >= 0) {
-    entries[existingIdx] = entry
-  } else {
-    entries.push(entry)
+  if (input.intent === 'self_assessment') {
+    return {
+      evidenceState: 'PARTIAL_UNCONFIRMED',
+      reason: input.reason,
+      sourceKeys,
+      failureReason,
+      recoveredCapability,
+      content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind),
+    }
   }
-  saveToFile(entries)
 
-  try {
-    await db.memory.upsert({
-      where: { key: entry.key },
-      create: { key: entry.key, value: entry.value, category: entry.category },
-      update: { value: entry.value, category: entry.category },
-    }).catch(() => {})
-  } catch {}
-}
-
-export async function recallPersistentMemory(
-  query: string,
-  limit: number = 5
-): Promise<MemoryEntry[]> {
-  const queryLower = sanitizeMemoryText(query).toLowerCase()
-  const queryWords = queryLower.split(/\s+/).filter((w) => w.length > 2)
-  const safeLimit = Math.max(0, Math.min(100, Math.floor(limit)))
-
-  const fileEntries = loadFromFile()
-
-  let dbEntries: MemoryEntry[] = []
-  try {
-    const dbMems = await db.memory.findMany({ take: 100 }).catch(() => [])
-    dbEntries = dbMems.map((m) => sanitizeEntry({
-      key: m.key,
-      value: m.value,
-      category: m.category,
-      createdAt: m.createdAt.getTime(),
-      score: 50,
-      timesRecalled: 0,
-    }))
-  } catch {}
-
-  const merged = new Map<string, MemoryEntry>()
-  for (const e of dbEntries) merged.set(e.key, e)
-  for (const e of fileEntries) merged.set(e.key, e)
-
-  const scored = Array.from(merged.values())
-    .filter((e) => {
-      if (Date.now() - e.createdAt > MEMORY_TTL_MS) return false
-      const text = `${e.key} ${e.value} ${e.category}`.toLowerCase()
-      return queryWords.length === 0 || queryWords.some((w) => text.includes(w))
-    })
-    .map((e) => {
-      let relevance = 0
-      for (const w of queryWords) {
-        if (e.key.toLowerCase().includes(w)) relevance += 3
-        if (e.value.toLowerCase().includes(w)) relevance += 2
-        if (e.category.toLowerCase().includes(w)) relevance += 1
-      }
-      const decayFactor = 1
-      return { ...e, relevance, finalScore: e.score * decayFactor + relevance * 10 }
-    })
-    .sort((a, b) => b.finalScore - a.finalScore)
-    .slice(0, safeLimit)
-
-  for (const e of scored) e.timesRecalled++
-  if (scored.length > 0) saveToFile(fileEntries)
-
-  return scored
-}
-
-export async function updateMemoryScore(key: string, success: boolean): Promise<void> {
-  const entries = loadFromFile()
-  const safeKey = sanitizeMemoryText(key)
-  const entry = entries.find((e) => e.key === safeKey)
-  if (entry) {
-    entry.score = Math.max(0, Math.min(100, entry.score + (success ? 10 : -10)))
-    saveToFile(entries)
+  if (recoveredCapability === 'conversation' || recoveredCapability === 'context') {
+    return {
+      evidenceState: 'PARTIAL_UNCONFIRMED',
+      reason: input.reason,
+      sourceKeys,
+      failureReason,
+      recoveredCapability,
+      content: `The ${recoveredCapability} capability failed before a reliable answer could be produced. Agent007 will not fabricate a response.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+    }
   }
-}
 
-/**
- * Get all persistent memories (for backup/debugging/team-performance).
- * DB reads remain best-effort; malformed rows cannot take down this path.
- */
-export async function getAllPersistentMemory(): Promise<MemoryEntry[]> {
-  const fileEntries = loadFromFile()
-
-  let dbEntries: MemoryEntry[] = []
-  try {
-    const dbMems = await db.memory.findMany({ take: 500 }).catch(() => [])
-    dbEntries = dbMems.map((m) => sanitizeEntry({
-      key: m.key,
-      value: m.value,
-      category: m.category,
-      createdAt: m.createdAt.getTime(),
-      score: 50,
-      timesRecalled: 0,
-    }))
-  } catch {}
-
-  const merged = new Map<string, MemoryEntry>()
-  for (const e of dbEntries) merged.set(e.key, e)
-  for (const e of fileEntries) merged.set(e.key, e)
-
-  return Array.from(merged.values())
-}
-
-/**
- * Convert a conversational degradation into a stable, privacy-preserving
- * regression signal. The full user text is deliberately not persisted here.
- */
-export function recordConversationDegradation(input: { objective: string; intent: CeoIntent; failureReason: CeoFailureReason }): void {
-  if (input.intent !== 'conversation' && input.intent !== 'opinion') return
-  emitConversationIncident(input)
+  return {
+    evidenceState: 'UNAVAILABLE',
+    reason: input.reason,
+    sourceKeys,
+    failureReason,
+    recoveredCapability,
+    content: `Evidence state: UNAVAILABLE.\n\nThe failed capability was ${recoveredCapability}. No safe fallback source was available for this request, so Agent007 will not fabricate a live or verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+  }
 }
