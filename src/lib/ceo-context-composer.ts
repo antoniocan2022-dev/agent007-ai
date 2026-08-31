@@ -1,8 +1,9 @@
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
 import { buildCeoConversationStatePrompt, buildCeoPersonalityContract, deriveCeoConversationState, resolveConversationReferences, type CeoConversationState } from './ceo-conversation-state'
+import { buildCanonicalConversationContext, renderCanonicalConversationContext, type CanonicalConversationContext } from './ceo-cognitive-conversation'
 
 export type CeoContextRole = 'system' | 'user' | 'assistant'
-export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation' | 'conversation_state'
+export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation' | 'conversation_state' | 'cognitive_context'
 
 export interface PersistedConversationRow {
   role: string
@@ -25,6 +26,7 @@ export interface CeoContextComposition {
   selectedMemoryKeys: string[]
   modules: CeoContextModuleName[]
   conversationState: CeoConversationState
+  canonicalSemanticContext: CanonicalConversationContext
   resolvedReferences: string[]
 }
 
@@ -174,9 +176,11 @@ export function composeCeoContext(input: {
   const references = resolveConversationReferences(input.currentUserMessage, input.persistedMessages, conversationState)
   const queryTokens = tokenize([input.currentUserMessage, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content), conversationState.topic, ...conversationState.entities].join(' '))
   const selectedMemories = rankMemories(input.memories ? [...input.memories] : [], queryTokens)
+  const canonicalSemanticContext = buildCanonicalConversationContext({ currentMessage: input.currentUserMessage, rows: input.persistedMessages, state: conversationState, references, memories: selectedMemories })
   const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: `${input.systemPrompt}\n\n${buildCeoPersonalityContract()}` }]
-  const modules: CeoContextModuleName[] = ['conversation', 'conversation_state']
+  const modules: CeoContextModuleName[] = ['conversation', 'conversation_state', 'cognitive_context']
 
+  messages.push({ role: 'system', content: renderCanonicalConversationContext(canonicalSemanticContext) })
   messages.push({ role: 'system', content: buildCeoConversationStatePrompt(conversationState, references) })
   if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); modules.push('organization') }
   if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); modules.push('mission') }
@@ -211,6 +215,7 @@ export function composeCeoContext(input: {
     selectedMemoryKeys: selectedMemories.map((memory) => memory.key),
     modules,
     conversationState,
+    canonicalSemanticContext,
     resolvedReferences: references.filter((reference) => reference.resolvedText).map((reference) => `${reference.phrase} → ${reference.resolvedText}`),
   }
 }
