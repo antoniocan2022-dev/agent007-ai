@@ -13,7 +13,7 @@ export class ProviderControlPlaneError extends Error {
   }
 }
 
-export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed' | 'vision'
+export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed' | 'vision' | 'conversational'
 export interface GovernedModelProfile { provider: ActiveProviderId; model: string; capabilities: readonly ModelCapability[]; quality: number; speed: number; costTier: 1 | 2 | 3; maxOutputTokens: number }
 export interface ProviderRuntimeConfig { id: ActiveProviderId; label: string; baseUrl: string; apiKeyEnv: string; modelEnv: string; defaultModel: string; modelsUrl?: string; accountIdEnv?: string; preferredModels: readonly string[]; catalogMode: 'live-api' | 'execution-validated'; emergency?: boolean }
 
@@ -27,12 +27,12 @@ export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, Provider
 
 export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
   { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'groq', model: 'openai/gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 89, speed: 92, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['reasoning', 'analysis', 'tool-use', 'coding', 'research', 'long-context', 'vision'], quality: 94, speed: 90, costTier: 1, maxOutputTokens: 12000 },
-  { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
+  { provider: 'groq', model: 'openai/gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 92, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['reasoning', 'analysis', 'tool-use', 'coding', 'research', 'long-context', 'vision', 'conversational'], quality: 94, speed: 90, costTier: 1, maxOutputTokens: 12000 },
+  { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'mistral', model: 'mistral-medium-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 88, speed: 84, costTier: 2, maxOutputTokens: 12000 },
   { provider: 'mistral', model: 'mistral-small-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 84, speed: 92, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
+  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
   { provider: 'cerebras', model: 'llama-3.3-70b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 99, costTier: 1, maxOutputTokens: 12000 },
   { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 75, speed: 70, costTier: 1, maxOutputTokens: 8000 },
 ]
@@ -51,9 +51,10 @@ export function getConfiguredProviders(): ActiveProviderId[] { return PROVIDER_O
 export function getGovernedCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
   const required = TASK_CAPABILITIES[taskType]
   const strict = verification === 'dual-review' || taskType === 'financial' || taskType === 'security'
+  const preferConversational = taskType === 'reasoning'
   return GOVERNED_MODEL_PROFILES.filter((profile) => profile.provider === provider && required.every((capability) => profile.capabilities.includes(capability)))
     .sort((a, b) => {
-      const score = (x: GovernedModelProfile) => x.quality * 0.55 + x.speed * 0.2 + (x.costTier === 1 ? 10 : x.costTier === 2 ? 5 : 0) + (strict && x.quality >= 90 ? 5 : 0)
+      const score = (x: GovernedModelProfile) => x.quality * 0.55 + x.speed * 0.2 + (x.costTier === 1 ? 10 : x.costTier === 2 ? 5 : 0) + (strict && x.quality >= 90 ? 5 : 0) + (preferConversational && x.capabilities.includes('conversational') ? 6 : 0)
       return score(b) - score(a)
     }).map((profile) => profile.model)
 }
