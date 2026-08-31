@@ -20,13 +20,17 @@ const TASK_HINTS: Array<[TaskType, RegExp]> = [
   ['analysis', /\b(analyze|analysis|evaluate|diagnose|audit|assess)\b/i],
 ]
 export function inferTaskType(messages: readonly { role: string; content: string }[]): TaskType { const latestUser = [...messages].reverse().find((message) => message.role === 'user'); const text = latestUser?.content ?? messages[messages.length - 1]?.content ?? ''; for (const [taskType, pattern] of TASK_HINTS) if (pattern.test(text)) return taskType; return 'reasoning' }
-function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
-  const inferred = classifyExecution(request.messages)
-  const taskType = request.taskType ?? inferTaskType(request.messages)
+function cognitiveDepthForRequest(request: CanonicalLlmRequest, taskType: TaskType) {
+  if (taskType !== 'reasoning') return 'direct' as const
   const latestUser = [...request.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
   const priorTurnCount = request.messages.filter((message) => message.role === 'user' || message.role === 'assistant').length - 1
   const referenceCount = (latestUser.match(/\b(?:it|this|that|these|those|same|earlier|yesterday|previous|continue)\b|\bthe\s+(?:second|first|third|last|other)\b/gi) ?? []).length
-  const depth = taskType === 'reasoning' ? classifyCognitiveDepthFromMessages(latestUser, priorTurnCount, referenceCount) : null
+  return classifyCognitiveDepthFromMessages(latestUser, priorTurnCount, referenceCount)
+}
+function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
+  const inferred = classifyExecution(request.messages)
+  const taskType = request.taskType ?? inferTaskType(request.messages)
+  const depth = cognitiveDepthForRequest(request, taskType)
 
   if (request.executionClass === 'fast' && taskType === 'reasoning' && depth === 'deep') {
     return { ...inferred, executionClass: 'standard', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true, reason: 'Canonical conversation depth selected a contextual deep lane after semantic history/reference analysis.' }
@@ -48,11 +52,7 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
   const taskType = request.taskType ?? inferTaskType(request.messages)
   const policy = getProviderTaskPolicy(taskType, request.verification)
   const safePolicyOrder = policy.providerOrder.filter((provider): provider is ActiveProviderId => provider !== 'openai')
-  const conversationalDepth = taskType === 'reasoning' ? classifyCognitiveDepthFromMessages(
-    [...request.messages].reverse().find((message) => message.role === 'user')?.content ?? '',
-    request.messages.filter((message) => message.role === 'user' || message.role === 'assistant').length - 1,
-    (([...request.messages].reverse().find((message) => message.role === 'user')?.content ?? '').match(/\b(?:it|this|that|these|those|same|earlier|yesterday|previous|continue)\b|\bthe\s+(?:second|first|third|last|other)\b/gi) ?? []).length,
-  ) : 'direct'
+  const conversationalDepth = cognitiveDepthForRequest(request, taskType)
   const providerOrder = request.providerOrder ?? (taskType === 'reasoning' && conversationalDepth !== 'direct'
     ? CEO_CONVERSATION_PROVIDER_PRIORITY
     : (request.executionClass === 'fast' && (taskType === 'reasoning' || taskType === 'general') ? CEO_CONVERSATION_PROVIDER_PRIORITY : safePolicyOrder))
@@ -63,7 +63,7 @@ export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmReq
   if (requests.length === 0) return []; const limit = Math.min(Math.max(Math.trunc(concurrency), 1), 4); const results: ParallelCanonicalResult[] = []
   for (let start = 0; start < requests.length; start += limit) {
     const batch = requests.slice(start, start + limit)
-    const batchResults = await Promise.all(batch.map(async (request, offset) => { try { const plan = explicitPlan(request); if (!plan.parallelizable) throw new Error('Adaptive execution rejected parallel fan-out for a fast lane request.'); return { index: start + offset, result: await runCanonicalLlm(request) } } catch (error) { return { index: start + offset, error } }))
+    const batchResults = await Promise.all(batch.map(async (request, offset) => { try { const plan = explicitPlan(request); if (!plan.parallelizable) throw new Error('Adaptive execution rejected parallel fan-out for a fast lane request.'); return { index: start + offset, result: await runCanonicalLlm(request) } } catch (error) { return { index: start + offset, error } } }))
     results.push(...batchResults)
   }
   return results

@@ -17,7 +17,13 @@ const REQUIREMENT_HEDGE_RE = /\b(?:requires?|would\s+require|needs?\s+to|before\
 const CONVERSATIONAL_ROBOTIC_RE = /\b(?:as an ai|as an assistant|i am an ai|your request|the user|objective:|quality gate|evidence state|execution contract|cannot comply|please provide)\b/i
 const REPETITION_RE = /(.{18,80})\s+\1/i
 const EMOTIONAL_TONE_RE = /\b(?:frustrated|frustrating|excited|happy|worried|concerned|disappointed|angry|confused|hopeful|great|excellent|thanks|thank you)\b/i
-function stem(token: string): string { if (token.length > 5 && token.endsWith('es')) return token.slice(0, -2); if (token.length > 4 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1); return token }
+function stem(token: string): string {
+  if (token.length > 5 && token.endsWith('es')) return token.slice(0, -2)
+  if (token.length > 4 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1)
+  if (token.length > 6 && token.endsWith('ed') && !token.endsWith('eed')) return token.slice(0, -2)
+  if (token.length > 5 && token.endsWith('e') && !token.endsWith('ee')) return token.slice(0, -1)
+  return token
+}
 function normalize(value: string): string[] { return value.toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)).map(stem).slice(0, 160) }
 function sentences(content: string): string[] { return content.split('\n').flatMap((line) => line.split(/[.!?]+/)).map((sentence) => sentence.trim()).filter(Boolean) }
 function positiveAssertionExists(content: string, pattern: RegExp): boolean { return sentences(content).some((sentence) => pattern.test(sentence) && !NEGATION_RE.test(sentence) && !REQUIREMENT_HEDGE_RE.test(sentence)) }

@@ -1,12 +1,12 @@
 import { recallPersistentMemory } from './persistent-memory'
 import { synthesizeExecutiveReadiness, type SelfReflectionKind } from './ceo-self-reflection'
-import type { CeoIntent } from './ceo-cognitive-contract'
+import type { CeoIntent, EvidenceState } from './ceo-cognitive-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import { emitConversationIncident } from './ceo-conversation-incident'
 
 export interface DegradedResponse {
   content: string
-  evidenceState: 'NOT_APPLICABLE' | 'LIVE_EXECUTED' | 'LIVE_VERIFIED' | 'VERIFIED_CACHED' | 'MEMORY_ONLY' | 'PARTIAL_UNCONFIRMED' | 'UNAVAILABLE'
+  evidenceState: EvidenceState
   reason: string
   sourceKeys: string[]
   failureReason: CeoFailureReason

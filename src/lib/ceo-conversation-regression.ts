@@ -1,16 +1,6 @@
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import type { ConversationQualityScore } from './ceo-response-quality-gate'
-
-export type ConversationIncidentCategory =
-  | 'understanding'
-  | 'state'
-  | 'reference'
-  | 'routing'
-  | 'quality'
-  | 'personality'
-  | 'provider'
-  | 'stream'
-  | 'unknown'
+import type { ConversationIncidentCategory } from './ceo-conversation-incident'
 
 export interface ConversationRegressionContract {
   schemaVersion: 1
@@ -27,7 +17,7 @@ export interface ConversationRegressionContract {
   shouldNever: string[]
 }
 
-function categoryFor(quality: ConversationQualityScore): ConversationIncidentCategory {
+function categoryForQuality(quality: ConversationQualityScore): ConversationIncidentCategory {
   if (quality.referenceResolution < 70) return 'reference'
   if (quality.continuity < 70) return 'state'
   if (quality.naturalness < 70 || quality.personalityConsistency < 70) return 'personality'
@@ -46,19 +36,21 @@ function stableFingerprint(parts: string[]): string {
 }
 
 export function buildConversationRegressionContract(context: CanonicalConversationContext, quality: ConversationQualityScore): ConversationRegressionContract {
-  const failingDimensions = [
-    ['continuity', quality.continuity],
-    ['relevance', quality.relevance],
-    ['naturalness', quality.naturalness],
-    ['toneAlignment', quality.toneAlignment],
-    ['coherence', quality.coherence],
-    ['nonRepetition', quality.nonRepetition],
-    ['referenceResolution', quality.referenceResolution],
-    ['initiative', quality.initiative],
-    ['personalityConsistency', quality.personalityConsistency],
-    ['progression', quality.progression],
-  ].filter(([, score]) => Number(score) < 70).map(([name]) => name)
-  const category = categoryFor(quality)
+  const failingDimensions = (
+    [
+      ['continuity', quality.continuity],
+      ['relevance', quality.relevance],
+      ['naturalness', quality.naturalness],
+      ['toneAlignment', quality.toneAlignment],
+      ['coherence', quality.coherence],
+      ['nonRepetition', quality.nonRepetition],
+      ['referenceResolution', quality.referenceResolution],
+      ['initiative', quality.initiative],
+      ['personalityConsistency', quality.personalityConsistency],
+      ['progression', quality.progression],
+    ] as Array<[string, number]>
+  ).filter(([, score]) => Number(score) < 70).map(([name]) => name)
+  const category = categoryForQuality(quality)
   return {
     schemaVersion: 1,
     fingerprint: stableFingerprint([
