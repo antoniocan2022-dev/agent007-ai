@@ -92,6 +92,29 @@ function logCeoDegradedTrace(context: {
   }))
 }
 
+async function semanticSubstanceCheck(objective: string, content: string): Promise<{ substantive: boolean; checked: boolean }> {
+  try {
+    const judge = await runCanonicalLlm({
+      messages: [
+        { role: 'system', content: 'You judge whether a conversational answer is substantive (specific, engages genuinely with the question, gives real reasoning or detail) or shallow (generic, hand-wavy, could apply to almost any question). Respond with exactly one word: SUBSTANTIVE or SHALLOW. No other text.' },
+        { role: 'user', content: `Question: ${objective.slice(0, 500)}\n\nAnswer: ${content.slice(0, 1500)}` },
+      ],
+      taskType: 'reasoning',
+      executionClass: 'fast',
+      temperature: 0,
+      maxTokens: 10,
+      timeoutMs: 6000,
+      maxProviderAttempts: 1,
+    })
+    const verdict = judge.content.trim().toUpperCase()
+    if (verdict.includes('SHALLOW')) return { substantive: false, checked: true }
+    if (verdict.includes('SUBSTANTIVE')) return { substantive: true, checked: true }
+    return { substantive: true, checked: false }
+  } catch {
+    return { substantive: true, checked: false }
+  }
+}
+
 async function tryDegraded(
   request: CeoCognitiveRequest,
   reason: string,
@@ -188,9 +211,11 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     const isGenuineOverclaim = quality.failureReason === 'evidence_unavailable' || quality.failureReason === 'evidence_insufficient' || quality.failureReason === 'claim_consistency_failure'
     const conversationQuality = (quality as { conversationQuality?: { score: number } }).conversationQuality
     const meetsRealQualityBar = conversationQuality ? conversationQuality.score >= 60 : result.content.trim().length >= 20
-    const softPassEligible = isConversational && !isGenuineOverclaim && meetsRealQualityBar
+    const heuristicSoftPassCandidate = isConversational && !isGenuineOverclaim && meetsRealQualityBar
+    const semanticCheck = (quality.decision !== 'PASS' && heuristicSoftPassCandidate) ? await semanticSubstanceCheck(objective, result.content) : { substantive: true, checked: false }
+    const softPassEligible = heuristicSoftPassCandidate && semanticCheck.substantive
     if (quality.decision !== 'PASS' && !softPassEligible) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason: quality.failureReason, attempts: mergeAttempts(primary, review, final), rawContentLength: result.content.length, qualityChecks: quality.checks, priorTurnCount: request.priorConversation?.length }); return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason) }
-    if (quality.decision !== 'PASS' && softPassEligible) console.log('[ceo-soft-pass]', JSON.stringify({ intent: decisionPlan.executionContract.intent, failureReason: quality.failureReason, contentLength: result.content.length, conversationQualityScore: conversationQuality?.score }))
+    if (quality.decision !== 'PASS' && softPassEligible) console.log('[ceo-soft-pass]', JSON.stringify({ intent: decisionPlan.executionContract.intent, failureReason: quality.failureReason, contentLength: result.content.length, conversationQualityScore: conversationQuality?.score, semanticChecked: semanticCheck.checked }))
     const evidenceState: EvidenceState = quality.evidenceState
     console.log('[ceo-runtime-trace]', JSON.stringify({ intent: decisionPlan.executionContract.intent, path: decisionPlan.path, provider: result.provider, model: result.model, contentLength: result.content.length, qualityDecision: quality.decision, evidenceState, responseMs: Date.now() - startedAt, degraded: false }))
     return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false, failureReason: quality.failureReason }
