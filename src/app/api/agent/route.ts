@@ -15,6 +15,11 @@ import { renderEvidenceBundleForPrompt, type EvidenceBundle } from '@/lib/ceo-ev
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
+import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
+import { buildCeoRuntimeMetrics, logCeoRuntimeMetrics } from '@/lib/ceo-runtime-metrics'
+import { createReleaseAttestation, getReleaseIdentity, newReleaseRequestId } from '@/lib/release-attestation'
+import { CeoRequestAbortedError, isCeoRequestAborted } from '@/lib/ceo-cancellation'
+import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -69,7 +74,14 @@ export async function POST(req: NextRequest) {
   if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing \"conversationId\"' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
-  const deploymentIdentity = getDeploymentIdentity()
+  const releaseIdentity = getReleaseIdentity()
+  const deploymentIdentity: DeploymentIdentity = { deploymentId: releaseIdentity.deploymentId, releaseCommit: releaseIdentity.vercelCommitSha }
+  const requestId = newReleaseRequestId(req.headers.get('x-agent007-request-id'))
+  const releaseAttestation = createReleaseAttestation(releaseIdentity, requestId)
+  const requestAbortController = new AbortController()
+  const onRequestAbort = () => requestAbortController.abort(req.signal.reason ?? new CeoRequestAbortedError(req.signal.reason))
+  if (req.signal.aborted) onRequestAbort()
+  else req.signal.addEventListener('abort', onRequestAbort, { once: true })
 
   let contextData: { rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }
   try {
@@ -79,7 +91,7 @@ export async function POST(req: NextRequest) {
     contextData = await loadConversationContext(conversationId, sessionUserId)
     await db.message.create({ data: { conversationId: conv.id, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null } })
   } catch (dbErr: any) {
-    console.warn('[api/agent] Pre-stream DB persistence failed:', dbErr?.message?.slice(0, 150))
+    req.signal.removeEventListener('abort', onRequestAbort)
     return new Response(JSON.stringify({ error: 'Unable to persist the conversation securely.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
   }
 
@@ -92,6 +104,7 @@ export async function POST(req: NextRequest) {
   const preRoute = preRouteCeoRequest(contextSeed.messages, atts.length)
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract
+  const decisionContract = buildConversationDecisionContract(contextSeed.canonicalSemanticContext)
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
 
   const encoder = new TextEncoder()
@@ -115,7 +128,9 @@ export async function POST(req: NextRequest) {
       }
       const heartbeat = setInterval(() => safeEnqueue(sse('ping', { ts: Date.now() })), 5000)
       beginInteractive()
+      let streamOutcome: 'completed' | 'degraded' | 'cancelled' | 'timeout' | 'failed' = 'failed'
       try {
+        if (requestAbortController.signal.aborted) throw new CeoRequestAbortedError(requestAbortController.signal.reason)
         if (executionContract.orchestrationOwner === 'ceo_lifecycle') {
           let externalEvidenceContext: string | undefined
           let externalEvidenceScope: 'external_web' | 'mixed' | undefined
@@ -159,7 +174,7 @@ export async function POST(req: NextRequest) {
             evidence: externalEvidenceContext,
           })
           const composed = composeCeoContext({ systemPrompt: finalSystemPrompt, currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: contextModules })
-          let response = await runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, verification: 'standard', timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows })
+          let response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, verification: 'standard', timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows }))
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) {
             const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle)
             addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount })
@@ -167,10 +182,14 @@ export async function POST(req: NextRequest) {
           }
           const finalTraceState = response.degraded ? (externalEvidenceBundle?.sources.length ? 'PARTIAL' : 'ABSTAIN') : 'FULL'
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
+          const metrics = buildCeoRuntimeMetrics({ result: response, decisionContract, outcome: response.degraded ? 'degraded' : 'completed' })
+          logCeoRuntimeMetrics(metrics, requestId)
           let persistedAssistantMessageId: string | null = null
           try { const assistant = await db.message.create({ data: { conversationId, role: 'assistant', content: response.content } }); persistedAssistantMessageId = assistant.id } catch (persistErr: any) { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)) }
-          safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, responseMs: response.responseMs, deployment: deploymentIdentity, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composed.modules } }))
-          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, executionContract }))
+          streamOutcome = response.degraded ? 'degraded' : 'completed'
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model }))
+          safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, cognitiveMetrics: metrics, responseMs: response.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composed.modules } }))
+          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract }))
         } else {
           const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement })
           const baseOperationalContext = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: operationalModules })
@@ -178,26 +197,46 @@ export async function POST(req: NextRequest) {
           const operationalEvidence = `OPERATIONAL EXECUTION RESULT\nFinal answer: ${result.finalAnswer.slice(0, 24000)}\nCompleted steps: ${result.steps.length}\nTool steps: ${result.steps.filter((step) => Boolean(step.toolName)).length}`
           const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence })
           const composedOperational = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: contextData.rows, memories: contextData.memories, modules: synthesisModules })
-          const synthesis = await runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, verification: 'standard', timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows })
+          const synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, verification: 'standard', timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: contextData.rows, relevantOlderConversation: contextData.rows }))
+          const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract, outcome: synthesis.degraded ? 'degraded' : 'completed' })
+          logCeoRuntimeMetrics(metrics, requestId)
           const persistedAssistantMessageId = result.persistedAssistantMessageId
-          try { await db.message.update({ where: { id: result.persistedAssistantMessageId }, data: { content: synthesis.content } }) } catch (persistErr: any) { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)) }
-          safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, responseMs: synthesis.responseMs, deployment: deploymentIdentity, executionContract, operationalSteps: result.steps.length, context: { recentMessages: baseOperationalContext.recentMessages, relevantOlderMessages: baseOperationalContext.relevantOlderMessages, summarizedOlderMessages: baseOperationalContext.summarizedOlderMessages, selectedMemoryKeys: baseOperationalContext.selectedMemoryKeys, modules: composedOperational.modules } }))
-          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length + 1, executionClass: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, evidenceState: synthesis.evidenceState, deployment: deploymentIdentity, executionContract, recoveryCount: recoveryBudget.used }))
+          try { await db.message.update({ where: { id: result.persistedAssistantMessageId }, data: { content: synthesis.content } }) } catch (persistErr: any) { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150) ) }
+          streamOutcome = synthesis.degraded ? 'degraded' : 'completed'
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model }))
+          safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, cognitiveMetrics: metrics, responseMs: synthesis.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, operationalSteps: result.steps.length, context: { recentMessages: baseOperationalContext.recentMessages, relevantOlderMessages: baseOperationalContext.relevantOlderMessages, summarizedOlderMessages: baseOperationalContext.summarizedOlderMessages, selectedMemoryKeys: baseOperationalContext.selectedMemoryKeys, modules: composedOperational.modules } }))
+          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length + 1, executionClass: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, evidenceState: synthesis.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract, recoveryCount: recoveryBudget.used }))
         }
       } catch (e: any) {
-        if (e instanceof RecoveryBudgetExceededError || e?.code === 'CEO_RECOVERY_BUDGET_EXCEEDED') await baseEmit('error', { message: 'Agent007 stopped this request after exhausting its governed recovery budget. The request state remains safe; retry is available.', executionClass: resolvedPath, code: 'CEO_RECOVERY_BUDGET_EXCEEDED', recoveryCount: recoveryBudget.used, maxRecoveries: recoveryBudget.remaining + recoveryBudget.used, retryable: true, deployment: deploymentIdentity })
-        else if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') await baseEmit('error', { message: 'Agent007 stopped this request before the execution budget so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.', executionClass: resolvedPath, code: 'AGENT_REQUEST_TIMEOUT', timeoutMs: requestBudgetMs, retryable: true, deployment: deploymentIdentity })
-        else await baseEmit('error', { message: e?.message ?? String(e), executionClass: resolvedPath, deployment: deploymentIdentity })
+        const cancelled = isCeoRequestAborted(e) || requestAbortController.signal.aborted
+        if (cancelled) {
+          streamOutcome = 'cancelled'
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: 'cancelled' }))
+          await baseEmit('error', { message: 'Agent007 stopped the request because it was cancelled. No assistant response was committed after cancellation.', executionClass: resolvedPath, code: 'CEO_REQUEST_ABORTED', retryable: true, requestId, releaseAttestation, deployment: deploymentIdentity })
+        } else if (e instanceof RecoveryBudgetExceededError || e?.code === 'CEO_RECOVERY_BUDGET_EXCEEDED') {
+          streamOutcome = 'failed'
+          await baseEmit('error', { message: 'Agent007 stopped this request after exhausting its governed recovery budget. The request state remains safe; retry is available.', executionClass: resolvedPath, code: 'CEO_RECOVERY_BUDGET_EXCEEDED', recoveryCount: recoveryBudget.used, maxRecoveries: recoveryBudget.remaining + recoveryBudget.used, retryable: true, requestId, releaseAttestation, deployment: deploymentIdentity })
+        } else if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') {
+          streamOutcome = 'timeout'
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: 'timeout' }))
+          await baseEmit('error', { message: 'Agent007 stopped this request before the execution budget so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.', executionClass: resolvedPath, code: 'AGENT_REQUEST_TIMEOUT', timeoutMs: requestBudgetMs, retryable: true, requestId, releaseAttestation, deployment: deploymentIdentity })
+        } else {
+          streamOutcome = 'failed'
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: 'failed', errorClass: e instanceof Error ? e.name : typeof e }))
+          await baseEmit('error', { message: e?.message ?? String(e), executionClass: resolvedPath, requestId, releaseAttestation, deployment: deploymentIdentity })
+        }
       } finally {
         clearInterval(heartbeat)
         endInteractive()
+        req.signal.removeEventListener('abort', onRequestAbort)
         try { controller.close() } catch { /* ignore */ }
         closed = true
+        if (streamOutcome !== 'completed' && streamOutcome !== 'degraded') console.log('[ceo-request-outcome]', JSON.stringify({ requestId, outcome: streamOutcome }))
       }
     },
-    cancel() { /* client aborted; nothing to do */ },
+    cancel(reason) { requestAbortController.abort(reason ?? new CeoRequestAbortedError(reason)) },
   })
-  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no', 'X-Agent007-Deployment-Id': deploymentIdentity.deploymentId ?? 'unknown', 'X-Agent007-Release-Commit': deploymentIdentity.releaseCommit ?? 'unknown' } })
+  return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no', 'X-Agent007-Deployment-Id': deploymentIdentity.deploymentId ?? 'unknown', 'X-Agent007-Release-Commit': deploymentIdentity.releaseCommit ?? 'unknown', 'X-Agent007-Request-Id': requestId, 'X-Agent007-Release-Fingerprint': releaseAttestation.fingerprint } })
 }
 
 interface OrchestratorRunOptionsWithSignal { conversationId: string; userMessage: string; attachments: AttachmentMeta[]; language: 'en' | 'zh'; emit: OrchestratorEventEmit; signal: AbortSignal }
