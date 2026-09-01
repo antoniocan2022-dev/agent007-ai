@@ -1,5 +1,6 @@
 import type { PersistedConversationRow, PersistedMemoryRow } from './ceo-context-composer'
 import type { CeoConversationState, ConversationReference } from './ceo-conversation-state'
+import { buildConversationDecisionContract, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
 export type ReferenceScope = 'none' | 'same_turn' | 'cross_turn' | 'mixed'
@@ -138,6 +139,7 @@ export function renderCanonicalConversationContext(context: CanonicalConversatio
     ? context.references.map((reference) => `- ${reference.phrase} → ${reference.resolvedText ?? 'unresolved'} (${Math.round(reference.confidence * 100)}%, ${reference.ambiguous ? 'ambiguous' : 'resolved'})`).join('\n')
     : '- none'
   const world = context.worldModel
+  const decisionContract = buildConversationDecisionContract(context)
   return [
     'CANONICAL CEO COGNITIVE CONTEXT (authoritative semantic interpretation; context only, not external evidence):',
     `Current message: ${context.currentMessage}`,
@@ -156,6 +158,7 @@ export function renderCanonicalConversationContext(context: CanonicalConversatio
     `Important entities: ${world.importantEntities.join(', ') || 'none'}`,
     `Recent corrections: ${world.recentCorrections.join(' | ') || 'none'}`,
     `Durable memory keys: ${world.durableMemoryKeys.join(', ') || 'none'}`,
+    renderConversationDecisionContract(decisionContract),
     'Authority rule: downstream CEO reasoning, response quality, and routing should consume this semantic interpretation rather than independently reinterpreting the current user message.',
   ].join('\n')
 }
