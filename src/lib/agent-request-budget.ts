@@ -35,20 +35,14 @@ export function createAgentRequestBudget(timeoutMs = AGENT_REQUEST_BUDGET_MS, pa
   }
 }
 
-export async function runWithAgentRequestBudget<T>(
-  work: (signal: AbortSignal) => Promise<T>,
-  timeoutMs = AGENT_REQUEST_BUDGET_MS,
-  parentSignal?: AbortSignal,
-): Promise<T> {
+export async function runWithAgentRequestBudget<T>(work: (signal: AbortSignal) => Promise<T>, timeoutMs = AGENT_REQUEST_BUDGET_MS, parentSignal?: AbortSignal): Promise<T> {
   const budget = createAgentRequestBudget(timeoutMs, parentSignal)
   const workPromise = Promise.resolve().then(() => work(budget.signal))
-
-  // Attach a terminal rejection handler so a late, cooperatively-cancelled
-  // provider/tool call cannot become an unhandled rejection after the race ends.
   workPromise.catch(() => undefined)
 
+  let onAbort: (() => void) | undefined
   const abortPromise = new Promise<never>((_, reject) => {
-    const onAbort = () => {
+    onAbort = () => {
       const reason = budget.signal.reason
       if (reason instanceof AgentRequestTimeoutError) reject(reason)
       else if (isCeoRequestAborted(reason)) reject(reason)
@@ -67,6 +61,7 @@ export async function runWithAgentRequestBudget<T>(
     }
     return await Promise.race([workPromise, abortPromise])
   } finally {
+    if (onAbort) budget.signal.removeEventListener('abort', onAbort)
     budget.cancel()
   }
 }
