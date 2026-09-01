@@ -6,6 +6,7 @@ import { recordModelPerformance } from './performance-intelligence'
 import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
 import { recordProviderError, recordProviderSuccess } from './provider-error-lifecycle'
 import { CeoRequestAbortedError, throwIfCeoRequestAborted } from './ceo-cancellation'
+import { getCeoCancellationSignal } from './ceo-cancellation-context'
 import type { TaskType, VerificationTier } from './subagent-governance'
 
 export type { ActiveProviderId }
@@ -45,8 +46,13 @@ function resolveChatEndpoint(provider: ActiveProviderId): string {
   return config.baseUrl.replace('{ACCOUNT_ID}', encodeURIComponent(accountId))
 }
 
+function effectiveSignal(request?: { signal?: AbortSignal }): AbortSignal | undefined {
+  return request?.signal ?? getCeoCancellationSignal()
+}
+
 async function callProvider(provider: ActiveProviderId, request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
-  throwIfCeoRequestAborted(request.signal)
+  const signal = effectiveSignal(request)
+  throwIfCeoRequestAborted(signal)
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   const key = process.env[config.apiKeyEnv]?.trim()
   if (!key) { const error = buildProviderFailure(provider, 401, `${config.label} is not configured (${config.apiKeyEnv})`); recordProviderError(provider, error.kind); throw error }
@@ -55,18 +61,18 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
   let model = modelFor(provider, taskType, request.verification)
   try { model = await resolveGovernedModel(provider, taskType, request.verification, request.model) }
   catch (error) { if (error instanceof ProviderControlPlaneError) { recordProviderError(provider, error.kind); throw error }; const classified = buildProviderFailure(provider, undefined, error instanceof Error ? error.message : String(error)); recordProviderError(provider, classified.kind); throw classified }
-  throwIfCeoRequestAborted(request.signal)
+  throwIfCeoRequestAborted(signal)
   const timeoutMs = Math.max(1000, request.timeoutMs ?? 60000)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(new Error(`Provider request exceeded ${timeoutMs}ms.`)), timeoutMs)
-  const abortFromCaller = () => controller.abort(request.signal?.reason ?? new CeoRequestAbortedError())
-  if (request.signal) {
-    if (request.signal.aborted) abortFromCaller()
-    else request.signal.addEventListener('abort', abortFromCaller, { once: true })
+  const abortFromCaller = () => controller.abort(signal?.reason ?? new CeoRequestAbortedError())
+  if (signal) {
+    if (signal.aborted) abortFromCaller()
+    else signal.addEventListener('abort', abortFromCaller, { once: true })
   }
   try {
     const response = await fetch(resolveChatEndpoint(provider), { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages: request.messages, max_tokens: Math.max(64, request.maxTokens ?? 4000), temperature: request.temperature ?? 0.2 }), signal: controller.signal })
-    throwIfCeoRequestAborted(request.signal)
+    throwIfCeoRequestAborted(signal)
     const responseMs = Date.now() - started
     if (!response.ok) { const detail = (await response.text()).slice(0, 700); throw buildProviderFailure(provider, response.status, `HTTP ${response.status}${detail ? ` — ${detail}` : ''}`) }
     const data = await response.json(); const content = extractContent(data)
@@ -76,12 +82,12 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
     const responseMs = Date.now() - started
-    if (request.signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(request.signal?.reason ?? error)
+    if (signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? error)
     if (error instanceof ProviderControlPlaneError) { if (shouldAffectProviderHealth(error.kind)) recordFailure(provider); recordProviderError(provider, error.kind); recordModelPerformance({ provider, model, taskType, success: false, responseMs }); throw error }
     recordFailure(provider); const classified = buildProviderFailure(provider, undefined, error instanceof Error ? error.message : String(error)); recordProviderError(provider, classified.kind); recordModelPerformance({ provider, model, taskType, success: false, responseMs }); throw classified
   } finally {
     clearTimeout(timeout)
-    request.signal?.removeEventListener('abort', abortFromCaller)
+    signal?.removeEventListener('abort', abortFromCaller)
   }
 }
 
@@ -98,7 +104,8 @@ function baseDiagnostic(provider: ActiveProviderId): ProviderRuntimeProbeResult 
 }
 
 export async function probeProvider(provider: ActiveProviderId, request?: Partial<ProviderRuntimeRequest>): Promise<ProviderRuntimeProbeResult> {
-  throwIfCeoRequestAborted(request?.signal)
+  const signal = effectiveSignal(request)
+  throwIfCeoRequestAborted(signal)
   const result = baseDiagnostic(provider); const config = PROVIDER_RUNTIME_CONFIG[provider]
   if (!result.configured) { result.error = `${config.label}: required credentials are not configured`; result.states.execution = 'failed'; recordProviderError(provider, 'AUTHENTICATION'); return result }
   if (isCircuitOpen(provider)) { result.error = 'Provider circuit breaker is open'; result.states.circuitBreaker = 'degraded'; result.states.execution = 'degraded'; return result }
@@ -107,12 +114,12 @@ export async function probeProvider(provider: ActiveProviderId, request?: Partia
   if (!candidates.length) { result.error = `${config.label}: no governed model satisfies task capability requirements`; result.states.governedModel = 'failed'; result.states.execution = 'failed'; recordProviderError(provider, 'MODEL_NOT_GOVERNED'); return result }
   result.states.governedModel = 'healthy'
   try { const catalog = await resolveLiveCatalog(provider, fetch, true); result.catalogSource = catalog.source; result.catalogModelCount = catalog.modelIds.length; result.states.catalog = 'healthy' }
-  catch (error) { if (request?.signal?.aborted) throw new CeoRequestAbortedError(request.signal.reason); result.states.catalog = 'failed'; result.states.execution = 'failed'; const classified = error instanceof ProviderControlPlaneError ? error : buildProviderFailure(provider, undefined, error instanceof Error ? error.message : String(error)); recordProviderError(provider, classified.kind); result.error = classified.message.slice(0, 700); return result }
+  catch (error) { if (signal?.aborted) throw new CeoRequestAbortedError(signal.reason); result.states.catalog = 'failed'; result.states.execution = 'failed'; const classified = error instanceof ProviderControlPlaneError ? error : buildProviderFailure(provider, undefined, error instanceof Error ? error.message : String(error)); recordProviderError(provider, classified.kind); result.error = classified.message.slice(0, 700); return result }
   try {
-    const started = Date.now(); const execution = await callProvider(provider, { messages: request?.messages ?? [{ role: 'system', content: 'You are a production reasoning health probe. Reply with exactly: OK' }, { role: 'user', content: 'Say OK' }], taskType, verification, model: request?.model, temperature: 0, maxTokens: Math.max(128, request?.maxTokens ?? 128), timeoutMs: request?.timeoutMs ?? 10000, signal: request?.signal })
+    const started = Date.now(); const execution = await callProvider(provider, { messages: request?.messages ?? [{ role: 'system', content: 'You are a production reasoning health probe. Reply with exactly: OK' }, { role: 'user', content: 'Say OK' }], taskType, verification, model: request?.model, temperature: 0, maxTokens: Math.max(128, request?.maxTokens ?? 128), timeoutMs: request?.timeoutMs ?? 10000, signal })
     result.responseMs = Date.now() - started; result.model = execution.model; result.success = /^OK(?:\b|$)/i.test(execution.content.trim()); result.states.network = 'healthy'; result.states.execution = result.success ? 'healthy' : 'degraded'; result.states.latency = result.responseMs <= 1500 ? 'healthy' : result.responseMs <= 5000 ? 'degraded' : 'failed'; if (!result.success) { result.error = `Unexpected probe response: ${execution.content.trim().slice(0, 120)}`; recordProviderError(provider, 'UNKNOWN') }
   } catch (error) {
-    if (request?.signal?.aborted) throw new CeoRequestAbortedError(request.signal.reason)
+    if (signal?.aborted) throw new CeoRequestAbortedError(signal.reason)
     result.states.execution = 'failed'
     if (error instanceof ProviderControlPlaneError) { result.states.network = ['NETWORK', 'TIMEOUT', 'UPSTREAM'].includes(error.kind) ? 'failed' : 'healthy'; if (error.kind === 'RATE_LIMIT') result.states.rateLimit = 'failed'; if (error.kind === 'BILLING') result.states.billing = 'failed'; if (error.kind === 'AUTHENTICATION' || error.kind === 'AUTHORIZATION') result.states.credential = 'failed'; if (error.kind === 'MODEL_UNAVAILABLE' || error.kind === 'MODEL_NOT_GOVERNED') result.states.governedModel = 'failed'; result.error = error.message.slice(0, 700) }
     else { result.states.network = 'failed'; result.error = error instanceof Error ? error.message.slice(0, 700) : String(error) }
@@ -124,16 +131,17 @@ export async function probeAllProviders(taskType: TaskType = 'reasoning'): Promi
 export async function probeAllConfiguredProviders(taskType: TaskType = 'reasoning'): Promise<ProviderRuntimeProbeResult[]> { return probeAllProviders(taskType) }
 
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
-  throwIfCeoRequestAborted(request.signal)
+  const signal = effectiveSignal(request)
+  throwIfCeoRequestAborted(signal)
   const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider)); const available = rankAvailableProviders(configured, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]; const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
   if (!candidates.length) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
   const attempts: ActiveProviderId[] = []; const failures: string[] = []
   for (const provider of candidates.slice(0, maxAttempts)) {
-    throwIfCeoRequestAborted(request.signal)
+    throwIfCeoRequestAborted(signal)
     attempts.push(provider)
-    try { return { ...(await callProvider(provider, request)), attempts } }
+    try { return { ...(await callProvider(provider, { ...request, signal })), attempts } }
     catch (error) {
-      if (request.signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(request.signal?.reason ?? error)
+      if (signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? error)
       failures.push(error instanceof ProviderControlPlaneError ? `${error.provider}:${error.kind}${error.status ? `:${error.status}` : ''}` : `${provider}:UNKNOWN`)
     }
   }
