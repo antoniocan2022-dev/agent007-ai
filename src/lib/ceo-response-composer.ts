@@ -6,6 +6,8 @@ export function composeCeoResponse(input: {
   quality: QualityResult
   degraded: boolean
   conversational?: boolean
+  /** Explicit opt-in for surfaces that intentionally expose execution state. */
+  userFacingStatus?: boolean
 }): string {
   const content = input.content.trim()
   if (!content) return 'Agent007 could not produce a usable response.'
@@ -17,12 +19,10 @@ export function composeCeoResponse(input: {
   )
 
   // Conversation is a user-facing dialogue surface, not an observability dump.
-  // Evidence, routing, and quality metadata remain available in the SSE answer
-  // envelope but never leak into ordinary conversational text.
-  if (naturalConversation) return content
+  // Execution/evidence/quality metadata stays in the machine-readable response
+  // envelope unless a caller explicitly opts into user-facing status text.
+  if (naturalConversation || !input.userFacingStatus) return content
 
-  // Non-conversational degraded/cached/partial results may surface their state
-  // because that state can materially change how the user should interpret the answer.
   if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return content
 
   const evidenceLabel = `Evidence state: ${input.evidenceState}.`
