@@ -1,6 +1,5 @@
 import { dispatchTool, type ToolContext, type ToolResult } from './tools'
 import { buildEvidenceBundle, createEvidenceSource, type EvidenceSource, sourceTierForUrl, type EvidenceSourceType } from './ceo-evidence-bundle'
-import type { EvidenceProfile } from './ceo-cognitive-contract'
 import type { ExternalEvidencePlan, EvidenceQuery } from './ceo-evidence-planner'
 import { getCeoCancellationSignal } from './ceo-cancellation-context'
 import { throwIfCeoRequestAborted } from './ceo-cancellation'
@@ -65,6 +64,7 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
     const secResults = await Promise.all(tickers.map(async (ticker) => { try { return await fetchSecSource(ticker, signal) } catch (error) { throwIfCeoRequestAborted(signal); failures.push(`SEC ${ticker}: ${error instanceof Error ? error.message : String(error)}`); return null } }))
     secSources = secResults.filter((source): source is EvidenceSource => source !== null)
   }
+  throwIfCeoRequestAborted(signal)
   return { bundle: buildEvidenceBundle({ profile: plan.profile, sources: [...secSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 }), attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, failures }
 }
 export async function executeExternalEvidencePlan(plan: ExternalEvidencePlan, signal = getCeoCancellationSignal()): Promise<ExternalEvidenceExecution> { return executeOnce(plan, '', signal) }
