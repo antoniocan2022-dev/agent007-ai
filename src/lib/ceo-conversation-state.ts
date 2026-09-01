@@ -3,7 +3,7 @@ import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, 
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
 export interface CeoConversationState {
-  schemaVersion: 3
+  schemaVersion: 4
   topic: string
   topicCandidates: string[]
   entities: string[]
@@ -12,6 +12,7 @@ export interface CeoConversationState {
   unresolvedQuestions: string[]
   decisions: string[]
   recentUserGoals: string[]
+  recentCorrections: string[]
   tone: ConversationTone
   turnCount: number
   lastUserMessage: string
@@ -30,6 +31,8 @@ export interface ConversationReference {
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want','were','will','been','them','theyre','same','option','thing','problem','issue'])
 const QUESTION_RE = /\?\s*$|\b(?:what|why|how|when|where|who|which|should|can|could|would|is|are|do|does)\b/i
 const DECISION_RE = /\b(?:decided|decision|we(?:'ll|\s+will)|let'?s\s+(?:use|do|build|keep|choose)|agreed|selected|going\s+with|prefer(?:red)?|prioriti[sz]e|priorit(?:y|ies))\b/i
+const CORRECTION_RE = /^\s*(?:no\b|that(?:'s| is)\s+(?:not|n't)\b|i\s+mean\b|what\s+i\s+meant\b|correction\b)/i
+const GOAL_RE = /\b(?:main|primary|core|long[- ]term)\s+(?:goal|objective)|\b(?:our|the|my)\s+(?:goal|objective)\b|\bcenter\s+of\s+gravity\b/i
 const RESOLUTION_RE = /\b(?:resolved|closed|finished|done|complete|completed|no longer|solved|fixed)\b/i
 const SUPERSESSION_RE = /\b(?:instead|rather|forget that|move on|replace|supersede|switch to|new topic|different topic)\b/i
 const ENTITY_RE = /\b(?:Agent007|CEO|Vercel|GitHub|OpenAI|Groq|Mistral|Cerebras|Cloudflare|OpenRouter|Context Composer|Conversation State|Memory|Revenue|Venture OS|Mission OS)\b/g
@@ -66,10 +69,6 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     if (!supersedes && lexicalMatch) {
       mergeInto(lexicalMatch, content, topicTokens, row)
     } else if (!supersedes && currentActive && currentActive.status !== 'resolved' && currentActive.status !== 'abandoned') {
-      // Default to continuing the current active thread: natural follow-ups (short replies,
-      // pronouns, "the second one") rarely repeat the vocabulary that started the thread --
-      // that is precisely the discourse gap reference resolution exists to bridge, so requiring
-      // lexical overlap here would fragment a single continuous conversation into unrelated threads.
       mergeInto(currentActive, content, topicTokens, row)
     } else {
       if (currentActive) currentActive.status = supersedes ? 'superseded' : 'paused'
@@ -99,7 +98,15 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
   const entities = [...new Set((corpus.match(ENTITY_RE) ?? []).map(normalize))]
   const threads = buildThreads(clean)
   const activeThreads = threads.filter((thread) => thread.status === 'active').sort((a, b) => b.lastTouchedAt - a.lastTouchedAt).slice(0, 5)
-  return { schemaVersion: 3, topic: topicCandidates.slice(0, 4).join(', ') || entities.slice(-3).join(', ') || latest.slice(0, 120), topicCandidates, entities: entities.slice(-12), activeThreads: activeThreads.map((thread) => thread.title), threads, unresolvedQuestions: uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 6), decisions: uniqueRecent(clean.filter((row) => DECISION_RE.test(row.content)).map((row) => normalize(row.content)), 6), recentUserGoals: uniqueRecent(userRows.slice(-8).map((row) => normalize(row.content)), 8), tone: toneOf(latest || corpus.slice(-500)), turnCount: Math.ceil(clean.length / 2), lastUserMessage: latest, lastAssistantMessage: normalize(assistantRows.at(-1)?.content || ''), updatedAt: Date.now() }
+  // Preserve durable user goals across long conversations instead of letting a
+  // short rolling window erase the original product objective.
+  const durableGoalRows = userRows.filter((row) => GOAL_RE.test(row.content)).map((row) => normalize(row.content))
+  const recentGoalRows = userRows.slice(-8).map((row) => normalize(row.content))
+  const recentUserGoals = uniqueRecent([...durableGoalRows, ...recentGoalRows], 8)
+  const recentCorrections = uniqueRecent(userRows.filter((row) => CORRECTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
+  const decisions = uniqueRecent(clean.filter((row) => DECISION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
+  const unresolvedQuestions = uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
+  return { schemaVersion: 4, topic: topicCandidates.slice(0, 4).join(', ') || entities.slice(-3).join(', ') || latest.slice(0, 120), topicCandidates, entities: entities.slice(-12), activeThreads: activeThreads.map((thread) => thread.title), threads, unresolvedQuestions, decisions, recentUserGoals, recentCorrections, tone: toneOf(latest || corpus.slice(-500)), turnCount: Math.ceil(clean.length / 2), lastUserMessage: latest, lastAssistantMessage: normalize(assistantRows.at(-1)?.content || ''), updatedAt: Date.now() }
 }
 export function resolveConversationReferences(currentMessage: string, rows: readonly PersistedConversationRow[], state?: CeoConversationState): ConversationReference[] {
   const message = normalize(currentMessage); if (!message) return []
@@ -112,7 +119,7 @@ export function buildConversationStatePrompt(state: CeoConversationState, refere
   const referenceLines = references.map((ref) => `- \"${ref.phrase}\" [${ref.kind}] → ${ref.resolvedText ?? 'unresolved'} (${Math.round(ref.confidence * 100)}%${ref.ambiguous ? ', ambiguous' : ''})`)
   const threadLines = state.threads.slice(-6).map((thread) => `- ${thread.id}: ${thread.title} [${thread.status}]`)
   const toneInstruction = state.tone === 'technical' ? 'technical and direct' : state.tone === 'frustrated' ? 'calm, accountable, direct, and solution-focused' : state.tone === 'friendly' ? 'warm and conversational' : 'natural and context-aware'
-  return ['CONVERSATION STATE (persistent derived state; preserve continuity; not factual evidence):', `Topic: ${state.topic || 'unknown'}`, `Related concepts: ${state.topicCandidates.join(', ') || 'none'}`, `Entities: ${state.entities.join(', ') || 'none'}`, `Active threads: ${state.activeThreads.join(' | ') || 'none'}`, `Recent thread records: ${threadLines.join(' | ') || 'none'}`, `Open questions: ${state.unresolvedQuestions.join(' | ') || 'none'}`, `Prior decisions: ${state.decisions.join(' | ') || 'none'}`, `Conversation turns represented: ${state.turnCount}`, `Current tone: ${state.tone}; respond in a ${toneInstruction} manner.`, ...(referenceLines.length ? ['Resolved conversational references:', ...referenceLines] : ['Resolved conversational references: none']), 'Communication rule: answer naturally first. Do not expose state, scores, routing, evidence state, or governance internals unless explicitly asked.'].join('\n')
+  return ['CONVERSATION STATE (persistent derived state; preserve continuity; not factual evidence):', `Topic: ${state.topic || 'unknown'}`, `Related concepts: ${state.topicCandidates.join(', ') || 'none'}`, `Entities: ${state.entities.join(', ') || 'none'}`, `Active threads: ${state.activeThreads.join(' | ') || 'none'}`, `Recent thread records: ${threadLines.join(' | ') || 'none'}`, `User goals: ${state.recentUserGoals.join(' | ') || 'none'}`, `Open questions: ${state.unresolvedQuestions.join(' | ') || 'none'}`, `Prior decisions: ${state.decisions.join(' | ') || 'none'}`, `Recent corrections: ${state.recentCorrections.join(' | ') || 'none'}`, `Conversation turns represented: ${state.turnCount}`, `Current tone: ${state.tone}; respond in a ${toneInstruction} manner.`, ...(referenceLines.length ? ['Resolved conversational references:', ...referenceLines] : ['Resolved conversational references: none']), 'Communication rule: answer naturally first. Do not expose state, scores, routing, evidence state, or governance internals unless explicitly asked.'].join('\n')
 }
 export const buildCeoConversationStatePrompt = buildConversationStatePrompt
 export function buildCeoPersonalityContract(): string {
