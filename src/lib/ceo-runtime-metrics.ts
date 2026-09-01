@@ -4,7 +4,7 @@ import type { CognitiveLifecycleResult } from './ceo-cognitive-contract'
 export type CeoRequestOutcome = 'completed' | 'degraded' | 'cancelled' | 'timeout' | 'failed'
 
 export interface CeoRuntimeMetrics {
-  schemaVersion: 3
+  schemaVersion: 4
   technicalReliability: {
     outcome: CeoRequestOutcome
     providerAvailable: boolean
@@ -16,6 +16,7 @@ export interface CeoRuntimeMetrics {
     evidenceState: CognitiveLifecycleResult['evidenceState'] | 'NOT_RUN'
   }
   cognitiveQuality: {
+    measured: boolean
     score: number
     continuity: number
     relevance: number
@@ -56,16 +57,16 @@ export function buildCeoRuntimeMetrics(input: {
 }): CeoRuntimeMetrics {
   const conversation = input.result.quality.conversationQuality
   const technicalOutcome: CeoRequestOutcome = input.outcome ?? (input.result.degraded ? 'degraded' : input.result.provider ? 'completed' : 'failed')
-  const hasCompletedResponse = technicalOutcome === 'completed' || technicalOutcome === 'degraded'
-  const cognitiveFallback = hasCompletedResponse ? 80 : 0
-  const dimensionFallback = hasCompletedResponse ? 100 : 0
-  const fallbackScore = conversation?.score ?? (input.result.quality.decision === 'PASS' ? 80 : 50)
+  const cognitiveMeasured = Boolean(conversation)
+  const cognitiveFallback = technicalOutcome === 'completed' || technicalOutcome === 'degraded' ? 0 : 0
+  const dimensionFallback = cognitiveMeasured ? 0 : 0
+  const fallbackScore = conversation?.score
   const depth = input.decisionContract
     ? depthToScore(input.decisionContract.cognitiveDepth)
     : Math.min(4, Math.max(0, input.result.decisionPlan.cognitiveDepth)) as 0 | 1 | 2 | 3 | 4
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     technicalReliability: {
       outcome: technicalOutcome,
       providerAvailable: Boolean(input.result.provider && input.result.model),
@@ -77,7 +78,8 @@ export function buildCeoRuntimeMetrics(input: {
       evidenceState: input.result.evidenceState,
     },
     cognitiveQuality: {
-      score: clampScore(hasCompletedResponse ? fallbackScore : undefined, cognitiveFallback),
+      measured: cognitiveMeasured,
+      score: clampScore(fallbackScore, cognitiveFallback),
       continuity: clampScore(conversation?.continuity, dimensionFallback),
       relevance: clampScore(conversation?.relevance, dimensionFallback),
       naturalness: clampScore(conversation?.naturalness, dimensionFallback),
@@ -89,7 +91,7 @@ export function buildCeoRuntimeMetrics(input: {
       personalityConsistency: clampScore(conversation?.personalityConsistency, dimensionFallback),
       progression: clampScore(conversation?.progression, dimensionFallback),
       cognitiveDepth: depth,
-      semanticCompleteness: input.decisionContract?.completeness ?? (hasCompletedResponse ? 'complete' : 'insufficient'),
+      semanticCompleteness: input.decisionContract?.completeness ?? (technicalOutcome === 'completed' || technicalOutcome === 'degraded' ? 'complete' : 'insufficient'),
       responseRegister: input.decisionContract?.responseRegister ?? 'conversational',
       clarificationRequired: input.decisionContract?.clarificationRequired ?? false,
     },
