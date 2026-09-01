@@ -40,7 +40,8 @@ function relationFor(context: CanonicalConversationContext): ConversationRelatio
   return 'new'
 }
 
-function registerFor(context: CanonicalConversationContext): ResponseRegister {
+function registerFor(context: CanonicalConversationContext, completeness: ConversationCompleteness): ResponseRegister {
+  if (completeness !== 'complete') return 'conversational'
   if (context.speechAct === 'social') return 'conversational'
   if (context.intentHint === 'decision') return 'executive'
   if (context.intentHint === 'analysis' || context.intentHint === 'research') return 'analytical'
@@ -71,11 +72,28 @@ function confidenceFor(input: { context: CanonicalConversationContext; completen
   return Math.max(0.25, Math.min(0.98, Number(score.toFixed(2))))
 }
 
+function clarificationRequiredFor(context: CanonicalConversationContext, completeness: ConversationCompleteness): boolean {
+  if (completeness !== 'complete') return completeness === 'partial' || completeness === 'insufficient'
+
+  // Generic comprehension/repair language is itself semantically sufficient. The
+  // CEO should answer from the preceding context instead of treating "it/that"
+  // as an unresolved reference that blocks the conversation.
+  if (/^\s*(?:i\s+don['’]?t\s+(?:understand|get\s+it)|i['’]?m\s+confused|what\s+do\s+you\s+mean|explain\s+(?:that|this)\s+(?:again|more|simply|in\s+simple\s+words)?)\s*[.!?]*$/i.test(context.currentMessage)) return false
+
+  const ambiguousReferences = context.references.filter((reference) => reference.ambiguous || reference.confidence < 0.7)
+  if (!ambiguousReferences.length) return false
+
+  // A short conversational reference such as "What about that?" is answerable
+  // from the working thread even when the resolver cannot prove one antecedent.
+  if (context.intentHint === 'conversation' && context.currentMessage.length <= 80) return false
+  return true
+}
+
 export function buildConversationDecisionContract(context: CanonicalConversationContext): ConversationDecisionContract {
   const completeness = completionFor(context.currentMessage)
   const conversationRelation = relationFor(context)
   const confidence = confidenceFor({ context, completeness, relation: conversationRelation })
-  const clarificationRequired = completeness !== 'complete' || context.references.some((reference) => reference.ambiguous || reference.confidence < 0.7)
+  const clarificationRequired = clarificationRequiredFor(context, completeness)
   const rationale = [
     `Intent=${context.intentHint}`,
     `speechAct=${context.speechAct}`,
@@ -84,7 +102,8 @@ export function buildConversationDecisionContract(context: CanonicalConversation
     `depth=${context.cognitiveDepth}`,
   ]
   if (context.references.length) rationale.push(`references=${context.references.length}`)
-  if (clarificationRequired) rationale.push('clarification should be preferred only when the remaining meaning cannot be answered safely')
+  if (clarificationRequired) rationale.push('clarification required because the remaining meaning cannot be answered safely from available context')
+  else rationale.push('clarification is not required; answer from the best supported conversational interpretation')
 
   return {
     schemaVersion: 1,
@@ -94,7 +113,7 @@ export function buildConversationDecisionContract(context: CanonicalConversation
     completeness,
     conversationRelation,
     cognitiveDepth: context.cognitiveDepth,
-    responseRegister: registerFor(context),
+    responseRegister: registerFor(context, completeness),
     toolRequirement: toolRequirementFor(context),
     evidenceRequirement: evidenceRequirementFor(context),
     clarificationRequired,
