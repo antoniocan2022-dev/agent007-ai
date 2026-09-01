@@ -4,16 +4,16 @@ import type { CognitiveLifecycleResult } from './ceo-cognitive-contract'
 export type CeoRequestOutcome = 'completed' | 'degraded' | 'cancelled' | 'timeout' | 'failed'
 
 export interface CeoRuntimeMetrics {
-  schemaVersion: 2
+  schemaVersion: 3
   technicalReliability: {
     outcome: CeoRequestOutcome
     providerAvailable: boolean
     responseMs: number
     providerAttemptCount: number
     degraded: boolean
-    qualityDecision: CognitiveLifecycleResult['quality']['decision']
-    verificationStatus: CognitiveLifecycleResult['quality']['verificationStatus']
-    evidenceState: CognitiveLifecycleResult['evidenceState']
+    qualityDecision: CognitiveLifecycleResult['quality']['decision'] | 'NOT_RUN'
+    verificationStatus: CognitiveLifecycleResult['quality']['verificationStatus'] | 'NOT_RUN'
+    evidenceState: CognitiveLifecycleResult['evidenceState'] | 'NOT_RUN'
   }
   cognitiveQuality: {
     score: number
@@ -38,6 +38,10 @@ function clampScore(value: unknown, fallback: number): number {
   const numeric = typeof value === 'number' && Number.isFinite(value) ? value : fallback
   return Math.round(Math.max(0, Math.min(100, numeric)))
 }
+function nonNegativeFinite(value: unknown, fallback = 0): number {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return Math.round(Math.max(0, numeric))
+}
 function depthToScore(depth: ConversationDecisionContract['cognitiveDepth']): 0 | 1 | 2 | 3 | 4 {
   if (depth === 'direct') return 0
   if (depth === 'contextual') return 1
@@ -61,11 +65,11 @@ export function buildCeoRuntimeMetrics(input: {
     : Math.min(4, Math.max(0, input.result.decisionPlan.cognitiveDepth)) as 0 | 1 | 2 | 3 | 4
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     technicalReliability: {
       outcome: technicalOutcome,
       providerAvailable: Boolean(input.result.provider && input.result.model),
-      responseMs: clampScore(input.result.responseMs, 0),
+      responseMs: nonNegativeFinite(input.result.responseMs),
       providerAttemptCount: Math.max(0, input.result.attempts.length),
       degraded: input.result.degraded,
       qualityDecision: input.result.quality.decision,
@@ -94,4 +98,18 @@ export function buildCeoRuntimeMetrics(input: {
 
 export function logCeoRuntimeMetrics(metrics: CeoRuntimeMetrics, requestId?: string): void {
   console.log('[ceo-runtime-metrics]', JSON.stringify({ requestId: requestId ?? null, ...metrics }))
+}
+
+export function logCeoTechnicalOutcome(outcome: CeoRequestOutcome, requestId: string, responseMs = 0): void {
+  const emptyResult = {
+    provider: null,
+    model: null,
+    responseMs,
+    attempts: [] as string[],
+    decisionPlan: { cognitiveDepth: 0 },
+    quality: { decision: 'NOT_RUN', verificationStatus: 'NOT_RUN', evidenceState: 'NOT_RUN', conversationQuality: undefined },
+    evidenceState: 'NOT_RUN',
+    degraded: outcome === 'degraded',
+  } as unknown as CognitiveLifecycleResult
+  logCeoRuntimeMetrics(buildCeoRuntimeMetrics({ result: emptyResult, outcome }), requestId)
 }
