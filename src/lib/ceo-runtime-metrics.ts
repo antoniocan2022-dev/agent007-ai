@@ -58,9 +58,8 @@ export function buildCeoRuntimeMetrics(input: {
   const conversation = input.result.quality.conversationQuality
   const technicalOutcome: CeoRequestOutcome = input.outcome ?? (input.result.degraded ? 'degraded' : input.result.provider ? 'completed' : 'failed')
   const cognitiveMeasured = Boolean(conversation)
-  const cognitiveFallback = technicalOutcome === 'completed' || technicalOutcome === 'degraded' ? 0 : 0
-  const dimensionFallback = cognitiveMeasured ? 0 : 0
-  const fallbackScore = conversation?.score
+  const fallbackScore = 0
+  const fallbackDimension = 0
   const depth = input.decisionContract
     ? depthToScore(input.decisionContract.cognitiveDepth)
     : Math.min(4, Math.max(0, input.result.decisionPlan.cognitiveDepth)) as 0 | 1 | 2 | 3 | 4
@@ -79,17 +78,17 @@ export function buildCeoRuntimeMetrics(input: {
     },
     cognitiveQuality: {
       measured: cognitiveMeasured,
-      score: clampScore(fallbackScore, cognitiveFallback),
-      continuity: clampScore(conversation?.continuity, dimensionFallback),
-      relevance: clampScore(conversation?.relevance, dimensionFallback),
-      naturalness: clampScore(conversation?.naturalness, dimensionFallback),
-      toneAlignment: clampScore(conversation?.toneAlignment, dimensionFallback),
-      coherence: clampScore(conversation?.coherence, dimensionFallback),
-      nonRepetition: clampScore(conversation?.nonRepetition, dimensionFallback),
-      initiative: clampScore(conversation?.initiative, dimensionFallback),
-      referenceResolution: clampScore(conversation?.referenceResolution, dimensionFallback),
-      personalityConsistency: clampScore(conversation?.personalityConsistency, dimensionFallback),
-      progression: clampScore(conversation?.progression, dimensionFallback),
+      score: clampScore(conversation?.score, fallbackScore),
+      continuity: clampScore(conversation?.continuity, fallbackDimension),
+      relevance: clampScore(conversation?.relevance, fallbackDimension),
+      naturalness: clampScore(conversation?.naturalness, fallbackDimension),
+      toneAlignment: clampScore(conversation?.toneAlignment, fallbackDimension),
+      coherence: clampScore(conversation?.coherence, fallbackDimension),
+      nonRepetition: clampScore(conversation?.nonRepetition, fallbackDimension),
+      initiative: clampScore(conversation?.initiative, fallbackDimension),
+      referenceResolution: clampScore(conversation?.referenceResolution, fallbackDimension),
+      personalityConsistency: clampScore(conversation?.personalityConsistency, fallbackDimension),
+      progression: clampScore(conversation?.progression, fallbackDimension),
       cognitiveDepth: depth,
       semanticCompleteness: input.decisionContract?.completeness ?? (technicalOutcome === 'completed' || technicalOutcome === 'degraded' ? 'complete' : 'insufficient'),
       responseRegister: input.decisionContract?.responseRegister ?? 'conversational',
