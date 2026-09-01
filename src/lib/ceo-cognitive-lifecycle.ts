@@ -15,7 +15,8 @@ import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState } from './ceo-cognitive-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import type { PersistedConversationRow } from './ceo-context-composer'
-import { isCeoRequestAborted } from './ceo-cancellation'
+import { getCeoCancellationSignal } from './ceo-cancellation-context'
+import { isCeoRequestAborted, throwIfCeoRequestAborted } from './ceo-cancellation'
 
 export interface CeoCognitiveRequest {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -129,7 +130,7 @@ async function tryDegraded(
   validatedAvailability: ValidatedAvailability = null,
   failureReason?: CeoFailureReason,
 ): Promise<CognitiveLifecycleResult> {
-  if (isCeoRequestAborted((await Promise.resolve()).constructor ? undefined : undefined)) { /* cancellation is checked by the caller's signal-aware provider path */ }
+  throwIfCeoRequestAborted(getCeoCancellationSignal())
   const started = Date.now()
   let availability = validatedAvailability
   if (!availability && !availabilityAttempted) availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
@@ -148,7 +149,9 @@ async function tryDegraded(
       // Recovery failed genuinely; proceed to persistent-evidence degraded mode.
     }
   }
+  throwIfCeoRequestAborted(getCeoCancellationSignal())
   const degraded = await buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), intent: decisionPlan.executionContract.intent, selfReflectionKind: decisionPlan.executionContract.selfReflectionKind, reason, failureReason, missionId: request.missionId, contextualEvidence: request.contextualEvidence })
+  throwIfCeoRequestAborted(getCeoCancellationSignal())
   const responseMs = responseMsBeforeDegraded + (Date.now() - started)
   const quality = { decision: 'DEGRADED' as const, evidenceState: degraded.evidenceState, verificationStatus: 'NOT_PERFORMED' as const, checks: { nonEmpty: Boolean(degraded.content.trim()), contractValid: degraded.content.length <= 100_000, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, evidenceScope, evidenceFreshness, claimScopes: [], failureReason: degraded.failureReason, reasons: [reason, ...(degraded.sourceKeys.length ? [`Recovered ${degraded.sourceKeys.length} internal evidence item(s).`] : [])] }
   return { content: composeCeoResponse({ content: degraded.content, evidenceState: degraded.evidenceState, quality, degraded: true }), responseMs, attempts, executionPlan, decisionPlan, quality, evidenceState: degraded.evidenceState, degraded: true, failureReason: degraded.failureReason }
