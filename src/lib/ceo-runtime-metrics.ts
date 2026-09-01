@@ -4,7 +4,7 @@ import type { CognitiveLifecycleResult } from './ceo-cognitive-contract'
 export type CeoRequestOutcome = 'completed' | 'degraded' | 'cancelled' | 'timeout' | 'failed'
 
 export interface CeoRuntimeMetrics {
-  schemaVersion: 1
+  schemaVersion: 2
   technicalReliability: {
     outcome: CeoRequestOutcome
     providerAvailable: boolean
@@ -34,6 +34,10 @@ export interface CeoRuntimeMetrics {
   }
 }
 
+function clampScore(value: unknown, fallback: number): number {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return Math.round(Math.max(0, Math.min(100, numeric)))
+}
 function depthToScore(depth: ConversationDecisionContract['cognitiveDepth']): 0 | 1 | 2 | 3 | 4 {
   if (depth === 'direct') return 0
   if (depth === 'contextual') return 1
@@ -47,38 +51,41 @@ export function buildCeoRuntimeMetrics(input: {
   outcome?: CeoRequestOutcome
 }): CeoRuntimeMetrics {
   const conversation = input.result.quality.conversationQuality
+  const technicalOutcome: CeoRequestOutcome = input.outcome ?? (input.result.degraded ? 'degraded' : input.result.provider ? 'completed' : 'failed')
+  const hasCompletedResponse = technicalOutcome === 'completed' || technicalOutcome === 'degraded'
+  const cognitiveFallback = hasCompletedResponse ? 80 : 0
+  const dimensionFallback = hasCompletedResponse ? 100 : 0
   const fallbackScore = conversation?.score ?? (input.result.quality.decision === 'PASS' ? 80 : 50)
-  const technicalOutcome: CeoRequestOutcome = input.outcome
-    ?? (input.result.degraded ? 'degraded' : input.result.provider ? 'completed' : 'failed')
+  const depth = input.decisionContract
+    ? depthToScore(input.decisionContract.cognitiveDepth)
+    : Math.min(4, Math.max(0, input.result.decisionPlan.cognitiveDepth)) as 0 | 1 | 2 | 3 | 4
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     technicalReliability: {
       outcome: technicalOutcome,
       providerAvailable: Boolean(input.result.provider && input.result.model),
-      responseMs: Math.max(0, Math.round(input.result.responseMs)),
-      providerAttemptCount: input.result.attempts.length,
+      responseMs: clampScore(input.result.responseMs, 0),
+      providerAttemptCount: Math.max(0, input.result.attempts.length),
       degraded: input.result.degraded,
       qualityDecision: input.result.quality.decision,
       verificationStatus: input.result.quality.verificationStatus,
       evidenceState: input.result.evidenceState,
     },
     cognitiveQuality: {
-      score: Math.round(Math.max(0, Math.min(100, fallbackScore))),
-      continuity: Math.round(conversation?.continuity ?? 100),
-      relevance: Math.round(conversation?.relevance ?? 100),
-      naturalness: Math.round(conversation?.naturalness ?? 100),
-      toneAlignment: Math.round(conversation?.toneAlignment ?? 100),
-      coherence: Math.round(conversation?.coherence ?? 100),
-      nonRepetition: Math.round(conversation?.nonRepetition ?? 100),
-      initiative: Math.round(conversation?.initiative ?? 100),
-      referenceResolution: Math.round(conversation?.referenceResolution ?? 100),
-      personalityConsistency: Math.round(conversation?.personalityConsistency ?? 100),
-      progression: Math.round(conversation?.progression ?? 100),
-      cognitiveDepth: input.decisionContract
-        ? depthToScore(input.decisionContract.cognitiveDepth)
-        : Math.min(4, Math.max(0, input.result.decisionPlan.cognitiveDepth)) as 0 | 1 | 2 | 3 | 4,
-      semanticCompleteness: input.decisionContract?.completeness ?? 'complete',
+      score: clampScore(hasCompletedResponse ? fallbackScore : undefined, cognitiveFallback),
+      continuity: clampScore(conversation?.continuity, dimensionFallback),
+      relevance: clampScore(conversation?.relevance, dimensionFallback),
+      naturalness: clampScore(conversation?.naturalness, dimensionFallback),
+      toneAlignment: clampScore(conversation?.toneAlignment, dimensionFallback),
+      coherence: clampScore(conversation?.coherence, dimensionFallback),
+      nonRepetition: clampScore(conversation?.nonRepetition, dimensionFallback),
+      initiative: clampScore(conversation?.initiative, dimensionFallback),
+      referenceResolution: clampScore(conversation?.referenceResolution, dimensionFallback),
+      personalityConsistency: clampScore(conversation?.personalityConsistency, dimensionFallback),
+      progression: clampScore(conversation?.progression, dimensionFallback),
+      cognitiveDepth: depth,
+      semanticCompleteness: input.decisionContract?.completeness ?? (hasCompletedResponse ? 'complete' : 'insufficient'),
       responseRegister: input.decisionContract?.responseRegister ?? 'conversational',
       clarificationRequired: input.decisionContract?.clarificationRequired ?? false,
     },
