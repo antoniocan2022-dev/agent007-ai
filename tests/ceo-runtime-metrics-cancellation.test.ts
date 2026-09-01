@@ -37,10 +37,30 @@ test('runtime metrics keep technical reliability separate from cognitive quality
   expect(metrics.technicalReliability.outcome).toBe('completed')
   expect(metrics.technicalReliability.providerAvailable).toBe(true)
   expect(metrics.technicalReliability.responseMs).toBe(420)
+  expect(metrics.cognitiveQuality.measured).toBe(true)
   expect(metrics.cognitiveQuality.score).toBe(91)
   expect(metrics.cognitiveQuality.continuity).toBe(94)
   expect(metrics.cognitiveQuality.responseRegister).toBe('conversational')
   expect(metrics.cognitiveQuality.cognitiveDepth).toBe(1)
+})
+
+test('cognitive quality is not fabricated when the evaluator did not measure it', () => {
+  const result = {
+    provider: 'groq',
+    model: 'test-model',
+    responseMs: 300,
+    attempts: ['groq'],
+    decisionPlan: { cognitiveDepth: 1 },
+    quality: { decision: 'PASS', verificationStatus: 'NOT_REQUIRED', evidenceState: 'NOT_APPLICABLE' },
+    evidenceState: 'NOT_APPLICABLE',
+    degraded: false,
+  } as unknown as CognitiveLifecycleResult
+  const metrics = buildCeoRuntimeMetrics({ result })
+  expect(metrics.cognitiveQuality.measured).toBe(false)
+  expect(metrics.cognitiveQuality.score).toBe(0)
+  expect(metrics.cognitiveQuality.relevance).toBe(0)
+  expect(metrics.technicalReliability.outcome).toBe('completed')
+  expect(metrics.technicalReliability.providerAvailable).toBe(true)
 })
 
 describe('CEO cancellation contract', () => {
