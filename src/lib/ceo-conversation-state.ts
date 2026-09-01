@@ -32,7 +32,7 @@ const STOPWORDS = new Set(['about','after','again','also','because','before','be
 const QUESTION_RE = /\?\s*$|\b(?:what|why|how|when|where|who|which|should|can|could|would|is|are|do|does)\b/i
 const DECISION_RE = /\b(?:decided|decision|we(?:'ll|\s+will)|let'?s\s+(?:use|do|build|keep|choose)|agreed|selected|going\s+with|prefer(?:red)?|prioriti[sz]e|priorit(?:y|ies))\b/i
 const CORRECTION_RE = /^\s*(?:no\b|that(?:'s| is)\s+(?:not|n't)\b|i\s+mean\b|what\s+i\s+meant\b|correction\b)/i
-const GOAL_RE = /\b(?:main|primary|core|long[- ]term)\s+(?:goal|objective)|\b(?:our|the|my)\s+(?:goal|objective)\b|\bcenter\s+of\s+gravity\b/i
+const GOAL_RE = /\b(?:main|primary|core|long[- ]term)\s+(?:goal|objective)\b|\b(?:our|the|my)\s+(?:goal|objective)\b|\bcenter\s+of\s+gravity\b/i
 const RESOLUTION_RE = /\b(?:resolved|closed|finished|done|complete|completed|no longer|solved|fixed)\b/i
 const SUPERSESSION_RE = /\b(?:instead|rather|forget that|move on|replace|supersede|switch to|new topic|different topic)\b/i
 const ENTITY_RE = /\b(?:Agent007|CEO|Vercel|GitHub|OpenAI|Groq|Mistral|Cerebras|Cloudflare|OpenRouter|Context Composer|Conversation State|Memory|Revenue|Venture OS|Mission OS)\b/g
@@ -42,12 +42,7 @@ function timestamp(value: PersistedConversationRow['createdAt']): number { if (v
 function toneOf(text: string): ConversationTone { const lower = text.toLowerCase(); if (/\b(angry|frustrated|waste|wasting|ridiculous|broken|disappointed|annoyed)\b/.test(lower)) return 'frustrated'; if (/\b(great|excellent|perfect|awesome|succeeded|success|finally)\b/.test(lower)) return 'celebratory'; if (/\b(code|github|vercel|architecture|deployment|database|typescript|api|provider|ci|sha)\b/.test(lower)) return 'technical'; if (/\b(hello|hi|hey|thanks|thank you|how are you)\b/.test(lower)) return 'friendly'; if (/\b(problem|issue|risk|failure|critical|security)\b/.test(lower)) return 'serious'; return 'neutral' }
 function uniqueRecent(items: string[], max = 6): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
 function overlap(a: string, b: string): number { const left = new Set(tokens(a)); const right = new Set(tokens(b)); if (!left.size || !right.size) return 0; let matches = 0; for (const token of left) if (right.has(token)) matches += 1; return matches / Math.max(1, Math.min(left.size, right.size)) }
-function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] {
-  if (RESOLUTION_RE.test(text)) return 'resolved'
-  if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'
-  if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'
-  return 'active'
-}
+function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
 function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now()): ConversationThreadRecord[] {
   const users = rows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
   const threads: ConversationThreadRecord[] = []
@@ -66,11 +61,9 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     const supersedes = SUPERSESSION_RE.test(content)
     const lexicalMatch = [...threads].reverse().find((thread) => overlap(thread.currentObjective, content) >= 0.25 && thread.status !== 'resolved' && thread.status !== 'abandoned')
     const currentActive = threads.find((thread) => thread.status === 'active')
-    if (!supersedes && lexicalMatch) {
-      mergeInto(lexicalMatch, content, topicTokens, row)
-    } else if (!supersedes && currentActive && currentActive.status !== 'resolved' && currentActive.status !== 'abandoned') {
-      mergeInto(currentActive, content, topicTokens, row)
-    } else {
+    if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
+    else if (!supersedes && currentActive && currentActive.status !== 'resolved' && currentActive.status !== 'abandoned') mergeInto(currentActive, content, topicTokens, row)
+    else {
       if (currentActive) currentActive.status = supersedes ? 'superseded' : 'paused'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
@@ -98,11 +91,13 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
   const entities = [...new Set((corpus.match(ENTITY_RE) ?? []).map(normalize))]
   const threads = buildThreads(clean)
   const activeThreads = threads.filter((thread) => thread.status === 'active').sort((a, b) => b.lastTouchedAt - a.lastTouchedAt).slice(0, 5)
-  // Preserve durable user goals across long conversations instead of letting a
-  // short rolling window erase the original product objective.
+  // Keep durable goals ahead of rolling context. The rolling slice may contain
+  // eight newer goals/messages; taking its last eight after concatenation would
+  // otherwise silently evict the original product objective at long-conversation checkpoints.
   const durableGoalRows = userRows.filter((row) => GOAL_RE.test(row.content)).map((row) => normalize(row.content))
-  const recentGoalRows = userRows.slice(-8).map((row) => normalize(row.content))
-  const recentUserGoals = uniqueRecent([...durableGoalRows, ...recentGoalRows], 8)
+  const durableGoals = uniqueRecent(durableGoalRows, 4)
+  const recentGoalRows = uniqueRecent(userRows.slice(-8).map((row) => normalize(row.content)), Math.max(1, 8 - durableGoals.length))
+  const recentUserGoals = uniqueRecent([...durableGoals, ...recentGoalRows], 8)
   const recentCorrections = uniqueRecent(userRows.filter((row) => CORRECTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
   const decisions = uniqueRecent(clean.filter((row) => DECISION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
   const unresolvedQuestions = uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
