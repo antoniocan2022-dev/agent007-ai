@@ -41,7 +41,7 @@ test('runtime metrics keep technical reliability separate from cognitive quality
   expect(metrics.cognitiveQuality.score).toBe(91)
   expect(metrics.cognitiveQuality.continuity).toBe(94)
   expect(metrics.cognitiveQuality.responseRegister).toBe('conversational')
-  expect(metrics.cognitiveQuality.cognitiveDepth).toBe(1)
+  expect(metrics.cognitiveQuality.cognitiveDepth).toBe(2)
 })
 
 test('cognitive quality is not fabricated when the evaluator did not measure it', () => {

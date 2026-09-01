@@ -34,18 +34,18 @@ function buildRows(): PersistedConversationRow[] {
   ]
   for (let turn = 11; turn <= 20; turn += 1) {
     rows.push(row(turn % 2 === 1 ? 'user' : 'assistant', turn % 2 === 1
-      ? `Turn ${turn}: preserve the executive conversation objective and connect it to the active design decision.`
-      : `Turn ${turn}: keep the active goal, decision, correction, and recovery loop available to the CEO.`, turn))
+      ? `Turn ${turn}: preserve the executive conversation objective and connect it to what we already committed to build.`
+      : `Turn ${turn}: keep the active goal, correction, and recovery loop available to the CEO.`, turn))
   }
   for (let turn = 21; turn <= 30; turn += 1) {
     rows.push(row(turn % 2 === 1 ? 'user' : 'assistant', turn % 2 === 1
-      ? `Turn ${turn}: keep cognitive excellence as the center of gravity while the architecture becomes more reliable.`
+      ? `Turn ${turn}: keep cognitive excellence as the main focus while the architecture becomes more reliable.`
       : `Turn ${turn}: do not replace the human conversation with internal governance language.`, turn))
   }
   for (let turn = 31; turn <= 40; turn += 1) {
     rows.push(row(turn % 2 === 1 ? 'user' : 'assistant', turn % 2 === 1
       ? `Turn ${turn}: connect semantic understanding and conversation state to the implementation without losing the user objective.`
-      : `Turn ${turn}: tools and evidence should enter only when the decision actually requires them.`, turn))
+      : `Turn ${turn}: tools and evidence should enter only when the answer actually requires them.`, turn))
   }
   for (let turn = 41; turn <= 50; turn += 1) {
     rows.push(row(turn % 2 === 1 ? 'user' : 'assistant', turn === 41
@@ -70,7 +70,7 @@ export const CEO_LONG_CONVERSATION_CORPUS: readonly LongConversationScenario[] =
         expectedOpenLoop: 'How should the CEO recover when a response is weak?',
         expectedReference: 'internal governance language',
         responseObjective: 'What is the primary product objective we established?',
-        responseContent: 'The primary objective is to make Agent007 a human-quality executive partner that understands the user in context, remembers what matters, reasons well, converses naturally, and moves the work forward.',
+        responseContent: 'The primary product objective we established is to make Agent007 a human-quality executive partner that understands you in context, remembers what matters, reasons well, converses naturally, and moves the work forward.',
       },
       {
         turn: 30,
@@ -80,7 +80,7 @@ export const CEO_LONG_CONVERSATION_CORPUS: readonly LongConversationScenario[] =
         expectedOpenLoop: 'How should the CEO recover when a response is weak?',
         expectedReference: 'internal governance language',
         responseObjective: 'How should the CEO connect our long-term objective to architecture?',
-        responseContent: 'Keep semantic understanding and conversation state authoritative, then use tools and evidence only when the decision requires them. The architecture should serve the human conversation rather than replace it.',
+        responseContent: 'The architecture should connect back to our long-term objective: keep semantic understanding and conversation state authoritative, then bring in tools and evidence only when the objective actually requires them, so the architecture serves the conversation rather than replacing it.',
       },
       {
         turn: 50,
@@ -90,7 +90,7 @@ export const CEO_LONG_CONVERSATION_CORPUS: readonly LongConversationScenario[] =
         expectedOpenLoop: 'How should the CEO recover when a response is weak?',
         expectedReference: 'internal governance language',
         responseObjective: 'What did we decide is the center of gravity, and what is the recovery rule?',
-        responseContent: 'The center of gravity is cognitive excellence. Reliability is the invariant around it: every failure should strengthen the architecture. When a response is weak, diagnose it, make one targeted repair, and use a graceful fallback only if that repair cannot pass.',
+        responseContent: 'We decided the center of gravity is cognitive excellence. Reliability is the invariant around it: every failure should strengthen the architecture. The recovery rule when a response is weak is to diagnose it, make one targeted repair, and use a graceful fallback only if that repair cannot pass.',
       },
     ],
   },

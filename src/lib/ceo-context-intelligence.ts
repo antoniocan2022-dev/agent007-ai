@@ -85,7 +85,7 @@ export function scoreContextContinuity(input: {
   const referenceSelection = containsReferenceSelection(input.currentUserMessage)
   const semanticAnchor = semanticReferenceAnchor(input.currentUserMessage, prior)
   const anchor = semanticAnchor || (anaphoraDetected ? recentUserAnchor(prior) : '')
-  const anchorTokens = tokens(anchor)
+  const anchorTokens = tokens(anchor || input.currentUserMessage)
 
   const candidateRows = (anaphoraDetected || referenceSelection)
     ? substantivePrior(prior).slice(-10)
@@ -114,7 +114,7 @@ export function scoreContextContinuity(input: {
     }
   }
 
-  const referenceTokens = tokens(anchor)
+  const referenceTokens = tokens(anchor || input.currentUserMessage)
   const historyEvidence = relevant
     .map((row) => ({ row, relevance: overlap(referenceTokens, tokens(row.content)) }))
     .filter((entry) => entry.relevance > 0)

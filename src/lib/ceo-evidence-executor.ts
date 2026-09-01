@@ -52,7 +52,7 @@ async function readPages(urls: string[], signal?: AbortSignal): Promise<Evidence
 async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?: AbortSignal): Promise<ExternalEvidenceExecution> {
   throwIfCeoRequestAborted(signal)
   const failures: string[] = [], queries = plan.queries.slice(0, plan.maxSearchQueries).map((query) => querySuffix ? { ...query, query: `${query.query} ${querySuffix}` } : query)
-  const searchResults = await Promise.all(queries.map(async (query) => { try { return await executeSearch(query, signal) } catch (error) { throwIfCeoRequestAborted(signal); failures.push(`${query.id}: ${error instanceof Error ? error.message : String(error)}`); return { result: { ok: false, preview: '', result: '' } as ToolResult, sources: [] } }))
+  const searchResults = await Promise.all(queries.map(async (query) => { try { return await executeSearch(query, signal) } catch (error) { throwIfCeoRequestAborted(signal); failures.push(`${query.id}: ${error instanceof Error ? error.message : String(error)}`); return { result: { ok: false, preview: '', result: '' } as ToolResult, sources: [] } } }))
   throwIfCeoRequestAborted(signal)
   const searchSources = searchResults.flatMap((entry) => entry.sources), discoveredUrls = [...new Set(searchSources.map((source) => source.url))]
   const pagesToRead = discoveredUrls.filter((url) => sourceTierForUrl(url) <= 2).slice(0, plan.maxPageReads)

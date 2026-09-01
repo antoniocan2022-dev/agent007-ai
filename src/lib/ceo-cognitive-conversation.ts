@@ -51,8 +51,8 @@ function userIntentHint(message: string): CanonicalConversationContext['intentHi
 function speechAct(message: string): CanonicalConversationContext['speechAct'] {
   const text = message.trim()
   if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'
-  if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text)) return 'continuation'
   if (/^(?:no|that's not|that isn't|i mean|what i meant|correction)\b/i.test(text)) return 'correction'
+  if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text)) return 'continuation'
   if (text.endsWith('?')) return 'question'
   if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'
   if (text.length >= 12) return 'proposition'
@@ -66,7 +66,7 @@ function hasExplicitDepthSignal(message: string): boolean {
 export function classifyCognitiveDepth(message: string, state: CeoConversationState, referenceCount: number): CognitiveDepth {
   const text = message.toLowerCase()
   if (/\b(?:decide|decision|recommend|trade[- ]off|strategy|strategic|root\s+cause|architecture|compare|evaluate)\b/.test(text) || hasExplicitDepthSignal(message)) return 'strategic'
-  if (state.turnCount >= 20 || referenceCount >= 2) return 'deep'
+  if (state.turnCount >= 10 || referenceCount >= 2) return 'deep'
   if (referenceCount > 0 || state.turnCount > 2 || /\b(?:why|how|which|what)\b/.test(text)) return 'contextual'
   return 'direct'
 }
@@ -121,11 +121,13 @@ export function buildCanonicalConversationContext(input: {
   memories?: readonly PersistedMemoryRow[]
 }): CanonicalConversationContext {
   const currentMessage = normalize(input.currentMessage)
+  const resolvedSpeechAct = speechAct(currentMessage)
+  const resolvedIntentHint = resolvedSpeechAct === 'correction' ? 'conversation' : userIntentHint(currentMessage)
   return {
     schemaVersion: 1,
     currentMessage,
-    intentHint: userIntentHint(currentMessage),
-    speechAct: speechAct(currentMessage),
+    intentHint: resolvedIntentHint,
+    speechAct: resolvedSpeechAct,
     cognitiveDepth: classifyCognitiveDepth(currentMessage, input.state, input.references.length),
     referenceScope: referenceScope(input.references, currentMessage),
     references: input.references,
