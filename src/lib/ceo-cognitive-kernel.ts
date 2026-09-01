@@ -20,6 +20,7 @@ export function buildCeoDecisionPlan(input: {
   const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId)
   const contract = input.preRoute.executionContract
   const selfAssessment = contract.intent === 'self_assessment'
+  const conversationalIntent = contract.intent === 'conversation' || contract.intent === 'opinion'
   const critical = !selfAssessment && (missionRelevant || taskClass === 'financial' || taskClass === 'security')
   const preRouteFloor = input.preRoute.route === 'fast' ? 'fast' : 'full'
   const deep = !selfAssessment && (critical || preRouteFloor === 'full' || adaptiveClass === 'deep' || missionRelevant)
@@ -28,7 +29,9 @@ export function buildCeoDecisionPlan(input: {
   const cognitiveDepth = selfAssessment ? 0 : critical ? 4 : deep ? 2 : 0
   const qualityTier = critical ? 'critical' : deep ? 'high' : 'standard'
   const verificationRequired = critical || deep
-  const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep ? 1 : 0
+  // Conversational failures get one bounded repair attempt even on the fast path.
+  // Evidence/security failures keep their existing stricter escalation policy.
+  const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep || conversationalIntent ? 1 : 0
   const maxProviderAttempts = selfAssessment ? 4 : critical ? 5 : deep ? 4 : 2
   const latencyBudgetMs = selfAssessment
     ? contract.latencyBudgetMs
