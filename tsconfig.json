@@ -22,11 +22,7 @@
         "name": "next"
       }
     ],
-    "typeRoots": [
-    "./node_modules/@types",
-    "./node_modules/bun-types"
-  ],
-  "paths": {
+    "paths": {
       "@/lib/tools": [
         "./src/lib/tools-runtime"
       ],
