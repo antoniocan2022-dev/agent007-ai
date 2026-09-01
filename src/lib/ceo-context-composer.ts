@@ -127,7 +127,7 @@ function buildConversationModule(input: {
   recentMessageLimit: number
   relevantOlderLimit: number
 }): { messages: Array<{ role: CeoContextRole; content: string }>; recent: PersistedConversationRow[]; relevantOlder: PersistedConversationRow[]; summarizedCount: number } {
-  const normalizedCurrent = normalize(input.currentUserMessage)
+  const normalizedCurrent = clampMessage(input.currentUserMessage)
   const rows = uniqueRows(input.persistedMessages.filter((row) => row && (row.role === 'user' || row.role === 'assistant')).sort((a, b) => asTimestamp(a.createdAt) - asTimestamp(b.createdAt)))
   let removedCurrent = false
   const priorRows = [...rows].reverse().filter((row) => {
@@ -171,12 +171,13 @@ export function composeCeoContext(input: {
 }): CeoContextComposition {
   const recentLimit = Math.max(4, Math.min(input.recentMessageLimit ?? DEFAULT_RECENT_MESSAGES, 24))
   const relevantOlderLimit = Math.max(0, Math.min(input.relevantOlderLimit ?? DEFAULT_RELEVANT_OLDER_MESSAGES, 12))
-  const conversation = buildConversationModule({ currentUserMessage: input.currentUserMessage, persistedMessages: input.persistedMessages, recentMessageLimit: recentLimit, relevantOlderLimit })
-  const conversationState = deriveCeoConversationState(input.persistedMessages, input.currentUserMessage)
-  const references = resolveConversationReferences(input.currentUserMessage, input.persistedMessages, conversationState)
-  const queryTokens = tokenize([input.currentUserMessage, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content), conversationState.topic, ...conversationState.entities].join(' '))
+  const normalizedCurrent = clampMessage(input.currentUserMessage)
+  const conversation = buildConversationModule({ currentUserMessage: normalizedCurrent, persistedMessages: input.persistedMessages, recentMessageLimit: recentLimit, relevantOlderLimit })
+  const conversationState = deriveCeoConversationState(input.persistedMessages, normalizedCurrent)
+  const references = resolveConversationReferences(normalizedCurrent, input.persistedMessages, conversationState)
+  const queryTokens = tokenize([normalizedCurrent, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content), conversationState.topic, ...conversationState.entities].join(' '))
   const selectedMemories = rankMemories(input.memories ? [...input.memories] : [], queryTokens)
-  const canonicalSemanticContext = buildCanonicalConversationContext({ currentMessage: input.currentUserMessage, rows: input.persistedMessages, state: conversationState, references, memories: selectedMemories })
+  const canonicalSemanticContext = buildCanonicalConversationContext({ currentMessage: normalizedCurrent, rows: input.persistedMessages, state: conversationState, references, memories: selectedMemories })
   const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: `${input.systemPrompt}\n\n${buildCeoPersonalityContract()}` }]
   const modules: CeoContextModuleName[] = ['conversation', 'conversation_state', 'cognitive_context']
 
