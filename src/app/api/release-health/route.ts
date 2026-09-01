@@ -48,21 +48,9 @@ async function verifyActualExecution(): Promise<{
       maxProviderAttempts: 2,
     })
     const verified = /^OK(?:\b|$)/i.test(result.content.trim())
-    return {
-      verified,
-      provider: result.provider,
-      model: result.model,
-      responseMs: result.responseMs,
-      error: verified ? null : `Unexpected provider canary response: ${result.content.trim().slice(0, 120)}`,
-    }
+    return { verified, provider: result.provider, model: result.model, responseMs: result.responseMs, error: verified ? null : `Unexpected provider canary response: ${result.content.trim().slice(0, 120)}` }
   } catch (error) {
-    return {
-      verified: false,
-      provider: null,
-      model: null,
-      responseMs: null,
-      error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-    }
+    return { verified: false, provider: null, model: null, responseMs: null, error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) }
   }
 }
 
@@ -74,16 +62,9 @@ export async function GET(req: NextRequest) {
   const actualExecution = await verifyActualExecution()
   const attestation = createReleaseAttestation(identity, requestId)
   const releaseGate = triplet.verified && actualExecution.verified && Boolean(identity.deploymentId)
+  const tripleProof = triplet.verified
 
-  console.info('[agent007-release-attestation]', JSON.stringify({
-    requestId,
-    deploymentId: identity.deploymentId,
-    executedCommitSha: identity.releaseCommitSha ?? identity.vercelCommitSha,
-    environment: identity.environment,
-    fingerprint: attestation.fingerprint,
-    tripletVerified: triplet.verified,
-    actualExecutionVerified: actualExecution.verified,
-  }))
+  console.info('[agent007-release-attestation]', JSON.stringify({ requestId, deploymentId: identity.deploymentId, executedCommitSha: identity.releaseCommitSha ?? identity.vercelCommitSha, environment: identity.environment, fingerprint: attestation.fingerprint, tripleProof, actualExecutionVerified: actualExecution.verified }))
 
   return NextResponse.json(
     {
@@ -99,16 +80,7 @@ export async function GET(req: NextRequest) {
       build: { system: 'vercel', deploymentId: identity.deploymentId, commitSha: identity.vercelCommitSha, verified: Boolean(identity.vercelCommitSha && identity.deploymentId) },
       deployment: { system: 'vercel-runtime', deploymentId: identity.deploymentId, commitSha: identity.vercelCommitSha, verified: Boolean(identity.vercelCommitSha && identity.deploymentId) },
       runtime: { system: 'release-health', deploymentId: identity.deploymentId, commitSha: identity.releaseCommitSha, verified: Boolean(identity.releaseCommitSha && identity.deploymentId) },
-      actualExecution: {
-        system: 'governed-provider-runtime',
-        verified: actualExecution.verified,
-        provider: actualExecution.provider,
-        model: actualExecution.model,
-        responseMs: actualExecution.responseMs,
-        error: actualExecution.error,
-        endpoint: '/api/release-health',
-        probeType: 'in-process-provider-canary',
-      },
+      actualExecution: { system: 'governed-provider-runtime', verified: actualExecution.verified, provider: actualExecution.provider, model: actualExecution.model, responseMs: actualExecution.responseMs, error: actualExecution.error, endpoint: '/api/release-health', probeType: 'in-process-provider-canary' },
       releaseAttestation: attestation,
       evidenceHierarchy: ['source', 'build', 'deployment', 'runtime', 'actualExecution', 'releaseAttestation'],
       proof: {
@@ -117,7 +89,8 @@ export async function GET(req: NextRequest) {
         vercelDeploymentId: identity.deploymentId,
         vercelDeploymentSha: identity.vercelCommitSha,
         releaseHealthSha: identity.releaseCommitSha,
-        tripletProof: triplet.verified,
+        tripleProof,
+        tripletProof: tripleProof,
         tripletFailureReason: triplet.reason,
         deploymentIdentityVerified: Boolean(identity.deploymentId && identity.vercelCommitSha),
         actualExecutionVerified: actualExecution.verified,
