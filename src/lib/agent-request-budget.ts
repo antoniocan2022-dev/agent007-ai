@@ -1,3 +1,5 @@
+import { isCeoRequestAborted } from './ceo-cancellation'
+
 export const AGENT_REQUEST_BUDGET_MS = 210_000
 
 export class AgentRequestTimeoutError extends Error {
@@ -16,37 +18,54 @@ export interface AgentRequestBudget {
   cancel: () => void
 }
 
-export function createAgentRequestBudget(timeoutMs = AGENT_REQUEST_BUDGET_MS): AgentRequestBudget {
+export function createAgentRequestBudget(timeoutMs = AGENT_REQUEST_BUDGET_MS, parentSignal?: AbortSignal): AgentRequestBudget {
   const controller = new AbortController()
-  const timer = setTimeout(() => {
-    controller.abort(new AgentRequestTimeoutError(timeoutMs))
-  }, timeoutMs)
+  const timer = setTimeout(() => controller.abort(new AgentRequestTimeoutError(timeoutMs)), timeoutMs)
+  const onParentAbort = () => controller.abort(parentSignal?.reason)
+
+  if (parentSignal?.aborted) onParentAbort()
+  else parentSignal?.addEventListener('abort', onParentAbort, { once: true })
 
   return {
     signal: controller.signal,
-    cancel: () => clearTimeout(timer),
+    cancel: () => {
+      clearTimeout(timer)
+      parentSignal?.removeEventListener('abort', onParentAbort)
+    },
   }
 }
 
 export async function runWithAgentRequestBudget<T>(
   work: (signal: AbortSignal) => Promise<T>,
   timeoutMs = AGENT_REQUEST_BUDGET_MS,
+  parentSignal?: AbortSignal,
 ): Promise<T> {
-  const budget = createAgentRequestBudget(timeoutMs)
+  const budget = createAgentRequestBudget(timeoutMs, parentSignal)
   const workPromise = Promise.resolve().then(() => work(budget.signal))
 
-  // The current orchestrator is being migrated toward cooperative cancellation.
-  // Swallow late rejection after the HTTP response has already timed out so a
-  // doomed in-flight provider call cannot create an unhandled rejection.
+  // Attach a terminal rejection handler so a late, cooperatively-cancelled
+  // provider/tool call cannot become an unhandled rejection after the race ends.
   workPromise.catch(() => undefined)
 
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    const onAbort = () => reject(new AgentRequestTimeoutError(timeoutMs))
+  const abortPromise = new Promise<never>((_, reject) => {
+    const onAbort = () => {
+      const reason = budget.signal.reason
+      if (reason instanceof AgentRequestTimeoutError) reject(reason)
+      else if (isCeoRequestAborted(reason)) reject(reason)
+      else if (parentSignal?.aborted) reject(parentSignal.reason)
+      else reject(new AgentRequestTimeoutError(timeoutMs))
+    }
     budget.signal.addEventListener('abort', onAbort, { once: true })
   })
 
   try {
-    return await Promise.race([workPromise, timeoutPromise])
+    if (budget.signal.aborted) {
+      const reason = budget.signal.reason
+      if (reason instanceof AgentRequestTimeoutError) throw reason
+      if (isCeoRequestAborted(reason)) throw reason
+      throw new AgentRequestTimeoutError(timeoutMs)
+    }
+    return await Promise.race([workPromise, abortPromise])
   } finally {
     budget.cancel()
   }
