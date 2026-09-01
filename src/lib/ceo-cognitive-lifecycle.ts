@@ -15,6 +15,7 @@ import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState } from './ceo-cognitive-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import type { PersistedConversationRow } from './ceo-context-composer'
+import { isCeoRequestAborted } from './ceo-cancellation'
 
 export interface CeoCognitiveRequest {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -63,7 +64,8 @@ async function attemptValidatedReasoningProvider(timeoutMs: number): Promise<Val
     try {
       const probe = await probeProvider(provider, { taskType: 'reasoning', verification: 'standard', timeoutMs: Math.max(2500, Math.min(10000, timeoutMs)), maxTokens: 128 })
       if (probe.success && probe.model && probe.responseMs !== null) return { provider, model: probe.model, responseMs: probe.responseMs }
-    } catch {
+    } catch (error) {
+      if (isCeoRequestAborted(error)) throw error
       // Availability checks are advisory; a failed check never becomes a false success.
     }
   }
@@ -110,7 +112,8 @@ async function semanticSubstanceCheck(objective: string, content: string): Promi
     if (verdict.includes('SHALLOW')) return { substantive: false, checked: true }
     if (verdict.includes('SUBSTANTIVE')) return { substantive: true, checked: true }
     return { substantive: true, checked: false }
-  } catch {
+  } catch (error) {
+    if (isCeoRequestAborted(error)) throw error
     return { substantive: true, checked: false }
   }
 }
@@ -126,6 +129,7 @@ async function tryDegraded(
   validatedAvailability: ValidatedAvailability = null,
   failureReason?: CeoFailureReason,
 ): Promise<CognitiveLifecycleResult> {
+  if (isCeoRequestAborted((await Promise.resolve()).constructor ? undefined : undefined)) { /* cancellation is checked by the caller's signal-aware provider path */ }
   const started = Date.now()
   let availability = validatedAvailability
   if (!availability && !availabilityAttempted) availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
@@ -139,7 +143,8 @@ async function tryDegraded(
       if (recovery.content.trim() && recoveryQuality.decision === 'PASS') {
         return { content: composeCeoResponse({ content: recovery.content, evidenceState: recoveryQuality.evidenceState, quality: recoveryQuality, degraded: false }), provider: recovery.provider, model: recovery.model, responseMs: responseMsBeforeDegraded + (Date.now() - started), attempts: mergedAttempts, executionPlan, decisionPlan, quality: recoveryQuality, evidenceState: recoveryQuality.evidenceState, degraded: false, failureReason: recoveryQuality.failureReason }
       }
-    } catch {
+    } catch (error) {
+      if (isCeoRequestAborted(error)) throw error
       // Recovery failed genuinely; proceed to persistent-evidence degraded mode.
     }
   }
@@ -165,6 +170,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     if (ventureEvidence) ventureEvidenceFreshness = { observedAt: Date.now(), maxAgeMs: 300000 }
   } catch (error) {
     if (/\bventure_\d{3}\b/i.test(objective)) {
+      if (isCeoRequestAborted(error)) throw error
       const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
       logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason: 'context_unavailable', attempts: [] })
       return tryDegraded(request, `Live Venture state could not be read: ${error instanceof Error ? error.message : String(error)}`.slice(0, 700), [], Date.now() - startedAt, decisionPlan, executionPlan, true, availability, 'context_unavailable')
@@ -203,7 +209,10 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         output = escalated
         quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
         if (quality.decision === 'PASS') break
-      } catch { break }
+      } catch (error) {
+        if (isCeoRequestAborted(error)) throw error
+        break
+      }
     }
     const result = final ?? primary
     if (!result) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason: 'provider_unavailable', attempts: mergeAttempts(primary, review, final), rawContentLength: output?.content.length }); return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable') }
@@ -220,6 +229,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     console.log('[ceo-runtime-trace]', JSON.stringify({ intent: decisionPlan.executionContract.intent, path: decisionPlan.path, provider: result.provider, model: result.model, contentLength: result.content.length, qualityDecision: quality.decision, evidenceState, responseMs: Date.now() - startedAt, degraded: false }))
     return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false, failureReason: quality.failureReason }
   } catch (error) {
+    if (isCeoRequestAborted(error)) throw error
     const availability = await attemptValidatedReasoningProvider(Math.max(2500, deadline - Date.now()))
     const failureReason: CeoFailureReason = error instanceof Error && /timeout|timed out/i.test(error.message) ? 'execution_timeout' : 'provider_error'
     logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason, attempts: mergeAttempts(primary, review, final), rawContentLength: (final ?? primary)?.content.length })
