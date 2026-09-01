@@ -29,8 +29,8 @@ function buildRows(): PersistedConversationRow[] {
     row('assistant', 'Reliability is the learning system around the cognitive system.', 6),
     row('user', 'No, I want the cognitive goal to remain the center of gravity.', 7),
     row('assistant', 'Understood. Cognitive excellence is the primary product objective; reliability is the invariant that protects it.', 8),
-    row('user', 'The open loop is how the CEO should recover when a response is weak.', 9),
-    row('assistant', 'A weak response should be diagnosed and repaired once before a graceful fallback.', 10),
+    row('user', 'How should the CEO recover when a response is weak?', 9),
+    row('assistant', 'Diagnose the defect, make one targeted repair, and use a graceful fallback only when the repair cannot pass.', 10),
   ]
   for (let turn = 11; turn <= 20; turn += 1) {
     rows.push(row(turn % 2 === 1 ? 'user' : 'assistant', turn % 2 === 1
@@ -67,7 +67,7 @@ export const CEO_LONG_CONVERSATION_CORPUS: readonly LongConversationScenario[] =
         expectedGoal: 'human-quality executive partner',
         expectedDecision: 'conversation understanding and continuity',
         expectedCorrection: 'cognitive goal to remain the center of gravity',
-        expectedOpenLoop: 'recover when a response is weak',
+        expectedOpenLoop: 'How should the CEO recover when a response is weak?',
         expectedReference: 'internal governance language',
         responseObjective: 'What is the primary product objective we established?',
         responseContent: 'The primary objective is to make Agent007 a human-quality executive partner that understands the user in context, remembers what matters, reasons well, converses naturally, and moves the work forward.',
@@ -77,7 +77,7 @@ export const CEO_LONG_CONVERSATION_CORPUS: readonly LongConversationScenario[] =
         expectedGoal: 'human-quality executive partner',
         expectedDecision: 'conversation understanding and continuity',
         expectedCorrection: 'cognitive goal to remain the center of gravity',
-        expectedOpenLoop: 'recover when a response is weak',
+        expectedOpenLoop: 'How should the CEO recover when a response is weak?',
         expectedReference: 'internal governance language',
         responseObjective: 'How should the CEO connect our long-term objective to architecture?',
         responseContent: 'Keep semantic understanding and conversation state authoritative, then use tools and evidence only when the decision requires them. The architecture should serve the human conversation rather than replace it.',
@@ -87,7 +87,7 @@ export const CEO_LONG_CONVERSATION_CORPUS: readonly LongConversationScenario[] =
         expectedGoal: 'human-quality executive partner',
         expectedDecision: 'conversation understanding and continuity',
         expectedCorrection: 'cognitive goal to remain the center of gravity',
-        expectedOpenLoop: 'recover when a response is weak',
+        expectedOpenLoop: 'How should the CEO recover when a response is weak?',
         expectedReference: 'internal governance language',
         responseObjective: 'What did we decide is the center of gravity, and what is the recovery rule?',
         responseContent: 'The center of gravity is cognitive excellence. Reliability is the invariant around it: every failure should strengthen the architecture. When a response is weak, diagnose it, make one targeted repair, and use a graceful fallback only if that repair cannot pass.',
