@@ -43,7 +43,7 @@ function userIntentHint(message: string): CanonicalConversationContext['intentHi
   const text = message.trim().toLowerCase()
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
-  if (/\b(?:choose|pick|decide|recommend|should\s+i|should\s+we)\b/.test(text)) return 'decision'
+  if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'
   if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy)\b/.test(text)) return 'analysis'
   return 'conversation'
 }
