@@ -15,7 +15,7 @@ describe('CEO conversation completion contracts', () => {
       row('user', 'We should strengthen reference resolution before adding more tools.', 2),
     ]
     const state = deriveCeoConversationState(rows, 'Continue.')
-    expect(state.schemaVersion).toBe(3)
+    expect(state.schemaVersion).toBe(4)
     expect(state.threads.length).toBe(1)
     expect(state.threads[0]?.status).toBe('active')
   })

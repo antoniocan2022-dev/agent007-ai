@@ -61,7 +61,7 @@ export function formatCeoVentureEvidence(state: CeoVentureState): string {
   ].join('\n')
 }
 
-const CASUAL_ONLY_RE = /^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect|how\s+(?:are|is)\s+(?:you|everything|things?|agent007|the\s+(?:system|ceo|agent))|how\s+do\s+you\s+do)[\s,!.?]*$/i
+const CASUAL_ONLY_RE = /^(?:(?:hi|hello|hey)[\s,!.?]+)?(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect|how\s+(?:are|is)\s+(?:you|everything|things?|agent007|the\s+(?:system|ceo|agent))(?:\s+doing)?|how\s+do\s+you\s+do)[\s,!.?]*$/i
 const CONVERSATION_ONLY_RE = /^(?:what'?s\s+new|how'?s\s+it\s+going|what\s+are\s+you\s+up\s+to)[\s,!.?]*$/i
 function isConversationOnlyObjective(objective: string): boolean {
   const text = objective.trim()
