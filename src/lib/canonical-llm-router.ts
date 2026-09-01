@@ -4,6 +4,7 @@ import { getHealthScore, isCircuitOpen } from './provider-intelligence'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import { classifyExecution, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
 import { classifyCognitiveDepthFromMessages } from './ceo-cognitive-conversation'
+import { getCeoCancellationSignal } from './ceo-cancellation-context'
 
 export type ProviderId = ActiveProviderId
 export type CanonicalLlmRequest = { messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]; taskType?: TaskType; verification?: VerificationTier; thinking?: boolean; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; executionClass?: ExecutionClass; excludeProviders?: readonly ActiveProviderId[]; providerOrder?: readonly ActiveProviderId[]; signal?: AbortSignal }
@@ -56,7 +57,9 @@ export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<Can
   const providerOrder = request.providerOrder ?? (taskType === 'reasoning' && conversationalDepth !== 'direct'
     ? CEO_CONVERSATION_PROVIDER_PRIORITY
     : (request.executionClass === 'fast' && (taskType === 'reasoning' || taskType === 'general') ? CEO_CONVERSATION_PROVIDER_PRIORITY : safePolicyOrder))
-  const result = await runGovernedProviderChat({ messages: request.messages, taskType, verification: request.verification, model: request.model, temperature: request.temperature ?? (request.thinking === false ? 0.2 : 0.35), maxTokens: request.maxTokens ?? adaptivePlan.maxTokens, timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs, maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts, outcomeEvidence: request.outcomeEvidence, excludeProviders: request.excludeProviders, providerOrder, signal: request.signal })
+  const signal = request.signal ?? getCeoCancellationSignal()
+  if (signal?.aborted) throw new Error('CEO request cancelled before provider execution.')
+  const result = await runGovernedProviderChat({ messages: request.messages, taskType, verification: request.verification, model: request.model, temperature: request.temperature ?? (request.thinking === false ? 0.2 : 0.35), maxTokens: request.maxTokens ?? adaptivePlan.maxTokens, timeoutMs: request.timeoutMs ?? adaptivePlan.timeoutMs, maxProviderAttempts: request.maxProviderAttempts ?? adaptivePlan.maxProviderAttempts, outcomeEvidence: request.outcomeEvidence, excludeProviders: request.excludeProviders, providerOrder, signal })
   return { ...result, policy, executionClass: adaptivePlan.executionClass, adaptivePlan }
 }
 export async function runCanonicalLlmParallel(requests: readonly CanonicalLlmRequest[], concurrency = 4): Promise<ParallelCanonicalResult[]> {
