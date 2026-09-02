@@ -201,7 +201,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     const result0 = final ?? primary
     if (!result0) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable')
     let result = result0
-    if (request.decisionContract && quality.decision !== 'PASS' && (decisionPlan.executionContract.intent === 'conversation' || decisionPlan.executionContract.intent === 'opinion') && Date.now() < deadline) {
+    if (request.decisionContract && quality.decision !== 'PASS' && ['conversation', 'opinion', 'decision', 'analysis'].includes(request.decisionContract.intent) && Date.now() < deadline) {
       const report = buildSemanticQualityReport({ quality, conversationQuality: quality.conversationQuality, contract: request.decisionContract, content: result.content })
       if (report.decision === 'REPAIR') {
         const plan = buildSemanticRepairPlan(report)
@@ -218,12 +218,13 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         }
       }
     }
-    const isConversational = decisionPlan.executionContract.intent === 'conversation' || decisionPlan.executionContract.intent === 'opinion'
+    const authoritativeIntent = request.decisionContract?.intent
+    const isConversational = ['conversation', 'opinion', 'decision', 'analysis'].includes(authoritativeIntent ?? decisionPlan.executionContract.intent)
     const isGenuineOverclaim = quality.failureReason === 'evidence_unavailable' || quality.failureReason === 'evidence_insufficient' || quality.failureReason === 'claim_consistency_failure'
     const conversationQuality = quality.conversationQuality
     const softPassCandidate = isConversational && !isGenuineOverclaim && (conversationQuality?.score ?? 0) >= 60
     const semanticCheck = (quality.decision !== 'PASS' && softPassCandidate) ? await semanticSubstanceCheck(objective, result.content) : { substantive: true, checked: false }
-    const softPassEligible = isGovernedSoftPassEligible({ intent: decisionPlan.executionContract.intent, qualityDecision: quality.decision, failureReason: quality.failureReason, conversationScore: conversationQuality?.score, substantive: semanticCheck.substantive })
+    const softPassEligible = isGovernedSoftPassEligible({ intent: decisionPlan.executionContract.intent, authoritativeIntent, qualityDecision: quality.decision, failureReason: quality.failureReason, conversationScore: conversationQuality?.score, substantive: semanticCheck.substantive })
     if (quality.decision !== 'PASS' && !softPassEligible) return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason)
     if (quality.decision !== 'PASS' && softPassEligible) console.log('[ceo-soft-pass]', JSON.stringify({ intent: decisionPlan.executionContract.intent, failureReason: quality.failureReason, contentLength: result.content.length, conversationQualityScore: conversationQuality?.score, semanticChecked: semanticCheck.checked }))
     const evidenceState: EvidenceState = quality.evidenceState

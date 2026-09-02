@@ -42,12 +42,12 @@ function inferFailureReason(message: string): CeoFailureReason {
 }
 
 function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string {
-  const evidenceBlock = recoveredContext.trim() ? `\n\nInternal evidence currently available:\n${recoveredContext.slice(0, 9000)}` : ''
+  const evidenceBlock = recoveredContext.trim() ? `\n\nHere's what I can ground that in internally:\n${recoveredContext.slice(0, 9000)}` : ''
   const readiness = selfReflectionKind === 'readiness_assessment'
     ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false })
     : null
-  const readinessBlock = readiness ? `\n\nExecutive readiness synthesis:\nLevel ${readiness.level} — ${readiness.label}.\n${readiness.capability}\n${readiness.verified}\n${readiness.notProven}\nNext evidence: ${readiness.nextEvidence}` : ''
-  return `Evidence state: INTERNAL-STATE-ONLY.\n\nI can still give a truthful self-assessment without pretending live external verification succeeded.\n\n## Self-assessment\n- Architecturally, Agent007 is designed to manage business operations through a governed CEO layer, canonical organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.\n- I am **not yet justified in claiming fully autonomous business management** solely from architecture. Real-world business readiness also requires verified live execution, reliable external integrations, customer outcomes, financial controls, and sustained production results.\n- Therefore the defensible position is: **ready to operate as a governed business-management system with human oversight; not yet proven for unsupervised end-to-end business ownership.**${readinessBlock}${evidenceBlock}\n\nRequested objective: ${objective.slice(0, 2000)}`
+  const readinessBlock = readiness ? `\n\n${readiness.capability} ${readiness.verified} ${readiness.notProven} What would actually move this forward: ${readiness.nextEvidence}` : ''
+  return `Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer, organization model, provider failover, execution contracts, quality gates, memory, and operational tooling. That's real, and it's not nothing.\n\nWhat I'm not yet justified in claiming is fully autonomous business management just from having that architecture in place. Real-world readiness also needs verified live execution, reliable external integrations, actual customer outcomes, financial controls, and results that hold up over time.\n\nSo the honest answer is: I'm ready to operate as a governed system with you in the loop. I'm not yet proven for running things unsupervised end to end.${readinessBlock}${evidenceBlock}`
 }
 
 export async function buildCeoDegradedResponse(input: {
@@ -80,7 +80,7 @@ export async function buildCeoDegradedResponse(input: {
       sourceKeys,
       failureReason,
       recoveredCapability,
-      content: `Evidence state: MEMORY-ONLY.\n\nRecovered capability: ${recoveredCapability}. The primary ${recoveredCapability} path did not produce an accepted final answer, so Agent007 is using the strongest safe contextual fallback available. Prior conversation, memory, and supplied context are context only and are not treated as new external proof.\n\n${recoveredContext.slice(0, 12000)}\n\nRequested objective: ${input.objective.slice(0, 2000)}\n\nStill requires the failed capability to verify: current external facts, new research, live execution, or unsupported conclusions.`,
+      content: `I couldn't complete full live verification on this one, so let me work from what we've already established in this conversation and from memory instead.\n\n${recoveredContext.slice(0, 12000)}\n\nIf you need this confirmed against current external facts or a fresh check, let me know and I'll try that path directly.`,
     }
   }
 
@@ -102,7 +102,7 @@ export async function buildCeoDegradedResponse(input: {
       sourceKeys,
       failureReason,
       recoveredCapability,
-      content: `The ${recoveredCapability} capability failed before a reliable answer could be produced. Agent007 will not fabricate a response.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+      content: `Sorry, I wasn't able to put together a reliable answer to that one. Could you rephrase it, or tell me a bit more about what you're going for?`,
     }
   }
 
@@ -112,6 +112,6 @@ export async function buildCeoDegradedResponse(input: {
     sourceKeys,
     failureReason,
     recoveredCapability,
-    content: `Evidence state: UNAVAILABLE.\n\nThe failed capability was ${recoveredCapability}. No safe fallback source was available for this request, so Agent007 will not fabricate a live or verified answer.\n\nRequested objective: ${input.objective.slice(0, 2000)}`,
+    content: `I wasn't able to work through that one reliably, and I'd rather tell you that than guess. Could you try rephrasing it, or let me know what you're actually trying to figure out here? I'll take another pass at it.`,
   }
 }

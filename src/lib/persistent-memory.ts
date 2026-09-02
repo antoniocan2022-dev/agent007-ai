@@ -123,7 +123,7 @@ export async function recallPersistentMemory(
 
   let dbEntries: MemoryEntry[] = []
   try {
-    const dbMems = await db.memory.findMany({ take: 100 }).catch(() => [])
+    const dbMems = await db.memory.findMany({ where: { category: { notIn: ['evidence_trace'] } }, take: 100 }).catch(() => [])
     dbEntries = dbMems.map((m) => sanitizeEntry({
       key: m.key,
       value: m.value,

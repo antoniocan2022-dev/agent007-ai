@@ -48,12 +48,12 @@ async function loadConversationContext(conversationId: string, userId: string): 
   }
   let memories: PersistedMemoryRow[] = []
   try {
-    memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
+    memories = await db.memory.findMany({ where: { category: { notIn: ['evidence_trace'] } }, orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
   } catch (error) {
     console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error))
     try {
       const fallback = await getAllPersistentMemory()
-      memories = fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))
+      memories = fallback.filter((entry) => entry.category !== 'evidence_trace').slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))
     } catch (fallbackError) {
       console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError))
     }
