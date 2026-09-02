@@ -19,7 +19,7 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   test('route performs exactly one direct pre-route call and passes the same decision into lifecycle', () => {
     expect((ROUTE_SOURCE.match(/preRouteCeoRequest\(/g) ?? []).length).toBe(1)
     expect(ROUTE_SOURCE).toContain('preRoute, contextSeed.canonicalSemanticContext')
-    expect(ROUTE_SOURCE).toContain('preRoute, decisionContract'))
+    expect(ROUTE_SOURCE).toContain('preRoute, decisionContract')
     expect(LIFECYCLE_SOURCE).toContain('request.preRoute ?? preRouteCeoRequest')
   })
 
