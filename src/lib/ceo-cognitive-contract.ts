@@ -14,7 +14,6 @@ export type EvidenceDomain = 'none' | 'public_equity' | 'general_web' | 'market'
 export type EvidenceOperation = 'none' | 'explain' | 'research' | 'compare' | 'analyze' | 'forecast' | 'recommend' | 'decide' | 'verify'
 export type TemporalScope = 'none' | 'historical' | 'recent' | 'current' | 'timeless'
 export type EvidenceProfile = 'none' | 'general_research' | 'public_equity' | 'market_current' | 'news_recent' | 'competitor_research' | 'business_due_diligence'
-
 export interface EvidenceFreshness { observedAt: number; maxAgeMs: number }
 export type CeoIntent = 'conversation' | 'self_assessment' | 'analysis' | 'opinion' | 'decision' | 'research' | 'tool_action' | 'mission_action' | 'production_action'
 export type EvidenceRequirement = 'none' | 'internal_state' | 'memory' | 'live_system' | 'external_web' | 'database' | 'multi_source'
@@ -22,7 +21,6 @@ export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'mult
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
-
 export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }
 export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }
 export interface DecisionPlan { requestId: string; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract }
