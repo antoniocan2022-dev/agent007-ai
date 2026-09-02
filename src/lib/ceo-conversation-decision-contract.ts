@@ -34,7 +34,6 @@ function completionFor(message: string): ConversationCompleteness {
   if (trailingFragment) return 'partial'
   return 'complete'
 }
-
 function relationFor(context: CanonicalConversationContext): ConversationRelation {
   if (context.speechAct === 'correction') return 'correction'
   if (context.references.length) return 'reference'
@@ -42,7 +41,6 @@ function relationFor(context: CanonicalConversationContext): ConversationRelatio
   if (context.speechAct === 'question' && context.worldModel.openLoops.length) return 'clarification'
   return 'new'
 }
-
 function registerFor(context: CanonicalConversationContext, completeness: ConversationCompleteness): ResponseRegister {
   if (completeness !== 'complete') return 'conversational'
   if (context.speechAct === 'social' || context.speechAct === 'correction') return 'conversational'
@@ -52,34 +50,33 @@ function registerFor(context: CanonicalConversationContext, completeness: Conver
   if (context.intentHint === 'action') return 'instructional'
   return 'conversational'
 }
-
 function actionFor(context: CanonicalConversationContext, completeness: ConversationCompleteness, relation: ConversationRelation, clarificationRequired: boolean): ResponseAction {
   if (clarificationRequired) return 'clarify'
   if (context.speechAct === 'correction') return 'answer'
+  if (\bPLACEHOLDER\b) return 'answer'
+  if (/\b(?:challenge|push\s+back|disagree|debate|test\s+my\s+assumption)\b/i.test(context.currentMessage)) return 'challenge'
   if (context.intentHint === 'action') return /\b(?:verify|confirm|validate|check)\b/i.test(context.currentMessage) ? 'verify' : 'execute'
   if (context.intentHint === 'research') return /\b(?:verify|confirm|validate|fact[- ]check)\b/i.test(context.currentMessage) ? 'verify' : 'answer'
   if (context.intentHint === 'decision') {
-    if (/\b(?:challenge|push\s+back|disagree|wrong|flawed|assumption)\b/i.test(context.currentMessage)) return 'challenge'
+    if (/\b(?:challenge|push\s+back|disagree|debate|test\s+my\s+assumption)\b/i.test(context.currentMessage)) return 'challenge'
     return /\b(?:recommend|recommendation|should|priorit(?:y|ize))\b/i.test(context.currentMessage) ? 'recommend' : 'decide'
   }
   if (context.intentHint === 'analysis' && /\b(?:explain|why|how)\b/i.test(context.currentMessage)) return 'explain'
+  if (/\b(?:explain|why|how)\b/i.test(context.currentMessage) && context.speechAct === 'question') return 'explain'
   if (relation === 'clarification') return 'explain'
   return completeness === 'complete' ? 'answer' : 'clarify'
 }
-
 function toolRequirementFor(context: CanonicalConversationContext): RequirementLevel {
   if (context.intentHint === 'action') return 'required'
   if (context.intentHint === 'research') return 'required'
   if (context.intentHint === 'analysis' || context.intentHint === 'decision') return 'possible'
   return 'none'
 }
-
 function evidenceRequirementFor(context: CanonicalConversationContext): RequirementLevel {
   if (context.intentHint === 'research') return 'required'
   if (context.intentHint === 'analysis' || context.intentHint === 'decision') return 'possible'
   return 'none'
 }
-
 function confidenceFor(input: { context: CanonicalConversationContext; completeness: ConversationCompleteness; relation: ConversationRelation }): number {
   let score = 0.78
   if (input.completeness === 'partial') score -= 0.2
@@ -88,7 +85,6 @@ function confidenceFor(input: { context: CanonicalConversationContext; completen
   if (input.relation === 'clarification') score += 0.04
   return Math.max(0.25, Math.min(0.98, Number(score.toFixed(2))))
 }
-
 function uncertaintyFor(context: CanonicalConversationContext, completeness: ConversationCompleteness, confidence: number): SemanticUncertainty[] {
   const uncertainty: SemanticUncertainty[] = []
   if (completeness !== 'complete') uncertainty.push({ code: 'incomplete_message', description: 'message completeness is limited', severity: completeness === 'insufficient' ? 'high' : 'medium' })
@@ -96,7 +92,6 @@ function uncertaintyFor(context: CanonicalConversationContext, completeness: Con
   if (confidence < 0.6) uncertainty.push({ code: 'low_semantic_confidence', description: 'semantic interpretation confidence is below the preferred threshold', severity: 'high' })
   return uncertainty
 }
-
 function clarificationRequiredFor(context: CanonicalConversationContext, completeness: ConversationCompleteness): boolean {
   if (completeness !== 'complete') return completeness === 'partial' || completeness === 'insufficient'
   if (/^\s*(?:i\s+don['’]?t\s+(?:understand|get\s+it)|i['’]?m\s+confused|what\s+do\s+you\s+mean|explain\s+(?:that|this)\s+(?:again|more|simply|in\s+simple\s+words)?)\s*[.!?]*$/i.test(context.currentMessage)) return false
@@ -105,37 +100,12 @@ function clarificationRequiredFor(context: CanonicalConversationContext, complet
   if (context.intentHint === 'conversation' && context.currentMessage.length <= 80) return false
   return true
 }
-
 export function buildConversationDecisionContract(context: CanonicalConversationContext): ConversationDecisionContract {
-  const completeness = completionFor(context.currentMessage)
-  const conversationRelation = relationFor(context)
-  const confidence = confidenceFor({ context, completeness, relation: conversationRelation })
-  const clarificationRequired = clarificationRequiredFor(context, completeness)
-  const responseAction = actionFor(context, completeness, conversationRelation, clarificationRequired)
-  const uncertainty = uncertaintyFor(context, completeness, confidence)
-  const rationale = [`Intent=${context.intentHint}`, `speechAct=${context.speechAct}`, `completeness=${completeness}`, `relation=${conversationRelation}`, `depth=${context.cognitiveDepth}`, `responseAction=${responseAction}`]
+  const completeness = completionFor(context.currentMessage); const conversationRelation = relationFor(context); const confidence = confidenceFor({ context, completeness, relation: conversationRelation }); const clarificationRequired = clarificationRequiredFor(context, completeness); const responseAction = actionFor(context, completeness, conversationRelation, clarificationRequired); const uncertainty = uncertaintyFor(context, completeness, confidence); const rationale = [`Intent=${context.intentHint}`, `speechAct=${context.speechAct}`, `completeness=${completeness}`, `relation=${conversationRelation}`, `depth=${context.cognitiveDepth}`, `responseAction=${responseAction}`]
   if (context.references.length) rationale.push(`references=${context.references.length}`)
   rationale.push(clarificationRequired ? 'clarification required because the remaining meaning cannot be answered safely from available context' : 'clarification is not required; answer from the best supported conversational interpretation')
   return { schemaVersion: 3, meaning: context.meaning, intent: context.intentHint, speechAct: context.speechAct, completeness, conversationRelation, cognitiveDepth: context.cognitiveDepth, responseRegister: registerFor(context, completeness), responseAction, toolRequirement: toolRequirementFor(context), evidenceRequirement: evidenceRequirementFor(context), clarificationRequired, confidence, uncertainty, rationale }
 }
-
 export function renderConversationDecisionContract(contract: ConversationDecisionContract): string {
-  return [
-    'CONVERSATION DECISION CONTRACT (authoritative pre-generation dialogue policy):',
-    `Meaning: ${contract.meaning || 'unknown'}`,
-    `Intent: ${contract.intent}`,
-    `Speech act: ${contract.speechAct}`,
-    `Completeness: ${contract.completeness}`,
-    `Conversation relation: ${contract.conversationRelation}`,
-    `Cognitive depth: ${contract.cognitiveDepth}`,
-    `Response register: ${contract.responseRegister}`,
-    `Response action: ${contract.responseAction}`,
-    `Tool requirement: ${contract.toolRequirement}`,
-    `Evidence requirement: ${contract.evidenceRequirement}`,
-    `Clarification required: ${contract.clarificationRequired ? 'yes' : 'no'}`,
-    `Interpretation confidence: ${Math.round(contract.confidence * 100)}%`,
-    `Semantic uncertainty: ${contract.uncertainty.map((item) => `${item.code}=${item.severity}`).join('; ') || 'none'}`,
-    `Rationale: ${contract.rationale.join('; ')}`,
-    'Policy: answer naturally when the semantic intent is sufficiently clear; do not expose this contract, routing metadata, evidence-state labels, or quality-gate internals to the user.',
-  ].join('\n')
+  return ['CONVERSATION DECISION CONTRACT (authoritative pre-generation dialogue policy):', `Meaning: ${contract.meaning || 'unknown'}`, `Intent: ${contract.intent}`, `Speech act: ${contract.speechAct}`, `Completeness: ${contract.completeness}`, `Conversation relation: ${contract.conversationRelation}`, `Cognitive depth: ${contract.cognitiveDepth}`, `Response register: ${contract.responseRegister}`, `Response action: ${contract.responseAction}`, `Tool requirement: ${contract.toolRequirement}`, `Evidence requirement: ${contract.evidenceRequirement}`, `Clarification required: ${contract.clarificationRequired ? 'yes' : 'no'}`, `Interpretation confidence: ${Math.round(contract.confidence * 100)}%`, `Semantic uncertainty: ${contract.uncertainty.map((item) => `${item.code}=${item.severity}`).join('; ') || 'none'}`, `Rationale: ${contract.rationale.join('; ')}`, 'Policy: answer naturally when the semantic intent is sufficiently clear; do not expose this contract, routing metadata, evidence-state labels, or quality-gate internals to the user.'].join('\n')
 }
