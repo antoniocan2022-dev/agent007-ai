@@ -98,6 +98,8 @@ function buildNaturalRecoveryResponse(input: {
   if (action === 'recommend' || action === 'decide') return `My current judgment: start with the option that strengthens the foundation and creates the clearest path to measurable results. I would not add complexity just because it is available; I'd make the choice that improves the business's next decision and preserves optionality.`
   if (action === 'explain') return `Let me put it simply: the important part is the trade-off, not just the label we give the option. We should choose the approach that best advances the outcome you care about while keeping the downside controlled.`
   if (action === 'verify') return `I can help assess what is supported by the conversation and what remains unverified, but I won't pretend a verification happened when the verification path was unavailable.`
+  const grounding = (input.recoveredContext ?? '').trim()
+  if (grounding) return `My read is that we can still move this forward using what we've already established. ${grounding.slice(0, 4000)}\n\nBased on that, I'd focus on the underlying outcome, make the trade-off explicit, and choose the strongest practical next direction rather than getting stuck on the failure of one execution path.`
   return `My read is that we can still move this conversation forward. Based on what you've told me, I'd focus on the underlying outcome, make the trade-off explicit, and choose the strongest practical next direction rather than getting stuck on the failure of one execution path.`
 }
 
