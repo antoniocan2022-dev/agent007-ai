@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
     const timeout = new Promise<any>((resolve) => setTimeout(() => resolve({ content: `[${leaderInfo.leaderName} timed out after 45s. The request remains logged and can be retried after LLM provider recovery.]`, degraded: true }), 45_000))
     const leaderResult = await Promise.race([dispatchPromise, timeout])
     const leaderResponse = typeof leaderResult === 'string' ? leaderResult : leaderResult?.content ?? leaderResult?.answer ?? `[${leaderInfo.leaderName} returned no response]`
-    const isSystemNotice = leaderResponse.includes('timed out after 45s.') || leaderResponse.includes('Evidence state: UNAVAILABLE')
+    const isSystemNotice = leaderResponse.includes('timed out after 45s.') || (typeof leaderResult === 'object' && leaderResult?.evidenceState === 'UNAVAILABLE')
     if (!isSystemNotice) await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'LEADER', leaderResponse, ownerId)
 
     const updated = await getActiveMissionDB(missionId, ownerId)

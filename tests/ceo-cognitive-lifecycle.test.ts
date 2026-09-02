@@ -112,14 +112,14 @@ describe('CEO cognitive lifecycle', () => {
     const degraded = await buildCeoDegradedResponse({ objective: 'What should Agent007 do about the current mission plan?', missionId: 'mission-42', reason: 'All approved external providers failed.', recall: async () => [{ key: 'mission-42-priority', value: 'The mission priority is to preserve verified execution evidence before taking irreversible action.', category: 'mission', createdAt: Date.now(), score: 80, timesRecalled: 0 }] })
     expect(degraded.evidenceState).toBe('MEMORY_ONLY')
     expect(degraded.sourceKeys).toEqual(['mission-42-priority'])
-    expect(degraded.content).toContain('MEMORY-ONLY')
+    expect(degraded.content).toContain("let me work from what we've already established")
     expect(degraded.content).toContain('preserve verified execution evidence')
   })
 
   test('degraded mode never fabricates live verification when no internal evidence exists', async () => {
     const degraded = await buildCeoDegradedResponse({ objective: 'What is the current market?', reason: 'All approved external providers failed.', recall: async () => [] })
     expect(degraded.evidenceState).toBe('UNAVAILABLE')
-    expect(degraded.content).toContain('will not fabricate a live or verified answer')
+    expect(degraded.content).toContain("wasn't able to work through that one reliably")
   })
 
   test('provider exclusion prefers an independent canonical provider without reintroducing retired providers', async () => {
