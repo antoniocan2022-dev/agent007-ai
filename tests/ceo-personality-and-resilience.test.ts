@@ -127,6 +127,6 @@ describe('CEO curiosity and canonical routing authority', () => {
     expect(curiosity.investigate).toBe(false)
     expect(route.executionContract.evidenceClass).toBe('none')
     expect(route.executionContract.toolRequired).toBe(true)
-    expect(route.executionContract.domain).toBe('internal_operations')
+    expect(route.executionContract.domain).toBe('regulatory')
   })
 })
