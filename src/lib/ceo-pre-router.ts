@@ -3,14 +3,12 @@ import { classifyExecution } from './adaptive-execution'
 import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
+import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
-
-function latestUserText(messages: readonly { role: string; content: string }[]): string {
-  return [...messages].reverse().find((message) => message.role === 'user' && typeof message.content === 'string')?.content ?? ''
-}
+function latestUserText(messages: readonly { role: string; content: string }[]): string { return [...messages].reverse().find((message) => message.role === 'user' && typeof message.content === 'string')?.content ?? '' }
 
 const MARKET_SECURITY_RE = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|market\s+cap(?:italization)?|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|dividend|cash\s+flow|10-k|10-q|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend(?:ation)?|should|invest|buy|sell|hold|trade|value|price)\b/i
@@ -19,7 +17,6 @@ const SHORT_TICKER_ACTION_RE = /\b(?:buy|sell|invest|trade)\s+(?:in\s+)?([A-Z]{1
 const COMMON_ACRONYM_RE = /^(?:API|AWS|CPU|CRM|ERP|GPU|HTML|HTTP|HTTPS|RAM|SaaS|SDK|SQL|UI|URL|VPN|XML)$/
 const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
 const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
-
 const INTERNAL_CONTEXT_RE = /\b(?:our|we|us|my|internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
 const INTERNAL_FINANCE_RE = /\b(?:our|my|internal)?\s*(?:earnings\s+report|financial\s+forecast|financials?|budget|accounts?|bookkeeping|accounting)\b/i
 const INTERNAL_OPERATIONS_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server(?:s)?|equipment|procurement|purchase\s+order|meeting|review\s+meeting|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|operations?|operational)\b/i
@@ -32,11 +29,7 @@ function isExternalEquityResearch(text: string): boolean {
   if (INTERNAL_CONTEXT_RE.test(text)) return false
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
-
-function isExternalDomain(domain: EvidenceDomain): boolean {
-  return domain !== 'none' && domain !== 'unknown' && domain !== 'general_web' && !domain.startsWith('internal_')
-}
-
+function isExternalDomain(domain: EvidenceDomain): boolean { return domain !== 'none' && domain !== 'unknown' && domain !== 'general_web' && !domain.startsWith('internal_') }
 function inferExternalDomain(text: string): EvidenceDomain {
   if (isExternalEquityResearch(text)) return 'public_equity'
   if (/\b(?:competitor|competitors|competitive|rivals?)\b/i.test(text)) return 'competitor'
@@ -48,14 +41,12 @@ function inferExternalDomain(text: string): EvidenceDomain {
   if (INTERNAL_FINANCE_RE.test(text)) return 'internal_finance'
   return 'general_web'
 }
-
 function inferTemporalScope(text: string): TemporalScope {
   if (/\b(?:today|current|currently|right now|live|latest price|latest quote)\b/i.test(text)) return 'current'
   if (/\b(?:recent|recently|this week|this month|latest|newest|past few)\b/i.test(text)) return 'recent'
   if (/\b(?:historical|history|last year|over the last|over five years|5-year|10-year)\b/i.test(text)) return 'historical'
   return 'current'
 }
-
 function inferEvidenceProfile(domain: EvidenceDomain, _temporalScope: TemporalScope): EvidenceProfile {
   if (domain === 'public_equity') return 'public_equity'
   if (domain === 'market') return 'market_current'
@@ -64,7 +55,6 @@ function inferEvidenceProfile(domain: EvidenceDomain, _temporalScope: TemporalSc
   if (domain === 'business_due_diligence') return 'business_due_diligence'
   return 'general_research'
 }
-
 function inferEvidenceOperation(text: string): EvidenceOperation {
   if (/\b(?:would\s+you\s+invest|should\s+i|should\s+we|recommend(?:ation)?|invest(?:ing|ment)?|buy|sell|hold)\b/i.test(text)) return 'recommend'
   if (/\b(?:compare|versus|vs\.?|better|stronger|weaker)\b/i.test(text)) return 'compare'
@@ -74,9 +64,7 @@ function inferEvidenceOperation(text: string): EvidenceOperation {
   if (/\b(?:research|look\s+up|find\s+(?:out|information))\b/i.test(text)) return 'research'
   return /\b(?:analy[sz]e|analysis|assess|evaluate|review)\b/i.test(text) ? 'analyze' : 'research'
 }
-
 function buildExecutionContract(input: { intent: CeoIntent; selfReflectionKind?: SelfReflectionClassification['kind']; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }): CeoExecutionContract { return { ...input } }
-
 function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflectionClassification['kind']; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; missionRelevant: boolean; reason: string; evidenceClass?: EvidenceClass; domain?: EvidenceDomain; operation?: EvidenceOperation; temporalScope?: TemporalScope; evidenceProfile?: EvidenceProfile }): CeoExecutionContract {
   const { intent, selfReflectionKind, adaptiveExecutionClass, missionRelevant, reason, evidenceClass = intent === 'conversation' ? 'none' : 'internal_state', domain = intent === 'conversation' ? 'none' : 'internal_operations', operation = intent === 'conversation' ? 'none' : 'analyze', temporalScope = intent === 'conversation' ? 'none' : 'timeless', evidenceProfile = intent === 'conversation' ? 'none' : 'none' } = input
   if (intent === 'self_assessment') return buildExecutionContract({ intent, selfReflectionKind, evidenceClass: 'internal_state', domain: 'internal_operations', operation: 'analyze', temporalScope: 'current', evidenceProfile: 'none', evidenceRequirement: 'internal_state', executionRequirement: 'llm_only', orchestrationOwner: 'ceo_lifecycle', maxTurns: 2, maxRecoveries: 0, latencyBudgetMs: 30000, toolRequired: false, subagentsRequired: false, reason })
@@ -88,7 +76,6 @@ function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflec
   if (missionRelevant || intent === 'mission_action') return buildExecutionContract({ intent: 'mission_action', evidenceClass: 'mixed', domain: 'business_due_diligence', operation: 'decide', temporalScope: 'current', evidenceProfile: 'business_due_diligence', evidenceRequirement: 'multi_source', executionRequirement: 'mission', orchestrationOwner: 'operational_orchestrator', maxTurns: 12, maxRecoveries: 2, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: true, reason })
   return buildExecutionContract({ intent, evidenceClass, domain, operation, temporalScope, evidenceProfile, evidenceRequirement: evidenceClass === 'external_web' ? 'external_web' : 'internal_state', executionRequirement: evidenceClass === 'external_web' ? 'multi_source' : 'one_tool', orchestrationOwner: evidenceClass === 'external_web' ? 'ceo_lifecycle' : 'operational_orchestrator', maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4, maxRecoveries: 1, latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000, toolRequired: evidenceClass === 'external_web' || intent === 'tool_action', subagentsRequired: false, reason })
 }
-
 function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassification): CeoIntent {
   if (selfReflection.isSelfReflective) return 'self_assessment'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
@@ -102,15 +89,26 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|ok|okay|great|perfect|how\s+do\s+you\s+do|how\s+do\s+you\s+doing?)\b/i.test(text)) return 'conversation'
   return 'conversation'
 }
-
+function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoIntent | undefined {
+  if (!context || context.semanticInterpretation.source === 'deterministic' || context.semanticInterpretation.confidence < 0.72) return undefined
+  if (context.speechAct === 'correction') return 'conversation'
+  if (context.intentHint === 'conversation') return 'conversation'
+  if (context.intentHint === 'analysis') return 'analysis'
+  if (context.intentHint === 'decision') return 'decision'
+  if (context.intentHint === 'research') return 'research'
+  if (context.intentHint === 'action') return 'tool_action'
+  return undefined
+}
 function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision { return input }
 
-export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0): PreRouteDecision {
+export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext): PreRouteDecision {
   const text = latestUserText(messages).replace(/\s+/g, ' ').trim()
   const selfReflection = classifyCeoSelfReflection(text)
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
-  const semanticIntent = inferSemanticIntent(text, selfReflection)
+  const deterministicIntent = inferSemanticIntent(text, selfReflection)
+  const assistedIntent = semanticIntentToCeoIntent(semanticContext)
+  const semanticIntent = assistedIntent ?? deterministicIntent
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const externalSubjectDomain = inferExternalDomain(text)
   const shouldUseExternalEvidence = isExternalDomain(externalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
@@ -135,5 +133,4 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const useFast = effectiveExecutionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS)
   return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : effectiveExecutionClass, executionContract })
 }
-
 export function resolvePreRoute(decision: PreRouteDecision): 'fast' | 'full' { return decision.route === 'fast' && !decision.executionContract.toolRequired ? 'fast' : 'full' }
