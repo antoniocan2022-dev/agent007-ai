@@ -1,4 +1,5 @@
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
+import type { ResponseAction } from './ceo-cognitive-contract'
 
 export type ConversationCompleteness = 'complete' | 'partial' | 'insufficient'
 export type ConversationRelation = 'new' | 'continuation' | 'correction' | 'clarification' | 'reference'
@@ -6,7 +7,7 @@ export type ResponseRegister = 'conversational' | 'executive' | 'analytical' | '
 export type RequirementLevel = 'none' | 'possible' | 'required'
 
 export interface ConversationDecisionContract {
-  schemaVersion: 1
+  schemaVersion: 2
   meaning: string
   intent: CanonicalConversationContext['intentHint']
   speechAct: CanonicalConversationContext['speechAct']
@@ -14,10 +15,12 @@ export interface ConversationDecisionContract {
   conversationRelation: ConversationRelation
   cognitiveDepth: CanonicalConversationContext['cognitiveDepth']
   responseRegister: ResponseRegister
+  responseAction: ResponseAction
   toolRequirement: RequirementLevel
   evidenceRequirement: RequirementLevel
   clarificationRequired: boolean
   confidence: number
+  uncertainty: string[]
   rationale: string[]
 }
 
@@ -42,12 +45,26 @@ function relationFor(context: CanonicalConversationContext): ConversationRelatio
 
 function registerFor(context: CanonicalConversationContext, completeness: ConversationCompleteness): ResponseRegister {
   if (completeness !== 'complete') return 'conversational'
-  if (context.speechAct === 'social') return 'conversational'
+  if (context.speechAct === 'social' || context.speechAct === 'correction') return 'conversational'
   if (context.intentHint === 'decision') return 'executive'
   if (context.intentHint === 'analysis' || context.intentHint === 'research') return 'analytical'
   if (context.cognitiveDepth === 'strategic') return 'strategic'
   if (context.intentHint === 'action') return 'instructional'
   return 'conversational'
+}
+
+function actionFor(context: CanonicalConversationContext, completeness: ConversationCompleteness, relation: ConversationRelation, clarificationRequired: boolean): ResponseAction {
+  if (clarificationRequired) return 'clarify'
+  if (context.speechAct === 'correction') return 'answer'
+  if (context.intentHint === 'action') return context.currentMessage.toLowerCase().includes('verify') ? 'verify' : 'execute'
+  if (context.intentHint === 'research') return context.currentMessage.toLowerCase().includes('verify') ? 'verify' : 'answer'
+  if (context.intentHint === 'decision') {
+    if (/\b(?:challenge|push\s+back|disagree|wrong|flawed|assumption)\b/i.test(context.currentMessage)) return 'challenge'
+    return /\b(?:recommend|recommendation|should|priorit(?:y|ize))\b/i.test(context.currentMessage) ? 'recommend' : 'decide'
+  }
+  if (context.intentHint === 'analysis' && /\b(?:explain|why|how)\b/i.test(context.currentMessage)) return 'explain'
+  if (relation === 'clarification') return 'explain'
+  return completeness === 'complete' ? 'answer' : 'clarify'
 }
 
 function toolRequirementFor(context: CanonicalConversationContext): RequirementLevel {
@@ -72,19 +89,19 @@ function confidenceFor(input: { context: CanonicalConversationContext; completen
   return Math.max(0.25, Math.min(0.98, Number(score.toFixed(2))))
 }
 
+function uncertaintyFor(context: CanonicalConversationContext, completeness: ConversationCompleteness, confidence: number): string[] {
+  const uncertainty: string[] = []
+  if (completeness !== 'complete') uncertainty.push('message completeness is limited')
+  if (context.references.some((reference) => reference.ambiguous || reference.confidence < 0.7)) uncertainty.push('one or more references remain uncertain')
+  if (confidence < 0.6) uncertainty.push('semantic interpretation confidence is below the preferred threshold')
+  return uncertainty
+}
+
 function clarificationRequiredFor(context: CanonicalConversationContext, completeness: ConversationCompleteness): boolean {
   if (completeness !== 'complete') return completeness === 'partial' || completeness === 'insufficient'
-
-  // Generic comprehension/repair language is itself semantically sufficient. The
-  // CEO should answer from the preceding context instead of treating "it/that"
-  // as an unresolved reference that blocks the conversation.
   if (/^\s*(?:i\s+don['’]?t\s+(?:understand|get\s+it)|i['’]?m\s+confused|what\s+do\s+you\s+mean|explain\s+(?:that|this)\s+(?:again|more|simply|in\s+simple\s+words)?)\s*[.!?]*$/i.test(context.currentMessage)) return false
-
   const ambiguousReferences = context.references.filter((reference) => reference.ambiguous || reference.confidence < 0.7)
   if (!ambiguousReferences.length) return false
-
-  // A short conversational reference such as "What about that?" is answerable
-  // from the working thread even when the resolver cannot prove one antecedent.
   if (context.intentHint === 'conversation' && context.currentMessage.length <= 80) return false
   return true
 }
@@ -94,19 +111,22 @@ export function buildConversationDecisionContract(context: CanonicalConversation
   const conversationRelation = relationFor(context)
   const confidence = confidenceFor({ context, completeness, relation: conversationRelation })
   const clarificationRequired = clarificationRequiredFor(context, completeness)
+  const responseAction = actionFor(context, completeness, conversationRelation, clarificationRequired)
+  const uncertainty = uncertaintyFor(context, completeness, confidence)
   const rationale = [
     `Intent=${context.intentHint}`,
     `speechAct=${context.speechAct}`,
     `completeness=${completeness}`,
     `relation=${conversationRelation}`,
     `depth=${context.cognitiveDepth}`,
+    `responseAction=${responseAction}`,
   ]
   if (context.references.length) rationale.push(`references=${context.references.length}`)
   if (clarificationRequired) rationale.push('clarification required because the remaining meaning cannot be answered safely from available context')
   else rationale.push('clarification is not required; answer from the best supported conversational interpretation')
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     meaning: context.currentMessage,
     intent: context.intentHint,
     speechAct: context.speechAct,
@@ -114,10 +134,12 @@ export function buildConversationDecisionContract(context: CanonicalConversation
     conversationRelation,
     cognitiveDepth: context.cognitiveDepth,
     responseRegister: registerFor(context, completeness),
+    responseAction,
     toolRequirement: toolRequirementFor(context),
     evidenceRequirement: evidenceRequirementFor(context),
     clarificationRequired,
     confidence,
+    uncertainty,
     rationale,
   }
 }
@@ -132,10 +154,12 @@ export function renderConversationDecisionContract(contract: ConversationDecisio
     `Conversation relation: ${contract.conversationRelation}`,
     `Cognitive depth: ${contract.cognitiveDepth}`,
     `Response register: ${contract.responseRegister}`,
+    `Response action: ${contract.responseAction}`,
     `Tool requirement: ${contract.toolRequirement}`,
     `Evidence requirement: ${contract.evidenceRequirement}`,
     `Clarification required: ${contract.clarificationRequired ? 'yes' : 'no'}`,
     `Interpretation confidence: ${Math.round(contract.confidence * 100)}%`,
+    `Semantic uncertainty: ${contract.uncertainty.join('; ') || 'none'}`,
     `Rationale: ${contract.rationale.join('; ')}`,
     'Policy: answer naturally when the semantic intent is sufficiently clear; do not expose this contract, routing metadata, evidence-state labels, or quality-gate internals to the user.',
   ].join('\n')
