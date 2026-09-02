@@ -3,6 +3,7 @@ import { synthesizeExecutiveReadiness, type SelfReflectionKind } from './ceo-sel
 import type { CeoIntent, EvidenceState } from './ceo-cognitive-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import { emitConversationIncident } from './ceo-conversation-incident'
+import { emitIncidentRegressionCandidate } from './ceo-incident-regression-candidate'
 
 export interface DegradedResponse {
   content: string
@@ -61,7 +62,8 @@ export async function buildCeoDegradedResponse(input: {
 }): Promise<DegradedResponse> {
   const failureReason = input.failureReason ?? inferFailureReason(input.reason)
   if (input.intent === 'conversation' || input.intent === 'opinion') {
-    emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason })
+    const incident = emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason })
+    emitIncidentRegressionCandidate({ incident, message: input.objective })
   }
   const suppliedContext = input.contextualEvidence?.trim()
   const recall = input.recall ?? recallPersistentMemory
