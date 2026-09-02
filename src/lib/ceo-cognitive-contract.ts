@@ -21,6 +21,7 @@ export type CeoIntent = 'conversation' | 'self_assessment' | 'analysis' | 'opini
 export type EvidenceRequirement = 'none' | 'internal_state' | 'memory' | 'live_system' | 'external_web' | 'database' | 'multi_source'
 export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'multi_tool' | 'multi_source' | 'subagent' | 'mission' | 'production'
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
+export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
 
 export interface CeoExecutionContract {
   intent: CeoIntent
