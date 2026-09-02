@@ -11,7 +11,7 @@ export function buildCeoOperatorPlan(input: { contract: CeoExecutionContract; re
   const toolId = input.toolSelection?.selected?.id
   const dependencies = [
     ...(!input.approved ? ['executive approval'] : []),
-    ...(input.contract.toolRequired && !toolId ? ['capability/tool selection'] : []),
+    ...(input.contract.toolRequired && !toolId && !input.executionEvidence ? ['capability/tool selection'] : []),
     ...((input.contract.evidenceRequirement !== 'none' && !input.executionEvidence) ? ['evidence acquisition'] : []),
   ]
   const status: OperatorStatus = !executable ? 'proposed' : dependencies.length ? 'blocked' : input.executionEvidence ? (input.verificationState === 'LIVE_VERIFIED' || input.verificationState === 'VERIFIED_CACHED' ? 'verified' : 'completed') : input.approved ? 'approved' : 'proposed'
