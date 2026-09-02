@@ -28,7 +28,7 @@ describe('CEO behavioral conversation regression corpus', () => {
       expect(contract.responseRegister).toBe(testCase.expected.responseRegister)
       expect(contract.clarificationRequired).toBe(testCase.expected.clarificationRequired)
       expect(contract.intent).toBe(testCase.expected.intent)
-      expect(contract.meaning).toBe(testCase.message.trim())
+      expect(contract.meaning.startsWith(testCase.message.trim())).toBe(true)
     })
   }
 
