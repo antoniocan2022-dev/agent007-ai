@@ -1,3 +1,4 @@
+import { buildSemanticQualityReport, buildSemanticRepairPlan, renderSemanticRepairPrompt } from './ceo-semantic-quality-report'
 import { runCanonicalLlm, type CanonicalLlmResult } from './canonical-llm-router'
 import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
 import { preRouteCeoRequest, resolvePreRoute } from './ceo-pre-router'
@@ -197,8 +198,26 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
         break
       }
     }
-    const result = final ?? primary
-    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable')
+    const result0 = final ?? primary
+    if (!result0) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable')
+    let result = result0
+    if (request.decisionContract && quality.decision !== 'PASS' && (decisionPlan.executionContract.intent === 'conversation' || decisionPlan.executionContract.intent === 'opinion') && Date.now() < deadline) {
+      const report = buildSemanticQualityReport({ quality, conversationQuality: quality.conversationQuality, contract: request.decisionContract, content: result.content })
+      if (report.decision === 'REPAIR') {
+        const plan = buildSemanticRepairPlan(report)
+        try {
+          const repaired = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...primaryMessages, { role: 'assistant', content: result.content }, renderSemanticRepairPrompt(objective, result.content, plan)], excludeProviders: stageExclusions(result.provider) })
+          const repairedQuality = evaluateCeoQuality({ objective, content: repaired.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
+          const repairedReport = buildSemanticQualityReport({ quality: repairedQuality, conversationQuality: repairedQuality.conversationQuality, contract: request.decisionContract, content: repaired.content })
+          console.log('[ceo-semantic-repair]', JSON.stringify({ failedDimensions: report.failedDimensions, repairPriority: report.repairPriority, beforeDecision: report.decision, afterDecision: repairedReport.decision }))
+          if (repairedReport.decision !== 'DEGRADE' && (repairedReport.failedDimensions.length < report.failedDimensions.length || repairedReport.contractSatisfied)) {
+            result = repaired; final = repaired; quality = repairedQuality
+          }
+        } catch (error) {
+          if (isCeoRequestAborted(error)) throw error
+        }
+      }
+    }
     const isConversational = decisionPlan.executionContract.intent === 'conversation' || decisionPlan.executionContract.intent === 'opinion'
     const isGenuineOverclaim = quality.failureReason === 'evidence_unavailable' || quality.failureReason === 'evidence_insufficient' || quality.failureReason === 'claim_consistency_failure'
     const conversationQuality = quality.conversationQuality
