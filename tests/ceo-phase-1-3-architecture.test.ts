@@ -18,7 +18,7 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect((route.match(/preRouteCeoRequest\(/g) ?? []).length).toBe(1)
     expect(route).toContain('preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext)')
-    expect(route).toContain('preRoute, decisionContract'))
+    expect(route).toContain('preRoute, decisionContract')
     expect(lifecycle).toContain('request.preRoute ?? preRouteCeoRequest')
   })
 
