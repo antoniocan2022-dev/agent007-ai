@@ -15,6 +15,7 @@ import { renderEvidenceBundleForPrompt, type EvidenceBundle } from '@/lib/ceo-ev
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
+import { getAllPersistentMemory } from '@/lib/persistent-memory'
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { buildCeoRuntimeMetrics, logCeoRuntimeMetrics } from '@/lib/ceo-runtime-metrics'
 import { createReleaseAttestation, getReleaseIdentity, newReleaseRequestId } from '@/lib/release-attestation'
@@ -37,14 +38,26 @@ function sse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 async function loadConversationContext(conversationId: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
+  let rows: PersistedConversationRow[] = []
   try {
     const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'asc' }, select: { role: true, content: true, createdAt: true } } } })
-    const memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
-    return { rows: (conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt })), memories }
+    rows = (conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))
   } catch (error) {
-    console.warn('[api/agent] Conversation context load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
-    return { rows: [], memories: [] }
+    console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
   }
+  let memories: PersistedMemoryRow[] = []
+  try {
+    memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })
+  } catch (error) {
+    console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error))
+    try {
+      const fallback = await getAllPersistentMemory()
+      memories = fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))
+    } catch (fallbackError) {
+      console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError))
+    }
+  }
+  return { rows, memories }
 }
 function buildSystemPrompt(): string {
   const identity = 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.'
