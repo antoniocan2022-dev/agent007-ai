@@ -1,6 +1,7 @@
 import type { TaskType } from './subagent-governance'
 import type { SelfReflectionKind } from './ceo-self-reflection'
 import type { CeoFailure, CeoFailureReason } from './ceo-failure-reason'
+import type { OperatorPlan } from './ceo-operator-intelligence'
 
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
 export type CognitivePath = 'fast' | 'full' | 'critical'
@@ -69,7 +70,7 @@ export interface DecisionPlan {
 }
 
 export interface ExecutionStage { name: 'primary' | 'refinement' | 'independent_review' | 'synthesis'; purpose: string }
-export interface ExecutionPlan { requestId: string; path: CognitivePath; reasoningStrategy: ReasoningStrategy; stages: ExecutionStage[]; maxEscalations: number; maxProviderAttempts: number }
+export interface ExecutionPlan { requestId: string; path: CognitivePath; reasoningStrategy: ReasoningStrategy; stages: ExecutionStage[]; maxEscalations: number; maxProviderAttempts: number; operatorPlan?: OperatorPlan }
 export interface ContextContinuitySummary { score: number; relevantTurnCount: number; matchedTurnCount: number; understood: boolean }
 export interface ConversationQualitySummary { score: number; continuity: number; relevance: number; naturalness: number; toneAlignment: number; coherence: number; nonRepetition: number; initiative: number; referenceResolution: number; personalityConsistency: number; progression: number; issues: string[] }
 export interface QualityResult { decision: QualityDecision; evidenceState: EvidenceState; verificationStatus: VerificationStatus; checks: { nonEmpty: boolean; contractValid: boolean; objectiveCoverage: boolean; internalConsistency: boolean; evidenceDiscipline: boolean; actionableStructure: boolean }; evidenceScope?: EvidenceScope; evidenceFreshness?: EvidenceFreshness; claimScopes?: EvidenceScope[]; contextContinuity?: ContextContinuitySummary; conversationQuality?: ConversationQualitySummary; failureReason?: CeoFailureReason; failure?: CeoFailure; reasons: string[] }
