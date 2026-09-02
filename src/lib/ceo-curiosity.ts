@@ -7,21 +7,22 @@ export interface CeoCuriosityDecision {
   materialUnknowns: string[]
 }
 
-const EXTERNAL_SIGNAL_RE = /\b(?:competitor(?:s)?|rival(?:s)?|news|headlines?|market(?:s)?|industry|sector|macro(?:economic)?|stock(?:s)?|shares?|equity|ticker|valuation|10-k|10-q|sec\s+filing|latest|recent|research|search|look\s+up|verify|validate|fact[- ]check)\b/i
+const EXTERNAL_SIGNAL_RE = /\b(?:competitor(?:s)?|rival(?:s)?|news|headlines?|market(?:s)?|industry|sector|macro(?:economic)?|stock(?:s)?|shares?|equity|ticker|valuation|10-k|10-q|sec\s+filing|latest|recent|research|search|look\s+up|fact[- ]check)\b/i
 const EXPLICIT_EXTERNAL_REGULATORY_RE = /\b(?:current|latest|recent|new|changed|updated|what(?: does| do) .* law|legal requirement(?:s)?|regulatory requirement(?:s)?|regulation(?:s)?|rule(?:s)?|filing(?:s)?)\b/i
 const INTERNAL_ONLY_RE = /\b(?:our|we|us|my|internal|this business|our business|our operations|our process|our system)\b/i
 
 function externalInvestigationSignal(text: string): boolean {
   if (!EXTERNAL_SIGNAL_RE.test(text)) return false
   if (/\b(?:compliance|regulatory)\b/i.test(text) && !EXPLICIT_EXTERNAL_REGULATORY_RE.test(text)) return false
-  if (INTERNAL_ONLY_RE.test(text) && !/\b(?:competitor|rival|news|market|industry|sector|latest|recent|research|search|verify|validate)\b/i.test(text)) return false
+  if (INTERNAL_ONLY_RE.test(text) && !/\b(?:competitor|rival|news|market|industry|sector|latest|recent|research|search|look\s+up|fact[- ]check)\b/i.test(text)) return false
   return true
 }
 
 function externalRequirementSignal(context: CanonicalConversationContext): boolean {
-  if (context.intentHint === 'research') return true
-  if (context.semanticInterpretation.suggestedIntent === 'research') return true
-  return externalInvestigationSignal(`${context.currentMessage} ${context.meaning}`)
+  const text = `${context.currentMessage} ${context.meaning}`.trim()
+  if (INTERNAL_ONLY_RE.test(text) && !externalInvestigationSignal(text)) return false
+  if (context.intentHint === 'research' || context.semanticInterpretation.suggestedIntent === 'research') return true
+  return externalInvestigationSignal(text)
 }
 
 export function assessCeoCuriosity(context: CanonicalConversationContext, contract: ConversationDecisionContract): CeoCuriosityDecision {
