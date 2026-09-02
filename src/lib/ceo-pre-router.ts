@@ -1,6 +1,8 @@
 import { inferTaskType } from './canonical-llm-router'
 import { classifyExecution } from './adaptive-execution'
 import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
+import { buildConversationDecisionContract } from './ceo-conversation-decision-contract'
+import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
@@ -109,9 +111,13 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const deterministicIntent = inferSemanticIntent(text, selfReflection)
   const assistedIntent = semanticIntentToCeoIntent(semanticContext)
   const semanticIntent = assistedIntent ?? deterministicIntent
+  const canonicalDecision = semanticContext ? buildConversationDecisionContract(semanticContext) : undefined
+  const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const externalSubjectDomain = inferExternalDomain(text)
-  const shouldUseExternalEvidence = isExternalDomain(externalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
+  const legacyExternalEvidence = isExternalDomain(externalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
+  const canonicalExternalEvidence = Boolean(canonicalDecision && curiosity?.investigate)
+  const shouldUseExternalEvidence = semanticContext ? canonicalExternalEvidence : legacyExternalEvidence
   const evidenceClass: EvidenceClass | undefined = shouldUseExternalEvidence ? 'external_web' : undefined
   const domain: EvidenceDomain | undefined = semanticIntent === 'research' || shouldUseExternalEvidence || externalSubjectDomain.startsWith('internal_') ? externalSubjectDomain : undefined
   const effectiveExecutionClass = externalSubjectDomain === 'public_equity' ? 'deep' : adaptive.executionClass
@@ -123,8 +129,8 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(text) : undefined
   const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(text) : undefined
   const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined
-  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: 'Canonical semantic routing decision.', ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
-  if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: 'External evidence requires governed execution.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: curiosity?.reason ?? 'Canonical semantic routing decision.', ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
+  if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: curiosity?.reason ?? 'External evidence requires governed execution.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   if (semanticIntent === 'mission_action' || missionRelevant) return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   const contextMatch = text.match(CONTEXT_RE)
