@@ -30,4 +30,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run CEO conversation runtime regressions
-        run: bun test tests/ceo-conversation-runtime-regressions.test.ts tests/ceo-phase-1-3-architecture.test.ts
+        run: bun test tests/ceo-conversation-runtime-regressions.test.ts tests/ceo-phase-1-3-architecture.test.ts tests/ceo-personality-and-resilience.test.ts
