@@ -23,6 +23,8 @@ export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'mult
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
 
+export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
+
 export interface CeoExecutionContract {
   intent: CeoIntent
   selfReflectionKind?: SelfReflectionKind
