@@ -1,7 +1,6 @@
 import type { TaskType } from './subagent-governance'
 import type { SelfReflectionKind } from './ceo-self-reflection'
 import type { CeoFailure, CeoFailureReason } from './ceo-failure-reason'
-
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
 export type CognitivePath = 'fast' | 'full' | 'critical'
 export type ReasoningStrategy = 'direct' | 'multi_pass' | 'independent_review'
