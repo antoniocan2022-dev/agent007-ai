@@ -1,6 +1,7 @@
 import type { TaskType } from './subagent-governance'
 import type { SelfReflectionKind } from './ceo-self-reflection'
 import type { CeoFailure, CeoFailureReason } from './ceo-failure-reason'
+
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
 export type CognitivePath = 'fast' | 'full' | 'critical'
 export type ReasoningStrategy = 'direct' | 'multi_pass' | 'independent_review'
@@ -20,9 +21,53 @@ export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'mult
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
-export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }
-export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }
-export interface DecisionPlan { requestId: string; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract }
+
+export interface CeoExecutionContract {
+  intent: CeoIntent
+  selfReflectionKind?: SelfReflectionKind
+  evidenceClass: EvidenceClass
+  domain: EvidenceDomain
+  operation: EvidenceOperation
+  temporalScope: TemporalScope
+  evidenceProfile: EvidenceProfile
+  evidenceRequirement: EvidenceRequirement
+  executionRequirement: ExecutionRequirement
+  orchestrationOwner: OrchestrationOwner
+  maxTurns: number
+  maxRecoveries: number
+  latencyBudgetMs: number
+  toolRequired: boolean
+  subagentsRequired: boolean
+  reason: string
+}
+
+export interface PreRouteDecision {
+  route: PreRoute
+  reason: string
+  missionRelevant: boolean
+  complexitySignals: number
+  taskClass?: TaskType
+  adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'
+  executionContract: CeoExecutionContract
+}
+
+export interface DecisionPlan {
+  requestId: string
+  path: CognitivePath
+  objective: string
+  taskClass: TaskType
+  missionRelevant: boolean
+  requiredCapabilities: string[]
+  qualityTier: 'standard' | 'high' | 'critical'
+  reasoningStrategy: ReasoningStrategy
+  cognitiveDepth: 0 | 1 | 2 | 3 | 4
+  verificationRequired: boolean
+  maxEscalations: number
+  maxProviderAttempts: number
+  latencyBudgetMs: number
+  executionContract: CeoExecutionContract
+}
+
 export interface ExecutionStage { name: 'primary' | 'refinement' | 'independent_review' | 'synthesis'; purpose: string }
 export interface ExecutionPlan { requestId: string; path: CognitivePath; reasoningStrategy: ReasoningStrategy; stages: ExecutionStage[]; maxEscalations: number; maxProviderAttempts: number }
 export interface ContextContinuitySummary { score: number; relevantTurnCount: number; matchedTurnCount: number; understood: boolean }
