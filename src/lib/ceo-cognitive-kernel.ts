@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { PreRouteDecision, DecisionPlan } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
+import { capabilitiesForDecision } from './ceo-capability-architecture'
 
 /**
  * Request-level reasoning planner.
@@ -29,32 +30,10 @@ export function buildCeoDecisionPlan(input: {
   const cognitiveDepth = selfAssessment ? 0 : critical ? 4 : deep ? 2 : 0
   const qualityTier = critical ? 'critical' : deep ? 'high' : 'standard'
   const verificationRequired = critical || deep
-  // Conversational failures get one bounded repair attempt even on the fast path.
-  // Evidence/security failures keep their existing stricter escalation policy.
   const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep || conversationalIntent ? 1 : 0
   const maxProviderAttempts = selfAssessment ? 4 : critical ? 5 : deep ? 4 : 2
-  const latencyBudgetMs = selfAssessment
-    ? contract.latencyBudgetMs
-    : critical
-      ? 90000
-      : deep
-        ? 60000
-        : contract.latencyBudgetMs
-
-  return {
-    requestId: randomUUID(),
-    path,
-    objective: latest.trim().slice(0, 4000),
-    taskClass,
-    missionRelevant,
-    requiredCapabilities: [taskClass, ...(missionRelevant ? ['mission-memory', 'verification'] : [])],
-    qualityTier,
-    reasoningStrategy,
-    cognitiveDepth,
-    verificationRequired,
-    maxEscalations,
-    maxProviderAttempts,
-    latencyBudgetMs,
-    executionContract: contract,
-  }
+  const latencyBudgetMs = selfAssessment ? contract.latencyBudgetMs : critical ? 90000 : deep ? 60000 : contract.latencyBudgetMs
+  const capabilityRequirements = capabilitiesForDecision(contract)
+  const requiredCapabilities = [...new Set([taskClass, ...capabilityRequirements, ...(missionRelevant ? ['mission-memory', 'verification'] : [])])]
+  return { requestId: randomUUID(), path, objective: latest.trim().slice(0, 4000), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract }
 }
