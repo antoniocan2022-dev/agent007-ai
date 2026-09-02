@@ -17,7 +17,7 @@ describe('CEO personality charter', () => {
     }
     expect(CEO_PERSONALITY_CHARTER).toContain('Do not expose internal contracts')
     expect(CEO_PERSONALITY_CHARTER).toContain('Never create emotional dependency')
-    expect(CEO_PERSONALITY_CHARTER).toContain('Do not agree merely to be pleasant')
+    expect(CEO_PERSONALITY_CHARTER).toContain('do not agree merely to be pleasant')
   })
 })
 
@@ -81,9 +81,12 @@ describe('CEO curiosity and canonical routing authority', () => {
     const curiosity = assessCeoCuriosity(context, contract)
     const route = preRouteCeoRequest([{ role: 'user', content: context.currentMessage }], 0, context)
 
+    expect(contract.intent).toBe('decision')
+    expect(contract.responseAction).toBe('recommend')
     expect(contract.evidenceRequirement).toBe('possible')
     expect(curiosity.investigate).toBe(false)
     expect(route.executionContract.evidenceClass).toBe('none')
+    expect(route.executionContract.evidenceRequirement).toBe('none')
     expect(route.executionContract.toolRequired).toBe(false)
   })
 
@@ -93,9 +96,11 @@ describe('CEO curiosity and canonical routing authority', () => {
     const curiosity = assessCeoCuriosity(context, contract)
     const route = preRouteCeoRequest([{ role: 'user', content: context.currentMessage }], 0, context)
 
+    expect(contract.intent).toBe('decision')
     expect(contract.evidenceRequirement).toBe('possible')
     expect(curiosity.investigate).toBe(true)
     expect(route.executionContract.evidenceClass).toBe('external_web')
+    expect(route.executionContract.evidenceRequirement).toBe('external_web')
     expect(route.executionContract.toolRequired).toBe(true)
   })
 
@@ -105,9 +110,23 @@ describe('CEO curiosity and canonical routing authority', () => {
     const curiosity = assessCeoCuriosity(context, contract)
     const route = preRouteCeoRequest([{ role: 'user', content: context.currentMessage }], 0, context)
 
-    expect(contract.evidenceRequirement).toBe('possible')
+    expect(contract.intent).toBe('conversation')
+    expect(contract.evidenceRequirement).toBe('none')
     expect(curiosity.investigate).toBe(false)
     expect(route.executionContract.evidenceClass).toBe('none')
     expect(route.executionContract.toolRequired).toBe(false)
+  })
+
+  test('internal verification language does not become accidental web research', () => {
+    const context = contextFor('Verify our current compliance status before adding integrations')
+    const contract = buildConversationDecisionContract(context)
+    const curiosity = assessCeoCuriosity(context, contract)
+    const route = preRouteCeoRequest([{ role: 'user', content: context.currentMessage }], 0, context)
+
+    expect(contract.intent).toBe('research')
+    expect(curiosity.investigate).toBe(false)
+    expect(route.executionContract.evidenceClass).toBe('none')
+    expect(route.executionContract.toolRequired).toBe(true)
+    expect(route.executionContract.domain).toBe('internal_operations')
   })
 })
