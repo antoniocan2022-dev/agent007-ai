@@ -12,11 +12,13 @@ import { isCircuitOpen } from './provider-intelligence'
 import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
-import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState } from './ceo-cognitive-contract'
+import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision } from './ceo-cognitive-contract'
+import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { getCeoCancellationSignal } from './ceo-cancellation-context'
 import { isCeoRequestAborted, throwIfCeoRequestAborted } from './ceo-cancellation'
+import { isGovernedSoftPassEligible } from './ceo-soft-pass-policy'
 
 export interface CeoCognitiveRequest {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -34,6 +36,8 @@ export interface CeoCognitiveRequest {
   timeoutMs?: number
   priorConversation?: readonly PersistedConversationRow[]
   relevantOlderConversation?: readonly PersistedConversationRow[]
+  preRoute?: PreRouteDecision
+  decisionContract?: ConversationDecisionContract
 }
 
 type ValidatedAvailability = { provider: ActiveProviderId; model: string; responseMs: number } | null
@@ -57,42 +61,36 @@ function stageExclusions(previous?: ActiveProviderId): ActiveProviderId[] {
   const operational = getConfiguredProviders().filter((provider) => !isCircuitOpen(provider))
   return previous && operational.length >= 3 ? [previous] : []
 }
+function responseActionInstruction(action?: ConversationDecisionContract['responseAction']): string | null {
+  if (!action) return null
+  const instructions: Record<ConversationDecisionContract['responseAction'], string> = {
+    answer: 'Response action: answer the user directly and naturally.',
+    clarify: 'Response action: ask one concise, natural clarification question only when necessary to safely resolve the missing meaning. Do not repeat questions already answered by context.',
+    explain: 'Response action: explain the requested concept or reasoning clearly, using the relevant context and avoiding unnecessary procedural structure.',
+    challenge: 'Response action: respectfully challenge the user’s assumption or proposed conclusion when warranted, explain why, and offer the stronger alternative.',
+    recommend: 'Response action: make a clear recommendation, choose a preferred option when the evidence supports one, and explain the decision criteria.',
+    decide: 'Response action: give a decisive executive judgment, distinguish facts from assumptions, and state the chosen direction clearly.',
+    execute: 'Response action: report the governed execution result accurately. Never claim an action occurred unless the execution path actually completed it.',
+    verify: 'Response action: verify the requested claim or state using the governed evidence/execution path, and clearly distinguish verified, unverified, and unknown.',
+  }
+  return instructions[action]
+}
 
 async function attemptValidatedReasoningProvider(timeoutMs: number): Promise<ValidatedAvailability> {
-  const configured = getConfiguredProviders()
-  const attemptBudget = Math.min(configured.length, 2)
+  const configured = getConfiguredProviders(); const attemptBudget = Math.min(configured.length, 2)
   for (const provider of configured.slice(0, attemptBudget)) {
     try {
       const probe = await probeProvider(provider, { taskType: 'reasoning', verification: 'standard', timeoutMs: Math.max(2500, Math.min(10000, timeoutMs)), maxTokens: 128 })
       if (probe.success && probe.model && probe.responseMs !== null) return { provider, model: probe.model, responseMs: probe.responseMs }
     } catch (error) {
       if (isCeoRequestAborted(error)) throw error
-      // Availability checks are advisory; a failed check never becomes a false success.
     }
   }
   return null
 }
 
-function logCeoDegradedTrace(context: {
-  objective: string
-  intent: string
-  path: string
-  failureReason?: CeoFailureReason
-  attempts: string[]
-  rawContentLength?: number
-  qualityChecks?: Record<string, boolean>
-  priorTurnCount?: number
-}): void {
-  console.log('[ceo-degraded-trace]', JSON.stringify({
-    objectiveLength: context.objective.length,
-    intent: context.intent,
-    path: context.path,
-    failureReason: context.failureReason,
-    attempts: context.attempts,
-    rawContentLength: context.rawContentLength ?? 0,
-    qualityChecks: context.qualityChecks,
-    priorTurnCount: context.priorTurnCount ?? 0,
-  }))
+function logCeoDegradedTrace(context: { objective: string; intent: string; path: string; failureReason?: CeoFailureReason; attempts: string[]; rawContentLength?: number; qualityChecks?: Record<string, boolean>; priorTurnCount?: number }): void {
+  console.log('[ceo-degraded-trace]', JSON.stringify({ objectiveLength: context.objective.length, intent: context.intent, path: context.path, failureReason: context.failureReason, attempts: context.attempts, rawContentLength: context.rawContentLength ?? 0, qualityChecks: context.qualityChecks, priorTurnCount: context.priorTurnCount ?? 0 }))
 }
 
 async function semanticSubstanceCheck(objective: string, content: string): Promise<{ substantive: boolean; checked: boolean }> {
@@ -101,13 +99,7 @@ async function semanticSubstanceCheck(objective: string, content: string): Promi
       messages: [
         { role: 'system', content: 'You judge whether a conversational answer is substantive (specific, engages genuinely with the question, gives real reasoning or detail) or shallow (generic, hand-wavy, could apply to almost any question). Respond with exactly one word: SUBSTANTIVE or SHALLOW. No other text.' },
         { role: 'user', content: `Question: ${objective.slice(0, 500)}\n\nAnswer: ${content.slice(0, 1500)}` },
-      ],
-      taskType: 'reasoning',
-      executionClass: 'fast',
-      temperature: 0,
-      maxTokens: 10,
-      timeoutMs: 6000,
-      maxProviderAttempts: 1,
+      ], taskType: 'reasoning', executionClass: 'fast', temperature: 0, maxTokens: 10, timeoutMs: 6000, maxProviderAttempts: 1,
     })
     const verdict = judge.content.trim().toUpperCase()
     if (verdict.includes('SHALLOW')) return { substantive: false, checked: true }
@@ -119,20 +111,9 @@ async function semanticSubstanceCheck(objective: string, content: string): Promi
   }
 }
 
-async function tryDegraded(
-  request: CeoCognitiveRequest,
-  reason: string,
-  attempts: string[],
-  responseMsBeforeDegraded: number,
-  decisionPlan: ReturnType<typeof buildCeoDecisionPlan>,
-  executionPlan: ReturnType<typeof buildCeoExecutionPlan>,
-  availabilityAttempted = false,
-  validatedAvailability: ValidatedAvailability = null,
-  failureReason?: CeoFailureReason,
-): Promise<CognitiveLifecycleResult> {
+async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempts: string[], responseMsBeforeDegraded: number, decisionPlan: ReturnType<typeof buildCeoDecisionPlan>, executionPlan: ReturnType<typeof buildCeoExecutionPlan>, availabilityAttempted = false, validatedAvailability: ValidatedAvailability = null, failureReason?: CeoFailureReason): Promise<CognitiveLifecycleResult> {
   throwIfCeoRequestAborted(getCeoCancellationSignal())
-  const started = Date.now()
-  let availability = validatedAvailability
+  const started = Date.now(); let availability = validatedAvailability
   if (!availability && !availabilityAttempted) availability = await attemptValidatedReasoningProvider(Math.max(2500, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - responseMsBeforeDegraded))
   const evidenceScope = request.evidenceScope ?? (decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
   const evidenceFreshness = request.evidenceFreshness
@@ -141,12 +122,9 @@ async function tryDegraded(
       const recovery = await runCanonicalLlm({ messages: request.messages, taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? (decisionPlan.taskClass ?? 'reasoning')), verification: request.verification ?? 'standard', model: availability.model, temperature: request.temperature ?? 0.2, maxTokens: request.maxTokens ?? 4000, timeoutMs: Math.max(1000, Math.min(30000, (request.timeoutMs ?? decisionPlan.latencyBudgetMs) - (Date.now() - started))), maxProviderAttempts: 1, excludeProviders: PROVIDER_ORDER.filter((provider) => provider !== availability!.provider) })
       const recoveryQuality = evaluateCeoQuality({ objective: objectiveFrom(request.messages), content: recovery.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: false, externalExecutionSucceeded: true, evidenceProvided: Boolean(request.contextualEvidence?.trim()), evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
       const mergedAttempts = [...new Set([...attempts, availability.provider, ...recovery.attempts])]
-      if (recovery.content.trim() && recoveryQuality.decision === 'PASS') {
-        return { content: composeCeoResponse({ content: recovery.content, evidenceState: recoveryQuality.evidenceState, quality: recoveryQuality, degraded: false }), provider: recovery.provider, model: recovery.model, responseMs: responseMsBeforeDegraded + (Date.now() - started), attempts: mergedAttempts, executionPlan, decisionPlan, quality: recoveryQuality, evidenceState: recoveryQuality.evidenceState, degraded: false, failureReason: recoveryQuality.failureReason }
-      }
+      if (recovery.content.trim() && recoveryQuality.decision === 'PASS') return { content: composeCeoResponse({ content: recovery.content, evidenceState: recoveryQuality.evidenceState, quality: recoveryQuality, degraded: false }), provider: recovery.provider, model: recovery.model, responseMs: responseMsBeforeDegraded + (Date.now() - started), attempts: mergedAttempts, executionPlan, decisionPlan, quality: recoveryQuality, evidenceState: recoveryQuality.evidenceState, degraded: false, failureReason: recoveryQuality.failureReason }
     } catch (error) {
       if (isCeoRequestAborted(error)) throw error
-      // Recovery failed genuinely; proceed to persistent-evidence degraded mode.
     }
   }
   throwIfCeoRequestAborted(getCeoCancellationSignal())
@@ -158,7 +136,7 @@ async function tryDegraded(
 }
 
 export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Promise<CognitiveLifecycleResult> {
-  const preRoute = preRouteCeoRequest(request.messages, request.attachmentsCount ?? 0)
+  const preRoute = request.preRoute ?? preRouteCeoRequest(request.messages, request.attachmentsCount ?? 0)
   const resolved = resolvePreRoute(preRoute)
   const decisionPlan = buildCeoDecisionPlan({ messages: request.messages, preRoute, missionId: request.missionId, taskType: request.taskType })
   const executionPlan = buildCeoExecutionPlan(decisionPlan)
@@ -166,8 +144,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const startedAt = Date.now()
   const deadline = startedAt + (request.timeoutMs ?? decisionPlan.latencyBudgetMs)
   const selectedVerification: VerificationTier = request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard')
-  let ventureEvidence: { ventureId: string; evidence: string } | null = null
-  let ventureEvidenceFreshness: EvidenceFreshness | undefined
+  let ventureEvidence: { ventureId: string; evidence: string } | null = null; let ventureEvidenceFreshness: EvidenceFreshness | undefined
   try {
     ventureEvidence = await getCeoVentureEvidenceForObjective(objective)
     if (ventureEvidence) ventureEvidenceFreshness = { observedAt: Date.now(), maxAgeMs: 300000 }
@@ -185,31 +162,34 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: evidenceScope === 'live_system' && Boolean(evidenceFreshness), productionTrafficVerified: request.productionTrafficVerified === true, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false, observedAt: evidenceFreshness?.observedAt, maxEvidenceAgeMs: evidenceFreshness?.maxAgeMs }) : null
   const liveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }] : []
   const readinessMessages = readinessSynthesis ? [{ role: 'system' as const, content: `GOVERNED EXECUTIVE READINESS BASELINE (INTERNAL):\nLevel ${readinessSynthesis.level} — ${readinessSynthesis.label}.\n${readinessSynthesis.capability}\n${readinessSynthesis.verified}\n${readinessSynthesis.notProven}\nNext evidence: ${readinessSynthesis.nextEvidence}` }] : []
-  const primaryMessages = [...liveSystemMessages, ...readinessMessages, ...request.messages]
+  const actionInstruction = responseActionInstruction(request.decisionContract?.responseAction)
+  const decisionMessages = actionInstruction ? [{ role: 'system' as const, content: `CANONICAL RESPONSE POLICY:\n${actionInstruction}` }] : []
+  const primaryMessages = [...liveSystemMessages, ...readinessMessages, ...decisionMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
-  let primary: CanonicalLlmResult | undefined
-  let review: CanonicalLlmResult | undefined
-  let final: CanonicalLlmResult | undefined
-  let escalation = 0
+  let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0
   try {
-    primary = await runCanonicalLlm({ ...stageOptions(), messages: primaryMessages })
-    if (executionPlan.reasoningStrategy === 'multi_pass') {
-      const refinement = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...primaryMessages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
-      review = refinement; final = refinement
-    } else if (executionPlan.reasoningStrategy === 'independent_review') {
-      review = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
-      final = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined)], excludeProviders: stageExclusions(review.provider) })
+    const action = request.decisionContract?.responseAction
+    if (action === 'clarify') {
+      primary = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 1, maxTokens: Math.min(request.maxTokens ?? 600, 600), executionClass: 'fast' as const }), messages: [...decisionMessages, ...request.messages, { role: 'user', content: 'Ask the minimum necessary natural clarification needed to resolve the user’s request. Return only the clarification question.' }] })
+    } else {
+      primary = await runCanonicalLlm({ ...stageOptions(), messages: primaryMessages })
+      if (executionPlan.reasoningStrategy === 'multi_pass') {
+        const refinement = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...primaryMessages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
+        review = refinement; final = refinement
+      } else if (executionPlan.reasoningStrategy === 'independent_review') {
+        review = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
+        final = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined)], excludeProviders: stageExclusions(review.provider) })
+      }
     }
     let output = final ?? primary
-    if (!output) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason: 'provider_unavailable', attempts: [] }); return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan, false, null, 'provider_unavailable') }
+    if (!output) return tryDegraded(request, 'No usable provider output was produced.', [], Date.now() - startedAt, decisionPlan, executionPlan, false, null, 'provider_unavailable')
     let quality = evaluateCeoQuality({ objective, content: output.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: Boolean(review && executionPlan.reasoningStrategy === 'independent_review'), externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
     while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) {
       escalation += 1
       const lastProvider = final?.provider ?? review?.provider ?? primary?.provider
       try {
-        const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) })
-        final = escalated
-        output = escalated
+        const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) })
+        final = escalated; output = escalated
         quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
         if (quality.decision === 'PASS') break
       } catch (error) {
@@ -218,18 +198,17 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       }
     }
     const result = final ?? primary
-    if (!result) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason: 'provider_unavailable', attempts: mergeAttempts(primary, review, final), rawContentLength: output?.content.length }); return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable') }
+    if (!result) return tryDegraded(request, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, 'provider_unavailable')
     const isConversational = decisionPlan.executionContract.intent === 'conversation' || decisionPlan.executionContract.intent === 'opinion'
     const isGenuineOverclaim = quality.failureReason === 'evidence_unavailable' || quality.failureReason === 'evidence_insufficient' || quality.failureReason === 'claim_consistency_failure'
-    const conversationQuality = (quality as { conversationQuality?: { score: number } }).conversationQuality
-    const meetsRealQualityBar = conversationQuality ? conversationQuality.score >= 60 : result.content.trim().length >= 20
-    const heuristicSoftPassCandidate = isConversational && !isGenuineOverclaim && meetsRealQualityBar
-    const semanticCheck = (quality.decision !== 'PASS' && heuristicSoftPassCandidate) ? await semanticSubstanceCheck(objective, result.content) : { substantive: true, checked: false }
-    const softPassEligible = heuristicSoftPassCandidate && semanticCheck.substantive
-    if (quality.decision !== 'PASS' && !softPassEligible) { logCeoDegradedTrace({ objective, intent: decisionPlan.executionContract.intent, path: decisionPlan.path, failureReason: quality.failureReason, attempts: mergeAttempts(primary, review, final), rawContentLength: result.content.length, qualityChecks: quality.checks, priorTurnCount: request.priorConversation?.length }); return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason) }
+    const conversationQuality = quality.conversationQuality
+    const softPassCandidate = isConversational && !isGenuineOverclaim && (conversationQuality?.score ?? 0) >= 60
+    const semanticCheck = (quality.decision !== 'PASS' && softPassCandidate) ? await semanticSubstanceCheck(objective, result.content) : { substantive: true, checked: false }
+    const softPassEligible = isGovernedSoftPassEligible({ intent: decisionPlan.executionContract.intent, qualityDecision: quality.decision, failureReason: quality.failureReason, conversationScore: conversationQuality?.score, substantive: semanticCheck.substantive })
+    if (quality.decision !== 'PASS' && !softPassEligible) return tryDegraded(request, `Quality gate did not pass after the allowed escalation depth: ${quality.reasons.join(' | ')}`, mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, true, null, quality.failureReason)
     if (quality.decision !== 'PASS' && softPassEligible) console.log('[ceo-soft-pass]', JSON.stringify({ intent: decisionPlan.executionContract.intent, failureReason: quality.failureReason, contentLength: result.content.length, conversationQualityScore: conversationQuality?.score, semanticChecked: semanticCheck.checked }))
     const evidenceState: EvidenceState = quality.evidenceState
-    console.log('[ceo-runtime-trace]', JSON.stringify({ intent: decisionPlan.executionContract.intent, path: decisionPlan.path, provider: result.provider, model: result.model, contentLength: result.content.length, qualityDecision: quality.decision, evidenceState, responseMs: Date.now() - startedAt, degraded: false }))
+    console.log('[ceo-runtime-trace]', JSON.stringify({ intent: decisionPlan.executionContract.intent, path: decisionPlan.path, responseAction: request.decisionContract?.responseAction ?? null, provider: result.provider, model: result.model, contentLength: result.content.length, qualityDecision: quality.decision, evidenceState, responseMs: Date.now() - startedAt, degraded: false }))
     return { content: composeCeoResponse({ content: result.content, evidenceState, quality, degraded: false }), provider: result.provider, model: result.model, responseMs: Date.now() - startedAt, attempts: mergeAttempts(primary, review, final), executionPlan, decisionPlan, quality, evidenceState, degraded: false, failureReason: quality.failureReason }
   } catch (error) {
     if (isCeoRequestAborted(error)) throw error
