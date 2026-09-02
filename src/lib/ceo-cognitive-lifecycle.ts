@@ -129,7 +129,7 @@ async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempt
     }
   }
   throwIfCeoRequestAborted(getCeoCancellationSignal())
-  const degraded = await buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), intent: decisionPlan.executionContract.intent, selfReflectionKind: decisionPlan.executionContract.selfReflectionKind, reason, failureReason, missionId: request.missionId, contextualEvidence: request.contextualEvidence })
+  const degraded = await buildCeoDegradedResponse({ objective: objectiveFrom(request.messages), intent: decisionPlan.executionContract.intent, responseAction: request.decisionContract?.responseAction, selfReflectionKind: decisionPlan.executionContract.selfReflectionKind, reason, failureReason, missionId: request.missionId, contextualEvidence: request.contextualEvidence, priorConversation: request.priorConversation })
   throwIfCeoRequestAborted(getCeoCancellationSignal())
   const responseMs = responseMsBeforeDegraded + (Date.now() - started)
   const quality = { decision: 'DEGRADED' as const, evidenceState: degraded.evidenceState, verificationStatus: 'NOT_PERFORMED' as const, checks: { nonEmpty: Boolean(degraded.content.trim()), contractValid: degraded.content.length <= 100_000, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, evidenceScope, evidenceFreshness, claimScopes: [], failureReason: degraded.failureReason, reasons: [reason, ...(degraded.sourceKeys.length ? [`Recovered ${degraded.sourceKeys.length} internal evidence item(s).`] : [])] }
