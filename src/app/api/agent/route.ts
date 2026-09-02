@@ -23,6 +23,7 @@ import { createReleaseAttestation, getReleaseIdentity, newReleaseRequestId } fro
 import { CeoRequestAbortedError, isCeoRequestAborted } from '@/lib/ceo-cancellation'
 import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
+import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
