@@ -149,7 +149,7 @@ const missionFallback = await buildCeoDegradedResponse({
   reason: 'Controlled mission degraded test.',
   recall: async () => [],
 })
-if (missionFallback.evidenceState === 'PARTIAL_UNCONFIRMED') violations.push('Non-self-assessment mission request incorrectly received self-assessment fallback')
+if (missionFallback.content.includes('governed business-management system')) violations.push('Non-self-assessment mission request incorrectly received self-assessment fallback')
 
 const ambiguousMessages = [
   'Continue this.',
