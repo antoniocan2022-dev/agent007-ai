@@ -12,15 +12,14 @@ function context(message: string, rows: PersistedConversationRow[] = []): Return
   return buildCanonicalConversationContext({ currentMessage: message, rows, state, references: [] })
 }
 
-const ROUTE_SOURCE = await Bun.file(new URL('../src/app/api/agent/route.ts', import.meta.url)).text()
-const LIFECYCLE_SOURCE = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
-
 describe('CEO Phases 1-3 architecture contracts', () => {
-  test('route performs exactly one direct pre-route call and passes the same decision into lifecycle', () => {
-    expect((ROUTE_SOURCE.match(/preRouteCeoRequest\(/g) ?? []).length).toBe(1)
-    expect(ROUTE_SOURCE).toContain('preRoute, contextSeed.canonicalSemanticContext')
-    expect(ROUTE_SOURCE).toContain('preRoute, decisionContract')
-    expect(LIFECYCLE_SOURCE).toContain('request.preRoute ?? preRouteCeoRequest')
+  test('route contains one direct pre-route call and passes the same decision into lifecycle', async () => {
+    const route = await Bun.file(new URL('../src/app/api/agent/route.ts', import.meta.url)).text()
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect((route.match(/preRouteCeoRequest\(/g) ?? []).length).toBe(1)
+    expect(route).toContain('preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext)')
+    expect(route).toContain('preRoute, decisionContract'))
+    expect(lifecycle).toContain('request.preRoute ?? preRouteCeoRequest')
   })
 
   test('canonical semantic context contains structured meaning, confidence and uncertainty', () => {
@@ -28,6 +27,13 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     expect(value.meaning.length).toBeGreaterThan(0)
     expect(value.semanticInterpretation.confidence).toBeGreaterThan(0)
     expect(Array.isArray(value.semanticInterpretation.uncertainty)).toBe(true)
+  })
+
+  test('low-confidence assisted meaning cannot replace deterministic meaning', () => {
+    const value = context('What is the current architecture?')
+    const assisted = buildCanonicalConversationContext({ currentMessage: 'What is the current architecture?', rows: [], state: value.state, references: [], semanticInterpretation: { source: 'hybrid', confidence: 0.4, meaning: 'A fabricated unrelated meaning', suggestedIntent: 'conversation' } })
+    expect(assisted.meaning).toBe(value.meaning)
+    expect(assisted.intentHint).toBe('analysis')
   })
 
   test('explicit corrections remain corrections even when correction text contains ordinal language', () => {
