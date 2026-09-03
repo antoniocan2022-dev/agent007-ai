@@ -1,5 +1,6 @@
 import { buildCeoOperatorPlan, canClaimExecution } from './ceo-operator-intelligence'
 import { assessCeoCuriosity } from './ceo-curiosity'
+import { assessGuardianRisk, renderGuardianConstraint } from './ceo-guardian'
 import { buildSemanticQualityReport, buildSemanticRepairPlan, renderSemanticRepairPrompt } from './ceo-semantic-quality-report'
 import { runCanonicalLlm, type CanonicalLlmResult } from './canonical-llm-router'
 import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
@@ -177,8 +178,11 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const operatorConstraint = operatorPlan && !canClaimExecution(operatorPlan)
     ? ` No execution has actually occurred for this request (status: ${operatorPlan.status}). Do not say or imply that you performed, deployed, executed, or completed anything. Describe what you would do and what is still required (${operatorPlan.tasks[0]?.dependencies.join(', ') || 'approval and verification'}) instead.`
     : ''
+  const guardianAssessment = request.decisionContract ? assessGuardianRisk({ objective, contract: request.decisionContract, world: worldModel ?? undefined }) : null
+  const guardianConstraint = guardianAssessment ? renderGuardianConstraint(guardianAssessment) : null
+  const guardianMessages = guardianConstraint ? [{ role: 'system' as const, content: `GUARDIAN RISK NOTICE:\n${guardianConstraint}` }] : []
   const decisionMessages = actionInstruction ? [{ role: 'system' as const, content: `CANONICAL RESPONSE POLICY:\n${actionInstruction}${operatorConstraint}` }] : []
-  const primaryMessages = [...worldModelMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, ...request.messages]
+  const primaryMessages = [...worldModelMessages, ...guardianMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
   let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0
   try {
