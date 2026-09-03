@@ -23,7 +23,8 @@ const RISK_SIGNALS: Array<{ category: GuardianRiskCategory; pattern: RegExp; sev
 ]
 
 export function assessGuardianRisk(input: { objective: string; contract: ConversationDecisionContract; world?: CeoWorldModel }): GuardianAssessment {
-  const text = input.objective
+  const openLoopText = (input.world?.conversation.data.openLoops ?? []).join(' ')
+  const text = `${input.objective} ${openLoopText}`
   const risks = RISK_SIGNALS.filter((signal) => signal.pattern.test(text)).map((signal) => ({ category: signal.category, severity: signal.severity, description: signal.description }))
   const highSeverity = risks.filter((risk) => risk.severity === 'high')
   const shouldDisagree = highSeverity.length > 0

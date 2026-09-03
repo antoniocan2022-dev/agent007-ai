@@ -35,6 +35,14 @@ describe('Phase 11 Guardian Intelligence', () => {
     expect(renderGuardianConstraint(assessGuardianRisk({ objective: 'Hello', contract }))).toBeNull()
   })
 
+  test('an unresolved risky open loop from the world model is genuinely consulted, not just the current message text', () => {
+    const withOpenLoop = assessGuardianRisk({ objective: "Let's move forward with this.", contract, world: { conversation: { data: { openLoops: ['Should we skip the compliance review for this launch?'] } } } as any })
+    expect(withOpenLoop.shouldDisagree).toBe(true)
+    expect(withOpenLoop.risks.map((r) => r.category)).toContain('compliance')
+    const withoutWorld = assessGuardianRisk({ objective: "Let's move forward with this.", contract })
+    expect(withoutWorld.shouldDisagree).toBe(false)
+  })
+
   test('Guardian is genuinely wired into the live lifecycle, not merely built and imported unused', () => {
     const source = readFileSync(join(ROOT, 'src/lib/ceo-cognitive-lifecycle.ts'), 'utf-8')
     expect(source).toContain('assessGuardianRisk')
