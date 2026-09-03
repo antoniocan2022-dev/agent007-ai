@@ -67,6 +67,7 @@ export function buildLearningCandidate(input: {
   if (!input.actualOutcome.trim()) throw new Error('Learning candidate requires actual outcome.')
   if (!input.rootCause.trim()) throw new Error('Learning candidate requires a root cause.')
   if (!input.proposedChange.trim()) throw new Error('Learning candidate requires a proposed change.')
+  if (!Number.isFinite(input.predictionError.magnitude ?? 0) && input.predictionError.magnitude !== null) throw new Error('Learning candidate prediction error magnitude must be finite.')
 
   const createdAt = input.createdAt ?? new Date().toISOString()
   return {
@@ -88,10 +89,20 @@ export function buildLearningCandidate(input: {
   }
 }
 
+function assertCompatibleExisting(prior: LearningCandidate, candidate: LearningCandidate): void {
+  const immutableFields: Array<keyof Pick<LearningCandidate, 'candidateId' | 'recommendationId' | 'behavior' | 'expectedOutcome' | 'actualOutcome' | 'rootCause' | 'proposedChange'>> = ['candidateId', 'recommendationId', 'behavior', 'expectedOutcome', 'actualOutcome', 'rootCause', 'proposedChange']
+  for (const field of immutableFields) if (prior[field] !== candidate[field]) throw new Error(`Conflicting behavioral learning candidate already exists for ${candidate.candidateId}.`)
+  if (JSON.stringify(prior.predictionError) !== JSON.stringify(candidate.predictionError) || JSON.stringify(prior.evidenceIds) !== JSON.stringify(candidate.evidenceIds)) throw new Error(`Conflicting behavioral learning evidence already exists for ${candidate.candidateId}.`)
+}
+
 export async function persistLearningCandidate(candidate: LearningCandidate): Promise<LearningCandidate> {
   const key = `learning:candidate:${candidate.candidateId}`
   const existing = await db.memory.findUnique({ where: { key } })
-  if (existing) return JSON.parse(existing.value) as LearningCandidate
+  if (existing) {
+    const prior = JSON.parse(existing.value) as LearningCandidate
+    assertCompatibleExisting(prior, candidate)
+    return prior
+  }
   await db.memory.create({ data: { key, value: JSON.stringify(candidate), category: 'behavioral_learning_candidate' } })
   return candidate
 }
@@ -109,6 +120,8 @@ export function validateLearningCandidate(candidate: LearningCandidate, input: L
 
 export async function saveValidatedLearningCandidate(candidate: LearningCandidate): Promise<LearningCandidate> {
   const key = `learning:candidate:${candidate.candidateId}`
+  const existing = await db.memory.findUnique({ where: { key } })
+  if (existing) assertCompatibleExisting(JSON.parse(existing.value) as LearningCandidate, candidate)
   await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(candidate), category: 'behavioral_learning_candidate' }, update: { value: JSON.stringify(candidate), category: 'behavioral_learning_candidate' } })
   return candidate
 }
