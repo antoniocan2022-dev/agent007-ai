@@ -17,6 +17,7 @@ import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type 
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
 import { getAllPersistentMemory } from '@/lib/persistent-memory'
 import { computeWorldStateDelta } from '@/lib/ceo-world-state'
+import { generateRecommendationCorrelationId, recordCeoRecommendation } from '@/lib/ceo-outcome-learning'
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { buildCeoRuntimeMetrics, logCeoRuntimeMetrics } from '@/lib/ceo-runtime-metrics'
 import { createReleaseAttestation, getReleaseIdentity, newReleaseRequestId } from '@/lib/release-attestation'
@@ -197,6 +198,10 @@ export async function POST(req: NextRequest) {
             } catch (deltaError) {
               console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError))
             }
+          }
+          if (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide') {
+            const correlationId = generateRecommendationCorrelationId()
+            recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction }).catch(() => {})
           }
           streamOutcome = response.degraded ? 'degraded' : 'completed'
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model }))
