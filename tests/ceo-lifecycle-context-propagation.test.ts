@@ -37,4 +37,9 @@ describe('Deep integration audit: guardian/world-model context must reach every 
     expect(refinementLine).toBeDefined()
     expect(repairLine).toBeDefined()
   })
+
+  test('the operational (mission-execution) lane also receives canonicalContext, not only the CEO conversational lane -- composedOperational already produces canonicalSemanticContext via the same composeCeoContext function, it was simply not being passed', () => {
+    const route = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
+    expect(route).toContain('canonicalContext: composedOperational.canonicalSemanticContext')
+  })
 })
