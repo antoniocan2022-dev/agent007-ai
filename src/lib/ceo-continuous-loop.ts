@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { db } from './db'
 import { assertLoopTransition, type LoopStage } from './architecture-integrity-contract'
-
 export type ContinuousLoopStatus = 'ACTIVE' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'BLOCKED'
 export interface LoopTransitionRecord { from: LoopStage; to: LoopStage; at: string; evidence: string[] }
 export interface ContinuousLoopTrace { schemaVersion: 1; loopId: string; recommendationId: string | null; currentStage: LoopStage; status: ContinuousLoopStatus; transitions: LoopTransitionRecord[]; evidence: string[]; createdAt: string; completedAt: string | null }
@@ -12,7 +11,6 @@ export function completeContinuousLoop(trace: ContinuousLoopTrace, finalEvidence
 export async function startContinuousLoop(input: { recommendationId?: string | null; evidence?: string[] }): Promise<ContinuousLoopTrace> { const trace = buildContinuousLoopTrace(input); const key = `continuous_loop:${trace.loopId}`; await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(trace), category: 'continuous_loop_trace' }, update: { value: JSON.stringify(trace) } }); return trace }
 export async function advancePersistedContinuousLoop(loopId: string, to: LoopStage, evidence: string[] = []): Promise<ContinuousLoopTrace> { const key = `continuous_loop:${loopId}`; const row = await db.memory.findUnique({ where: { key } }); if (!row) throw new Error(`Continuous loop not found: ${loopId}`); const trace = advanceContinuousLoop(JSON.parse(row.value) as ContinuousLoopTrace, to, evidence); await db.memory.update({ where: { key }, data: { value: JSON.stringify(trace) } }); return trace }
 export async function getContinuousLoop(loopId: string): Promise<ContinuousLoopTrace | null> { const row = await db.memory.findUnique({ where: { key: `continuous_loop:${loopId}` } }); return row ? JSON.parse(row.value) as ContinuousLoopTrace : null }
-
 export async function runGovernedEvolutionCycle(): Promise<{ cycleId: string; status: 'AWAITING_APPROVAL' | 'COMPLETED'; observed: { orgIQ: number; missionCount: number; trend: string }; proposals: string[]; simulated: string[]; awaitingApproval: string[] }> {
   const { generateHealthReport } = await import('./evolution-engine')
   const { createInitiative, simulateInitiative, listInitiativesByStatus } = await import('./closed-loop-improvement')
@@ -28,7 +26,7 @@ export async function runGovernedEvolutionCycle(): Promise<{ cycleId: string; st
     const existing = existingSimulated.find((item) => item.recommendation === recommendation && item.targetMetric === metric)
     const initiative = existing ?? await createInitiative(recommendation, 'evolution_engine', metric, direction)
     proposals.push(initiative.initiativeId)
-    if (initiative.status === 'proposed') { const simulation = await simulateInitiative(initiative.initiativeId); if (simulation.ok) simulated.push(initiative.initiativeId) } else if (initiative.status === 'simulated') simulated.push(initiative.initiativeId)
+    if (initiative.status === 'proposed') { const simulation = await simulateInitiative(initiative.initiativeId); if (simulation.simulation.ok) simulated.push(initiative.initiativeId) } else if (initiative.status === 'simulated') simulated.push(initiative.initiativeId)
   }
   const awaitingApproval = await listInitiativesByStatus('simulated', 100)
   const cycleId = `governed_evolution_${Date.now()}`
