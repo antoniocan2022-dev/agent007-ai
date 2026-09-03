@@ -31,6 +31,8 @@ jobs:
         run: bun test tests/architecture-control-plane.test.ts tests/architecture-integrity-contract.test.ts
       - name: Phase 5-8 — Outcome, learning and continuous-loop tests
         run: bun test tests/continuous-loop-integrity.test.ts
+      - name: Evolution Engine regression tests
+        run: bun test tests/evolution-engine-integrity.test.ts
       - name: Evidence and degraded-mode regression tests
         run: bun test tests/ceo-lifecycle-context-propagation.test.ts
       - name: Full TypeScript audit
@@ -46,11 +48,14 @@ jobs:
           test -f src/lib/ceo-decision-grade-evidence.ts
           test -f src/lib/ceo-behavioral-learning.ts
           test -f src/lib/ceo-continuous-loop.ts
+          test -f src/lib/evolution-engine.ts
           test -f scripts/architecture-reality-baseline.ts
           test -f tests/architecture-control-plane.test.ts
           test -f tests/architecture-integrity-contract.test.ts
           test -f tests/continuous-loop-integrity.test.ts
+          test -f tests/evolution-engine-integrity.test.ts
           test -f src/app/api/architecture/business-outcome/route.ts
+          test -f .github/CODEOWNERS
           grep -q "assertDelegationAllowed" src/lib/architecture-control-plane.ts
           grep -q "ArtifactRecord" src/lib/architecture-control-plane.ts
           grep -q "assertMissionTransition" src/lib/architecture-control-plane.ts
@@ -67,4 +72,9 @@ jobs:
           grep -q "assertLoopTransition" src/lib/ceo-continuous-loop.ts
           grep -q "runGovernedEvolutionCycle" src/app/api/system/evolution/route.ts
           ! grep -q "runActiveEvolutionCycle" src/app/api/system/evolution/route.ts
+          ! grep -q "runActiveEvolutionCycle" src/lib/evolution-engine.ts
+          ! grep -q "function audits3" src/lib/evolution-engine.ts
+          grep -q "behavioral_learning_candidate" src/lib/evolution-engine.ts
+          grep -q "candidate.status === 'PROMOTED'" src/lib/evolution-engine.ts
           grep -q "recommendationCorrelationId" src/app/api/architecture/business-outcome/route.ts
+          grep -q "@antoniocan2022-dev" .github/CODEOWNERS
