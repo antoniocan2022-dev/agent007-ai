@@ -69,14 +69,28 @@ async function getMissionsByIds(ids: string[]): Promise<MissionTelemetry[]> {
   } catch { return [] }
 }
 
-async function persistMeasurementTelemetry(telemetry: MissionTelemetry): Promise<void> {
-  if (!telemetry.missionId?.trim()) throw new Error('Measurement telemetry requires missionId.')
-  if (!Number.isFinite(telemetry.startedAt)) throw new Error('Measurement telemetry requires a valid startedAt timestamp.')
-  await db.memory.upsert({
-    where: { key: telemetry.missionId },
-    create: { key: telemetry.missionId, value: JSON.stringify(telemetry), category: 'mission_telemetry' },
-    update: { value: JSON.stringify(telemetry), category: 'mission_telemetry' },
-  })
+export function validateMeasurementTelemetryCandidate(telemetry: MissionTelemetry): { ok: boolean; reason: string | null } {
+  if (!telemetry.missionId?.trim()) return { ok: false, reason: 'Measurement telemetry requires missionId.' }
+  if (!Number.isFinite(telemetry.startedAt)) return { ok: false, reason: 'Measurement telemetry requires a valid startedAt timestamp.' }
+  if (telemetry.status === 'running') return { ok: false, reason: 'Measurement telemetry must be terminal (completed or failed).' }
+  if (telemetry.completedAt !== null && !Number.isFinite(telemetry.completedAt)) return { ok: false, reason: 'Measurement telemetry completedAt must be null or a finite timestamp.' }
+  if (telemetry.completedAt !== null && telemetry.completedAt < telemetry.startedAt) return { ok: false, reason: 'Measurement telemetry completedAt cannot precede startedAt.' }
+  return { ok: true, reason: null }
+}
+
+async function persistMeasurementTelemetry(telemetry: MissionTelemetry): Promise<MissionTelemetry> {
+  const validation = validateMeasurementTelemetryCandidate(telemetry)
+  if (!validation.ok) throw new Error(validation.reason ?? 'Invalid measurement telemetry.')
+  const existing = await db.memory.findUnique({ where: { key: telemetry.missionId } })
+  if (existing) {
+    if (existing.category !== 'mission_telemetry') throw new Error(`Mission ${telemetry.missionId} is already owned by category ${existing.category}.`)
+    let canonical: MissionTelemetry
+    try { canonical = JSON.parse(existing.value) as MissionTelemetry } catch { throw new Error(`Canonical mission telemetry is invalid for ${telemetry.missionId}.`) }
+    if (canonical.missionId !== telemetry.missionId || canonical.startedAt !== telemetry.startedAt || canonical.status !== telemetry.status) throw new Error(`Measurement telemetry conflicts with canonical mission telemetry for ${telemetry.missionId}.`)
+    return canonical
+  }
+  await db.memory.create({ data: { key: telemetry.missionId, value: JSON.stringify(telemetry), category: 'mission_telemetry' } })
+  return telemetry
 }
 
 function computeMetricAverage(missions: MissionTelemetry[], metric: ImprovementMetric): number | null {
@@ -154,8 +168,8 @@ export async function measureInitiative(initiativeId: string, telemetry: Mission
   const initiative = await getInitiative(initiativeId)
   if (!initiative) throw new Error(`Improvement initiative not found: ${initiativeId}`)
   if (!['active', 'measuring'].includes(initiative.status)) throw new Error(`Initiative ${initiativeId} must be active before measurement.`)
-  await persistMeasurementTelemetry(telemetry)
-  const uniquePostMissionIds = [...new Set([...initiative.postMissionIds, telemetry.missionId])]
+  const canonicalTelemetry = await persistMeasurementTelemetry(telemetry)
+  const uniquePostMissionIds = [...new Set([...initiative.postMissionIds, canonicalTelemetry.missionId])]
   const postMissions = await getMissionsByIds(uniquePostMissionIds)
   const postMissionIds = postMissions.map((mission) => mission.missionId)
   const postValue = computeMetricAverage(postMissions, initiative.targetMetric)
