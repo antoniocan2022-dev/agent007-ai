@@ -13,6 +13,7 @@ describe('Continuous loop integrity — phases 5-8', () => {
     expect(recommendation.predictionStatus).toBe('PREDICTED')
     expect(recommendation.decisionRationale).toContain('clearest measurable upside')
     expect(recommendation.recommendedAction).toContain('recovery workflow')
+    expect(() => buildRecommendationRecord({ correlationId: 'rec-invalid', objective: 'Test', responseAction: 'recommend', recordedAt: Number.NaN })).toThrow(/finite timestamp/)
   })
 
   test('prediction error distinguishes missing prediction from observed numeric error', () => {
@@ -21,14 +22,18 @@ describe('Continuous loop integrity — phases 5-8', () => {
     const error = calculateRecommendationPredictionError(recommendation, outcome)
     expect(error?.errorMagnitude).toBe(4)
     expect(error?.direction).toBe('worse_than_predicted')
+    expect(() => buildObservedRecommendationOutcome({ recommendationId: 'rec-2', observedOutcome: 'Revenue observed', actualResult: 'Revenue increases 6%', observedAt: Number.NaN, source: 'business-ledger' })).toThrow(/finite timestamp/)
   })
 
-  test('correlation accepts the new recommendation linkage and preserves legacy outcome linkage', () => {
-    const recommendation = buildRecommendationRecord({ correlationId: 'rec-3', objective: 'Test', responseAction: 'decide', recordedAt: Date.parse(fixedTime) })
-    const correlation = correlateRecommendationOutcomes('rec-3', [{ value: JSON.stringify(recommendation) }], [{ value: JSON.stringify({ recommendationCorrelationId: 'rec-3', type: 'REVENUE_RECOGNIZED', amount: 25, currency: 'USD', transactionId: 'tx-1', occurredAt: fixedTime }) }])
+  test('correlation accepts the new recommendation linkage, preserves legacy linkage, and uses the newest observed outcome for prediction error', () => {
+    const recommendation = buildRecommendationRecord({ correlationId: 'rec-3', objective: 'Test', responseAction: 'decide', predictedOutcome: 'Revenue increases 10%', recordedAt: Date.parse(fixedTime) })
+    const first = buildObservedRecommendationOutcome({ recommendationId: 'rec-3', observedOutcome: 'Older revenue observation', actualResult: 'Revenue increases 8%', observedAt: Date.parse(fixedTime) + 1000, source: 'business-ledger' })
+    const second = buildObservedRecommendationOutcome({ recommendationId: 'rec-3', observedOutcome: 'Newer revenue observation', actualResult: 'Revenue increases 6%', observedAt: Date.parse(fixedTime) + 2000, source: 'business-ledger' })
+    const correlation = correlateRecommendationOutcomes('rec-3', [{ value: JSON.stringify(recommendation) }], [{ value: JSON.stringify({ recommendationCorrelationId: 'rec-3', type: 'REVENUE_RECOGNIZED', amount: 25, currency: 'USD', transactionId: 'tx-1', occurredAt: fixedTime }) }, { value: JSON.stringify(first) }, { value: JSON.stringify(second) }])
     expect(correlation.recommendation?.recommendationId).toBe('rec-3')
     expect(correlation.hasVerifiedOutcome).toBe(true)
-    expect(correlation.outcomes[0]?.actualResult).toContain('25 USD')
+    expect(correlation.outcomes[0]?.actualResult).toContain('Revenue increases 6%')
+    expect(correlation.predictionError?.errorMagnitude).toBe(4)
   })
 
   test('behavioral learning requires validation, approval and regression proof before promotion', () => {
@@ -39,6 +44,13 @@ describe('Continuous loop integrity — phases 5-8', () => {
     const approved = approveLearningCandidate(validated, 'ceo')
     expect(approved.status).toBe('APPROVED')
     expect(() => promoteLearningCandidate(approved, '')).toThrow()
+  })
+
+  test('continuous loop keeps recommendation identity stable across repeated trace construction', () => {
+    const first = buildContinuousLoopTrace({ recommendationId: 'rec-identity', createdAt: fixedTime, evidence: ['first'] })
+    const second = buildContinuousLoopTrace({ recommendationId: 'rec-identity', createdAt: '2026-09-03T23:00:00.000Z', evidence: ['second'] })
+    expect(first.loopId).toBe(second.loopId)
+    expect(first.createdAt).not.toBe(second.createdAt)
   })
 
   test('continuous loop enforces authoritative transition order', () => {
