@@ -16,6 +16,8 @@ import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision } from './ceo-cognitive-contract'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
+import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
+import { buildCeoWorldModel } from './ceo-world-model'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { getCeoCancellationSignal } from './ceo-cancellation-context'
@@ -40,6 +42,7 @@ export interface CeoCognitiveRequest {
   relevantOlderConversation?: readonly PersistedConversationRow[]
   preRoute?: PreRouteDecision
   decisionContract?: ConversationDecisionContract
+  canonicalContext?: CanonicalConversationContext
 }
 
 type ValidatedAvailability = { provider: ActiveProviderId; model: string; responseMs: number } | null
@@ -162,6 +165,8 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const evidenceScope: EvidenceScope | undefined = request.evidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)
   const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness
   const readinessSynthesis = decisionPlan.executionContract.selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: evidenceScope === 'live_system' && Boolean(evidenceFreshness), productionTrafficVerified: request.productionTrafficVerified === true, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false, observedAt: evidenceFreshness?.observedAt, maxEvidenceAgeMs: evidenceFreshness?.maxAgeMs }) : null
+  const worldModel = request.canonicalContext ? buildCeoWorldModel({ context: request.canonicalContext, priorConversation: request.priorConversation, olderConversation: request.relevantOlderConversation }) : null
+  const worldModelMessages = worldModel ? [{ role: 'system' as const, content: `SYSTEM/EXTERNAL AWARENESS (INTERNAL, do not quote verbatim to the user):\nArchitecture: ${worldModel.system.data.architecture.join('; ')}\nDeployment: ${worldModel.system.data.deploymentState.join('; ')}\nExternal evidence available: ${worldModel.external.data.evidenceState === 'available' ? 'yes' : 'no'}` }] : []
   const liveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):\n${ventureEvidence.evidence}\nUse these values as system evidence. Do not invent missing values, readiness, revenue, customer success, or authorization.` }] : []
   const readinessMessages = readinessSynthesis ? [{ role: 'system' as const, content: `GOVERNED EXECUTIVE READINESS BASELINE (INTERNAL):\nLevel ${readinessSynthesis.level} — ${readinessSynthesis.label}.\n${readinessSynthesis.capability}\n${readinessSynthesis.verified}\n${readinessSynthesis.notProven}\nNext evidence: ${readinessSynthesis.nextEvidence}` }] : []
   const actionInstruction = responseActionInstruction(request.decisionContract?.responseAction)
@@ -172,7 +177,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     ? ` No execution has actually occurred for this request (status: ${operatorPlan.status}). Do not say or imply that you performed, deployed, executed, or completed anything. Describe what you would do and what is still required (${operatorPlan.tasks[0]?.dependencies.join(', ') || 'approval and verification'}) instead.`
     : ''
   const decisionMessages = actionInstruction ? [{ role: 'system' as const, content: `CANONICAL RESPONSE POLICY:\n${actionInstruction}${operatorConstraint}` }] : []
-  const primaryMessages = [...liveSystemMessages, ...readinessMessages, ...decisionMessages, ...request.messages]
+  const primaryMessages = [...worldModelMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
   let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0
   try {
