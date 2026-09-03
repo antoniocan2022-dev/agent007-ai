@@ -2,7 +2,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { CANONICAL_CAPABILITY_LEDGER } from '../src/lib/architecture-integrity-contract'
-
 const ROOT = process.cwd()
 const failures: string[] = []
 const warnings: string[] = []
@@ -19,7 +18,8 @@ const required = [
   'src/lib/ceo-evidence-executor.ts', 'src/lib/ceo-evidence-bundle.ts', 'src/lib/ceo-response-quality-gate.ts', 'src/lib/ceo-outcome-learning.ts',
   'src/lib/ceo-behavioral-learning.ts', 'src/lib/ceo-self-reflection.ts', 'src/lib/ceo-operator-intelligence.ts', 'src/lib/evolution-engine.ts',
   'src/lib/closed-loop-improvement.ts', 'src/lib/ceo-continuous-loop.ts', 'src/lib/ceo-degraded-mode.ts', 'src/app/api/agent/route.ts',
-  'src/app/api/architecture/business-outcome/route.ts', 'src/app/api/system/evolution/route.ts', 'tests/continuous-loop-integrity.test.ts',
+  'src/app/api/architecture/business-outcome/route.ts', 'src/app/api/architecture/recommendation-outcome/route.ts', 'src/app/api/system/evolution/route.ts',
+  'tests/continuous-loop-integrity.test.ts',
 ]
 for (const path of required) if (!existsSync(join(ROOT, path))) failures.push(`Missing canonical architecture file: ${path}`)
 for (const [key, entry] of Object.entries(CANONICAL_CAPABILITY_LEDGER)) {
@@ -62,7 +62,7 @@ for (const path of sourcePaths) {
   for (const sibling of siblings) duplicatePairs.push(`${sibling} <-> ${base}`)
 }
 for (const pair of [...new Set(duplicatePairs)]) warnings.push(`Potential implementation duplicate requiring classification: ${pair}`)
-const result = { schemaVersion: 4, generatedAt: new Date().toISOString(), fileCount: files.length, sourceFileCount: sourcePaths.length, canonicalCapabilityCount: Object.keys(CANONICAL_CAPABILITY_LEDGER).length, canonicalCapabilityLedger: CANONICAL_CAPABILITY_LEDGER, requiredArchitectureFiles: required, findings: failures, warnings, status: failures.length ? 'FAILED' : 'PASSED' }
+const result = { schemaVersion: 5, generatedAt: new Date().toISOString(), fileCount: files.length, sourceFileCount: sourcePaths.length, canonicalCapabilityCount: Object.keys(CANONICAL_CAPABILITY_LEDGER).length, canonicalCapabilityLedger: CANONICAL_CAPABILITY_LEDGER, requiredArchitectureFiles: required, findings: failures, warnings, status: failures.length ? 'FAILED' : 'PASSED' }
 console.log(JSON.stringify(result, null, 2))
 if (warnings.length) console.error(`Architecture baseline warnings: ${warnings.length}`)
 if (failures.length) process.exit(1)
