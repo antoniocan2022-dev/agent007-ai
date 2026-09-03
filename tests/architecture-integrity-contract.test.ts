@@ -2,13 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { CANONICAL_CAPABILITY_LEDGER, buildIntegrationContract, evidencePolicyFor, riskClassForDomain, assertCanonicalOwner } from '@/lib/architecture-integrity-contract'
 import { assessDecisionGradeEvidence, assertDecisionGradeEvidence, DecisionGradeEvidenceBlockedError } from '@/lib/ceo-decision-grade-evidence'
 import { buildEvidenceBundle, createEvidenceSource } from '@/lib/ceo-evidence-bundle'
-import { buildRiskAbstention } from '@/lib/ceo-degraded-mode'
+import { buildRiskAbstention, buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 
 describe('Architecture integrity contract — phases 0-4', () => {
   test('canonical ledger has one owner per critical concern and complete Phase 0 metadata', () => {
     const entries = Object.values(CANONICAL_CAPABILITY_LEDGER)
-    expect(entries.length).toBeGreaterThanOrEqual(7)
+    expect(entries.length).toBeGreaterThanOrEqual(12)
     expect(new Set(entries.map((entry) => entry.canonicalOwner)).size).toBe(entries.length)
     for (const entry of entries) {
       expect(entry.subsystem.length).toBeGreaterThan(0)
@@ -21,6 +21,7 @@ describe('Architecture integrity contract — phases 0-4', () => {
       expect(entry.tests.length).toBeGreaterThan(0)
       expect(entry.ciGates.length).toBeGreaterThan(0)
       expect(['DISCOVERED', 'CANONICAL', 'INTEGRATED', 'OBSERVED', 'PROVEN']).toContain(entry.lifecycleState)
+      if (entry.productionObserved) expect(['OBSERVED', 'PROVEN']).toContain(entry.lifecycleState)
     }
   })
 
@@ -32,8 +33,9 @@ describe('Architecture integrity contract — phases 0-4', () => {
     expect(() => assertCanonicalOwner('evidence_acquisition', 'wrong-owner')).toThrow(/Non-canonical implementation/)
   })
 
-  test('risk policy makes public equity and financial decisions high risk', () => {
+  test('risk policy makes public equity, security and financial decisions high risk', () => {
     expect(riskClassForDomain('public_equity')).toBe('HIGH')
+    expect(riskClassForDomain('security')).toBe('HIGH')
     expect(riskClassForDomain('internal_finance', 'recommend')).toBe('HIGH')
     expect(riskClassForDomain('general_web', 'explain')).toBe('LOW')
     expect(evidencePolicyFor({ domain: 'public_equity', operation: 'recommend' })).toBe('DECISION_GRADE')
@@ -53,6 +55,19 @@ describe('Architecture integrity contract — phases 0-4', () => {
     expect(assessed.decisionGrade).toBe(true)
   })
 
+  test('an insufficient base bundle cannot become sufficient through downstream counting', () => {
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [
+      createEvidenceSource({ id: 'sec', url: 'https://www.sec.gov/example', title: 'SEC', sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), text: 'Issuer revenue sales earnings cash debt 10-Q recent catalyst risks valuation recommendation.' }),
+      createEvidenceSource({ id: 'market', url: 'https://stockanalysis.com/stocks/example', title: 'Market', sourceType: 'market_data', sourceTier: 2, retrievedAt: Date.now(), text: 'Share price market cap shares outstanding valuation.' }),
+      createEvidenceSource({ id: 'news', url: 'https://www.reuters.com/example', title: 'News', sourceType: 'news', sourceTier: 3, retrievedAt: Date.now(), text: 'Latest announcement catalyst growth risk.' }),
+      createEvidenceSource({ id: 'copy', url: 'https://example.com/copy', title: 'Copy', sourceType: 'web', sourceTier: 4, retrievedAt: Date.now(), text: 'Company order backlog dilution decision.' }),
+    ], minimumSources: 10, minimumTierOneSources: 1 })
+    const assessed = assessDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle, verifiedClaimCount: 0, unverifiedClaimCount: 0 })
+    expect(bundle.sufficient).toBe(false)
+    expect(assessed.sufficient).toBe(false)
+    expect(assessed.decisionGrade).toBe(false)
+  })
+
   test('high-risk evidence gate fails closed rather than permitting incomplete research', () => {
     const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [createEvidenceSource({ id: 'one', url: 'https://www.sec.gov/example', title: 'SEC', sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), text: 'Revenue cash debt.' })], minimumSources: 3, minimumTierOneSources: 1 })
     const assessment = assessDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle })
@@ -60,6 +75,13 @@ describe('Architecture integrity contract — phases 0-4', () => {
     expect(assessment.reasons.length).toBeGreaterThan(0)
     expect(() => assertDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle })).toThrow(DecisionGradeEvidenceBlockedError)
     try { assertDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle }) } catch (error) { expect(error).toMatchObject({ code: 'ABSTAINED_REQUIRED_EVIDENCE' }) }
+  })
+
+  test('high-risk domain alone is sufficient to block memory recovery', async () => {
+    const response = await buildCeoDegradedResponse({ objective: 'Review the company compliance position.', intent: 'decision', reason: 'Provider failed.', failureReason: 'provider_error', domain: 'security', recall: async () => [{ key: 'unsafe_memory', value: 'Do this from memory', category: 'memory' }] })
+    expect(response.content).toContain('ABSTAINED_REQUIRED_EVIDENCE')
+    expect(response.sourceKeys).toEqual([])
+    expect(response.evidenceState).toBe('UNAVAILABLE')
   })
 
   test('high-risk degraded mode produces explicit abstention and no recovered-memory recommendation', () => {
