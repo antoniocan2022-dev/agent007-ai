@@ -1,5 +1,6 @@
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
+import type { CeoWorldModel } from './ceo-world-model'
 
 export interface CeoCuriosityDecision {
   investigate: boolean
@@ -25,7 +26,7 @@ function externalRequirementSignal(context: CanonicalConversationContext): boole
   return externalInvestigationSignal(text)
 }
 
-export function assessCeoCuriosity(context: CanonicalConversationContext, contract: ConversationDecisionContract): CeoCuriosityDecision {
+export function assessCeoCuriosity(context: CanonicalConversationContext, contract: ConversationDecisionContract, world?: CeoWorldModel): CeoCuriosityDecision {
   if (contract.toolRequirement === 'none' && contract.evidenceRequirement === 'none') {
     return { investigate: false, reason: 'No external information is required by the current decision.', materialUnknowns: [] }
   }
@@ -33,6 +34,10 @@ export function assessCeoCuriosity(context: CanonicalConversationContext, contra
     return { investigate: false, reason: 'Resolve the conversational objective before acquiring external evidence.', materialUnknowns: [] }
   }
   const requiresExternal = externalRequirementSignal(context)
+  const alreadyHasEvidence = world?.external.data.evidenceState === 'available'
+  if (alreadyHasEvidence && requiresExternal) {
+    return { investigate: false, reason: 'External evidence relevant to this request has already been acquired; investigating again would be redundant.', materialUnknowns: [] }
+  }
   if (contract.evidenceRequirement === 'required' && requiresExternal) {
     return { investigate: true, reason: 'The canonical decision contract requires evidence and the request explicitly depends on external reality.', materialUnknowns: ['Current external facts needed to satisfy the request'] }
   }

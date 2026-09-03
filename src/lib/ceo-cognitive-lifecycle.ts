@@ -1,4 +1,5 @@
 import { buildCeoOperatorPlan, canClaimExecution } from './ceo-operator-intelligence'
+import { assessCeoCuriosity } from './ceo-curiosity'
 import { buildSemanticQualityReport, buildSemanticRepairPlan, renderSemanticRepairPrompt } from './ceo-semantic-quality-report'
 import { runCanonicalLlm, type CanonicalLlmResult } from './canonical-llm-router'
 import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
@@ -171,7 +172,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const readinessMessages = readinessSynthesis ? [{ role: 'system' as const, content: `GOVERNED EXECUTIVE READINESS BASELINE (INTERNAL):\nLevel ${readinessSynthesis.level} — ${readinessSynthesis.label}.\n${readinessSynthesis.capability}\n${readinessSynthesis.verified}\n${readinessSynthesis.notProven}\nNext evidence: ${readinessSynthesis.nextEvidence}` }] : []
   const actionInstruction = responseActionInstruction(request.decisionContract?.responseAction)
   const operatorPlan = request.decisionContract?.responseAction === 'execute'
-    ? buildCeoOperatorPlan({ contract: decisionPlan.executionContract, responseAction: request.decisionContract.responseAction, objective, approved: true, executionEvidence: evidenceProvided, verificationState: evidenceScope === 'live_system' && evidenceFreshness ? 'LIVE_VERIFIED' : undefined })
+    ? buildCeoOperatorPlan({ contract: decisionPlan.executionContract, responseAction: request.decisionContract.responseAction, objective, world: worldModel ?? undefined, curiosity: request.canonicalContext && request.decisionContract ? assessCeoCuriosity(request.canonicalContext, request.decisionContract, worldModel ?? undefined) : undefined, approved: true, executionEvidence: evidenceProvided, verificationState: evidenceScope === 'live_system' && evidenceFreshness ? 'LIVE_VERIFIED' : undefined })
     : null
   const operatorConstraint = operatorPlan && !canClaimExecution(operatorPlan)
     ? ` No execution has actually occurred for this request (status: ${operatorPlan.status}). Do not say or imply that you performed, deployed, executed, or completed anything. Describe what you would do and what is still required (${operatorPlan.tasks[0]?.dependencies.join(', ') || 'approval and verification'}) instead.`
