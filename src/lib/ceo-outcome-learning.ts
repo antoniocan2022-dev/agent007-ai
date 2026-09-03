@@ -3,20 +3,7 @@ import { createHash } from 'node:crypto'
 export type PredictionStatus = 'PREDICTED' | 'NOT_CAPTURED' | 'OBSERVED'
 export type PredictionErrorDirection = 'better_than_predicted' | 'worse_than_predicted' | 'matched' | 'unknown'
 
-export interface CeoRecommendation {
-  schemaVersion: 2
-  correlationId: string
-  recommendationId: string
-  objective: string
-  decisionRationale: string
-  predictedOutcome: string | null
-  predictionHorizon: string | null
-  predictionStatus: PredictionStatus
-  recommendedAction: string
-  responseAction: string
-  recordedAt: number
-}
-
+export interface CeoRecommendation { schemaVersion: 2; correlationId: string; recommendationId: string; objective: string; decisionRationale: string; predictedOutcome: string | null; predictionHorizon: string | null; predictionStatus: PredictionStatus; recommendedAction: string; responseAction: string; recordedAt: number }
 export interface CeoRecommendationAction { actionId: string; recommendationId: string; description: string; status: 'PLANNED' | 'EXECUTED' | 'NOT_EXECUTED' | 'UNKNOWN'; observedAt: number | null }
 export interface ObservedRecommendationOutcome { outcomeId: string; recommendationId: string; observedOutcome: string; actualResult: string; observedAt: number; source: string; metadata: Record<string, unknown> }
 export interface RecommendationPredictionError { recommendationId: string; predictionStatus: PredictionStatus; errorMagnitude: number | null; direction: PredictionErrorDirection; explanation: string }
@@ -33,7 +20,13 @@ export function buildRecommendationRecord(input: { correlationId: string; object
 
 export async function recordCeoRecommendation(input: Parameters<typeof buildRecommendationRecord>[0]): Promise<CeoRecommendation> {
   const record = buildRecommendationRecord(input)
-  try { const { db } = await import('./db'); const key = `ceo_recommendation_${record.correlationId}`; await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(record), category: 'ceo_recommendation' }, update: { value: JSON.stringify(record), category: 'ceo_recommendation' } }) } catch (error) { console.warn('[ceo-recommendation] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  try {
+    const { db } = await import('./db')
+    const key = `ceo_recommendation_${record.correlationId}`
+    await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(record), category: 'ceo_recommendation' }, update: { value: JSON.stringify(record), category: 'ceo_recommendation' } })
+  } catch (error) { console.warn('[ceo-recommendation] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  recordRecommendationAction({ recommendationId: record.recommendationId, description: record.recommendedAction }).catch(() => {})
+  import('./ceo-continuous-loop').then(({ startContinuousLoop }) => startContinuousLoop({ recommendationId: record.recommendationId, evidence: [`recommendation:${record.recommendationId}`] })).catch(() => {})
   return record
 }
 
@@ -53,6 +46,7 @@ export function buildObservedRecommendationOutcome(input: { recommendationId: st
 export async function recordObservedRecommendationOutcome(input: Parameters<typeof buildObservedRecommendationOutcome>[0]): Promise<ObservedRecommendationOutcome> {
   const outcome = buildObservedRecommendationOutcome(input)
   try { const { db } = await import('./db'); const key = `ceo_observed_outcome:${outcome.outcomeId}`; await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(outcome), category: 'ceo_observed_outcome' }, update: { value: JSON.stringify(outcome), category: 'ceo_observed_outcome' } }) } catch (error) { console.warn('[ceo-observed-outcome] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  import('./ceo-outcome-learning').catch(() => {})
   return outcome
 }
 
@@ -80,8 +74,7 @@ export function correlateRecommendationOutcomes(correlationId: string, recommend
       if (linked !== correlationId) continue
       const observedAt = parsed.observedAt ?? (parsed.occurredAt ? Date.parse(parsed.occurredAt) : Date.now())
       if (!Number.isFinite(observedAt)) continue
-      if (parsed.observedOutcome && parsed.actualResult) outcomes.push(parsed as ObservedRecommendationOutcome)
-      else outcomes.push({ outcomeId: stableId('legacy_outcome', correlationId, parsed.transactionId ?? '', String(parsed.amount ?? ''), parsed.occurredAt ?? ''), recommendationId: correlationId, observedOutcome: `${parsed.type ?? 'business outcome'} observed`, actualResult: `${parsed.amount ?? 'unknown'} ${parsed.currency ?? ''}`.trim(), observedAt, source: 'architecture_business_outcome', metadata: parsed as Record<string, unknown> })
+      outcomes.push(parsed.observedOutcome && parsed.actualResult ? parsed as ObservedRecommendationOutcome : { outcomeId: stableId('legacy_outcome', correlationId, parsed.transactionId ?? '', String(parsed.amount ?? ''), parsed.occurredAt ?? ''), recommendationId: correlationId, observedOutcome: `${parsed.type ?? 'business outcome'} observed`, actualResult: `${parsed.amount ?? 'unknown'} ${parsed.currency ?? ''}`.trim(), observedAt, source: 'architecture_business_outcome', metadata: parsed as Record<string, unknown> })
     } catch { /* malformed record ignored */ }
   }
   const uniqueOutcomes = [...new Map(outcomes.map((outcome) => [outcome.outcomeId, outcome])).values()]
