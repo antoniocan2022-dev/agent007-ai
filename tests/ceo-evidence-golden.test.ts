@@ -37,9 +37,9 @@ describe('Stage 8 — golden external evidence corpus', () => {
     const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [source], minimumSources: 1, minimumTierOneSources: 1 })
     const sourceId = bundle.sources[0].id
     expect(verifyClaimEvidence(`Revenue was 100 million dollars [${sourceId}].`, bundle).passed).toBe(true)
-    expect(verifyClaimEvidence('Revenue was 100 million dollars [S1-PLACEHOLDER].', bundle).passed).toBe(false)
-    expect(verifyClaimEvidence('Revenue was 250 million dollars based on the same filing.', bundle).passed).toBe(false)
-    expect(verifyClaimEvidence('The company announced a new 50 million dollar contract today.', bundle).passed).toBe(false)
+    expect(() => verifyClaimEvidence('Revenue was 100 million dollars [S1-PLACEHOLDER].', bundle)).toThrow(/ABSTAINED_REQUIRED_EVIDENCE/)
+    expect(() => verifyClaimEvidence('Revenue was 250 million dollars based on the same filing.', bundle)).toThrow(/ABSTAINED_REQUIRED_EVIDENCE/)
+    expect(() => verifyClaimEvidence('The company announced a new 50 million dollar contract today.', bundle)).toThrow(/ABSTAINED_REQUIRED_EVIDENCE/)
   })
 
   test('evidence trace is bounded, deterministic in shape, and graded', () => {
