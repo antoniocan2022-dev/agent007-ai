@@ -11,22 +11,56 @@ export interface RecommendationOutcomeCorrelation { correlationId: string; recom
 function stableId(prefix: string, ...parts: string[]): string { const digest = createHash('sha256').update(parts.map((part) => part.trim()).join('|')).digest('hex').slice(0, 24); return `${prefix}_${digest}` }
 export function generateRecommendationCorrelationId(): string { return stableId('ceo_rec', `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`) }
 
+async function capturePredictedOutcome(input: { objective: string; recommendedAction: string; responseAction: string }): Promise<string | null> {
+  try {
+    const { runCanonicalLlm } = await import('./canonical-llm-router')
+    const result = await runCanonicalLlm({
+      messages: [
+        { role: 'system', content: 'Produce one concise predicted outcome for the recommendation described below. State the expected observable result, not the reasoning. Do not invent facts or guarantees. Return one sentence only.' },
+        { role: 'user', content: `Objective: ${input.objective.slice(0, 3500)}\nAction class: ${input.responseAction}\nRecommended action: ${input.recommendedAction.slice(0, 5000)}` },
+      ],
+      taskType: 'reasoning', executionClass: 'fast', temperature: 0, maxTokens: 80, timeoutMs: 5000, maxProviderAttempts: 1,
+    })
+    const prediction = result.content.trim().replace(/^[-*]\s+/, '').replace(/^Prediction:\s*/i, '').trim()
+    return prediction ? prediction.slice(0, 2000) : null
+  } catch {
+    return null
+  }
+}
+
 export function buildRecommendationRecord(input: { correlationId: string; objective: string; responseAction: string; decisionRationale?: string; predictedOutcome?: string | null; predictionHorizon?: string | null; recommendedAction?: string; recordedAt?: number }): CeoRecommendation {
   if (!input.correlationId.trim() || !input.objective.trim() || !input.responseAction.trim()) throw new Error('Recommendation requires correlationId, objective and responseAction.')
   if (input.recordedAt !== undefined && !Number.isFinite(input.recordedAt)) throw new Error('Recommendation recordedAt must be a finite timestamp.')
   const predictedOutcome = input.predictedOutcome?.trim() || null
-  return { schemaVersion: 2, correlationId: input.correlationId.trim(), recommendationId: input.correlationId.trim(), objective: input.objective.trim().slice(0, 4000), decisionRationale: (input.decisionRationale?.trim() || `Agent007 selected response action: ${input.responseAction.trim()}.`).slice(0, 5000), predictedOutcome, predictionHorizon: input.predictionHorizon?.trim() || null, predictionStatus: predictedOutcome ? 'PREDICTED' : 'NOT_CAPTURED', recommendedAction: (input.recommendedAction?.trim() || input.responseAction.trim()).slice(0, 8000), responseAction: input.responseAction.trim(), recordedAt: input.recordedAt ?? Date.now() }
+  const recommendedAction = (input.recommendedAction?.trim() || input.responseAction.trim()).slice(0, 8000)
+  return { schemaVersion: 2, correlationId: input.correlationId.trim(), recommendationId: input.correlationId.trim(), objective: input.objective.trim().slice(0, 4000), decisionRationale: (input.decisionRationale?.trim() || `Agent007 selected response action: ${input.responseAction.trim()}.`).slice(0, 5000), predictedOutcome, predictionHorizon: input.predictionHorizon?.trim() || null, predictionStatus: predictedOutcome ? 'PREDICTED' : 'NOT_CAPTURED', recommendedAction, responseAction: input.responseAction.trim(), recordedAt: input.recordedAt ?? Date.now() }
 }
 
 export async function recordCeoRecommendation(input: Parameters<typeof buildRecommendationRecord>[0]): Promise<CeoRecommendation> {
-  const record = buildRecommendationRecord(input)
+  const initial = buildRecommendationRecord(input)
+  const predictedOutcome = initial.predictedOutcome ?? await capturePredictedOutcome({ objective: initial.objective, recommendedAction: initial.recommendedAction, responseAction: initial.responseAction })
+  const record = predictedOutcome ? { ...initial, predictedOutcome, predictionStatus: 'PREDICTED' as const } : initial
+  const { db } = await import('./db')
+  const key = `ceo_recommendation_${record.correlationId}`
+  const existing = await db.memory.findUnique({ where: { key } })
+  if (existing) {
+    const prior = JSON.parse(existing.value) as CeoRecommendation
+    const immutableMismatch = prior.correlationId !== record.correlationId || prior.objective !== record.objective || prior.responseAction !== record.responseAction || prior.recommendedAction !== record.recommendedAction
+    if (immutableMismatch) throw new Error(`Conflicting CEO recommendation already exists for ${record.correlationId}.`)
+    if (!prior.predictedOutcome && record.predictedOutcome) {
+      await db.memory.update({ where: { key }, data: { value: JSON.stringify(record) } })
+      return record
+    }
+    return prior
+  }
+  await db.memory.create({ data: { key, value: JSON.stringify(record), category: 'ceo_recommendation' } })
+  await recordRecommendationAction({ recommendationId: record.recommendationId, description: record.recommendedAction })
   try {
-    const { db } = await import('./db')
-    const key = `ceo_recommendation_${record.correlationId}`
-    await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(record), category: 'ceo_recommendation' }, update: { value: JSON.stringify(record), category: 'ceo_recommendation' } })
-  } catch (error) { console.warn('[ceo-recommendation] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
-  recordRecommendationAction({ recommendationId: record.recommendationId, description: record.recommendedAction }).catch(() => {})
-  import('./ceo-continuous-loop').then(({ startContinuousLoop }) => startContinuousLoop({ recommendationId: record.recommendationId, evidence: [`recommendation:${record.recommendationId}`] })).catch(() => {})
+    const { startContinuousLoop } = await import('./ceo-continuous-loop')
+    await startContinuousLoop({ recommendationId: record.recommendationId, evidence: [`recommendation:${record.recommendationId}`] })
+  } catch (error) {
+    console.warn('[ceo-recommendation] continuous-loop initialization failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
+  }
   return record
 }
 
@@ -34,11 +68,15 @@ export async function recordRecommendationAction(input: { recommendationId: stri
   if (!input.recommendationId.trim() || !input.description.trim()) throw new Error('Recommendation action requires recommendationId and description.')
   if (input.observedAt !== undefined && input.observedAt !== null && !Number.isFinite(input.observedAt)) throw new Error('Recommendation action observedAt must be a finite timestamp.')
   const action: CeoRecommendationAction = { actionId: stableId('ceo_action', input.recommendationId, input.description), recommendationId: input.recommendationId.trim(), description: input.description.trim().slice(0, 8000), status: input.status ?? 'PLANNED', observedAt: input.observedAt ?? null }
-  try {
-    const { db } = await import('./db')
-    const key = `ceo_recommendation_action:${action.actionId}`
-    await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(action), category: 'ceo_recommendation_action' }, update: { value: JSON.stringify(action), category: 'ceo_recommendation_action' } })
-  } catch (error) { console.warn('[ceo-action] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  const { db } = await import('./db')
+  const key = `ceo_recommendation_action:${action.actionId}`
+  const existing = await db.memory.findUnique({ where: { key } })
+  if (existing) {
+    const prior = JSON.parse(existing.value) as CeoRecommendationAction
+    if (prior.recommendationId !== action.recommendationId || prior.description !== action.description) throw new Error(`Conflicting CEO recommendation action already exists for ${action.actionId}.`)
+    return prior
+  }
+  await db.memory.create({ data: { key, value: JSON.stringify(action), category: 'ceo_recommendation_action' } })
   return action
 }
 
@@ -51,11 +89,15 @@ export function buildObservedRecommendationOutcome(input: { recommendationId: st
 
 export async function recordObservedRecommendationOutcome(input: Parameters<typeof buildObservedRecommendationOutcome>[0]): Promise<ObservedRecommendationOutcome> {
   const outcome = buildObservedRecommendationOutcome(input)
-  try {
-    const { db } = await import('./db')
-    const key = `ceo_observed_outcome:${outcome.outcomeId}`
-    await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(outcome), category: 'ceo_observed_outcome' }, update: { value: JSON.stringify(outcome), category: 'ceo_observed_outcome' } })
-  } catch (error) { console.warn('[ceo-observed-outcome] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  const { db } = await import('./db')
+  const key = `ceo_observed_outcome:${outcome.outcomeId}`
+  const existing = await db.memory.findUnique({ where: { key } })
+  if (existing) {
+    const prior = JSON.parse(existing.value) as ObservedRecommendationOutcome
+    if (prior.recommendationId !== outcome.recommendationId || prior.actualResult !== outcome.actualResult || prior.source !== outcome.source) throw new Error(`Conflicting observed recommendation outcome already exists for ${outcome.outcomeId}.`)
+    return prior
+  }
+  await db.memory.create({ data: { key, value: JSON.stringify(outcome), category: 'ceo_observed_outcome' } })
   return outcome
 }
 
