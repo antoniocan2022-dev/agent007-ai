@@ -1,277 +1,220 @@
-/**
- * closed-loop-improvement.ts — UPGRADE #223
- *
- * Finding 7: Closed-Loop Improvement Cycle
- *
- * Transforms recommendations from passive observations into tracked
- * improvement initiatives that are:
- *   1. Created (from Evolution Engine recommendations)
- *   2. Assigned (to a specific metric/behavior to improve)
- *   3. Implemented (via configuration changes)
- *   4. Measured (against the metric before/after)
- *   5. Verified (did it actually improve?)
- *   6. Kept or Rejected (permanent policy or reverted)
- *
- * Flow:
- *   Recommendation → Initiative → Applied → Measured → Verified → Kept/Rejected
- *
- * This prevents recommendations from accumulating without proof of value.
- */
-
 import { db } from './db'
 import type { MissionTelemetry } from './mission-telemetry'
 import type { AuditReport } from './executive-audit-engine'
+import { buildLearningCandidate, persistLearningCandidate } from './ceo-behavioral-learning'
 
 export const runtime = 'nodejs'
 
-export type InitiativeStatus = 'proposed' | 'active' | 'measuring' | 'verified' | 'rejected'
+export type InitiativeStatus = 'proposed' | 'simulated' | 'approved' | 'active' | 'measuring' | 'verified' | 'rejected' | 'rolled_back'
+export type InitiativeVerdict = 'improved' | 'no_change' | 'worsened' | null
 
 export interface ImprovementInitiative {
+  schemaVersion: 2
   initiativeId: string
   recommendation: string
-  source: string  // 'evolution_engine' | 'audit_report' | 'manual'
+  source: string
   status: InitiativeStatus
   createdAt: string
+  simulatedAt: string | null
+  approvedAt: string | null
   appliedAt: string | null
   measuredAt: string | null
   verifiedAt: string | null
-
-  // What metric does this target?
-  targetMetric: string  // e.g., 'confidence', 'duration', 'corrections'
+  resolvedAt: string | null
+  targetMetric: string
   targetDirection: 'increase' | 'decrease'
-
-  // Baseline (measured before the initiative was applied)
   baselineValue: number | null
-
-  // Post-implementation measurement
   postValue: number | null
-
-  // Did it work?
   improvementDelta: number | null
-  verdict: 'improved' | 'no_change' | 'worsened' | null
-
-  // Missions used to measure
+  verdict: InitiativeVerdict
   baselineMissionIds: string[]
   postMissionIds: string[]
+  simulation: { ok: boolean; predictedDelta: number | null; notes: string; simulatedAt: string | null }
+  approval: { required: true; approvedBy: string | null; reason: string | null }
+  resolution: { decision: 'KEEP' | 'ROLLBACK' | null; reason: string | null }
+  learningCandidateId: string | null
 }
 
-/**
- * Create an improvement initiative from a recommendation.
- */
-export async function createInitiative(
-  recommendation: string,
-  source: string,
-  targetMetric: string,
-  targetDirection: 'increase' | 'decrease'
-): Promise<ImprovementInitiative> {
-  const initiative: ImprovementInitiative = {
-    initiativeId: `initiative_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    recommendation,
-    source,
-    status: 'proposed',
-    createdAt: new Date().toISOString(),
-    appliedAt: null,
-    measuredAt: null,
-    verifiedAt: null,
-    targetMetric,
-    targetDirection,
-    baselineValue: null,
-    postValue: null,
-    improvementDelta: null,
-    verdict: null,
-    baselineMissionIds: [],
-    postMissionIds: [],
-  }
+function initiativeKey(id: string): string { return `initiative:${id}` }
+function newId(): string { return `initiative_${Date.now()}_${Math.random().toString(36).slice(2, 10)}` }
 
-  // Compute baseline from recent missions
-  const recentMissions = await getRecentMissionMetrics(10)
-  if (recentMissions.length > 0) {
-    initiative.baselineValue = computeMetricAverage(recentMissions, targetMetric)
-    initiative.baselineMissionIds = recentMissions.map(m => m.missionId)
-  }
-
-  // Store in DB
-  try {
-    await db.memory.create({
-      data: {
-        key: initiative.initiativeId,
-        value: JSON.stringify(initiative),
-        category: 'improvement_initiative',
-      },
-    })
-    console.log(`[closed-loop] Initiative created: ${initiative.initiativeId} — target: ${targetMetric} ${targetDirection}`)
-  } catch (e: any) {
-    console.error('[closed-loop] Failed to store initiative:', e?.message)
-  }
-
-  return initiative
-}
-
-/**
- * Check recommendations from previous evolution reports against
- * the outcome of a new mission. This is called after every mission
- * completes (from mission-os.ts LEARN stage).
- *
- * If an active initiative exists, record this mission's metrics
- * as post-implementation data. Once enough post-missions are collected,
- * verify whether the initiative actually improved the target metric.
- */
-export async function checkRecommendationsAgainstMission(
-  telemetry: MissionTelemetry,
-  auditReport: AuditReport
-): Promise<void> {
-  try {
-    // Find active initiatives (status = 'active' or 'measuring')
-    const initiatives = await db.memory.findMany({
-      where: { category: 'improvement_initiative' },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    }).catch(() => [])
-
-    for (const record of initiatives) {
-      let initiative: ImprovementInitiative
-      try { initiative = JSON.parse(record.value) }
-      catch { continue }
-
-      if (initiative.status !== 'active' && initiative.status !== 'measuring') continue
-
-      // Add this mission to the post-implementation set
-      if (!initiative.postMissionIds.includes(telemetry.missionId)) {
-        initiative.postMissionIds.push(telemetry.missionId)
-      }
-
-      // If we have enough post-missions (3+), verify the initiative
-      if (initiative.postMissionIds.length >= 3) {
-        const postMissions = await getMissionsByIds(initiative.postMissionIds)
-        if (postMissions.length > 0) {
-          initiative.postValue = computeMetricAverage(postMissions, initiative.targetMetric)
-
-          if (initiative.baselineValue !== null && initiative.postValue !== null) {
-            initiative.improvementDelta = initiative.postValue - initiative.baselineValue
-
-            // Determine verdict based on target direction
-            if (initiative.targetDirection === 'increase') {
-              initiative.verdict = initiative.improvementDelta > 1 ? 'improved' : initiative.improvementDelta < -1 ? 'worsened' : 'no_change'
-            } else {
-              initiative.verdict = initiative.improvementDelta < -1 ? 'improved' : initiative.improvementDelta > 1 ? 'worsened' : 'no_change'
-            }
-
-            initiative.status = 'verified'
-            initiative.verifiedAt = new Date().toISOString()
-            initiative.measuredAt = initiative.verifiedAt
-
-            console.log(`[closed-loop] Initiative ${initiative.initiativeId} VERIFIED: ${initiative.verdict} (delta: ${initiative.improvementDelta})`)
-
-            // Store learning
-            await storeLearningFromInitiative(initiative)
-          } else {
-            initiative.status = 'measuring'
-            initiative.measuredAt = new Date().toISOString()
-          }
-        }
-      } else {
-        initiative.status = 'measuring'
-      }
-
-      // Update the initiative in DB
-      await db.memory.update({
-        where: { id: record.id },
-        data: { value: JSON.stringify(initiative) },
-      }).catch(() => {})
-    }
-  } catch (e: any) {
-    console.error('[closed-loop] Check failed:', e?.message)
+function computeMetric(mission: MissionTelemetry, metric: string): number {
+  switch (metric) {
+    case 'confidence': return Number(mission.confidence ?? 0)
+    case 'duration': return Number(mission.duration ?? 0)
+    case 'verificationScore': return Number(mission.verificationScore ?? 0)
+    case 'corrections': return Number(mission.executiveCorrections ?? 0)
+    case 'retries': return Number(mission.retries ?? 0)
+    case 'errors': return Number(mission.errors?.length ?? 0)
+    case 'tokens': return Number(mission.tokensUsed ?? 0)
+    case 'cost': return Number(mission.cost ?? 0)
+    case 'tools': return Number(mission.toolCallCount ?? 0)
+    default: throw new Error(`Unsupported improvement metric: ${metric}`)
   }
 }
-
-/**
- * Get all improvement initiatives.
- */
-export async function getInitiatives(limit: number = 20): Promise<ImprovementInitiative[]> {
-  try {
-    const records = await db.memory.findMany({
-      where: { category: 'improvement_initiative' },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    })
-
-    return records.map(r => {
-      try { return JSON.parse(r.value) as ImprovementInitiative }
-      catch { return null }
-    }).filter(Boolean) as ImprovementInitiative[]
-  } catch {
-    return []
-  }
-}
-
-// ═══ Helpers ═══
 
 async function getRecentMissionMetrics(limit: number): Promise<MissionTelemetry[]> {
   try {
-    const records = await db.memory.findMany({
-      where: { category: 'mission_telemetry' },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    })
-    return records.map(r => {
-      try { return JSON.parse(r.value) as MissionTelemetry }
-      catch { return null }
-    }).filter(Boolean) as MissionTelemetry[]
-  } catch {
-    return []
-  }
+    const records = await db.memory.findMany({ where: { category: 'mission_telemetry' }, orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(limit, 1), 100) })
+    return records.map((record) => { try { return JSON.parse(record.value) as MissionTelemetry } catch { return null } }).filter((item): item is MissionTelemetry => Boolean(item))
+  } catch { return [] }
 }
 
 async function getMissionsByIds(ids: string[]): Promise<MissionTelemetry[]> {
+  if (!ids.length) return []
   try {
-    const records = await db.memory.findMany({
-      where: {
-        category: 'mission_telemetry',
-        key: { in: ids },
-      },
-    })
-    return records.map(r => {
-      try { return JSON.parse(r.value) as MissionTelemetry }
-      catch { return null }
-    }).filter(Boolean) as MissionTelemetry[]
-  } catch {
-    return []
+    const records = await db.memory.findMany({ where: { category: 'mission_telemetry', key: { in: ids } } })
+    return records.map((record) => { try { return JSON.parse(record.value) as MissionTelemetry } catch { return null } }).filter((item): item is MissionTelemetry => Boolean(item))
+  } catch { return [] }
+}
+
+function computeMetricAverage(missions: MissionTelemetry[], metric: string): number | null {
+  if (!missions.length) return null
+  const values = missions.map((mission) => computeMetric(mission, metric))
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+export async function createInitiative(recommendation: string, source: string, targetMetric: string, targetDirection: 'increase' | 'decrease'): Promise<ImprovementInitiative> {
+  if (!recommendation.trim()) throw new Error('Improvement initiative requires a recommendation.')
+  if (!source.trim()) throw new Error('Improvement initiative requires a source.')
+  const baselineMissions = await getRecentMissionMetrics(10)
+  const initiative: ImprovementInitiative = {
+    schemaVersion: 2,
+    initiativeId: newId(),
+    recommendation: recommendation.trim(),
+    source: source.trim(),
+    status: 'proposed',
+    createdAt: new Date().toISOString(),
+    simulatedAt: null,
+    approvedAt: null,
+    appliedAt: null,
+    measuredAt: null,
+    verifiedAt: null,
+    resolvedAt: null,
+    targetMetric,
+    targetDirection,
+    baselineValue: computeMetricAverage(baselineMissions, targetMetric),
+    postValue: null,
+    improvementDelta: null,
+    verdict: null,
+    baselineMissionIds: baselineMissions.map((mission) => mission.missionId),
+    postMissionIds: [],
+    simulation: { ok: false, predictedDelta: null, notes: '', simulatedAt: null },
+    approval: { required: true, approvedBy: null, reason: null },
+    resolution: { decision: null, reason: null },
+    learningCandidateId: null,
   }
+  await db.memory.create({ data: { key: initiativeKey(initiative.initiativeId), value: JSON.stringify(initiative), category: 'improvement_initiative' } })
+  return initiative
 }
 
-function computeMetricAverage(missions: MissionTelemetry[], metric: string): number {
-  if (missions.length === 0) return 0
-  const values = missions.map(m => {
-    switch (metric) {
-      case 'confidence': return m.confidence || 0
-      case 'duration': return m.duration || 0
-      case 'verificationScore': return m.verificationScore || 0
-      case 'corrections': return m.executiveCorrections || 0
-      case 'retries': return m.retries || 0
-      case 'errors': return m.errors?.length || 0
-      case 'tokens': return m.tokensUsed || 0
-      case 'cost': return m.cost || 0
-      case 'tools': return m.toolCallCount || 0
-      default: return 0
-    }
+export async function simulateInitiative(initiativeId: string, predictedDelta: number | null = null): Promise<ImprovementInitiative> {
+  const initiative = await getInitiative(initiativeId)
+  if (!initiative) throw new Error(`Improvement initiative not found: ${initiativeId}`)
+  if (initiative.status !== 'proposed') throw new Error(`Initiative ${initiativeId} cannot be simulated from status ${initiative.status}.`)
+  const simulation = {
+    ok: initiative.baselineValue !== null,
+    predictedDelta: predictedDelta ?? (initiative.baselineValue === null ? null : initiative.targetDirection === 'increase' ? Math.max(1, Math.abs(initiative.baselineValue) * 0.02) : -Math.max(1, Math.abs(initiative.baselineValue) * 0.02)),
+    notes: initiative.baselineValue === null ? 'Simulation blocked because no baseline missions were available.' : 'Simulation is non-mutating; it does not change runtime behavior or source code.',
+    simulatedAt: new Date().toISOString(),
+  }
+  const updated: ImprovementInitiative = { ...initiative, simulation, simulatedAt: simulation.simulatedAt, status: simulation.ok ? 'simulated' : 'rejected' }
+  await saveInitiative(updated)
+  return updated
+}
+
+export async function approveInitiative(initiativeId: string, approver: string, reason: string): Promise<ImprovementInitiative> {
+  const initiative = await getInitiative(initiativeId)
+  if (!initiative) throw new Error(`Improvement initiative not found: ${initiativeId}`)
+  if (initiative.status !== 'simulated') throw new Error(`Initiative ${initiativeId} must be simulated before approval.`)
+  if (!approver.trim() || !reason.trim()) throw new Error('Initiative approval requires approver and reason.')
+  const updated: ImprovementInitiative = { ...initiative, status: 'approved', approvedAt: new Date().toISOString(), approval: { required: true, approvedBy: approver.trim(), reason: reason.trim() } }
+  await saveInitiative(updated)
+  return updated
+}
+
+export async function applyInitiative(initiativeId: string): Promise<ImprovementInitiative> {
+  const initiative = await getInitiative(initiativeId)
+  if (!initiative) throw new Error(`Improvement initiative not found: ${initiativeId}`)
+  if (initiative.status !== 'approved') throw new Error(`Initiative ${initiativeId} can only be applied after explicit approval.`)
+  const updated: ImprovementInitiative = { ...initiative, status: 'active', appliedAt: new Date().toISOString() }
+  await saveInitiative(updated)
+  return updated
+}
+
+export async function measureInitiative(initiativeId: string, telemetry: MissionTelemetry): Promise<ImprovementInitiative> {
+  const initiative = await getInitiative(initiativeId)
+  if (!initiative) throw new Error(`Improvement initiative not found: ${initiativeId}`)
+  if (!['active', 'measuring'].includes(initiative.status)) throw new Error(`Initiative ${initiativeId} must be active before measurement.`)
+  const postMissionIds = initiative.postMissionIds.includes(telemetry.missionId) ? initiative.postMissionIds : [...initiative.postMissionIds, telemetry.missionId]
+  const postMissions = await getMissionsByIds(postMissionIds)
+  const postValue = computeMetricAverage(postMissions.length ? postMissions : [telemetry], initiative.targetMetric)
+  const delta = initiative.baselineValue !== null && postValue !== null ? postValue - initiative.baselineValue : null
+  let verdict: InitiativeVerdict = null
+  if (delta !== null) verdict = initiative.targetDirection === 'increase' ? (delta > 1 ? 'improved' : delta < -1 ? 'worsened' : 'no_change') : (delta < -1 ? 'improved' : delta > 1 ? 'worsened' : 'no_change')
+  const enoughEvidence = postMissionIds.length >= 3 && initiative.baselineValue !== null && postValue !== null
+  const updated: ImprovementInitiative = { ...initiative, postMissionIds, postValue, improvementDelta: delta, verdict, measuredAt: new Date().toISOString(), status: enoughEvidence ? 'verified' : 'measuring', verifiedAt: enoughEvidence ? new Date().toISOString() : null }
+  if (enoughEvidence) await createLearningCandidate(updated)
+  await saveInitiative(updated)
+  return updated
+}
+
+async function createLearningCandidate(initiative: ImprovementInitiative): Promise<void> {
+  if (initiative.learningCandidateId || initiative.verdict === null || initiative.improvementDelta === null) return
+  const prediction = initiative.simulation.predictedDelta
+  const errorMagnitude = prediction === null ? null : Math.abs(initiative.improvementDelta - prediction)
+  const direction = initiative.verdict === 'worsened' ? 'worse_than_predicted' : initiative.verdict === 'improved' && (prediction ?? 0) <= 0 ? 'better_than_predicted' : initiative.verdict === 'improved' ? 'matched' : 'matched'
+  const candidate = buildLearningCandidate({
+    recommendationId: initiative.initiativeId,
+    behavior: initiative.recommendation,
+    expectedOutcome: `${initiative.targetDirection} ${initiative.targetMetric}`,
+    actualOutcome: `${initiative.targetMetric} changed by ${initiative.improvementDelta}`,
+    predictionError: { kind: 'NUMERIC', magnitude: errorMagnitude, direction, explanation: `Measured ${initiative.targetMetric} delta ${initiative.improvementDelta}; simulation predicted ${prediction ?? 'no numeric delta'}.` },
+    rootCause: initiative.verdict === 'worsened' ? `The proposed change correlated with a worsened ${initiative.targetMetric}; investigate causal assumptions before reuse.` : `Outcome evidence indicates the initiative ${initiative.verdict} for ${initiative.targetMetric}.`,
+    evidenceIds: initiative.postMissionIds,
+    proposedChange: initiative.recommendation,
   })
-  return values.reduce((a, b) => a + b, 0) / values.length
+  await persistLearningCandidate(candidate)
+  initiative.learningCandidateId = candidate.candidateId
 }
 
-async function storeLearningFromInitiative(initiative: ImprovementInitiative): Promise<void> {
+export async function resolveInitiative(initiativeId: string, decision: 'KEEP' | 'ROLLBACK', reason: string): Promise<ImprovementInitiative> {
+  const initiative = await getInitiative(initiativeId)
+  if (!initiative) throw new Error(`Improvement initiative not found: ${initiativeId}`)
+  if (initiative.status !== 'verified') throw new Error(`Initiative ${initiativeId} must be verified before KEEP/ROLLBACK.`)
+  if (!reason.trim()) throw new Error('Resolution reason is required.')
+  const status: InitiativeStatus = decision === 'KEEP' ? 'verified' : 'rolled_back'
+  const updated: ImprovementInitiative = { ...initiative, status, resolvedAt: new Date().toISOString(), resolution: { decision, reason: reason.trim() } }
+  await saveInitiative(updated)
+  return updated
+}
+
+async function saveInitiative(initiative: ImprovementInitiative): Promise<void> {
+  await db.memory.upsert({ where: { key: initiativeKey(initiative.initiativeId) }, create: { key: initiativeKey(initiative.initiativeId), value: JSON.stringify(initiative), category: 'improvement_initiative' }, update: { value: JSON.stringify(initiative), category: 'improvement_initiative' } })
+}
+
+export async function getInitiative(initiativeId: string): Promise<ImprovementInitiative | null> {
+  const row = await db.memory.findUnique({ where: { key: initiativeKey(initiativeId) } })
+  return row ? JSON.parse(row.value) as ImprovementInitiative : null
+}
+
+export async function listInitiativesByStatus(status: InitiativeStatus, limit = 100): Promise<ImprovementInitiative[]> {
   try {
-    const learning = `Initiative ${initiative.initiativeId} — "${initiative.recommendation}" — VERDICT: ${initiative.verdict}. Baseline: ${initiative.baselineValue}, Post: ${initiative.postValue}, Delta: ${initiative.improvementDelta}.`
+    const rows = await db.memory.findMany({ where: { category: 'improvement_initiative' }, orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(limit, 1), 500) })
+    return rows.map((row) => { try { return JSON.parse(row.value) as ImprovementInitiative } catch { return null } }).filter((item): item is ImprovementInitiative => Boolean(item) && item.status === status)
+  } catch { return [] }
+}
 
-    await db.memory.create({
-      data: {
-        key: `learning_${initiative.initiativeId}`,
-        value: learning,
-        category: 'organizational_learning',
-      },
-    })
+export async function getInitiatives(limit = 20): Promise<ImprovementInitiative[]> {
+  try {
+    const rows = await db.memory.findMany({ where: { category: 'improvement_initiative' }, orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(limit, 1), 500) })
+    return rows.map((row) => { try { return JSON.parse(row.value) as ImprovementInitiative } catch { return null } }).filter((item): item is ImprovementInitiative => Boolean(item))
+  } catch { return [] }
+}
 
-    console.log(`[closed-loop] Learning stored: ${initiative.verdict} for "${initiative.recommendation.slice(0, 60)}"`)
-  } catch (e: any) {
-    console.error('[closed-loop] Failed to store learning:', e?.message)
+export async function checkRecommendationsAgainstMission(telemetry: MissionTelemetry, _auditReport: AuditReport): Promise<void> {
+  const active = await getInitiatives(50)
+  for (const initiative of active.filter((item) => item.status === 'active' || item.status === 'measuring')) {
+    try { await measureInitiative(initiative.initiativeId, telemetry) } catch (error) { console.error('[closed-loop] Measurement failed:', error instanceof Error ? error.message : String(error)) }
   }
 }
