@@ -56,6 +56,7 @@ function buildNaturalRecoveryResponse(input: {
   action?: ResponseAction
   priorConversation?: readonly PersistedConversationRow[]
   recoveredContext?: string
+  isSuppliedByCaller?: boolean
 }): string | null {
   const objective = input.objective.trim()
   if (!objective) return null
@@ -99,6 +100,7 @@ function buildNaturalRecoveryResponse(input: {
   if (action === 'explain') return `Let me put it simply: the important part is the trade-off, not just the label we give the option. We should choose the approach that best advances the outcome you care about while keeping the downside controlled.`
   if (action === 'verify') return `I can help assess what is supported by the conversation and what remains unverified, but I won't pretend a verification happened when the verification path was unavailable.`
   const grounding = (input.recoveredContext ?? '').trim()
+  if (grounding && input.isSuppliedByCaller) return `Here's a preliminary read based on an initial pass, which I haven't fully reviewed yet: ${grounding.slice(0, 4000)}\n\nTreat this as a first draft rather than a confirmed answer -- I'd want to verify the specifics before you act on any numbers or claims in it.`
   if (grounding) return `My read is that we can still move this forward using what we've already established. ${grounding.slice(0, 4000)}\n\nBased on that, I'd focus on the underlying outcome, make the trade-off explicit, and choose the strongest practical next direction rather than getting stuck on the failure of one execution path.`
   return `My read is that we can still move this conversation forward. Based on what you've told me, I'd focus on the underlying outcome, make the trade-off explicit, and choose the strongest practical next direction rather than getting stuck on the failure of one execution path.`
 }
@@ -129,7 +131,7 @@ export async function buildCeoDegradedResponse(input: {
   const recoveredCapability = capabilityForFailure(failureReason)
 
   if (input.intent !== 'self_assessment') {
-    const natural = buildNaturalRecoveryResponse({ objective: input.objective, action: input.responseAction, priorConversation: input.priorConversation, recoveredContext })
+    const natural = buildNaturalRecoveryResponse({ objective: input.objective, action: input.responseAction, priorConversation: input.priorConversation, recoveredContext, isSuppliedByCaller: Boolean(suppliedContext) })
     if (natural) {
       return {
         evidenceState: recoveredContext.trim() ? (suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY') : 'PARTIAL_UNCONFIRMED',
