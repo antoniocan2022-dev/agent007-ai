@@ -41,7 +41,7 @@ has('tests/ceo-evidence-golden.test.ts','250 million dollars','Stage 5 quantitat
 
 // Stage 6 — operational lifecycle integration.
 has('src/app/api/agent/route.ts','runCeoCognitiveLifecycle','Stage 6 operational execution is not fed back into the CEO lifecycle.')
-has('src/app/api/agent/route.ts','OPERATIONAL EXECUTION RESULT','Stage 6 operational evidence envelope missing.')
+has('src/app/api/agent/route.ts','const operationalEvidence','Stage 6 operational evidence envelope missing.')
 has('src/app/api/agent/route.ts','db.message.update','Stage 6 synthesis does not update canonical persisted history.')
 
 // Stage 7 — recovery/abstention separation.
