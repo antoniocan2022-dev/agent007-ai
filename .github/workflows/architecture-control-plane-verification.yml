@@ -2,7 +2,9 @@ name: Architecture Control Plane Verification
 
 on:
   push:
-    branches: [agent/venture-os-final]
+    branches: [main, agent/venture-os-final]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -22,8 +24,12 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate Prisma client
         run: bunx prisma generate
-      - name: Architecture unit tests
-        run: bun test tests/architecture-control-plane.test.ts
+      - name: Phase 0 — Architecture reality baseline
+        run: bun scripts/architecture-reality-baseline.ts
+      - name: Phase 1-4 — Architecture integrity tests
+        run: bun test tests/architecture-control-plane.test.ts tests/architecture-integrity-contract.test.ts
+      - name: Evidence and degraded-mode regression tests
+        run: bun test tests/ceo-lifecycle-context-propagation.test.ts
       - name: Full TypeScript audit
         run: bunx tsc -p tsconfig.ci.json --noEmit --pretty false
       - name: Repository diff hygiene
@@ -33,7 +39,11 @@ jobs:
       - name: Control-plane source assertions
         run: |
           test -f src/lib/architecture-control-plane.ts
+          test -f src/lib/architecture-integrity-contract.ts
+          test -f src/lib/ceo-decision-grade-evidence.ts
+          test -f scripts/architecture-reality-baseline.ts
           test -f tests/architecture-control-plane.test.ts
+          test -f tests/architecture-integrity-contract.test.ts
           test -f src/app/api/architecture/business-outcome/route.ts
           grep -q "assertDelegationAllowed" src/lib/architecture-control-plane.ts
           grep -q "ArtifactRecord" src/lib/architecture-control-plane.ts
@@ -43,3 +53,5 @@ jobs:
           grep -q "architecture-control-plane" src/lib/venture-001.ts
           grep -q "architecture-control-plane" src/app/api/mission-active/route.ts
           grep -q "architecture-control-plane" src/lib/orchestrator.ts
+          grep -q "ABSTAINED_REQUIRED_EVIDENCE" src/lib/ceo-decision-grade-evidence.ts
+          grep -q "ABSTAINED_REQUIRED_EVIDENCE" src/lib/ceo-degraded-mode.ts
