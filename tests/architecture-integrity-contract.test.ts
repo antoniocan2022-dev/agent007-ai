@@ -3,6 +3,7 @@ import { CANONICAL_CAPABILITY_LEDGER, buildIntegrationContract, evidencePolicyFo
 import { assessDecisionGradeEvidence, assertDecisionGradeEvidence, DecisionGradeEvidenceBlockedError } from '@/lib/ceo-decision-grade-evidence'
 import { buildEvidenceBundle, createEvidenceSource } from '@/lib/ceo-evidence-bundle'
 import { buildRiskAbstention } from '@/lib/ceo-degraded-mode'
+import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 
 describe('Architecture integrity contract — phases 0-4', () => {
   test('canonical ledger has one owner per critical concern and complete Phase 0 metadata', () => {
@@ -68,5 +69,10 @@ describe('Architecture integrity contract — phases 0-4', () => {
     expect(response.sourceKeys).toEqual([])
     expect(response.content).toContain('ABSTAINED_REQUIRED_EVIDENCE')
     expect(response.content).not.toContain('My read is that we can still move this forward using what we\'ve already established')
+  })
+
+  test('public-equity claim verification throws the same explicit abstention code on unsupported claims', () => {
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [createEvidenceSource({ id: 'sec', url: 'https://www.sec.gov/example', title: 'SEC', sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), text: 'Revenue 10 million and cash 2 million.' })], minimumSources: 1, minimumTierOneSources: 1 })
+    expect(() => verifyClaimEvidence('The latest stock price is $999.', bundle)).toThrow(/ABSTAINED_REQUIRED_EVIDENCE/)
   })
 })
