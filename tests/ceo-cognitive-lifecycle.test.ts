@@ -68,10 +68,11 @@ describe('CEO cognitive lifecycle', () => {
   })
 
   test('execution plan materializes every declared reasoning strategy', () => {
+    const executionContract = { intent: 'conversation' as const, evidenceClass: 'none' as const, domain: 'none' as const, operation: 'none' as const, temporalScope: 'none' as const, evidenceProfile: 'none' as const, evidenceRequirement: 'none' as const, executionRequirement: 'llm_only' as const, orchestrationOwner: 'ceo_lifecycle' as const, maxTurns: 2, maxRecoveries: 1, latencyBudgetMs: 15000, toolRequired: false, subagentsRequired: false, reason: 'test' }
     const plans = [
-      buildCeoExecutionPlan({ requestId: 'fast', path: 'fast', objective: 'x', taskClass: 'reasoning', missionRelevant: false, requiredCapabilities: [], qualityTier: 'standard', reasoningStrategy: 'direct', cognitiveDepth: 0, verificationRequired: false, maxEscalations: 0, maxProviderAttempts: 1, latencyBudgetMs: 15000 }),
-      buildCeoExecutionPlan({ requestId: 'deep', path: 'full', objective: 'x', taskClass: 'research', missionRelevant: false, requiredCapabilities: ['research'], qualityTier: 'high', reasoningStrategy: 'multi_pass', cognitiveDepth: 2, verificationRequired: true, maxEscalations: 1, maxProviderAttempts: 4, latencyBudgetMs: 60000 }),
-      buildCeoExecutionPlan({ requestId: 'critical', path: 'critical', objective: 'x', taskClass: 'financial', missionRelevant: true, requiredCapabilities: ['verification'], qualityTier: 'critical', reasoningStrategy: 'independent_review', cognitiveDepth: 4, verificationRequired: true, maxEscalations: 2, maxProviderAttempts: 5, latencyBudgetMs: 90000 }),
+      buildCeoExecutionPlan({ requestId: 'fast', path: 'fast', objective: 'x', taskClass: 'reasoning', missionRelevant: false, requiredCapabilities: [], qualityTier: 'standard', reasoningStrategy: 'direct', cognitiveDepth: 0, verificationRequired: false, maxEscalations: 0, maxProviderAttempts: 1, latencyBudgetMs: 15000, executionContract }),
+      buildCeoExecutionPlan({ requestId: 'deep', path: 'full', objective: 'x', taskClass: 'research', missionRelevant: false, requiredCapabilities: ['research'], qualityTier: 'high', reasoningStrategy: 'multi_pass', cognitiveDepth: 2, verificationRequired: true, maxEscalations: 1, maxProviderAttempts: 4, latencyBudgetMs: 60000, executionContract }),
+      buildCeoExecutionPlan({ requestId: 'critical', path: 'critical', objective: 'x', taskClass: 'financial', missionRelevant: true, requiredCapabilities: ['verification'], qualityTier: 'critical', reasoningStrategy: 'independent_review', cognitiveDepth: 4, verificationRequired: true, maxEscalations: 2, maxProviderAttempts: 5, latencyBudgetMs: 90000, executionContract }),
     ]
     expect(plans[0].stages.map((stage) => stage.name)).toEqual(['primary'])
     expect(plans[1].stages.map((stage) => stage.name)).toEqual(['primary', 'refinement'])
