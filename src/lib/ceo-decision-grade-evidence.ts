@@ -32,6 +32,7 @@ export interface DecisionGradeEvidenceAssessment {
   missingDimensions: DecisionEvidenceDimension[]
   sourceCount: number
   tierOneSourceCount: number
+  independentTierOneSourceCount: number
   freshSourceCount: number
   verifiedClaimCount: number
   unverifiedClaimCount: number
@@ -72,6 +73,15 @@ function freshSources(bundle: EvidenceBundle, now = Date.now()): EvidenceSource[
     const age = now - source.retrievedAt
     return age >= 0 && age <= bundle.freshness.maxAgeMs
   })
+}
+
+function sourceDomain(source: EvidenceSource): string {
+  try { return new URL(source.url).hostname.toLowerCase().replace(/^www\./, '') }
+  catch { return source.id.trim().toLowerCase() }
+}
+
+function independentTierOneCount(sources: readonly EvidenceSource[]): number {
+  return new Set(sources.filter((source) => source.sourceTier === 1).map(sourceDomain)).size
 }
 
 function dimensionCoverage(sources: readonly EvidenceSource[], dimension: DecisionEvidenceDimension): boolean {
@@ -115,38 +125,40 @@ export function assessDecisionGradeEvidence(input: {
   const unverifiedClaimCount = input.unverifiedClaimCount ?? 0
   const bundle = input.bundle
 
-  if (!bundle) {
-    return {
-      decisionGrade: requirements.policy === 'NONE',
-      sufficient: requirements.policy === 'NONE',
-      policy: requirements.policy,
-      requiredDimensions: requirements.requiredDimensions,
-      coveredDimensions: [],
-      missingDimensions: [...requirements.requiredDimensions],
-      sourceCount: 0,
-      tierOneSourceCount: 0,
-      freshSourceCount: 0,
-      verifiedClaimCount,
-      unverifiedClaimCount,
-      reasons: requirements.policy === 'NONE' ? [] : ['A decision-grade evidence bundle is required.'],
-    }
+  if (!bundle) return {
+    decisionGrade: requirements.policy === 'NONE',
+    sufficient: requirements.policy === 'NONE',
+    policy: requirements.policy,
+    requiredDimensions: requirements.requiredDimensions,
+    coveredDimensions: [],
+    missingDimensions: [...requirements.requiredDimensions],
+    sourceCount: 0,
+    tierOneSourceCount: 0,
+    independentTierOneSourceCount: 0,
+    freshSourceCount: 0,
+    verifiedClaimCount,
+    unverifiedClaimCount,
+    reasons: requirements.policy === 'NONE' ? [] : ['A decision-grade evidence bundle is required.'],
   }
 
   const fresh = freshSources(bundle, input.now)
   const covered = requirements.requiredDimensions.filter((dimension) => dimensionCoverage(fresh, dimension))
   const missing = requirements.requiredDimensions.filter((dimension) => !covered.includes(dimension))
-  const tierOne = fresh.filter((source) => source.sourceTier === 1).length
+  const tierOneSources = fresh.filter((source) => source.sourceTier === 1)
+  const tierOneSourceCount = tierOneSources.length
+  const independentTierOneSourceCount = independentTierOneCount(fresh)
   const reasons: string[] = []
 
   if (!bundle.sufficient) reasons.push('Base evidence bundle is insufficient.')
   if (fresh.length < requirements.minimumSources) reasons.push(`Need at least ${requirements.minimumSources} fresh sources; only ${fresh.length} qualify.`)
-  if (tierOne < requirements.minimumIndependentTierOneSources) reasons.push(`Need at least ${requirements.minimumIndependentTierOneSources} Tier-1 source; only ${tierOne} qualifies.`)
+  if (independentTierOneSourceCount < requirements.minimumIndependentTierOneSources) reasons.push(`Need at least ${requirements.minimumIndependentTierOneSources} independent Tier-1 source; only ${independentTierOneSourceCount} qualifies.`)
   if (missing.length) reasons.push(`Missing evidence dimensions: ${missing.join(', ')}.`)
   if (requirements.claimVerificationRequired && unverifiedClaimCount > 0) reasons.push(`${unverifiedClaimCount} claim(s) remain unverified.`)
 
   const sufficient = requirements.policy === 'NONE' || (
+    bundle.sufficient &&
     fresh.length >= requirements.minimumSources &&
-    tierOne >= requirements.minimumIndependentTierOneSources &&
+    independentTierOneSourceCount >= requirements.minimumIndependentTierOneSources &&
     missing.length === 0
   )
   const decisionGrade = sufficient && (!requirements.claimVerificationRequired || unverifiedClaimCount === 0)
@@ -159,7 +171,8 @@ export function assessDecisionGradeEvidence(input: {
     coveredDimensions: covered,
     missingDimensions: missing,
     sourceCount: bundle.sources.length,
-    tierOneSourceCount: tierOne,
+    tierOneSourceCount,
+    independentTierOneSourceCount,
     freshSourceCount: fresh.length,
     verifiedClaimCount,
     unverifiedClaimCount,
@@ -176,16 +189,13 @@ export function assertDecisionGradeEvidence(input: {
   now?: number
 }): DecisionGradeEvidenceAssessment {
   const assessment = assessDecisionGradeEvidence(input)
-  if (riskClassForDomain(input.domain, input.operation) === 'HIGH' && !assessment.decisionGrade) {
-    throw new DecisionGradeEvidenceBlockedError(assessment)
-  }
+  if (riskClassForDomain(input.domain, input.operation) === 'HIGH' && !assessment.decisionGrade) throw new DecisionGradeEvidenceBlockedError(assessment)
   return assessment
 }
 
 export class DecisionGradeEvidenceBlockedError extends Error {
   readonly code = 'ABSTAINED_REQUIRED_EVIDENCE'
   readonly assessment: DecisionGradeEvidenceAssessment
-
   constructor(assessment: DecisionGradeEvidenceAssessment) {
     super(`ABSTAINED_REQUIRED_EVIDENCE: decision-grade evidence is incomplete. ${assessment.reasons.join(' ')}`)
     this.name = 'DecisionGradeEvidenceBlockedError'
