@@ -33,7 +33,7 @@ export function capabilityForDomain(domain: EvidenceDomain): CapabilityDomain {
   if (domain === 'news' || domain === 'general_web' || domain === 'business_due_diligence') return 'research'
   if (domain === 'regulatory') return 'security'
   if (domain === 'internal_finance') return 'finance'
-  if (domain === 'internal_operations' || domain === 'live_system') return 'operations'
+  if (domain === 'internal_operations') return 'operations'
   return 'research'
 }
 
