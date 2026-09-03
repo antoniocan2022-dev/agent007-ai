@@ -2,16 +2,23 @@ import { describe, expect, test } from 'bun:test'
 import { CANONICAL_CAPABILITY_LEDGER, buildIntegrationContract, evidencePolicyFor, riskClassForDomain, assertCanonicalOwner } from '@/lib/architecture-integrity-contract'
 import { assessDecisionGradeEvidence, assertDecisionGradeEvidence, DecisionGradeEvidenceBlockedError } from '@/lib/ceo-decision-grade-evidence'
 import { buildEvidenceBundle, createEvidenceSource } from '@/lib/ceo-evidence-bundle'
+import { buildRiskAbstention } from '@/lib/ceo-degraded-mode'
 
 describe('Architecture integrity contract — phases 0-4', () => {
-  test('canonical ledger has one owner per critical concern and no empty integration metadata', () => {
+  test('canonical ledger has one owner per critical concern and complete Phase 0 metadata', () => {
     const entries = Object.values(CANONICAL_CAPABILITY_LEDGER)
     expect(entries.length).toBeGreaterThanOrEqual(7)
     expect(new Set(entries.map((entry) => entry.canonicalOwner)).size).toBe(entries.length)
     for (const entry of entries) {
+      expect(entry.subsystem.length).toBeGreaterThan(0)
       expect(entry.runtimeEntryPoints.length).toBeGreaterThan(0)
+      expect(entry.orchestrationOwners.length).toBeGreaterThan(0)
+      expect(entry.consumers.length).toBeGreaterThan(0)
       expect(entry.requiredContracts.length).toBeGreaterThan(0)
       expect(entry.verificationMethod.length).toBeGreaterThan(0)
+      expect(entry.integrationProof.length).toBeGreaterThan(0)
+      expect(entry.tests.length).toBeGreaterThan(0)
+      expect(entry.ciGates.length).toBeGreaterThan(0)
       expect(['DISCOVERED', 'CANONICAL', 'INTEGRATED', 'OBSERVED', 'PROVEN']).toContain(entry.lifecycleState)
     }
   })
@@ -46,16 +53,20 @@ describe('Architecture integrity contract — phases 0-4', () => {
   })
 
   test('high-risk evidence gate fails closed rather than permitting incomplete research', () => {
-    const bundle = buildEvidenceBundle({
-      profile: 'public_equity',
-      sources: [createEvidenceSource({ id: 'one', url: 'https://www.sec.gov/example', title: 'SEC', sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), text: 'Revenue cash debt.' })],
-      minimumSources: 3,
-      minimumTierOneSources: 1,
-    })
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [createEvidenceSource({ id: 'one', url: 'https://www.sec.gov/example', title: 'SEC', sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), text: 'Revenue cash debt.' })], minimumSources: 3, minimumTierOneSources: 1 })
     const assessment = assessDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle })
     expect(assessment.decisionGrade).toBe(false)
     expect(assessment.reasons.length).toBeGreaterThan(0)
     expect(() => assertDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle })).toThrow(DecisionGradeEvidenceBlockedError)
     try { assertDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle }) } catch (error) { expect(error).toMatchObject({ code: 'ABSTAINED_REQUIRED_EVIDENCE' }) }
+  })
+
+  test('high-risk degraded mode produces explicit abstention and no recovered-memory recommendation', () => {
+    const response = buildRiskAbstention('Analyze GEOS and MIND and tell me whether we should invest.', 'Required external evidence was unavailable.', 'evidence_unavailable')
+    expect(response.evidenceState).toBe('UNAVAILABLE')
+    expect(response.recoveredCapability).toBe('evidence')
+    expect(response.sourceKeys).toEqual([])
+    expect(response.content).toContain('ABSTAINED_REQUIRED_EVIDENCE')
+    expect(response.content).not.toContain('My read is that we can still move this forward using what we\'ve already established')
   })
 })
