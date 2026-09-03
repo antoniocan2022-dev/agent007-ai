@@ -832,3 +832,46 @@ export function checkPolicies(ctx: PolicyContext): Array<{
 export function getOrgPolicies(): OrgPolicy[] {
   return ORG_POLICIES
 }
+
+// Phase 20: connects CEO conversation incidents (persisted by
+// emitIncidentRegressionCandidate under category 'ceo_conversation_incident')
+// to the Evolution Engine. Deliberately a separate, additive read rather than
+// a change to computeOrganizationalIQ's existing scoring formula -- that
+// formula is large and not something to risk modifying without being able to
+// fully verify it end-to-end. This gives the organization real visibility
+// into conversational failure patterns for the first time, without touching
+// any existing, already-relied-upon behavior.
+export interface ConversationalHealthSignal {
+  windowHours: number
+  incidentCount: number
+  byInputClass: Record<string, number>
+  byInvariant: Record<string, number>
+  mostFrequentClass: string | null
+}
+
+export function aggregateConversationalHealthSignal(records: { value: string }[], windowHours: number): ConversationalHealthSignal {
+  const byInputClass: Record<string, number> = {}
+  const byInvariant: Record<string, number> = {}
+  for (const record of records) {
+    try {
+      const candidate = JSON.parse(record.value) as { inputClass?: string; invariant?: string }
+      if (candidate.inputClass) byInputClass[candidate.inputClass] = (byInputClass[candidate.inputClass] ?? 0) + 1
+      if (candidate.invariant) byInvariant[candidate.invariant] = (byInvariant[candidate.invariant] ?? 0) + 1
+    } catch {
+      // A single malformed record must not break the whole signal.
+    }
+  }
+  const mostFrequentClass = Object.entries(byInputClass).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  return { windowHours, incidentCount: records.length, byInputClass, byInvariant, mostFrequentClass }
+}
+
+export async function getConversationalHealthSignal(windowHours = 24): Promise<ConversationalHealthSignal> {
+  try {
+    const records = await db.memory.findMany({
+      where: { category: 'ceo_conversation_incident', createdAt: { gte: new Date(Date.now() - windowHours * 60 * 60 * 1000) } },
+    }).catch(() => [])
+    return aggregateConversationalHealthSignal(records, windowHours)
+  } catch {
+    return { windowHours, incidentCount: 0, byInputClass: {}, byInvariant: {}, mostFrequentClass: null }
+  }
+}

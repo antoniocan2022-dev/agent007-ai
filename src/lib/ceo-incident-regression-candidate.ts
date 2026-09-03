@@ -71,7 +71,18 @@ export function buildIncidentRegressionCandidate(input: { incident: Conversation
 export function emitIncidentRegressionCandidate(input: { incident: ConversationIncidentContract; message: string }): IncidentRegressionCandidate {
   const candidate = buildIncidentRegressionCandidate(input)
   console.warn('[ceo-incident-candidate]', JSON.stringify(candidate))
+  persistIncidentCandidate(candidate).catch(() => {})
   return candidate
+}
+
+async function persistIncidentCandidate(candidate: IncidentRegressionCandidate): Promise<void> {
+  try {
+    const { db } = await import('./db')
+    const key = `ceo_conversation_incident_${candidate.fingerprint}_${Date.now()}`
+    await db.memory.upsert({ where: { key }, create: { key, value: JSON.stringify(candidate), category: 'ceo_conversation_incident' }, update: { value: JSON.stringify(candidate), category: 'ceo_conversation_incident' } })
+  } catch (error) {
+    console.warn('[ceo-incident-candidate] persistence failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
+  }
 }
 
 // The only function in this module that produces something CI-enforceable. Deliberately requires
