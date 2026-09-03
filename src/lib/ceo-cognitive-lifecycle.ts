@@ -188,15 +188,15 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   try {
     const action = request.decisionContract?.responseAction
     if (action === 'clarify') {
-      primary = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 1, maxTokens: Math.min(request.maxTokens ?? 600, 600), executionClass: 'fast' as const }), messages: [...decisionMessages, ...request.messages, { role: 'user', content: 'Ask the minimum necessary natural clarification needed to resolve the user’s request. Return only the clarification question.' }] })
+      primary = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 1, maxTokens: Math.min(request.maxTokens ?? 600, 600), executionClass: 'fast' as const }), messages: [...guardianMessages, ...decisionMessages, ...request.messages, { role: 'user', content: 'Ask the minimum necessary natural clarification needed to resolve the user’s request. Return only the clarification question.' }] })
     } else {
       primary = await runCanonicalLlm({ ...stageOptions(), messages: primaryMessages })
       if (executionPlan.reasoningStrategy === 'multi_pass') {
         const refinement = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...primaryMessages, { role: 'assistant', content: primary.content }, buildRefinementPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
         review = refinement; final = refinement
       } else if (executionPlan.reasoningStrategy === 'independent_review') {
-        review = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
-        final = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined)], excludeProviders: stageExclusions(review.provider) })
+        review = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...worldModelMessages, ...guardianMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an independent verification reviewer for Agent007. Be skeptical, precise, and concise.' }, buildReviewPrompt(objective, primary.content)], excludeProviders: stageExclusions(primary.provider) })
+        final = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...worldModelMessages, ...guardianMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are the final executive synthesizer for Agent007. Use the draft and independent review to produce the strongest justified answer.' }, buildSynthesisPrompt(objective, primary.content, review.content, ventureEvidence?.evidence, readinessSynthesis ? `Level ${readinessSynthesis.level} — ${readinessSynthesis.label}. ${readinessSynthesis.verified} ${readinessSynthesis.notProven}` : undefined)], excludeProviders: stageExclusions(review.provider) })
       }
     }
     let output = final ?? primary
@@ -206,7 +206,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       escalation += 1
       const lastProvider = final?.provider ?? review?.provider ?? primary?.provider
       try {
-        const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) })
+        const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...worldModelMessages, ...guardianMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${objective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) })
         final = escalated; output = escalated
         quality = evaluateCeoQuality({ objective, content: escalated.content, path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded: true, evidenceProvided, evidenceScope, evidenceFreshness, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation })
         if (quality.decision === 'PASS') break
