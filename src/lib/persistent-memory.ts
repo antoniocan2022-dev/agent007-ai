@@ -20,6 +20,7 @@
  */
 
 import { db } from './db'
+import { filterConversationalMemories } from './ceo-memory-visibility'
 import { sanitizeMemoryFields, sanitizeMemoryText } from './memory-text'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -123,7 +124,7 @@ export async function recallPersistentMemory(
 
   let dbEntries: MemoryEntry[] = []
   try {
-    const dbMems = await db.memory.findMany({ where: { category: { notIn: ['evidence_trace'] } }, take: 100 }).catch(() => [])
+    const dbMems = await db.memory.findMany({ where: { category: { notIn: ['evidence_trace', 'ceo_recommendation', 'ceo_recommendation_action', 'ceo_observed_outcome', 'ceo_conversation_incident', 'ceo_incident_regression_candidate', 'architecture_business_outcome', 'mission_telemetry', 'runtime_telemetry', 'ceo_runtime_metrics', 'provider_telemetry'] } }, take: 100 }).catch(() => [])
     dbEntries = dbMems.map((m) => sanitizeEntry({
       key: m.key,
       value: m.value,
@@ -138,7 +139,8 @@ export async function recallPersistentMemory(
   for (const e of dbEntries) merged.set(e.key, e)
   for (const e of fileEntries) merged.set(e.key, e)
 
-  const scored = Array.from(merged.values())
+  const conversationalEntries = filterConversationalMemories(Array.from(merged.values()))
+  const scored = conversationalEntries
     .filter((e) => {
       if (Date.now() - e.createdAt > MEMORY_TTL_MS) return false
       const text = `${e.key} ${e.value} ${e.category}`.toLowerCase()
@@ -154,7 +156,7 @@ export async function recallPersistentMemory(
       const decayFactor = 1
       return { ...e, relevance, finalScore: e.score * decayFactor + relevance * 10 }
     })
-    .sort((a, b) => b.finalScore - a.finalScore)
+    .sort((a, b) => b.finalScore - a.finalScore || b.createdAt - a.createdAt)
     .slice(0, safeLimit)
 
   for (const e of scored) e.timesRecalled++
@@ -176,6 +178,9 @@ export async function updateMemoryScore(key: string, success: boolean): Promise<
 /**
  * Get all persistent memories (for backup/debugging/team-performance).
  * DB reads remain best-effort; malformed rows cannot take down this path.
+ * This function intentionally returns control-plane records because its callers
+ * are non-conversational administrative/backup paths. Conversational consumers
+ * must use recallPersistentMemory or filterConversationalMemories.
  */
 export async function getAllPersistentMemory(): Promise<MemoryEntry[]> {
   const fileEntries = loadFromFile()
