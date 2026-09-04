@@ -77,19 +77,20 @@ describe('Architecture integrity contract — phases 0-4', () => {
     try { assertDecisionGradeEvidence({ domain: 'public_equity', operation: 'recommend', bundle }) } catch (error) { expect(error).toMatchObject({ code: 'ABSTAINED_REQUIRED_EVIDENCE' }) }
   })
 
-  test('high-risk domain alone is sufficient to block memory recovery', async () => {
+  test('high-risk domain alone does not hard-abstain on a non-evidence provider failure', async () => {
     const response = await buildCeoDegradedResponse({ objective: 'Review the company compliance position.', intent: 'decision', reason: 'Provider failed.', failureReason: 'provider_error', domain: 'security', recall: async () => [{ key: 'unsafe_memory', value: 'Do this from memory', category: 'memory' }] })
-    expect(response.content).toContain('ABSTAINED_REQUIRED_EVIDENCE')
-    expect(response.sourceKeys).toEqual([])
-    expect(response.evidenceState).toBe('UNAVAILABLE')
+    expect(response.content).not.toContain('ABSTAINED_REQUIRED_EVIDENCE')
+    expect(response.sourceKeys).toEqual(['unsafe_memory'])
+    expect(response.evidenceState).toBe('MEMORY_ONLY')
   })
 
-  test('high-risk degraded mode produces explicit abstention and no recovered-memory recommendation', () => {
+  test('high-risk degraded mode produces explicit natural abstention without machine labels', () => {
     const response = buildRiskAbstention('Analyze GEOS and MIND and tell me whether we should invest.', 'Required external evidence was unavailable.', 'evidence_unavailable')
     expect(response.evidenceState).toBe('UNAVAILABLE')
     expect(response.recoveredCapability).toBe('evidence')
     expect(response.sourceKeys).toEqual([])
-    expect(response.content).toContain('ABSTAINED_REQUIRED_EVIDENCE')
+    expect(response.content).not.toContain('ABSTAINED_REQUIRED_EVIDENCE')
+    expect(response.content).not.toContain('Tier-1')
     expect(response.content).not.toContain('My read is that we can still move this forward using what we\'ve already established')
   })
 
