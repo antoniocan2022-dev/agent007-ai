@@ -1,14 +1,31 @@
 import type { EvidenceState, QualityResult } from './ceo-cognitive-contract'
 
+const INTERNAL_RESPONSE_PATTERNS: RegExp[] = [
+  /^\s*Evidence state:\s*[^\n]*\n?/gim,
+  /^\s*Quality gate:\s*[^\n]*\n?/gim,
+  /^\s*(?:INTERNAL[- ]STATE[- ]ONLY|UNAVAILABLE)(?:\s*[:.-].*)?\s*$/gim,
+  /^\s*(?:failed capability|failure reason|provider failure|recovery path)\s*:\s*[^\n]*\n?/gim,
+  /^\s*(?:evidence_trace|quality_trace|routing_trace)\s*[:=]\s*\{[\s\S]*?\}\s*$/gim,
+  /^\s*\d+\.\s*\[(?:ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|evidence_trace)\][^\n]*$/gim,
+  /^\s*ABSTAINED_REQUIRED_EVIDENCE\s*$/gim,
+]
+
 function sanitizeConversationalOutput(content: string): string {
-  return content
-    .replace(/^\s*Evidence state:\s*[^\n]*\n?/gim, '')
-    .replace(/^\s*Quality gate:\s*[^\n]*\n?/gim, '')
-    .replace(/^\s*(?:INTERNAL[- ]STATE[- ]ONLY|UNAVAILABLE)(?:\s*[:.-].*)?\s*$/gim, '')
-    .replace(/^\s*(?:failed capability|failure reason|provider failure|recovery path)\s*:\s*[^\n]*\n?/gim, '')
-    .replace(/^\s*(?:evidence_trace|quality_trace|routing_trace)\s*[:=]\s*\{[\s\S]*?\}\s*$/gim, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  let sanitized = content
+  for (const pattern of INTERNAL_RESPONSE_PATTERNS) sanitized = sanitized.replace(pattern, ' ')
+  sanitized = sanitized.replace(/\n{3,}/g, '\n\n').trim()
+  return sanitized
+}
+
+export function sanitizeCeoErrorForUser(error: unknown): string {
+  const errorCode = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code ?? '') : ''
+  if (errorCode === 'ABSTAINED_REQUIRED_EVIDENCE' || error instanceof Error && /ABSTAINED_REQUIRED_EVIDENCE/i.test(error.message)) {
+    return 'I can’t provide a responsible decision-grade answer yet because the evidence required for this high-risk decision is incomplete. I won’t substitute memory, stale information, or an unverified execution result for the missing evidence.'
+  }
+  if (errorCode === 'CEO_RECOVERY_BUDGET_EXCEEDED') return 'I stopped the request after reaching the governed recovery limit. The request state remains safe; please retry.'
+  if (errorCode === 'AGENT_REQUEST_TIMEOUT') return 'I stopped the request before the execution budget was exhausted so the system can remain responsive. Please retry.'
+  if (errorCode === 'CEO_REQUEST_ABORTED') return 'The request was cancelled before completion. No unverified action was treated as completed.'
+  return 'I couldn’t complete this request because an internal execution step failed. I have not treated the incomplete result as verified or completed.'
 }
 
 export function composeCeoResponse(input: {
@@ -37,11 +54,11 @@ export function composeCeoResponse(input: {
   // Conversation is a user-facing dialogue surface, not an observability dump.
   // Execution/evidence/quality metadata stays in the machine-readable response
   // envelope unless a caller explicitly opts into user-facing status text.
-  if (!input.userFacingStatus) return content
+  if (!input.userFacingStatus) return sanitizeConversationalOutput(content)
 
-  if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return content
+  if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return sanitizeConversationalOutput(content)
 
   const evidenceLabel = `Evidence state: ${input.evidenceState}.`
   const qualityLabel = input.quality.decision === 'PASS' ? 'Quality gate: PASS.' : `Quality gate: ${input.quality.decision}.`
-  return `${evidenceLabel}\n${qualityLabel}\n\n${content}`
+  return `${evidenceLabel}\n${qualityLabel}\n\n${sanitizeConversationalOutput(content)}`
 }
