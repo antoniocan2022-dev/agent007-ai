@@ -195,10 +195,12 @@ export function assertDecisionGradeEvidence(input: {
 
 export class DecisionGradeEvidenceBlockedError extends Error {
   readonly code = 'ABSTAINED_REQUIRED_EVIDENCE'
+  readonly technicalMessage: string
   readonly assessment: DecisionGradeEvidenceAssessment
   constructor(assessment: DecisionGradeEvidenceAssessment) {
-    super(`ABSTAINED_REQUIRED_EVIDENCE: decision-grade evidence is incomplete. ${assessment.reasons.join(' ')}`)
+    super('I can’t provide a responsible decision-grade answer yet because the required evidence is incomplete.')
     this.name = 'DecisionGradeEvidenceBlockedError'
+    this.technicalMessage = `ABSTAINED_REQUIRED_EVIDENCE: decision-grade evidence is incomplete. ${assessment.reasons.join(' ')}`
     this.assessment = assessment
   }
 }
