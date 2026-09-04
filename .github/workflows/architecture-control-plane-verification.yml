@@ -85,8 +85,8 @@ jobs:
           ! grep -q "runActiveEvolutionCycle" src/app/api/system/evolution/route.ts
           ! grep -q "runActiveEvolutionCycle" src/lib/evolution-engine.ts
           ! grep -q "function audits3" src/lib/evolution-engine.ts
-          grep -q "behavioral_learning_candidate" src/lib/evolution-engine.ts
-          grep -q "candidate.status === 'PROMOTED'" src/lib/evolution-engine.ts
+          grep -q "validatedLearning" src/lib/evolution-engine.ts
+          grep -q "PROMOTED" src/lib/evolution-engine.ts
           grep -q "recommendationCorrelationId" src/app/api/architecture/business-outcome/route.ts
           grep -q "@antoniocan2022-dev" .github/CODEOWNERS
           ! grep -q "message: e?.message" src/app/api/agent/route.ts
