@@ -10,7 +10,22 @@ import { riskClassForDomain } from './architecture-integrity-contract'
 export interface DegradedResponse { content: string; evidenceState: EvidenceState; reason: string; sourceKeys: string[]; failureReason: CeoFailureReason; recoveredCapability: 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context' }
 type MemoryRecall = typeof recallPersistentMemory
 
-function formatMemoryEvidence(entries: Array<{ key: string; value: string; category: string }>): string { return entries.slice(0, 5).map((entry, index) => `${index + 1}. [${entry.category}] ${entry.key}: ${entry.value.slice(0, 5000)}`).join('\n\n') }
+const INTERNAL_MARKER_PATTERNS: RegExp[] = [
+  /\bOPERATIONAL EXECUTION RESULT\b\s*/g,
+  /\bFinal answer:\s*/g,
+  /\bCompleted steps:\s*\d+\s*Tool steps:\s*\d+\b\s*/g,
+  /\bEVIDENCE BUNDLE:[^\n]*\n?/g,
+  /\bEvidence state:\s*\S+\.?\s*/g,
+  /\bQuality gate:\s*\S+\.?\s*/g,
+]
+
+function sanitizeRecalledText(text: string): string {
+  let cleaned = text
+  for (const pattern of INTERNAL_MARKER_PATTERNS) cleaned = cleaned.replace(pattern, ' ')
+  return cleaned.replace(/\s{2,}/g, ' ').trim()
+}
+
+function formatMemoryEvidence(entries: Array<{ key: string; value: string; category: string }>): string { return entries.slice(0, 5).map((entry, index) => `${index + 1}. [${entry.category}] ${entry.key}: ${sanitizeRecalledText(entry.value).slice(0, 5000)}`).join('\n\n') }
 function capabilityForFailure(reason: CeoFailureReason): DegradedResponse['recoveredCapability'] { if (reason.startsWith('provider_') || reason === 'execution_timeout' || reason === 'quality_failure' || reason === 'claim_consistency_failure') return 'reasoning'; if (reason.startsWith('evidence_')) return 'evidence'; if (reason.startsWith('tool_')) return 'tool'; if (reason === 'context_unavailable' || reason === 'continuity_failure') return 'context'; if (reason === 'production_verification_failure') return 'production'; if (reason === 'mission_failure') return 'mission'; return 'conversation' }
 function inferFailureReason(message: string): CeoFailureReason { if (/timeout|timed out|deadline/i.test(message)) return 'execution_timeout'; if (/provider|model|llm/i.test(message)) return /unavailable|no provider/i.test(message) ? 'provider_unavailable' : 'provider_error'; if (/evidence|source|research/i.test(message)) return /insufficient/i.test(message) ? 'evidence_insufficient' : 'evidence_unavailable'; if (/claim.{0,40}consisten|contradiction/i.test(message)) return 'claim_consistency_failure'; if (/quality|objective coverage/i.test(message)) return 'quality_failure'; if (/tool/i.test(message)) return /unavailable|missing/i.test(message) ? 'tool_unavailable' : 'tool_error'; if (/mission|workflow|orchestrat/i.test(message)) return 'mission_failure'; if (/context|conversation|memory/i.test(message)) return 'context_unavailable'; if (/production|release|traffic|deployment/i.test(message)) return 'production_verification_failure'; return 'unknown' }
 
