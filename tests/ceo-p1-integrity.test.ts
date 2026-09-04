@@ -26,6 +26,16 @@ describe('CEO P1 integrity', () => {
     expect(plan.preRoute).toBe('fast')
   })
 
+  test('deterministic self-assessment cannot be overridden by a high-confidence model suggestion', () => {
+    const message = 'Is Agent007 ready to run the company by itself?'
+    const rows = [{ role: 'user' as const, content: message, createdAt: 1 }]
+    const state = deriveCeoConversationState(rows, message)
+    const references = resolveConversationReferences(message, rows, state)
+    const context = buildCanonicalConversationContext({ currentMessage: message, rows, state, references, semanticInterpretation: { source: 'model_assisted', confidence: 0.99, suggestedIntent: 'analysis', suggestedSpeechAct: 'question' } })
+    expect(context.intentHint).toBe('self_assessment')
+    expect(buildConversationDecisionContract(context).intent).toBe('self_assessment')
+  })
+
   test('eligible recommendations reject meaningless predictions but support explicit non-applicable cases', () => {
     const missing = buildRecommendationRecord({ correlationId: 'p1-missing', objective: 'Choose the safest next step', responseAction: 'recommend', predictedOutcome: 'It depends.' })
     expect(missing.predictionEligibility).toBe('ELIGIBLE')
@@ -37,18 +47,20 @@ describe('CEO P1 integrity', () => {
     expect(calculateRecommendationPredictionError(notApplicable, null)).toBeNull()
   })
 
-  test('response-path observability records pre-route, cognitive path, ownership, intent and generation stage', () => {
+  test('response-path observability records exact lifecycle generation diagnostics', () => {
     const messages = [{ role: 'user' as const, content: 'Tell me what you think about our direction.' }]
     const route = preRouteCeoRequest(messages)
     const plan = buildCeoDecisionPlan({ messages, preRoute: route })
-    const result = { content: 'A substantive answer.', provider: 'test', model: 'test-model', responseMs: 42, attempts: ['test'], executionPlan: { requestId: 'x', path: plan.path, reasoningStrategy: plan.reasoningStrategy, stages: [] }, decisionPlan: plan, quality: { decision: 'PASS' as const, evidenceState: 'NOT_APPLICABLE' as const, verificationStatus: 'NOT_REQUIRED' as const, checks: { nonEmpty: true, contractValid: true, objectiveCoverage: true, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, reasons: [] }, evidenceState: 'NOT_APPLICABLE' as const, degraded: false }
+    const result = { content: 'A substantive answer.', provider: 'test', model: 'test-model', responseMs: 42, attempts: ['test'], executionPlan: { requestId: 'x', path: plan.path, reasoningStrategy: plan.reasoningStrategy, stages: [] }, decisionPlan: plan, quality: { decision: 'PASS' as const, evidenceState: 'NOT_APPLICABLE' as const, verificationStatus: 'NOT_REQUIRED' as const, checks: { nonEmpty: true, contractValid: true, objectiveCoverage: true, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, reasons: [] }, evidenceState: 'NOT_APPLICABLE' as const, degraded: false, generation: { primaryOutputProduced: true, primaryQualityDecision: 'ESCALATE' as const, finalOutputProduced: true, finalStage: 'escalation' as const, escalationCount: 2 } }
     const metrics = buildCeoRuntimeMetrics({ result, decisionContract: buildConversationDecisionContract(buildCanonicalConversationContext({ currentMessage: messages[0].content, rows: messages, state: deriveCeoConversationState(messages, messages[0].content), references: [] })) })
     expect(metrics.responsePath.preRoute).toBe(route.route)
     expect(metrics.responsePath.cognitivePath).toBe(plan.path)
     expect(metrics.responsePath.orchestrationOwner).toBe(plan.executionContract.orchestrationOwner)
     expect(metrics.responsePath.intent).toBe(plan.executionContract.intent)
     expect(metrics.generation.primaryOutputProduced).toBe(true)
-    expect(metrics.generation.finalStage).toBe('primary')
+    expect(metrics.generation.primaryQualityDecision).toBe('ESCALATE')
+    expect(metrics.generation.finalStage).toBe('escalation')
+    expect(metrics.generation.escalationCount).toBe(2)
   })
 
   test('P1 benchmark covers the existing 25-case conversation corpus without routing contract regressions', async () => {
