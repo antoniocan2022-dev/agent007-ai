@@ -18,15 +18,15 @@ describe('Phase 19 outcome learning', () => {
     ]
     const result = correlateRecommendationOutcomes(id, recommendationRecords, outcomeRecords)
     expect(result.recommendation?.correlationId).toBe(id)
-    expect(result.matchedOutcomes).toHaveLength(1)
-    expect(result.matchedOutcomes[0]?.transactionId).toBe('tx_1')
+    expect(result.outcomes).toHaveLength(1)
+    expect((result.outcomes[0]?.metadata as any)?.transactionId).toBe('tx_1')
     expect(result.hasVerifiedOutcome).toBe(true)
   })
 
   test('a correlation ID with no matching records returns a well-formed empty result, not an error', () => {
     const result = correlateRecommendationOutcomes('nonexistent-id', [], [])
     expect(result.recommendation).toBeNull()
-    expect(result.matchedOutcomes).toEqual([])
+    expect(result.outcomes).toEqual([])
     expect(result.hasVerifiedOutcome).toBe(false)
   })
 
@@ -34,14 +34,15 @@ describe('Phase 19 outcome learning', () => {
     const id = generateRecommendationCorrelationId()
     const result = correlateRecommendationOutcomes(id, [{ value: '{ not valid json' }], [{ value: '{ also not valid' }])
     expect(result.recommendation).toBeNull()
-    expect(result.matchedOutcomes).toEqual([])
+    expect(result.outcomes).toEqual([])
   })
 
-  test('generateRecommendationCorrelationId produces unique, non-empty ids', () => {
+  test('generateRecommendationCorrelationId now produces deterministic, hash-based ids rather than random ones -- a real upgrade from the parallel work, still unique per call due to the embedded timestamp/random seed', () => {
     const a = generateRecommendationCorrelationId()
     const b = generateRecommendationCorrelationId()
     expect(a).not.toBe(b)
     expect(a.length).toBeGreaterThan(10)
+    expect(a).toMatch(/^ceo_rec_[a-f0-9]{24}$/)
   })
 
   test('recommendation tracking is wired into the live route only for genuine recommend/decide actions, and this does not modify the existing Stripe transaction verification logic at all', () => {
