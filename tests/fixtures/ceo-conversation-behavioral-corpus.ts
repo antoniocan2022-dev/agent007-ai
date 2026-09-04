@@ -18,7 +18,7 @@ export interface BehavioralCase {
     completeness: 'complete' | 'partial' | 'insufficient'
     responseRegister: 'conversational' | 'executive' | 'analytical' | 'strategic' | 'instructional'
     clarificationRequired: boolean
-    intent: 'conversation' | 'analysis' | 'decision' | 'research' | 'action' | 'unknown'
+    intent: 'conversation' | 'self_assessment' | 'analysis' | 'decision' | 'research' | 'action' | 'unknown'
   }
 }
 
@@ -32,7 +32,7 @@ export const CEO_CONVERSATION_BEHAVIORAL_CORPUS: readonly BehavioralCase[] = [
   { category: 'correction', name: 'explicit correction', message: "No, I meant routing as the first engineering priority.", expected: { completeness: 'complete', responseRegister: 'conversational', clarificationRequired: false, intent: 'conversation' } },
   { category: 'reference', name: 'pronoun reference', message: 'What about that?', expected: { completeness: 'complete', responseRegister: 'conversational', clarificationRequired: false, intent: 'conversation' } },
   { category: 'continuation', name: 'continue current thread', message: 'Continue.', expected: { completeness: 'complete', responseRegister: 'conversational', clarificationRequired: false, intent: 'conversation' } },
-  { category: 'self_assessment', name: 'leadership readiness', message: 'Are you ready to lead businesses?', expected: { completeness: 'complete', responseRegister: 'conversational', clarificationRequired: false, intent: 'conversation' } },
+  { category: 'self_assessment', name: 'leadership readiness', message: 'Are you ready to lead businesses?', expected: { completeness: 'complete', responseRegister: 'executive', clarificationRequired: false, intent: 'self_assessment' } },
   { category: 'strategic_question', name: 'strategic direction', message: 'What strategic direction should guide us at the beginning?', expected: { completeness: 'complete', responseRegister: 'executive', clarificationRequired: false, intent: 'decision' } },
   { category: 'explanation_request', name: 'explain simply', message: 'Can you explain that in simple words?', expected: { completeness: 'complete', responseRegister: 'conversational', clarificationRequired: false, intent: 'conversation' } },
   { category: 'action_request', name: 'specific action', message: 'Please create the implementation checklist.', expected: { completeness: 'complete', responseRegister: 'instructional', clarificationRequired: false, intent: 'action' } },
