@@ -25,6 +25,7 @@ import { CeoRequestAbortedError, isCeoRequestAborted } from '@/lib/ceo-cancellat
 import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
+import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -180,7 +181,7 @@ export async function POST(req: NextRequest) {
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) {
             const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle)
             addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount })
-            if (!claimVerification.passed) { response.content += `\n\n**Evidence verification:** Some external claims could not be mapped to sufficiently fresh source evidence. I have not treated those claims as verified.` }
+            if (!claimVerification.passed) response.content += `\n\n**Evidence verification:** Some external claims could not be mapped to sufficiently fresh source evidence. I have not treated those claims as verified.`
           }
           const finalTraceState = response.degraded ? (externalEvidenceBundle?.sources.length ? 'PARTIAL' : 'ABSTAIN') : 'FULL'
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
@@ -241,7 +242,7 @@ export async function POST(req: NextRequest) {
         } else {
           streamOutcome = 'failed'
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: 'failed', errorClass: e instanceof Error ? e.name : typeof e }))
-          await baseEmit('error', { message: e?.message ?? String(e), executionClass: resolvedPath, requestId, releaseAttestation, deployment: deploymentIdentity })
+          await baseEmit('error', { message: sanitizeCeoErrorForUser(e), executionClass: resolvedPath, requestId, releaseAttestation, deployment: deploymentIdentity })
         }
       } finally {
         clearInterval(heartbeat)
