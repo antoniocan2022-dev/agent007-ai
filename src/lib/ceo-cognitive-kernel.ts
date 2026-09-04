@@ -35,5 +35,5 @@ export function buildCeoDecisionPlan(input: {
   const latencyBudgetMs = selfAssessment ? contract.latencyBudgetMs : critical ? 90000 : deep ? 60000 : contract.latencyBudgetMs
   const capabilityRequirements = capabilitiesForDecision(contract)
   const requiredCapabilities = [...new Set([taskClass, ...capabilityRequirements, ...(missionRelevant ? ['mission-memory', 'verification'] : [])])]
-  return { requestId: randomUUID(), path, objective: latest.trim().slice(0, 4000), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract }
+  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: latest.trim().slice(0, 4000), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract }
 }
