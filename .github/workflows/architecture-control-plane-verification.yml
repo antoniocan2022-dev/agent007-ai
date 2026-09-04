@@ -31,6 +31,8 @@ jobs:
         run: bun test tests/architecture-control-plane.test.ts tests/architecture-integrity-contract.test.ts
       - name: Phase 5-8 — Outcome, learning and continuous-loop tests
         run: bun test tests/continuous-loop-integrity.test.ts
+      - name: P1 — CEO routing, prediction and response-path tests
+        run: bun test tests/ceo-p0-integrity.test.ts tests/ceo-p1-integrity.test.ts tests/ceo-conversation-semantics.test.ts tests/ceo-conversation-behavioral.test.ts
       - name: Evolution Engine regression tests
         run: bun test tests/evolution-engine-integrity.test.ts
       - name: Evidence and degraded-mode regression tests
@@ -48,11 +50,15 @@ jobs:
           test -f src/lib/ceo-decision-grade-evidence.ts
           test -f src/lib/ceo-behavioral-learning.ts
           test -f src/lib/ceo-continuous-loop.ts
+          test -f src/lib/ceo-memory-visibility.ts
+          test -f src/lib/ceo-runtime-metrics.ts
           test -f src/lib/evolution-engine.ts
           test -f scripts/architecture-reality-baseline.ts
           test -f tests/architecture-control-plane.test.ts
           test -f tests/architecture-integrity-contract.test.ts
           test -f tests/continuous-loop-integrity.test.ts
+          test -f tests/ceo-p0-integrity.test.ts
+          test -f tests/ceo-p1-integrity.test.ts
           test -f tests/evolution-engine-integrity.test.ts
           test -f src/app/api/architecture/business-outcome/route.ts
           test -f .github/CODEOWNERS
@@ -66,8 +72,12 @@ jobs:
           grep -q "architecture-control-plane" src/lib/orchestrator.ts
           grep -q "ABSTAINED_REQUIRED_EVIDENCE" src/lib/ceo-decision-grade-evidence.ts
           grep -q "ABSTAINED_REQUIRED_EVIDENCE" src/lib/ceo-degraded-mode.ts
+          grep -q "predictionEligibility" src/lib/ceo-outcome-learning.ts
           grep -q "predictedOutcome" src/lib/ceo-outcome-learning.ts
           grep -q "predictionError" src/lib/ceo-outcome-learning.ts
+          grep -q "responsePath" src/lib/ceo-runtime-metrics.ts
+          grep -q "preRoute" src/lib/ceo-cognitive-contract.ts
+          grep -q "self_assessment" src/lib/ceo-cognitive-conversation.ts
           grep -q "approveLearningCandidate" src/lib/ceo-behavioral-learning.ts
           grep -q "assertLoopTransition" src/lib/ceo-continuous-loop.ts
           grep -q "runGovernedEvolutionCycle" src/app/api/system/evolution/route.ts
