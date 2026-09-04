@@ -6,6 +6,7 @@ import { emitConversationIncident } from './ceo-conversation-incident'
 import { emitIncidentRegressionCandidate } from './ceo-incident-regression-candidate'
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { riskClassForDomain } from './architecture-integrity-contract'
+import { filterConversationalMemories } from './ceo-memory-visibility'
 
 export interface DegradedResponse { content: string; evidenceState: EvidenceState; reason: string; sourceKeys: string[]; failureReason: CeoFailureReason; recoveredCapability: 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context' }
 type MemoryRecall = typeof recallPersistentMemory
@@ -97,7 +98,7 @@ export async function buildCeoDegradedResponse(input: { objective: string; inten
   const suppliedContext = input.contextualEvidence?.trim()
   const recall = input.recall ?? recallPersistentMemory
   const query = [input.missionId, input.objective].filter(Boolean).join(' ')
-  const memories = suppliedContext ? [] : await recall(query, 5)
+  const memories = suppliedContext ? [] : filterConversationalMemories(await recall(query, 5))
   const recoveredContext = suppliedContext || formatMemoryEvidence(memories)
   const sourceKeys = memories.map((entry) => entry.key)
   const recoveredCapability = capabilityForFailure(failureReason)
