@@ -71,7 +71,8 @@ jobs:
           grep -q "architecture-control-plane" src/app/api/mission-active/route.ts
           grep -q "architecture-control-plane" src/lib/orchestrator.ts
           grep -q "ABSTAINED_REQUIRED_EVIDENCE" src/lib/ceo-decision-grade-evidence.ts
-          grep -q "ABSTAINED_REQUIRED_EVIDENCE" src/lib/ceo-degraded-mode.ts
+          grep -q "buildRiskAbstention" src/lib/ceo-degraded-mode.ts
+          grep -q "evidenceState: 'UNAVAILABLE'" src/lib/ceo-degraded-mode.ts
           grep -q "predictedOutcome" src/lib/ceo-outcome-learning.ts
           grep -q "predictionError" src/lib/ceo-outcome-learning.ts
           grep -q "predictionEligibility" src/lib/ceo-outcome-learning.ts
