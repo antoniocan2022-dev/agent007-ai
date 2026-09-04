@@ -20,7 +20,7 @@
  */
 
 import { db } from './db'
-import { filterConversationalMemories } from './ceo-memory-visibility'
+import { filterConversationalMemories, getInternalOnlyMemoryCategories } from './ceo-memory-visibility'
 import { sanitizeMemoryFields, sanitizeMemoryText } from './memory-text'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -124,7 +124,7 @@ export async function recallPersistentMemory(
 
   let dbEntries: MemoryEntry[] = []
   try {
-    const dbMems = await db.memory.findMany({ where: { category: { notIn: ['evidence_trace', 'ceo_recommendation', 'ceo_recommendation_action', 'ceo_observed_outcome', 'ceo_conversation_incident', 'ceo_incident_regression_candidate', 'architecture_business_outcome', 'mission_telemetry', 'runtime_telemetry', 'ceo_runtime_metrics', 'provider_telemetry'] } }, take: 100 }).catch(() => [])
+    const dbMems = await db.memory.findMany({ where: { category: { notIn: [...getInternalOnlyMemoryCategories()] } }, take: 500 }).catch(() => [])
     dbEntries = dbMems.map((m) => sanitizeEntry({
       key: m.key,
       value: m.value,
