@@ -18,7 +18,6 @@ const INTERNAL_MARKER_PATTERNS: RegExp[] = [
   /\bEVIDENCE BUNDLE:[^\n]*\n?/g,
   /\bEvidence state:\s*\S+\.?\s*/g,
   /\bQuality gate:\s*\S+\.?\s*/g,
-  /^\s*\d+\.\s*\[(?:ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|evidence_trace)\][^\n]*$/gim,
 ]
 
 function sanitizeRecalledText(text: string): string {
@@ -32,9 +31,8 @@ function capabilityForFailure(reason: CeoFailureReason): DegradedResponse['recov
 function inferFailureReason(message: string): CeoFailureReason { if (/timeout|timed out|deadline/i.test(message)) return 'execution_timeout'; if (/provider|model|llm/i.test(message)) return /unavailable|no provider/i.test(message) ? 'provider_unavailable' : 'provider_error'; if (/evidence|source|research/i.test(message)) return /insufficient/i.test(message) ? 'evidence_insufficient' : 'evidence_unavailable'; if (/claim.{0,40}consisten|contradiction/i.test(message)) return 'claim_consistency_failure'; if (/quality|objective coverage/i.test(message)) return 'quality_failure'; if (/tool/i.test(message)) return /unavailable|missing/i.test(message) ? 'tool_unavailable' : 'tool_error'; if (/mission|workflow|orchestrat/i.test(message)) return 'mission_failure'; if (/context|conversation|memory/i.test(message)) return 'context_unavailable'; if (/production|release|traffic|deployment/i.test(message)) return 'production_verification_failure'; return 'unknown' }
 
 export function buildRiskAbstention(objective: string, reason: string, failureReason: CeoFailureReason = 'evidence_insufficient'): DegradedResponse {
-  const safeReason = reason.replace(/\b(?:ABSTAINED_REQUIRED_EVIDENCE|decision-grade evidence|Tier-1|quality gate)\b[^\n]*/gi, '').replace(/\s{2,}/g, ' ').trim()
-  const detail = safeReason ? ` ${safeReason.slice(0, 500)}` : ''
-  return { evidenceState: 'UNAVAILABLE', reason, sourceKeys: [], failureReason, recoveredCapability: 'evidence', content: `I can’t give you a responsible decision-grade answer yet because the evidence required for this high-risk decision is incomplete.${detail}\n\nI won’t substitute memory, stale information, or an unverified execution result for the missing evidence.` }
+  void reason
+  return { evidenceState: 'UNAVAILABLE', reason, sourceKeys: [], failureReason, recoveredCapability: 'evidence', content: `I can’t give you a responsible decision-grade answer yet because the evidence required for this high-risk decision is incomplete.\n\nI won’t substitute memory, stale information, or an unverified execution result for the missing evidence.\n\nRequest: ${objective.slice(0, 800)}` }
 }
 
 const DECISION_GRADE_EVIDENCE_FAILURES = new Set<CeoFailureReason>(['evidence_insufficient', 'evidence_unavailable', 'production_verification_failure'])
@@ -54,34 +52,11 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   const action = input.action ?? 'answer'
   const priorUsers = (input.priorConversation ?? []).filter((row) => row.role === 'user').map((row) => row.content.trim()).filter(Boolean)
   const lower = objective.toLowerCase()
-
-  if (/^\s*(?:no|nah)\b/i.test(objective) || /\b(i meant|i mean|rather|instead)\b/i.test(lower)) {
-    const correction = objective.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim()
-    if (correction) return `Got it. The correction is clear: ${correction.charAt(0).toUpperCase()}${correction.slice(1)} I'll use that as the active direction from here.`
-  }
-
+  if (/^\s*(?:no|nah)\b/i.test(objective) || /\b(i meant|i mean|rather|instead)\b/i.test(lower)) { const correction = objective.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim(); if (correction) return `Got it. The correction is clear: ${correction.charAt(0).toUpperCase()}${correction.slice(1)} I'll use that as the active direction from here.` }
   if (/copy|competitor/i.test(lower)) return `I wouldn't make copying a competitor our safest strategy. My preference is to study what works, keep the useful underlying principles, and build the version that fits our strengths and creates a reason for customers to choose us. That gives us a reference point without turning the business into a copy.`
-
-  if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) {
-    if (/compliance/i.test(lower) || /compliance/i.test(input.recoveredContext ?? '') || /compliance/i.test(priorUsers.join(' '))) return `I'd put compliance first, then build the operations foundation around it, and add new integrations after that. The sequencing matters: establish the rules, controls, and operating process first; integrations should plug into that foundation rather than become the foundation. That is the direction I'd recommend based on what we've discussed.`
-    if (/revenue/i.test(lower)) return `I'd treat revenue recovery as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure the recovery. My preference is to fix the bottleneck that prevents reliable cash generation, then scale what works.`
-    return `I'd prioritize the item that removes the biggest constraint on the business, then build outward from that foundation. In practice, that usually means getting the operating model, controls, and measurement right before adding complexity.`
-  }
-
-  if (/what did we decide|where do we stand|main goal|what have we ruled out/i.test(lower)) {
-    const recent = priorUsers.slice(-5)
-    if (recent.length) {
-      const latestCorrection = [...recent].reverse().find((item) => /\b(i meant|instead|rather|no,?)/i.test(item))
-      if (latestCorrection) {
-        const correction = latestCorrection.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim()
-        return `The latest clear direction is: ${correction}. I would treat that as the active thread rather than reopening the earlier option unless new evidence changes the trade-off.`
-      }
-    }
-    return `The clearest way to frame where we stand is to separate the goal from the options we've discussed. I would keep the current priority as the active direction and only reopen it when a meaningful new constraint or piece of evidence changes the decision.`
-  }
-
-  const grounding = (input.recoveredContext ?? '').trim()
-  const groundedNote = grounding ? ` Based on what we've already established: ${grounding.slice(0, 2000)}` : ''
+  if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(input.recoveredContext ?? '') || /compliance/i.test(priorUsers.join(' '))) return `I'd put compliance first, then build the operations foundation around it, and add new integrations after that. The sequencing matters: establish the rules, controls, and operating process first; integrations should plug into that foundation rather than become the foundation.`; if (/revenue/i.test(lower)) return `I'd treat revenue recovery as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure the recovery. My preference is to fix the bottleneck that prevents reliable cash generation, then scale what works.`; return `I'd prioritize the item that removes the biggest constraint on the business, then build outward from that foundation. In practice, that usually means getting the operating model, controls, and measurement right before adding complexity.` }
+  if (/what did we decide|where do we stand|main goal|what have we ruled out/i.test(lower)) { const recent = priorUsers.slice(-5); if (recent.length) { const latestCorrection = [...recent].reverse().find((item) => /\b(i meant|instead|rather|no,?)/i.test(item)); if (latestCorrection) { const correction = latestCorrection.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim(); return `The latest clear direction is: ${correction}. I would treat that as the active thread rather than reopening the earlier option unless new evidence changes the trade-off.` } } return `The clearest way to frame where we stand is to separate the goal from the options we've discussed. I would keep the current priority as the active direction and only reopen it when a meaningful new constraint or piece of evidence changes the decision.` }
+  const grounding = (input.recoveredContext ?? '').trim(); const groundedNote = grounding ? ` Based on what we've already established: ${grounding.slice(0, 2000)}` : ''
   if (action === 'challenge') return `I want to push back on this rather than simply agree with it: "${objective}" is worth testing against the outcome we're actually trying to achieve, the risks we'd be accepting, and whether the alternative genuinely holds up better.${groundedNote}`
   if (action === 'recommend' || action === 'decide') return `On "${objective}" -- my judgment is to start with whichever option strengthens the foundation and creates the clearest path to a measurable result, rather than adding complexity just because it's available.${groundedNote}`
   if (action === 'explain') return `On "${objective}" -- the important part is the actual trade-off, not just the label we give the option. I'd weigh it by the outcome you actually care about and how well-controlled the downside is.${groundedNote}`
