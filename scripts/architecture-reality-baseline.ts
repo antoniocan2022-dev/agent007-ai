@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { CANONICAL_CAPABILITY_LEDGER } from '../src/lib/architecture-integrity-contract'
+import { buildRiskAbstention } from '../src/lib/ceo-degraded-mode'
 const ROOT = process.cwd()
 const failures: string[] = []
 const warnings: string[] = []
@@ -44,7 +45,11 @@ const outcomeLearning = text('src/lib/ceo-outcome-learning.ts')
 const continuousLoop = text('src/lib/ceo-continuous-loop.ts')
 if (!executor.includes('assertDecisionGradeEvidence')) failures.push('Evidence executor is not wired to the decision-grade evidence gate')
 if (!evidenceGate.includes("code = 'ABSTAINED_REQUIRED_EVIDENCE'")) failures.push('Decision-grade evidence gate lacks explicit abstention code')
-if (!degradedMode.includes('ABSTAINED_REQUIRED_EVIDENCE')) failures.push('Degraded mode does not expose the explicit high-risk abstention state')
+if (!degradedMode.includes('requiresDecisionGradeAbstention') || !degradedMode.includes('DECISION_GRADE_EVIDENCE_FAILURES')) failures.push('Degraded mode lacks canonical fail-closed high-risk/evidence policy')
+const safeAbstention = buildRiskAbstention('architecture baseline', 'internal diagnostic detail must remain private')
+if (safeAbstention.evidenceState !== 'UNAVAILABLE') failures.push('Risk abstention does not return UNAVAILABLE evidence state')
+if (safeAbstention.content.includes('ABSTAINED_REQUIRED_EVIDENCE')) failures.push('Risk abstention leaks internal abstention code into user-facing text')
+if (safeAbstention.content.includes('internal diagnostic detail')) failures.push('Risk abstention leaks diagnostic reason into user-facing text')
 if (!executor.includes("capability: 'evidence_acquisition'")) failures.push('Evidence executor is missing architecture-integrity runtime ownership assertion')
 if (!outcomeLearning.includes('predictedOutcome') || !outcomeLearning.includes('decisionRationale') || !outcomeLearning.includes('predictionError')) failures.push('Outcome-learning contract does not contain prediction chain fields')
 if (!continuousLoop.includes('assertLoopTransition')) failures.push('Continuous loop does not enforce canonical transition contracts')
