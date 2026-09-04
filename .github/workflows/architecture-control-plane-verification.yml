@@ -89,5 +89,6 @@ jobs:
           grep -q "PROMOTED" src/lib/evolution-engine.ts
           grep -q "recommendationCorrelationId" src/app/api/architecture/business-outcome/route.ts
           grep -q "@antoniocan2022-dev" .github/CODEOWNERS
-          ! grep -q "message: e?.message" src/app/api/agent/route.ts
+          grep -q "sanitizeCeoErrorForUser" src/app/api/agent/route.ts
+          ! grep -q "message: e?\.message" src/app/api/agent/route.ts
           ! grep -q "message: String(e)" src/app/api/agent/route.ts
