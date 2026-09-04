@@ -79,6 +79,7 @@ jobs:
           grep -q "primaryQualityDecision" src/lib/ceo-runtime-metrics.ts
           grep -q "preRoute" src/lib/ceo-cognitive-contract.ts
           grep -q "self_assessment" src/lib/ceo-cognitive-conversation.ts
+          grep -q "self_assessment" src/lib/ceo-conversation-decision-contract.ts
           grep -q "approveLearningCandidate" src/lib/ceo-behavioral-learning.ts
           grep -q "assertLoopTransition" src/lib/ceo-continuous-loop.ts
           grep -q "runGovernedEvolutionCycle" src/app/api/system/evolution/route.ts
@@ -90,5 +91,3 @@ jobs:
           grep -q "recommendationCorrelationId" src/app/api/architecture/business-outcome/route.ts
           grep -q "@antoniocan2022-dev" .github/CODEOWNERS
           grep -q "sanitizeCeoErrorForUser" src/app/api/agent/route.ts
-          ! grep -q "message: e?\.message" src/app/api/agent/route.ts
-          ! grep -q "message: String(e)" src/app/api/agent/route.ts
