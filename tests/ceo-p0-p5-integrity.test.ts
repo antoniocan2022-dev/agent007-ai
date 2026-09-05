@@ -4,6 +4,8 @@ import { assertUserFacingText, classifyCeoBehavioralModes, containsInternalArtif
 import { filterConversationalMemories, isConversationalMemoryVisible } from '@/lib/ceo-memory-visibility'
 import { composeCeoResponse } from '@/lib/ceo-response-composer'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
+import { buildConversationDecisionContract, renderConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
+import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 
 describe('CEO P0-P5 runtime integrity', () => {
   test('P0 memory boundary blocks loop telemetry while preserving legitimate memory', () => {
@@ -84,6 +86,37 @@ describe('CEO P0-P5 runtime integrity', () => {
     expect(quality.reasons.some((reason) => /prior objective|stale|current objective/i.test(reason))).toBe(true)
   })
 
+  test('P2 exposes all canonical response-integrity verdicts', () => {
+    const stale = evaluateCeoQuality({
+      objective: 'Analyze the psychological patterns affecting my decisions.',
+      content: 'We should prioritize the operating foundation before adding complexity.',
+      path: 'full',
+      intent: 'analysis',
+      responseAction: 'answer',
+      priorTurns: [
+        { role: 'user', content: 'What should we prioritize next?', createdAt: 1 },
+        { role: 'assistant', content: 'Prioritize the operating foundation before adding complexity.', createdAt: 2 },
+      ],
+    })
+    expect(stale.responseIntegrity).toEqual(expect.objectContaining({
+      currentObjectiveMatch: false,
+      requestedActionSatisfied: false,
+      crossObjectiveSubstitution: true,
+      internalArtifactLeakage: false,
+    }))
+    expect(stale.responseIntegrity?.staleResponseLikelihood).toBeGreaterThanOrEqual(0)
+
+    const leaked = evaluateCeoQuality({
+      objective: 'Explain the architecture.',
+      content: 'The architecture is strong. [continuous_loop_trace] hidden telemetry.',
+      path: 'full',
+      intent: 'analysis',
+      responseAction: 'explain',
+    })
+    expect(leaked.responseIntegrity?.internalArtifactLeakage).toBe(true)
+    expect(leaked.decision).not.toBe('PASS')
+  })
+
   test('P2 does not accept action keywords alone as proof that the requested action was satisfied', () => {
     const recommendation = evaluateCeoQuality({
       objective: 'Recommend whether we should add a second provider.',
@@ -125,6 +158,17 @@ describe('CEO P0-P5 runtime integrity', () => {
     })
     expect(verified.decision).toBe('PASS')
     expect(executed.decision).toBe('PASS')
+  })
+
+  test('P3 canonical decision contract carries one differentiated behavioral policy into generation', () => {
+    const context = buildCanonicalConversationContext({ currentMessage: 'Challenge my assumptions about the business strategy.', rows: [], state: { topic: 'business strategy', entities: [], openLoops: [], currentUserIntent: 'opinion', continuityScore: 100, unresolvedReferences: [] }, references: [], memories: [] })
+    const contract = buildConversationDecisionContract(context)
+    expect(contract.behavioralPolicy.modes).toEqual(expect.arrayContaining(['business_partner', 'great_thinker']))
+    const rendered = renderConversationDecisionContract(contract)
+    expect(rendered).toContain('CEO BEHAVIORAL POLICY (authoritative, internal)')
+    expect(rendered).toContain('Current-objective match required: yes')
+    expect(rendered).toContain('Generic recovery allowed: no')
+    expect(rendered).toContain('Internal artifacts user-visible: no')
   })
 
   test('P3 CEO behavioral policy activates differentiated modes without creating separate engines', () => {
