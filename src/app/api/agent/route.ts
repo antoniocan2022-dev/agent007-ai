@@ -27,7 +27,7 @@ import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
-import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse } from '@/lib/ceo-response-persistence'
+import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker } from '@/lib/ceo-response-persistence'
 import { isResponseSuperseded, isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
 
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     try {
       myTurnSequence = await db.$transaction(async (tx) => {
         const updatedConversation = await tx.conversation.update({ where: { id: convId }, data: { revision: { increment: 1 } }, select: { revision: true } })
-        await tx.message.create({ data: { conversationId: convId, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null, turnSequence: updatedConversation.revision, clientRequestId } })
+        await tx.message.create({ data: { conversationId: convId, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null, turnSequence: updatedConversation.revision, clientRequestId, turnStatus: 'open' } })
         return updatedConversation.revision
       })
     } catch (turnError) {
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
   const safeContextRows = safeConversationRows(contextData.rows)
   let contextSeed: CeoContextComposition = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories })
   let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
-  try { semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
+  try { semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch(() => {}); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
   contextSeed = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, semanticInterpretation })
   const preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext)
   const resolvedPath = resolvePreRoute(preRoute)
@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
         else if (e instanceof RecoveryBudgetExceededError || e?.code === 'CEO_RECOVERY_BUDGET_EXCEEDED') { streamOutcome = 'failed'; await baseEmit('error', { message: 'Agent007 stopped this request after exhausting its governed recovery budget. The request state remains safe; retry is available.', executionClass: resolvedPath, code: 'CEO_RECOVERY_BUDGET_EXCEEDED', recoveryCount: recoveryBudget.used, maxRecoveries: recoveryBudget.remaining + recoveryBudget.used, retryable: true, requestId, releaseAttestation, deployment: deploymentIdentity }) }
         else if (e instanceof AgentRequestTimeoutError || e?.code === 'AGENT_REQUEST_TIMEOUT') { streamOutcome = 'timeout'; console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: 'timeout' })); await baseEmit('error', { message: 'Agent007 stopped this request before the execution budget so it can remain responsive. The work already persisted is safe; retry to continue from the durable state.', executionClass: resolvedPath, code: 'AGENT_REQUEST_TIMEOUT', timeoutMs: requestBudgetMs, retryable: true, requestId, releaseAttestation, deployment: deploymentIdentity }) }
         else { streamOutcome = 'failed'; console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: 'failed', errorClass: e instanceof Error ? e.name : typeof e })); await baseEmit('error', { message: sanitizeCeoErrorForUser(e), executionClass: resolvedPath, requestId, releaseAttestation, deployment: deploymentIdentity }) }
-      } finally { clearInterval(heartbeat); endInteractive(); req.signal.removeEventListener('abort', onRequestAbort); try { controller.close() } catch {} closed = true; if (streamOutcome !== 'completed' && streamOutcome !== 'degraded') console.log('[ceo-request-outcome]', JSON.stringify({ requestId, outcome: streamOutcome })) }
+      } finally { clearInterval(heartbeat); endInteractive(); req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch((markerErr) => console.warn('[api/agent] Turn-marker close failed:', markerErr instanceof Error ? markerErr.message.slice(0, 150) : String(markerErr))); try { controller.close() } catch {} closed = true; if (streamOutcome !== 'completed' && streamOutcome !== 'degraded') console.log('[ceo-request-outcome]', JSON.stringify({ requestId, outcome: streamOutcome })) }
     },
     cancel(reason) { requestAbortController.abort(reason ?? new CeoRequestAbortedError(reason)) },
   })

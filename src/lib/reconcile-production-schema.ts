@@ -93,6 +93,7 @@ const statements = [
   'ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "turnSequence" INTEGER',
   'ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT',
   'CREATE UNIQUE INDEX IF NOT EXISTS "Message_conversationId_clientRequestId_key" ON "Message" ("conversationId", "clientRequestId")',
+  `ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "turnStatus" TEXT NOT NULL DEFAULT 'closed'`,
 ]
 
 async function main() {
@@ -140,10 +141,10 @@ async function main() {
   if (conversationColumns.length !== 1) throw new Error('Conversation schema incomplete. Missing column: revision')
 
   const messageColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
-    SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Message' AND column_name IN ('turnSequence','clientRequestId')
+    SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Message' AND column_name IN ('turnSequence','clientRequestId','turnStatus')
   `
   const messageColumnSet = new Set(messageColumns.map(row => row.column_name))
-  const missingMessageColumns = ['turnSequence', 'clientRequestId'].filter(name => !messageColumnSet.has(name))
+  const missingMessageColumns = ['turnSequence', 'clientRequestId', 'turnStatus'].filter(name => !messageColumnSet.has(name))
   if (missingMessageColumns.length) throw new Error(`Message schema incomplete. Missing columns: ${missingMessageColumns.join(', ')}`)
 
   const messageIdempotencyIndex = await prisma.$queryRaw<Array<{ indexname: string }>>`
