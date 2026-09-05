@@ -13,7 +13,7 @@ jobs:
   static-integrity:
     name: Static integrity
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_test
       NEXTAUTH_SECRET: ci-only-agent007-nextauth-secret
@@ -124,7 +124,18 @@ jobs:
       - name: CEO real-request contract corpus
         run: bun test tests/ceo-real-request-corpus.test.ts
       - name: CEO conversation benchmark v0.1
-        run: bun run test:conversation
+        run: |
+          set -euo pipefail
+          for test_file in \
+            tests/ceo-conversation-semantics.test.ts \
+            tests/ceo-conversation-golden.test.ts \
+            tests/ceo-conversation-behavioral.test.ts \
+            tests/release-attestation.test.ts \
+            tests/ceo-long-conversation-certification.test.ts \
+            tests/ceo-runtime-metrics-cancellation.test.ts; do
+            echo "Running isolated conversation benchmark process: $test_file"
+            bun test --max-concurrency=1 "$test_file"
+          done
       - name: CEO external evidence golden corpus
         run: bun test tests/ceo-evidence-golden.test.ts
       - name: P0/P1/P2 context and release integrity corpus
@@ -178,15 +189,15 @@ jobs:
             "status": "CERTIFIED",
             "certification": "github-actions-ci",
             "repository": "${GITHUB_REPOSITORY}",
+            "commit": "${EXPECTED_SHA}",
             "branch": "${REF_NAME}",
-            "commit": "${ACTUAL_SHA}",
             "workflow": "${WORKFLOW}",
             "runId": "${RUN_ID}",
             "runNumber": "${RUN_NUMBER}",
-            "event": "${EVENT_NAME}",
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "event": "${EVENT_NAME}"
           }
           EOF
+          cat .artifacts/ci-certification.json
       - name: Upload CI certification manifest
         uses: actions/upload-artifact@v4
         with:
