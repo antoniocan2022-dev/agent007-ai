@@ -28,3 +28,5 @@ jobs:
         run: bunx tsc -p tsconfig.ci.json --noEmit
       - name: Long conversation certification
         run: bun test tests/ceo-conversation-long-certification.test.ts tests/ceo-cognitive-conversation.test.ts tests/ceo-conversation-runtime-regressions.test.ts tests/ceo-long-conversation-certification.test.ts
+      - name: P0-P5 CEO runtime integrity certification
+        run: bun test tests/ceo-p0-p5-integrity.test.ts
