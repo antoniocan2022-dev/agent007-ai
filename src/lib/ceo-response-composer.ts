@@ -1,6 +1,7 @@
 import type { EvidenceState, QualityResult } from './ceo-cognitive-contract'
 import { buildFinalizationProvenance, finalizeCeoResponse, type FinalizedCeoResponse } from './ceo-response-finalizer'
 import { buildCeoResponseDecisionEnvelope, type CeoResponseDecisionEnvelope } from './ceo-response-contract'
+import { buildCeoControlPlaneSummary } from './ceo-control-plane-summary'
 
 export function sanitizeCeoErrorForUser(error: unknown): string {
   const errorCode = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code ?? '') : ''
@@ -11,31 +12,19 @@ export function sanitizeCeoErrorForUser(error: unknown): string {
   return 'I couldn’t complete this request because an internal execution step failed. I have not treated the incomplete result as verified or completed.'
 }
 
-export function buildAuthoritativeCeoResponseDecision(input: { content: string; quality: QualityResult; requestId?: string }): CeoResponseDecisionEnvelope {
-  return buildCeoResponseDecisionEnvelope({ content: input.content, quality: input.quality, requestId: input.requestId })
+export function buildAuthoritativeCeoResponseDecision(input: { content: string; quality: QualityResult; evidenceState: EvidenceState; degraded: boolean; conversational?: boolean; requestId?: string }): CeoResponseDecisionEnvelope {
+  const controlPlaneSummary = buildCeoControlPlaneSummary({ requestId: input.requestId, responseAction: undefined, evidenceState: input.evidenceState, qualityDecision: input.quality.decision, executionCompleted: !input.degraded, verified: input.evidenceState === 'LIVE_VERIFIED', degraded: input.degraded })
+  return buildCeoResponseDecisionEnvelope({ content: input.content, quality: input.quality, controlPlaneSummary, requestId: input.requestId })
 }
 
-export function finalizeCeoResponseForSurface(input: {
-  content: string
-  quality: QualityResult
-  evidenceState: EvidenceState
-  degraded: boolean
-  conversational?: boolean
-  userFacingStatus?: boolean
-  context?: string
-  requestId?: string
-}): FinalizedCeoResponse {
+export function finalizeCeoResponseForSurface(input: { content: string; quality: QualityResult; evidenceState: EvidenceState; degraded: boolean; conversational?: boolean; userFacingStatus?: boolean; context?: string; requestId?: string }): FinalizedCeoResponse {
   const naturalConversation = Boolean(input.conversational || input.quality.conversationQuality || (input.evidenceState === 'NOT_APPLICABLE' && input.quality.verificationStatus === 'NOT_REQUIRED'))
   let candidate = input.content.trim()
   if (!candidate) candidate = 'Agent007 could not produce a usable response.'
-  if (!naturalConversation && input.userFacingStatus) {
-    if (input.degraded || !['LIVE_VERIFIED', 'LIVE_EXECUTED'].includes(input.evidenceState)) {
-      const evidenceLabel = `Evidence state: ${input.evidenceState}.`
-      const qualityLabel = input.quality.decision === 'PASS' ? 'Quality gate: PASS.' : `Quality gate: ${input.quality.decision}.`
-      candidate = `${evidenceLabel}\n${qualityLabel}\n\n${candidate}`
-    }
+  if (!naturalConversation && input.userFacingStatus && (input.degraded || !['LIVE_VERIFIED', 'LIVE_EXECUTED'].includes(input.evidenceState))) {
+    candidate = `Evidence state: ${input.evidenceState}.\n${input.quality.decision === 'PASS' ? 'Quality gate: PASS.' : `Quality gate: ${input.quality.decision}.`}\n\n${candidate}`
   }
-  const decisionEnvelope = buildAuthoritativeCeoResponseDecision({ content: candidate, quality: input.quality, requestId: input.requestId })
+  const decisionEnvelope = buildAuthoritativeCeoResponseDecision({ content: candidate, quality: input.quality, evidenceState: input.evidenceState, degraded: input.degraded, conversational: input.conversational, requestId: input.requestId })
   return finalizeCeoResponse({ content: decisionEnvelope.candidate.content, finalizationContext: input.context, decisionEnvelope })
 }
 
