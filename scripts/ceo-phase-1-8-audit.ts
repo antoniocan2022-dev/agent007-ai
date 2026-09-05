@@ -7,6 +7,7 @@ const required = [
   'src/lib/ceo-control-plane-summary.ts',
   'src/lib/ceo-response-finalizer.ts',
   'src/lib/ceo-response-composer.ts',
+  'src/lib/ceo-response-persistence.ts',
   'src/lib/ceo-context-composer.ts',
   'src/lib/ceo-conversation-state.ts',
   'src/lib/ceo-context-intelligence.ts',
@@ -24,11 +25,7 @@ const required = [
 ]
 for (const file of required) if (!existsSync(file)) failures.push(`Missing Phase 1–8 component: ${file}`)
 
-if (failures.length) {
-  console.error('CEO Phase 1–8 architecture audit FAILED')
-  for (const failure of failures) console.error(`- ${failure}`)
-  process.exit(1)
-}
+if (failures.length) { console.error('CEO Phase 1–8 architecture audit FAILED'); for (const failure of failures) console.error(`- ${failure}`); process.exit(1) }
 
 const read = (file: string) => readFileSync(file, 'utf8')
 const policy = read('src/lib/ceo-behavioral-policy.ts')
@@ -36,6 +33,7 @@ const responseContract = read('src/lib/ceo-response-contract.ts')
 const controlPlane = read('src/lib/ceo-control-plane-summary.ts')
 const finalizer = read('src/lib/ceo-response-finalizer.ts')
 const composer = read('src/lib/ceo-response-composer.ts')
+const persistence = read('src/lib/ceo-response-persistence.ts')
 const context = read('src/lib/ceo-context-composer.ts')
 const state = read('src/lib/ceo-conversation-state.ts')
 const intelligence = read('src/lib/ceo-context-intelligence.ts')
@@ -53,7 +51,7 @@ const authoritativeDocs = read('docs/CEO-AUTHORITATIVE-RESPONSE-CONTRACT.md')
 
 if (!policy.includes('CEO_INTERNAL_ARTIFACT_TOKENS')) failures.push('No canonical control-plane artifact token registry exists')
 if ((policy.match(/CEO_INTERNAL_ARTIFACT_TOKENS/g) ?? []).length < 2) failures.push('Canonical artifact registry is not actually used by detection')
-for (const token of ['continuous_loop_trace', 'governed_evolution_cycle', 'evidence_trace']) if (!policy.includes(token)) failures.push(`Canonical artifact registry missing token coverage: ${token}`)
+for (const token of ['continuous_loop_trace','governed_evolution_cycle','evidence_trace']) if (!policy.includes(token)) failures.push(`Canonical artifact registry missing token coverage: ${token}`)
 if (finalizer.includes('STRUCTURED_ARTIFACT_TOKENS')) failures.push('Finalizer contains a duplicate artifact-token inventory')
 if (!finalizer.includes('CEO_INTERNAL_ARTIFACT_TOKENS')) failures.push('Finalizer is not connected to canonical artifact-token registry')
 if (!finalizer.includes('CeoResponseDecisionEnvelope')) failures.push('Finalizer is not bound to the authoritative candidate/decision envelope')
@@ -82,23 +80,23 @@ if (!qualityGate.includes('safeConversationRows(input.priorTurns')) failures.pus
 if (!qualityGate.includes('safeConversationRows(input.relevantOlderMessages')) failures.push('Quality gate does not quarantine contaminated older conversation')
 if (!degraded.includes('safeConversationRows(input.priorConversation')) failures.push('Degraded recovery does not quarantine contaminated prior conversation')
 if (!contract.includes('CeoResponseCandidate') || !contract.includes('CeoQualityDecision') || !contract.includes('CeoControlPlaneSummary')) failures.push('Cognitive contract does not own the canonical response contract types')
-if (!lifecycle.includes('composeCeoResponse')) failures.push('Lifecycle does not pass its final candidate through the canonical finalizer')
-if (!db.includes('ceo-response-lineage')) failures.push('Database client lacks canonical response-lineage enforcement')
-if (!db.includes('finalResponseHash') || !db.includes('finalizationId')) failures.push('Database persistence boundary does not record final response identity')
-if (!db.includes('entity: \'Message\'') || !db.includes('action: \'ceo_response_finalized\'')) failures.push('Database lineage record is not keyed to persisted Message identity')
-if (!route.includes('response.content')) failures.push('CEO route does not propagate canonical lifecycle response content')
-if (!route.includes("sse('answer', { content: response.content")) failures.push('CEO route does not transport the canonical lifecycle response content')
-if (!route.includes("role: 'assistant', content: response.content")) failures.push('CEO route does not persist canonical response content')
+if (!lifecycle.includes('composeCeoResponse')) failures.push('Lifecycle does not pass its candidate through the canonical finalizer path')
+if (!persistence.includes('persistCeoAssistantMessage')) failures.push('Transactional CEO response persistence adapter is missing')
+if (!persistence.includes('$transaction')) failures.push('CEO response persistence is not atomic')
+if (!persistence.includes('finalResponseHash') || !persistence.includes('finalizationId')) failures.push('Persistence adapter does not record final response identity')
+if (!persistence.includes("entity: 'Message'") || !persistence.includes("action: 'ceo_response_finalized'")) failures.push('Persistence lineage is not keyed to Message identity')
+if (!db.includes('export const db')) failures.push('Canonical Prisma client surface is missing')
+if (!route.includes('safeConversationRows')) failures.push('API route does not use the canonical conversation boundary')
+if (!route.includes('persistCeoAssistantMessage')) failures.push('CEO route does not use transactional canonical persistence')
+if (!route.includes('updateCeoAssistantMessage')) failures.push('Operational synthesis does not use transactional canonical persistence')
+if (!route.includes("sse('answer', { content: response.content")) failures.push('CEO route does not transport canonical lifecycle response content')
+if (!route.includes("sse('answer', { content: synthesis.content")) failures.push('Operational route does not transport canonical synthesis content')
 if (!test.includes('assertFinalResponseInvariant(tampered)')) failures.push('Final response tamper-detection regression test missing')
 if (!test.includes('deriveCeoConversationState(rows)')) failures.push('Contaminated conversation-state regression test missing')
 if (!responseTest.includes('CeoControlPlaneSummary') || !responseTest.includes('CEO_RESPONSE_CANDIDATE_MISMATCH')) failures.push('Authoritative response contract regression coverage is incomplete')
-for (const phrase of ['simulatedPersistence', 'simulatedSseAnswer', 'simulatedReload']) if (!test.includes(phrase)) failures.push(`Finalization propagation regression test missing: ${phrase}`)
-for (const phrase of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6', 'Phase 7', 'Phase 8']) if (!docs.includes(phrase)) failures.push(`Closure document missing ${phrase}`)
+for (const phrase of ['simulatedPersistence','simulatedSseAnswer','simulatedReload']) if (!test.includes(phrase)) failures.push(`Finalization propagation regression test missing: ${phrase}`)
+for (const phrase of ['Phase 1','Phase 2','Phase 3','Phase 4','Phase 5','Phase 6','Phase 7','Phase 8']) if (!docs.includes(phrase)) failures.push(`Closure document missing ${phrase}`)
 if (!authoritativeDocs.includes('ONE CANDIDATE OBJECT') || !authoritativeDocs.includes('ONE IMMUTABLE QUALITY DECISION') || !authoritativeDocs.includes('DATABASE')) failures.push('Authoritative response contract documentation is incomplete')
 
-if (failures.length) {
-  console.error('CEO Phase 1–8 architecture audit FAILED')
-  for (const failure of failures) console.error(`- ${failure}`)
-  process.exit(1)
-}
-console.log('CEO Phase 1–8 architecture audit PASSED: one authoritative candidate/quality envelope, typed control-plane summary, canonical finalizer identity invariants, conversation/world-model/quality/degraded contamination quarantine, raw-context bypass closure, database response-lineage enforcement, route transport/persistence wiring, regression proof, and governance documentation are present.')
+if (failures.length) { console.error('CEO Phase 1–8 architecture audit FAILED'); for (const failure of failures) console.error(`- ${failure}`); process.exit(1) }
+console.log('CEO Phase 1–8 architecture audit PASSED: one authoritative candidate/quality envelope, typed control-plane summary, canonical finalizer identity invariants, safe conversation boundaries, transactional persistence lineage, route transport/persistence wiring, regression proof, and governance documentation are present.')
