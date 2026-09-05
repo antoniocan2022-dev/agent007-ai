@@ -36,13 +36,13 @@ export function classifyCeoBehavioralModes(input: {
   if (/\b(?:me|myself|i feel|i’m|i'm|i am|honest|personally|naturally|friend|pushing too hard|exhausted|frustrated)\b/.test(text)) {
     modes.add('friend')
   }
-  if (/\b(?:psycholog|behavior|behavio[u]?r|motivation|bias|pattern|decision making|decision-making|emotion|habit)\b/.test(text)) {
+  if (/\b(?:psycholog[a-z]*|behavior[a-z]*|behavio[u]?r[a-z]*|motivation|bias|pattern|decision making|decision-making|emotion|habit)\b/.test(text)) {
     modes.add('psychological_insight')
   }
-  if (/\b(?:architecture|technical|technolog|code|software|system|runtime|repository|module|integration|canonical|bug|error|developer|implementation)\b/.test(text) || input.intent === 'analysis' && /technical|architecture|code|system/.test(text)) {
+  if (/\b(?:architecture|technical|technolog[a-z]*|code|software|system|runtime|repository|module|integration|canonical|bug|error|developer|implementation)\b/.test(text) || input.intent === 'analysis' && /technical|architecture|code|system/i.test(text)) {
     modes.add('technologist')
   }
-  if (/\b(?:first principles|fundamental|fundamentally|deeper|deep|philosoph|abstraction|counterargument|counter-argument|challenge|strongest case|why)\b/.test(text)) {
+  if (/\b(?:first principles|fundamental|fundamentally|deeper|deep|philosoph[a-z]*|abstraction|counterargument|counter-argument|challenge|strongest case|why)\b/.test(text)) {
     modes.add('great_thinker')
   }
   if (input.responseAction === 'execute' || input.responseAction === 'verify' || /\b(?:operational|operate|execution|execute|checklist|dependencies|rollback|procedure|steps|workflow)\b/.test(text)) {
