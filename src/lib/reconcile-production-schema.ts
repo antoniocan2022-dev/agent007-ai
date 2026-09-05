@@ -89,6 +89,10 @@ const statements = [
   'ALTER TABLE "CustomerSuccessState" ADD CONSTRAINT "CustomerSuccessState_ventureId_fkey" FOREIGN KEY ("ventureId") REFERENCES "Venture"("id") ON DELETE CASCADE ON UPDATE CASCADE',
   'ALTER TABLE "CustomerSuccessState" ADD CONSTRAINT "CustomerSuccessState_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE CASCADE ON UPDATE CASCADE',
   'ALTER TABLE "CustomerSuccessState" ADD CONSTRAINT "CustomerSuccessState_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE',
+  'ALTER TABLE "Conversation" ADD COLUMN IF NOT EXISTS "revision" INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "turnSequence" INTEGER',
+  'ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT',
+  'CREATE UNIQUE INDEX IF NOT EXISTS "Message_conversationId_clientRequestId_key" ON "Message" ("conversationId", "clientRequestId")',
 ]
 
 async function main() {
@@ -130,7 +134,24 @@ async function main() {
   `
   if (transactionCustomerFk.length !== 1) throw new Error('Transaction_customerId_fkey foreign key is missing.')
 
-  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, transaction customer identity, commercial links, subscription, invoice, and customer-success lifecycle tables/indexes/constraints present.')
+  const conversationColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Conversation' AND column_name='revision'
+  `
+  if (conversationColumns.length !== 1) throw new Error('Conversation schema incomplete. Missing column: revision')
+
+  const messageColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Message' AND column_name IN ('turnSequence','clientRequestId')
+  `
+  const messageColumnSet = new Set(messageColumns.map(row => row.column_name))
+  const missingMessageColumns = ['turnSequence', 'clientRequestId'].filter(name => !messageColumnSet.has(name))
+  if (missingMessageColumns.length) throw new Error(`Message schema incomplete. Missing columns: ${missingMessageColumns.join(', ')}`)
+
+  const messageIdempotencyIndex = await prisma.$queryRaw<Array<{ indexname: string }>>`
+    SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname='Message_conversationId_clientRequestId_key'
+  `
+  if (messageIdempotencyIndex.length !== 1) throw new Error('Message_conversationId_clientRequestId_key unique index is missing.')
+
+  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, transaction customer identity, commercial links, subscription, invoice, customer-success lifecycle, and conversation turn-sequencing/idempotency tables/indexes/constraints present.')
 }
 
 main().catch((error) => { console.error('Production schema reconciliation failed:', error); process.exitCode = 1 }).finally(async () => { await prisma.$disconnect() })

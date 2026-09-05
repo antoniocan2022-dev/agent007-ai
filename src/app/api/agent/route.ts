@@ -27,7 +27,8 @@ import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
-import { persistCeoAssistantMessage, updateCeoAssistantMessage } from '@/lib/ceo-response-persistence'
+import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse } from '@/lib/ceo-response-persistence'
+import { isResponseSuperseded, isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -53,11 +54,12 @@ export async function POST(req: NextRequest) {
   if (!sessionUserId) return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   let body: any
   try { body = await req.json() } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }) }
-  const { message, conversationId, attachments, language } = body as { message?: string; conversationId?: string; attachments?: AttachmentMeta[]; language?: 'en' | 'zh' }
+  const { message, conversationId, attachments, language, clientRequestId: rawClientRequestId } = body as { message?: string; conversationId?: string; attachments?: AttachmentMeta[]; language?: 'en' | 'zh'; clientRequestId?: string }
   if (!message || typeof message !== 'string') return new Response(JSON.stringify({ error: 'Missing \'message\'' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   if (!conversationId || typeof conversationId !== 'string') return new Response(JSON.stringify({ error: 'Missing \'conversationId\'' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   const lang: 'en' | 'zh' = language === 'zh' ? 'zh' : 'en'
   const atts: AttachmentMeta[] = Array.isArray(attachments) ? attachments : []
+  const clientRequestId = normalizeClientRequestId(rawClientRequestId)
   const releaseIdentity = getReleaseIdentity()
   const deploymentIdentity: DeploymentIdentity = { deploymentId: releaseIdentity.deploymentId, releaseCommit: releaseIdentity.vercelCommitSha }
   const requestId = newReleaseRequestId(req.headers.get('x-agent007-request-id'))
@@ -65,17 +67,45 @@ export async function POST(req: NextRequest) {
   const requestAbortController = new AbortController()
   const onRequestAbort = () => requestAbortController.abort(req.signal.reason ?? new CeoRequestAbortedError(req.signal.reason))
   if (req.signal.aborted) onRequestAbort(); else req.signal.addEventListener('abort', onRequestAbort, { once: true })
+  const encoder = new TextEncoder()
 
   let contextData: { rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }
+  let myTurnSequence = 0
+  let isDuplicateRequest = false
   try {
     let conv = await db.conversation.findUnique({ where: { id: conversationId }, select: { id: true, userId: true } })
     if (conv && conv.userId !== sessionUserId) return new Response(JSON.stringify({ error: 'Conversation not found.' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
     if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50), userId: sessionUserId }, select: { id: true, userId: true } })
     contextData = await loadConversationContext(conversationId, sessionUserId)
-    await db.message.create({ data: { conversationId: conv.id, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null } })
+    const convId = conv.id
+    try {
+      myTurnSequence = await db.$transaction(async (tx) => {
+        const updatedConversation = await tx.conversation.update({ where: { id: convId }, data: { revision: { increment: 1 } }, select: { revision: true } })
+        await tx.message.create({ data: { conversationId: convId, role: 'user', content: message, attachments: atts.length ? JSON.stringify(atts.map(stripDataUrl)) : null, turnSequence: updatedConversation.revision, clientRequestId } })
+        return updatedConversation.revision
+      })
+    } catch (turnError) {
+      // Recommendation 2 (idempotency): a client retry carrying the same clientRequestId collides
+      // on the (conversationId, clientRequestId) unique index and rolls back the whole transaction,
+      // including the revision increment -- so a rejected duplicate never consumes a turn number.
+      if (clientRequestId && isUniqueConstraintViolation(turnError)) isDuplicateRequest = true
+      else throw turnError
+    }
   } catch {
     req.signal.removeEventListener('abort', onRequestAbort)
     return new Response(JSON.stringify({ error: 'Unable to persist the conversation securely.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  if (isDuplicateRequest) {
+    req.signal.removeEventListener('abort', onRequestAbort)
+    const duplicateStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(sse('duplicate', { message: 'This request was already accepted for this conversation and will not be run again.', requestId, releaseAttestation, deployment: deploymentIdentity })))
+        controller.enqueue(encoder.encode(sse('done', { messageId: null, steps: 0, deployment: deploymentIdentity, requestId, releaseAttestation })))
+        controller.close()
+      },
+    })
+    return new Response(duplicateStream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' } })
   }
 
   const safeContextRows = safeConversationRows(contextData.rows)
@@ -89,7 +119,6 @@ export async function POST(req: NextRequest) {
   const decisionContract = buildConversationDecisionContract(contextSeed.canonicalSemanticContext)
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
 
-  const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false
@@ -133,16 +162,31 @@ export async function POST(req: NextRequest) {
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
           const metrics = buildCeoRuntimeMetrics({ result: response, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
+          // Recommendation 2 (optimistic revision-sequencing): re-read the conversation's revision now
+          // that the response is fully computed. If a newer user turn was accepted while this request
+          // was in flight, this response is stale relative to the "current request" invariant -- it is
+          // audited but never written into the visible transcript or broadcast as the current answer.
+          const latestRevisionAtCompletion = await db.conversation.findUnique({ where: { id: conversationId }, select: { revision: true } }).then((row) => row?.revision ?? myTurnSequence).catch(() => myTurnSequence)
+          const responseSuperseded = isResponseSuperseded(myTurnSequence, latestRevisionAtCompletion)
           let persistedAssistantMessageId: string | null = null
-          try { const provenance = response.quality.finalResponseProvenance; if (provenance) persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: response.content, provenance }); else console.warn('[api/agent] CEO-lane assistant persistence skipped: missing final response provenance.') } catch (persistErr: any) { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)) }
-          if (!response.degraded) {
-            try { const afterRows = [...safeContextRows, { role: 'user' as const, content: message, createdAt: Date.now() }, { role: 'assistant' as const, content: response.content, createdAt: Date.now() }]; const delta = computeWorldStateDelta(safeContextRows, afterRows, message); if (delta.newDecisions.length || delta.newGoals.length || delta.newCommitments.length || delta.newOpenLoops.length || delta.resolvedOpenLoops.length || delta.newCorrections.length || delta.newlySuperseded.length) console.log('[ceo-world-state-delta]', JSON.stringify({ requestId, newDecisions: delta.newDecisions.length, newGoals: delta.newGoals.length, newCommitments: delta.newCommitments.length, newOpenLoops: delta.newOpenLoops.length, resolvedOpenLoops: delta.resolvedOpenLoops.length, newCorrections: delta.newCorrections.length, newlySuperseded: delta.newlySuperseded.length })) } catch (deltaError) { console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError)) }
+          if (responseSuperseded) {
+            await recordSupersededCeoResponse({ conversationId, content: response.content, capturedTurnSequence: myTurnSequence, latestRevision: latestRevisionAtCompletion }).catch((auditErr) => console.warn('[api/agent] Superseded-response audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr)))
+          } else {
+            try { const provenance = response.quality.finalResponseProvenance; if (provenance) persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: response.content, provenance }); else console.warn('[api/agent] CEO-lane assistant persistence skipped: missing final response provenance.') } catch (persistErr: any) { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)) }
+            if (!response.degraded) {
+              try { const afterRows = [...safeContextRows, { role: 'user' as const, content: message, createdAt: Date.now() }, { role: 'assistant' as const, content: response.content, createdAt: Date.now() }]; const delta = computeWorldStateDelta(safeContextRows, afterRows, message); if (delta.newDecisions.length || delta.newGoals.length || delta.newCommitments.length || delta.newOpenLoops.length || delta.resolvedOpenLoops.length || delta.newCorrections.length || delta.newlySuperseded.length) console.log('[ceo-world-state-delta]', JSON.stringify({ requestId, newDecisions: delta.newDecisions.length, newGoals: delta.newGoals.length, newCommitments: delta.newCommitments.length, newOpenLoops: delta.newOpenLoops.length, resolvedOpenLoops: delta.resolvedOpenLoops.length, newCorrections: delta.newCorrections.length, newlySuperseded: delta.newlySuperseded.length })) } catch (deltaError) { console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError)) }
+            }
+            if (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide') { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; ') }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
           }
-          if (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide') { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; ') }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
-          streamOutcome = response.degraded ? 'degraded' : 'completed'
-          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model }))
-          safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, cognitiveMetrics: metrics, responseMs: response.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composed.modules } }))
-          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract }))
+          streamOutcome = responseSuperseded ? 'degraded' : (response.degraded ? 'degraded' : 'completed')
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model, superseded: responseSuperseded }))
+          if (responseSuperseded) {
+            safeEnqueue(sse('superseded', { reason: 'A newer message in this conversation was already accepted before this response finished computing, so it was not added to the conversation.', deployment: deploymentIdentity, requestId, releaseAttestation }))
+            safeEnqueue(sse('done', { messageId: null, steps: 0, executionClass: response.decisionPlan.path, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract }))
+          } else {
+            safeEnqueue(sse('answer', { content: response.content, provider: response.provider, model: response.model, executionClass: response.decisionPlan.path, evidenceState: response.evidenceState, quality: response.quality, cognitiveMetrics: metrics, responseMs: response.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, evidenceTrace, context: { recentMessages: contextSeed.recentMessages, relevantOlderMessages: contextSeed.relevantOlderMessages, summarizedOlderMessages: contextSeed.summarizedOlderMessages, selectedMemoryKeys: contextSeed.selectedMemoryKeys, modules: composed.modules } }))
+            safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract }))
+          }
         } else {
           const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement })
           const baseOperationalContext = composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: operationalModules, semanticInterpretation })
@@ -155,11 +199,27 @@ export async function POST(req: NextRequest) {
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
           const persistedAssistantMessageId = result.persistedAssistantMessageId
-          try { const provenance = synthesis.quality.finalResponseProvenance; if (provenance) await updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, content: synthesis.content, provenance }); else console.warn('[api/agent] Operational synthesis history update skipped: missing final response provenance.') } catch (persistErr: any) { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)) }
-          streamOutcome = synthesis.degraded ? 'degraded' : 'completed'
-          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model }))
-          safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, cognitiveMetrics: metrics, responseMs: synthesis.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, operationalSteps: result.steps.length, context: { recentMessages: baseOperationalContext.recentMessages, relevantOlderMessages: baseOperationalContext.relevantOlderMessages, summarizedOlderMessages: baseOperationalContext.summarizedOlderMessages, selectedMemoryKeys: baseOperationalContext.selectedMemoryKeys, modules: composedOperational.modules } }))
-          safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length + 1, executionClass: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, evidenceState: synthesis.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract, recoveryCount: recoveryBudget.used }))
+          // Recommendation 2 (optimistic revision-sequencing): the orchestrator's real actions already
+          // ran by this point (that is not undone -- cooperative cancellation mid-execution is out of
+          // scope here), but the CEO synthesis text that reports on them can still be stale if a newer
+          // user turn arrived while it was being generated. A stale synthesis is never written over the
+          // orchestrator's own record of what it did, and is never broadcast as the current answer.
+          const latestRevisionAtCompletion = await db.conversation.findUnique({ where: { id: conversationId }, select: { revision: true } }).then((row) => row?.revision ?? myTurnSequence).catch(() => myTurnSequence)
+          const responseSuperseded = isResponseSuperseded(myTurnSequence, latestRevisionAtCompletion)
+          if (responseSuperseded) {
+            await recordSupersededCeoResponse({ conversationId, content: synthesis.content, capturedTurnSequence: myTurnSequence, latestRevision: latestRevisionAtCompletion }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr)))
+          } else {
+            try { const provenance = synthesis.quality.finalResponseProvenance; if (provenance) await updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, content: synthesis.content, provenance }); else console.warn('[api/agent] Operational synthesis history update skipped: missing final response provenance.') } catch (persistErr: any) { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)) }
+          }
+          streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
+          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, superseded: responseSuperseded }))
+          if (responseSuperseded) {
+            safeEnqueue(sse('superseded', { reason: 'A newer message in this conversation was already accepted before the executive synthesis finished computing, so it was not written as the current answer.', deployment: deploymentIdentity, requestId, releaseAttestation }))
+            safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length, executionClass: synthesis.decisionPlan.path, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, recoveryCount: recoveryBudget.used }))
+          } else {
+            safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, cognitiveMetrics: metrics, responseMs: synthesis.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, operationalSteps: result.steps.length, context: { recentMessages: baseOperationalContext.recentMessages, relevantOlderMessages: baseOperationalContext.relevantOlderMessages, summarizedOlderMessages: baseOperationalContext.summarizedOlderMessages, selectedMemoryKeys: baseOperationalContext.selectedMemoryKeys, modules: composedOperational.modules } }))
+            safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length + 1, executionClass: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, evidenceState: synthesis.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract, recoveryCount: recoveryBudget.used }))
+          }
         }
       } catch (e: any) {
         const cancelled = isCeoRequestAborted(e) || requestAbortController.signal.aborted

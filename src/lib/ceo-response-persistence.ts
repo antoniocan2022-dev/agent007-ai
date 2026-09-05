@@ -38,3 +38,12 @@ export async function updateCeoAssistantMessage(input: { messageId: string; cont
     await tx.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: input.messageId, description: 'Canonical CEO response identity persisted atomically with assistant message update.', metadata: lineageMetadata({ conversationId: '', content, provenance: input.provenance }) } })
   })
 }
+
+// Recommendation 2 (optimistic revision-sequencing): a response that finished computing after a
+// newer user turn was already accepted for the same conversation is stale relative to the "current
+// request" the CEO is supposed to be authoritative for. It is never written into the visible
+// Message transcript (that would present out-of-order content as the latest reply) -- instead this
+// records an audit trail entry so the work is never silently discarded, only never surfaced.
+export async function recordSupersededCeoResponse(input: { conversationId: string; content: string; capturedTurnSequence: number; latestRevision: number }): Promise<void> {
+  await db.auditLog.create({ data: { action: 'ceo_response_superseded', entity: 'Conversation', entityId: input.conversationId, description: `A CEO response finished computing against turn ${input.capturedTurnSequence} after conversation revision advanced to ${input.latestRevision}; it was not added to the conversation.`, metadata: JSON.stringify({ capturedTurnSequence: input.capturedTurnSequence, latestRevision: input.latestRevision, contentLength: input.content.trim().length, contentHash: contentHash(input.content.trim()) }) } })
+}

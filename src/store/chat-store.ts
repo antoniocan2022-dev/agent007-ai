@@ -577,6 +577,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           conversationId,
           attachments: userMsg.attachments ?? [],
           language: state.language,
+          clientRequestId: userMsg.id,
         }),
         signal: AbortSignal.timeout(290_000),
       })
