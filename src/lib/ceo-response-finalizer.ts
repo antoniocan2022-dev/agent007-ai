@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { assertUserFacingText, containsInternalArtifactToken } from './ceo-behavioral-policy'
 
 /**
- * Phase 1-8 invariant: exactly one module owns the final conversational string.
- * It is intentionally fail-closed. We surgically remove only known structured
- * control-plane fragments; anything that still contains a control-plane token
- * is rejected instead of broadly deleting legitimate prose.
+ * Canonical ownership boundary for the final conversational string.
+ * The finalizer is fail-closed: it surgically removes only known structured
+ * control-plane fragments and rejects anything that still contains a control
+ * plane token. It must never broadly delete legitimate prose.
  */
 const STRUCTURED_ARTIFACT_TOKENS = [
   'ceo_recommendation',
@@ -26,7 +26,6 @@ const STRUCTURED_ARTIFACT_TOKENS = [
 ] as const
 
 const STRUCTURED_TOKEN_RE = new RegExp(`\\[(${STRUCTURED_ARTIFACT_TOKENS.join('|')})\\]`, 'i')
-const STATUS_LINE_RE = /^\\s*(?:Evidence state|Quality gate)\\s*:\\s*[^\\n]*$/i
 
 export interface CeoResponseFinalizationInput {
   content: string
@@ -51,11 +50,8 @@ function removeStructuredArtifactFromLine(line: string): { text: string; changed
 
   const start = match.index
   let cursor = start + match[0].length
-  while (cursor < line.length && /\\s/.test(line[cursor] ?? '')) cursor += 1
+  while (cursor < line.length && /\s/.test(line[cursor] ?? '')) cursor += 1
 
-  // Structured telemetry in the observed failure shape is followed by a JSON-ish
-  // object. Remove exactly that object, including nested braces, and preserve any
-  // legitimate prose before/after it.
   if (line[cursor] === '{') {
     let depth = 0
     let inString = false
@@ -64,7 +60,7 @@ function removeStructuredArtifactFromLine(line: string): { text: string; changed
       const char = line[cursor]
       if (inString) {
         if (escaped) escaped = false
-        else if (char === '\\\\') escaped = true
+        else if (char === '\\') escaped = true
         else if (char === '"') inString = false
         continue
       }
@@ -82,26 +78,22 @@ function removeStructuredArtifactFromLine(line: string): { text: string; changed
       }
     }
   } else {
-    while (cursor < line.length && !/\\s/.test(line[cursor] ?? '')) cursor += 1
+    while (cursor < line.length && !/\s/.test(line[cursor] ?? '')) cursor += 1
   }
 
-  const cleaned = `${line.slice(0, start)} ${line.slice(cursor)}`.replace(/\\s{2,}/g, ' ').trim()
+  const cleaned = `${line.slice(0, start)} ${line.slice(cursor)}`.replace(/\s{2,}/g, ' ').trim()
   return { text: cleaned, changed: true }
 }
 
 function sanitizeControlPlaneFragments(content: string): { content: string; changed: boolean } {
   let changed = false
-  const lines = content.split(/\\r?\\n/).map((line) => {
-    if (STATUS_LINE_RE.test(line)) {
-      changed = true
-      return ''
-    }
+  const lines = content.split(/\r?\n/).map((line) => {
     const result = removeStructuredArtifactFromLine(line)
     changed = changed || result.changed
     return result.text
   })
   return {
-    content: lines.join('\\n').replace(/\\n{3,}/g, '\\n\\n').trim(),
+    content: lines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
     changed,
   }
 }
