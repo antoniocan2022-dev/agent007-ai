@@ -34,7 +34,13 @@ function removeStructuredArtifactFromLine(line: string): { text: string; changed
   let cursor = start + match[0].length
   while (cursor < line.length && /\s/.test(line[cursor] ?? '')) cursor += 1
 
-  if (line[cursor] === '{') {
+  // Artifact payloads are emitted as: [token] [optional-id] {structured-data}.
+  // Find the payload opening brace so the identifier and the whole payload are
+  // removed together. Once the token is known to be internal, a following brace
+  // is part of that control-plane fragment rather than conversational prose.
+  const payloadStart = line.indexOf('{', cursor)
+  if (payloadStart >= 0) {
+    cursor = payloadStart
     let depth = 0
     let inString = false
     let escaped = false
