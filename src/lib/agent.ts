@@ -3,6 +3,7 @@ import type { AttachmentMeta, ToolResult } from '@/lib/tools'
 import { getCanonicalOrganizationPrompt } from './canonical-organization-prompt'
 import { runCanonicalLlm } from './canonical-llm-router'
 import type { ActiveProviderId } from './provider-control-plane'
+import { containsInternalArtifactToken } from './ceo-behavioral-policy'
 
 /**
  * Compatibility facade for legacy orchestrator imports.
@@ -85,7 +86,7 @@ export async function buildHistoryMessages(conversationId: string, currentUserMe
     if (row.role === 'user') {
       let content = String(row.content ?? ''); try { const attachments = row.attachments ? JSON.parse(row.attachments) as AttachmentMeta[] : []; const textFiles = attachments.filter((a) => a.textContent); const images = attachments.filter((a) => a.mimeType.startsWith('image/')); if (textFiles.length) content += `\n\n[ATTACHED TEXT FILES]\n${textFiles.map((a) => `--- ${a.originalName} ---\n${a.textContent?.slice(0, 8000)}`).join('\n\n')}`; if (images.length) content += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.` } catch {}
       messages.push({ role: 'user', content })
-    } else if (row.role === 'assistant') messages.push({ role: 'assistant', content: String(row.content ?? '') })
+    } else if (row.role === 'assistant') { const content = String(row.content ?? ''); if (content.trim() && !containsInternalArtifactToken(content)) messages.push({ role: 'assistant', content }) }
     else if (row.role === 'tool') messages.push({ role: 'user', content: `[TOOL_RESULT] ${row.toolName}: ${row.toolResult ?? ''}` })
   }
   let userContent = currentUserMessage; const textFiles = currentAttachments.filter((a) => a.textContent); const images = currentAttachments.filter((a) => a.mimeType.startsWith('image/'))
