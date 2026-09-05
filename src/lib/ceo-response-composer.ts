@@ -1,20 +1,22 @@
 import type { EvidenceState, QualityResult } from './ceo-cognitive-contract'
+import { assertUserFacingText, containsInternalArtifactToken } from './ceo-behavioral-policy'
 
 const INTERNAL_RESPONSE_PATTERNS: RegExp[] = [
   /^\s*Evidence state:\s*[^\n]*\n?/gim,
   /^\s*Quality gate:\s*[^\n]*\n?/gim,
   /^\s*(?:INTERNAL[- ]STATE[- ]ONLY|UNAVAILABLE)(?:\s*[:.-].*)?\s*$/gim,
   /^\s*(?:failed capability|failure reason|provider failure|recovery path)\s*:\s*[^\n]*\n?/gim,
-  /^\s*(?:evidence_trace|quality_trace|routing_trace)\s*[:=]\s*\{[\s\S]*?\}\s*$/gim,
-  /^\s*\d+\.\s*\[(?:ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|evidence_trace)\][^\n]*$/gim,
-  /^\s*ABSTAINED_REQUIRED_EVIDENCE\s*$/gim,
+  /^\s*(?:evidence_trace|quality_trace|routing_trace|continuous_loop_trace)\s*[:=]\s*\{[\s\S]*?\}\s*$/gim,
+  /^\s*\d+\.\s*\[(?:ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|evidence_trace|continuous_loop_trace)\][^\n]*$/gim,
+  /\[continuous_loop_trace\][\s\S]*$/gi,
+  /\bcontinuous_loop_trace\b[\s\S]*$/gi,
 ]
 
 function sanitizeConversationalOutput(content: string): string {
   let sanitized = content
   for (const pattern of INTERNAL_RESPONSE_PATTERNS) sanitized = sanitized.replace(pattern, ' ')
-  sanitized = sanitized.replace(/\n{3,}/g, '\n\n').trim()
-  return sanitized
+  const checked = assertUserFacingText(sanitized)
+  return checked.replace(/\n{3,}/g, '\n\n').trim()
 }
 
 export function sanitizeCeoErrorForUser(error: unknown): string {
@@ -46,19 +48,19 @@ export function composeCeoResponse(input: {
     || (input.evidenceState === 'NOT_APPLICABLE' && input.quality.verificationStatus === 'NOT_REQUIRED'),
   )
 
-  if (naturalConversation) {
-    const sanitized = sanitizeConversationalOutput(content)
-    return sanitized || 'I’m still with you. I couldn’t complete the internal response path cleanly, but I can continue from the context we already have.'
-  }
+  const sanitized = sanitizeConversationalOutput(content)
+  if (!sanitized || containsInternalArtifactToken(sanitized)) return 'I couldn’t complete the user-facing response cleanly. Internal execution details were withheld.'
+
+  if (naturalConversation) return sanitized
 
   // Conversation is a user-facing dialogue surface, not an observability dump.
   // Execution/evidence/quality metadata stays in the machine-readable response
   // envelope unless a caller explicitly opts into user-facing status text.
-  if (!input.userFacingStatus) return sanitizeConversationalOutput(content)
+  if (!input.userFacingStatus) return sanitized
 
-  if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return sanitizeConversationalOutput(content)
+  if (!input.degraded && (input.evidenceState === 'LIVE_VERIFIED' || input.evidenceState === 'LIVE_EXECUTED')) return sanitized
 
   const evidenceLabel = `Evidence state: ${input.evidenceState}.`
   const qualityLabel = input.quality.decision === 'PASS' ? 'Quality gate: PASS.' : `Quality gate: ${input.quality.decision}.`
-  return `${evidenceLabel}\n${qualityLabel}\n\n${sanitizeConversationalOutput(content)}`
+  return `${evidenceLabel}\n${qualityLabel}\n\n${sanitized}`
 }
