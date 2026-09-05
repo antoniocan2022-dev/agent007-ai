@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { assertUserFacingText, containsInternalArtifactToken } from './ceo-behavioral-policy'
+import { assertUserFacingText, containsInternalArtifactToken, CEO_INTERNAL_ARTIFACT_TOKENS } from './ceo-behavioral-policy'
 
 /**
  * Canonical ownership boundary for the final conversational string.
@@ -7,25 +7,7 @@ import { assertUserFacingText, containsInternalArtifactToken } from './ceo-behav
  * control-plane fragments and rejects anything that still contains a control
  * plane token. It must never broadly delete legitimate prose.
  */
-const STRUCTURED_ARTIFACT_TOKENS = [
-  'ceo_recommendation',
-  'ceo_recommendation_action',
-  'ceo_observed_outcome',
-  'ceo_conversation_incident',
-  'ceo_incident_regression_candidate',
-  'architecture_business_outcome',
-  'mission_telemetry',
-  'runtime_telemetry',
-  'ceo_runtime_metrics',
-  'provider_telemetry',
-  'evidence_trace',
-  'quality_trace',
-  'routing_trace',
-  'continuous_loop_trace',
-  'governed_evolution_cycle',
-] as const
-
-const STRUCTURED_TOKEN_RE = new RegExp(`\\[(${STRUCTURED_ARTIFACT_TOKENS.join('|')})\\]`, 'i')
+const STRUCTURED_TOKEN_RE = new RegExp(`\\[(${CEO_INTERNAL_ARTIFACT_TOKENS.join('|')})\\]`, 'i')
 
 export interface CeoResponseFinalizationInput {
   content: string
@@ -133,6 +115,7 @@ export function assertFinalResponseInvariant(response: FinalizedCeoResponse): vo
   const checked = assertUserFacingText(response.content)
   if (!checked || containsInternalArtifactToken(response.content)) throw new Error('CEO_FINAL_RESPONSE_INVARIANT_FAILED')
   if (hashContent(response.content) !== response.finalResponseHash) throw new Error('CEO_FINAL_RESPONSE_HASH_MISMATCH')
+  if (response.finalizationId !== `ceo-final-${response.finalResponseHash.slice(0, 16)}`) throw new Error('CEO_FINAL_RESPONSE_ID_MISMATCH')
 }
 
 export function buildFinalizationProvenance(response: FinalizedCeoResponse, context?: string): {
