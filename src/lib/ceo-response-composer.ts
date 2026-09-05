@@ -28,6 +28,11 @@ export function finalizeCeoResponseForSurface(input: { content: string; quality:
   return finalizeCeoResponse({ content: decisionEnvelope.candidate.content, finalizationContext: input.context, decisionEnvelope })
 }
 
+/** Applies the same finalization sanitization composeCeoResponse will apply, so the quality gate judges what the user actually receives instead of the pre-sanitization draft. */
+export function sanitizeCeoContentForQualityGate(content: string): string {
+  return finalizeCeoResponse({ content }).content
+}
+
 export function composeCeoResponse(input: { content: string; evidenceState: EvidenceState; quality: QualityResult; degraded: boolean; conversational?: boolean; userFacingStatus?: boolean; requestId?: string }): string {
   const finalized = finalizeCeoResponseForSurface(input)
   const provenance = buildFinalizationProvenance(finalized)
