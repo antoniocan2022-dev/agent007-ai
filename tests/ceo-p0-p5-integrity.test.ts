@@ -3,6 +3,7 @@ import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { assertUserFacingText, classifyCeoBehavioralModes, containsInternalArtifactToken, buildCeoBehavioralPolicy } from '@/lib/ceo-behavioral-policy'
 import { filterConversationalMemories, isConversationalMemoryVisible } from '@/lib/ceo-memory-visibility'
 import { composeCeoResponse } from '@/lib/ceo-response-composer'
+import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 describe('CEO P0-P5 runtime integrity', () => {
   test('P0 memory boundary blocks loop telemetry while preserving legitimate memory', () => {
@@ -52,6 +53,63 @@ describe('CEO P0-P5 runtime integrity', () => {
     expect(rendered).toContain('Internal execution details were withheld')
     expect(rendered).not.toContain('continuous_loop_trace')
     expect(rendered).toContain('Useful answer')
+  })
+
+  test('P2 rejects stale substitution even when the fresh objective is conversational', () => {
+    const quality = evaluateCeoQuality({
+      objective: 'What psychological patterns are affecting my decisions?',
+      content: 'We should prioritize the operating foundation before adding complexity.',
+      path: 'full',
+      intent: 'conversation',
+      responseAction: 'answer',
+      priorTurns: [
+        { role: 'user', content: 'What should we prioritize next?', createdAt: 1 },
+        { role: 'assistant', content: 'Prioritize the operating foundation before adding complexity.', createdAt: 2 },
+      ],
+    })
+    expect(quality.decision).not.toBe('PASS')
+    expect(quality.reasons.some((reason) => /prior objective|stale|current objective/i.test(reason))).toBe(true)
+  })
+
+  test('P2 does not accept action keywords alone as proof that the requested action was satisfied', () => {
+    const recommendation = evaluateCeoQuality({
+      objective: 'Recommend whether we should add a second provider.',
+      content: 'You should think about reliability. The system could recommend adding a second provider later.',
+      path: 'full',
+      intent: 'decision',
+      responseAction: 'recommend',
+    })
+    const execution = evaluateCeoQuality({
+      objective: 'Update the production configuration now.',
+      content: 'Done would be the right outcome, but I did not perform the update.',
+      path: 'full',
+      intent: 'tool_action',
+      responseAction: 'execute',
+      externalExecutionSucceeded: false,
+    })
+    expect(recommendation.decision).not.toBe('PASS')
+    expect(execution.decision).not.toBe('PASS')
+  })
+
+  test('P2 accepts explicit truthful outcomes for verify and execute without requiring lucky wording', () => {
+    const verified = evaluateCeoQuality({
+      objective: 'Verify whether the repository is on the expected commit.',
+      content: 'I checked the repository state and verified that the expected commit is present.',
+      path: 'full',
+      intent: 'research',
+      responseAction: 'verify',
+      evidenceProvided: true,
+    })
+    const executed = evaluateCeoQuality({
+      objective: 'Update the configuration now.',
+      content: 'The requested configuration update was completed successfully.',
+      path: 'full',
+      intent: 'tool_action',
+      responseAction: 'execute',
+      externalExecutionSucceeded: true,
+    })
+    expect(verified.decision).toBe('PASS')
+    expect(executed.decision).toBe('PASS')
   })
 
   test('P3 CEO behavioral policy activates differentiated modes without creating separate engines', () => {
