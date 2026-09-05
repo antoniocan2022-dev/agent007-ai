@@ -38,3 +38,22 @@ export async function updateCeoAssistantMessage(input: { messageId: string; cont
     await tx.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: input.messageId, description: 'Canonical CEO response identity persisted atomically with assistant message update.', metadata: lineageMetadata({ conversationId: '', content, provenance: input.provenance }) } })
   })
 }
+
+// Recommendation 2 (optimistic revision-sequencing): a response that finished computing after a
+// newer user turn was already accepted for the same conversation is stale relative to the "current
+// request" the CEO is supposed to be authoritative for. It is never written into the visible
+// Message transcript (that would present out-of-order content as the latest reply) -- instead this
+// records an audit trail entry so the work is never silently discarded, only never surfaced.
+export async function recordSupersededCeoResponse(input: { conversationId: string; content: string; capturedTurnSequence: number; latestRevision: number }): Promise<void> {
+  await db.auditLog.create({ data: { action: 'ceo_response_superseded', entity: 'Conversation', entityId: input.conversationId, description: `A CEO response finished computing against turn ${input.capturedTurnSequence} after conversation revision advanced to ${input.latestRevision}; it was not added to the conversation.`, metadata: JSON.stringify({ capturedTurnSequence: input.capturedTurnSequence, latestRevision: input.latestRevision, contentLength: input.content.trim().length, contentHash: contentHash(input.content.trim()) }) } })
+}
+
+// Recommendation 3 (narrowed two-state crash marker): a user turn's Message row is created with
+// turnStatus='open' and flipped to 'closed' here on every normal exit path this request can take
+// (success, degraded, superseded, cancelled, or error -- see route.ts). A turn that is still 'open'
+// after its request handler has had a chance to run means the process crashed or was killed before
+// reaching any of those exits: durable, queryable evidence of an incomplete turn, deliberately without
+// a full persisted lifecycle state machine (open/closed is the entire state space).
+export async function closeCeoTurnMarker(input: { conversationId: string; turnSequence: number }): Promise<void> {
+  await db.message.updateMany({ where: { conversationId: input.conversationId, turnSequence: input.turnSequence, role: 'user' }, data: { turnStatus: 'closed' } })
+}
