@@ -24,7 +24,7 @@ describe('CEO personality charter', () => {
 describe('CEO conversational degradation resilience', () => {
   const noMemory = async () => []
 
-  test('provider failure does not expose internal failure metadata for a recommendation', async () => {
+  test('provider failure does not expose internal failure metadata and does not substitute an unrelated recommendation', async () => {
     const response = await buildCeoDegradedResponse({
       objective: 'What should we prioritize before adding new integrations?',
       intent: 'decision',
@@ -33,13 +33,14 @@ describe('CEO conversational degradation resilience', () => {
       failureReason: 'provider_error',
       recall: noMemory,
     })
-    expect(response.content).toContain('foundation')
+    expect(response.content).toContain('reliable recommendation')
     expect(response.content).not.toContain('Evidence state:')
     expect(response.content).not.toContain('UNAVAILABLE')
     expect(response.content).not.toContain('failed capability')
+    expect(response.content).not.toContain('foundation')
   })
 
-  test('corrections remain decisive and natural during degradation', async () => {
+  test('corrections preserve the corrected direction during degradation', async () => {
     const response = await buildCeoDegradedResponse({
       objective: 'No, I meant operations kit should come first instead',
       intent: 'decision',
@@ -54,7 +55,7 @@ describe('CEO conversational degradation resilience', () => {
     expect(response.content).not.toContain('Quality gate:')
   })
 
-  test('competitor-copying premise receives thoughtful pushback rather than refusal', async () => {
+  test('competitor-copying premise receives thoughtful pushback rather than generic refusal', async () => {
     const response = await buildCeoDegradedResponse({
       objective: "We should just copy what our biggest competitor does — that's the safest strategy.",
       intent: 'opinion',
