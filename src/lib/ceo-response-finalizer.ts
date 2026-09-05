@@ -87,10 +87,17 @@ function removeStructuredArtifactFromLine(line: string): { text: string; changed
 
 function sanitizeControlPlaneFragments(content: string): { content: string; changed: boolean } {
   let changed = false
-  const lines = content.split(/\r?\n/).map((line) => {
-    const result = removeStructuredArtifactFromLine(line)
-    changed = changed || result.changed
-    return result.text
+  const lines = content.split(/\r?\n/).map((initialLine) => {
+    let line = initialLine
+    // Multiple control-plane fragments can occur on the same line. Keep the
+    // iteration bounded so malformed input can never create an unbounded loop.
+    for (let iteration = 0; iteration < 32; iteration += 1) {
+      const result = removeStructuredArtifactFromLine(line)
+      if (!result.changed) break
+      changed = true
+      line = result.text
+    }
+    return line
   })
   return {
     content: lines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
