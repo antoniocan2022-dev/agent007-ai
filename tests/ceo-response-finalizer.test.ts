@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { assertFinalResponseInvariant, finalizeCeoResponse } from '@/lib/ceo-response-finalizer'
-import { containsInternalArtifactToken } from '@/lib/ceo-behavioral-policy'
+import { containsInternalArtifactToken, CEO_INTERNAL_ARTIFACT_TOKENS } from '@/lib/ceo-behavioral-policy'
 import { composeCeoContext } from '@/lib/ceo-context-composer'
+import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 
 describe('CEO canonical response finalizer', () => {
   test('preserves legitimate prose around structured telemetry', () => {
@@ -41,12 +42,33 @@ describe('CEO canonical response finalizer', () => {
     expect(response.content).toBe('A stack trace is useful when diagnosing the production error.')
   })
 
+  test('uses one canonical artifact-token registry across detection and finalization', () => {
+    expect(CEO_INTERNAL_ARTIFACT_TOKENS).toContain('continuous_loop_trace')
+    expect(CEO_INTERNAL_ARTIFACT_TOKENS).toContain('governed_evolution_cycle')
+    const token = CEO_INTERNAL_ARTIFACT_TOKENS[0]
+    expect(containsInternalArtifactToken(`marker ${token}`)).toBe(true)
+    expect(finalizeCeoResponse({ content: `before [${token}] id {"ok":true} after` }).content).toBe('before after')
+  })
+
   test('finalization is deterministic for identical final content', () => {
     const a = finalizeCeoResponse({ content: 'A stable final answer.' })
     const b = finalizeCeoResponse({ content: 'A stable final answer.' })
     expect(a.content).toBe(b.content)
     expect(a.finalResponseHash).toBe(b.finalResponseHash)
     expect(a.finalizationId).toBe(b.finalizationId)
+  })
+
+  test('conversation state and references exclude contaminated assistant history', () => {
+    const rows = [
+      { role: 'user', content: 'We are deciding the next operations priority.', createdAt: 1 },
+      { role: 'assistant', content: 'Leaked [continuous_loop_trace] loop_1 { stage: "PERCEIVE" }', createdAt: 2 },
+      { role: 'assistant', content: 'The operations foundation should come first.', createdAt: 3 },
+    ]
+    const state = deriveCeoConversationState(rows)
+    expect(state.lastAssistantMessage).toBe('The operations foundation should come first.')
+    expect(state.lastAssistantMessage).not.toContain('continuous_loop_trace')
+    const references = resolveConversationReferences('continue from there', rows, state)
+    expect(references.every((reference) => !reference.resolvedText?.includes('continuous_loop_trace'))).toBe(true)
   })
 
   test('context builder excludes contaminated assistant history but preserves user intent', () => {
@@ -64,6 +86,12 @@ describe('CEO canonical response finalizer', () => {
     expect(flattened).not.toContain('continuous_loop_trace')
     expect(flattened).toContain('Useful prior business explanation.')
     expect(flattened).toContain('Explain why the architecture matters for the business.')
+  })
+
+  test('finalization invariant detects response identity mutation', () => {
+    const response = finalizeCeoResponse({ content: 'Immutable answer.' })
+    const tampered = { ...response, content: 'Tampered answer.' }
+    expect(() => assertFinalResponseInvariant(tampered)).toThrow('CEO_FINAL_RESPONSE_HASH_MISMATCH')
   })
 
   test('final answer can be propagated unchanged across persistence and transport boundaries', () => {
