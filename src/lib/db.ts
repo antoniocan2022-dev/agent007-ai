@@ -2,10 +2,7 @@ import { PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
 
 /** Canonical production database client. */
-const globalForPrisma = globalThis as unknown as {
-  prismaBase?: PrismaClient
-  prisma?: ReturnType<PrismaClient['$extends']>
-}
+const globalForPrisma = globalThis as unknown as { prismaBase?: PrismaClient; prisma?: PrismaClient }
 
 function buildRuntimeDatabaseUrl(): string | undefined {
   const raw = process.env.DATABASE_URL?.trim()
@@ -29,18 +26,10 @@ function responseIdentity(content: string): { finalResponseHash: string; finaliz
 
 async function recordAssistantIdentity(messageId: string, content: string, description: string): Promise<void> {
   const identity = responseIdentity(content)
-  await basePrisma.auditLog.create({
-    data: {
-      action: 'ceo_response_finalized',
-      entity: 'Message',
-      entityId: messageId,
-      description,
-      metadata: JSON.stringify({ ...identity, messageId, contentLength: content.length }),
-    },
-  })
+  await basePrisma.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: messageId, description, metadata: JSON.stringify({ ...identity, messageId, contentLength: content.length }) } })
 }
 
-export const db = globalForPrisma.prisma ?? basePrisma.$extends({
+const extendedPrisma = basePrisma.$extends({
   name: 'ceo-response-lineage',
   query: {
     message: {
@@ -61,6 +50,9 @@ export const db = globalForPrisma.prisma ?? basePrisma.$extends({
     },
   },
 })
+
+/** Runtime extension preserves the Prisma surface type for existing consumers. */
+export const db: PrismaClient = (globalForPrisma.prisma ?? extendedPrisma) as unknown as PrismaClient
 globalForPrisma.prisma = db
 
 export async function ensureDbReady(): Promise<void> { return }
