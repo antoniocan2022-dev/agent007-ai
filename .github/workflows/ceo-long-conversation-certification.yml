@@ -1,5 +1,7 @@
 name: CEO Long Conversation Certification
 
+# Validation-only replay against latest main; no application implementation changes.
+
 on:
   push:
     branches: [main]
