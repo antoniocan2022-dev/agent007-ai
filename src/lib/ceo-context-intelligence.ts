@@ -1,5 +1,6 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { extractEnumeratedItems, resolveOrdinalReference } from './ceo-reference-resolution'
+import { safeConversationRows } from './ceo-conversation-state'
 
 export interface ContextContinuityScore {
   score: number
@@ -52,24 +53,25 @@ function recentUserAnchor(prior: readonly PersistedConversationRow[]): string {
 }
 
 function substantivePrior(prior: readonly PersistedConversationRow[]): PersistedConversationRow[] {
-  return prior.filter((row) => (row.role === 'user' || row.role === 'assistant') && normalize(row.content).length >= 20)
+  return safeConversationRows(prior).filter((row) => normalize(row.content).length >= 20)
 }
 
 function semanticReferenceAnchor(currentUserMessage: string, prior: readonly PersistedConversationRow[]): string {
-  const ordinal = resolveOrdinalReference(currentUserMessage, prior)
+  const safePrior = safeConversationRows(prior)
+  const ordinal = resolveOrdinalReference(currentUserMessage, safePrior)
   if (ordinal?.resolvedText) return ordinal.resolvedText
 
   if (containsReferenceSelection(currentUserMessage)) {
-    const listItems = extractEnumeratedItems(prior)
+    const listItems = extractEnumeratedItems(safePrior)
     if (listItems.length) {
       const latestListId = listItems.at(-1)?.listId
       const latestList = listItems.filter((item) => item.listId === latestListId)
       if (latestList.length) return latestList.map((item) => item.text).join(' | ')
     }
-    return recentUserAnchor(prior)
+    return recentUserAnchor(safePrior)
   }
 
-  return containsAnaphora(currentUserMessage) ? recentUserAnchor(prior) : ''
+  return containsAnaphora(currentUserMessage) ? recentUserAnchor(safePrior) : ''
 }
 
 export function scoreContextContinuity(input: {
@@ -78,7 +80,7 @@ export function scoreContextContinuity(input: {
   priorTurns: readonly PersistedConversationRow[]
   relevantOlderMessages?: readonly PersistedConversationRow[]
 }): ContextContinuityScore {
-  const prior = [...(input.relevantOlderMessages ?? []), ...input.priorTurns].filter((row) => row.role === 'user' || row.role === 'assistant')
+  const prior = safeConversationRows([...(input.relevantOlderMessages ?? []), ...input.priorTurns]).filter((row) => row.role === 'user' || row.role === 'assistant')
   const currentTokens = tokens(input.currentUserMessage)
   const responseTokens = tokens(input.response)
   const anaphoraDetected = containsAnaphora(input.currentUserMessage)
