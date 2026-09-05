@@ -58,7 +58,20 @@ jobs:
       - name: Provider control-plane integrity audit
         run: bun scripts/provider-control-plane-audit.ts
       - name: Provider governance unit and integration matrix
-        run: bun test --max-concurrency=1 tests/provider-live-model-contract.test.ts tests/provider-live-probe-regression.test.ts src/lib/model-intelligence-runtime.test.ts tests/provider-control-plane.integration.test.ts tests/ceo-cognitive-lifecycle.test.ts tests/ceo-availability-recovery.test.ts tests/provider-error-lifecycle.test.ts tests/provider-selection-contract.test.ts
+        run: |
+          set -euo pipefail
+          for test_file in \
+            tests/provider-live-model-contract.test.ts \
+            tests/provider-live-probe-regression.test.ts \
+            src/lib/model-intelligence-runtime.test.ts \
+            tests/provider-control-plane.integration.test.ts \
+            tests/ceo-cognitive-lifecycle.test.ts \
+            tests/ceo-availability-recovery.test.ts \
+            tests/provider-error-lifecycle.test.ts \
+            tests/provider-selection-contract.test.ts; do
+            echo "Running isolated test process: $test_file"
+            bun test --max-concurrency=1 "$test_file"
+          done
       - name: Repository hygiene
         run: |
           git diff --check
