@@ -20,9 +20,16 @@ export function buildAuthoritativeCeoResponseDecision(input: { content: string; 
 }
 
 export function finalizeCeoResponseForSurface(input: { content: string; quality: QualityResult; evidenceState: EvidenceState; degraded: boolean; conversational?: boolean; userFacingStatus?: boolean; context?: string; requestId?: string }): FinalizedCeoResponse {
-  const decisionEnvelope = buildAuthoritativeCeoResponseDecision({ content: input.content, quality: input.quality, evidenceState: input.evidenceState, degraded: input.degraded, conversational: input.conversational, requestId: input.requestId })
-  // Deliberately do not add post-quality user-facing labels. Evidence/quality metadata is already transported out-of-band.
-  return finalizeCeoResponse({ content: decisionEnvelope.candidate.content, finalizationContext: input.context, decisionEnvelope })
+  try {
+    const decisionEnvelope = buildAuthoritativeCeoResponseDecision({ content: input.content, quality: input.quality, evidenceState: input.evidenceState, degraded: input.degraded, conversational: input.conversational, requestId: input.requestId })
+    // Deliberately do not add post-quality user-facing labels. Evidence/quality metadata is already transported out-of-band.
+    return finalizeCeoResponse({ content: decisionEnvelope.candidate.content, finalizationContext: input.context, decisionEnvelope })
+  } catch (error) {
+    // Content that cannot be made user-safe is an expected runtime outcome (leaked/unsanitizable internal artifacts), not a
+    // programming error -- fail safely into the standard rejected-response fallback rather than crashing the request path.
+    if (error instanceof Error && error.message === 'CEO_RESPONSE_CANDIDATE_NOT_USER_SAFE') return finalizeCeoResponse({ content: input.content, finalizationContext: input.context })
+    throw error
+  }
 }
 
 /** Applies the same finalization sanitization composeCeoResponse will apply, so the quality gate judges what the user actually receives instead of the pre-sanitization draft. */
