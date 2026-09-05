@@ -8,7 +8,6 @@ export interface CeoConversationState {
   topic: string
   topicCandidates: string[]
   entities: string[]
-  activeThreads: ConversationThreadRecord[]
   activeThreads: string[]
   threads: ConversationThreadRecord[]
   unresolvedQuestions: string[]
