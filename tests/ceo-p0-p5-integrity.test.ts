@@ -49,8 +49,9 @@ describe('CEO P0-P5 runtime integrity', () => {
     const content = 'Useful answer\n[continuous_loop_trace] continuous_loop:abc { status: "ACTIVE" }'
     const quality = { decision: 'PASS' as const, evidenceState: 'NOT_APPLICABLE' as const, verificationStatus: 'NOT_REQUIRED' as const, checks: { nonEmpty: true, contractValid: true, objectiveCoverage: true, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, reasons: [] }
     const rendered = composeCeoResponse({ content, evidenceState: 'NOT_APPLICABLE', quality, degraded: false, conversational: true })
-    expect(rendered).toContain('internal execution details were withheld')
+    expect(rendered).toContain('Internal execution details were withheld')
     expect(rendered).not.toContain('continuous_loop_trace')
+    expect(rendered).toContain('Useful answer')
   })
 
   test('P3 CEO behavioral policy activates differentiated modes without creating separate engines', () => {
