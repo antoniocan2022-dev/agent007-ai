@@ -1,12 +1,11 @@
 import { PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
 
-/**
- * Canonical production database client.
- * Schema reconciliation belongs to the controlled release/build path, not to
- * request-time serverless initialization.
- */
-const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<PrismaClient['$extends']> }
+/** Canonical production database client. */
+const globalForPrisma = globalThis as unknown as {
+  prismaBase?: PrismaClient
+  prisma?: ReturnType<PrismaClient['$extends']>
+}
 
 function buildRuntimeDatabaseUrl(): string | undefined {
   const raw = process.env.DATABASE_URL?.trim()
@@ -20,9 +19,10 @@ function buildRuntimeDatabaseUrl(): string | undefined {
 }
 
 const databaseUrl = buildRuntimeDatabaseUrl()
-const basePrisma = globalForPrisma.prisma ?? new PrismaClient({
+const basePrisma = globalForPrisma.prismaBase ?? new PrismaClient({
   ...(databaseUrl ? { datasources: { db: { url: databaseUrl } } } : {}),
 })
+globalForPrisma.prismaBase = basePrisma
 
 function responseIdentity(content: string): { finalResponseHash: string; finalizationId: string } {
   const hash = createHash('sha256').update(content.trim(), 'utf8').digest('hex')
@@ -30,12 +30,11 @@ function responseIdentity(content: string): { finalResponseHash: string; finaliz
 }
 
 /**
- * The message row remains backward-compatible. Every assistant-message create
- * or update also writes an immutable lineage record to AuditLog, keyed by the
- * persisted Message id. This gives the database an independent response
- * identity without changing the existing Message attachment contract.
+ * The existing Message schema remains backward-compatible. Every assistant
+ * create/update also writes an immutable lineage record to AuditLog keyed by
+ * Message id, so persistence has an independently queryable response identity.
  */
-export const db = basePrisma.$extends({
+export const db = globalForPrisma.prisma ?? basePrisma.$extends({
   name: 'ceo-response-lineage',
   query: {
     message: {
@@ -75,7 +74,6 @@ export const db = basePrisma.$extends({
     },
   },
 })
-
 globalForPrisma.prisma = db
 
 export async function ensureDbReady(): Promise<void> { return }
