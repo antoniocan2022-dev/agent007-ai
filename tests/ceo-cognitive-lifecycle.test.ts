@@ -219,10 +219,14 @@ describe('CEO cognitive lifecycle', () => {
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
+    const now = Date.now()
     const result = await runCeoCognitiveLifecycle({
       missionId: 'mission-critical-fallback-test',
       messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }],
       timeoutMs: 30000,
+      contextualEvidence: 'Verified live mission evidence is available for this controlled test.',
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
     })
     // Before the fix, the independent-review throw was uncaught: it unwound straight to the outer
     // catch before primaryQuality was ever computed, discarding the already-generated primary answer
