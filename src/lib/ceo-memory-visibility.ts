@@ -4,6 +4,10 @@ export type ConversationalMemoryLike = { key: string; category: string }
  * Canonical visibility policy for memory objects that may be supplied to the
  * conversational CEO context. Control-plane, telemetry, evidence traces and
  * correlation ledgers are durable system records, not user-facing context.
+ *
+ * Unknown/internal-looking records fail closed: callers must explicitly opt a
+ * category/key family into conversational visibility rather than relying on a
+ * growing denylist.
  */
 const INTERNAL_ONLY_CATEGORIES = new Set([
   'evidence_trace',
@@ -17,6 +21,7 @@ const INTERNAL_ONLY_CATEGORIES = new Set([
   'runtime_telemetry',
   'ceo_runtime_metrics',
   'provider_telemetry',
+  'continuous_loop_trace',
 ])
 
 const INTERNAL_ONLY_KEY_PREFIXES = [
@@ -29,13 +34,30 @@ const INTERNAL_ONLY_KEY_PREFIXES = [
   'architecture_business_outcome:',
   'runtime_telemetry:',
   'mission_telemetry:',
+  'continuous_loop_trace:',
 ]
+
+const KNOWN_CONVERSATIONAL_CATEGORY_PREFIXES = [
+  'conversation_',
+  'ceo_user_',
+  'business_',
+  'preference_',
+  'goal_',
+  'profile_',
+]
+
+const INTERNAL_CATEGORY_PATTERN = /(?:^|_)(?:trace|telemetry|metric|diagnostic|runtime|control|incident|regression|correlation|execution)(?:_|$)/i
+const INTERNAL_KEY_PATTERN = /(?:^|:|_)(?:trace|telemetry|metric|diagnostic|runtime|control|incident|regression|correlation|execution)(?:[:_]|$)/i
 
 export function isConversationalMemoryVisible(memory: ConversationalMemoryLike): boolean {
   const category = memory.category.trim().toLowerCase()
   const key = memory.key.trim().toLowerCase()
+  if (!category || !key) return false
   if (INTERNAL_ONLY_CATEGORIES.has(category)) return false
-  return !INTERNAL_ONLY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+  if (INTERNAL_ONLY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) return false
+  if (INTERNAL_CATEGORY_PATTERN.test(category) || INTERNAL_KEY_PATTERN.test(key)) return false
+  if (KNOWN_CONVERSATIONAL_CATEGORY_PREFIXES.some((prefix) => category.startsWith(prefix))) return true
+  return false
 }
 
 export function filterConversationalMemories<T extends ConversationalMemoryLike>(memories: readonly T[]): T[] {
