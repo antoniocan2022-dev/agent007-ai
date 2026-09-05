@@ -78,7 +78,7 @@ describe('Architecture integrity contract — phases 0-4', () => {
   })
 
   test('high-risk domain alone does not hard-abstain on a non-evidence provider failure', async () => {
-    const response = await buildCeoDegradedResponse({ objective: 'Review the company compliance position.', intent: 'decision', reason: 'Provider failed.', failureReason: 'provider_error', domain: 'security', recall: async () => [{ key: 'unsafe_memory', value: 'Do this from memory', category: 'memory' }] })
+    const response = await buildCeoDegradedResponse({ objective: 'Review the company compliance position.', intent: 'decision', reason: 'Provider failed.', failureReason: 'provider_error', domain: 'security', recall: async () => [{ key: 'unsafe_memory', value: 'Do this from memory', category: 'general' }] })
     expect(response.content).not.toContain('ABSTAINED_REQUIRED_EVIDENCE')
     expect(response.sourceKeys).toEqual(['unsafe_memory'])
     expect(response.evidenceState).toBe('MEMORY_ONLY')

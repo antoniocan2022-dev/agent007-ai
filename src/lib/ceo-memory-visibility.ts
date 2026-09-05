@@ -21,6 +21,8 @@ export type ConversationalMemoryLike = { key: string; category: string }
 const CONVERSATIONAL_VISIBLE_CATEGORIES = new Set([
   'general',
   'mission',
+  'strategy',
+  'user_goal',
 ])
 
 export function isConversationalMemoryVisible(memory: ConversationalMemoryLike): boolean {
