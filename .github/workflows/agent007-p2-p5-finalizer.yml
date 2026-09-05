@@ -1,0 +1,47 @@
+name: Agent007 P2 P5 Certification Finalizer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - name: Wait for canonical P2 runner to commit and remove itself
+        run: |
+          for i in $(seq 1 90); do
+            git fetch origin main
+            git checkout -B main origin/main
+            if test ! -f .github/workflows/agent007-p2-p5-patch.yml; then
+              echo 'Canonical P2 runner has completed its self-removal.'
+              break
+            fi
+            sleep 6
+          done
+          test ! -f .github/workflows/agent007-p2-p5-patch.yml
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Final TypeScript and P0-P5 certification
+        run: |
+          bunx tsc -p tsconfig.ci.json --noEmit
+          bun test tests/ceo-p0-integrity.test.ts tests/ceo-p1-integrity.test.ts tests/ceo-p1-p2.test.ts tests/ceo-p0-p5-integrity.test.ts tests/continuous-loop-integrity.test.ts tests/ceo-cognitive-lifecycle.test.ts tests/ceo-conversation-runtime-regressions.test.ts
+      - name: Remove finalizer
+        run: |
+          git config user.name 'Agent007 CI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/agent007-p2-p5-finalizer.yml
+          git commit -m 'chore(ci): remove temporary P2 P5 finalizer'
+          git push origin HEAD:main
