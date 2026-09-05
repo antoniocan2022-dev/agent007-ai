@@ -1,7 +1,8 @@
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import type { CeoIntent, ResponseAction } from './ceo-cognitive-contract'
 
-export interface ConversationalHistoryRow { role: 'user' | 'assistant'; content: string; createdAt?: Date | number }
+/** Structurally compatible with the canonical PersistedConversationRow (ceo-context-composer.ts) so safeConversationRows below accepts it directly — widened, not narrowed, to avoid a circular import between the two modules. */
+export interface ConversationalHistoryRow { role: string; content: string; createdAt?: Date | string | number }
 
 export const CEO_BEHAVIORAL_MODES = ['business_partner','friend','psychological_insight','technologist','great_thinker','operator','guardian','ceo_curiosity'] as const
 export type CeoBehavioralMode = (typeof CEO_BEHAVIORAL_MODES)[number]
