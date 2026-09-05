@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import type { QualityResult, CeoResponseCandidate, CeoQualityDecision, CeoResponseDecisionEnvelope } from './ceo-cognitive-contract'
+import type { QualityResult, CeoResponseCandidate, CeoQualityDecision, CeoResponseDecisionEnvelope, CeoControlPlaneSummary } from './ceo-cognitive-contract'
 import { assertCeoControlPlaneSummary } from './ceo-control-plane-summary'
-import type { CeoControlPlaneSummary } from './ceo-cognitive-contract'
+
+export type { CeoResponseCandidate, CeoQualityDecision, CeoResponseDecisionEnvelope, CeoControlPlaneSummary } from './ceo-cognitive-contract'
 
 export function buildCeoResponseCandidate(input: { content: string; requestId?: string }): CeoResponseCandidate {
   const content = input.content.trim()
