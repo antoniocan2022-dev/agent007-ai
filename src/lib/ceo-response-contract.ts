@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { QualityResult, CeoResponseCandidate, CeoQualityDecision, CeoResponseDecisionEnvelope } from './ceo-cognitive-contract'
+import { assertCeoControlPlaneSummary } from './ceo-control-plane-summary'
+import type { CeoControlPlaneSummary } from './ceo-cognitive-contract'
 
 export function buildCeoResponseCandidate(input: { content: string; requestId?: string }): CeoResponseCandidate {
   const content = input.content.trim()
@@ -19,12 +21,16 @@ export function decideCeoCandidate(candidate: CeoResponseCandidate, quality: Qua
   })
 }
 
-export function buildCeoResponseDecisionEnvelope(input: { content: string; quality: QualityResult; requestId?: string }): CeoResponseDecisionEnvelope {
+export function buildCeoResponseDecisionEnvelope(input: { content: string; quality: QualityResult; controlPlaneSummary: CeoControlPlaneSummary; requestId?: string }): CeoResponseDecisionEnvelope {
+  assertCeoControlPlaneSummary(input.controlPlaneSummary)
+  if (input.controlPlaneSummary.qualityDecision !== input.quality.decision || input.controlPlaneSummary.evidenceState !== input.quality.evidenceState) throw new Error('CEO_CONTROL_PLANE_QUALITY_MISMATCH')
   const candidate = buildCeoResponseCandidate({ content: input.content, requestId: input.requestId })
-  return Object.freeze({ candidate, quality: decideCeoCandidate(candidate, input.quality) })
+  return Object.freeze({ candidate, quality: decideCeoCandidate(candidate, input.quality), controlPlaneSummary: input.controlPlaneSummary })
 }
 
 export function assertCeoResponseDecisionEnvelope(envelope: CeoResponseDecisionEnvelope): void {
   const expectedHash = createHash('sha256').update(envelope.candidate.content, 'utf8').digest('hex')
   if (expectedHash !== envelope.candidate.contentHash || envelope.quality.candidateId !== envelope.candidate.candidateId || envelope.quality.candidateHash !== expectedHash) throw new Error('CEO_RESPONSE_DECISION_ENVELOPE_MISMATCH')
+  assertCeoControlPlaneSummary(envelope.controlPlaneSummary)
+  if (envelope.controlPlaneSummary.qualityDecision !== envelope.quality.decision) throw new Error('CEO_RESPONSE_DECISION_CONTROL_SUMMARY_MISMATCH')
 }
