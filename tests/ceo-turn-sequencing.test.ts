@@ -1,20 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { isResponseSuperseded, isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
+import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 
 describe('Recommendation 2: optimistic revision-sequencing and idempotency primitives', () => {
-  test('a response computed against the latest turn it observed is not superseded', () => {
-    expect(isResponseSuperseded(3, 3)).toBe(false)
-  })
-
-  test('a response is superseded once a newer turn has been accepted for the conversation', () => {
-    expect(isResponseSuperseded(3, 4)).toBe(true)
-    expect(isResponseSuperseded(1, 100)).toBe(true)
-  })
-
-  test('a revision can never move backward relative to what was captured, so a lower latest revision is never superseded', () => {
-    expect(isResponseSuperseded(5, 4)).toBe(false)
-  })
-
   test('recognizes a Prisma unique-constraint violation (P2002) as a duplicate request', () => {
     expect(isUniqueConstraintViolation({ code: 'P2002' })).toBe(true)
   })

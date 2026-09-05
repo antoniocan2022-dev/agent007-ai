@@ -4,6 +4,16 @@ import type { FinalResponseProvenance } from './ceo-cognitive-contract'
 
 export interface CeoAssistantPersistenceInput { conversationId: string; content: string; provenance: FinalResponseProvenance }
 
+// Recommendation 2 (optimistic revision-sequencing): thrown when the atomic check inside the same
+// transaction as the write finds the conversation's revision has already advanced past the turn this
+// response was computed against. Checking and writing in one transaction (rather than a separate read
+// followed by a conditional write) closes the race window a newer turn could otherwise land in between
+// the two -- the entire "is this still current" decision and the write itself are one atomic step.
+export class CeoResponseSupersededError extends Error {
+  readonly latestRevision: number
+  constructor(latestRevision: number) { super('CEO_RESPONSE_SUPERSEDED'); this.name = 'CeoResponseSupersededError'; this.latestRevision = latestRevision }
+}
+
 function contentHash(content: string): string { return createHash('sha256').update(content.trim(), 'utf8').digest('hex') }
 function assertPersistenceIdentity(content: string, provenance: FinalResponseProvenance): void {
   const normalized = content.trim()
@@ -17,25 +27,29 @@ function lineageMetadata(input: CeoAssistantPersistenceInput): string {
   return JSON.stringify({ finalResponseHash: input.provenance.finalResponseHash, finalizationId: input.provenance.finalizationId, candidateId: input.provenance.candidateId, candidateHash: input.provenance.candidateHash, qualityDecisionId: input.provenance.qualityDecisionId, contentLength: input.content.trim().length })
 }
 
-export async function persistCeoAssistantMessage(input: CeoAssistantPersistenceInput): Promise<string> {
+export async function persistCeoAssistantMessage(input: CeoAssistantPersistenceInput & { capturedTurnSequence: number }): Promise<string> {
   const content = input.content.trim()
   if (!content) throw new Error('CEO_RESPONSE_PERSISTENCE_EMPTY_CONTENT')
   const message = await db.$transaction(async (tx) => {
-    const created = await tx.message.create({ data: { conversationId: input.conversationId, role: 'assistant', content } })
+    const conversation = await tx.conversation.findUnique({ where: { id: input.conversationId }, select: { revision: true } })
+    if (conversation && conversation.revision > input.capturedTurnSequence) throw new CeoResponseSupersededError(conversation.revision)
+    const created = await tx.message.create({ data: { conversationId: input.conversationId, role: 'assistant', content, turnSequence: input.capturedTurnSequence } })
     await tx.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: created.id, description: 'Canonical CEO response identity persisted atomically with assistant message.', metadata: lineageMetadata({ ...input, content }) } })
     return created
   })
   return message.id
 }
 
-export async function updateCeoAssistantMessage(input: { messageId: string; content: string; provenance: FinalResponseProvenance }): Promise<void> {
+export async function updateCeoAssistantMessage(input: { messageId: string; content: string; provenance: FinalResponseProvenance; capturedTurnSequence: number; conversationId: string }): Promise<void> {
   const content = input.content.trim()
   if (!content) throw new Error('CEO_RESPONSE_PERSISTENCE_EMPTY_CONTENT')
   await db.$transaction(async (tx) => {
+    const conversation = await tx.conversation.findUnique({ where: { id: input.conversationId }, select: { revision: true } })
+    if (conversation && conversation.revision > input.capturedTurnSequence) throw new CeoResponseSupersededError(conversation.revision)
     const existing = await tx.message.findUnique({ where: { id: input.messageId }, select: { role: true } })
     if (!existing || existing.role !== 'assistant') throw new Error('CEO_RESPONSE_PERSISTENCE_ROLE_MISMATCH')
     await tx.message.update({ where: { id: input.messageId }, data: { content } })
-    await tx.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: input.messageId, description: 'Canonical CEO response identity persisted atomically with assistant message update.', metadata: lineageMetadata({ conversationId: '', content, provenance: input.provenance }) } })
+    await tx.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: input.messageId, description: 'Canonical CEO response identity persisted atomically with assistant message update.', metadata: lineageMetadata({ conversationId: input.conversationId, content, provenance: input.provenance }) } })
   })
 }
 

@@ -27,8 +27,8 @@ import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
-import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker } from '@/lib/ceo-response-persistence'
-import { isResponseSuperseded, isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
+import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker, CeoResponseSupersededError } from '@/lib/ceo-response-persistence'
+import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
 
 export const runtime = 'nodejs'
@@ -162,22 +162,25 @@ export async function POST(req: NextRequest) {
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
           const metrics = buildCeoRuntimeMetrics({ result: response, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
-          // Recommendation 2 (optimistic revision-sequencing): re-read the conversation's revision now
-          // that the response is fully computed. If a newer user turn was accepted while this request
-          // was in flight, this response is stale relative to the "current request" invariant -- it is
-          // audited but never written into the visible transcript or broadcast as the current answer.
-          const latestRevisionAtCompletion = await db.conversation.findUnique({ where: { id: conversationId }, select: { revision: true } }).then((row) => row?.revision ?? myTurnSequence).catch(() => myTurnSequence)
-          const responseSuperseded = isResponseSuperseded(myTurnSequence, latestRevisionAtCompletion)
+          // Recommendation 2 (optimistic revision-sequencing): the staleness check and the write happen
+          // inside one transaction (persistCeoAssistantMessage), not as a separate read followed by a
+          // conditional write -- that would leave a race window for a newer turn to land in between the
+          // two. If a newer user turn was accepted before the write commits, the transaction throws
+          // CeoResponseSupersededError and nothing is written; the response is audited but never added
+          // to the visible transcript or broadcast as the current answer.
           let persistedAssistantMessageId: string | null = null
-          if (responseSuperseded) {
-            await recordSupersededCeoResponse({ conversationId, content: response.content, capturedTurnSequence: myTurnSequence, latestRevision: latestRevisionAtCompletion }).catch((auditErr) => console.warn('[api/agent] Superseded-response audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr)))
-          } else {
-            try { const provenance = response.quality.finalResponseProvenance; if (provenance) persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: response.content, provenance }); else console.warn('[api/agent] CEO-lane assistant persistence skipped: missing final response provenance.') } catch (persistErr: any) { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)) }
-            if (!response.degraded) {
-              try { const afterRows = [...safeContextRows, { role: 'user' as const, content: message, createdAt: Date.now() }, { role: 'assistant' as const, content: response.content, createdAt: Date.now() }]; const delta = computeWorldStateDelta(safeContextRows, afterRows, message); if (delta.newDecisions.length || delta.newGoals.length || delta.newCommitments.length || delta.newOpenLoops.length || delta.resolvedOpenLoops.length || delta.newCorrections.length || delta.newlySuperseded.length) console.log('[ceo-world-state-delta]', JSON.stringify({ requestId, newDecisions: delta.newDecisions.length, newGoals: delta.newGoals.length, newCommitments: delta.newCommitments.length, newOpenLoops: delta.newOpenLoops.length, resolvedOpenLoops: delta.resolvedOpenLoops.length, newCorrections: delta.newCorrections.length, newlySuperseded: delta.newlySuperseded.length })) } catch (deltaError) { console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError)) }
+          let responseSuperseded = false
+          const provenance = response.quality.finalResponseProvenance
+          if (provenance) {
+            try { persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: response.content, provenance, capturedTurnSequence: myTurnSequence }) } catch (persistErr: any) {
+              if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: response.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-response audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
+              else console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150))
             }
-            if (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide') { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; ') }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
+          } else console.warn('[api/agent] CEO-lane assistant persistence skipped: missing final response provenance.')
+          if (!responseSuperseded && !response.degraded) {
+            try { const afterRows = [...safeContextRows, { role: 'user' as const, content: message, createdAt: Date.now() }, { role: 'assistant' as const, content: response.content, createdAt: Date.now() }]; const delta = computeWorldStateDelta(safeContextRows, afterRows, message); if (delta.newDecisions.length || delta.newGoals.length || delta.newCommitments.length || delta.newOpenLoops.length || delta.resolvedOpenLoops.length || delta.newCorrections.length || delta.newlySuperseded.length) console.log('[ceo-world-state-delta]', JSON.stringify({ requestId, newDecisions: delta.newDecisions.length, newGoals: delta.newGoals.length, newCommitments: delta.newCommitments.length, newOpenLoops: delta.newOpenLoops.length, resolvedOpenLoops: delta.resolvedOpenLoops.length, newCorrections: delta.newCorrections.length, newlySuperseded: delta.newlySuperseded.length })) } catch (deltaError) { console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError)) }
           }
+          if (!responseSuperseded && (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide')) { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; ') }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
           streamOutcome = responseSuperseded ? 'degraded' : (response.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model, superseded: responseSuperseded }))
           if (responseSuperseded) {
@@ -202,15 +205,18 @@ export async function POST(req: NextRequest) {
           // Recommendation 2 (optimistic revision-sequencing): the orchestrator's real actions already
           // ran by this point (that is not undone -- cooperative cancellation mid-execution is out of
           // scope here), but the CEO synthesis text that reports on them can still be stale if a newer
-          // user turn arrived while it was being generated. A stale synthesis is never written over the
-          // orchestrator's own record of what it did, and is never broadcast as the current answer.
-          const latestRevisionAtCompletion = await db.conversation.findUnique({ where: { id: conversationId }, select: { revision: true } }).then((row) => row?.revision ?? myTurnSequence).catch(() => myTurnSequence)
-          const responseSuperseded = isResponseSuperseded(myTurnSequence, latestRevisionAtCompletion)
-          if (responseSuperseded) {
-            await recordSupersededCeoResponse({ conversationId, content: synthesis.content, capturedTurnSequence: myTurnSequence, latestRevision: latestRevisionAtCompletion }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr)))
-          } else {
-            try { const provenance = synthesis.quality.finalResponseProvenance; if (provenance) await updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, content: synthesis.content, provenance }); else console.warn('[api/agent] Operational synthesis history update skipped: missing final response provenance.') } catch (persistErr: any) { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)) }
-          }
+          // user turn arrived while it was being generated. The staleness check and the write happen
+          // inside one transaction (updateCeoAssistantMessage), closing the race window a separate
+          // read-then-write would leave open. A stale synthesis is never written over the orchestrator's
+          // own record of what it did, and is never broadcast as the current answer.
+          let responseSuperseded = false
+          const synthesisProvenance = synthesis.quality.finalResponseProvenance
+          if (synthesisProvenance) {
+            try { await updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, content: synthesis.content, provenance: synthesisProvenance, capturedTurnSequence: myTurnSequence, conversationId }) } catch (persistErr: any) {
+              if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: synthesis.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
+              else console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150))
+            }
+          } else console.warn('[api/agent] Operational synthesis history update skipped: missing final response provenance.')
           streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, superseded: responseSuperseded }))
           if (responseSuperseded) {
