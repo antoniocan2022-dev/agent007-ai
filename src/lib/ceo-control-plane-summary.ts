@@ -1,15 +1,5 @@
-import type { EvidenceState, QualityDecision, ResponseAction } from './ceo-cognitive-contract'
-
-export interface CeoControlPlaneSummary {
-  schemaVersion: 1
-  requestId?: string
-  responseAction?: ResponseAction
-  evidenceState: EvidenceState
-  qualityDecision: QualityDecision
-  executionCompleted: boolean
-  verified: boolean
-  degraded: boolean
-}
+import type { CeoControlPlaneSummary, EvidenceState, QualityDecision, ResponseAction } from './ceo-cognitive-contract'
+export type { CeoControlPlaneSummary } from './ceo-cognitive-contract'
 
 export function buildCeoControlPlaneSummary(input: { requestId?: string; responseAction?: ResponseAction; evidenceState: EvidenceState; qualityDecision: QualityDecision; executionCompleted: boolean; verified: boolean; degraded: boolean }): CeoControlPlaneSummary {
   return Object.freeze({ schemaVersion: 1, requestId: input.requestId, responseAction: input.responseAction, evidenceState: input.evidenceState, qualityDecision: input.qualityDecision, executionCompleted: input.executionCompleted, verified: input.verified, degraded: input.degraded })
