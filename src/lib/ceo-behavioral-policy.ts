@@ -77,7 +77,7 @@ export function buildCeoBehavioralPolicy(input: {
   }
 }
 
-const INTERNAL_ARTIFACT_TOKEN_RE = /\b(?:continuous_loop_trace|evidence_trace|quality_trace|routing_trace|ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry)\b/i
+const INTERNAL_ARTIFACT_TOKEN_RE = /\b(?:continuous_loop_trace|evidence_trace|quality_trace|routing_trace|ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|governed_evolution_cycle)/i
 
 export function containsInternalArtifactToken(content: string): boolean {
   return INTERNAL_ARTIFACT_TOKEN_RE.test(content)
