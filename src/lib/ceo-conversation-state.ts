@@ -1,4 +1,5 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
+import { containsInternalArtifactToken } from './ceo-behavioral-policy'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -39,12 +40,15 @@ const ENTITY_RE = /\b(?:Agent007|CEO|Vercel|GitHub|OpenAI|Groq|Mistral|Cerebras|
 function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
 function tokens(value: string): string[] { return [...new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))] }
 function timestamp(value: PersistedConversationRow['createdAt']): number { if (value instanceof Date) return value.getTime(); if (typeof value === 'number') return value; const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0 }
+function isSafeConversationRow(row: PersistedConversationRow): boolean { if (!row || typeof row.content !== 'string') return false; if (row.role === 'user') return true; return row.role === 'assistant' && Boolean(row.content.trim()) && !containsInternalArtifactToken(row.content) }
+function safeConversationRows(rows: readonly PersistedConversationRow[]): PersistedConversationRow[] { return rows.filter(isSafeConversationRow) }
 function toneOf(text: string): ConversationTone { const lower = text.toLowerCase(); if (/\b(angry|frustrated|waste|wasting|ridiculous|broken|disappointed|annoyed)\b/.test(lower)) return 'frustrated'; if (/\b(great|excellent|perfect|awesome|succeeded|success|finally)\b/.test(lower)) return 'celebratory'; if (/\b(code|github|vercel|architecture|deployment|database|typescript|api|provider|ci|sha)\b/.test(lower)) return 'technical'; if (/\b(hello|hi|hey|thanks|thank you|how are you)\b/.test(lower)) return 'friendly'; if (/\b(problem|issue|risk|failure|critical|security)\b/.test(lower)) return 'serious'; return 'neutral' }
 function uniqueRecent(items: string[], max = 6): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
 function overlap(a: string, b: string): number { const left = new Set(tokens(a)); const right = new Set(tokens(b)); if (!left.size || !right.size) return 0; let matches = 0; for (const token of left) if (right.has(token)) matches += 1; return matches / Math.max(1, Math.min(left.size, right.size)) }
 function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
 function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now()): ConversationThreadRecord[] {
-  const users = rows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
+  const safeRows = safeConversationRows(rows)
+  const users = safeRows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
   const threads: ConversationThreadRecord[] = []
   const mergeInto = (thread: ConversationThreadRecord, content: string, topicTokens: string[], row: PersistedConversationRow) => {
     thread.currentObjective = content
@@ -70,7 +74,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
       threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
     }
   }
-  const assistantRows = rows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
+  const assistantRows = safeRows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
   const mostRecentAssistantReply = assistantRows.at(-1)?.content
   for (const thread of threads) {
     const reply = assistantRows.find((entry) => entry.at > thread.lastTouchedAt)?.content ?? (thread.status === 'active' ? mostRecentAssistantReply : undefined)
@@ -81,7 +85,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
   return threads.slice(-12)
 }
 export function deriveCeoConversationState(rows: readonly PersistedConversationRow[], currentUserMessage = ''): CeoConversationState {
-  const clean = rows.filter((row) => row && (row.role === 'user' || row.role === 'assistant') && typeof row.content === 'string')
+  const clean = safeConversationRows(rows)
   const userRows = clean.filter((row) => row.role === 'user')
   const assistantRows = clean.filter((row) => row.role === 'assistant')
   const latest = normalize(currentUserMessage || userRows.at(-1)?.content || '')
@@ -105,10 +109,11 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
 }
 export function resolveConversationReferences(currentMessage: string, rows: readonly PersistedConversationRow[], state?: CeoConversationState): ConversationReference[] {
   const message = normalize(currentMessage); if (!message) return []
-  const ordinal = resolveOrdinalReference(message, rows); if (ordinal) return [ordinal]
-  const temporal = resolveTemporalReference(message, rows); if (temporal) return [temporal]
+  const safeRows = safeConversationRows(rows)
+  const ordinal = resolveOrdinalReference(message, safeRows); if (ordinal) return [ordinal]
+  const temporal = resolveTemporalReference(message, safeRows); if (temporal) return [temporal]
   const continuation = resolveActiveThread(message, state?.threads ?? []); if (continuation) return [continuation]
-  const general = resolveGeneralReference(message, rows, state?.activeThreads?.at(-1)); return general ? [general] : []
+  const general = resolveGeneralReference(message, safeRows, state?.activeThreads?.at(-1)); return general ? [general] : []
 }
 export function buildConversationStatePrompt(state: CeoConversationState, references: ConversationReference[]): string {
   const referenceLines = references.map((ref) => `- \"${ref.phrase}\" [${ref.kind}] → ${ref.resolvedText ?? 'unresolved'} (${Math.round(ref.confidence * 100)}%${ref.ambiguous ? ', ambiguous' : ''})`)
@@ -120,4 +125,4 @@ export const buildCeoConversationStatePrompt = buildConversationStatePrompt
 export function buildCeoPersonalityContract(): string {
   return ['CEO NATURAL CONVERSATION CONTRACT:', 'Speak like a capable, thoughtful executive partner rather than a form, auditor, or workflow engine.', 'Preserve context across turns, resolve references from conversation state, and avoid asking for information already available in context.', 'Match the user’s tone and desired depth. Be concise for simple conversation and deep when the user is exploring a difficult issue.', 'Do not add headings, evidence banners, quality labels, or procedural language to ordinary conversation.', 'Do not repeat the user’s question unnecessarily. Move the conversation forward with useful thought when appropriate.', 'Admit uncertainty naturally. Use explicit verification only when a claim actually needs fresh evidence or live system state.', 'When a request requires tools, evidence, or execution, perform the governed work internally and return the result in natural language.', 'Maintain a stable Agent007 identity across providers and fallback attempts.'].join(' ')
 }
-export function extractConversationAnchors(rows: readonly PersistedConversationRow[]): string[] { return [...new Set(rows.slice(-24).flatMap((row) => row.content.split(/[.!?]+/)).map(normalize).filter((clause) => clause.length >= 30))].slice(-16) }
+export function extractConversationAnchors(rows: readonly PersistedConversationRow[]): string[] { return safeConversationRows(rows).slice(-24).flatMap((row) => row.content.split(/[.!?]+/)).map(normalize).filter((clause) => clause.length >= 30).slice(-16) }
