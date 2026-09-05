@@ -62,9 +62,14 @@ describe('Control Reachability Audit — CEO cognitive lifecycle', () => {
     expect(routeSource).toContain("sse('duplicate'")
   })
 
-  test('A response computed after a newer turn was already accepted is never persisted into the visible transcript or broadcast as current, in both the ceo_lifecycle and operational_orchestrator lanes', () => {
-    const supersededChecks = routeSource.match(/isResponseSuperseded\(myTurnSequence, latestRevisionAtCompletion\)/g) ?? []
-    expect(supersededChecks.length).toBe(2)
+  test('A response computed after a newer turn was already accepted is never persisted into the visible transcript or broadcast as current, in both the ceo_lifecycle and operational_orchestrator lanes -- the staleness check and the write are one atomic transaction, not a separate read followed by a conditional write', () => {
+    expect(persistenceSource).toContain('export class CeoResponseSupersededError')
+    expect(persistenceSource).toMatch(/if \(conversation && conversation\.revision > input\.capturedTurnSequence\) throw new CeoResponseSupersededError\(conversation\.revision\)/)
+    // Threaded into both the atomic persist/update calls (2) and both audit-on-supersession calls (2).
+    const capturedTurnSequenceCalls = routeSource.match(/capturedTurnSequence: myTurnSequence/g) ?? []
+    expect(capturedTurnSequenceCalls.length).toBe(4)
+    const supersededCatches = routeSource.match(/persistErr instanceof CeoResponseSupersededError/g) ?? []
+    expect(supersededCatches.length).toBe(2)
     const supersededSseEvents = routeSource.match(/sse\('superseded'/g) ?? []
     expect(supersededSseEvents.length).toBe(2)
   })
