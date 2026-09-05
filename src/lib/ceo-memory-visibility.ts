@@ -5,9 +5,9 @@ export type ConversationalMemoryLike = { key: string; category: string }
  * conversational CEO context. Control-plane, telemetry, evidence traces and
  * correlation ledgers are durable system records, not user-facing context.
  *
- * Unknown/internal-looking records fail closed: callers must explicitly opt a
- * category/key family into conversational visibility rather than relying on a
- * growing denylist.
+ * The policy is deliberately conservative about anything that looks like an
+ * internal runtime artifact, while preserving the existing conversational
+ * memory contract (including the default/general memory category).
  */
 const INTERNAL_ONLY_CATEGORIES = new Set([
   'evidence_trace',
@@ -37,17 +37,8 @@ const INTERNAL_ONLY_KEY_PREFIXES = [
   'continuous_loop_trace:',
 ]
 
-const KNOWN_CONVERSATIONAL_CATEGORY_PREFIXES = [
-  'conversation_',
-  'ceo_user_',
-  'business_',
-  'preference_',
-  'goal_',
-  'profile_',
-]
-
-const INTERNAL_CATEGORY_PATTERN = /(?:^|_)(?:trace|telemetry|metric|diagnostic|runtime|control|incident|regression|correlation|execution)(?:_|$)/i
-const INTERNAL_KEY_PATTERN = /(?:^|:|_)(?:trace|telemetry|metric|diagnostic|runtime|control|incident|regression|correlation|execution)(?:[:_]|$)/i
+const INTERNAL_CATEGORY_PATTERN = /(?:^|_)(?:trace|telemetry|metric|diagnostic|control|incident|regression|correlation)(?:_|$)/i
+const INTERNAL_KEY_PATTERN = /(?:^|:|_)(?:trace|telemetry|metric|diagnostic|control|incident|regression|correlation)(?:[:_]|$)/i
 
 export function isConversationalMemoryVisible(memory: ConversationalMemoryLike): boolean {
   const category = memory.category.trim().toLowerCase()
@@ -56,8 +47,7 @@ export function isConversationalMemoryVisible(memory: ConversationalMemoryLike):
   if (INTERNAL_ONLY_CATEGORIES.has(category)) return false
   if (INTERNAL_ONLY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) return false
   if (INTERNAL_CATEGORY_PATTERN.test(category) || INTERNAL_KEY_PATTERN.test(key)) return false
-  if (KNOWN_CONVERSATIONAL_CATEGORY_PREFIXES.some((prefix) => category.startsWith(prefix))) return true
-  return false
+  return true
 }
 
 export function filterConversationalMemories<T extends ConversationalMemoryLike>(memories: readonly T[]): T[] {
