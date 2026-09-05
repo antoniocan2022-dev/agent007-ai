@@ -6,10 +6,11 @@ const INTERNAL_RESPONSE_PATTERNS: RegExp[] = [
   /^\s*Quality gate:\s*[^\n]*\n?/gim,
   /^\s*(?:INTERNAL[- ]STATE[- ]ONLY|UNAVAILABLE)(?:\s*[:.-].*)?\s*$/gim,
   /^\s*(?:failed capability|failure reason|provider failure|recovery path)\s*:\s*[^\n]*\n?/gim,
-  /^\s*(?:evidence_trace|quality_trace|routing_trace|continuous_loop_trace)\s*[:=]\s*\{[\s\S]*?\}\s*$/gim,
-  /^\s*\d+\.\s*\[(?:ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|evidence_trace|continuous_loop_trace)\][^\n]*$/gim,
+  /^\s*(?:evidence_trace|quality_trace|routing_trace|continuous_loop_trace|governed_evolution_cycle)\s*[:=]\s*\{[\s\S]*?\}\s*$/gim,
+  /\d+\.\s*\[(?:ceo_recommendation|ceo_recommendation_action|ceo_observed_outcome|ceo_conversation_incident|ceo_incident_regression_candidate|architecture_business_outcome|mission_telemetry|runtime_telemetry|ceo_runtime_metrics|provider_telemetry|evidence_trace|continuous_loop_trace|governed_evolution_cycle)\][^\n]*?\{[\s\S]*?\}(?=\s|$)/gim,
   /\[continuous_loop_trace\][\s\S]*$/gi,
   /\bcontinuous_loop_trace\b[\s\S]*$/gi,
+  /\bgoverned_evolution_cycle\b[\s\S]*$/gi,
 ]
 
 function sanitizeConversationalOutput(content: string): string {
