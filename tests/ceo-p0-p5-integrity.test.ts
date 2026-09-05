@@ -46,13 +46,26 @@ describe('CEO P0-P5 runtime integrity', () => {
     expect(explain.content).toContain('explanation you asked for')
   })
 
-  test('P2 response composer withholds internal telemetry instead of rendering it', () => {
+  test('P1 corrections preserve the corrected direction without using stale memory', async () => {
+    const result = await buildCeoDegradedResponse({
+      objective: 'No, I meant operations kit should come first instead.',
+      intent: 'decision',
+      responseAction: 'answer',
+      reason: 'quality failure',
+      failureReason: 'quality_failure',
+      priorConversation: [{ role: 'user', content: 'Prioritize revenue recovery first.', createdAt: 1 }],
+      recall: async () => [{ key: 'stale', value: 'Revenue recovery should remain first.', category: 'general', createdAt: 1, score: 99, timesRecalled: 0 }],
+    })
+    expect(result.content.toLowerCase()).toContain('operations kit')
+    expect(result.content).not.toContain('Revenue recovery should remain first')
+  })
+
+  test('P2 response composer strips internal telemetry while preserving safe user content', () => {
     const content = 'Useful answer\n[continuous_loop_trace] continuous_loop:abc { status: "ACTIVE" }'
     const quality = { decision: 'PASS' as const, evidenceState: 'NOT_APPLICABLE' as const, verificationStatus: 'NOT_REQUIRED' as const, checks: { nonEmpty: true, contractValid: true, objectiveCoverage: true, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }, reasons: [] }
     const rendered = composeCeoResponse({ content, evidenceState: 'NOT_APPLICABLE', quality, degraded: false, conversational: true })
-    expect(rendered).toContain('Internal execution details were withheld')
-    expect(rendered).not.toContain('continuous_loop_trace')
-    expect(rendered).toContain('Useful answer')
+    expect(containsInternalArtifactToken(rendered)).toBe(false)
+    expect(rendered).toBe('Useful answer')
   })
 
   test('P2 rejects stale substitution even when the fresh objective is conversational', () => {
@@ -91,7 +104,7 @@ describe('CEO P0-P5 runtime integrity', () => {
     expect(execution.decision).not.toBe('PASS')
   })
 
-  test('P2 accepts explicit truthful outcomes for verify and execute without requiring lucky wording', () => {
+  test('P2 accepts explicit truthful outcomes for verify and execute without lucky wording', () => {
     const verified = evaluateCeoQuality({
       objective: 'Verify whether the repository is on the expected commit.',
       content: 'I checked the repository state and verified that the expected commit is present.',
