@@ -1,22 +1,15 @@
-export type ConversationalMemoryLike = { key: string; category: string }
+import { containsInternalArtifactToken } from './ceo-behavioral-policy'
+
+export type ConversationalMemoryLike = { key: string; category: string; value?: string }
 
 /**
  * Canonical visibility policy for memory objects that may be supplied to the
  * conversational CEO context.
  *
- * This is a fail-closed allowlist, not a blocklist. An exhaustive audit of
- * every memory category actually used anywhere in this codebase (108 at
- * last count) found 94 were NOT excluded under the prior "block known-bad
- * categories" approach -- venture/portfolio/career-command/architecture/
- * executive/self-healing categories, rate limiting, dedup locks, server
- * errors, and more, none of which are conversational content. A reactive
- * blocklist cannot keep pace with a system this size; every new internal
- * category is a silent leak until someone remembers to add it (this
- * happened twice already: continuous_loop_trace, then governed_evolution_cycle).
- *
- * Only categories explicitly listed here are ever visible to conversational
- * context. Everything else -- known today or added tomorrow -- is internal
- * by default.
+ * This is a fail-closed allowlist, not a blocklist. Only categories explicitly
+ * marked as conversational are eligible, and content carrying a known control-
+ * plane artifact token is rejected even when a record is accidentally stored
+ * under an otherwise visible category.
  */
 const CONVERSATIONAL_VISIBLE_CATEGORIES = new Set([
   'general',
@@ -29,7 +22,10 @@ export function isConversationalMemoryVisible(memory: ConversationalMemoryLike):
   const category = memory.category.trim().toLowerCase()
   const key = memory.key.trim().toLowerCase()
   if (!category || !key) return false
-  return CONVERSATIONAL_VISIBLE_CATEGORIES.has(category)
+  if (!CONVERSATIONAL_VISIBLE_CATEGORIES.has(category)) return false
+  if (typeof memory.value === 'string' && containsInternalArtifactToken(memory.value)) return false
+  if (containsInternalArtifactToken(memory.key)) return false
+  return true
 }
 
 export function filterConversationalMemories<T extends ConversationalMemoryLike>(memories: readonly T[]): T[] {
