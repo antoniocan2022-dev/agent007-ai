@@ -196,6 +196,49 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.degraded).toBe(false)
   })
 
+  test('critical lifecycle falls back to the primary answer instead of crashing to a generic degraded response when the independent-review/synthesis stage throws', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('/accounts/account-123/ai/models/search')) return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        // Only the independent-review and synthesis stages fail here -- every provider, every attempt.
+        // The escalation-repair stage (a different system prompt) and the primary stage still succeed,
+        // simulating exactly the real production failure: a good primary answer already exists when a
+        // later stage throws.
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('independent verification reviewer') || body.includes('final executive synthesizer')) return jsonResponse({ error: { message: 'simulated upstream failure' } }, 503)
+        return jsonResponse({ choices: [{ message: { content: criticalAnswer } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const now = Date.now()
+    const result = await runCeoCognitiveLifecycle({
+      missionId: 'mission-critical-fallback-test',
+      messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }],
+      timeoutMs: 30000,
+      contextualEvidence: 'Verified live mission evidence is available for this controlled test.',
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
+    // Before the fix, the independent-review throw was uncaught: it unwound straight to the outer
+    // catch before primaryQuality was ever computed, discarding the already-generated primary answer
+    // and reporting a generic 'provider_error' degraded response with primaryQualityDecision: 'NOT_RUN'.
+    expect(result.generation.primaryOutputProduced).toBe(true)
+    expect(result.generation.primaryQualityDecision).not.toBe('NOT_RUN')
+    // The escalation stage (using the surviving primary content) recovers a real, passing answer instead
+    // of degrading the whole request.
+    expect(result.degraded).toBe(false)
+    expect(result.content).toContain('Recommendation')
+  })
+
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
