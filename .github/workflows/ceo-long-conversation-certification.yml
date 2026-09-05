@@ -1,5 +1,7 @@
 name: CEO Long Conversation Certification
 
+# Certification replay against the exact current main application state; no application code changes.
+
 on:
   push:
     branches: [main]
