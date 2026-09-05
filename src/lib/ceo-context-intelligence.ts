@@ -164,7 +164,7 @@ function sentenceClaims(content: string): string[] {
 function polarity(claim: string): 'positive' | 'negative' | 'neutral' {
   const normalized = claim.toLowerCase()
   if (/\b(?:might|may|could|would|possibly|perhaps|likely|unlikely|if|unless|could be)\b/i.test(normalized)) return 'neutral'
-  if (/\b(?:must not|should not|do not|does not|did not|cannot|can't|never|no|without|unavailable|failed|unknown|unverified|uncertain)\b/i.test(normalized)) return 'negative'
+  if (/\b(?:must not|should not|do not|does not|did not|cannot|can't|never|no|not|without|unavailable|failed|unknown|unverified|uncertain)\b/i.test(normalized)) return 'negative'
   if (/\b(?:is|are|was|were|has|have|had|can|will|available|succeeded|proven|confirmed|verified)\b/i.test(normalized) && !/\b(?:is not|are not|was not|were not|has not|have not|had not|cannot|can't)\b/i.test(normalized)) return 'positive'
   return 'neutral'
 }
