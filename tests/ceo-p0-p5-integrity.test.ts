@@ -95,7 +95,7 @@ describe('CEO P0-P5 runtime integrity', () => {
     const verified = evaluateCeoQuality({
       objective: 'Verify whether the repository is on the expected commit.',
       content: 'I checked the repository state and verified that the expected commit is present.',
-      path: 'full',
+      path: 'fast',
       intent: 'research',
       responseAction: 'verify',
       evidenceProvided: true,
@@ -105,7 +105,7 @@ describe('CEO P0-P5 runtime integrity', () => {
     const executed = evaluateCeoQuality({
       objective: 'Update the configuration now.',
       content: 'The requested configuration update was completed successfully.',
-      path: 'full',
+      path: 'fast',
       intent: 'tool_action',
       responseAction: 'execute',
       externalExecutionSucceeded: true,
