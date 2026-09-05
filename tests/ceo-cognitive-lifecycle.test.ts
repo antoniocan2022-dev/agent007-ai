@@ -191,7 +191,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(postProviders.every((provider) => canonical.has(provider))).toBe(true)
     expect(new Set(postProviders).size).toBeGreaterThanOrEqual(2)
     expect(result.executionPlan.stages.map((stage) => stage.name)).toEqual(['primary', 'independent_review', 'synthesis'])
-    expect(result.quality.verificationStatus).toBe('NOT_PERFORMED')
+    expect(result.quality.verificationStatus).toBe('INDEPENDENT_PASS')
     expect(result.evidenceState).toBe('LIVE_VERIFIED')
     expect(result.degraded).toBe(false)
   })
