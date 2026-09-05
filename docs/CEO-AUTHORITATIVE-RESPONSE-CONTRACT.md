@@ -9,7 +9,7 @@ USER REQUEST
       ↓
 ONE AUTHORITATIVE CONTRACT
       ↓
-ONE CANDIDATE OBJECT
+ONE IMMUTABLE CANDIDATE OBJECT
       ↓
 ONE IMMUTABLE QUALITY DECISION
       ↓
@@ -28,26 +28,34 @@ SSE          DATABASE         RELOAD
 
 ## Candidate
 
-`src/lib/ceo-response-contract.ts` creates a frozen `CeoResponseCandidate`. Its SHA-256 hash is the candidate identity. The content and hash are bound together by `assertCeoResponseDecisionEnvelope()`.
+`src/lib/ceo-response-contract.ts` creates one frozen `CeoResponseCandidate`. Its SHA-256 hash is its identity. The content and hash are bound together by `assertCeoResponseDecisionEnvelope()`.
 
 ## Quality decision
 
-`decideCeoCandidate()` creates a frozen `CeoQualityDecision` containing the candidate id, candidate hash, one quality decision, and the deterministic decision id. A decision cannot reference a different candidate without failing the envelope invariant.
-
-## Finalizer
-
-`src/lib/ceo-response-finalizer.ts` is the only conversational finalization owner. It validates that the supplied content is exactly the candidate content when a decision envelope is supplied, then enforces user-facing safety and produces the final response hash/id.
+`decideCeoCandidate()` creates one frozen `CeoQualityDecision` containing the candidate id, candidate hash, one quality decision, and deterministic decision id. A decision cannot reference a different candidate without failing the envelope invariant.
 
 ## Control-plane boundary
 
-`src/lib/ceo-control-plane-summary.ts` defines the typed summary representation allowed to cross into conversational-facing orchestration. Raw telemetry, trace payloads, and execution internals are not part of this summary.
+`src/lib/ceo-control-plane-summary.ts` defines the bounded typed `CeoControlPlaneSummary`. It is embedded in the authoritative response-decision envelope so evidence state, quality state, execution completion, verification and degraded state cross the boundary as typed fields rather than raw telemetry strings.
+
+## Candidate preparation and finalizer
+
+`prepareCeoCandidateContent()` performs deterministic control-plane artifact cleanup before the authoritative candidate is created. Once the envelope exists, `src/lib/ceo-response-finalizer.ts` is validation-only: it verifies candidate identity and user-facing safety and does not mutate the accepted candidate.
 
 ## Persistence lineage
 
-`src/lib/db.ts` adds a single database-client boundary for assistant Message writes. Every assistant create/update records `finalResponseHash` and deterministic `finalizationId` in `AuditLog`, keyed to the persisted Message id. This preserves the existing Message contract while providing independent database lineage evidence.
+`src/lib/ceo-response-persistence.ts` is the transactional persistence boundary. It requires finalization provenance, verifies the response SHA-256 hash, deterministic finalization id, and content length, then atomically persists the assistant `Message` and an `AuditLog` lineage record keyed to the persisted Message id. `finalResponseHash`, `finalizationId`, candidate identity and quality-decision identity are independently queryable from the database without changing the existing Message contract.
 
-## Verification requirements
+## Response propagation
 
-The contract is not considered certified merely because the code exists. Certification requires the Phase 1–8 static audit, authoritative response-contract tests, existing CEO lifecycle regressions, and a successful TypeScript integration check on the exact `main` commit under test.
+The CEO API sends the canonical lifecycle `response.content` through SSE and the same finalized content through the transactional persistence adapter. Operational synthesis uses the same adapter for its assistant-message update. No post-quality user-facing prefix or alternate sanitizer is permitted to mutate the accepted candidate.
 
-Production deployment is independent and requires explicit authorization.
+## Conversation-plane hygiene
+
+Persisted assistant rows containing internal artifact tokens are filtered by the shared `safeConversationRows()` boundary before context composition, conversation-state derivation, continuity intelligence, world-model extraction, quality evaluation, degraded recovery, and lifecycle execution.
+
+## Certification requirements
+
+Certification requires the authoritative Phase 1–8 architecture audit, authoritative response-contract tests, CEO lifecycle regression corpus, and TypeScript integration graph to pass on the same exact `main` commit. Green CI is evidence for that commit only; it does not imply production deployment.
+
+Production deployment is a separate explicit authorization event.
