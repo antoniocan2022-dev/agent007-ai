@@ -10,6 +10,7 @@ on:
       - 'src/lib/agent-canonical-bridge.ts'
       - 'src/lib/orchestrator.ts'
       - 'src/lib/mission-*.ts'
+      - 'src/lib/db.ts'
       - 'src/app/api/agent/route.ts'
       - 'src/app/api/mission-active/**/route.ts'
       - 'src/app/api/system/mission-supervisor/**'
@@ -43,6 +44,7 @@ on:
       - 'tests/commercial-database-integration.test.ts'
       - 'tests/system-continuity-integrity.test.ts'
       - 'tests/ceo-response-finalizer.test.ts'
+      - 'tests/ceo-response-contract.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'scripts/ceo-phase-1-8-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
@@ -62,6 +64,7 @@ on:
       - 'src/lib/agent-canonical-bridge.ts'
       - 'src/lib/orchestrator.ts'
       - 'src/lib/mission-*.ts'
+      - 'src/lib/db.ts'
       - 'src/app/api/agent/route.ts'
       - 'src/app/api/mission-active/**/route.ts'
       - 'src/app/api/system/mission-supervisor/**'
@@ -95,6 +98,7 @@ on:
       - 'tests/commercial-database-integration.test.ts'
       - 'tests/system-continuity-integrity.test.ts'
       - 'tests/ceo-response-finalizer.test.ts'
+      - 'tests/ceo-response-contract.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
       - 'scripts/ceo-phase-1-8-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
@@ -165,6 +169,9 @@ jobs:
 
       - name: Run CEO canonical finalizer regressions
         run: bun test tests/ceo-response-finalizer.test.ts
+
+      - name: Run CEO authoritative response contract regressions
+        run: bun test tests/ceo-response-contract.test.ts
 
       - name: Run CEO lifecycle tests
         run: bun test tests/ceo-cognitive-lifecycle.test.ts
