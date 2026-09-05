@@ -22,6 +22,7 @@ const INTERNAL_ONLY_CATEGORIES = new Set([
   'ceo_runtime_metrics',
   'provider_telemetry',
   'continuous_loop_trace',
+  'governed_evolution_cycle',
 ])
 
 const INTERNAL_ONLY_KEY_PREFIXES = [
@@ -35,10 +36,11 @@ const INTERNAL_ONLY_KEY_PREFIXES = [
   'runtime_telemetry:',
   'mission_telemetry:',
   'continuous_loop_trace:',
+  'governed_evolution_',
 ]
 
-const INTERNAL_CATEGORY_PATTERN = /(?:^|_)(?:trace|telemetry|metric|diagnostic|control|incident|regression|correlation)(?:_|$)/i
-const INTERNAL_KEY_PATTERN = /(?:^|:|_)(?:trace|telemetry|metric|diagnostic|control|incident|regression|correlation)(?:[:_]|$)/i
+const INTERNAL_CATEGORY_PATTERN = /(?:^|_)(?:trace|telemetry|metric|diagnostic|control|incident|regression|correlation|cycle|governance|governed)(?:_|$)/i
+const INTERNAL_KEY_PATTERN = /(?:^|:|_)(?:trace|telemetry|metric|diagnostic|control|incident|regression|correlation|cycle|governance|governed)(?:[:_]|$)/i
 
 export function isConversationalMemoryVisible(memory: ConversationalMemoryLike): boolean {
   const category = memory.category.trim().toLowerCase()
