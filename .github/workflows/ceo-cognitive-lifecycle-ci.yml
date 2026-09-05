@@ -42,8 +42,11 @@ on:
       - 'tests/commercial-lifecycle-integration.test.ts'
       - 'tests/commercial-database-integration.test.ts'
       - 'tests/system-continuity-integrity.test.ts'
+      - 'tests/ceo-response-finalizer.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'scripts/ceo-phase-1-8-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
+      - 'docs/CEO-PHASES-1-8-CLOSURE.md'
       - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
       - 'docs/ARCHITECTURE-CONTINUITY-MAP.md'
       - 'tsconfig.ceo-lifecycle.json'
@@ -91,8 +94,11 @@ on:
       - 'tests/commercial-lifecycle-integration.test.ts'
       - 'tests/commercial-database-integration.test.ts'
       - 'tests/system-continuity-integrity.test.ts'
+      - 'tests/ceo-response-finalizer.test.ts'
       - 'scripts/ceo-cognitive-lifecycle-audit.ts'
+      - 'scripts/ceo-phase-1-8-audit.ts'
       - 'docs/CEO-COGNITIVE-LIFECYCLE.md'
+      - 'docs/CEO-PHASES-1-8-CLOSURE.md'
       - 'docs/MISSION-AUTONOMY-SUPERVISOR.md'
       - 'docs/ARCHITECTURE-CONTINUITY-MAP.md'
       - 'tsconfig.ceo-lifecycle.json'
@@ -153,6 +159,12 @@ jobs:
 
       - name: Run CEO architecture audit
         run: bun run audit:ceo-lifecycle
+
+      - name: Run CEO phase 1-8 boundary audit
+        run: bun run audit:ceo-phase-1-8
+
+      - name: Run CEO canonical finalizer regressions
+        run: bun test tests/ceo-response-finalizer.test.ts
 
       - name: Run CEO lifecycle tests
         run: bun test tests/ceo-cognitive-lifecycle.test.ts
