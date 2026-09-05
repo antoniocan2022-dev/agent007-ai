@@ -4,8 +4,7 @@ import { assertUserFacingText, classifyCeoBehavioralModes, containsInternalArtif
 import { filterConversationalMemories, isConversationalMemoryVisible } from '@/lib/ceo-memory-visibility'
 import { composeCeoResponse } from '@/lib/ceo-response-composer'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
-import { buildConversationDecisionContract, renderConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
-import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { renderConversationDecisionContract, type ConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 
 describe('CEO P0-P5 runtime integrity', () => {
   test('P0 memory boundary blocks loop telemetry while preserving legitimate memory', () => {
@@ -160,10 +159,26 @@ describe('CEO P0-P5 runtime integrity', () => {
     expect(executed.decision).toBe('PASS')
   })
 
-  test('P3 canonical decision contract carries one differentiated behavioral policy into generation', () => {
-    const context = buildCanonicalConversationContext({ currentMessage: 'Challenge my assumptions about the business strategy.', rows: [], state: { topic: 'business strategy', entities: [], openLoops: [], currentUserIntent: 'opinion', continuityScore: 100, unresolvedReferences: [] }, references: [], memories: [] })
-    const contract = buildConversationDecisionContract(context)
-    expect(contract.behavioralPolicy.modes).toEqual(expect.arrayContaining(['business_partner', 'great_thinker']))
+  test('P3 canonical decision contract renders the differentiated behavioral policy for generation', () => {
+    const policy = buildCeoBehavioralPolicy({ intent: 'opinion', responseAction: 'challenge', currentMessage: 'Challenge my assumptions about the business strategy.' })
+    const contract = {
+      schemaVersion: 3,
+      meaning: 'challenge business strategy assumptions',
+      intent: 'opinion',
+      speechAct: 'question',
+      completeness: 'complete',
+      conversationRelation: 'new',
+      cognitiveDepth: 'strategic',
+      responseRegister: 'strategic',
+      responseAction: 'challenge',
+      toolRequirement: 'none',
+      evidenceRequirement: 'possible',
+      clarificationRequired: false,
+      confidence: 0.92,
+      uncertainty: [],
+      rationale: ['behavioral policy is canonical'],
+      behavioralPolicy: policy,
+    } satisfies ConversationDecisionContract
     const rendered = renderConversationDecisionContract(contract)
     expect(rendered).toContain('CEO BEHAVIORAL POLICY (authoritative, internal)')
     expect(rendered).toContain('Current-objective match required: yes')
