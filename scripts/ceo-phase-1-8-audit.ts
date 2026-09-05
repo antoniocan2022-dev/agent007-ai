@@ -8,6 +8,8 @@ const required = [
   'src/lib/ceo-context-composer.ts',
   'src/lib/ceo-conversation-state.ts',
   'src/lib/ceo-context-intelligence.ts',
+  'src/lib/ceo-world-model.ts',
+  'src/lib/ceo-response-quality-gate.ts',
   'src/lib/ceo-degraded-mode.ts',
   'src/lib/ceo-cognitive-contract.ts',
   'src/lib/ceo-cognitive-lifecycle.ts',
@@ -30,6 +32,8 @@ const composer = read('src/lib/ceo-response-composer.ts')
 const context = read('src/lib/ceo-context-composer.ts')
 const state = read('src/lib/ceo-conversation-state.ts')
 const intelligence = read('src/lib/ceo-context-intelligence.ts')
+const worldModel = read('src/lib/ceo-world-model.ts')
+const qualityGate = read('src/lib/ceo-response-quality-gate.ts')
 const degraded = read('src/lib/ceo-degraded-mode.ts')
 const lifecycle = read('src/lib/ceo-cognitive-lifecycle.ts')
 const route = read('src/app/api/agent/route.ts')
@@ -53,6 +57,9 @@ if (context.includes('deriveCeoConversationState(input.persistedMessages') || co
 if (!state.includes('safeConversationRows')) failures.push('Conversation state does not quarantine contaminated assistant history')
 if (!state.includes('containsInternalArtifactToken')) failures.push('Conversation state lacks artifact-aware history protection')
 if (!intelligence.includes('safeConversationRows')) failures.push('Continuity intelligence does not quarantine contaminated history before scoring')
+if (!worldModel.includes('safeConversationRows')) failures.push('World model does not quarantine contaminated conversation history')
+if (!qualityGate.includes('safeConversationRows(input.priorTurns')) failures.push('Quality gate does not quarantine contaminated prior conversation')
+if (!qualityGate.includes('safeConversationRows(input.relevantOlderMessages')) failures.push('Quality gate does not quarantine contaminated older conversation')
 if (!degraded.includes('safeConversationRows(input.priorConversation')) failures.push('Degraded recovery does not quarantine contaminated prior conversation')
 if (!contract.includes('FinalResponseProvenance')) failures.push('Cognitive contract lacks final response provenance')
 if (!lifecycle.includes('composeCeoResponse')) failures.push('Lifecycle does not pass its final candidate through the canonical finalizer')
@@ -68,4 +75,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exit(1)
 }
-console.log('CEO phase 1-8 architecture audit PASSED: canonical artifact registry, finalizer identity invariants, conversation/context-intelligence/degraded contamination quarantine, raw-context bypass closure, lifecycle finalization ownership, route persistence/transport wiring, and closure documentation are present.')
+console.log('CEO phase 1-8 architecture audit PASSED: canonical artifact registry, finalizer identity invariants, conversation/context-intelligence/world-model/quality/degraded contamination quarantine, raw-context bypass closure, lifecycle finalization ownership, route persistence/transport wiring, and closure documentation are present.')
