@@ -79,7 +79,7 @@ describe('Continuous loop integrity — phases 5-8', () => {
     for (const next of ['UNDERSTAND', 'REMEMBER', 'THINK', 'CURIOUS', 'WORLD_CHECK', 'DECIDE', 'PROTECT', 'OPERATE', 'VERIFY', 'MEASURE_OUTCOME', 'REFLECT', 'LEARN', 'VALIDATE', 'ADAPT', 'EVOLVE', 'REGRESSION_TEST', 'CONTINUE'] as const) current = advanceContinuousLoop(current, next)
     expect(() => completeContinuousLoop(current)).not.toThrow()
     expect(current.currentStage).toBe('CONTINUE')
-    expect(current.history).toHaveLength(18)
+    expect(current.transitions).toHaveLength(17)
   })
 
   test('loop cannot bypass canonical transitions', () => {
