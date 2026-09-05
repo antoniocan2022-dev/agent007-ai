@@ -99,6 +99,8 @@ describe('CEO P0-P5 runtime integrity', () => {
       intent: 'research',
       responseAction: 'verify',
       evidenceProvided: true,
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 60_000 },
     })
     const executed = evaluateCeoQuality({
       objective: 'Update the configuration now.',
