@@ -4,7 +4,7 @@
 
 [![Deploy on Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black.svg)](https://vercel.com/new)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg](https://nextjs.org)
-[![TypeScript-strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org)
+[![TypeScript-strict](https://img.shields.io/badge/TypeScript-strict-blue.svg](https://www.typescriptlang.org)
 
 ## Release marker
 
@@ -72,3 +72,5 @@ Outcome Intelligence
     ↓
 Autonomy
 ```
+
+<!-- ci-trigger: 2026-09-05 -->
