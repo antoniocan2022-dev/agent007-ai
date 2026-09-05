@@ -47,23 +47,50 @@ export function requiresDecisionGradeAbstention(input: { objective: string; fail
 
 function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string { const evidenceBlock = recoveredContext.trim() ? `\n\nHere's what I can ground that in internally:\n${recoveredContext.slice(0, 9000)}` : ''; const readiness = selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false }) : null; const readinessBlock = readiness ? `\n\n${readiness.capability} ${readiness.verified} ${readiness.notProven} What would actually move this forward: ${readiness.nextEvidence}` : ''; return `Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer, organization model, provider failover, execution contracts, quality gates, memory, and operational tooling. That's real, and it's not nothing.\n\nWhat I'm not yet justified in claiming is fully autonomous business management just from having that architecture in place. Real-world readiness also needs verified live execution, reliable external integrations, actual customer outcomes, financial controls, and results that hold up over time.\n\nSo the honest answer is: I'm ready to operate as a governed business-management system with you in the loop. I'm not yet proven for running things unsupervised end to end.${readinessBlock}${evidenceBlock}` }
 
+function isContinuityRecoveryRequest(objective: string): boolean {
+  return /\b(?:what did we decide|where do we stand|what have we ruled out|continue|earlier|previous|prior|same|as before|what about the (?:first|second|third|last|other) option|based on what we established|from where we left off|what did we discuss|what was the reasoning)\b/i.test(objective)
+}
+
 function buildNaturalRecoveryResponse(input: { objective: string; action?: ResponseAction; priorConversation?: readonly PersistedConversationRow[]; recoveredContext?: string; isSuppliedByCaller?: boolean }): string | null {
   const objective = input.objective.trim(); if (!objective) return null
   const action = input.action ?? 'answer'
   const priorUsers = (input.priorConversation ?? []).filter((row) => row.role === 'user').map((row) => row.content.trim()).filter(Boolean)
   const lower = objective.toLowerCase()
-  if (/^\s*(?:no|nah)\b/i.test(objective) || /\b(i meant|i mean|rather|instead)\b/i.test(lower)) { const correction = objective.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim(); if (correction) return `Got it. The correction is clear: ${correction.charAt(0).toUpperCase()}${correction.slice(1)} I'll use that as the active direction from here.` }
-  if (/copy|competitor/i.test(lower)) return `I wouldn't make copying a competitor our safest strategy. My preference is to study what works, keep the useful underlying principles, and build the version that fits our strengths and creates a reason for customers to choose us. That gives us a reference point without turning the business into a copy.`
-  if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(input.recoveredContext ?? '') || /compliance/i.test(priorUsers.join(' '))) return `I'd put compliance first, then build the operations foundation around it, and add new integrations after that. The sequencing matters: establish the rules, controls, and operating process first; integrations should plug into that foundation rather than become the foundation.`; if (/revenue/i.test(lower)) return `I'd treat revenue recovery as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure the recovery. My preference is to fix the bottleneck that prevents reliable cash generation, then scale what works.`; return `I'd prioritize the item that removes the biggest constraint on the business, then build outward from that foundation. In practice, that usually means getting the operating model, controls, and measurement right before adding complexity.` }
-  if (/what did we decide|where do we stand|main goal|what have we ruled out/i.test(lower)) { const recent = priorUsers.slice(-5); if (recent.length) { const latestCorrection = [...recent].reverse().find((item) => /\b(i meant|instead|rather|no,?)/i.test(item)); if (latestCorrection) { const correction = latestCorrection.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim(); return `The latest clear direction is: ${correction}. I would treat that as the active thread rather than reopening the earlier option unless new evidence changes the trade-off.` } } return `The clearest way to frame where we stand is to separate the goal from the options we've discussed. I would keep the current priority as the active direction and only reopen it when a meaningful new constraint or piece of evidence changes the decision.` }
-  const grounding = (input.recoveredContext ?? '').trim(); const groundedNote = grounding ? ` Based on what we've already established: ${grounding.slice(0, 2000)}` : ''
-  if (action === 'challenge') return `I want to push back on this rather than simply agree with it: "${objective}" is worth testing against the outcome we're actually trying to achieve, the risks we'd be accepting, and whether the alternative genuinely holds up better.${groundedNote}`
-  if (action === 'recommend' || action === 'decide') return `On "${objective}" -- my judgment is to start with whichever option strengthens the foundation and creates the clearest path to a measurable result, rather than adding complexity just because it's available.${groundedNote}`
-  if (action === 'explain') return `On "${objective}" -- the important part is the actual trade-off, not just the label we give the option. I'd weigh it by the outcome you actually care about and how well-controlled the downside is.${groundedNote}`
-  if (action === 'verify') return `On "${objective}" -- I can tell you what's supported by our conversation and what's still genuinely unverified, but I won't pretend a verification happened when the verification path was unavailable.${groundedNote}`
-  if (grounding && input.isSuppliedByCaller) return `Here's a preliminary read based on an initial pass, which I haven't fully reviewed yet: ${grounding.slice(0, 4000)}\n\nTreat this as a first draft rather than a confirmed answer -- I'd want to verify the specifics before you act on any numbers or claims in it.`
-  if (grounding) return `My read is that we can still move this forward using what we've already established. ${grounding.slice(0, 4000)}\n\nBased on that, I'd focus on the underlying outcome, make the trade-off explicit, and choose the strongest practical next direction rather than getting stuck on the failure of one execution path.`
-  return `My read is that we can still move this conversation forward. Based on what you've told me, I'd focus on the underlying outcome, make the trade-off explicit, and choose the strongest practical next direction rather than getting stuck on the failure of one execution path.`
+  if (/^\s*(?:no|nah)\b/i.test(objective) || /\b(i meant|i mean|rather|instead)\b/i.test(lower)) { const correction = objective.replace(/^\s*(?:no|nah)[,.:;\s]*/i, '').trim(); if (correction) return `Got it. The correction is clear. I'll use that as the active direction from here.` }
+  if (action === 'challenge') {
+    const grounding = (input.recoveredContext ?? '').trim()
+    return `I couldn't complete the challenge path reliably, so I don't want to manufacture an argument or pretend I evaluated the current question properly.${grounding && input.isSuppliedByCaller ? ` I can use the supplied context to continue once the reasoning path is available.` : ''}`
+  }
+  if (action === 'recommend' || action === 'decide') {
+    const grounding = (input.recoveredContext ?? '').trim()
+    if (!grounding || !input.isSuppliedByCaller) return `I couldn't produce a reliable recommendation for this specific request, so I won't substitute a generic priority or repeat an earlier decision.`
+    return `I couldn't complete the recommendation path reliably. I can preserve the supplied evidence, but I won't turn it into a stronger recommendation than the failed path supports.`
+  }
+  if (action === 'explain') {
+    return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
+  }
+  if (action === 'verify') {
+    return `I couldn't complete the verification path for this specific request, so I won't claim that the requested fact or state was verified.`
+  }
+  if (action === 'execute') {
+    return `I couldn't complete the execution path for this specific request, so I won't claim that the action occurred.`
+  }
+  if (/copy|competitor/i.test(lower)) return `I wouldn't make copying a competitor our safest strategy. My preference is to study what works, keep the useful underlying principles, and build the version that fits our strengths and creates a reason for customers to choose us.`
+  if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) {
+    if (/compliance/i.test(lower) || /compliance/i.test(input.recoveredContext ?? '') || /compliance/i.test(priorUsers.join(' '))) return `I'd put compliance first, then build the operations foundation around it, and add new integrations after that.`
+    if (/revenue/i.test(lower)) return `I'd treat revenue as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure it.`
+  }
+  if (action === 'answer' && !isContinuityRecoveryRequest(objective)) {
+    return `I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`
+  }
+  const grounding = (input.recoveredContext ?? '').trim()
+  if (grounding && input.isSuppliedByCaller) return `I couldn't complete the normal reasoning path, but I can safely preserve the supplied context without presenting it as a verified conclusion.\n\n${grounding.slice(0, 4000)}`
+  if (isContinuityRecoveryRequest(objective) && priorUsers.length) {
+    const recent = priorUsers.slice(-5)
+    const latestCorrection = [...recent].reverse().find((item) => /\b(i meant|instead|rather|no,?)/i.test(item))
+    if (latestCorrection) return `The latest clear direction in this conversation is the correction you gave me. I will treat that as the active thread rather than reopening the earlier option.`
+  }
+  return null
 }
 
 export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string }): Promise<DegradedResponse> {
@@ -79,10 +106,13 @@ export async function buildCeoDegradedResponse(input: { objective: string; inten
   const recoveredCapability = capabilityForFailure(failureReason)
   if (input.intent !== 'self_assessment') {
     const natural = buildNaturalRecoveryResponse({ objective: input.objective, action: input.responseAction, priorConversation: input.priorConversation, recoveredContext, isSuppliedByCaller: Boolean(suppliedContext) })
-    if (natural) return { evidenceState: recoveredContext.trim() ? (suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY') : 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: natural }
+    if (natural) {
+      const safeContent = natural.includes('continuous_loop_trace') ? `I couldn't complete that specific request reliably, so I won't expose internal execution records.` : natural
+      return { evidenceState: suppliedContext ? 'PARTIAL_UNCONFIRMED' : (isContinuityRecoveryRequest(input.objective) && sourceKeys.length ? 'MEMORY_ONLY' : 'PARTIAL_UNCONFIRMED'), reason: input.reason, sourceKeys: isContinuityRecoveryRequest(input.objective) ? sourceKeys : [], failureReason, recoveredCapability, content: safeContent }
+    }
   }
-  if (recoveredContext.trim()) return { evidenceState: suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: `I couldn't complete full live verification on this one, so let me work from what we've already established in this conversation and from memory instead.\n\n${recoveredContext.slice(0, 12000)}\n\nIf you need this confirmed against current external facts or a fresh check, I'll try that path directly.` }
-  if (input.intent === 'self_assessment') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind) }
-  if (recoveredCapability === 'conversation' || recoveredCapability === 'context') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: `I couldn't give you a reliable answer from the available context yet. Tell me what outcome you're trying to achieve, and I'll help you work through it.` }
-  return { evidenceState: 'UNAVAILABLE', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: `I wasn't able to verify the part of this answer that depends on the failed execution path, and I won't pretend that I did. I can still help separate what we know, what we're assuming, and what needs verification.` }
+  if (input.intent === 'self_assessment') return { evidenceState: suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind) }
+  if (isContinuityRecoveryRequest(input.objective) && recoveredContext.trim()) return { evidenceState: suppliedContext ? 'PARTIAL_UNCONFIRMED' : 'MEMORY_ONLY', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: `I couldn't complete the normal reasoning path, but I can use the conversation context to preserve continuity without claiming fresh verification.\n\n${recoveredContext.slice(0, 12000)}` }
+  if (recoveredCapability === 'conversation' || recoveredCapability === 'context') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys: [], failureReason, recoveredCapability, content: `I couldn't give you a reliable answer to that specific request from the available execution path, and I don't want to substitute an unrelated answer.` }
+  return { evidenceState: 'UNAVAILABLE', reason: input.reason, sourceKeys: [], failureReason, recoveredCapability, content: `I wasn't able to verify the part of this answer that depends on the failed execution path, and I won't pretend that I did. I can still separate what is known from what remains unverified.` }
 }
