@@ -18,7 +18,9 @@ const required = [
   'src/lib/db.ts',
   'src/app/api/agent/route.ts',
   'tests/ceo-response-finalizer.test.ts',
+  'tests/ceo-response-contract.test.ts',
   'docs/CEO-PHASES-1-8-CLOSURE.md',
+  'docs/CEO-AUTHORITATIVE-RESPONSE-CONTRACT.md',
 ]
 for (const file of required) if (!existsSync(file)) failures.push(`Missing Phase 1–8 component: ${file}`)
 
@@ -45,7 +47,9 @@ const db = read('src/lib/db.ts')
 const route = read('src/app/api/agent/route.ts')
 const contract = read('src/lib/ceo-cognitive-contract.ts')
 const test = read('tests/ceo-response-finalizer.test.ts')
+const responseTest = read('tests/ceo-response-contract.test.ts')
 const docs = read('docs/CEO-PHASES-1-8-CLOSURE.md')
+const authoritativeDocs = read('docs/CEO-AUTHORITATIVE-RESPONSE-CONTRACT.md')
 
 if (!policy.includes('CEO_INTERNAL_ARTIFACT_TOKENS')) failures.push('No canonical control-plane artifact token registry exists')
 if ((policy.match(/CEO_INTERNAL_ARTIFACT_TOKENS/g) ?? []).length < 2) failures.push('Canonical artifact registry is not actually used by detection')
@@ -59,9 +63,11 @@ if (!finalizer.includes('assertFinalResponseInvariant')) failures.push('Finalize
 if (!finalizer.includes('CEO_FINAL_RESPONSE_ID_MISMATCH')) failures.push('Finalizer identity invariant is incomplete')
 if (!responseContract.includes('buildCeoResponseCandidate')) failures.push('Authoritative candidate constructor is missing')
 if (!responseContract.includes('decideCeoCandidate')) failures.push('Authoritative quality decision constructor is missing')
+if (!responseContract.includes('controlPlaneSummary')) failures.push('Authoritative envelope is not bound to typed control-plane summary')
 if (!responseContract.includes('assertCeoResponseDecisionEnvelope')) failures.push('Authoritative response decision envelope invariant is missing')
-if (!controlPlane.includes('interface CeoControlPlaneSummary')) failures.push('Typed control-plane summary contract is missing')
+if (!controlPlane.includes('export type { CeoControlPlaneSummary }')) failures.push('Typed control-plane summary does not reuse the canonical contract type')
 if (!controlPlane.includes('assertCeoControlPlaneSummary')) failures.push('Typed control-plane summary invariant is missing')
+if (!composer.includes('buildCeoControlPlaneSummary')) failures.push('Composer does not create the typed control-plane summary')
 if (!composer.includes('buildAuthoritativeCeoResponseDecision')) failures.push('Composer does not build the authoritative candidate/decision envelope')
 if (!composer.includes('finalizeCeoResponseForSurface')) failures.push('Composer does not delegate to the canonical finalizer')
 if (composer.includes('INTERNAL_RESPONSE_PATTERNS')) failures.push('Legacy duplicate response sanitizer remains in composer')
@@ -75,21 +81,24 @@ if (!worldModel.includes('safeConversationRows')) failures.push('World model doe
 if (!qualityGate.includes('safeConversationRows(input.priorTurns')) failures.push('Quality gate does not quarantine contaminated prior conversation')
 if (!qualityGate.includes('safeConversationRows(input.relevantOlderMessages')) failures.push('Quality gate does not quarantine contaminated older conversation')
 if (!degraded.includes('safeConversationRows(input.priorConversation')) failures.push('Degraded recovery does not quarantine contaminated prior conversation')
-if (!contract.includes('CeoResponseCandidate') || !contract.includes('CeoQualityDecision')) failures.push('Cognitive contract does not own the authoritative candidate/decision types')
+if (!contract.includes('CeoResponseCandidate') || !contract.includes('CeoQualityDecision') || !contract.includes('CeoControlPlaneSummary')) failures.push('Cognitive contract does not own the canonical response contract types')
 if (!lifecycle.includes('composeCeoResponse')) failures.push('Lifecycle does not pass its final candidate through the canonical finalizer')
 if (!db.includes('ceo-response-lineage')) failures.push('Database client lacks canonical response-lineage enforcement')
 if (!db.includes('finalResponseHash') || !db.includes('finalizationId')) failures.push('Database persistence boundary does not record final response identity')
+if (!db.includes('entity: \'Message\'') || !db.includes('action: \'ceo_response_finalized\'')) failures.push('Database lineage record is not keyed to persisted Message identity')
 if (!route.includes('response.content')) failures.push('CEO route does not propagate canonical lifecycle response content')
 if (!route.includes("sse('answer', { content: response.content")) failures.push('CEO route does not transport the canonical lifecycle response content')
 if (!route.includes("role: 'assistant', content: response.content")) failures.push('CEO route does not persist canonical response content')
 if (!test.includes('assertFinalResponseInvariant(tampered)')) failures.push('Final response tamper-detection regression test missing')
 if (!test.includes('deriveCeoConversationState(rows)')) failures.push('Contaminated conversation-state regression test missing')
+if (!responseTest.includes('CeoControlPlaneSummary') || !responseTest.includes('CEO_RESPONSE_CANDIDATE_MISMATCH')) failures.push('Authoritative response contract regression coverage is incomplete')
 for (const phrase of ['simulatedPersistence', 'simulatedSseAnswer', 'simulatedReload']) if (!test.includes(phrase)) failures.push(`Finalization propagation regression test missing: ${phrase}`)
 for (const phrase of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6', 'Phase 7', 'Phase 8']) if (!docs.includes(phrase)) failures.push(`Closure document missing ${phrase}`)
+if (!authoritativeDocs.includes('ONE CANDIDATE OBJECT') || !authoritativeDocs.includes('ONE IMMUTABLE QUALITY DECISION') || !authoritativeDocs.includes('DATABASE')) failures.push('Authoritative response contract documentation is incomplete')
 
 if (failures.length) {
   console.error('CEO Phase 1–8 architecture audit FAILED')
   for (const failure of failures) console.error(`- ${failure}`)
   process.exit(1)
 }
-console.log('CEO Phase 1–8 architecture audit PASSED: canonical candidate/quality envelope, finalizer identity invariants, typed control-plane boundary, conversation/world-model/quality/degraded contamination quarantine, raw-context bypass closure, database response-lineage enforcement, route transport/persistence wiring, and closure documentation are present.')
+console.log('CEO Phase 1–8 architecture audit PASSED: one authoritative candidate/quality envelope, typed control-plane summary, canonical finalizer identity invariants, conversation/world-model/quality/degraded contamination quarantine, raw-context bypass closure, database response-lineage enforcement, route transport/persistence wiring, regression proof, and governance documentation are present.')
