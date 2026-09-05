@@ -53,6 +53,53 @@ describe('CEO P1/P2 context and failure architecture', () => {
     expect(result.score).toBeGreaterThanOrEqual(60)
   })
 
+  test('P2 rejects cross-objective stale substitution at the canonical quality gate', () => {
+    const quality = evaluateCeoQuality({
+      objective: 'What psychological patterns are affecting my decisions?',
+      content: 'You should prioritize the operating foundation before adding complexity. That remains the best business direction.',
+      path: 'full',
+      intent: 'analysis',
+      priorTurns: [row('user', 'What should we prioritize next for the business?', 1), row('assistant', 'Prioritize the operating foundation before adding complexity.', 2)],
+      externalExecutionSucceeded: true,
+    })
+    expect(quality.decision).not.toBe('PASS')
+    expect(quality.reasons.some((reason) => /prior objective|current objective|stale-response/i.test(reason))).toBe(true)
+  })
+
+  test('P2 preserves valid reference continuation and explicit challenge action', () => {
+    const continuation = evaluateCeoQuality({
+      objective: 'What about the second option?',
+      content: 'The second option is stronger because it reduces integration risk while preserving the measurable benefit we discussed.',
+      path: 'full',
+      intent: 'conversation',
+      priorTurns: [row('user', 'Give me three possible improvements to the CEO conversation system.', 1), row('assistant', '1. Improve references. 2. Strengthen the quality gate. 3. Add more observability.', 2)],
+      resolvedReferences: [{ phrase: 'the second option', targetIndex: 1, resolvedText: 'Strengthen the quality gate', ambiguous: false, confidence: 0.96, evidence: 'ordered_list' }],
+      externalExecutionSucceeded: true,
+    })
+    expect(continuation.decision).toBe('PASS')
+    const challenge = evaluateCeoQuality({
+      objective: 'Challenge my assumption that we need more tools before fixing the architecture.',
+      content: 'I disagree with that assumption because adding tools before fixing the canonical architecture increases integration debt and makes governance harder.',
+      path: 'full',
+      intent: 'opinion',
+      responseAction: 'challenge',
+      externalExecutionSucceeded: true,
+    })
+    expect(challenge.decision).toBe('PASS')
+  })
+
+  test('P2 blocks internal execution artifacts before user-facing output', () => {
+    const quality = evaluateCeoQuality({
+      objective: 'Explain the current architecture.',
+      content: 'The architecture is structured around a canonical lifecycle. [continuous_loop_trace] internal state leaked here.',
+      path: 'full',
+      intent: 'analysis',
+      externalExecutionSucceeded: true,
+    })
+    expect(quality.decision).not.toBe('PASS')
+    expect(quality.reasons.some((reason) => /internal execution artifacts/i.test(reason))).toBe(true)
+  })
+
   test('failure taxonomy is stable and retry semantics are canonical', () => {
     expect(inferCeoFailureReason(new Error('Provider unavailable'))).toBe('provider_unavailable')
     expect(inferCeoFailureReason(new Error('AGENT_REQUEST_TIMEOUT'))).toBe('execution_timeout')
