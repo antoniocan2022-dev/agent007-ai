@@ -16,12 +16,29 @@ describe('CEO canonical response finalizer', () => {
     assertFinalResponseInvariant(response)
   })
 
+  test('preserves prose when multiple artifact fragments occur on one line', () => {
+    const response = finalizeCeoResponse({
+      content: 'My recommendation is to harden the operations foundation. [ceo_recommendation] rec_1 { action: "harden foundation" } [continuous_loop_trace] loop_1 { currentStage: "PERCEIVE" } [governed_evolution_cycle] cycle_1 { status: "ACTIVE" } The next practical step is to lock the release gate.',
+    })
+    expect(response.rejected).toBe(false)
+    expect(response.content).toBe('My recommendation is to harden the operations foundation. The next practical step is to lock the release gate.')
+    expect(response.content).not.toContain('[ceo_recommendation]')
+    expect(response.content).not.toContain('continuous_loop_trace')
+    expect(response.content).not.toContain('governed_evolution_cycle')
+  })
+
   test('fails closed when an internal token is not in the surgical artifact shape', () => {
     const response = finalizeCeoResponse({ content: 'The answer contains continuous_loop_trace without a structured payload.' })
     expect(response.rejected).toBe(true)
     expect(containsInternalArtifactToken(response.content)).toBe(false)
     expect(response.content).toContain('Internal execution details were withheld')
     expect(() => assertFinalResponseInvariant(response)).not.toThrow()
+  })
+
+  test('does not flag legitimate technical language that merely resembles telemetry vocabulary', () => {
+    const response = finalizeCeoResponse({ content: 'A stack trace is useful when diagnosing the production error.' })
+    expect(response.rejected).toBe(false)
+    expect(response.content).toBe('A stack trace is useful when diagnosing the production error.')
   })
 
   test('finalization is deterministic for identical final content', () => {
