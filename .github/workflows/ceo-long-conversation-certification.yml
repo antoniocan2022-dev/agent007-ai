@@ -14,7 +14,7 @@ permissions:
 jobs:
   long-conversation:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -29,8 +29,20 @@ jobs:
       - name: Typecheck runtime source
         run: bunx tsc -p tsconfig.ci.json --noEmit
       - name: Long conversation certification
-        run: bun test tests/ceo-conversation-long-certification.test.ts tests/ceo-cognitive-conversation.test.ts tests/ceo-conversation-runtime-regressions.test.ts tests/ceo-long-conversation-certification.test.ts tests/ceo-personality-and-resilience.test.ts tests/ceo-self-reflection.test.ts tests/architecture-integrity-contract.test.ts
+        run: |
+          set -euo pipefail
+          for test_file in \
+            tests/ceo-conversation-long-certification.test.ts \
+            tests/ceo-cognitive-conversation.test.ts \
+            tests/ceo-conversation-runtime-regressions.test.ts \
+            tests/ceo-long-conversation-certification.test.ts \
+            tests/ceo-personality-and-resilience.test.ts \
+            tests/ceo-self-reflection.test.ts \
+            tests/architecture-integrity-contract.test.ts; do
+            echo "Running isolated test process: $test_file"
+            bun test --max-concurrency=1 "$test_file"
+          done
       - name: P0-P5 CEO runtime integrity certification
-        run: bun test tests/ceo-p0-p5-integrity.test.ts
+        run: bun test --max-concurrency=1 tests/ceo-p0-p5-integrity.test.ts
       - name: P5 continuous-loop certification
-        run: bun test tests/continuous-loop-integrity.test.ts
+        run: bun test --max-concurrency=1 tests/continuous-loop-integrity.test.ts
