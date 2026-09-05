@@ -1,7 +1,7 @@
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import type { PersistedConversationRow } from './ceo-context-composer'
-import { deriveCeoConversationState } from './ceo-conversation-state'
+import { deriveCeoConversationState, safeConversationRows } from './ceo-conversation-state'
 import { buildWorldStateSnapshot } from './ceo-world-state'
 
 export interface CeoWorldFacet<T> { updatedAt: number; data: T }
@@ -16,7 +16,7 @@ export interface CeoWorldModel {
 }
 
 function userRows(rows: readonly PersistedConversationRow[] = []): string[] {
-  return rows.filter((row) => row.role === 'user').slice(-12).map((row) => row.content.trim()).filter(Boolean)
+  return safeConversationRows(rows).filter((row) => row.role === 'user').slice(-12).map((row) => row.content.trim()).filter(Boolean)
 }
 const CONSTRAINT_RE = /\b(?:cannot|can't|avoid|before|without|limited|must|need to)\b/i
 const PROJECT_RE = /\b(?:project|business|mission|product|system|operations|revenue|compliance)\b/i
@@ -24,16 +24,12 @@ const PROJECT_RE = /\b(?:project|business|mission|product|system|operations|reve
 export function buildCeoWorldModel(input: { context: CanonicalConversationContext; priorConversation?: readonly PersistedConversationRow[]; olderConversation?: readonly PersistedConversationRow[]; evidence?: EvidenceBundle }): CeoWorldModel {
   const now = Date.now()
   const priorRows = [...(input.priorConversation ?? []), ...(input.olderConversation ?? [])]
+  const safePriorRows = safeConversationRows(priorRows)
   // The current message is part of what the CEO already knows about this turn, not just
-  // established prior conversation -- confirmed by direct testing that omitting it here means a
-  // decision or goal stated in the current message (the message that triggered this call in the
-  // first place) never shows up in the world model at all, which is the actual bug in the
-  // implementation this file replaces.
-  const allRows = [...priorRows, { role: 'user' as const, content: input.context.currentMessage, createdAt: now }]
+  // established prior conversation. Add it once to the same canonical safety boundary.
+  const allRows = safeConversationRows([...safePriorRows, { role: 'user' as const, content: input.context.currentMessage, createdAt: now }])
   const userMessages = userRows(allRows)
-  // Reuses Phase 5's structured extraction (with real supersession detection) instead of a second,
-  // simpler regex-based pass over the same rows -- this is what makes decisions/goals genuinely
-  // grounded rather than a duplicate, less capable re-implementation of the same idea.
+  // Reuses the conversation-state extraction rather than maintaining a second thread/goal model.
   const state = deriveCeoConversationState(allRows, input.context.currentMessage)
   const snapshot = buildWorldStateSnapshot(state, allRows)
   const goals = snapshot.goals.filter((record) => record.status === 'active').map((record) => record.text).slice(-5)
