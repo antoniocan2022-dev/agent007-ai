@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { assertLoopTransition, getLoopTransition } from '@/lib/architecture-integrity-contract'
+import { assertLoopTransition, getLoopTransition, CANONICAL_CAPABILITY_LEDGER, LOOP_TRANSITIONS } from '@/lib/architecture-integrity-contract'
 import { buildRecommendationRecord, buildObservedRecommendationOutcome, calculateRecommendationPredictionError, correlateRecommendationOutcomes } from '@/lib/ceo-outcome-learning'
 import { approveLearningCandidate, buildLearningCandidate, promoteLearningCandidate, validateLearningCandidate } from '@/lib/ceo-behavioral-learning'
 import { advanceContinuousLoop, buildContinuousLoopTrace, completeContinuousLoop } from '@/lib/ceo-continuous-loop'
@@ -7,6 +7,17 @@ import { advanceContinuousLoop, buildContinuousLoopTrace, completeContinuousLoop
 const fixedTime = '2026-09-03T22:00:00.000Z'
 
 describe('Continuous loop integrity — phases 5-8', () => {
+  test('canonical loop has one owner and a complete ordered transition contract', () => {
+    const entry = CANONICAL_CAPABILITY_LEDGER.continuous_loop
+    expect(entry.canonicalOwner).toBe('ceo-continuous-loop')
+    expect(entry.integrationStatus).toBe('INTEGRATED')
+    expect(entry.lifecycleState).toBe('INTEGRATED')
+    expect(LOOP_TRANSITIONS).toHaveLength(17)
+    expect(LOOP_TRANSITIONS[0]?.from).toBe('PERCEIVE')
+    expect(LOOP_TRANSITIONS.at(-1)?.to).toBe('CONTINUE')
+    expect(Object.values(CANONICAL_CAPABILITY_LEDGER).filter((item) => item.capability === 'continuous_loop')).toHaveLength(1)
+  })
+
   test('recommendation contract contains rationale, prediction and action', () => {
     const recommendation = buildRecommendationRecord({ correlationId: 'rec-1', objective: 'Improve revenue', responseAction: 'recommend', decisionRationale: 'Prioritize the bottleneck with the clearest measurable upside.', predictedOutcome: 'Revenue increases 10%', predictionHorizon: '30d', recommendedAction: 'Launch the recovery workflow', recordedAt: Date.parse(fixedTime) })
     expect(recommendation.recommendationId).toBe('rec-1')
@@ -46,6 +57,13 @@ describe('Continuous loop integrity — phases 5-8', () => {
     expect(() => promoteLearningCandidate(approved, '')).toThrow()
   })
 
+  test('governed evolution remains an approval-and-verification boundary', () => {
+    const entry = CANONICAL_CAPABILITY_LEDGER.governed_evolution
+    expect(entry.canonicalOwner).toBe('evolution-engine')
+    expect(entry.requiredContracts).toEqual(expect.arrayContaining(['simulation', 'approval', 'verification']))
+    expect(entry.duplicateRisk).toBe('LOW')
+  })
+
   test('continuous loop keeps recommendation identity stable across repeated trace construction', () => {
     const first = buildContinuousLoopTrace({ recommendationId: 'rec-identity', createdAt: fixedTime, evidence: ['first'] })
     const second = buildContinuousLoopTrace({ recommendationId: 'rec-identity', createdAt: '2026-09-03T23:00:00.000Z', evidence: ['second'] })
@@ -53,7 +71,7 @@ describe('Continuous loop integrity — phases 5-8', () => {
     expect(first.createdAt).not.toBe(second.createdAt)
   })
 
-  test('continuous loop enforces authoritative transition order', () => {
+  test('continuous loop enforces authoritative transition order from PERCEIVE through CONTINUE', () => {
     const trace = buildContinuousLoopTrace({ recommendationId: 'rec-5', createdAt: fixedTime })
     expect(getLoopTransition('DECIDE', 'PROTECT')).not.toBeNull()
     expect(() => advanceContinuousLoop(trace, 'DECIDE')).toThrow()
@@ -61,6 +79,7 @@ describe('Continuous loop integrity — phases 5-8', () => {
     for (const next of ['UNDERSTAND', 'REMEMBER', 'THINK', 'CURIOUS', 'WORLD_CHECK', 'DECIDE', 'PROTECT', 'OPERATE', 'VERIFY', 'MEASURE_OUTCOME', 'REFLECT', 'LEARN', 'VALIDATE', 'ADAPT', 'EVOLVE', 'REGRESSION_TEST', 'CONTINUE'] as const) current = advanceContinuousLoop(current, next)
     expect(() => completeContinuousLoop(current)).not.toThrow()
     expect(current.currentStage).toBe('CONTINUE')
+    expect(current.history).toHaveLength(18)
   })
 
   test('loop cannot bypass canonical transitions', () => {
