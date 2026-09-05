@@ -20,7 +20,7 @@
  */
 
 import { db } from './db'
-import { filterConversationalMemories, getInternalOnlyMemoryCategories } from './ceo-memory-visibility'
+import { filterConversationalMemories, getConversationalVisibleCategories } from './ceo-memory-visibility'
 import { sanitizeMemoryFields, sanitizeMemoryText } from './memory-text'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -124,7 +124,7 @@ export async function recallPersistentMemory(
 
   let dbEntries: MemoryEntry[] = []
   try {
-    const dbMems = await db.memory.findMany({ where: { category: { notIn: [...getInternalOnlyMemoryCategories()] } }, take: 500 }).catch(() => [])
+    const dbMems = await db.memory.findMany({ where: { category: { in: [...getConversationalVisibleCategories()] } }, take: 500 }).catch(() => [])
     dbEntries = dbMems.map((m) => sanitizeEntry({
       key: m.key,
       value: m.value,
