@@ -7,6 +7,8 @@ const required = [
   'src/lib/ceo-response-composer.ts',
   'src/lib/ceo-context-composer.ts',
   'src/lib/ceo-conversation-state.ts',
+  'src/lib/ceo-context-intelligence.ts',
+  'src/lib/ceo-degraded-mode.ts',
   'src/lib/ceo-cognitive-contract.ts',
   'src/lib/ceo-cognitive-lifecycle.ts',
   'src/app/api/agent/route.ts',
@@ -27,6 +29,8 @@ const finalizer = read('src/lib/ceo-response-finalizer.ts')
 const composer = read('src/lib/ceo-response-composer.ts')
 const context = read('src/lib/ceo-context-composer.ts')
 const state = read('src/lib/ceo-conversation-state.ts')
+const intelligence = read('src/lib/ceo-context-intelligence.ts')
+const degraded = read('src/lib/ceo-degraded-mode.ts')
 const lifecycle = read('src/lib/ceo-cognitive-lifecycle.ts')
 const route = read('src/app/api/agent/route.ts')
 const contract = read('src/lib/ceo-cognitive-contract.ts')
@@ -46,6 +50,8 @@ if (!context.includes('isConversationalHistoryRow')) failures.push('Context comp
 if (!context.includes('containsInternalArtifactToken')) failures.push('Context composer lacks assistant-history artifact boundary')
 if (!state.includes('safeConversationRows')) failures.push('Conversation state does not quarantine contaminated assistant history')
 if (!state.includes('containsInternalArtifactToken')) failures.push('Conversation state lacks artifact-aware history protection')
+if (!intelligence.includes('safeConversationRows')) failures.push('Continuity intelligence does not quarantine contaminated history before scoring')
+if (!degraded.includes('safeConversationRows(input.priorConversation')) failures.push('Degraded recovery does not quarantine contaminated prior conversation')
 if (!contract.includes('FinalResponseProvenance')) failures.push('Cognitive contract lacks final response provenance')
 if (!lifecycle.includes('composeCeoResponse')) failures.push('Lifecycle does not pass its final candidate through the canonical finalizer')
 if (!route.includes('response.content') || !route.includes("db.message.create({ data: { conversationId, role: 'assistant', content: response.content } })")) failures.push('CEO route does not persist the canonical lifecycle response content')
@@ -62,4 +68,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exit(1)
 }
-console.log('CEO phase 1-8 architecture audit PASSED: canonical artifact registry, finalizer identity invariants, state contamination quarantine, lifecycle finalization ownership, route persistence/transport wiring, and closure documentation are present.')
+console.log('CEO phase 1-8 architecture audit PASSED: canonical artifact registry, finalizer identity invariants, conversation/context-intelligence/degraded contamination quarantine, lifecycle finalization ownership, route persistence/transport wiring, and closure documentation are present.')
