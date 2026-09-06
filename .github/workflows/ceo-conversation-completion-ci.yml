@@ -7,6 +7,10 @@ on:
       - 'src/lib/ceo-conversation-state.ts'
       - 'src/lib/ceo-reference-resolution.ts'
       - 'src/lib/ceo-venture-state.ts'
+      - 'src/lib/ceo-conversational-signals.ts'
+      - 'src/lib/ceo-context-intelligence.ts'
+      - 'src/lib/ceo-pre-router.ts'
+      - 'src/lib/ceo-degraded-mode.ts'
       - 'tests/ceo-conversation-*.test.ts'
       - 'tests/ceo-conversation-completion.test.ts'
       - 'tests/fixtures/ceo-conversation-benchmark-cases.ts'
@@ -19,6 +23,10 @@ on:
       - 'src/lib/ceo-conversation-state.ts'
       - 'src/lib/ceo-reference-resolution.ts'
       - 'src/lib/ceo-venture-state.ts'
+      - 'src/lib/ceo-conversational-signals.ts'
+      - 'src/lib/ceo-context-intelligence.ts'
+      - 'src/lib/ceo-pre-router.ts'
+      - 'src/lib/ceo-degraded-mode.ts'
       - 'tests/ceo-conversation-*.test.ts'
       - 'tests/ceo-conversation-completion.test.ts'
       - 'tests/fixtures/ceo-conversation-benchmark-cases.ts'
@@ -57,7 +65,7 @@ jobs:
         run: bun test tests/ceo-conversation-golden.test.ts
       - name: Run complete conversation architecture contracts
         run: bun test tests/ceo-conversation-completion.test.ts
-      - name: Typecheck conversation architecture
-        run: bunx tsc -p tsconfig.json --noEmit
+      - name: Typecheck application architecture
+        run: bunx tsc -p tsconfig.ci.json --noEmit
       - name: Lint conversation architecture
-        run: bunx eslint src/lib/ceo-conversation-state.ts src/lib/ceo-reference-resolution.ts src/lib/ceo-venture-state.ts tests/ceo-conversation-completion.test.ts
+        run: bunx eslint src/lib/ceo-conversation-state.ts src/lib/ceo-reference-resolution.ts src/lib/ceo-venture-state.ts src/lib/ceo-conversational-signals.ts src/lib/ceo-context-intelligence.ts src/lib/ceo-pre-router.ts src/lib/ceo-degraded-mode.ts tests/ceo-conversation-completion.test.ts

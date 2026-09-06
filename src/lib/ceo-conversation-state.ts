@@ -1,6 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
+import { isCorrectionRequest } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -33,7 +34,6 @@ export interface ConversationReference {
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want','were','will','been','them','theyre','same','option','thing','problem','issue'])
 const QUESTION_RE = /\?\s*$|^(?:what|why|how|when|where|who|which|should|can|could|would|is|are|do|does)\b/i
 const DECISION_RE = /\b(?:decided|decision|we(?:'ll|\s+will)|let'?s\s+(?:use|do|build|keep|choose)|agreed|selected|going\s+with|prefer(?:red)?|prioriti[sz]e|priorit(?:y|ies))\b/i
-const CORRECTION_RE = /^\s*(?:no\b|that(?:'s| is)\s+(?:not|n't)\b|i\s+mean\b|what\s+i\s+meant\b|correction\b)/i
 const GOAL_RE = /\b(?:main|primary|core|long[- ]term)\s+(?:goal|objective)\b|\b(?:our|the|my)\s+(?:goal|objective)\b|\bcenter\s+of\s+gravity\b/i
 const RESOLUTION_RE = /\b(?:resolved|closed|finished|done|complete|completed|no longer|solved|fixed)\b/i
 const SUPERSESSION_RE = /\b(?:instead|rather|forget that|move on|replace|supersede|switch to|new topic|different topic)\b/i
@@ -113,7 +113,7 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
   const durableGoals = uniqueRecent(durableGoalRows, 4)
   const recentGoalRows = uniqueRecent(userRows.slice(-8).map((row) => normalize(row.content)), Math.max(1, 8 - durableGoals.length))
   const recentUserGoals = uniqueRecent([...durableGoals, ...recentGoalRows], 8)
-  const recentCorrections = uniqueRecent(userRows.filter((row) => CORRECTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
+  const recentCorrections = uniqueRecent(userRows.filter((row) => isCorrectionRequest(row.content)).map((row) => normalize(row.content)), 6)
   const decisions = uniqueRecent(clean.filter((row) => DECISION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
   const unresolvedQuestions = uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
   return { schemaVersion: 4, topic: topicCandidates.slice(0, 4).join(', ') || entities.slice(-3).join(', ') || latest.slice(0, 120), topicCandidates, entities: entities.slice(-12), activeThreads: activeThreads.map((thread) => thread.title), threads, unresolvedQuestions, decisions, recentUserGoals, recentCorrections, tone: toneOf(latest || corpus.slice(-500)), turnCount: Math.ceil(clean.length / 2), lastUserMessage: latest, lastAssistantMessage: normalize(assistantRows.at(-1)?.content || ''), updatedAt: Date.now() }

@@ -18,10 +18,27 @@ The benchmark contains 25 hand-checked semantic scenarios plus 10 golden multi-t
 6. Conversation quality must not expose evidence or governance metadata during ordinary dialogue.
 7. The same semantic contracts must run in CI on every relevant `main` change.
 
+## v0.2 adversarial extension
+
+The canonical conversation semantic suite also contains transcript-derived adversarial cases for:
+
+- Phoenix recall.
+- Historical rationale with correct uncertainty when provenance is absent.
+- Commercial pivots and explicit corrections.
+- Multiple lists and ordinal references without stale-list inheritance.
+- Temporal references with calendar-window resolution.
+- Topic switching and current-topic identification.
+- Provider failure classification as infrastructure state, separate from conversational state.
+- Degraded recovery without fabricated verification or internal execution traces.
+- Fluent-but-wrong answers that must be rejected by the continuity gate.
+- Correct current-topic answers that must pass.
+
+The adversarial contract explicitly tests four outcome classes: correct answer, correct uncertainty, correct degradation, and incorrect-answer rejection.
+
 ## Expansion roadmap
 
 - v0.1: 25 semantic cases + 10 golden conversations.
-- v0.2: 50 mixed conversation cases with deeper entity/coreference chains.
+- v0.2: transcript-derived adversarial cases integrated into the canonical semantic suite.
 - v0.3: 100+ long-form conversations and provider-fallback checks.
 - v1.0: 120–200 production-like conversations, including sampled live-model evaluation.
 

@@ -6,6 +6,7 @@ import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
+import { isRetrospectiveConversationRequest } from './ceo-conversational-signals'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
@@ -80,6 +81,8 @@ function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflec
 }
 function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassification): CeoIntent {
   if (selfReflection.isSelfReflective) return 'self_assessment'
+  // Historical/retrospective questions are semantic conversation requests. Resolve them before action, mission, research, or analysis keywords can steal the route.
+  if (isRetrospectiveConversationRequest(text)) return 'conversation'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
   if (isExternalEquityResearch(text)) return 'research'

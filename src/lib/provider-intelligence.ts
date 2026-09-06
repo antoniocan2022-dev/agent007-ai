@@ -62,6 +62,12 @@ export function getProviderHealthSnapshot(provider: ActiveProviderId) {
   return { totalCalls: health.totalCalls, successCount: health.successCount, failCount: health.failCount, lastSuccessAt: health.lastSuccessAt, lastFailAt: health.lastFailAt, avgResponseMs: health.avgResponseMs, currentModel: health.currentModel, circuitOpen: isCircuitOpen(provider) }
 }
 
+/** Test-only reset for deterministic provider resilience suites; production code never calls this. */
+export function resetProviderHealthForTests(): void {
+  for (const provider of PROVIDER_ORDER) delete healthStore[provider]
+  G.__providerHealthProcessStartedAt = Date.now()
+}
+
 export function getProviderMetadataSummary(): string {
   const lines = ['ACTIVE CANONICAL LLM PROVIDERS (Groq → Cloudflare Workers AI → Mistral → Cerebras → OpenRouter emergency fallback):']
   const catalog = getProviderCatalogSnapshot()
