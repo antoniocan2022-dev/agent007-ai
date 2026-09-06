@@ -1,5 +1,5 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
-import { extractEnumeratedItems, resolveOrdinalReference } from './ceo-reference-resolution'
+import { extractEnumeratedItems, resolveOrdinalReference, hasDedicatedReferenceResolution } from './ceo-reference-resolution'
 import { deriveCeoConversationState, safeConversationRows } from './ceo-conversation-state'
 import { isCurrentTopicRequest } from './ceo-conversational-signals'
 
@@ -85,8 +85,14 @@ function semanticReferenceAnchor(currentUserMessage: string, prior: readonly Per
 // "vague" structurally (a question with no more than one meaningful content token of its own) generalizes
 // the protection to that whole class without touching substantive questions, which always retain enough
 // of their own content tokens to be scored on their own merits.
+// Excluded: ordinal ("the second one?") and temporal ("yesterday?") references also tokenize down to
+// almost nothing, but they name an explicit referent of their own -- an older list item, a past day --
+// that is legitimately NOT the active thread's topic. Forcing alignment against the active thread would
+// wrongly reject a correct answer about something the active thread was never about in the first place;
+// those have their own dedicated resolvers (resolveOrdinalReference/resolveTemporalReference) which
+// already take priority over general topic-continuity scoring.
 function isVagueFollowUpQuestion(message: string): boolean {
-  return TRAILING_QUESTION_RE.test(message.trim()) && tokens(message).size <= 1
+  return TRAILING_QUESTION_RE.test(message.trim()) && tokens(message).size <= 1 && !hasDedicatedReferenceResolution(message)
 }
 
 function authoritativeTopicAlignment(currentUserMessage: string, response: string, prior: readonly PersistedConversationRow[]): { aligned: boolean; reason?: string } {
