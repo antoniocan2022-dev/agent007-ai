@@ -1,8 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { extractEnumeratedItems, resolveOrdinalReference } from './ceo-reference-resolution'
-import { deriveCeoConversationState } from './ceo-conversation-state'
+import { deriveCeoConversationState, safeConversationRows } from './ceo-conversation-state'
 import { isCurrentTopicRequest } from './ceo-conversational-signals'
-import { safeConversationRows } from './ceo-conversation-state'
 
 export interface ContextContinuityScore {
   score: number
