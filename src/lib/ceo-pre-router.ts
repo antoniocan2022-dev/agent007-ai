@@ -6,6 +6,7 @@ import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
+import { isRetrospectiveConversationRequest } from './ceo-conversational-signals'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
@@ -86,6 +87,8 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
   if (TOOL_ACTION_RE.test(text)) return 'tool_action'
   if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
+  // Retrospective/history questions must not collide with prospective decision requests.
+  if (isRetrospectiveConversationRequest(text)) return 'conversation'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
   if (/\b(?:think|opinion|take on|agree|disagree|feel)\b/i.test(text)) return 'opinion'
   if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|ok|okay|great|perfect|how\s+do\s+you\s+do|how\s+do\s+you\s+doing?)\b/i.test(text)) return 'conversation'
