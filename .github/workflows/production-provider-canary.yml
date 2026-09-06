@@ -6,30 +6,28 @@ on:
 permissions:
   contents: read
 
+env:
+  # The canary must probe the stable production alias, not the per-deployment URL from the
+  # deployment_status event (github.event.deployment_status.environment_url / target_url):
+  # that URL is unique per deployment and sits behind Vercel Authentication, so a curl against
+  # it gets redirected to the SSO login page instead of JSON -- the exact failure this workflow
+  # showed on every run regardless of production's real health. The alias is what real users
+  # and every other health probe in this project actually hit, so it's also the correct target.
+  PRODUCTION_URL: https://agent007-ai.vercel.app
+
 jobs:
   provider-canary:
     if: github.event.deployment_status.state == 'success' && github.event.deployment_status.environment == 'production'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Determine deployment URL
-        id: url
-        env:
-          ENVIRONMENT_URL: ${{ github.event.deployment_status.environment_url }}
-          TARGET_URL: ${{ github.event.deployment_status.target_url }}
-        run: |
-          URL="${ENVIRONMENT_URL:-$TARGET_URL}"
-          URL="${URL%/}"
-          test -n "$URL"
-          echo "base=$URL" >> "$GITHUB_OUTPUT"
       - name: Verify release health and CEO reasoning canary
         env:
-          BASE_URL: ${{ steps.url.outputs.base }}
           DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 20 "$BASE_URL/api/release-health" > release-health.json
-          curl --fail --silent --show-error --max-time 20 "$BASE_URL/api/health/provider-canary" > provider-canary.json
+          curl --fail --silent --show-error --max-time 20 "$PRODUCTION_URL/api/release-health" > release-health.json
+          curl --fail --silent --show-error --max-time 20 "$PRODUCTION_URL/api/health/provider-canary" > provider-canary.json
           node <<'NODE'
           const fs = require('node:fs')
           const release = JSON.parse(fs.readFileSync('release-health.json', 'utf8'))

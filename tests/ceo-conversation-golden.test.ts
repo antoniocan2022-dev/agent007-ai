@@ -38,3 +38,34 @@ describe('CEO golden conversation benchmark v0.1 — 10 sustained dialogues', ()
     })
   }
 })
+
+describe('Thread segmentation stays consistent once a thread crosses the wall-clock pause boundary', () => {
+  // Anchored to Date.now() minus 8 days (buildThreads marks a thread 'paused' past 7 days of
+  // inactivity), not a fixed calendar date -- this reproduces the exact bug this suite hit on
+  // 2026-09-06 without depending on ever landing near that boundary again by coincidence.
+  const anchor = Date.now() - 1000 * 60 * 60 * 24 * 8
+  const oldRow = (role: Role, content: string, minuteOffset: number): Row => ({ role, content, createdAt: anchor + minuteOffset * 60_000 })
+
+  test('a second user message on the same topic, arriving after the thread is already past the pause threshold, still merges into that thread instead of forking a new one', () => {
+    const rows = [
+      oldRow('user', 'Provider switching can change the CEO tone.', 0),
+      oldRow('assistant', 'The fallback should preserve identity, context, and style.', 1),
+      oldRow('user', 'That is more important than minimizing latency.', 2),
+    ]
+    const state = deriveCeoConversationState(rows, rows.at(-1)?.content ?? '')
+    expect(state.threads.length).toBe(1)
+    const resolution = resolveConversationReferences('Continue.', rows, state)[0]
+    expect(resolution?.resolvedText?.toLowerCase()).toContain('provider switching')
+  })
+
+  test('a thread past the pause threshold still carries its most recent assistant reply forward on continuation', () => {
+    const rows = [
+      oldRow('user', 'Yesterday we discovered that Vercel was behind main.', 0),
+      oldRow('assistant', 'Today we should verify the production SHA.', 1),
+      oldRow('user', 'What did we decide yesterday?', 2),
+    ]
+    const state = deriveCeoConversationState(rows, rows.at(-1)?.content ?? '')
+    const resolution = resolveConversationReferences('Continue.', rows, state)[0]
+    expect(resolution?.resolvedText?.toLowerCase()).toContain('verify the production sha')
+  })
+})

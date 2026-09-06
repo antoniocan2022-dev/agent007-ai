@@ -4,7 +4,10 @@ import { extractEnumeratedItems, resolveActiveThread, resolveOrdinalReference, r
 import { getCeoVentureEvidenceForObjective } from '@/lib/ceo-venture-state'
 
 type Row = { role: 'user' | 'assistant'; content: string; createdAt: number }
-const t = (n: number) => Date.UTC(2026, 7, 30, 12, n)
+// Anchored to Date.now(), not a fixed calendar date: threadStatus() marks a thread 'paused' once
+// wall-clock now is more than 7 days past its last message, so a fixed-date fixture silently goes
+// stale and starts asserting the wrong status once enough real time has passed (as happened here).
+const t = (n: number) => Date.now() + n * 60_000
 const row = (role: Row['role'], content: string, minute: number): Row => ({ role, content, createdAt: t(minute) })
 
 describe('CEO conversation completion contracts', () => {

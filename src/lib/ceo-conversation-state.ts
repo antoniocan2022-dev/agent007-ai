@@ -65,9 +65,15 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     const topicTokens = tokens(content).slice(0, 8)
     const supersedes = SUPERSESSION_RE.test(content)
     const lexicalMatch = [...threads].reverse().find((thread) => overlap(thread.currentObjective, content) >= 0.25 && thread.status !== 'resolved' && thread.status !== 'abandoned')
-    const currentActive = threads.find((thread) => thread.status === 'active')
+    // Paused is a valid merge target here, not just active: resolveActiveThread (the consumer of
+    // these threads) already treats active and paused as equally continuable, and threadStatus can
+    // mark a thread paused purely from wall-clock age (>7 days since its last message) regardless of
+    // whether this same processing pass is still mid-conversation on it. Without this, replaying or
+    // deriving state for a conversation whose messages happen to straddle that age boundary silently
+    // fragments one continuous topic into a new, disconnected thread per message.
+    const currentActive = threads.find((thread) => thread.status === 'active' || thread.status === 'paused')
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
-    else if (!supersedes && currentActive && currentActive.status !== 'resolved' && currentActive.status !== 'abandoned') mergeInto(currentActive, content, topicTokens, row)
+    else if (!supersedes && currentActive) mergeInto(currentActive, content, topicTokens, row)
     else {
       if (currentActive) currentActive.status = supersedes ? 'superseded' : 'paused'
       const id = `conversation-thread-${threads.length + 1}`
@@ -78,7 +84,11 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
   const assistantRows = safeRows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
   const mostRecentAssistantReply = assistantRows.at(-1)?.content
   for (const thread of threads) {
-    const reply = assistantRows.find((entry) => entry.at > thread.lastTouchedAt)?.content ?? (thread.status === 'active' ? mostRecentAssistantReply : undefined)
+    // Same active-or-paused rule as the merge fallback above: a thread that crossed the wall-clock
+    // pause threshold mid-derivation is still a legitimate continuation target, so it still deserves
+    // its most recent reply attached rather than silently losing it.
+    const isContinuable = thread.status === 'active' || thread.status === 'paused'
+    const reply = assistantRows.find((entry) => entry.at > thread.lastTouchedAt)?.content ?? (isContinuable ? mostRecentAssistantReply : undefined)
     if (reply) thread.lastAssistantReply = reply
   }
   const newestTimestamp = Math.max(0, ...threads.map((thread) => thread.lastTouchedAt))
