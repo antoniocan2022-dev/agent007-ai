@@ -11,7 +11,14 @@ const quality: QualityResult = {
   checks: { nonEmpty: true, contractValid: true, objectiveCoverage: true, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true },
   reasons: ['accepted'],
 }
-const controlPlaneSummary = buildCeoControlPlaneSummary({ evidenceState: quality.evidenceState, qualityDecision: quality.decision, executionCompleted: true, verified: false, degraded: false })
+const controlPlaneSummary = buildCeoControlPlaneSummary({
+  responseAction: 'recommend',
+  evidenceState: quality.evidenceState,
+  qualityDecision: quality.decision,
+  executionCompleted: true,
+  verified: false,
+  degraded: false,
+})
 
 describe('CEO authoritative response contract', () => {
   test('binds exactly one immutable candidate to one immutable quality decision and typed control summary', () => {
@@ -23,6 +30,7 @@ describe('CEO authoritative response contract', () => {
     expect(envelope.candidate.contentHash).toHaveLength(64)
     expect(envelope.quality.candidateId).toBe(envelope.candidate.candidateId)
     expect(envelope.quality.candidateHash).toBe(envelope.candidate.contentHash)
+    expect(envelope.controlPlaneSummary.responseAction).toBe('recommend')
     expect(envelope.controlPlaneSummary.qualityDecision).toBe(envelope.quality.decision)
     assertCeoResponseDecisionEnvelope(envelope)
   })
@@ -32,12 +40,13 @@ describe('CEO authoritative response contract', () => {
     expect(() => finalizeCeoResponse({ content: 'Tampered answer.', decisionEnvelope: envelope })).toThrow('CEO_RESPONSE_CANDIDATE_MISMATCH')
   })
 
-  test('final response has stable identity', () => {
-    const envelope = buildCeoResponseDecisionEnvelope({ content: 'Stable answer.', quality, controlPlaneSummary })
+  test('final response preserves the authoritative response action and stable identity', () => {
+    const envelope = buildCeoResponseDecisionEnvelope({ content: 'Stable recommendation.', quality, controlPlaneSummary })
     const finalized = finalizeCeoResponse({ content: envelope.candidate.content, decisionEnvelope: envelope })
     assertFinalResponseInvariant(finalized)
     expect(finalized.candidateId).toBe(envelope.candidate.candidateId)
     expect(finalized.qualityDecisionId).toBe(envelope.quality.decisionId)
     expect(finalized.candidateHash).toBe(envelope.candidate.contentHash)
+    expect(finalized.responseAction).toBe('recommend')
   })
 })
