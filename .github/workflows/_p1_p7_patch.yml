@@ -2,7 +2,6 @@ name: _one-shot-p1-p7-patch
 on:
   push:
     branches: [feat/ceo-p1-p4-conversational-integrity]
-  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -13,32 +12,14 @@ jobs:
         with:
           ref: feat/ceo-p1-p4-conversational-integrity
           fetch-depth: 0
-      - name: Apply P1-P7 hardening
+      - name: Fix P5 boundary and remove patcher
         env:
           BRANCH: feat/ceo-p1-p4-conversational-integrity
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('src/lib/ceo-pre-router.ts'); s = p.read_text()
-          old = "  if (isExternalEquityResearch(text)) return 'research'\n  if (/\\b(?:research|search|look\\s+up|find\\s+(?:out|information)|verify|validate)\\b/i.test(text)) return 'research'\n  if (TOOL_ACTION_RE.test(text)) return 'tool_action'\n  if (/\\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\\s+cause)\\b/i.test(text)) return 'analysis'\n  // Retrospective/history questions must not collide with prospective decision requests.\n  if (isRetrospectiveConversationRequest(text)) return 'conversation'"
-          new = "  // Historical/retrospective questions are semantic conversation requests. Resolve them before action, research, and analysis keywords can steal the route.\n  if (isRetrospectiveConversationRequest(text)) return 'conversation'\n  if (isExternalEquityResearch(text)) return 'research'\n  if (/\\b(?:research|search|look\\s+up|find\\s+(?:out|information)|verify|validate)\\b/i.test(text)) return 'research'\n  if (TOOL_ACTION_RE.test(text)) return 'tool_action'\n  if (/\\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\\s+cause)\\b/i.test(text)) return 'analysis'"
-          if old not in s: raise SystemExit('P1 anchor not found')
-          p.write_text(s.replace(old,new))
-
-          p = Path('src/lib/ceo-reference-resolution.ts'); s = p.read_text()
-          old = "function extractProseListItems(text:string):string[]|null{const match=text.match(/(?::|\\bare\\b|\\binclude[s]?\\b)\\s*([a-z][a-z0-9 ,]{4,140})[.!]?$/i);if(!match)return null;const tail=match[1].replace(/\\s+and\\s+/i,', ');const parts=tail.split(',').map((part)=>normalize(part)).filter((part)=>part.length>=2&&part.length<=60);return parts.length>=2?parts:null}"
-          new = old + "\nconst LIST_HEADER_RE = /^(?:options?|alternatives?|choices?|priorities?|steps?|approaches?|plans?|items?)\\s*:?[\\s]*$/i"
-          if old not in s: raise SystemExit('P5 helper anchor not found')
-          s=s.replace(old,new)
-          old = "export function extractEnumeratedItems(rows:readonly PersistedConversationRow[],maxItems=24):EnumeratedItem[]{const items:EnumeratedItem[]=[];let listSerial=0;for(const row of rows.slice(-24)){if(row.role!=='user'&&row.role!=='assistant')continue;const sourceTimestamp=timestamp(row.createdAt);let currentListId=`list-${listSerial}`;let foundNumberedLine=false;for(const line of row.content.split(/\\r?\\n/).map(normalize)){const match=line.match(/^(\\d{1,2})[.)]\\s+(.+)$/);if(!match)continue;foundNumberedLine=true;const ordinal=Number(match[1]);if(!Number.isInteger(ordinal)||ordinal<1||ordinal>maxItems)continue;if(ordinal===1){listSerial+=1;currentListId=`list-${listSerial}`}items.push({index:items.length,ordinal,text:normalize(match[2]),sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId});if(items.length>=maxItems)return items}if(!foundNumberedLine){const prose=extractProseListItems(normalize(row.content));if(prose){listSerial+=1;currentListId=`list-${listSerial}`;prose.forEach((text,i)=>items.push({index:items.length,ordinal:i+1,text,sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId}))}}}return items}"
-          new = "export function extractEnumeratedItems(rows:readonly PersistedConversationRow[],maxItems=24):EnumeratedItem[]{const items:EnumeratedItem[]=[];let listSerial=0;for(const row of rows.slice(-24)){if(row.role!=='user'&&row.role!=='assistant')continue;const sourceTimestamp=timestamp(row.createdAt);let currentListId=`list-${listSerial}`;let foundNumberedLine=false;let sawListHeader=false;const lines=row.content.split(/\\r?\\n/).map(normalize);for(const line of lines){if(LIST_HEADER_RE.test(line)){sawListHeader=true;continue}const match=line.match(/^(\\d{1,2})[.)]\\s+(.+)$/);if(!match)continue;foundNumberedLine=true;const ordinal=Number(match[1]);if(!Number.isInteger(ordinal)||ordinal<1||ordinal>maxItems)continue;if(ordinal===1 || (sawListHeader && currentListId===`list-${listSerial}`)){listSerial+=1;currentListId=`list-${listSerial}`}items.push({index:items.length,ordinal,text:normalize(match[2]),sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId});if(items.length>=maxItems)return items}sawListHeader=false;if(!foundNumberedLine){const prose=extractProseListItems(normalize(row.content));if(prose){listSerial+=1;currentListId=`list-${listSerial}`;prose.forEach((text,i)=>items.push({index:items.length,ordinal:i+1,text,sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId}))}}}return items}"
-          if old not in s: raise SystemExit('P5 extraction anchor not found')
-          p.write_text(s.replace(old,new))
-
-          p = Path('tests/provider-auth-failover.test.ts')
-          p.write_text('''import { afterEach, describe, expect, test } from 'bun:test'\nimport { runGovernedProviderChat } from '@/lib/provider-runtime-v2'\n\nafterEach(() => { delete process.env.GROQ_API_KEY; delete process.env.CEREBRAS_API_KEY })\n\ndescribe('Governed provider resilience', () => {\n  test('skips a provider whose live catalog rejects authentication and reaches the next healthy provider', async () => {\n    const originalFetch = globalThis.fetch\n    process.env.GROQ_API_KEY = 'invalid-test-key'; process.env.CEREBRAS_API_KEY = 'valid-test-key'\n    const calls: string[] = []\n    globalThis.fetch = (async (input: RequestInfo | URL) => {\n      const url = String(input); calls.push(url)\n      if (url.includes('api.groq.com')) return new Response('{"error":"invalid_api_key"}', { status: 401 })\n      if (url === 'https://api.cerebras.ai/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-oss-120b' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })\n      return new Response(JSON.stringify({ choices: [{ message: { content: 'fallback works' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })\n    }) as typeof fetch\n    try {\n      const result = await runGovernedProviderChat({ taskType: 'reasoning', messages: [{ role: 'user', content: 'test active-provider failover' }], timeoutMs: 5000, providerOrder: ['groq', 'cerebras'] })\n      expect(result.provider).toBe('cerebras'); expect(result.content).toBe('fallback works'); expect(result.attempts).toEqual(['groq', 'cerebras'])\n      expect(calls).toEqual(['https://api.groq.com/openai/v1/models','https://api.cerebras.ai/v1/models','https://api.cerebras.ai/v1/chat/completions'])\n    } finally { globalThis.fetch = originalFetch }\n  })\n  test('rate-limit classification is retryable without entering conversational state', async () => {\n    const { classifyProviderError } = await import('@/lib/provider-control-plane')\n    const classified = classifyProviderError('groq', 429, 'rate limit exceeded')\n    expect(classified.kind).toBe('RATE_LIMIT'); expect(classified.retryable).toBe(true)\n  })\n})\n''')
-          PY
+          python -c "from pathlib import Path; p=Path('src/lib/ceo-reference-resolution.ts'); s=p.read_text(); s=s.replace('if(ordinal===1 || (sawListHeader && currentListId===`list-${listSerial}`)){listSerial+=1;currentListId=`list-${listSerial}`}','if(ordinal===1 || sawListHeader){listSerial+=1;currentListId=`list-${listSerial}`;sawListHeader=false}'); p.write_text(s)"
+          git rm -f .github/workflows/_p1_p7_patch.yml
+          git add src/lib/ceo-reference-resolution.ts
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/ceo-pre-router.ts src/lib/ceo-reference-resolution.ts tests/provider-auth-failover.test.ts
-          git diff --cached --quiet || (git commit -m "feat(ceo): harden P1 P5 P6" && git push origin "$BRANCH")
+          git commit -m "fix(ceo): correct latest-list boundary state"
+          git push origin "$BRANCH"
