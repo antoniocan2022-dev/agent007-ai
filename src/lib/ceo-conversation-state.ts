@@ -34,6 +34,7 @@ export interface ConversationReference {
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want','were','will','been','them','theyre','same','option','thing','problem','issue'])
 const QUESTION_RE = /\?\s*$|^(?:what|why|how|when|where|who|which|should|can|could|would|is|are|do|does)\b/i
 const DECISION_RE = /\b(?:decided|decision|we(?:'ll|\s+will)|let'?s\s+(?:use|do|build|keep|choose)|agreed|selected|going\s+with|prefer(?:red)?|prioriti[sz]e|priorit(?:y|ies))\b/i
+const CORRECTION_RE = /^\s*(?:no\b|that(?:'s| is)\s+(?:not|n't)\b|i\s+mean\b|what\s+i\s+meant\b|correction\b)/i
 const GOAL_RE = /\b(?:main|primary|core|long[- ]term)\s+(?:goal|objective)\b|\b(?:our|the|my)\s+(?:goal|objective)\b|\bcenter\s+of\s+gravity\b/i
 const RESOLUTION_RE = /\b(?:resolved|closed|finished|done|complete|completed|no longer|solved|fixed)\b/i
 const SUPERSESSION_RE = /\b(?:instead|rather|forget that|move on|replace|supersede|switch to|new topic|different topic)\b/i
@@ -65,10 +66,19 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     const topicTokens = tokens(content).slice(0, 8)
     const supersedes = SUPERSESSION_RE.test(content)
     const lexicalMatch = [...threads].reverse().find((thread) => overlap(thread.currentObjective, content) >= 0.25 && thread.status !== 'resolved' && thread.status !== 'abandoned')
+    // Paused is a valid merge target here, not just active: resolveActiveThread (the consumer of
+    // these threads) already treats active and paused as equally continuable, and threadStatus can
+    // mark a thread paused purely from wall-clock age (>7 days since its last message) regardless of
+    // whether this same processing pass is still mid-conversation on it. Without this, replaying or
+    // deriving state for a conversation whose messages happen to straddle that age boundary silently
+    // fragments one continuous topic into a new, disconnected thread per message.
     const currentActive = threads.find((thread) => thread.status === 'active' || thread.status === 'paused')
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
     else if (!supersedes && currentActive) mergeInto(currentActive, content, topicTokens, row)
     else {
+      // Reaching this branch with supersedes===false requires currentActive to already be falsy
+      // (that's the only way the "else if" above didn't take it), so the guard below only ever
+      // fires for an explicit topic switch -- always 'superseded', never 'paused'.
       if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
@@ -78,6 +88,9 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
   const assistantRows = safeRows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
   const mostRecentAssistantReply = assistantRows.at(-1)?.content
   for (const thread of threads) {
+    // Same active-or-paused rule as the merge fallback above: a thread that crossed the wall-clock
+    // pause threshold mid-derivation is still a legitimate continuation target, so it still deserves
+    // its most recent reply attached rather than silently losing it.
     const isContinuable = thread.status === 'active' || thread.status === 'paused'
     const reply = assistantRows.find((entry) => entry.at > thread.lastTouchedAt)?.content ?? (isContinuable ? mostRecentAssistantReply : undefined)
     if (reply) thread.lastAssistantReply = reply
@@ -124,4 +137,4 @@ export const buildCeoConversationStatePrompt = buildConversationStatePrompt
 export function buildCeoPersonalityContract(): string {
   return ['CEO NATURAL CONVERSATION CONTRACT:', 'Speak like a capable, thoughtful executive partner rather than a form, auditor, or workflow engine.', 'Preserve context across turns, resolve references from conversation state, and avoid asking for information already available in context.', 'Match the user’s tone and desired depth. Be concise for simple conversation and deep when the user is exploring a difficult issue.', 'Do not add headings, evidence banners, quality labels, or procedural language to ordinary conversation.', 'Do not repeat the user’s question unnecessarily. Move the conversation forward with useful thought when appropriate.', 'Admit uncertainty naturally. Use explicit verification only when a claim actually needs fresh evidence or live system state.', 'When a request requires tools, evidence, or execution, perform the governed work internally and return the result in natural language.', 'Maintain a stable Agent007 identity across providers and fallback attempts.'].join(' ')
 }
-export function extractConversationAnchors(rows: readonly PersistedConversationRow[]): string[] { return safeConversationRows(rows).slice(-24).flatMap((row) => row.content.split(/[.!?]+/)).map(normalize).filter((text) => text.length >= 20).slice(-24) }
+export function extractConversationAnchors(rows: readonly PersistedConversationRow[]): string[] { return safeConversationRows(rows).slice(-24).flatMap((row) => row.content.split(/[.!?]+/)).map(normalize).filter((clause) => clause.length >= 30).slice(-16) }
