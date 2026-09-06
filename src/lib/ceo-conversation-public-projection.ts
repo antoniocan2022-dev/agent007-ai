@@ -1,4 +1,5 @@
 import type { AttachmentMeta } from './tools'
+import { containsInternalArtifactToken } from './ceo-behavioral-policy'
 
 export interface PublicConversationAttachment {
   filename: string
@@ -39,13 +40,17 @@ function parseAttachments(value: string | null | undefined): PublicConversationA
 /**
  * Projects persisted conversation history for the authenticated UI.
  * Internal thought/tool rows are deliberately excluded; final user/assistant transcript
- * content is the only historical conversation surface returned to the browser.
+ * content is the only historical conversation surface returned to the browser. An assistant
+ * row carrying a leaked internal artifact token is excluded outright rather than shown as-is --
+ * the same content-level check already applied before this content re-enters model context
+ * (safeConversationRows), so a poisoned historical row can't reach the human either.
  */
 export function projectCeoConversationForPublic(
   rows: readonly { id: string; role: string; content: string; createdAt: Date; attachments?: string | null }[],
 ): PublicConversationMessage[] {
   return rows
     .filter((row): row is typeof row & { role: 'user' | 'assistant' } => row.role === 'user' || row.role === 'assistant')
+    .filter((row) => row.role === 'user' || (row.content.trim() && !containsInternalArtifactToken(row.content)))
     .map((row) => ({
       id: row.id,
       role: row.role,

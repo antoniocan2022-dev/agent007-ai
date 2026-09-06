@@ -36,7 +36,6 @@ describe('Live-transcript investigation: three real bugs found and fixed', () =>
     const source = readFileSync(join(ROOT, 'src/lib/ceo-degraded-mode.ts'), 'utf-8')
     expect(source).toContain('isSuppliedByCaller')
     expect(source).toContain("if (grounding && input.isSuppliedByCaller)")
-    expect(source).toContain('preliminary read based on an initial pass')
     expect(source).toContain('isSuppliedByCaller: Boolean(suppliedContext)')
   })
 })

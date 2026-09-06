@@ -131,7 +131,10 @@ describe('permanent production release architecture', () => {
     const content = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf8')
     expect(content).toContain('releaseCommit')
     expect(content).toContain('deploymentId')
-    expect(content).toContain('event: ${event}')
+    // The wire event name goes through the public transport projection, not the raw internal
+    // event name -- an internal-only event collapses to a safe public name before it ships.
+    expect(content).toContain('event: ${publicEvent}')
+    expect(content).toContain('resolveCeoPublicSseEvent(event)')
   })
 
   test('exposes deployment identity and real provider execution in release-health', () => {

@@ -23,4 +23,13 @@ describe('CEO public conversation projection', () => {
     expect(JSON.stringify(projected)).not.toContain('dataUrl')
     expect(JSON.stringify(projected)).not.toContain('secret')
   })
+
+  test('excludes a historically poisoned assistant row from the reload surface instead of serving it to the browser as-is', () => {
+    const projected = projectCeoConversationForPublic([
+      { id: 'u1', role: 'user', content: 'Analyze the psychological patterns affecting my business decisions.', createdAt: new Date('2026-09-01T10:00:00Z'), attachments: null },
+      { id: 'a1', role: 'assistant', content: 'Here is my analysis. [continuous_loop_trace] continuous_loop:continuous_loop_abc123: {"schemaVersion":1,"currentStage":"PERCEIVE"}', createdAt: new Date('2026-09-01T10:00:01Z'), attachments: null },
+      { id: 'a2', role: 'assistant', content: 'A clean, real answer with no internal artifacts.', createdAt: new Date('2026-09-01T10:00:02Z'), attachments: null },
+    ])
+    expect(projected.map((row) => row.id)).toEqual(['u1', 'a2'])
+  })
 })

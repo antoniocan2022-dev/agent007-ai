@@ -28,7 +28,11 @@ export function buildCeoBehavioralPolicy(input: { context?: CanonicalConversatio
 
 export const CEO_INTERNAL_ARTIFACT_TOKENS = ['continuous_loop_trace','evidence_trace','quality_trace','routing_trace','ceo_recommendation','ceo_recommendation_action','ceo_observed_outcome','ceo_conversation_incident','ceo_incident_regression_candidate','architecture_business_outcome','mission_telemetry','runtime_telemetry','ceo_runtime_metrics','provider_telemetry','governed_evolution_cycle'] as const
 const INTERNAL_MARKER_PATTERNS = CEO_INTERNAL_ARTIFACT_TOKENS.join('|')
-const INTERNAL_ARTIFACT_TOKEN_RE = new RegExp(`\\b(?:${INTERNAL_MARKER_PATTERNS})\\b`, 'i')
+// Trailing boundary is `(?:\b|_)`, not just `\b`: a real persisted key appends an id directly
+// after the token with an underscore (e.g. `governed_evolution_cycle_123`), and `_` is a word
+// character, so a plain `\b` never fires there -- the token would silently evade detection in
+// exactly the shape it actually appears in stored data.
+const INTERNAL_ARTIFACT_TOKEN_RE = new RegExp(`\\b(?:${INTERNAL_MARKER_PATTERNS})(?:\\b|_)`, 'i')
 export function containsInternalArtifactToken(content: string): boolean { return INTERNAL_ARTIFACT_TOKEN_RE.test(content) }
 export function assertUserFacingText(content: string): string { const value = content.trim(); return value && !containsInternalArtifactToken(value) ? value : '' }
 export function safeConversationRows<T extends ConversationalHistoryRow>(rows: readonly T[] = []): T[] { return rows.filter((row) => row.role === 'user' || (row.role === 'assistant' && Boolean(row.content.trim()) && !containsInternalArtifactToken(row.content))) }
