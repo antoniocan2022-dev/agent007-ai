@@ -27,6 +27,7 @@ const STOPWORDS = new Set([
 ])
 const TOPIC_GENERIC_TOKENS = new Set(['we', 'our', 'us', 'now', 'current', 'topic', 'subject', 'discuss', 'discussing', 'talk', 'talking'])
 const TRAILING_QUESTION_RE = /\?\s*$/
+const LEADING_INTERROGATIVE_RE = /^(?:where|what|how|why|who|when|which|is|are|do|does|did|can|could|would|should|any)\b/i
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -91,8 +92,16 @@ function semanticReferenceAnchor(currentUserMessage: string, prior: readonly Per
 // wrongly reject a correct answer about something the active thread was never about in the first place;
 // those have their own dedicated resolvers (resolveOrdinalReference/resolveTemporalReference) which
 // already take priority over general topic-continuity scoring.
+// Review found this guard was punctuation-dependent: the trailing "?" requirement meant "Where are we
+// with this?" was caught but the identical, extremely common chat-casual "Where are we with this" (no
+// terminal punctuation) was not, even though it carries the exact same hallucination risk. A leading
+// interrogative word is a low-risk, closed grammatical signal that a message is a question regardless of
+// terminal punctuation, without reopening the door to plain short acknowledgements ("Thanks", "Ok",
+// "Sounds good") -- none of which start with one of these words, so they remain unaffected.
 function isVagueFollowUpQuestion(message: string): boolean {
-  return TRAILING_QUESTION_RE.test(message.trim()) && tokens(message).size <= 1 && !hasDedicatedReferenceResolution(message)
+  const trimmed = message.trim()
+  const looksInterrogative = TRAILING_QUESTION_RE.test(trimmed) || LEADING_INTERROGATIVE_RE.test(trimmed)
+  return looksInterrogative && tokens(message).size <= 1 && !hasDedicatedReferenceResolution(message)
 }
 
 function authoritativeTopicAlignment(currentUserMessage: string, response: string, prior: readonly PersistedConversationRow[]): { aligned: boolean; reason?: string } {
