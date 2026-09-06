@@ -132,6 +132,7 @@ jobs:
             "Agent007 Memory Integrity CI"
             "Provider Control Plane CI"
             "Provider Retirement Inventory"
+            "Provider Resilience CI"
             "Agent007 Revenue Foundation CI"
             "Operational KPIs + Venture 001 Verification"
           )

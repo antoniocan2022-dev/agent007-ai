@@ -1,5 +1,5 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
-import { extractEnumeratedItems, resolveOrdinalReference } from './ceo-reference-resolution'
+import { extractEnumeratedItems, resolveOrdinalReference, hasDedicatedReferenceResolution } from './ceo-reference-resolution'
 import { deriveCeoConversationState, safeConversationRows } from './ceo-conversation-state'
 import { isCurrentTopicRequest } from './ceo-conversational-signals'
 
@@ -26,6 +26,7 @@ const STOPWORDS = new Set([
   'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'such',
 ])
 const TOPIC_GENERIC_TOKENS = new Set(['we', 'our', 'us', 'now', 'current', 'topic', 'subject', 'discuss', 'discussing', 'talk', 'talking'])
+const TRAILING_QUESTION_RE = /\?\s*$/
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -76,8 +77,26 @@ function semanticReferenceAnchor(currentUserMessage: string, prior: readonly Per
   return containsAnaphora(currentUserMessage) ? recentUserAnchor(safePrior) : ''
 }
 
+// isCurrentTopicRequest only recognizes a specific, literal phrasing family ("what are we discussing",
+// "what's the current topic", ...). A differently-worded but equally vague follow-up question -- "Where
+// are we with this?", "What's going on?" -- carries the exact same hallucination risk the alignment check
+// exists to catch (its own objective tokenizes down to almost nothing, so relevance is both underweighted
+// and unreliable in the response-quality average), it just doesn't match that literal pattern. Detecting
+// "vague" structurally (a question with no more than one meaningful content token of its own) generalizes
+// the protection to that whole class without touching substantive questions, which always retain enough
+// of their own content tokens to be scored on their own merits.
+// Excluded: ordinal ("the second one?") and temporal ("yesterday?") references also tokenize down to
+// almost nothing, but they name an explicit referent of their own -- an older list item, a past day --
+// that is legitimately NOT the active thread's topic. Forcing alignment against the active thread would
+// wrongly reject a correct answer about something the active thread was never about in the first place;
+// those have their own dedicated resolvers (resolveOrdinalReference/resolveTemporalReference) which
+// already take priority over general topic-continuity scoring.
+function isVagueFollowUpQuestion(message: string): boolean {
+  return TRAILING_QUESTION_RE.test(message.trim()) && tokens(message).size <= 1 && !hasDedicatedReferenceResolution(message)
+}
+
 function authoritativeTopicAlignment(currentUserMessage: string, response: string, prior: readonly PersistedConversationRow[]): { aligned: boolean; reason?: string } {
-  if (!isCurrentTopicRequest(currentUserMessage) || !prior.length) return { aligned: true }
+  if ((!isCurrentTopicRequest(currentUserMessage) && !isVagueFollowUpQuestion(currentUserMessage)) || !prior.length) return { aligned: true }
   const state = deriveCeoConversationState(prior, currentUserMessage)
   const continuable = state.threads.filter((thread) => thread.status === 'active' || thread.status === 'paused').sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
   const activeThread = continuable[0]
