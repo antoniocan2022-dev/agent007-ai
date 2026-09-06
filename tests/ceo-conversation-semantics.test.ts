@@ -81,6 +81,10 @@ describe('CEO conversation hardening P1-P4', () => {
   test('correction wording uses one canonical classifier and state records the correction', () => {
     const message = 'Correction: the priority is recurring revenue.'
     expect(isCorrectionRequest(message)).toBe(true)
+    expect(isCorrectionRequest('No, the priority is recurring revenue.')).toBe(true)
+    expect(isCorrectionRequest("That's not the current priority.")).toBe(true)
+    expect(isCorrectionRequest('No problem, thanks.')).toBe(false)
+    expect(isCorrectionRequest('No worries.')).toBe(false)
     expect(deriveCeoConversationState([{ role: 'user', content: message, createdAt: '2026-09-06T12:00:00.000Z' }], message).recentCorrections).toContain(message)
   })
 
