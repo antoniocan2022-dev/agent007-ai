@@ -1,17 +1,15 @@
 name: Provider Resilience CI
 
 on:
+  # Unfiltered on push: this workflow is one of the release watchdog's required exact-SHA
+  # certification gates (production-release-watchdog.yml), which polls for a run of this exact
+  # name on every release SHA. A path filter here would mean a release that doesn't happen to
+  # touch these specific files never produces a run at all, and the watchdog would wait out its
+  # full timeout and fail every such deploy. Every other required gate's push trigger is
+  # unfiltered for the same reason (see provider-control-plane-ci.yml for the identical pattern);
+  # pull_request stays path-filtered below for fast, targeted PR feedback.
   push:
     branches: [main]
-    paths:
-      - 'src/lib/provider-control-plane.ts'
-      - 'src/lib/provider-intelligence.ts'
-      - 'src/lib/provider-runtime-v2.ts'
-      - 'src/lib/outcome-intelligence.ts'
-      - 'tests/provider-auth-failover.test.ts'
-      - '.github/workflows/provider-resilience-ci.yml'
-      - 'package.json'
-      - 'bun.lock'
   pull_request:
     branches: [main]
     paths:
