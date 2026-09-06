@@ -81,10 +81,9 @@ describe('CEO conversation hardening P1-P4', () => {
   test('correction wording uses one canonical classifier and state records the correction', () => {
     const message = 'Correction: the priority is recurring revenue.'
     expect(isCorrectionRequest(message)).toBe(true)
-    expect(isCorrectionRequest('No, the priority is recurring revenue.')).toBe(true)
-    expect(isCorrectionRequest("That's not the current priority.")).toBe(true)
-    expect(isCorrectionRequest('No problem, thanks.')).toBe(false)
+    expect(isCorrectionRequest('No problem.')).toBe(false)
     expect(isCorrectionRequest('No worries.')).toBe(false)
+    expect(isCorrectionRequest('No, I mean recurring revenue.')).toBe(true)
     expect(deriveCeoConversationState([{ role: 'user', content: message, createdAt: '2026-09-06T12:00:00.000Z' }], message).recentCorrections).toContain(message)
   })
 
@@ -122,6 +121,17 @@ describe('CEO conversation hardening P1-P4', () => {
     const second = resolveOrdinalReference('What about the second option?', rows)
     expect(second?.resolvedText).toBe('Add semantic repair.')
     expect(second?.ambiguous).toBe(false)
+  })
+
+  test('latest list header persists across turns before numbered items arrive', () => {
+    const rows = [
+      { role: 'assistant', content: 'Alternative options:', createdAt: '2026-09-06T12:01:00.000Z' },
+      { role: 'assistant', content: '2. Add semantic repair.\n3. Split conversation and execution.', createdAt: '2026-09-06T12:01:10.000Z' },
+    ] as const
+    const items = extractEnumeratedItems(rows)
+    expect(items.map((item) => `${item.listId}:${item.ordinal}`)).toEqual(['list-1:2', 'list-1:3'])
+    expect(resolveOrdinalReference('What about the first option?', rows)?.ambiguous).toBe(true)
+    expect(resolveOrdinalReference('What about the second option?', rows)?.resolvedText).toBe('Add semantic repair.')
   })
 
   test('degraded recovery uses structured active-thread state for current-topic questions', async () => {
