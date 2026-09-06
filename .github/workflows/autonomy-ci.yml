@@ -132,7 +132,8 @@ jobs:
             tests/ceo-conversation-behavioral.test.ts \
             tests/release-attestation.test.ts \
             tests/ceo-long-conversation-certification.test.ts \
-            tests/ceo-runtime-metrics-cancellation.test.ts; do
+            tests/ceo-runtime-metrics-cancellation.test.ts \
+            tests/ceo-p1-p7-deep-audit-hardening.test.ts; do
             echo "Running isolated conversation benchmark process: $test_file"
             bun test --max-concurrency=1 "$test_file"
           done
