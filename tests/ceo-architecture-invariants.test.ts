@@ -21,8 +21,9 @@ describe('Architecture invariants -- the closed cognitive loop, certified end-to
     expect(source).toContain('preRoute?:')
     expect(source).toMatch(/request\.preRoute\s*\?\?\s*preRouteCeoRequest/)
     // And the route actually supplies it, rather than the acceptance existing but going unused.
+    // Uses safeContextRows (the trust-boundary projection), not the raw contextData.rows.
     const routeSource = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
-    expect(routeSource).toMatch(/priorConversation:\s*contextData\.rows,\s*relevantOlderConversation:\s*contextData\.rows,\s*preRoute,\s*decisionContract/)
+    expect(routeSource).toMatch(/priorConversation:\s*safeContextRows,\s*relevantOlderConversation:\s*safeContextRows,\s*preRoute,\s*decisionContract/)
   })
 
   test('Invariant B: the decision contract is load-bearing for actual generation, not observability-only -- a clarify action produces a genuinely different instruction than an answer action', () => {
