@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/app/api/agent/route.ts'
+      - 'src/app/api/conversations/[id]/route.ts'
       - 'src/lib/ceo-*.ts'
       - 'scripts/ceo-*-audit.ts'
       - 'tests/ceo-*.test.ts'
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths:
       - 'src/app/api/agent/route.ts'
+      - 'src/app/api/conversations/[id]/route.ts'
       - 'src/lib/ceo-*.ts'
       - 'scripts/ceo-*-audit.ts'
       - 'tests/ceo-*.test.ts'
@@ -51,6 +53,9 @@ jobs:
 
       - name: Run public transport regressions
         run: bun test tests/ceo-public-transport.test.ts
+
+      - name: Run public conversation reload regressions
+        run: bun test tests/ceo-conversation-public-projection.test.ts
 
       - name: Run authoritative response regressions
         run: bun test tests/ceo-response-contract.test.ts tests/ceo-response-finalizer.test.ts
