@@ -81,10 +81,10 @@ function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflec
 }
 function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassification): CeoIntent {
   if (selfReflection.isSelfReflective) return 'self_assessment'
+  // Historical/retrospective questions are semantic conversation requests. Resolve them before action, mission, research, or analysis keywords can steal the route.
+  if (isRetrospectiveConversationRequest(text)) return 'conversation'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
-  // Historical/retrospective questions are semantic conversation requests. Resolve them before action, research, and analysis keywords can steal the route.
-  if (isRetrospectiveConversationRequest(text)) return 'conversation'
   if (isExternalEquityResearch(text)) return 'research'
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
   if (TOOL_ACTION_RE.test(text)) return 'tool_action'
