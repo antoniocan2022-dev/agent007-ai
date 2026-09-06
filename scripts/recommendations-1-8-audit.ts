@@ -7,7 +7,7 @@ const read = (path: string) => readFileSync(path, 'utf8')
 const has = (path: string, token: string, message: string) => { if (!read(path).includes(token)) failures.push(message) }
 
 const canonicalFiles = [
-  'src/lib/agent-canonical-bridge.ts','src/lib/ceo-cognitive-contract.ts','src/lib/ceo-cognitive-kernel.ts','src/lib/ceo-execution-plan.ts','src/lib/ceo-cognitive-lifecycle.ts','src/lib/ceo-response-quality-gate.ts','src/lib/ceo-claim-evidence-gate.ts','src/lib/ceo-evidence-bundle.ts','src/lib/ceo-evidence-executor.ts','src/lib/ceo-evidence-trace.ts','src/lib/ceo-recovery-policy.ts','src/lib/ceo-self-reflection.ts','src/lib/ceo-presenter.ts','src/lib/proof-ledger.ts','tests/canonical-runtime-integrity.test.ts','tests/adaptive-execution.test.ts','tests/ceo-decision-kernel.test.ts','tests/artifact-evidence.test.ts','tests/verification-officer.test.ts','tests/verification-gate.test.ts','tests/ceo-self-reflection.test.ts','tests/ceo-cognitive-lifecycle.test.ts','tests/ceo-real-request-corpus.test.ts','tests/ceo-evidence-golden.test.ts','scripts/recommendations-5-8-audit.ts',
+  'src/lib/agent-canonical-bridge.ts','src/lib/ceo-cognitive-contract.ts','src/lib/ceo-cognitive-kernel.ts','src/lib/ceo-execution-plan.ts','src/lib/ceo-cognitive-lifecycle.ts','src/lib/ceo-response-quality-gate.ts','src/lib/ceo-claim-evidence-gate.ts','src/lib/ceo-evidence-bundle.ts','src/lib/ceo-evidence-executor.ts','src/lib/ceo-evidence-trace.ts','src/lib/ceo-recovery-policy.ts','src/lib/ceo-self-reflection.ts','src/lib/ceo-response-persistence.ts','src/lib/ceo-presenter.ts','src/lib/proof-ledger.ts','tests/canonical-runtime-integrity.test.ts','tests/adaptive-execution.test.ts','tests/ceo-decision-kernel.test.ts','tests/artifact-evidence.test.ts','tests/verification-officer.test.ts','tests/verification-gate.test.ts','tests/ceo-self-reflection.test.ts','tests/ceo-cognitive-lifecycle.test.ts','tests/ceo-real-request-corpus.test.ts','tests/ceo-evidence-golden.test.ts','scripts/recommendations-5-8-audit.ts',
 ]
 for (const file of canonicalFiles) if (!existsSync(file)) failures.push(`Missing canonical Stage 1–8 file: ${file}`)
 
@@ -42,7 +42,8 @@ has('tests/ceo-evidence-golden.test.ts','250 million dollars','Stage 5 quantitat
 // Stage 6 — operational lifecycle integration.
 has('src/app/api/agent/route.ts','runCeoCognitiveLifecycle','Stage 6 operational execution is not fed back into the CEO lifecycle.')
 has('src/app/api/agent/route.ts','const operationalEvidence','Stage 6 operational evidence envelope missing.')
-has('src/app/api/agent/route.ts','db.message.update','Stage 6 synthesis does not update canonical persisted history.')
+has('src/app/api/agent/route.ts','updateCeoAssistantMessage','Stage 6 synthesis does not update canonical persisted history.')
+has('src/lib/ceo-response-persistence.ts','tx.message.update','Stage 6 canonical persistence helper does not write to the Message table.')
 
 // Stage 7 — recovery/abstention separation.
 has('src/lib/ceo-evidence-executor.ts','recoverExternalEvidencePlan','Stage 7 evidence recovery path missing.')
