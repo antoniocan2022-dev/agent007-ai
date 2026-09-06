@@ -34,7 +34,6 @@ export interface ConversationReference {
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want','were','will','been','them','theyre','same','option','thing','problem','issue'])
 const QUESTION_RE = /\?\s*$|^(?:what|why|how|when|where|who|which|should|can|could|would|is|are|do|does)\b/i
 const DECISION_RE = /\b(?:decided|decision|we(?:'ll|\s+will)|let'?s\s+(?:use|do|build|keep|choose)|agreed|selected|going\s+with|prefer(?:red)?|prioriti[sz]e|priorit(?:y|ies))\b/i
-const CORRECTION_RE = /^\s*(?:no\b|that(?:'s| is)\s+(?:not|n't)\b|i\s+mean\b|what\s+i\s+meant\b|correction\b)/i
 const GOAL_RE = /\b(?:main|primary|core|long[- ]term)\s+(?:goal|objective)\b|\b(?:our|the|my)\s+(?:goal|objective)\b|\bcenter\s+of\s+gravity\b/i
 const RESOLUTION_RE = /\b(?:resolved|closed|finished|done|complete|completed|no longer|solved|fixed)\b/i
 const SUPERSESSION_RE = /\b(?:instead|rather|forget that|move on|replace|supersede|switch to|new topic|different topic)\b/i
