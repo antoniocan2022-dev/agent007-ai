@@ -103,14 +103,21 @@ describe('CEO conversation hardening P1-P4', () => {
     expect(result.decision).toBe('PASS')
   })
 
-  test('latest list begins at the newest explicit list header even when the new list starts at ordinal 2', () => {
+  test('latest list boundary is explicit and ordinal resolution stays inside the newest list', () => {
     const rows = [
       { role: 'assistant', content: 'Options:\n1. Keep current model.\n2. Use stronger CEO model.', createdAt: '2026-09-06T12:00:00.000Z' },
       { role: 'assistant', content: 'Alternative options:\n2. Add semantic repair.\n3. Split conversation and execution.', createdAt: '2026-09-06T12:00:10.000Z' },
     ] as const
-    const result = resolveOrdinalReference('What about the first option?', rows)
-    expect(result?.resolvedText).toBeNull()
-    expect(result?.ambiguous).toBe(true)
+    const items = extractEnumeratedItems(rows)
+    expect(items.map((item) => `${item.listId}:${item.ordinal}`)).toEqual(['list-1:1', 'list-1:2', 'list-2:2', 'list-2:3'])
+
+    const first = resolveOrdinalReference('What about the first option?', rows)
+    expect(first?.resolvedText).toBeNull()
+    expect(first?.ambiguous).toBe(true)
+
+    const second = resolveOrdinalReference('What about the second option?', rows)
+    expect(second?.resolvedText).toBe('Add semantic repair.')
+    expect(second?.ambiguous).toBe(false)
   })
 
   test('degraded recovery uses structured active-thread state for current-topic questions', async () => {
@@ -118,7 +125,7 @@ describe('CEO conversation hardening P1-P4', () => {
       { role: 'user', content: 'Now let’s discuss provider architecture.', createdAt: '2026-09-06T12:00:00.000Z' },
       { role: 'assistant', content: 'We are discussing provider architecture and provider resilience.', createdAt: '2026-09-06T12:00:05.000Z' },
     ] as const
-    const result = await buildCeoDegradedResponse({ objective: 'What are we discussing now?', intent: 'conversation', reason: 'provider_error', failureReason: 'provider_error', priorConversation: prior })
+    const result = await buildCeoDegradedResponse({ objective: 'What are we discussing now?', intent: 'conversation', reason: 'provider_error', failureReason: 'provider_error', priorConversation: prior, recall: async () => [] })
     expect(result.content.toLowerCase()).toContain('provider architecture')
     expect(result.content.toLowerCase()).not.toContain('evidence state')
     expect(result.content.toLowerCase()).not.toContain('quality gate')
@@ -149,14 +156,25 @@ describe('CEO transcript-derived adversarial benchmark', () => {
     expect(deriveCeoConversationState(rows, 'What is the current priority?').recentCorrections.at(-1)).toContain('recurring revenue')
   })
 
-  test('multiple-list ordinal and topic-switch cases are handled without stale inheritance', () => {
-    const rows = [
+  test('multiple-list ordinal resolution is isolated from a later topic switch', () => {
+    const listRows = [
       { role: 'assistant' as const, content: 'Options:\n1. Improve logging.\n2. Improve semantic resolution.', createdAt: '2026-09-06T10:00:00.000Z' },
       { role: 'assistant' as const, content: 'New options:\n2. Improve provider resilience.\n3. Add an approval gate.', createdAt: '2026-09-06T10:00:10.000Z' },
     ]
-    const result = resolveOrdinalReference('What about the first option?', rows)
+    const result = resolveOrdinalReference('What about the first option?', listRows)
     expect(result?.resolvedText).toBeNull()
     expect(result?.ambiguous).toBe(true)
+
+    const switchedRows = [
+      { role: 'user' as const, content: 'Let’s discuss the revenue model.', createdAt: '2026-09-06T10:00:00.000Z' },
+      { role: 'assistant' as const, content: 'We are discussing the revenue model.', createdAt: '2026-09-06T10:00:05.000Z' },
+      { role: 'user' as const, content: 'New topic: provider architecture.', createdAt: '2026-09-06T10:00:10.000Z' },
+      { role: 'assistant' as const, content: 'We are now discussing provider architecture and resilience.', createdAt: '2026-09-06T10:00:15.000Z' },
+    ]
+    const state = deriveCeoConversationState(switchedRows, 'Continue.')
+    const continuation = resolveActiveThread('Continue.', state.threads)
+    expect(continuation?.resolvedText).toContain('provider architecture')
+    expect(continuation?.resolvedText).not.toContain('revenue model')
   })
 
   test('temporal reference resolves against a calendar window', () => {
@@ -182,7 +200,7 @@ describe('CEO transcript-derived adversarial benchmark', () => {
   })
 
   test('degraded recovery remains safe and bounded after provider failure', async () => {
-    const result = await buildCeoDegradedResponse({ objective: 'What are we discussing now?', intent: 'conversation', reason: 'provider_error', failureReason: 'provider_error', priorConversation: [{ role: 'user', content: 'We are discussing provider architecture.', createdAt: '2026-09-06T10:00:00.000Z' }, { role: 'assistant', content: 'Provider architecture and resilience are the current focus.', createdAt: '2026-09-06T10:00:05.000Z' }] })
+    const result = await buildCeoDegradedResponse({ objective: 'What are we discussing now?', intent: 'conversation', reason: 'provider_error', failureReason: 'provider_error', priorConversation: [{ role: 'user', content: 'We are discussing provider architecture.', createdAt: '2026-09-06T10:00:00.000Z' }, { role: 'assistant', content: 'Provider architecture and resilience are the current focus.', createdAt: '2026-09-06T10:00:05.000Z' }], recall: async () => [] })
     expect(result.content.toLowerCase()).toContain('provider architecture')
     expect(result.content.length).toBeLessThan(1500)
     expect(result.content).not.toContain('continuous_loop_trace')
