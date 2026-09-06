@@ -1,0 +1,53 @@
+name: CEO Public Event Hardening (one-shot)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Enforce public event projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/app/api/agent/route.ts')
+          text = p.read_text()
+          text = text.replace("import { projectCeoPublicSsePayload } from '@/lib/ceo-public-transport'", "import { projectCeoPublicSsePayload, resolveCeoPublicSseEvent } from '@/lib/ceo-public-transport'", 1)
+          old = "function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${event}\\ndata: ${JSON.stringify(payload)}\\n\\n` }"
+          new = "function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const publicEvent = resolveCeoPublicSseEvent(event); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${publicEvent}\\ndata: ${JSON.stringify(payload)}\\n\\n` }"
+          if old not in text: raise SystemExit('Missing canonical SSE function')
+          p.write_text(text.replace(old, new, 1))
+
+          test = Path('tests/ceo-public-transport.test.ts')
+          t = test.read_text()
+          t = t.replace("import { isSupportedCeoPublicTransportEvent, projectCeoPublicSsePayload }", "import { isSupportedCeoPublicTransportEvent, projectCeoPublicSsePayload, resolveCeoPublicSseEvent }", 1)
+          if "resolves unsupported event names" not in t:
+              t += "\n\ntest('resolves unsupported event names to public progress', () => {\n  expect(resolveCeoPublicSseEvent('tool_execution_internal')).toBe('progress')\n})\n"
+          test.write_text(t)
+
+          Path('.github/workflows/ceo-public-event-hardening-once.yml').unlink()
+          PY
+          git diff --check
+      - name: Commit public event hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/agent/route.ts tests/ceo-public-transport.test.ts .github/workflows/ceo-public-event-hardening-once.yml
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(ceo): close public event-name leakage [skip ci]"
+          git push origin HEAD:main
+# re-trigger marker
