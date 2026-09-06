@@ -21,8 +21,9 @@ describe('CEO public transport boundary', () => {
     expect(payload).toEqual({ content: 'Hello', provider: 'x', model: 'm', responseMs: 12, messageId: 'msg', requestId: 'req' })
   })
 
-  test('never exposes internal thought content', () => {
-    expect(projectCeoPublicSsePayload('thought', { content: '[continuous_loop_trace] secret execution dump' })).toEqual({ message: 'Agent007 is processing the request.' })
+  test('internal thought events collapse to coarse public progress', () => {
+    expect(projectCeoPublicSsePayload('thought', { content: '[continuous_loop_trace] secret execution dump' })).toEqual({ phase: 'processing' })
+    expect(resolveCeoPublicSseEvent('thought')).toBe('progress')
   })
 
   test('coarse progress projection strips evidence and orchestration internals', () => {
@@ -34,14 +35,10 @@ describe('CEO public transport boundary', () => {
     })).toEqual({ phase: 'evidence_complete' })
   })
 
-  test('unknown event payloads fail closed', () => {
+  test('unknown event payloads fail closed into public progress', () => {
     expect(isSupportedCeoPublicTransportEvent('answer')).toBe(true)
     expect(isSupportedCeoPublicTransportEvent('internal_debug')).toBe(false)
-    expect(projectCeoPublicSsePayload('internal_debug', { secret: true })).toEqual({})
+    expect(resolveCeoPublicSseEvent('internal_debug')).toBe('progress')
+    expect(projectCeoPublicSsePayload('internal_debug', { secret: true })).toEqual({ phase: 'processing' })
   })
-})
-
-
-test('resolves unsupported internal event names to public progress', () => {
-  expect(resolveCeoPublicSseEvent('tool_execution_internal')).toBe('progress')
 })
