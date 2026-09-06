@@ -27,6 +27,7 @@ const memoryVisibility = read('src/lib/ceo-memory-visibility.ts')
 const behavioral = read('src/lib/ceo-behavioral-policy.ts')
 const contract = read('src/lib/ceo-response-contract.ts')
 const cognitiveContract = read('src/lib/ceo-cognitive-contract.ts')
+const cognitiveKernel = read('src/lib/ceo-cognitive-kernel.ts')
 const finalizer = read('src/lib/ceo-response-finalizer.ts')
 const composer = read('src/lib/ceo-response-composer.ts')
 const lifecycle = read('src/lib/ceo-cognitive-lifecycle.ts')
@@ -97,8 +98,9 @@ requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['selectedVerificat
 if (!lifecycle.includes('semanticSubstanceCheck')) failures.push('Deep-task safeguard missing: semantic substance check is absent')
 
 // 9. PRESERVE DEEP REASONING FOR DEEP TASKS
+requireText(cognitiveKernel, 'src/lib/ceo-cognitive-kernel.ts', ['reasoningStrategy', 'cognitiveDepth', 'maxEscalations', 'maxProviderAttempts'], 'Adaptive depth routing')
 requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['buildRefinementPrompt', 'buildReviewPrompt', 'buildSynthesisPrompt', 'independent_review'], 'Deep reasoning stages')
-requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['decisionPlan.path', 'decisionPlan.reasoningStrategy'], 'Adaptive depth routing')
+requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['decisionPlan.path', 'decisionPlan.reasoningStrategy'], 'Lifecycle depth integration')
 
 // 10. PROTECT main WITH REQUIRED CI
 read('.github/CODEOWNERS')
