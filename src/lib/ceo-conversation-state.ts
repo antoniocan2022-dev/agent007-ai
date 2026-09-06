@@ -75,7 +75,10 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
     else if (!supersedes && currentActive) mergeInto(currentActive, content, topicTokens, row)
     else {
-      if (currentActive) currentActive.status = supersedes ? 'superseded' : 'paused'
+      // Reaching this branch with supersedes===false requires currentActive to already be falsy
+      // (that's the only way the "else if" above didn't take it), so the guard below only ever
+      // fires for an explicit topic switch -- always 'superseded', never 'paused'.
+      if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
       threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
