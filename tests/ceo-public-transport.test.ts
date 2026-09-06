@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isSupportedCeoPublicTransportEvent, projectCeoPublicSsePayload } from '../src/lib/ceo-public-transport'
+import { isSupportedCeoPublicTransportEvent, projectCeoPublicSsePayload, resolveCeoPublicSseEvent } from '../src/lib/ceo-public-transport'
 
 describe('CEO public transport boundary', () => {
   test('projects only explicit public answer fields', () => {
@@ -39,4 +39,9 @@ describe('CEO public transport boundary', () => {
     expect(isSupportedCeoPublicTransportEvent('internal_debug')).toBe(false)
     expect(projectCeoPublicSsePayload('internal_debug', { secret: true })).toEqual({})
   })
+})
+
+
+test('resolves unsupported internal event names to public progress', () => {
+  expect(resolveCeoPublicSseEvent('tool_execution_internal')).toBe('progress')
 })

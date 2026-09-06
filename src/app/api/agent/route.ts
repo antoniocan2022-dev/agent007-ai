@@ -16,7 +16,7 @@ import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
 import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
-import { projectCeoPublicSsePayload } from '@/lib/ceo-public-transport'
+import { projectCeoPublicSsePayload, resolveCeoPublicSseEvent } from '@/lib/ceo-public-transport'
 import { filterConversationalMemories } from '@/lib/ceo-memory-visibility'
 import { getAllPersistentMemory } from '@/lib/persistent-memory'
 import { computeWorldStateDelta } from '@/lib/ceo-world-state'
@@ -39,7 +39,7 @@ export const maxDuration = 240
 
 type DeploymentIdentity = { deploymentId: string | null; releaseCommit: string | null }
 function getDeploymentIdentity(): DeploymentIdentity { return { deploymentId: process.env.VERCEL_DEPLOYMENT_ID?.trim() || null, releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null } }
-function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n` }
+function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const publicEvent = resolveCeoPublicSseEvent(event); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${publicEvent}\ndata: ${JSON.stringify(payload)}\n\n` }
 async function loadConversationContext(conversationId: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
   let rows: PersistedConversationRow[] = []
   try { const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'asc' }, select: { role: true, content: true, createdAt: true } } } }); rows = safeConversationRows((conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))) } catch (error) { console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
