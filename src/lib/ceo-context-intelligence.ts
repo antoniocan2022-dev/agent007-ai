@@ -25,6 +25,7 @@ const STOPWORDS = new Set([
   'your', 'please', 'then', 'than', 'just', 'like', 'really', 'very', 'doing', 'does', 'dont',
   'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'such',
 ])
+const TOPIC_GENERIC_TOKENS = new Set(['we', 'our', 'us', 'now', 'current', 'topic', 'subject', 'discuss', 'discussing', 'talk', 'talking'])
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -84,9 +85,10 @@ function authoritativeTopicAlignment(currentUserMessage: string, response: strin
   if (!target) return { aligned: false, reason: 'No authoritative current conversation topic was available.' }
   const responseTokens = tokens(response)
   const targetTokens = tokens(target)
-  if (!targetTokens.size) return { aligned: false, reason: 'The authoritative current conversation topic has no usable semantic tokens.' }
-  const matched = overlap(responseTokens, targetTokens)
-  const coverage = matched / Math.max(1, Math.min(5, targetTokens.size))
+  const meaningfulTargetTokens = new Set([...targetTokens].filter((token) => !TOPIC_GENERIC_TOKENS.has(token)))
+  if (!meaningfulTargetTokens.size) return { aligned: false, reason: 'The authoritative current conversation topic has no sufficiently specific semantic tokens.' }
+  const matched = overlap(responseTokens, meaningfulTargetTokens)
+  const coverage = matched / Math.max(1, Math.min(5, meaningfulTargetTokens.size))
   if (matched === 0 || coverage < 0.2) return { aligned: false, reason: 'The candidate response does not align with the authoritative current conversation topic.' }
   return { aligned: true }
 }
