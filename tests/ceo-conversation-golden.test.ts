@@ -25,7 +25,6 @@ describe('CEO golden conversation benchmark v0.1 — 10 sustained dialogues', ()
       const state = deriveCeoConversationState(scenario.rows, scenario.rows.at(-1)?.content ?? '')
       for (const [message, expected] of scenario.prompts) {
         const resolution = resolveConversationReferences(message, scenario.rows, state)[0]
-        console.log(`[golden-debug] ${scenario.name} :: ${message} :: ${JSON.stringify(resolution)}`)
         expect(resolution).toBeDefined()
         if (expected === null) {
           expect(resolution?.ambiguous).toBe(true)
