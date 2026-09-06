@@ -15,10 +15,21 @@ interface ProviderHealth {
   recentFailures: number[]
 }
 export interface ProviderDiscoveryResult { name: ActiveProviderId; discovered: boolean; model: string | null; error?: string; responseMs?: number; source?: CatalogFetchResult['source'] }
-const G = globalThis as typeof globalThis & { __providerHealth?: Record<string, ProviderHealth> }
+const G = globalThis as typeof globalThis & { __providerHealth?: Record<string, ProviderHealth>; __providerHealthProcessStartedAt?: number }
 if (!G.__providerHealth) G.__providerHealth = {}
 const healthStore: Record<string, ProviderHealth> = G.__providerHealth
+// Cold-start guard: this module (and therefore this in-memory health store) is reinitialized on every
+// fresh serverless instance. A brand-new instance's first outbound HTTPS calls are more prone to
+// transient network-layer flakiness (cold DNS/TLS, no warm connection pool) than a genuinely unhealthy
+// provider is -- so a failure burst in the first moments of an instance's life is weaker evidence of a
+// real outage than the same burst once the instance has been serving traffic for a while. Recording it
+// still happens (feeds getHealthScore), but it does not trip the circuit breaker's punitive lockout
+// during this window, so a cold-start hiccup can't cascade into a full outage for the next request(s)
+// this same warm instance goes on to serve.
+if (G.__providerHealthProcessStartedAt === undefined) G.__providerHealthProcessStartedAt = Date.now()
+const COLD_START_GRACE_MS = 20_000
 function ensureHealth(provider: ActiveProviderId): ProviderHealth { if (!healthStore[provider]) healthStore[provider] = { name: provider, totalCalls: 0, successCount: 0, failCount: 0, lastSuccessAt: null, lastFailAt: null, avgResponseMs: 0, currentModel: null, circuitOpen: false, circuitOpenUntil: 0, recentFailures: [] }; return healthStore[provider] }
+function withinColdStartGrace(now: number): boolean { return now - (G.__providerHealthProcessStartedAt ?? now) < COLD_START_GRACE_MS }
 
 export async function discoverProviderModels(forceRefresh = false): Promise<ProviderDiscoveryResult[]> {
   const results: ProviderDiscoveryResult[] = []
@@ -40,7 +51,7 @@ export async function discoverProviderModels(forceRefresh = false): Promise<Prov
 }
 
 export function recordSuccess(provider: string, responseMs: number): void { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return; const health = ensureHealth(provider as ActiveProviderId); health.totalCalls++; health.successCount++; health.lastSuccessAt = Date.now(); health.avgResponseMs = health.avgResponseMs === 0 ? responseMs : Math.round(health.avgResponseMs * 0.7 + responseMs * 0.3); health.circuitOpen = false; health.circuitOpenUntil = 0; health.recentFailures = [] }
-export function recordFailure(provider: string): void { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return; const health = ensureHealth(provider as ActiveProviderId); health.totalCalls++; health.failCount++; health.lastFailAt = Date.now(); const now = Date.now(); health.recentFailures = health.recentFailures.filter((timestamp) => now - timestamp < 60_000); health.recentFailures.push(now); if (health.recentFailures.length >= 3) { health.circuitOpen = true; health.circuitOpenUntil = now + 60_000 } }
+export function recordFailure(provider: string): void { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return; const health = ensureHealth(provider as ActiveProviderId); health.totalCalls++; health.failCount++; health.lastFailAt = Date.now(); const now = Date.now(); health.recentFailures = health.recentFailures.filter((timestamp) => now - timestamp < 60_000); health.recentFailures.push(now); if (health.recentFailures.length >= 3 && !withinColdStartGrace(now)) { health.circuitOpen = true; health.circuitOpenUntil = now + 60_000 } }
 export function getHealthScore(provider: string): number { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return 0; const health = ensureHealth(provider as ActiveProviderId); if (!health.totalCalls) return 50; const successRate = health.successCount / health.totalCalls * 100; const recencyScore = health.lastSuccessAt ? Math.max(0, Math.min(100, 100 - (Date.now() - health.lastSuccessAt) / 3_600_000 * 100)) : 0; const speedScore = health.avgResponseMs > 0 ? Math.max(0, Math.min(100, 100 - (health.avgResponseMs - 500) / 45)) : 50; return Math.round(successRate * 0.7 + recencyScore * 0.2 + speedScore * 0.1) }
 export function isCircuitOpen(provider: string): boolean { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return false; const health = ensureHealth(provider as ActiveProviderId); if (health.circuitOpen && Date.now() < health.circuitOpenUntil) return true; if (health.circuitOpen) { health.circuitOpen = false; health.circuitOpenUntil = 0; health.recentFailures = [] } return false }
 export function getDiscoveredModel(provider: string): string | null { return PROVIDER_ORDER.includes(provider as ActiveProviderId) ? ensureHealth(provider as ActiveProviderId).currentModel : null }
