@@ -121,6 +121,43 @@ describe('CEO deep-audit hardening: generalized vague-question topic guard', () 
     expect(result.understood).toBe(true)
   })
 
+  // A non-anaphoric vague check-in ("What's the status?") shares no vocabulary with the prior
+  // conversation by construction, so the plain relevance filter in scoreContextContinuity always came
+  // back empty for it -- which used to fall through to the "no relevant turns, no context needed"
+  // fast path and report `understood: true` unconditionally, completely bypassing the topic-alignment
+  // guard regardless of what isVagueFollowUpQuestion decided. This silently reopened the exact
+  // hallucination class the guard exists to catch, for any vague phrasing without an anaphora word
+  // ("this"/"that"/"it") or a literal current-topic phrase.
+  const vagueNoAnaphoraCases = ['What\'s the status?', 'Any updates?', 'Any progress?', 'What\'s new?', 'What\'s happening?']
+  for (const message of vagueNoAnaphoraCases) {
+    test(`non-anaphoric vague check-in "${message}" hallucination is rejected`, () => {
+      const result = scoreContextContinuity({
+        currentUserMessage: message,
+        response: 'We are talking about the concepts of ability and being able, how things can be accelerated, and what it means to accept or achieve acceptance.',
+        priorTurns: providerPrior,
+      })
+      expect(result.understood).toBe(false)
+    })
+
+    test(`non-anaphoric vague check-in "${message}" grounded answer passes`, () => {
+      const result = scoreContextContinuity({
+        currentUserMessage: message,
+        response: 'We are still on the provider architecture -- specifically the Groq-primary fallback chain.',
+        priorTurns: providerPrior,
+      })
+      expect(result.understood).toBe(true)
+    })
+  }
+
+  test('a genuinely self-contained question with no prior turns at all is still understood', () => {
+    const result = scoreContextContinuity({
+      currentUserMessage: 'What is the capital of France?',
+      response: 'Paris is the capital of France.',
+      priorTurns: [],
+    })
+    expect(result.understood).toBe(true)
+  })
+
   test('an ordinal reference to an older list is excluded from the guard, with or without "?"', () => {
     const priorTurns = [
       { role: 'user' as const, content: 'Give me three strategic pillars.', createdAt: Date.now() - 300000 },
