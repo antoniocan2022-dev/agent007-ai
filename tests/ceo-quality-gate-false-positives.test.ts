@@ -32,4 +32,21 @@ describe('P2 quality-gate false positives found via real CI failures', () => {
     const decisionResult = evaluateCeoQuality({ objective: 'Should I raise prices or cut costs first?', content: 'Raise prices first: it protects the customers you already trust more than a cost cut would, and it buys you time to fix costs without damaging the product experience while you are doing it.', path: 'full', intent: 'decision', responseAction: 'recommend', evidenceVerificationApplicable: false })
     expect(decisionResult.conversationQuality).toBeDefined()
   })
+
+  test('ordinary citation phrasing ("according to", "studies show") used to explain general, well-established concepts is not treated as an unverifiable external-web claim -- the actual live-production root cause behind the "Analyze the psychological patterns..." incident, where evidenceVerificationApplicable is left to auto-derive (as it always is on the real request path) rather than forced to false as in the test above', () => {
+    const objective = 'Analyze the psychological patterns affecting my business decisions.'
+    const content = 'According to behavioral research, people who experience a stressful setback tend to overcorrect in the decisions that follow, swinging from excess caution into oversized risk-taking. Studies show that industry consolidation is accelerating, but that broader trend is not what is driving your specific pattern -- your own reactive stress response is.'
+    const result = evaluateCeoQuality({ objective, content, path: 'full', intent: 'analysis', responseAction: 'explain' })
+    expect(result.claimScopes).not.toContain('external_web')
+    expect(result.checks.evidenceDiscipline).toBe(true)
+    expect(result.failureReason).not.toBe('evidence_insufficient')
+  })
+
+  test('a citation anchored to this business\'s own market/competitive facts still requires live evidence, even when no other pattern in the sentence would have caught it', () => {
+    const content = 'Studies show that industry consolidation is accelerating.'
+    const result = evaluateCeoQuality({ objective: 'What is happening in our industry?', content, path: 'fast', intent: 'research', externalExecutionSucceeded: true, evidenceProvided: true })
+    expect(result.claimScopes).toContain('external_web')
+    expect(result.decision).not.toBe('PASS')
+    expect(result.checks.evidenceDiscipline).toBe(false)
+  })
 })
