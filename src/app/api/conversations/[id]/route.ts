@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { db, ensureDbReady } from '@/lib/db'
 import { authOptions } from '@/lib/auth'
+import { projectCeoConversationForPublic } from '@/lib/ceo-conversation-public-projection'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,13 +24,23 @@ export async function GET(
     const { id } = await params
     const conv = await db.conversation.findFirst({
       where: { id, userId },
-      include: { Message: { orderBy: { createdAt: 'asc' } } },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        updatedAt: true,
+        Message: {
+          where: { role: { in: ['user', 'assistant'] } },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, role: true, content: true, createdAt: true, attachments: true },
+        },
+      },
     })
     if (!conv) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json({ conversation: conv })
+    return NextResponse.json({ conversation: { ...conv, Message: projectCeoConversationForPublic(conv.Message) } })
   } catch (e: any) {
     console.error('[api/conversations/[id]] GET failed:', e?.message?.slice(0, 200))
-    return NextResponse.json({ error: e?.message?.slice(0, 150) }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to load conversation.' }, { status: 500 })
   }
 }
 
@@ -47,6 +58,6 @@ export async function DELETE(
     return NextResponse.json({ ok: true })
   } catch (e: any) {
     console.error('[api/conversations/[id]] DELETE failed:', e?.message?.slice(0, 200))
-    return NextResponse.json({ error: e?.message?.slice(0, 150) }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to delete conversation.' }, { status: 500 })
   }
 }
