@@ -63,9 +63,11 @@ jobs:
         run: bun run test:conversation
       - name: Run sustained golden conversations
         run: bun test tests/ceo-conversation-golden.test.ts
+      - name: Run deep-audit hardening regressions
+        run: bun test tests/ceo-conversation-p89-hardening.test.ts
       - name: Run complete conversation architecture contracts
         run: bun test tests/ceo-conversation-completion.test.ts
       - name: Typecheck application architecture
         run: bunx tsc -p tsconfig.ci.json --noEmit
       - name: Lint conversation architecture
-        run: bunx eslint src/lib/ceo-conversation-state.ts src/lib/ceo-reference-resolution.ts src/lib/ceo-venture-state.ts src/lib/ceo-conversational-signals.ts src/lib/ceo-context-intelligence.ts src/lib/ceo-pre-router.ts src/lib/ceo-degraded-mode.ts tests/ceo-conversation-completion.test.ts
+        run: bunx eslint src/lib/ceo-conversation-state.ts src/lib/ceo-reference-resolution.ts src/lib/ceo-venture-state.ts src/lib/ceo-conversational-signals.ts src/lib/ceo-context-intelligence.ts src/lib/ceo-pre-router.ts src/lib/ceo-degraded-mode.ts tests/ceo-conversation-completion.test.ts tests/ceo-conversation-p89-hardening.test.ts
