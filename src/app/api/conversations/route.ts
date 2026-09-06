@@ -32,7 +32,7 @@ export async function GET() {
     return NextResponse.json({ conversations })
   } catch (e: any) {
     console.error('[api/conversations] GET failed:', e?.message?.slice(0, 200))
-    return NextResponse.json({ conversations: [], error: e?.message?.slice(0, 150) }, { status: 200 })
+    return NextResponse.json({ conversations: [], error: 'Unable to load conversations.' }, { status: 503 })
   }
 }
 
@@ -52,6 +52,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ conversation: conv })
   } catch (e: any) {
     console.error('[api/conversations] POST failed:', e?.message?.slice(0, 200))
-    return NextResponse.json({ error: e?.message?.slice(0, 150) }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to create conversation.' }, { status: 503 })
   }
 }
