@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const failures: string[] = []
-const warnings: string[] = []
 
 function read(path: string): string {
   if (!existsSync(path)) {
@@ -17,11 +16,10 @@ function requireText(source: string, path: string, patterns: string[], label: st
   for (const pattern of patterns) if (!source.includes(pattern)) failures.push(`${label}: ${path} is missing ${pattern}`)
 }
 
-function hash(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex')
-}
+function hash(text: string): string { return createHash('sha256').update(text, 'utf8').digest('hex') }
 
 const route = read('src/app/api/agent/route.ts')
+const conversationListApi = read('src/app/api/conversations/route.ts')
 const conversationApi = read('src/app/api/conversations/[id]/route.ts')
 const conversationProjection = read('src/lib/ceo-conversation-public-projection.ts')
 const transport = read('src/lib/ceo-public-transport.ts')
@@ -81,9 +79,11 @@ for (const [name, source] of [['state', state], ['intelligence', intelligence], 
 }
 if (context.includes('deriveCeoConversationState(input.persistedMessages')) failures.push('Unsafe-history bypass: raw persisted messages reach conversation-state derivation')
 if (context.includes('resolveConversationReferences(normalizedCurrent, input.persistedMessages')) failures.push('Unsafe-history bypass: raw persisted messages reach reference resolution')
-requireText(conversationApi, 'src/app/api/conversations/[id]/route.ts', ['projectCeoConversationForPublic', "where: { role: { in: ['user', 'assistant'] } }"] , 'Conversation reload projection')
-requireText(conversationProjection, 'src/lib/ceo-conversation-public-projection.ts', ['projectCeoConversationForPublic', "row.role === 'user' || row.role === 'assistant'"] , 'Conversation public projection')
+requireText(conversationApi, 'src/app/api/conversations/[id]/route.ts', ['projectCeoConversationForPublic', "where: { role: { in: ['user', 'assistant'] } }"], 'Conversation reload projection')
+requireText(conversationProjection, 'src/lib/ceo-conversation-public-projection.ts', ['projectCeoConversationForPublic', "row.role === 'user' || row.role === 'assistant'"], 'Conversation public projection')
 if (conversationApi.includes('include: { Message: { orderBy: { createdAt:')) failures.push('Conversation reload API exposes raw Message rows')
+requireText(conversationListApi, 'src/app/api/conversations/route.ts', ["error: 'Unable to load conversations.'", "error: 'Unable to create conversation.'"], 'Conversation list error boundary')
+if (conversationListApi.includes("e?.message?.slice(0, 150)")) failures.push('Conversation list API leaks raw exception messages')
 
 // 6. KEEP TOKEN DETECTION AS LAST DEFENSE
 requireText(behavioral, 'src/lib/ceo-behavioral-policy.ts', ['CEO_INTERNAL_ARTIFACT_TOKENS'], 'Canonical token registry')
@@ -91,12 +91,7 @@ requireText(finalizer, 'src/lib/ceo-response-finalizer.ts', ['CEO_INTERNAL_ARTIF
 if (finalizer.includes('STRUCTURED_ARTIFACT_TOKENS')) failures.push('Duplicate token inventory remains in finalizer')
 
 // 7. FAIL CHEAP
-for (const expensiveMarker of ['runCanonicalLlm(', 'probeProvider(']) {
-  if (transport.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: public transport contains ${expensiveMarker}`)
-  if (memoryVisibility.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: memory projection contains ${expensiveMarker}`)
-  if (persistence.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: persistence contains ${expensiveMarker}`)
-  if (conversationProjection.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: conversation projection contains ${expensiveMarker}`)
-}
+for (const expensiveMarker of ['runCanonicalLlm(', 'probeProvider(']) for (const [name, source] of [['transport', transport], ['memoryVisibility', memoryVisibility], ['persistence', persistence], ['conversationProjection', conversationProjection]] as const) if (source.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: ${name} contains ${expensiveMarker}`)
 
 // 8. ESCALATE ONLY WHEN NECESSARY
 requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['attemptValidatedReasoningProvider', 'tryDegraded'], 'Escalation controls')
@@ -135,19 +130,15 @@ for (const file of files) {
   hashes.set(digest, list)
 }
 for (const [digest, matches] of hashes) if (matches.length > 1) failures.push(`Duplicate file content detected (${digest.slice(0, 12)}): ${matches.join(', ')}`)
-for (const forbidden of ['ceo-boundary-hardening-once.yml', 'ceo-response-action-hardening-once.yml', 'ceo-public-event-hardening-once.yml']) {
-  if (existsSync(join('.github/workflows', forbidden))) failures.push(`Transient one-shot workflow remains in repository: ${forbidden}`)
-}
+for (const forbidden of ['ceo-boundary-hardening-once.yml', 'ceo-response-action-hardening-once.yml', 'ceo-public-event-hardening-once.yml']) if (existsSync(join('.github/workflows', forbidden))) failures.push(`Transient one-shot workflow remains in repository: ${forbidden}`)
 
 requireText(phaseAudit, 'scripts/ceo-phase-1-8-audit.ts', ['ceo-public-transport.ts', 'ceo-memory-visibility.ts'], 'Phase 1–8 integration')
 
 if (failures.length) {
   console.error('CEO TRUST-BOUNDARY DEEP AUDIT: FAILED')
   for (const failure of failures) console.error(`- ${failure}`)
-  for (const warning of warnings) console.error(`WARNING: ${warning}`)
   process.exit(1)
 }
 
 console.log('CEO TRUST-BOUNDARY DEEP AUDIT: PASSED')
-console.log('Verified: public transport isolation, decision identity, final/persisted identity, trusted context, unsafe-history exclusion including reload projection, last-defense token detection, fail-cheap boundaries, bounded escalation, deep reasoning preservation, required-CI configuration, recursive duplicate-content scan, and transient workflow cleanup.')
-for (const warning of warnings) console.log(`WARNING: ${warning}`)
+console.log('Verified: public transport isolation, decision identity, final/persisted identity, trusted context, unsafe-history exclusion including reload/list API, last-defense token detection, fail-cheap boundaries, bounded escalation, deep reasoning preservation, required-CI configuration, recursive duplicate-content scan, and transient workflow cleanup.')
