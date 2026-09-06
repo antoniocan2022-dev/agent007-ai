@@ -83,12 +83,12 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (selfReflection.isSelfReflective) return 'self_assessment'
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
+  // Historical/retrospective questions are semantic conversation requests. Resolve them before action, research, and analysis keywords can steal the route.
+  if (isRetrospectiveConversationRequest(text)) return 'conversation'
   if (isExternalEquityResearch(text)) return 'research'
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
   if (TOOL_ACTION_RE.test(text)) return 'tool_action'
   if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
-  // Retrospective/history questions must not collide with prospective decision requests.
-  if (isRetrospectiveConversationRequest(text)) return 'conversation'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
   if (/\b(?:think|opinion|take on|agree|disagree|feel)\b/i.test(text)) return 'opinion'
   if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|ok|okay|great|perfect|how\s+do\s+you\s+do|how\s+do\s+you\s+doing?)\b/i.test(text)) return 'conversation'
