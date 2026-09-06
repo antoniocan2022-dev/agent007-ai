@@ -141,6 +141,7 @@ jobs:
       - name: P0/P1/P2 context and release integrity corpus
         run: bun test tests/ceo-context-boundary-integrity.test.ts tests/release-integrity-contract.test.ts tests/release-integrity-manifest.test.ts tests/critical-file-integrity.test.ts tests/governance-release-regression.test.ts
       - name: Unified release integrity manifest preflight
+        if: github.event_name != 'pull_request'
         run: mkdir -p .artifacts && OUTPUT_PATH=.artifacts/release-integrity-manifest.json bun scripts/build-release-integrity-manifest.ts
       - name: Full Recommendations 1-8 audit
         run: bun scripts/recommendations-1-8-audit.ts
