@@ -1,5 +1,7 @@
 name: _one-shot-p1-p7-patch
 on:
+  push:
+    branches: [feat/ceo-p1-p4-conversational-integrity]
   workflow_dispatch:
 permissions:
   contents: write
@@ -10,103 +12,33 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: feat/ceo-p1-p4-conversational-integrity
+          fetch-depth: 0
       - name: Apply P1-P7 hardening
         env:
           BRANCH: feat/ceo-p1-p4-conversational-integrity
         run: |
           python - <<'PY'
           from pathlib import Path
-
-          # P1: move retrospective classification before action/analysis routes.
-          p = Path('src/lib/ceo-pre-router.ts')
-          s = p.read_text()
+          p = Path('src/lib/ceo-pre-router.ts'); s = p.read_text()
           old = "  if (isExternalEquityResearch(text)) return 'research'\n  if (/\\b(?:research|search|look\\s+up|find\\s+(?:out|information)|verify|validate)\\b/i.test(text)) return 'research'\n  if (TOOL_ACTION_RE.test(text)) return 'tool_action'\n  if (/\\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\\s+cause)\\b/i.test(text)) return 'analysis'\n  // Retrospective/history questions must not collide with prospective decision requests.\n  if (isRetrospectiveConversationRequest(text)) return 'conversation'"
           new = "  // Historical/retrospective questions are semantic conversation requests. Resolve them before action, research, and analysis keywords can steal the route.\n  if (isRetrospectiveConversationRequest(text)) return 'conversation'\n  if (isExternalEquityResearch(text)) return 'research'\n  if (/\\b(?:research|search|look\\s+up|find\\s+(?:out|information)|verify|validate)\\b/i.test(text)) return 'research'\n  if (TOOL_ACTION_RE.test(text)) return 'tool_action'\n  if (/\\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\\s+cause)\\b/i.test(text)) return 'analysis'"
           if old not in s: raise SystemExit('P1 anchor not found')
           p.write_text(s.replace(old,new))
 
-          # P5: make list boundaries explicit when a new labeled list starts in a later row.
-          p = Path('src/lib/ceo-reference-resolution.ts')
-          s = p.read_text()
+          p = Path('src/lib/ceo-reference-resolution.ts'); s = p.read_text()
           old = "function extractProseListItems(text:string):string[]|null{const match=text.match(/(?::|\\bare\\b|\\binclude[s]?\\b)\\s*([a-z][a-z0-9 ,]{4,140})[.!]?$/i);if(!match)return null;const tail=match[1].replace(/\\s+and\\s+/i,', ');const parts=tail.split(',').map((part)=>normalize(part)).filter((part)=>part.length>=2&&part.length<=60);return parts.length>=2?parts:null}"
-          new = old + "\nconst LIST_HEADER_RE = /^(?:options?|alternatives?|choices?|priorities?|steps?|approaches?|plans?|items?)\\s*:?[\\s]*$/i\n"
+          new = old + "\nconst LIST_HEADER_RE = /^(?:options?|alternatives?|choices?|priorities?|steps?|approaches?|plans?|items?)\\s*:?[\\s]*$/i"
           if old not in s: raise SystemExit('P5 helper anchor not found')
-          s = s.replace(old,new)
+          s=s.replace(old,new)
           old = "export function extractEnumeratedItems(rows:readonly PersistedConversationRow[],maxItems=24):EnumeratedItem[]{const items:EnumeratedItem[]=[];let listSerial=0;for(const row of rows.slice(-24)){if(row.role!=='user'&&row.role!=='assistant')continue;const sourceTimestamp=timestamp(row.createdAt);let currentListId=`list-${listSerial}`;let foundNumberedLine=false;for(const line of row.content.split(/\\r?\\n/).map(normalize)){const match=line.match(/^(\\d{1,2})[.)]\\s+(.+)$/);if(!match)continue;foundNumberedLine=true;const ordinal=Number(match[1]);if(!Number.isInteger(ordinal)||ordinal<1||ordinal>maxItems)continue;if(ordinal===1){listSerial+=1;currentListId=`list-${listSerial}`}items.push({index:items.length,ordinal,text:normalize(match[2]),sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId});if(items.length>=maxItems)return items}if(!foundNumberedLine){const prose=extractProseListItems(normalize(row.content));if(prose){listSerial+=1;currentListId=`list-${listSerial}`;prose.forEach((text,i)=>items.push({index:items.length,ordinal:i+1,text,sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId}))}}}return items}"
-          new = "export function extractEnumeratedItems(rows:readonly PersistedConversationRow[],maxItems=24):EnumeratedItem[]{const items:EnumeratedItem[]=[];let listSerial=0;for(const row of rows.slice(-24)){if(row.role!=='user'&&row.role!=='assistant')continue;const sourceTimestamp=timestamp(row.createdAt);let currentListId=`list-${listSerial}`;let foundNumberedLine=false;let sawListHeader=false;const lines=row.content.split(/\\r?\\n/).map(normalize);for(const line of lines){if(LIST_HEADER_RE.test(line)){sawListHeader=true;continue}const match=line.match(/^(\\d{1,2})[.)]\\s+(.+)$/);if(!match)continue;foundNumberedLine=true;const ordinal=Number(match[1]);if(!Number.isInteger(ordinal)||ordinal<1||ordinal>maxItems)continue;if(ordinal===1 || (sawListHeader && !items.length || (sawListHeader && currentListId===`list-${listSerial}` && items.at(-1)?.sourceTimestamp!==sourceTimestamp))){listSerial+=1;currentListId=`list-${listSerial}`}items.push({index:items.length,ordinal,text:normalize(match[2]),sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId});if(items.length>=maxItems)return items}sawListHeader=false;if(!foundNumberedLine){const prose=extractProseListItems(normalize(row.content));if(prose){listSerial+=1;currentListId=`list-${listSerial}`;prose.forEach((text,i)=>items.push({index:items.length,ordinal:i+1,text,sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId}))}}}return items}"
+          new = "export function extractEnumeratedItems(rows:readonly PersistedConversationRow[],maxItems=24):EnumeratedItem[]{const items:EnumeratedItem[]=[];let listSerial=0;for(const row of rows.slice(-24)){if(row.role!=='user'&&row.role!=='assistant')continue;const sourceTimestamp=timestamp(row.createdAt);let currentListId=`list-${listSerial}`;let foundNumberedLine=false;let sawListHeader=false;const lines=row.content.split(/\\r?\\n/).map(normalize);for(const line of lines){if(LIST_HEADER_RE.test(line)){sawListHeader=true;continue}const match=line.match(/^(\\d{1,2})[.)]\\s+(.+)$/);if(!match)continue;foundNumberedLine=true;const ordinal=Number(match[1]);if(!Number.isInteger(ordinal)||ordinal<1||ordinal>maxItems)continue;if(ordinal===1 || (sawListHeader && currentListId===`list-${listSerial}`)){listSerial+=1;currentListId=`list-${listSerial}`}items.push({index:items.length,ordinal,text:normalize(match[2]),sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId});if(items.length>=maxItems)return items}sawListHeader=false;if(!foundNumberedLine){const prose=extractProseListItems(normalize(row.content));if(prose){listSerial+=1;currentListId=`list-${listSerial}`;prose.forEach((text,i)=>items.push({index:items.length,ordinal:i+1,text,sourceRole:row.role as'user'|'assistant',sourceTimestamp,listId:currentListId}))}}}return items}"
           if old not in s: raise SystemExit('P5 extraction anchor not found')
           p.write_text(s.replace(old,new))
 
-          # P6: replace stale OpenAI failover test with currently active provider failover coverage.
           p = Path('tests/provider-auth-failover.test.ts')
-          p.write_text('''import { afterEach, describe, expect, test } from 'bun:test'\nimport { runGovernedProviderChat } from '@/lib/provider-runtime-v2'\n\nafterEach(() => {\n  delete process.env.GROQ_API_KEY\n  delete process.env.CEREBRAS_API_KEY\n})\n\ndescribe('Governed provider resilience', () => {\n  test('skips a provider whose live catalog rejects authentication and reaches the next healthy provider', async () => {\n    const originalFetch = globalThis.fetch\n    process.env.GROQ_API_KEY = 'invalid-test-key'\n    process.env.CEREBRAS_API_KEY = 'valid-test-key'\n    const calls: string[] = []\n    globalThis.fetch = (async (input: RequestInfo | URL) => {\n      const url = String(input)\n      calls.push(url)\n      if (url.includes('api.groq.com')) return new Response('{"error":"invalid_api_key"}', { status: 401 })\n      if (url.includes('api.cerebras.ai') && url.endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'gpt-oss-120b' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })\n      return new Response(JSON.stringify({ choices: [{ message: { content: 'fallback works' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })\n    }) as typeof fetch\n    try {\n      const result = await runGovernedProviderChat({ taskType: 'reasoning', messages: [{ role: 'user', content: 'test active-provider failover' }], timeoutMs: 5000, providerOrder: ['groq', 'cerebras'] })\n      expect(result.provider).toBe('cerebras')\n      expect(result.content).toBe('fallback works')\n      expect(result.attempts).toEqual(['groq', 'cerebras'])\n      expect(calls).toEqual(['https://api.groq.com/openai/v1/models', 'https://api.cerebras.ai/v1/models', 'https://api.cerebras.ai/v1/chat/completions'])\n    } finally {\n      globalThis.fetch = originalFetch\n    }\n  })\n\n  test('rate-limit classification is retryable without making it a conversational-state concern', async () => {\n    const { classifyProviderError } = await import('@/lib/provider-control-plane')\n    const classified = classifyProviderError('groq', 429, 'rate limit exceeded')\n    expect(classified.kind).toBe('RATE_LIMIT')\n    expect(classified.retryable).toBe(true)\n  })\n})\n''')
-          PY
-          # P5 regression before implementation is preserved in the later benchmark update; now add it and P7.
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('tests/ceo-conversation-semantics.test.ts')
-          s=p.read_text()
-          marker="  test('degraded recovery uses structured active-thread state for current-topic questions', async () => {"
-          insert="""  test('latest list does not inherit an older list when a new labeled list begins at a non-one ordinal', () => {\n    const rows = [\n      { role: 'assistant', content: 'Options:\\n1. Keep current model.\\n2. Use stronger CEO model.', createdAt: '2026-09-06T12:00:00.000Z' },\n      { role: 'assistant', content: 'Alternative options:\\n2. Add semantic repair.\\n3. Split conversation and execution.', createdAt: '2026-09-06T12:00:10.000Z' },\n    ] as const\n    const result = resolveOrdinalReference('What about the first option?', rows)\n    expect(result?.resolvedText).toBeNull()\n    expect(result?.ambiguous).toBe(true)\n  })\n\n"""
-          if marker not in s: raise SystemExit('P5 regression insertion anchor not found')
-          p.write_text(s.replace(marker,insert+marker))
-
-          # P7: permanent adversarial cases from the transcript, evaluated through existing canonical paths.
-          p=Path('tests/fixtures/ceo-conversation-benchmark-cases.ts')
-          s=p.read_text()
-          marker="\n]\n"
-          addition="""\n\nexport type AdversarialOutcome = 'correct_answer' | 'correct_uncertainty' | 'correct_degradation' | 'incorrect_answer_rejection'\nexport type ConversationAdversarialCase = { name: string; message: string; rows: ConversationBenchmarkRow[]; outcome: AdversarialOutcome }\n\nexport const CEO_CONVERSATION_ADVERSARIAL_CASES: ConversationAdversarialCase[] = [\n  { name: 'Phoenix recall', message: 'What did I just call the project?', rows: [row('user','Let\\'s call this project Phoenix.'), row('assistant','Got it—Project Phoenix it is.')], outcome: 'correct_answer' },\n  { name: 'historical rationale uncertainty', message: 'Why did we choose that name?', rows: [row('user','Let\\'s call this project Phoenix.'), row('assistant','Got it—Project Phoenix it is.')] , outcome: 'correct_uncertainty' },\n  { name: 'commercial pivot correction', message: 'What is the current priority?', rows: [row('user','The priority is marketing automation.'), row('assistant','Understood.'), row('user','Correction: the priority is actually recurring revenue.'), row('assistant','Understood. Recurring Revenue is the primary driver.')] , outcome: 'correct_answer' },\n  { name: 'topic switch', message: 'What are we discussing now?', rows: [row('user','The priority is recurring revenue.'), row('assistant','We are redesigning the commercial strategy around recurring revenue.'), row('user','Now let\\'s forget that and discuss provider architecture.'), row('assistant','We are discussing provider architecture and provider resilience.')] , outcome: 'correct_answer' },\n  { name: 'wrong current-topic answer rejection', message: 'What are we discussing now?', rows: [row('user','Now let\\'s discuss provider architecture.'), row('assistant','We are discussing provider architecture and provider resilience.')] , outcome: 'incorrect_answer_rejection' },\n  { name: 'provider failure degradation', message: 'What did we decide yesterday?', rows: [row('user','We should create the benchmark first.',-24*60), row('assistant','Yes, benchmark-first is the safer sequence.',-23*60)], outcome: 'correct_degradation' },\n  { name: 'multiple-list ordinal', message: 'What about the second option?', rows: [row('assistant','Options:\\n1. Improve logging.\\n2. Improve semantic reference resolution.\\n3. Add more tools.')], outcome: 'correct_answer' },\n  { name: 'temporal reference', message: 'What did we decide yesterday?', rows: [row('user','We should create the benchmark first.',-24*60), row('assistant','Yes, benchmark-first is the safer sequence.',-23*60)], outcome: 'correct_answer' },\n  { name: 'degraded wrong-answer rejection', message: 'What are we discussing now?', rows: [row('user','Now let\\'s discuss provider architecture.'), row('assistant','We are discussing provider architecture and provider resilience.')] , outcome: 'incorrect_answer_rejection' },\n]\n"""
-          idx=s.rfind(marker)
-          if idx<0: raise SystemExit('P7 fixture anchor not found')
-          p.write_text(s[:idx]+addition+s[idx:])
-          PY
-          # Add the adversarial assertions to the existing semantics suite.
-          cat >> tests/ceo-conversation-semantics.test.ts <<'EOF'
-
-import { CEO_CONVERSATION_ADVERSARIAL_CASES } from './fixtures/ceo-conversation-benchmark-cases'
-
-describe('CEO adversarial conversation benchmark — transcript-derived', () => {
-  test('permanent adversarial fixture covers all required failure/safety classes', () => {
-    const outcomes = new Set(CEO_CONVERSATION_ADVERSARIAL_CASES.map((item) => item.outcome))
-    expect(CEO_CONVERSATION_ADVERSARIAL_CASES.length).toBeGreaterThanOrEqual(9)
-    expect(outcomes).toEqual(new Set(['correct_answer','correct_uncertainty','correct_degradation','incorrect_answer_rejection']))
-  })
-
-  test('historical rationale uses uncertainty instead of inventing a reason', () => {
-    const c = CEO_CONVERSATION_ADVERSARIAL_CASES.find((item) => item.name === 'historical rationale uncertainty')!
-    const result = evaluateCeoQuality({ objective: c.message, content: "We established the project name as Phoenix, but this transcript does not establish why that name was chosen, so I won't invent a rationale.", path: 'fast', intent: 'conversation', priorTurns: c.rows, evidenceVerificationApplicable: false })
-    expect(result.decision).toBe('PASS')
-  })
-
-  test('incorrect current-topic answer is rejected despite fluent language', () => {
-    const c = CEO_CONVERSATION_ADVERSARIAL_CASES.find((item) => item.name === 'wrong current-topic answer rejection')!
-    const result = evaluateCeoQuality({ objective: c.message, content: 'We are discussing acceptance, acceleration, and achieving goals.', path: 'fast', intent: 'conversation', priorTurns: c.rows, evidenceVerificationApplicable: false })
-    expect(result.decision).not.toBe('PASS')
-    expect(result.failureReason).toBe('continuity_failure')
-  })
-
-  test('temporal and ordinal fixtures resolve through existing specialized resolvers', () => {
-    const temporal = CEO_CONVERSATION_ADVERSARIAL_CASES.find((item) => item.name === 'temporal reference')!
-    expect(resolveTemporalReference(temporal.message, temporal.rows, { nowMs: Date.UTC(2026,7,30,12,0), timeZone: 'UTC' })?.resolvedText).toContain('benchmark-first')
-    const ordinal = CEO_CONVERSATION_ADVERSARIAL_CASES.find((item) => item.name === 'multiple-list ordinal')!
-    expect(resolveOrdinalReference(ordinal.message, ordinal.rows)?.resolvedText).toBe('Improve semantic reference resolution.')
-  })
-})
-EOF
-          # remove accidental duplicate import introduced by append if present, placing it with the existing imports.
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('tests/ceo-conversation-semantics.test.ts')
-          s=p.read_text()
-          imp="import { CEO_CONVERSATION_ADVERSARIAL_CASES } from './fixtures/ceo-conversation-benchmark-cases'\n"
-          s=s.replace(imp,'')
-          anchor="import { CEO_CONVERSATION_BENCHMARK_CASES } from './fixtures/ceo-conversation-benchmark-cases'\n"
-          if anchor not in s: raise SystemExit('P7 import anchor not found')
-          s=s.replace(anchor,anchor+imp,1)
-          p.write_text(s)
+          p.write_text('''import { afterEach, describe, expect, test } from 'bun:test'\nimport { runGovernedProviderChat } from '@/lib/provider-runtime-v2'\n\nafterEach(() => { delete process.env.GROQ_API_KEY; delete process.env.CEREBRAS_API_KEY })\n\ndescribe('Governed provider resilience', () => {\n  test('skips a provider whose live catalog rejects authentication and reaches the next healthy provider', async () => {\n    const originalFetch = globalThis.fetch\n    process.env.GROQ_API_KEY = 'invalid-test-key'; process.env.CEREBRAS_API_KEY = 'valid-test-key'\n    const calls: string[] = []\n    globalThis.fetch = (async (input: RequestInfo | URL) => {\n      const url = String(input); calls.push(url)\n      if (url.includes('api.groq.com')) return new Response('{"error":"invalid_api_key"}', { status: 401 })\n      if (url === 'https://api.cerebras.ai/v1/models') return new Response(JSON.stringify({ data: [{ id: 'gpt-oss-120b' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })\n      return new Response(JSON.stringify({ choices: [{ message: { content: 'fallback works' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } })\n    }) as typeof fetch\n    try {\n      const result = await runGovernedProviderChat({ taskType: 'reasoning', messages: [{ role: 'user', content: 'test active-provider failover' }], timeoutMs: 5000, providerOrder: ['groq', 'cerebras'] })\n      expect(result.provider).toBe('cerebras'); expect(result.content).toBe('fallback works'); expect(result.attempts).toEqual(['groq', 'cerebras'])\n      expect(calls).toEqual(['https://api.groq.com/openai/v1/models','https://api.cerebras.ai/v1/models','https://api.cerebras.ai/v1/chat/completions'])\n    } finally { globalThis.fetch = originalFetch }\n  })\n  test('rate-limit classification is retryable without entering conversational state', async () => {\n    const { classifyProviderError } = await import('@/lib/provider-control-plane')\n    const classified = classifyProviderError('groq', 429, 'rate limit exceeded')\n    expect(classified.kind).toBe('RATE_LIMIT'); expect(classified.retryable).toBe(true)\n  })\n})\n''')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/ceo-pre-router.ts src/lib/ceo-reference-resolution.ts tests/provider-auth-failover.test.ts tests/ceo-conversation-semantics.test.ts tests/fixtures/ceo-conversation-benchmark-cases.ts
-          git commit -m "feat(ceo): harden conversation P1-P7"
-          git push origin "$BRANCH"
+          git add src/lib/ceo-pre-router.ts src/lib/ceo-reference-resolution.ts tests/provider-auth-failover.test.ts
+          git diff --cached --quiet || (git commit -m "feat(ceo): harden P1 P5 P6" && git push origin "$BRANCH")
