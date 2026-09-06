@@ -26,7 +26,21 @@ jobs:
           DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 20 "$PRODUCTION_URL/api/release-health" > release-health.json
+          # The deployment_status "success" webhook that triggers this workflow fires once the
+          # target build is READY, which can race the release watchdog's own alias-reconciliation
+          # step (it repoints PRODUCTION_URL to the new deployment in a separate step right after).
+          # Poll briefly for the alias to catch up before treating a SHA mismatch as a real failure,
+          # rather than retrying (and so potentially masking) the rest of the canary's checks.
+          release_ready=false
+          for attempt in $(seq 1 6); do
+            curl --fail --silent --show-error --max-time 20 "$PRODUCTION_URL/api/release-health" > release-health.json
+            main_sha="$(node -pe "JSON.parse(require('fs').readFileSync('release-health.json','utf8')).source?.mainSha ?? ''")"
+            runtime_sha="$(node -pe "JSON.parse(require('fs').readFileSync('release-health.json','utf8')).runtime?.commitSha ?? ''")"
+            if [ "$main_sha" = "$DEPLOYMENT_SHA" ] && [ "$runtime_sha" = "$DEPLOYMENT_SHA" ]; then release_ready=true; break; fi
+            echo "release-health not yet reflecting this deployment (attempt $attempt/6: main=$main_sha runtime=$runtime_sha expected=$DEPLOYMENT_SHA); retrying in 10s in case the production alias is still propagating"
+            sleep 10
+          done
+          if [ "$release_ready" != true ]; then echo "release-health never converged on the expected SHA after 6 attempts -- treating as a real failure below"; fi
           curl --fail --silent --show-error --max-time 20 "$PRODUCTION_URL/api/health/provider-canary" > provider-canary.json
           node <<'NODE'
           const fs = require('node:fs')
