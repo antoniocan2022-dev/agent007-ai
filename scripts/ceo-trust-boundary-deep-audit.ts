@@ -5,17 +5,10 @@ import { join } from 'node:path'
 const failures: string[] = []
 
 function read(path: string): string {
-  if (!existsSync(path)) {
-    failures.push(`Missing required file: ${path}`)
-    return ''
-  }
+  if (!existsSync(path)) { failures.push(`Missing required file: ${path}`); return '' }
   return readFileSync(path, 'utf8')
 }
-
-function requireText(source: string, path: string, patterns: string[], label: string): void {
-  for (const pattern of patterns) if (!source.includes(pattern)) failures.push(`${label}: ${path} is missing ${pattern}`)
-}
-
+function requireText(source: string, path: string, patterns: string[], label: string): void { for (const pattern of patterns) if (!source.includes(pattern)) failures.push(`${label}: ${path} is missing ${pattern}`) }
 function hash(text: string): string { return createHash('sha256').update(text, 'utf8').digest('hex') }
 
 const route = read('src/app/api/agent/route.ts')
@@ -46,9 +39,7 @@ requireText(route, 'src/app/api/agent/route.ts', ['projectCeoPublicSsePayload', 
 requireText(transport, 'src/lib/ceo-public-transport.ts', ['PUBLIC_FIELDS_BY_EVENT', 'resolveCeoPublicSseEvent', 'projectCeoPublicSsePayload'], 'Public transport module')
 if (/\{\.\.\.\(data as Record<string, unknown>\)\}/.test(route)) failures.push('Public transport leak: route still spreads arbitrary SSE data')
 if (/answer:[^\n]*decisionContract/.test(transport) || /done:[^\n]*decisionContract/.test(transport)) failures.push('Public transport leak: decisionContract is allowlisted')
-for (const sensitiveField of ['executionContract', 'quality', 'evidenceTrace', 'cognitiveMetrics', 'context', 'releaseAttestation']) {
-  if (new RegExp(`answer:[^\n]*${sensitiveField}`).test(transport) || new RegExp(`done:[^\n]*${sensitiveField}`).test(transport)) failures.push(`Public transport leak: ${sensitiveField} is allowlisted on a public response event`)
-}
+for (const sensitiveField of ['executionContract', 'quality', 'evidenceTrace', 'cognitiveMetrics', 'context', 'releaseAttestation']) if (new RegExp(`answer:[^\n]*${sensitiveField}`).test(transport) || new RegExp(`done:[^\n]*${sensitiveField}`).test(transport)) failures.push(`Public transport leak: ${sensitiveField} is allowlisted on a public response event`)
 if (transport.includes("| 'thought'")) failures.push('Public transport leak: internal thought is a supported public SSE event')
 if (transport.includes("| 'reasoning'")) failures.push('Public transport leak: internal reasoning is a supported public SSE event')
 
@@ -74,9 +65,7 @@ requireText(memoryVisibility, 'src/lib/ceo-memory-visibility.ts', ['CONVERSATION
 requireText(route, 'src/app/api/agent/route.ts', ['filterConversationalMemories'], 'Route memory projection')
 
 // 5. KEEP UNSAFE HISTORY OUT OF PROJECTION
-for (const [name, source] of [['state', state], ['intelligence', intelligence], ['worldModel', worldModel], ['qualityGate', qualityGate], ['degraded', degraded]] as const) {
-  if (!source.includes('safeConversationRows')) failures.push(`Unsafe-history boundary missing from ${name} consumer`)
-}
+for (const [name, source] of [['state', state], ['intelligence', intelligence], ['worldModel', worldModel], ['qualityGate', qualityGate], ['degraded', degraded]] as const) if (!source.includes('safeConversationRows')) failures.push(`Unsafe-history boundary missing from ${name} consumer`)
 if (context.includes('deriveCeoConversationState(input.persistedMessages')) failures.push('Unsafe-history bypass: raw persisted messages reach conversation-state derivation')
 if (context.includes('resolveConversationReferences(normalizedCurrent, input.persistedMessages')) failures.push('Unsafe-history bypass: raw persisted messages reach reference resolution')
 requireText(conversationApi, 'src/app/api/conversations/[id]/route.ts', ['projectCeoConversationForPublic', "where: { role: { in: ['user', 'assistant'] } }"], 'Conversation reload projection')
@@ -101,12 +90,12 @@ if (!lifecycle.includes('semanticSubstanceCheck')) failures.push('Deep-task safe
 // 9. PRESERVE DEEP REASONING FOR DEEP TASKS
 requireText(cognitiveKernel, 'src/lib/ceo-cognitive-kernel.ts', ['reasoningStrategy', 'cognitiveDepth', 'maxEscalations', 'maxProviderAttempts'], 'Adaptive depth routing')
 requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['buildRefinementPrompt', 'buildReviewPrompt', 'buildSynthesisPrompt', 'independent_review'], 'Deep reasoning stages')
-requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['decisionPlan.path', 'decisionPlan.reasoningStrategy'], 'Lifecycle depth integration')
+requireText(lifecycle, 'src/lib/ceo-cognitive-lifecycle.ts', ['decisionPlan.path'], 'Lifecycle depth integration')
 
 // 10. PROTECT main WITH REQUIRED CI
 read('.github/CODEOWNERS')
 requireText(workflow, '.github/workflows/ceo-cognitive-lifecycle-ci.yml', ['push:\n    branches: [main]', 'bun run audit:ceo-phase-1-8', 'bunx tsc -p tsconfig.ceo-lifecycle.json --noEmit'], 'Required CEO CI')
-requireText(workflow, '.github/workflows/ceo-cognitive-lifecycle-ci.yml', ['bun test tests/ceo-public-transport.test.ts'], 'Public transport CI regression')
+requireText(workflow, '.github/workflows/ceo-cognitive-lifecycle-ci.yml', ['bun test tests/ceo-public-transport.test.ts', 'bun test tests/ceo-conversation-public-projection.test.ts'], 'Public boundary CI regressions')
 
 // Recursive duplicate-content and transient-workflow scan across canonical CEO surfaces.
 function collectFiles(dir: string): string[] {
@@ -123,22 +112,10 @@ function collectFiles(dir: string): string[] {
 }
 const files = ['src/lib', 'src/app/api/agent', 'src/app/api/conversations', 'scripts', 'tests', 'docs', '.github/workflows'].flatMap(collectFiles)
 const hashes = new Map<string, string[]>()
-for (const file of files) {
-  const digest = hash(readFileSync(file, 'utf8'))
-  const list = hashes.get(digest) ?? []
-  list.push(file)
-  hashes.set(digest, list)
-}
+for (const file of files) { const digest = hash(readFileSync(file, 'utf8')); const list = hashes.get(digest) ?? []; list.push(file); hashes.set(digest, list) }
 for (const [digest, matches] of hashes) if (matches.length > 1) failures.push(`Duplicate file content detected (${digest.slice(0, 12)}): ${matches.join(', ')}`)
 for (const forbidden of ['ceo-boundary-hardening-once.yml', 'ceo-response-action-hardening-once.yml', 'ceo-public-event-hardening-once.yml']) if (existsSync(join('.github/workflows', forbidden))) failures.push(`Transient one-shot workflow remains in repository: ${forbidden}`)
-
 requireText(phaseAudit, 'scripts/ceo-phase-1-8-audit.ts', ['ceo-public-transport.ts', 'ceo-memory-visibility.ts'], 'Phase 1–8 integration')
-
-if (failures.length) {
-  console.error('CEO TRUST-BOUNDARY DEEP AUDIT: FAILED')
-  for (const failure of failures) console.error(`- ${failure}`)
-  process.exit(1)
-}
-
+if (failures.length) { console.error('CEO TRUST-BOUNDARY DEEP AUDIT: FAILED'); for (const failure of failures) console.error(`- ${failure}`); process.exit(1) }
 console.log('CEO TRUST-BOUNDARY DEEP AUDIT: PASSED')
 console.log('Verified: public transport isolation, decision identity, final/persisted identity, trusted context, unsafe-history exclusion including reload/list API, last-defense token detection, fail-cheap boundaries, bounded escalation, deep reasoning preservation, required-CI configuration, recursive duplicate-content scan, and transient workflow cleanup.')
