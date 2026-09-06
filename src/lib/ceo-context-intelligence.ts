@@ -78,30 +78,19 @@ function semanticReferenceAnchor(currentUserMessage: string, prior: readonly Per
   return containsAnaphora(currentUserMessage) ? recentUserAnchor(safePrior) : ''
 }
 
-// isCurrentTopicRequest only recognizes a specific, literal phrasing family ("what are we discussing",
-// "what's the current topic", ...). A differently-worded but equally vague follow-up question -- "Where
-// are we with this?", "What's going on?" -- carries the exact same hallucination risk the alignment check
-// exists to catch (its own objective tokenizes down to almost nothing, so relevance is both underweighted
-// and unreliable in the response-quality average), it just doesn't match that literal pattern. Detecting
-// "vague" structurally (a question with no more than one meaningful content token of its own) generalizes
-// the protection to that whole class without touching substantive questions, which always retain enough
-// of their own content tokens to be scored on their own merits.
-// Excluded: ordinal ("the second one?") and temporal ("yesterday?") references also tokenize down to
-// almost nothing, but they name an explicit referent of their own -- an older list item, a past day --
-// that is legitimately NOT the active thread's topic. Forcing alignment against the active thread would
-// wrongly reject a correct answer about something the active thread was never about in the first place;
-// those have their own dedicated resolvers (resolveOrdinalReference/resolveTemporalReference) which
-// already take priority over general topic-continuity scoring.
-// Review found this guard was punctuation-dependent: the trailing "?" requirement meant "Where are we
-// with this?" was caught but the identical, extremely common chat-casual "Where are we with this" (no
-// terminal punctuation) was not, even though it carries the exact same hallucination risk. A leading
-// interrogative word is a low-risk, closed grammatical signal that a message is a question regardless of
-// terminal punctuation, without reopening the door to plain short acknowledgements ("Thanks", "Ok",
-// "Sounds good") -- none of which start with one of these words, so they remain unaffected.
+// isCurrentTopicRequest recognizes explicit current-topic wording. A differently-worded but equally vague
+// follow-up can still carry the same hallucination risk, but the structural fallback must remain narrow:
+// it only applies when the question is interrogative, has no more than one meaningful content token, and
+// either contains an anaphoric referent ("this", "that", "it", ...), or already matches the canonical
+// current-topic signal. This preserves context protection for chat-casual phrases without misclassifying
+// substantive one-token questions such as "What is revenue" as vague current-topic requests.
+// Excluded: ordinal and temporal references have dedicated resolvers and must not be forced onto the active
+// topic. They remain outside this generic fallback via hasDedicatedReferenceResolution().
 function isVagueFollowUpQuestion(message: string): boolean {
   const trimmed = message.trim()
   const looksInterrogative = TRAILING_QUESTION_RE.test(trimmed) || LEADING_INTERROGATIVE_RE.test(trimmed)
-  return looksInterrogative && tokens(message).size <= 1 && !hasDedicatedReferenceResolution(message)
+  const hasVagueReferent = containsAnaphora(trimmed) || isCurrentTopicRequest(trimmed)
+  return looksInterrogative && tokens(message).size <= 1 && hasVagueReferent && !hasDedicatedReferenceResolution(message)
 }
 
 function authoritativeTopicAlignment(currentUserMessage: string, response: string, prior: readonly PersistedConversationRow[]): { aligned: boolean; reason?: string } {
