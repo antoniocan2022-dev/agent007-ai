@@ -12,7 +12,6 @@ export type CeoPublicTransportEvent =
   | 'superseded'
   | 'duplicate'
   | 'progress'
-  | 'thought'
   | 'ping'
 
 const PUBLIC_FIELDS_BY_EVENT: Record<CeoPublicTransportEvent, readonly string[]> = {
@@ -21,8 +20,7 @@ const PUBLIC_FIELDS_BY_EVENT: Record<CeoPublicTransportEvent, readonly string[]>
   error: ['message', 'retryable', 'requestId', 'deployment'],
   superseded: ['reason', 'requestId', 'deployment'],
   duplicate: ['message', 'requestId', 'deployment'],
-  progress: ['phase', 'message', 'count', 'maxRecoveries'],
-  thought: ['message'],
+  progress: ['phase', 'count', 'maxRecoveries'],
   ping: ['ts'],
 }
 
@@ -30,26 +28,27 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+export function resolveCeoPublicSseEvent(event: string): CeoPublicTransportEvent {
+  return event === 'answer' || event === 'done' || event === 'error' || event === 'superseded' || event === 'duplicate' || event === 'progress' || event === 'ping'
+    ? event
+    : 'progress'
+}
+
 export function projectCeoPublicSsePayload(event: string, data: unknown): Record<string, unknown> {
-  const safeEvent = (Object.prototype.hasOwnProperty.call(PUBLIC_FIELDS_BY_EVENT, event) ? event : 'progress') as CeoPublicTransportEvent
+  const safeEvent = resolveCeoPublicSseEvent(event)
   const allowed = PUBLIC_FIELDS_BY_EVENT[safeEvent]
-  if (!isObject(data)) return {}
+  if (!isObject(data)) return safeEvent === 'progress' ? { phase: 'processing' } : {}
 
   const projected: Record<string, unknown> = {}
   for (const field of allowed) {
     if (Object.prototype.hasOwnProperty.call(data, field)) projected[field] = data[field]
   }
 
-  // Internal orchestrator "thought" content is never transported. A stable public
-  // progress message preserves UI liveness without exposing execution internals.
-  if (safeEvent === 'thought') return { message: 'Agent007 is processing the request.' }
-
-  // Public progress is deliberately coarse. Detailed evidence, quality, context,
-  // routing, contract and telemetry objects remain control-plane only.
-  if (safeEvent === 'progress' && !projected.message && !projected.phase) projected.message = 'Agent007 is processing the request.'
+  // Unknown and internal event sources are collapsed to a coarse public progress state.
+  if (safeEvent === 'progress' && !projected.phase) projected.phase = 'processing'
   return projected
 }
 
 export function isSupportedCeoPublicTransportEvent(event: string): event is CeoPublicTransportEvent {
-  return Object.prototype.hasOwnProperty.call(PUBLIC_FIELDS_BY_EVENT, event)
+  return event === 'answer' || event === 'done' || event === 'error' || event === 'superseded' || event === 'duplicate' || event === 'progress' || event === 'ping'
 }
