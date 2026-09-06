@@ -10,10 +10,11 @@ describe('CEO deep-audit hardening regressions', () => {
   test('provider resilience is a deploy-blocking exact-SHA gate and triggers on every main push', () => {
     const watchdog = readFileSync('.github/workflows/production-release-watchdog.yml', 'utf8')
     const providerWorkflow = readFileSync('.github/workflows/provider-resilience-ci.yml', 'utf8')
+    const pushBlock = providerWorkflow.split('  pull_request:', 1)[0]
 
     expect(watchdog).toContain('"Provider Resilience CI"')
-    expect(providerWorkflow).toMatch(/push:\s*\n\s+branches: \[main\]/)
-    expect(providerWorkflow).not.toMatch(/push:\s*\n[\s\S]*?paths:/)
+    expect(pushBlock).toMatch(/push:\s*\n\s+branches: \[main\]/)
+    expect(pushBlock).not.toContain('paths:')
   })
 
   test('CI tsconfig actually includes bun-types and the two architecture test files', () => {
