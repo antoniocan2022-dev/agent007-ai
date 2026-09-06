@@ -112,6 +112,15 @@ describe('CEO deep-audit hardening: generalized vague-question topic guard', () 
     expect(result.understood).toBe(true)
   })
 
+  test('a substantive one-token question does not become an implicit current-topic question', () => {
+    const result = scoreContextContinuity({
+      currentUserMessage: 'What is revenue',
+      response: 'Revenue is the income generated from selling goods or services.',
+      priorTurns: providerPrior,
+    })
+    expect(result.understood).toBe(true)
+  })
+
   test('an ordinal reference to an older list is excluded from the guard, with or without "?"', () => {
     const priorTurns = [
       { role: 'user' as const, content: 'Give me three strategic pillars.', createdAt: Date.now() - 300000 },
