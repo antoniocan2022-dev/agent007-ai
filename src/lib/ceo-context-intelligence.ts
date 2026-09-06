@@ -28,11 +28,11 @@ const STOPWORDS = new Set([
 const TOPIC_GENERIC_TOKENS = new Set(['we', 'our', 'us', 'now', 'current', 'topic', 'subject', 'discuss', 'discussing', 'talk', 'talking'])
 const TRAILING_QUESTION_RE = /\?\s*$/
 const LEADING_INTERROGATIVE_RE = /^(?:where|what|how|why|who|when|which|is|are|do|does|did|can|could|would|should|any)\b/i
-// Meta-conversational nouns: when one of these is the only content token in an interrogative message,
-// the question is asking about the conversation/task itself ("What's the status?", "Any updates?"), not
-// naming a substantive real-world subject the way "What is revenue" names one -- the same distinction
-// TOPIC_GENERIC_TOKENS already draws for the alignment target, applied here to the incoming question.
-const VAGUE_REFERENT_TOKENS = new Set(['status', 'update', 'updates', 'progress', 'news', 'happening'])
+// Explicit meta-conversational check-ins. These phrases ask for the current conversation/task state
+// rather than introducing a substantive subject. Keep this list structural and phrase-based instead of
+// classifying any one-token noun after an interrogative (for example, "What is revenue" or "What is status"),
+// because those can be ordinary standalone questions that must not inherit the current-topic guard.
+const VAGUE_CHECK_IN_RE = /^(?:what(?:'s\s+(?:the\s+)?status|\s+is\s+the\s+status)|any\s+(?:updates?|progress|status)|what(?:'s|\s+is)\s+new|what(?:'s|\s+is)\s+happening|where\s+are\s+we|how(?:'s|\s+is)\s+(?:it|everything|things?)\s+going)[\s.!?]*$/i
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -86,20 +86,17 @@ function semanticReferenceAnchor(currentUserMessage: string, prior: readonly Per
 // isCurrentTopicRequest recognizes explicit current-topic wording. A differently-worded but equally vague
 // follow-up can still carry the same hallucination risk, but the structural fallback must remain narrow:
 // it only applies when the question is interrogative, has no more than one meaningful content token, and
-// either contains an anaphoric referent ("this", "that", "it", ...), or already matches the canonical
-// current-topic signal. This preserves context protection for chat-casual phrases without misclassifying
-// substantive one-token questions such as "What is revenue" as vague current-topic requests.
+// either contains an anaphoric referent ("this", "that", "it", ...), already matches the canonical
+// current-topic signal, or matches an explicit meta-conversational check-in phrase. This preserves context
+// protection for chat-casual phrases without misclassifying substantive one-token questions such as
+// "What is revenue" or "What is status" as vague current-topic requests.
 // Excluded: ordinal and temporal references have dedicated resolvers and must not be forced onto the active
 // topic. They remain outside this generic fallback via hasDedicatedReferenceResolution().
 function isVagueFollowUpQuestion(message: string): boolean {
   const trimmed = message.trim()
   const looksInterrogative = TRAILING_QUESTION_RE.test(trimmed) || LEADING_INTERROGATIVE_RE.test(trimmed)
   const messageTokens = tokens(message)
-  // A message with literally zero surviving content tokens ("What's up?", "How are things?") is the
-  // clearest possible case of vague -- there is no content to judge it on its own merits, so it must be
-  // treated as a referent-dependent follow-up rather than defaulting to "substantive and unguarded".
-  const hasVagueReferent = containsAnaphora(trimmed) || isCurrentTopicRequest(trimmed) || messageTokens.size === 0
-    || [...messageTokens].some((token) => VAGUE_REFERENT_TOKENS.has(token))
+  const hasVagueReferent = containsAnaphora(trimmed) || isCurrentTopicRequest(trimmed) || VAGUE_CHECK_IN_RE.test(trimmed)
   return looksInterrogative && messageTokens.size <= 1 && hasVagueReferent && !hasDedicatedReferenceResolution(message)
 }
 
@@ -142,7 +139,7 @@ export function scoreContextContinuity(input: {
   // meaningful signal for this class is the authoritative active-thread topic, so it's evaluated
   // independently here, before either the anaphora path or that fast path can apply.
   if (!anaphoraDetected && !referenceSelection && prior.length
-    && (isCurrentTopicRequest(input.currentUserMessage) || isVagueFollowUpQuestion(input.currentUserMessage))) {
+    && isVagueFollowUpQuestion(input.currentUserMessage)) {
     const stateAlignment = authoritativeTopicAlignment(input.currentUserMessage, input.response, prior)
     return {
       score: stateAlignment.aligned ? 100 : 0,
