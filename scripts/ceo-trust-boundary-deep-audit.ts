@@ -22,6 +22,8 @@ function hash(text: string): string {
 }
 
 const route = read('src/app/api/agent/route.ts')
+const conversationApi = read('src/app/api/conversations/[id]/route.ts')
+const conversationProjection = read('src/lib/ceo-conversation-public-projection.ts')
 const transport = read('src/lib/ceo-public-transport.ts')
 const memoryVisibility = read('src/lib/ceo-memory-visibility.ts')
 const behavioral = read('src/lib/ceo-behavioral-policy.ts')
@@ -50,6 +52,7 @@ for (const sensitiveField of ['executionContract', 'quality', 'evidenceTrace', '
   if (new RegExp(`answer:[^\n]*${sensitiveField}`).test(transport) || new RegExp(`done:[^\n]*${sensitiveField}`).test(transport)) failures.push(`Public transport leak: ${sensitiveField} is allowlisted on a public response event`)
 }
 if (transport.includes("| 'thought'")) failures.push('Public transport leak: internal thought is a supported public SSE event')
+if (transport.includes("| 'reasoning'")) failures.push('Public transport leak: internal reasoning is a supported public SSE event')
 
 // 2. PRESERVE DECISION IDENTITY
 requireText(cognitiveContract, 'src/lib/ceo-cognitive-contract.ts', ['responseAction?: ResponseAction'], 'Decision provenance')
@@ -78,18 +81,21 @@ for (const [name, source] of [['state', state], ['intelligence', intelligence], 
 }
 if (context.includes('deriveCeoConversationState(input.persistedMessages')) failures.push('Unsafe-history bypass: raw persisted messages reach conversation-state derivation')
 if (context.includes('resolveConversationReferences(normalizedCurrent, input.persistedMessages')) failures.push('Unsafe-history bypass: raw persisted messages reach reference resolution')
+requireText(conversationApi, 'src/app/api/conversations/[id]/route.ts', ['projectCeoConversationForPublic', "where: { role: { in: ['user', 'assistant'] } }"] , 'Conversation reload projection')
+requireText(conversationProjection, 'src/lib/ceo-conversation-public-projection.ts', ['projectCeoConversationForPublic', "row.role === 'user' || row.role === 'assistant'"] , 'Conversation public projection')
+if (conversationApi.includes('include: { Message: { orderBy: { createdAt:')) failures.push('Conversation reload API exposes raw Message rows')
 
 // 6. KEEP TOKEN DETECTION AS LAST DEFENSE
 requireText(behavioral, 'src/lib/ceo-behavioral-policy.ts', ['CEO_INTERNAL_ARTIFACT_TOKENS'], 'Canonical token registry')
 requireText(finalizer, 'src/lib/ceo-response-finalizer.ts', ['CEO_INTERNAL_ARTIFACT_TOKENS', 'containsInternalArtifactToken'], 'Final token defense')
 if (finalizer.includes('STRUCTURED_ARTIFACT_TOKENS')) failures.push('Duplicate token inventory remains in finalizer')
-if (transport.includes('CEO_INTERNAL_ARTIFACT_TOKENS')) warnings.push('Transport imports token registry; keep transport deterministic and independent where possible.')
 
 // 7. FAIL CHEAP
 for (const expensiveMarker of ['runCanonicalLlm(', 'probeProvider(']) {
   if (transport.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: public transport contains ${expensiveMarker}`)
   if (memoryVisibility.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: memory projection contains ${expensiveMarker}`)
   if (persistence.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: persistence contains ${expensiveMarker}`)
+  if (conversationProjection.includes(expensiveMarker)) failures.push(`Fail-cheap boundary violated: conversation projection contains ${expensiveMarker}`)
 }
 
 // 8. ESCALATE ONLY WHEN NECESSARY
@@ -120,7 +126,7 @@ function collectFiles(dir: string): string[] {
   }
   return found
 }
-const files = ['src/lib', 'src/app/api/agent', 'scripts', 'tests', 'docs', '.github/workflows'].flatMap(collectFiles)
+const files = ['src/lib', 'src/app/api/agent', 'src/app/api/conversations', 'scripts', 'tests', 'docs', '.github/workflows'].flatMap(collectFiles)
 const hashes = new Map<string, string[]>()
 for (const file of files) {
   const digest = hash(readFileSync(file, 'utf8'))
@@ -143,5 +149,5 @@ if (failures.length) {
 }
 
 console.log('CEO TRUST-BOUNDARY DEEP AUDIT: PASSED')
-console.log('Verified: public transport isolation, decision identity, final/persisted identity, trusted context, unsafe-history exclusion, last-defense token detection, fail-cheap boundaries, bounded escalation, deep reasoning preservation, required-CI configuration, recursive duplicate-content scan, and transient workflow cleanup.')
+console.log('Verified: public transport isolation, decision identity, final/persisted identity, trusted context, unsafe-history exclusion including reload projection, last-defense token detection, fail-cheap boundaries, bounded escalation, deep reasoning preservation, required-CI configuration, recursive duplicate-content scan, and transient workflow cleanup.')
 for (const warning of warnings) console.log(`WARNING: ${warning}`)
