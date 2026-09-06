@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import { assertUserFacingText, containsInternalArtifactToken, CEO_INTERNAL_ARTIFACT_TOKENS } from './ceo-behavioral-policy'
 import type { CeoResponseDecisionEnvelope } from './ceo-response-contract'
+import type { ResponseAction } from './ceo-cognitive-contract'
 
 /** Canonical ownership boundary for the final conversational string. */
 const STRUCTURED_TOKEN_RE = new RegExp(`\\[(${CEO_INTERNAL_ARTIFACT_TOKENS.join('|')})\\]`, 'i')
 
 export interface CeoResponseFinalizationInput { content: string; finalizationContext?: string; decisionEnvelope?: CeoResponseDecisionEnvelope }
-export interface FinalizedCeoResponse { readonly content: string; readonly finalizationId: string; readonly finalResponseHash: string; readonly candidateId?: string; readonly qualityDecisionId?: string; readonly candidateHash?: string; readonly sanitized: boolean; readonly rejected: boolean }
+export interface FinalizedCeoResponse { readonly content: string; readonly finalizationId: string; readonly finalResponseHash: string; readonly candidateId?: string; readonly qualityDecisionId?: string; readonly candidateHash?: string; readonly responseAction?: ResponseAction; readonly sanitized: boolean; readonly rejected: boolean }
 
 function hashContent(content: string): string { return createHash('sha256').update(content, 'utf8').digest('hex') }
 
@@ -45,7 +46,7 @@ export function finalizeCeoResponse(input: CeoResponseFinalizationInput): Finali
     const checked = assertUserFacingText(original)
     if (!checked || containsInternalArtifactToken(original)) throw new Error('CEO_RESPONSE_CANDIDATE_NOT_USER_SAFE')
     const finalResponseHash = hashContent(original)
-    return Object.freeze({ content: original, finalizationId: `ceo-final-${finalResponseHash.slice(0, 16)}`, finalResponseHash, candidateId: input.decisionEnvelope.candidate.candidateId, qualityDecisionId: input.decisionEnvelope.quality.decisionId, candidateHash: input.decisionEnvelope.candidate.contentHash, sanitized: false, rejected: false })
+    return Object.freeze({ content: original, finalizationId: `ceo-final-${finalResponseHash.slice(0, 16)}`, finalResponseHash, candidateId: input.decisionEnvelope.candidate.candidateId, qualityDecisionId: input.decisionEnvelope.quality.decisionId, candidateHash: input.decisionEnvelope.candidate.contentHash, responseAction: input.decisionEnvelope.controlPlaneSummary.responseAction, sanitized: false, rejected: false })
   }
   const prepared = prepareCeoCandidateContent(original)
   const finalContent = prepared.content || 'I couldn’t complete the user-facing response cleanly. Internal execution details were withheld.'
@@ -61,6 +62,6 @@ export function assertFinalResponseInvariant(response: FinalizedCeoResponse): vo
   if (response.candidateHash && response.candidateHash.length !== 64) throw new Error('CEO_CANDIDATE_HASH_INVALID')
 }
 
-export function buildFinalizationProvenance(response: FinalizedCeoResponse, context?: string): { finalizationId: string; finalResponseHash: string; finalContentLength: number; candidateId?: string; candidateHash?: string; qualityDecisionId?: string; sanitized: boolean; rejected: boolean; context: string | undefined } {
-  return { finalizationId: response.finalizationId, finalResponseHash: response.finalResponseHash, finalContentLength: response.content.length, candidateId: response.candidateId, candidateHash: response.candidateHash, qualityDecisionId: response.qualityDecisionId, sanitized: response.sanitized, rejected: response.rejected, context: context?.trim() || undefined }
+export function buildFinalizationProvenance(response: FinalizedCeoResponse, context?: string): { finalizationId: string; finalResponseHash: string; finalContentLength: number; candidateId?: string; candidateHash?: string; qualityDecisionId?: string; responseAction?: ResponseAction; sanitized: boolean; rejected: boolean; context: string | undefined } {
+  return { finalizationId: response.finalizationId, finalResponseHash: response.finalResponseHash, finalContentLength: response.content.length, candidateId: response.candidateId, candidateHash: response.candidateHash, qualityDecisionId: response.qualityDecisionId, responseAction: response.responseAction, sanitized: response.sanitized, rejected: response.rejected, context: context?.trim() || undefined }
 }

@@ -10,5 +10,6 @@ export function renderCeoControlPlaneSummary(summary: CeoControlPlaneSummary): s
 export function assertCeoControlPlaneSummary(summary: CeoControlPlaneSummary): void {
   if (summary.schemaVersion !== 1) throw new Error('CEO_CONTROL_PLANE_SUMMARY_SCHEMA_MISMATCH')
   if (!summary.evidenceState || !summary.qualityDecision) throw new Error('CEO_CONTROL_PLANE_SUMMARY_INVALID')
+  if (summary.degraded && summary.executionCompleted) throw new Error('CEO_CONTROL_PLANE_DEGRADED_EXECUTION_INCONSISTENT')
   if (summary.verified && !summary.executionCompleted) throw new Error('CEO_CONTROL_PLANE_VERIFICATION_WITHOUT_EXECUTION')
 }

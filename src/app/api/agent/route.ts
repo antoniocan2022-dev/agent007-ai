@@ -16,6 +16,8 @@ import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
 import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
+import { projectCeoPublicSsePayload } from '@/lib/ceo-public-transport'
+import { filterConversationalMemories } from '@/lib/ceo-memory-visibility'
 import { getAllPersistentMemory } from '@/lib/persistent-memory'
 import { computeWorldStateDelta } from '@/lib/ceo-world-state'
 import { generateRecommendationCorrelationId, recordCeoRecommendation } from '@/lib/ceo-outcome-learning'
@@ -37,12 +39,12 @@ export const maxDuration = 240
 
 type DeploymentIdentity = { deploymentId: string | null; releaseCommit: string | null }
 function getDeploymentIdentity(): DeploymentIdentity { return { deploymentId: process.env.VERCEL_DEPLOYMENT_ID?.trim() || null, releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null } }
-function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const payload = data && typeof data === 'object' && !Array.isArray(data) ? { ...(data as Record<string, unknown>), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit } : { data, deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n` }
+function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n` }
 async function loadConversationContext(conversationId: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
   let rows: PersistedConversationRow[] = []
-  try { const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'asc' }, select: { role: true, content: true, createdAt: true } } } }); rows = (conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt })) } catch (error) { console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  try { const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'asc' }, select: { role: true, content: true, createdAt: true } } } }); rows = safeConversationRows((conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))) } catch (error) { console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
   let memories: PersistedMemoryRow[] = []
-  try { memories = await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } }) } catch (error) { console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error)); try { const fallback = await getAllPersistentMemory(); memories = fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt })) } catch (fallbackError) { console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError)) } }
+  try { memories = filterConversationalMemories(await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })) } catch (error) { console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error)); try { const fallback = await getAllPersistentMemory(); memories = filterConversationalMemories(fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))) } catch (fallbackError) { console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError)) } }
   return { rows, memories }
 }
 function buildSystemPrompt(): string { const identity = 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.'; const personality = CEO_PERSONALITY_CHARTER; const governance = 'For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.'; return `${identity}\n\n${personality}\n\n${governance}` }
@@ -174,9 +176,9 @@ export async function POST(req: NextRequest) {
           if (provenance) {
             try { persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: response.content, provenance, capturedTurnSequence: myTurnSequence }) } catch (persistErr: any) {
               if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: response.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-response audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
-              else console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150))
+              else { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)); throw persistErr }
             }
-          } else console.warn('[api/agent] CEO-lane assistant persistence skipped: missing final response provenance.')
+          } else throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
           if (!responseSuperseded && !response.degraded) {
             try { const afterRows = [...safeContextRows, { role: 'user' as const, content: message, createdAt: Date.now() }, { role: 'assistant' as const, content: response.content, createdAt: Date.now() }]; const delta = computeWorldStateDelta(safeContextRows, afterRows, message); if (delta.newDecisions.length || delta.newGoals.length || delta.newCommitments.length || delta.newOpenLoops.length || delta.resolvedOpenLoops.length || delta.newCorrections.length || delta.newlySuperseded.length) console.log('[ceo-world-state-delta]', JSON.stringify({ requestId, newDecisions: delta.newDecisions.length, newGoals: delta.newGoals.length, newCommitments: delta.newCommitments.length, newOpenLoops: delta.newOpenLoops.length, resolvedOpenLoops: delta.resolvedOpenLoops.length, newCorrections: delta.newCorrections.length, newlySuperseded: delta.newlySuperseded.length })) } catch (deltaError) { console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError)) }
           }
@@ -214,9 +216,9 @@ export async function POST(req: NextRequest) {
           if (synthesisProvenance) {
             try { await updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, content: synthesis.content, provenance: synthesisProvenance, capturedTurnSequence: myTurnSequence, conversationId }) } catch (persistErr: any) {
               if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: synthesis.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
-              else console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150))
+              else { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)); throw persistErr }
             }
-          } else console.warn('[api/agent] Operational synthesis history update skipped: missing final response provenance.')
+          } else throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
           streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, superseded: responseSuperseded }))
           if (responseSuperseded) {
