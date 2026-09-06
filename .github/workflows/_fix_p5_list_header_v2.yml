@@ -1,0 +1,34 @@
+name: _fix-p5-list-header-v2
+on:
+  push:
+    branches: [feat/ceo-p1-p4-conversational-integrity]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/ceo-p1-p4-conversational-integrity
+          fetch-depth: 0
+      - name: Repair list header and remove this workflow
+        env:
+          BRANCH: feat/ceo-p1-p4-conversational-integrity
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib/ceo-reference-resolution.ts')
+          s = p.read_text()
+          old = "const LIST_HEADER_RE = /^(?:options?|alternatives?|choices?|priorities?|steps?|approaches?|plans?|items?)\\s*:?\\s*$/i"
+          new = "const LIST_HEADER_RE = /^(?:(?:new|alternative|other)\\s+)?(?:options?|alternatives?|choices?|priorities?|steps?|approaches?|plans?|items?)\\s*:?\\s*$/i"
+          if old not in s:
+              raise SystemExit('expected current list header regex not found')
+          p.write_text(s.replace(old, new))
+          PY
+          git rm -f .github/workflows/_fix_p5_list_header_v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(ceo): recognize new list header variants"
+          git push origin "$BRANCH"
