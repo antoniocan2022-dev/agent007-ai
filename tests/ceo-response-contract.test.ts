@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { assertCeoResponseDecisionEnvelope, buildCeoResponseDecisionEnvelope } from '../src/lib/ceo-response-contract'
 import { finalizeCeoResponse, assertFinalResponseInvariant } from '../src/lib/ceo-response-finalizer'
+import { composeCeoResponse } from '../src/lib/ceo-response-composer'
 import { buildCeoControlPlaneSummary } from '../src/lib/ceo-control-plane-summary'
 import type { QualityResult } from '../src/lib/ceo-cognitive-contract'
 
@@ -48,5 +49,15 @@ describe('CEO authoritative response contract', () => {
     expect(finalized.qualityDecisionId).toBe(envelope.quality.decisionId)
     expect(finalized.candidateHash).toBe(envelope.candidate.contentHash)
     expect(finalized.responseAction).toBe('recommend')
+  })
+})
+
+
+describe('CEO response action propagation', () => {
+  test('composeCeoResponse preserves the authoritative response action in final provenance', () => {
+    const localQuality: QualityResult = { ...quality, reasons: ['accepted'] }
+    const content = composeCeoResponse({ content: 'A concrete recommendation.', quality: localQuality, evidenceState: 'NOT_APPLICABLE', degraded: false, responseAction: 'recommend' })
+    expect(content).toBe('A concrete recommendation.')
+    expect(localQuality.finalResponseProvenance?.responseAction).toBe('recommend')
   })
 })
