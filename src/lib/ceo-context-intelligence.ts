@@ -28,6 +28,11 @@ const STOPWORDS = new Set([
 const TOPIC_GENERIC_TOKENS = new Set(['we', 'our', 'us', 'now', 'current', 'topic', 'subject', 'discuss', 'discussing', 'talk', 'talking'])
 const TRAILING_QUESTION_RE = /\?\s*$/
 const LEADING_INTERROGATIVE_RE = /^(?:where|what|how|why|who|when|which|is|are|do|does|did|can|could|would|should|any)\b/i
+// Meta-conversational nouns: when one of these is the only content token in an interrogative message,
+// the question is asking about the conversation/task itself ("What's the status?", "Any updates?"), not
+// naming a substantive real-world subject the way "What is revenue" names one -- the same distinction
+// TOPIC_GENERIC_TOKENS already draws for the alignment target, applied here to the incoming question.
+const VAGUE_REFERENT_TOKENS = new Set(['status', 'update', 'updates', 'progress', 'news', 'happening'])
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -89,8 +94,13 @@ function semanticReferenceAnchor(currentUserMessage: string, prior: readonly Per
 function isVagueFollowUpQuestion(message: string): boolean {
   const trimmed = message.trim()
   const looksInterrogative = TRAILING_QUESTION_RE.test(trimmed) || LEADING_INTERROGATIVE_RE.test(trimmed)
-  const hasVagueReferent = containsAnaphora(trimmed) || isCurrentTopicRequest(trimmed)
-  return looksInterrogative && tokens(message).size <= 1 && hasVagueReferent && !hasDedicatedReferenceResolution(message)
+  const messageTokens = tokens(message)
+  // A message with literally zero surviving content tokens ("What's up?", "How are things?") is the
+  // clearest possible case of vague -- there is no content to judge it on its own merits, so it must be
+  // treated as a referent-dependent follow-up rather than defaulting to "substantive and unguarded".
+  const hasVagueReferent = containsAnaphora(trimmed) || isCurrentTopicRequest(trimmed) || messageTokens.size === 0
+    || [...messageTokens].some((token) => VAGUE_REFERENT_TOKENS.has(token))
+  return looksInterrogative && messageTokens.size <= 1 && hasVagueReferent && !hasDedicatedReferenceResolution(message)
 }
 
 function authoritativeTopicAlignment(currentUserMessage: string, response: string, prior: readonly PersistedConversationRow[]): { aligned: boolean; reason?: string } {
@@ -121,6 +131,31 @@ export function scoreContextContinuity(input: {
   const responseTokens = tokens(input.response)
   const anaphoraDetected = containsAnaphora(input.currentUserMessage)
   const referenceSelection = containsReferenceSelection(input.currentUserMessage)
+
+  // A vague current-topic/follow-up question ("What's the status?", "Any updates?") has no anaphoric
+  // antecedent to resolve and, by construction, shares no vocabulary with the substantive prior
+  // conversation -- so the anaphora-oriented history/anchor-coverage scoring below (built around
+  // resolving an antecedent) is meaningless for it and would always compute a spurious near-zero score
+  // even for a correct answer. It also cannot be allowed to fall through to the plain "no relevant turns,
+  // no context needed" fast path further down: that path would report `understood: true` unconditionally,
+  // letting a hallucinated, completely off-topic answer sail through with no check at all. The only
+  // meaningful signal for this class is the authoritative active-thread topic, so it's evaluated
+  // independently here, before either the anaphora path or that fast path can apply.
+  if (!anaphoraDetected && !referenceSelection && prior.length
+    && (isCurrentTopicRequest(input.currentUserMessage) || isVagueFollowUpQuestion(input.currentUserMessage))) {
+    const stateAlignment = authoritativeTopicAlignment(input.currentUserMessage, input.response, prior)
+    return {
+      score: stateAlignment.aligned ? 100 : 0,
+      relevantTurnCount: prior.length,
+      matchedTurnCount: stateAlignment.aligned ? prior.length : 0,
+      anaphoraDetected: false,
+      understood: stateAlignment.aligned,
+      reasons: [stateAlignment.aligned
+        ? 'The response aligns with the authoritative current conversation topic.'
+        : (stateAlignment.reason ?? 'The candidate failed authoritative conversation-state alignment.')],
+    }
+  }
+
   const semanticAnchor = semanticReferenceAnchor(input.currentUserMessage, prior)
   const anchor = semanticAnchor || (anaphoraDetected ? recentUserAnchor(prior) : '')
   const anchorTokens = tokens(anchor || input.currentUserMessage)
