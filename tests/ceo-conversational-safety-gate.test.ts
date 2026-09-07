@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
+import { evaluateClaimConsistency } from '@/lib/ceo-context-intelligence'
 
 // Step 1 of the conversational re-architecture: for conversational intent (conversation/opinion),
 // evaluateCeoQuality's PASS gate no longer requires conversationOk (a 78-point regex/token-heuristic
@@ -163,5 +164,31 @@ describe('CEO conversational safety gate: pre-existing bug found while auditing 
     })
     expect(result.decision).not.toBe('PASS')
     expect(result.failureReason).toBe('continuity_failure')
+  })
+})
+
+describe('CEO conversational safety gate: second pre-existing bug, found by wiring the orphaned test file into real CI', () => {
+  // evaluateClaimConsistency required an absolute 4-token overlap between two claims before even checking
+  // for a contradiction -- unreachable for short sentences: "GEOS is available for purchase" vs. "GEOS is
+  // not available for purchase" has only 3 meaningful content tokens total (geos/available/purchase --
+  // "not" is 3 characters, filtered by tokens()'s own length>=4 floor), so a complete, textbook
+  // contradiction could never be detected. This is claimConsistency.consistent, one of the safety checks
+  // deliberately kept in the conversational gate above -- caught only once tests/ceo-p1-p2.test.ts was
+  // wired into real CI (see the commit closing the other two gaps found this same way) and failed for real
+  // for the first time.
+  test('a short, direct contradiction is caught despite having few content tokens', () => {
+    const result = evaluateClaimConsistency('GEOS is available for purchase. GEOS is not available for purchase.')
+    expect(result.consistent).toBe(false)
+    expect(result.contradictions.length).toBeGreaterThan(0)
+  })
+
+  test('unrelated short sentences do not falsely trigger a contradiction', () => {
+    const result = evaluateClaimConsistency('The weather is nice today. Revenue increased this quarter.')
+    expect(result.consistent).toBe(true)
+  })
+
+  test('a substantive, non-contradictory two-sentence answer is not flagged', () => {
+    const result = evaluateClaimConsistency('Phoenix is the stronger choice here because of lower acquisition cost. Denver remains a good secondary market once Phoenix stabilizes.')
+    expect(result.consistent).toBe(true)
   })
 })
