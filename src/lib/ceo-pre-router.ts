@@ -9,6 +9,16 @@ import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { isRetrospectiveConversationRequest } from './ceo-conversational-signals'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
+// Item 2 of the "make Agent007 feel like Claude" plan: research|search|look up|find out|verify|validate
+// (below) already routes an explicit lookup request to evidence acquisition, but real conversational
+// phrasing for the same intent is broader than that -- "can you check online for X", "what's the latest
+// on Y", "google this for me" never matched, so those turns silently stayed on the no-evidence
+// conversation path. Deliberately phrase-based, not single generic verbs: bare "check"/"confirm"/"look
+// into" are used constantly in purely internal contexts ("check the budget", "confirm the meeting") and
+// would misroute them into an unnecessary external-evidence requirement (added latency, an evidence
+// bundle that isn't relevant). Each phrase here specifically names an external/web/current-information
+// lookup, the same discipline used for the intent regexes around it.
+const EXTERNAL_LOOKUP_PHRASE_RE = /\b(?:check\s+(?:online|the\s+web|the\s+internet)|google\s+(?:it|this|that|for\s+me)|fact[- ]check|what'?s\s+the\s+latest\s+(?:on|news|update)|current\s+(?:price|news|status)\s+of|look\s+(?:this|that|it)\s+up\s+online)\b/i
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 function latestUserText(messages: readonly { role: string; content: string }[]): string { return [...messages].reverse().find((message) => message.role === 'user' && typeof message.content === 'string')?.content ?? '' }
@@ -86,7 +96,7 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
   if (isExternalEquityResearch(text)) return 'research'
-  if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text)) return 'research'
+  if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text) || EXTERNAL_LOOKUP_PHRASE_RE.test(text)) return 'research'
   if (TOOL_ACTION_RE.test(text)) return 'tool_action'
   if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
