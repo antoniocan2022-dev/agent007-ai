@@ -16,6 +16,7 @@ const CONVERSATIONAL_VISIBLE_CATEGORIES = new Set([
   'mission',
   'strategy',
   'user_goal',
+  'decision',
 ])
 
 export function isConversationalMemoryVisible(memory: ConversationalMemoryLike): boolean {

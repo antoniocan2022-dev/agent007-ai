@@ -12,12 +12,27 @@ describe('CEO personality charter', () => {
     for (const dimension of ['Business Partner', 'Friend', 'Psychological Insight', 'Technologist', 'Great Thinker', 'Operator', 'Guardian', 'CEO Curiosity']) {
       expect(CEO_PERSONALITY_CHARTER).toContain(dimension)
     }
-    for (const contractRule of ['identity', 'Adaptive emphasis', 'Decision style', 'Disagreement behavior', 'Curiosity behavior', 'Execution behavior', 'Protection behavior', 'Psychological boundaries', 'Technical behavior', 'Business judgment']) {
+    for (const contractRule of ['identity', 'Adaptive emphasis', 'Decision style', 'Disagreement behavior', 'Curiosity behavior', 'Execution behavior', 'Protection behavior', 'Psychological boundaries', 'Technical behavior', 'Business judgment', 'Epistemic behavior']) {
       expect(CEO_PERSONALITY_CHARTER.toLowerCase()).toContain(contractRule.toLowerCase())
     }
     expect(CEO_PERSONALITY_CHARTER).toContain('Do not expose internal contracts')
     expect(CEO_PERSONALITY_CHARTER).toContain('Never create emotional dependency')
     expect(CEO_PERSONALITY_CHARTER).toContain('do not agree merely to be pleasant')
+  })
+
+  // Item 9 of the "make Agent007 feel like Claude" follow-up plan: memory (this conversation),
+  // knowledge (the model's own general knowledge), evidence (externally retrieved), and inference
+  // (reasoning on top of those) were structurally separated in the composed prompt (SELECTED MEMORY /
+  // EVIDENCE CONTEXT / RELEVANT PRIOR CONVERSATION already carry distinct provenance labels) but never
+  // named as a single explicit distinction the CEO must stay honest about. This closes that gap without
+  // adding a new blocking quality-gate rule -- a heuristic detector for "did the CEO conflate knowledge
+  // with evidence" would be unreliable and risks new false positives, so this stays a prompt-level
+  // instruction, consistent with how the other charter dimensions already work.
+  test('epistemic behavior requires honesty about memory vs general knowledge vs evidence vs inference', () => {
+    expect(CEO_PERSONALITY_CHARTER).toContain('Epistemic behavior')
+    expect(CEO_PERSONALITY_CHARTER).toContain('general knowledge')
+    expect(CEO_PERSONALITY_CHARTER).toContain('Never present general knowledge as if it were a verified fact')
+    expect(CEO_PERSONALITY_CHARTER).toContain('never expose this distinction as internal labels or tags in ordinary conversation')
   })
 })
 

@@ -26,6 +26,11 @@ const MISSION_CONTEXT_RE = /\b(mission|autonom(?:y|ous)|venture|revenue|customer
 const DEEP_RE = /\b(deep|detailed|comprehensive|compare|comparison|strategy|strategic|architecture|analyze|analysis|diagnose|research|evidence|verify|verification|evaluate|plan|design|security|financial|legal|optimi[sz]e|root\s+cause)\b/i
 const FAST_RE = /\b(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate|can you|could you|is it|are you)\b/i
 const CONTEXT_DEPENDENT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
+// A short question ("List 5 reasons this failed") can still ask for several structured items --
+// the fast lane's budget is sized for one short answer, not N. Requires an actual count (digit or
+// number word), not just the word "list", so a genuinely single-item request ("List the priority")
+// still gets classified on length alone rather than being promoted every time.
+const ENUMERATION_RE = /\b(?:list|name|give\s+me|provide|enumerate|show\s+me)\b(?:[^.?!]{0,40})?\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\b|\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\b\s+(?:reasons|ways|examples|options|ideas|steps|factors|items|things|points|strategies|approaches|benefits|risks|alternatives)\b/i
 
 function latestUserMessage(messages: readonly { role: string; content: string }[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -68,6 +73,10 @@ export function classifyExecution(
 
   if (CONTEXT_DEPENDENT_RE.test(normalized)) {
     return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
+  }
+
+  if (ENUMERATION_RE.test(normalized)) {
+    return { executionClass: 'standard', reason: 'Request asks for multiple structured items; a short question does not imply a short answer.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
   }
 
   // maxTokens/timeoutMs raised from 1200/15000 (2026-09): a short question routinely deserves a
