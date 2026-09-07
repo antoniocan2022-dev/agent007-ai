@@ -65,4 +65,42 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
     expect(reused.selectedMemories).toBe(seed.selectedMemories)
     expect(reused.selectedMemoryKeys).toEqual(seed.selectedMemoryKeys)
   })
+
+  // Audit fix: semantically-recovered memories were rendered with identical presentation to exact
+  // lexical matches -- no confidence/provenance distinction was visible to the model, even though a
+  // similarity-based recall is inherently fuzzier and more prone to being tangentially or wrongly
+  // related than an exact token match. semanticMemoryKeys now carries that distinction end to end.
+  test('semanticMemoryKeys reports no matches for an exact lexical hit, and the rendered memory line carries no fuzzy-match caveat', async () => {
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
+    expect(seed.semanticMemoryKeys).toEqual([])
+    const memoryLine = seed.messages.find((message) => message.content.includes('SELECTED MEMORY'))?.content
+    expect(memoryLine).toContain('goal-1')
+    expect(memoryLine).not.toContain('related by topic')
+  })
+
+  test('reuse carries semanticMemoryKeys through unchanged, not just selectedMemories', async () => {
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
+    const reused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories, modules: { organization: 'ORG TEXT' }, reuseSemanticContext: { conversationState: seed.conversationState, canonicalSemanticContext: seed.canonicalSemanticContext, resolvedReferences: seed.resolvedReferences, selectedMemories: seed.selectedMemories, semanticMemoryKeys: seed.semanticMemoryKeys } })
+    expect(reused.semanticMemoryKeys).toEqual(seed.semanticMemoryKeys)
+  })
+
+  // Audit fix: route.ts's second composeCeoContext call (once semanticInterpretation becomes available)
+  // was still recomputing selectedMemories from scratch via a full rankMemories pass, even though memory
+  // selection depends only on memories/queryTokens/queryText -- none of which semanticInterpretation
+  // touches -- while conversationState/canonicalSemanticContext genuinely must be rebuilt for that call
+  // to fold semanticInterpretation in. reuseSemanticContext now supports reusing selectedMemories alone,
+  // independent of the other three fields, so a caller isn't forced into an all-or-nothing choice.
+  test('selectedMemories can be reused on their own, independent of conversationState/canonicalSemanticContext, which are correctly recomputed fresh', async () => {
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
+    const partiallyReused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories, semanticInterpretation: { source: 'model_assisted' }, reuseSemanticContext: { selectedMemories: seed.selectedMemories, semanticMemoryKeys: seed.semanticMemoryKeys } })
+    // selectedMemories reused byte-identically (same object reference, not recomputed)...
+    expect(partiallyReused.selectedMemories).toBe(seed.selectedMemories)
+    // ...while canonicalSemanticContext/conversationState are genuinely fresh objects, not carried over,
+    // since this call did not pass them in reuseSemanticContext.
+    expect(partiallyReused.canonicalSemanticContext).not.toBe(seed.canonicalSemanticContext)
+    expect(partiallyReused.conversationState).not.toBe(seed.conversationState)
+  })
 })
