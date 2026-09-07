@@ -256,7 +256,14 @@ export function evaluateClaimConsistency(content: string): ClaimConsistencyResul
   for (let i = 0; i < claims.length; i += 1) {
     for (let j = i + 1; j < claims.length; j += 1) {
       const shared = overlap(claimTokens[i]!, claimTokens[j]!)
-      if (shared < 4) continue
+      // A flat "shared >= 4" absolute count is unreachable for short sentences: "GEOS is available for
+      // purchase" vs. "GEOS is not available for purchase" only has 3 meaningful content tokens total
+      // (geos/available/purchase -- "not" is 3 characters, filtered by tokens()'s own length>=4 floor), so
+      // even a complete, textbook contradiction could never pass a flat 4-token minimum. Scale the minimum
+      // down for short claims (a high overlap ratio of a small claim), keeping the original 4-token floor
+      // for longer claims where a small numeric overlap risks false positives on tangentially related text.
+      const minimumSharedTokens = Math.min(4, Math.max(2, Math.ceil(Math.min(claimTokens[i]!.size, claimTokens[j]!.size) * 0.6)))
+      if (shared < minimumSharedTokens) continue
       const leftPolarity = polarity(claims[i]!)
       const rightPolarity = polarity(claims[j]!)
       if (leftPolarity !== 'neutral' && rightPolarity !== 'neutral' && leftPolarity !== rightPolarity) {
