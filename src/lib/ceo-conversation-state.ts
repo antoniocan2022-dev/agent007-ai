@@ -5,8 +5,21 @@ import { isCorrectionRequest } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
+// Source tag distinguishes what the user directly asserted from what the assistant merely stated
+// back -- an assistant self-statement ("I've decided to recommend X") should not silently carry the
+// same authority as something the user actually decided.
+export type ConversationSignalSource = 'user_asserted' | 'assistant_stated'
+// Status distinguishes current (still authoritative) state from episodic state a later user
+// correction has explicitly walked back -- corrections-as-supersession, not just corrections-as-log.
+export type ConversationSignalStatus = 'current' | 'superseded'
+export interface ConversationSignal {
+  text: string
+  source: ConversationSignalSource
+  status: ConversationSignalStatus
+  supersededBy?: string
+}
 export interface CeoConversationState {
-  schemaVersion: 4
+  schemaVersion: 5
   topic: string
   topicCandidates: string[]
   entities: string[]
@@ -14,6 +27,8 @@ export interface CeoConversationState {
   threads: ConversationThreadRecord[]
   unresolvedQuestions: string[]
   decisions: string[]
+  decisionSignals: ConversationSignal[]
+  supersededDecisions: string[]
   recentUserGoals: string[]
   recentCorrections: string[]
   tone: ConversationTone
@@ -46,6 +61,27 @@ export function safeConversationRows(rows: readonly PersistedConversationRow[]):
 function toneOf(text: string): ConversationTone { const lower = text.toLowerCase(); if (/\b(angry|frustrated|waste|wasting|ridiculous|broken|disappointed|annoyed)\b/.test(lower)) return 'frustrated'; if (/\b(great|excellent|perfect|awesome|succeeded|success|finally)\b/.test(lower)) return 'celebratory'; if (/\b(code|github|vercel|architecture|deployment|database|typescript|api|provider|ci|sha)\b/.test(lower)) return 'technical'; if (/\b(hello|hi|hey|thanks|thank you|how are you)\b/.test(lower)) return 'friendly'; if (/\b(problem|issue|risk|failure|critical|security)\b/.test(lower)) return 'serious'; return 'neutral' }
 function uniqueRecent(items: string[], max = 6): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
 function overlap(a: string, b: string): number { const left = new Set(tokens(a)); const right = new Set(tokens(b)); if (!left.size || !right.size) return 0; let matches = 0; for (const token of left) if (right.has(token)) matches += 1; return matches / Math.max(1, Math.min(left.size, right.size)) }
+function signalSource(role: PersistedConversationRow['role']): ConversationSignalSource { return role === 'assistant' ? 'assistant_stated' : 'user_asserted' }
+function correctionEvents(userRows: readonly PersistedConversationRow[]): { text: string; at: number }[] { return userRows.filter((row) => isCorrectionRequest(row.content)).map((row) => ({ text: normalize(row.content), at: timestamp(row.createdAt) })) }
+// Builds deduplicated, source-tagged signals for a predicate-matched subset of rows and marks each
+// one superseded when a later user correction substantially overlaps its text (>=40% shared
+// significant tokens) -- the single place corrections actually take effect on state, rather than
+// being detected and then discarded (the corrections-as-supersession piece was previously computed
+// only for logging in ceo-world-state.ts's computeWorldStateDelta and never reached the prompt).
+function deriveSupersedableSignals(rows: readonly PersistedConversationRow[], predicate: (content: string) => boolean, corrections: readonly { text: string; at: number }[]): ConversationSignal[] {
+  const seen = new Set<string>()
+  const signals: ConversationSignal[] = []
+  for (const row of rows) {
+    if (!predicate(row.content)) continue
+    const text = normalize(row.content)
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    const at = timestamp(row.createdAt)
+    const supersededBy = corrections.find((correction) => correction.at > at && overlap(text, correction.text) >= 0.4)?.text
+    signals.push(supersededBy ? { text, source: signalSource(row.role), status: 'superseded', supersededBy } : { text, source: signalSource(row.role), status: 'current' })
+  }
+  return signals
+}
 function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
 function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now()): ConversationThreadRecord[] {
   const safeRows = safeConversationRows(rows)
@@ -114,9 +150,12 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
   const recentGoalRows = uniqueRecent(userRows.slice(-8).map((row) => normalize(row.content)), Math.max(1, 8 - durableGoals.length))
   const recentUserGoals = uniqueRecent([...durableGoals, ...recentGoalRows], 8)
   const recentCorrections = uniqueRecent(userRows.filter((row) => isCorrectionRequest(row.content)).map((row) => normalize(row.content)), 6)
-  const decisions = uniqueRecent(clean.filter((row) => DECISION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
+  const corrections = correctionEvents(userRows)
+  const decisionSignals = deriveSupersedableSignals(clean, (content) => DECISION_RE.test(content), corrections).slice(-12)
+  const decisions = decisionSignals.filter((signal) => signal.status === 'current').map((signal) => signal.text).slice(-6)
+  const supersededDecisions = decisionSignals.filter((signal) => signal.status === 'superseded').map((signal) => signal.text).slice(-6)
   const unresolvedQuestions = uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)
-  return { schemaVersion: 4, topic: topicCandidates.slice(0, 4).join(', ') || entities.slice(-3).join(', ') || latest.slice(0, 120), topicCandidates, entities: entities.slice(-12), activeThreads: activeThreads.map((thread) => thread.title), threads, unresolvedQuestions, decisions, recentUserGoals, recentCorrections, tone: toneOf(latest || corpus.slice(-500)), turnCount: Math.ceil(clean.length / 2), lastUserMessage: latest, lastAssistantMessage: normalize(assistantRows.at(-1)?.content || ''), updatedAt: Date.now() }
+  return { schemaVersion: 5, topic: topicCandidates.slice(0, 4).join(', ') || entities.slice(-3).join(', ') || latest.slice(0, 120), topicCandidates, entities: entities.slice(-12), activeThreads: activeThreads.map((thread) => thread.title), threads, unresolvedQuestions, decisions, decisionSignals, supersededDecisions, recentUserGoals, recentCorrections, tone: toneOf(latest || corpus.slice(-500)), turnCount: Math.ceil(clean.length / 2), lastUserMessage: latest, lastAssistantMessage: normalize(assistantRows.at(-1)?.content || ''), updatedAt: Date.now() }
 }
 export function resolveConversationReferences(currentMessage: string, rows: readonly PersistedConversationRow[], state?: CeoConversationState): ConversationReference[] {
   const message = normalize(currentMessage); if (!message) return []
@@ -130,7 +169,7 @@ export function buildConversationStatePrompt(state: CeoConversationState, refere
   const referenceLines = references.map((ref) => `- \"${ref.phrase}\" [${ref.kind}] → ${ref.resolvedText ?? 'unresolved'} (${Math.round(ref.confidence * 100)}%${ref.ambiguous ? ', ambiguous' : ''})`)
   const threadLines = state.threads.slice(-6).map((thread) => `- ${thread.id}: ${thread.title} [${thread.status}]`)
   const toneInstruction = state.tone === 'technical' ? 'technical and direct' : state.tone === 'frustrated' ? 'calm, accountable, direct, and solution-focused' : state.tone === 'friendly' ? 'warm and conversational' : 'natural and context-aware'
-  return ['CONVERSATION STATE (persistent derived state; preserve continuity; not factual evidence):', `Topic: ${state.topic || 'unknown'}`, `Related concepts: ${state.topicCandidates.join(', ') || 'none'}`, `Entities: ${state.entities.join(', ') || 'none'}`, `Active threads: ${state.activeThreads.join(' | ') || 'none'}`, `Recent thread records: ${threadLines.join(' | ') || 'none'}`, `User goals: ${state.recentUserGoals.join(' | ') || 'none'}`, `Open questions: ${state.unresolvedQuestions.join(' | ') || 'none'}`, `Prior decisions: ${state.decisions.join(' | ') || 'none'}`, `Recent corrections: ${state.recentCorrections.join(' | ') || 'none'}`, `Conversation turns represented: ${state.turnCount}`, `Current tone: ${state.tone}; respond in a ${toneInstruction} manner.`, ...(referenceLines.length ? ['Resolved conversational references:', ...referenceLines] : ['Resolved conversational references: none']), 'Communication rule: answer naturally first. Do not expose state, scores, routing, evidence state, or governance internals unless explicitly asked.'].join('\n')
+  return ['CONVERSATION STATE (persistent derived state; preserve continuity; not factual evidence):', `Topic: ${state.topic || 'unknown'}`, `Related concepts: ${state.topicCandidates.join(', ') || 'none'}`, `Entities: ${state.entities.join(', ') || 'none'}`, `Active threads: ${state.activeThreads.join(' | ') || 'none'}`, `Recent thread records: ${threadLines.join(' | ') || 'none'}`, `User goals: ${state.recentUserGoals.join(' | ') || 'none'}`, `Open questions: ${state.unresolvedQuestions.join(' | ') || 'none'}`, `Prior decisions (current): ${state.decisions.join(' | ') || 'none'}`, `Superseded decisions (corrected by the user; episodic only, do not treat as current): ${state.supersededDecisions.join(' | ') || 'none'}`, `Recent corrections: ${state.recentCorrections.join(' | ') || 'none'}`, `Conversation turns represented: ${state.turnCount}`, `Current tone: ${state.tone}; respond in a ${toneInstruction} manner.`, ...(referenceLines.length ? ['Resolved conversational references:', ...referenceLines] : ['Resolved conversational references: none']), 'Communication rule: answer naturally first. Do not expose state, scores, routing, evidence state, or governance internals unless explicitly asked.'].join('\n')
 }
 export const buildCeoConversationStatePrompt = buildConversationStatePrompt
 export function buildCeoPersonalityContract(): string {

@@ -1,6 +1,7 @@
 import type { CeoConversationState } from './ceo-conversation-state'
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { deriveCeoConversationState } from './ceo-conversation-state'
+import { isCommitmentStatement, isCorrectionRequest } from './ceo-conversational-signals'
 
 export type WorldStateRecordKind = 'decision' | 'goal' | 'commitment' | 'openLoop' | 'correction'
 export type WorldStateRecordStatus = 'active' | 'resolved' | 'superseded'
@@ -54,13 +55,17 @@ function extractRecords(kind: WorldStateRecordKind, items: readonly string[], ro
 }
 
 export function buildWorldStateSnapshot(state: CeoConversationState, rows: readonly PersistedConversationRow[]): WorldStateSnapshot {
-  const correctionRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.role === 'user' && /^(?:no|that's not|that isn't|i mean|what i meant|correction)\b/i.test(row.content.trim()))
+  const correctionRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.role === 'user' && isCorrectionRequest(row.content.trim()))
   const corrections = correctionRows.map(({ row, index }) => ({ text: normalize(row.content), sourceTurn: index }))
+  // state.decisions already excludes decisions the conversation state itself has marked superseded
+  // by a later correction; state.supersededDecisions carries those separately so this snapshot's own
+  // (independently re-derived) status computation below still has the full set to classify, and this
+  // module's existing consumers keep seeing superseded decisions rather than losing them silently.
   return {
     schemaVersion: 1,
-    decisions: extractRecords('decision', state.decisions, rows, corrections),
+    decisions: extractRecords('decision', [...state.decisions, ...state.supersededDecisions], rows, corrections),
     goals: extractRecords('goal', state.recentUserGoals, rows, corrections),
-    commitments: extractRecords('commitment', rows.filter((row) => row.role === 'user' && /\b(?:i will|we will|let's|lets|we're going to|i'm going to)\b/i.test(row.content)).map((row) => normalize(row.content)).slice(-6), rows, corrections),
+    commitments: extractRecords('commitment', rows.filter((row) => row.role === 'user' && isCommitmentStatement(row.content)).map((row) => normalize(row.content)).slice(-6), rows, corrections),
     openLoops: extractRecords('openLoop', state.unresolvedQuestions, rows, corrections),
     corrections: extractRecords('correction', corrections.map((c) => c.text), rows, corrections),
   }
