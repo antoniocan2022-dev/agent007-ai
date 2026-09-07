@@ -137,10 +137,27 @@ jobs:
             tests/ceo-conversational-safety-gate.test.ts \
             tests/ceo-p1-p2.test.ts \
             tests/ceo-conversational-intelligence.test.ts \
-            tests/ceo-conversation-signal-consolidation.test.ts; do
+            tests/ceo-conversation-signal-consolidation.test.ts \
+            tests/ceo-conversation-rubric.test.ts; do
             echo "Running isolated conversation benchmark process: $test_file"
             bun test --max-concurrency=1 "$test_file"
           done
+      - name: CEO conversation shadow benchmark (Step 3, observational)
+        # Shadow mode: reports the full rubric-scored corpus (aggregate scores, per-dimension
+        # averages) as a build artifact without ever gating the merge -- continue-on-error plus the
+        # script's own unconditional exit 0 are both belt-and-suspenders for the same guarantee. The
+        # blocking regression gate for this corpus is the "CEO conversation benchmark v0.1" step
+        # above (tests/ceo-conversation-rubric.test.ts), which asserts each scenario's calibrated
+        # floor directly.
+        continue-on-error: true
+        run: bun scripts/ceo-conversation-shadow-benchmark.ts
+      - name: Upload CEO conversation shadow benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceo-conversation-shadow-benchmark-${{ github.sha }}
+          path: .artifacts/ceo-conversation-shadow-benchmark.json
+          if-no-files-found: warn
       - name: CEO external evidence golden corpus
         run: bun test tests/ceo-evidence-golden.test.ts
       - name: P0/P1/P2 context and release integrity corpus
