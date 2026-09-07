@@ -71,8 +71,8 @@ describe('CEO canonical response finalizer', () => {
     expect(references.every((reference) => !reference.resolvedText?.includes('continuous_loop_trace'))).toBe(true)
   })
 
-  test('context builder excludes contaminated assistant history but preserves user intent', () => {
-    const context = composeCeoContext({
+  test('context builder excludes contaminated assistant history but preserves user intent', async () => {
+    const context = await composeCeoContext({
       systemPrompt: 'You are Agent007.',
       currentUserMessage: 'Explain why the architecture matters for the business.',
       persistedMessages: [

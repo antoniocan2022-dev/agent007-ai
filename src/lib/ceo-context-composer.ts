@@ -2,12 +2,13 @@ import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-pro
 import { buildCeoConversationStatePrompt, buildCeoPersonalityContract, deriveCeoConversationState, resolveConversationReferences, safeConversationRows, type CeoConversationState } from './ceo-conversation-state'
 import { buildCanonicalConversationContext, renderCanonicalConversationContext, type CanonicalConversationContext, type SemanticInterpretation } from './ceo-cognitive-conversation'
 import { filterConversationalMemories } from './ceo-memory-visibility'
+import { cosineSimilarity, getMemoryEmbedding, SEMANTIC_RELEVANCE_THRESHOLD } from './ceo-memory-embeddings'
 
 export type CeoContextRole = 'system' | 'user' | 'assistant'
 export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation' | 'conversation_state' | 'cognitive_context'
 export interface PersistedConversationRow { role: string; content: string; createdAt: Date | string | number }
 export interface PersistedMemoryRow { key: string; value: string; category: string; updatedAt: Date | string | number }
-export interface CeoContextComposition { messages: Array<{ role: CeoContextRole; content: string }>; recentMessages: number; relevantOlderMessages: number; summarizedOlderMessages: number; selectedMemoryKeys: string[]; modules: CeoContextModuleName[]; conversationState: CeoConversationState; canonicalSemanticContext: CanonicalConversationContext; resolvedReferences: string[] }
+export interface CeoContextComposition { messages: Array<{ role: CeoContextRole; content: string }>; recentMessages: number; relevantOlderMessages: number; summarizedOlderMessages: number; selectedMemoryKeys: string[]; selectedMemories: PersistedMemoryRow[]; modules: CeoContextModuleName[]; conversationState: CeoConversationState; canonicalSemanticContext: CanonicalConversationContext; resolvedReferences: string[] }
 export interface CeoContextModules { organization?: string; evidence?: string; mission?: string; memory?: string; execution?: string }
 export interface CeoContextModulePolicyInput { intent: string; missionRelevant: boolean; evidenceClass: string; taskClass?: string; executionRequirement: string; evidence?: string; mission?: string; memory?: string; execution?: string }
 export function buildCeoContextModules(input: CeoContextModulePolicyInput): CeoContextModules { const taskClass = input.taskClass ?? ''; const includeOrganization = input.intent !== 'conversation' || input.missionRelevant || input.evidenceClass !== 'none' || taskClass === 'financial' || input.executionRequirement === 'production'; return { organization: includeOrganization ? getCanonicalOrganizationPrompt() : undefined, evidence: input.evidence?.trim() || undefined, mission: input.mission?.trim() || undefined, memory: input.memory?.trim() || undefined, execution: input.execution?.trim() || undefined } }
@@ -16,6 +17,9 @@ const DEFAULT_RECENT_MESSAGES = 16
 const DEFAULT_RELEVANT_OLDER_MESSAGES = 8
 const DEFAULT_SUMMARY_MESSAGES = 10
 const DEFAULT_MEMORY_ITEMS = 6
+// Bounds how many zero-lexical-overlap memories get an embeddings call per request -- keeps the
+// worst-case network/cost impact small and predictable even with a large memory pool.
+const MAX_SEMANTIC_RECOVERY_CANDIDATES = 12
 const MAX_CONTEXT_CHARS = 48_000
 const MAX_MESSAGE_CHARS = 12_000
 function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
@@ -25,11 +29,37 @@ function clampMessage(content: string): string { return normalize(content).slice
 function scoreOverlap(text: string, queryTokens: Set<string>): number { if (!queryTokens.size) return 0; let score = 0; for (const token of tokenize(text)) if (queryTokens.has(token)) score += 1; return score }
 function uniqueRows(rows: PersistedConversationRow[]): PersistedConversationRow[] { const seen = new Set<string>(); return rows.filter((row) => { const key = `${row.role}\u0000${normalize(row.content)}\u0000${asTimestamp(row.createdAt)}`; if (seen.has(key)) return false; seen.add(key); return true }) }
 function summarizeOlder(rows: PersistedConversationRow[]): string { if (!rows.length) return ''; const lines = rows.slice(-DEFAULT_SUMMARY_MESSAGES).map((row) => `- ${row.role === 'assistant' ? 'CEO' : 'User'}: ${clampMessage(row.content).slice(0, 280)}`); return `OLDER CONVERSATION SUMMARY (compressed, context only; not evidence):\n${lines.join('\n')}` }
-function rankMemories(memories: PersistedMemoryRow[], queryTokens: Set<string>): PersistedMemoryRow[] {
+// Semantic recovery: lexical overlap alone can never connect "I want to build a company that can
+// eventually replace my salary" with a later "How are we doing against my financial independence
+// objective?" -- zero shared tokens, despite being clearly the same thing. This adds a second,
+// independent path specifically for memories that scored zero lexical overlap, using embedding
+// similarity to give them a real (but never dominant) chance to surface. Deliberately does not touch
+// how lexically-matched memories are scored or ordered -- that existing, proven behavior is unchanged
+// bit-for-bit. Fails safe to exactly today's lexical-only behavior whenever embeddings aren't
+// configured or the call fails for any reason (see ceo-memory-embeddings.ts).
+async function recoverSemanticMemories(zeroLexicalCandidates: readonly PersistedMemoryRow[], queryText: string, signal?: AbortSignal): Promise<Array<{ memory: PersistedMemoryRow; score: number }>> {
+  if (!zeroLexicalCandidates.length || !queryText.trim()) return []
+  const queryEmbedding = await getMemoryEmbedding(queryText, signal)
+  if (!queryEmbedding) return []
+  const candidates = zeroLexicalCandidates.slice(0, MAX_SEMANTIC_RECOVERY_CANDIDATES)
+  const results = await Promise.all(candidates.map(async (memory) => {
+    const memoryEmbedding = await getMemoryEmbedding(`${memory.key}: ${memory.value}`, signal)
+    if (!memoryEmbedding) return null
+    const similarity = cosineSimilarity(queryEmbedding, memoryEmbedding)
+    // Scored by raw similarity (not a flat constant) so recovered memories still rank meaningfully
+    // among themselves; naturally sits below any real lexical match (score>=1) in virtually every
+    // case, since similarity here is bounded to [threshold, 1].
+    return similarity >= SEMANTIC_RELEVANCE_THRESHOLD ? { memory, score: similarity } : null
+  }))
+  return results.filter((entry): entry is { memory: PersistedMemoryRow; score: number } => entry !== null)
+}
+async function rankMemories(memories: PersistedMemoryRow[], queryTokens: Set<string>, queryText: string, signal?: AbortSignal): Promise<PersistedMemoryRow[]> {
   const visibleMemories = filterConversationalMemories(memories)
-  return visibleMemories
-    .map((memory) => ({ memory, score: scoreOverlap(`${memory.key} ${memory.value} ${memory.category}`, queryTokens) }))
-    .filter(({ score }) => score > 0)
+  const scored = visibleMemories.map((memory) => ({ memory, score: scoreOverlap(`${memory.key} ${memory.value} ${memory.category}`, queryTokens) }))
+  const lexicalMatches = scored.filter(({ score }) => score > 0)
+  const zeroLexicalCandidates = scored.filter(({ score }) => score === 0).map(({ memory }) => memory)
+  const semanticMatches = await recoverSemanticMemories(zeroLexicalCandidates, queryText, signal)
+  return [...lexicalMatches, ...semanticMatches]
     .sort((a, b) => b.score - a.score || asTimestamp(b.memory.updatedAt) - asTimestamp(a.memory.updatedAt))
     .slice(0, DEFAULT_MEMORY_ITEMS)
     .map(({ memory }) => memory)
@@ -69,13 +99,19 @@ function buildConversationModule(input: { currentUserMessage: string; persistedM
 // resolveConversationReferences/buildCanonicalConversationContext a third time was provably redundant,
 // not just probably: reuse lets a caller skip that work and pass through the already-computed values
 // instead, while still recomputing messages fresh (modules legitimately differ between calls).
-export function composeCeoContext(input: { systemPrompt: string; currentUserMessage: string; persistedMessages: readonly PersistedConversationRow[]; memories?: readonly PersistedMemoryRow[]; modules?: CeoContextModules; recentMessageLimit?: number; relevantOlderLimit?: number; semanticInterpretation?: Partial<SemanticInterpretation>; reuseSemanticContext?: Pick<CeoContextComposition, 'conversationState' | 'canonicalSemanticContext' | 'resolvedReferences'> }): CeoContextComposition {
+export async function composeCeoContext(input: { systemPrompt: string; currentUserMessage: string; persistedMessages: readonly PersistedConversationRow[]; memories?: readonly PersistedMemoryRow[]; modules?: CeoContextModules; recentMessageLimit?: number; relevantOlderLimit?: number; semanticInterpretation?: Partial<SemanticInterpretation>; reuseSemanticContext?: Pick<CeoContextComposition, 'conversationState' | 'canonicalSemanticContext' | 'resolvedReferences'> & { selectedMemories?: PersistedMemoryRow[] }; signal?: AbortSignal }): Promise<CeoContextComposition> {
   const recentLimit = Math.max(4, Math.min(input.recentMessageLimit ?? DEFAULT_RECENT_MESSAGES, 24)); const relevantOlderLimit = Math.max(0, Math.min(input.relevantOlderLimit ?? DEFAULT_RELEVANT_OLDER_MESSAGES, 12)); const normalizedCurrent = clampMessage(input.currentUserMessage); const safePersistedMessages = uniqueRows(safeConversationRows(input.persistedMessages)); const conversation = buildConversationModule({ currentUserMessage: normalizedCurrent, persistedMessages: safePersistedMessages, recentMessageLimit: recentLimit, relevantOlderLimit });
   const reuse = input.reuseSemanticContext
   const conversationState = reuse ? reuse.conversationState : deriveCeoConversationState(safePersistedMessages, normalizedCurrent)
   const references = reuse ? reuse.canonicalSemanticContext.references : resolveConversationReferences(normalizedCurrent, safePersistedMessages, conversationState)
-  const queryTokens = tokenize([normalizedCurrent, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content), conversationState.topic, ...conversationState.entities].join(' ')); const selectedMemories = rankMemories(input.memories ? [...input.memories] : [], queryTokens)
+  const queryTokens = tokenize([normalizedCurrent, ...conversation.recent.filter((row) => row.role === 'user').map((row) => row.content), conversationState.topic, ...conversationState.entities].join(' '))
+  // Reusing the already-selected memories (not just conversationState/references/canonicalSemanticContext,
+  // as PR #103 did) matters more now than it did before: semantic recovery below can make a real network
+  // call, and route.ts calls composeCeoContext up to three times per request with an otherwise-identical
+  // query. Without this, adding semantic memory would have reintroduced exactly the redundant-recomputation
+  // pattern Track 2 exists to eliminate -- just against an external API instead of a local function.
+  const selectedMemories = reuse?.selectedMemories ?? await rankMemories(input.memories ? [...input.memories] : [], queryTokens, normalizedCurrent, input.signal)
   const canonicalSemanticContext = reuse ? reuse.canonicalSemanticContext : buildCanonicalConversationContext({ currentMessage: normalizedCurrent, rows: conversation.messages.filter((message) => message.role === 'user' || message.role === 'assistant').map((message, index) => ({ role: message.role, content: message.content, createdAt: index })), state: conversationState, references, memories: selectedMemories, semanticInterpretation: input.semanticInterpretation })
   const messages: Array<{ role: CeoContextRole; content: string }> = [{ role: 'system', content: `${input.systemPrompt}\n\n${buildCeoPersonalityContract()}` }]; const modules: CeoContextModuleName[] = ['conversation', 'conversation_state', 'cognitive_context']; messages.push({ role: 'system', content: renderCanonicalConversationContext(canonicalSemanticContext) }); messages.push({ role: 'system', content: buildCeoConversationStatePrompt(conversationState, references) }); if (input.modules?.organization?.trim()) { messages.push({ role: 'system', content: `ORGANIZATION CONTEXT (conditional):\n${input.modules.organization.trim()}` }); modules.push('organization') } if (input.modules?.mission?.trim()) { messages.push({ role: 'system', content: `MISSION CONTEXT (conditional):\n${input.modules.mission.trim()}` }); modules.push('mission') } if (input.modules?.evidence?.trim()) { messages.push({ role: 'system', content: `EVIDENCE CONTEXT (separate from conversation; provenance required):\n${input.modules.evidence.trim()}` }); modules.push('evidence') } if (input.modules?.execution?.trim()) { messages.push({ role: 'system', content: `EXECUTION CONTEXT (internal execution result; do not treat as external evidence):\n${input.modules.execution.trim()}` }); modules.push('execution') } if (selectedMemories.length || input.modules?.memory?.trim()) { const selectedMemoryText = selectedMemories.map((memory) => `- ${memory.key} [${memory.category}]: ${clampMessage(memory.value).slice(0, 1200)}`).join('\n'); const suppliedMemory = input.modules?.memory?.trim() ? `\n${input.modules.memory.trim()}` : ''; messages.push({ role: 'system', content: `SELECTED MEMORY (context only; not factual proof):${selectedMemoryText ? `\n${selectedMemoryText}` : ''}${suppliedMemory}` }); modules.push('memory') } messages.push(...conversation.messages); let total = messages.reduce((sum, message) => sum + message.content.length, 0); const currentIndex = messages.length - 1; if (total > MAX_CONTEXT_CHARS) { for (let index = 1; index < currentIndex && total > MAX_CONTEXT_CHARS; index += 1) { const message = messages[index]; if (message && (message.role === 'assistant' || message.role === 'user')) { const reduced = message.content.slice(0, Math.max(400, Math.floor(message.content.length * 0.62))); total -= message.content.length - reduced.length; message.content = reduced } } }
-  return { messages, recentMessages: conversation.recent.length, relevantOlderMessages: conversation.relevantOlder.length, summarizedOlderMessages: conversation.summarizedCount, selectedMemoryKeys: selectedMemories.map((memory) => memory.key), modules, conversationState, canonicalSemanticContext, resolvedReferences: references.filter((reference) => reference.resolvedText).map((reference) => `${reference.phrase} → ${reference.resolvedText}`) }
+  return { messages, recentMessages: conversation.recent.length, relevantOlderMessages: conversation.relevantOlder.length, summarizedOlderMessages: conversation.summarizedCount, selectedMemoryKeys: selectedMemories.map((memory) => memory.key), selectedMemories, modules, conversationState, canonicalSemanticContext, resolvedReferences: references.filter((reference) => reference.resolvedText).map((reference) => `${reference.phrase} → ${reference.resolvedText}`) }
 }
