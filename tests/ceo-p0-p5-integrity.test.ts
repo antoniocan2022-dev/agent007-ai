@@ -117,11 +117,14 @@ describe('CEO P0-P5 runtime integrity', () => {
   })
 
   test('P2 does not accept action keywords alone as proof that the requested action was satisfied', () => {
+    // Kept on a non-conversational intent (analysis): requestedActionSatisfied's literal-keyword
+    // check is exactly what this test protects, and it only still gates the PASS decision for
+    // intents outside the conversational set (conversation/opinion/decision as of this session).
     const recommendation = evaluateCeoQuality({
       objective: 'Recommend whether we should add a second provider.',
       content: 'You should think about reliability. The system could recommend adding a second provider later.',
       path: 'full',
-      intent: 'decision',
+      intent: 'analysis',
       responseAction: 'recommend',
     })
     const execution = evaluateCeoQuality({
@@ -134,6 +137,24 @@ describe('CEO P0-P5 runtime integrity', () => {
     })
     expect(recommendation.decision).not.toBe('PASS')
     expect(execution.decision).not.toBe('PASS')
+  })
+
+  // Documents a real, PRE-EXISTING characteristic of Step 1's conversational relaxation, found while
+  // auditing the decision-intent extension: the same vague, non-committal content already passed
+  // under intent 'opinion'/'conversation' before this session touched anything here (verified
+  // directly, unrelated to the decision-intent change) -- dropping requestedActionSatisfied for
+  // conversational-family intent means the gate no longer verifies a response actually FULFILLS the
+  // requested action with real substance, only that it is not unsafe or off-topic. Decision intent
+  // joining that set makes this consistent across conversation/opinion/decision rather than
+  // decision alone still catching it by accident. This is not something this fix introduces or
+  // silently resolves -- it is flagged here as a known, pre-existing gap in the relaxed gate's
+  // coverage, worth a deliberate look separately from intent-classification consistency.
+  test('for conversational-family intent, vague non-committal content is no longer caught by requestedActionSatisfied -- a known, pre-existing gap, not one this fix introduces', () => {
+    const vagueContent = 'You should think about reliability. The system could recommend adding a second provider later.'
+    const decision = evaluateCeoQuality({ objective: 'Recommend whether we should add a second provider.', content: vagueContent, path: 'full', intent: 'decision', responseAction: 'recommend' })
+    const opinion = evaluateCeoQuality({ objective: 'Recommend whether we should add a second provider.', content: vagueContent, path: 'full', intent: 'opinion', responseAction: 'recommend' })
+    expect(decision.decision).toBe('PASS')
+    expect(opinion.decision).toBe('PASS')
   })
 
   test('P2 accepts explicit truthful outcomes for verify and execute without lucky wording', () => {
