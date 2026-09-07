@@ -3,6 +3,7 @@ const EXPLICIT_RETROSPECTIVE_RE = /\b(?:what did we decide|what did we discuss|w
 const DIRECT_CORRECTION_RE = /^\s*(?:that's\s+(?:not|n't)\b|that is\s+not\b|i\s+mean\b|what\s+i\s+meant\b|correction\b)/i
 const NEGATED_CORRECTION_RE = /^\s*no\s*(?:,|-|:)\s*(?=(?:i|we|the|that|this|it|my|our|instead|rather)\b)/i
 const CURRENT_TOPIC_REQUEST_RE = /\b(?:what are we discussing(?: now)?|what(?:'s| is)\s+(?:the\s+)?(?:current\s+)?(?:topic|subject)|what is this about)\b/i
+const COMMITMENT_RE = /\b(?:i will|we will|let's|lets|we're going to|i'm going to)\b/i
 
 /** Canonical speech-signal classification shared by routing, state derivation, and recovery. */
 export function isRetrospectiveConversationRequest(text: string): boolean {
@@ -16,4 +17,8 @@ export function isCorrectionRequest(text: string): boolean {
 
 export function isCurrentTopicRequest(text: string): boolean {
   return CURRENT_TOPIC_REQUEST_RE.test(text)
+}
+
+export function isCommitmentStatement(text: string): boolean {
+  return COMMITMENT_RE.test(text)
 }

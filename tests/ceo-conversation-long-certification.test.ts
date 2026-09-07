@@ -5,9 +5,13 @@ import { scoreCeoConversationQuality } from '@/lib/ceo-response-quality-gate'
 
 type Row = { role: 'user' | 'assistant'; content: string; createdAt: string }
 
+// Anchored to Date.now(), not a fixed calendar date: threadStatus() marks a thread 'paused' once
+// wall-clock now is more than 7 days past its last message, so a fixed-date fixture silently goes
+// stale and starts asserting the wrong activeThreads count once enough real time has passed (the
+// same class of bug already fixed once in tests/ceo-conversation-completion.test.ts).
 function buildLongConversation(turns: number): Row[] {
   const rows: Row[] = []
-  const start = Date.UTC(2026, 7, 31, 12, 0)
+  const start = Date.now() - turns * 4000
   for (let i = 1; i <= turns; i += 1) {
     rows.push({
       role: 'user',

@@ -14,7 +14,7 @@ describe('CEO conversational intelligence', () => {
       row('assistant', 'I agree. The conversation layer should preserve continuity and natural tone.', 2),
       row('user', 'We decided to build a persistent conversation state and semantic references.', 3),
     ], 'What should we do next?')
-    expect(state.schemaVersion).toBe(4)
+    expect(state.schemaVersion).toBe(5)
     expect(state.entities).toContain('Agent007')
     expect(state.decisions.length).toBeGreaterThan(0)
     expect(state.topicCandidates.length).toBeGreaterThan(0)

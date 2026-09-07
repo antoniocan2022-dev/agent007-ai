@@ -15,6 +15,7 @@ test('runtime metrics keep technical reliability separate from cognitive quality
     decisions: ['conversation understanding and continuity'],
     entities: ['Agent007'],
     unresolvedQuestions: [],
+    recentCorrections: [],
     threads: [],
     turnCount: 12,
   } as any
