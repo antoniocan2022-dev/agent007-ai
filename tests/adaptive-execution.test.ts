@@ -37,6 +37,35 @@ describe('Adaptive Execution Architecture', () => {
     expect(shouldUseFastLane(plan, 0)).toBe(false)
   })
 
+  // A short question can still ask for several structured items; the fast lane's budget is sized
+  // for one short answer, not N of them.
+  describe('enumeration requests get room for multiple items instead of the flat fast-lane budget', () => {
+    const enumerationRequests = [
+      'List 5 reasons the deal failed.',
+      'Give me three examples of good copy.',
+      'What are the top 5 reasons churn increased?',
+      'Name four risks in the current pricing model.',
+      'Provide 3 options for the pricing model.',
+    ]
+    for (const message of enumerationRequests) {
+      test(`"${message}" is promoted out of the fast lane`, () => {
+        const plan = classifyExecution(user(message))
+        expect(plan.executionClass).not.toBe('fast')
+        expect(plan.maxTokens).toBeGreaterThanOrEqual(4000)
+      })
+    }
+
+    test('a genuinely single-item request without a count still classifies on length/keywords alone', () => {
+      const plan = classifyExecution(user('List the top priority.'))
+      expect(plan.executionClass).toBe('fast')
+    })
+
+    test('an ordinary short question with no enumeration language is unaffected', () => {
+      const plan = classifyExecution(user('What is the weather today?'))
+      expect(plan.executionClass).toBe('fast')
+    })
+  })
+
   test('attachments disable the fast lane', () => {
     const plan = classifyExecution(user('Summarize this'))
     expect(shouldUseFastLane(plan, 1)).toBe(false)

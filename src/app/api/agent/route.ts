@@ -15,6 +15,7 @@ import { renderEvidenceBundleForPrompt, type EvidenceBundle } from '@/lib/ceo-ev
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
+import { persistEpisodicDecisionMemory } from '@/lib/ceo-episodic-memory-writer'
 import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
 import { projectCeoPublicSsePayload, resolveCeoPublicSseEvent } from '@/lib/ceo-public-transport'
 import { filterConversationalMemories } from '@/lib/ceo-memory-visibility'
@@ -115,6 +116,9 @@ export async function POST(req: NextRequest) {
   let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
   try { semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch(() => {}); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
   contextSeed = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+  // Best-effort: makes this conversation's current decisions durable across future conversations via
+  // the existing Memory-backed lexical/semantic retrieval path. Never allowed to affect the response.
+  await persistEpisodicDecisionMemory(contextSeed.conversationState).catch(() => {})
   const preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext)
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract

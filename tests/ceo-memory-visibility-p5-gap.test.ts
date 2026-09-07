@@ -49,4 +49,14 @@ describe('Structural fix: fail-closed allowlist, replacing the reactive blocklis
     expect(isConversationalMemoryVisible({ key: 'general_1', category: 'general' })).toBe(true)
     expect(isConversationalMemoryVisible({ key: 'mission-42-priority', category: 'mission' })).toBe(true)
   })
+
+  // Item 10 of the "make Agent007 feel like Claude" follow-up plan: episodic decisions
+  // (ceo-episodic-memory.ts) are persisted under a new 'decision' category specifically so they are
+  // visible to rankMemories. ALL_REAL_CATEGORIES above is a point-in-time audit snapshot of categories
+  // that existed before this change, so it is deliberately left untouched -- this is a separate,
+  // explicit confirmation that the new category was actually added to the allowlist, not just assumed.
+  test('the new decision category (episodic memory) is visible to conversation', () => {
+    expect(isConversationalMemoryVisible({ key: 'episodic:decision:abc123', category: 'decision' })).toBe(true)
+    expect(getConversationalVisibleCategories()).toContain('decision')
+  })
 })
