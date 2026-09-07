@@ -170,7 +170,7 @@ export function resolveConversationReferences(currentMessage: string, rows: read
   const continuation = resolveActiveThread(message, state?.threads ?? []); if (continuation) return [continuation]
   const general = resolveGeneralReference(message, safeRows, state?.activeThreads?.at(-1)); return general ? [general] : []
 }
-export function buildConversationStatePrompt(state: CeoConversationState, references: ConversationReference[]): string {
+export function buildConversationStatePrompt(state: CeoConversationState, references: readonly ConversationReference[]): string {
   const referenceLines = references.map((ref) => `- \"${ref.phrase}\" [${ref.kind}] → ${ref.resolvedText ?? 'unresolved'} (${Math.round(ref.confidence * 100)}%${ref.ambiguous ? ', ambiguous' : ''})`)
   const threadLines = state.threads.slice(-6).map((thread) => `- ${thread.id}: ${thread.title} [${thread.status}]`)
   const toneInstruction = state.tone === 'technical' ? 'technical and direct' : state.tone === 'frustrated' ? 'calm, accountable, direct, and solution-focused' : state.tone === 'friendly' ? 'warm and conversational' : 'natural and context-aware'
