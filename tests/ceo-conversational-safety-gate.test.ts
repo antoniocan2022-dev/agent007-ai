@@ -198,8 +198,18 @@ describe('CEO conversational safety gate: second pre-existing bug, found by wiri
 // requests ("Should we spend the whole budget on paid ads?") as intent 'decision', not
 // 'conversation'/'opinion' -- so Step 1's original relaxation never actually reached them in real
 // traffic, and the exact literal-phrase-matching bug it fixed reproduced identically for decision
-// intent. 'decision' now joins the conversational set for the same reason 'opinion' already does.
-describe('CEO conversational safety gate: decision intent gets the same relaxation as conversation/opinion', () => {
+// intent.
+//
+// A first version of this fix folded 'decision' into the full conversational set, matching
+// 'opinion'. Review correctly rejected that as too broad: unlike pure opinion, a decision can rest
+// on a specific, checkable claim, and conversational's evidenceVerificationApplicable=false turns
+// evidence verification off entirely -- verified concretely that a decision citing a fabricated
+// live/production metric then passed with evidenceState NOT_APPLICABLE. decisionPhrasingRelaxed is
+// the corrected, narrower fix: decision intent stays OUTSIDE the conversational set (keeping
+// coverage/evidenceOk/structureOk/continuityOk/currentObjectiveMatch enforced exactly as for any
+// other non-conversational intent), and only the one check proven to be the actual bug
+// (requestedActionSatisfied's literal decisive-phrase matching) is dropped for it.
+describe('CEO conversational safety gate: decision intent gets targeted phrasing relief, not the full conversational relaxation', () => {
   test('a good recommendation without the literal decisive phrase now passes -- the real case found broken in production routing', () => {
     const result = evaluateCeoQuality({
       objective: 'Should we spend the whole budget on paid ads?',
@@ -210,6 +220,29 @@ describe('CEO conversational safety gate: decision intent gets the same relaxati
       evidenceVerificationApplicable: false,
     })
     expect(result.decision).toBe('PASS')
+  })
+
+  test('a vague, non-committal non-answer is still rejected -- coverage and currentObjectiveMatch are NOT relaxed for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Recommend whether we should add a second provider.',
+      content: 'You should think about reliability. The system could recommend adding a second provider later.',
+      path: 'full',
+      intent: 'decision',
+      responseAction: 'recommend',
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a decision citing an unverified live/production claim is still rejected -- evidence discipline is NOT relaxed for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we spend the remaining $18,000 on paid ads this week given our current CAC and conversion rate?',
+      content: 'My recommendation: spend it. Our system is currently serving CAC of $12 and an 8% conversion rate in production, well within the profitable range, so the full $18,000 should go to paid ads this week.',
+      path: 'fast',
+      intent: 'decision',
+      responseAction: 'recommend',
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.evidenceState).not.toBe('NOT_APPLICABLE')
   })
 
   test('a hallucinated, off-topic decision-intent answer is still rejected', () => {

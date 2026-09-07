@@ -66,11 +66,11 @@ export function scoreCeoConversationRubric(input: ConversationRubricInput): Conv
   // is a phrasing check, not a meaning check, and stopped trusting it to block a good conversational
   // answer -- the same reasoning applies here: for conversational intent, "meaning" is whether the
   // response actually addresses the current objective, not whether it used an expected phrase.
-  // Kept identical to evaluateCeoQuality's own `conversational` set (ceo-response-quality-gate.ts):
-  // 'decision' joined it after this session's own integration audit found the pre-router classifies
-  // many realistic recommendation requests as 'decision' intent, not 'conversation'/'opinion' -- if
-  // this rubric's definition drifted from the gate's, "meaning" would silently score a decision-intent
-  // response by a different, stricter standard than the gate that actually decides PASS/FAIL uses.
+  // 'decision' is included here (but NOT in evaluateCeoQuality's own `conversational` set, which
+  // stays conversation/opinion only): decisionPhrasingRelaxed there drops just requestedActionSatisfied
+  // for decision intent, the exact same relief this dimension already gives conversation/opinion, while
+  // keeping coverage/evidenceOk/structureOk/currentObjectiveMatch fully enforced. This mirrors that:
+  // "meaning" for decision intent is currentObjectiveMatch-only, same signal the real gate relies on.
   const conversational = (input.intent ?? 'conversation') === 'conversation' || input.intent === 'opinion' || input.intent === 'decision'
   const meaning = integrity
     ? conversational
