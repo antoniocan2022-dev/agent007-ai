@@ -9,7 +9,16 @@ import { extractEnumeratedItems, resolveOrdinalReference } from '@/lib/ceo-refer
 // them durable coverage so a later change cannot silently regress any of them.
 
 describe('CEO deep-audit hardening: quality-gate failureReason split', () => {
-  test('a requestedActionSatisfied-only miss is quality_failure and stays soft-pass eligible', () => {
+  // Superseded by the root-cause fix found auditing Step 1's real-world coverage: 'decision' intent
+  // now joins the conversational safety-relaxed set (ceo-response-quality-gate.ts), the same way
+  // 'opinion' already did in Step 1 itself, for the identical reason -- requestedActionSatisfied's
+  // literal decisive-phrase matching is a phrasing check, not a meaning check, and this exact
+  // scenario (a good decisive answer without the words "the decision is...") is the class of bug it
+  // wrongly caught. Previously this failed the strict gate and depended on the separate soft-pass
+  // semantic-substance rescue (an LLM-backed workaround layered on top of the literal-match bug,
+  // not a fix for it) to still surface the good content. Now it passes the gate directly, which is
+  // what actually fixes the underlying bug instead of routing around it a second time.
+  test('a good decisive answer without the literal decisive phrase now passes the gate directly, without needing the soft-pass rescue', () => {
     const result = evaluateCeoQuality({
       objective: 'Should we prioritize Phoenix or Denver for the next expansion?',
       content: 'Phoenix is the stronger choice here: lower customer acquisition cost, faster provider latency, and an already-warm pipeline. Denver remains a good secondary market once Phoenix reaches steady state.',
@@ -18,16 +27,12 @@ describe('CEO deep-audit hardening: quality-gate failureReason split', () => {
       responseAction: 'decide',
       evidenceVerificationApplicable: false,
     })
+    // requestedActionSatisfied is still computed and still false -- the raw phrasing signal is
+    // unchanged; what changed is that decision intent no longer gates on it.
     expect(result.responseIntegrity?.requestedActionSatisfied).toBe(false)
     expect(result.responseIntegrity?.currentObjectiveMatch).toBe(true)
-    expect(result.failureReason).toBe('quality_failure')
-    expect(isGovernedSoftPassEligible({
-      intent: 'decision',
-      qualityDecision: result.decision,
-      failureReason: result.failureReason,
-      conversationScore: 80,
-      substantive: true,
-    })).toBe(true)
+    expect(result.decision).toBe('PASS')
+    expect(result.failureReason).toBeUndefined()
   })
 
   test('a genuine cross-objective substitution stays continuity_failure and forbidden from soft-pass', () => {

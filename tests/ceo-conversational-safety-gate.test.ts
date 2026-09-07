@@ -192,3 +192,85 @@ describe('CEO conversational safety gate: second pre-existing bug, found by wiri
     expect(result.consistent).toBe(true)
   })
 })
+
+// Found auditing this session's own Steps 1-3 for real integration/coordination correctness (not
+// just unit correctness): ceo-pre-router.ts classifies many realistic recommendation/decision
+// requests ("Should we spend the whole budget on paid ads?") as intent 'decision', not
+// 'conversation'/'opinion' -- so Step 1's original relaxation never actually reached them in real
+// traffic, and the exact literal-phrase-matching bug it fixed reproduced identically for decision
+// intent. 'decision' now joins the conversational set for the same reason 'opinion' already does.
+describe('CEO conversational safety gate: decision intent gets the same relaxation as conversation/opinion', () => {
+  test('a good recommendation without the literal decisive phrase now passes -- the real case found broken in production routing', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we spend the whole budget on paid ads?',
+      content: 'Not the whole budget -- paid ads have diminishing returns past a certain spend, and organic channels are cheaper right now. I would split it 60/40 toward organic and retention work.',
+      path: 'fast',
+      intent: 'decision',
+      responseAction: 'recommend',
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).toBe('PASS')
+  })
+
+  test('a hallucinated, off-topic decision-intent answer is still rejected', () => {
+    const prior = [
+      { role: 'user' as const, content: 'Now let’s forget that and discuss the provider architecture.', createdAt: '2026-09-06T12:00:00.000Z' },
+      { role: 'assistant' as const, content: 'We are discussing provider architecture and provider resilience.', createdAt: '2026-09-06T12:00:05.000Z' },
+    ]
+    const result = evaluateCeoQuality({
+      objective: 'What are we discussing now?',
+      content: 'We are discussing acceptance, acceleration, and the ability to achieve goals.',
+      path: 'fast',
+      intent: 'decision',
+      priorTurns: prior,
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('leaked internal artifacts are still rejected for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we deploy now?',
+      content: 'Answer\n1. [continuous_loop_trace] continuous_loop:abc { currentStage: "PERCEIVE" }',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a false completion claim is still rejected for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we deploy the update?',
+      content: 'I have already deployed the update to production.',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+      externalAgencyAvailable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a response echoing internal evaluation vocabulary is still rejected for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we scale up the fleet?',
+      content: 'Your request has been received. Evidence state: NOT_APPLICABLE. Quality gate: PASS.',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+      externalExecutionSucceeded: true,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a self-contradictory decision answer is still rejected via claim consistency', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Is GEOS available for purchase?',
+      content: 'GEOS is available for purchase. GEOS is not available for purchase.',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+})
