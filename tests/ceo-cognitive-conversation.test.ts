@@ -40,6 +40,18 @@ describe('canonical cognitive conversation architecture', () => {
     expect(classifyCognitiveDepthFromMessages('Compare the architecture trade-offs and recommend the safest strategy.', 4, 0)).toBe('strategic')
   })
 
+  // Live-transcript regression: this exact message classified as 'contextual' before the fix, capping
+  // the token budget (canonical-llm-router.ts only grants the 8000-token 'deep' lane for 'strategic'
+  // depth) and truncating the model's own multi-section executive answer mid-sentence.
+  test('a prioritization trade-off question selects strategic depth, not contextual', () => {
+    expect(classifyCognitiveDepthFromMessages('Which should we prioritize first: revenue recovery or improving the operations foundation?', 2, 0)).toBe('strategic')
+  })
+
+  test('the verb/noun distinction holds: "prioritize" triggers strategic depth but the bare noun "priorities" does not', () => {
+    expect(classifyCognitiveDepthFromMessages('How should we prioritize the roadmap this quarter?', 0, 0)).toBe('strategic')
+    expect(classifyCognitiveDepthFromMessages('Our priorities this quarter are hiring and retention.', 0, 0)).toBe('direct')
+  })
+
   test('incident contract classifies a reference-quality failure and preserves safety invariants', () => {
     const current = 'What about it?'
     const state = deriveCeoConversationState(rows, current)
