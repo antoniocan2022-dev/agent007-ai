@@ -117,6 +117,12 @@ describe('CEO P0-P5 runtime integrity', () => {
   })
 
   test('P2 does not accept action keywords alone as proof that the requested action was satisfied', () => {
+    // decision intent is deliberately NOT folded into the fully conversational set (see
+    // ceo-response-quality-gate.ts's decisionPhrasingRelaxed): it only drops the literal-phrase
+    // requestedActionSatisfied check, while coverage/evidenceOk/structureOk/currentObjectiveMatch
+    // stay enforced exactly as before. Vague, non-committal content like this still fails on
+    // coverage/currentObjectiveMatch, so it's still correctly rejected for decision intent, not just
+    // for the other non-conversational intents this test also checks.
     const recommendation = evaluateCeoQuality({
       objective: 'Recommend whether we should add a second provider.',
       content: 'You should think about reliability. The system could recommend adding a second provider later.',
@@ -134,6 +140,20 @@ describe('CEO P0-P5 runtime integrity', () => {
     })
     expect(recommendation.decision).not.toBe('PASS')
     expect(execution.decision).not.toBe('PASS')
+  })
+
+  // Documents a real, pre-existing characteristic of Step 1's ORIGINAL conversational relaxation
+  // (conversation/opinion, unrelated to decision intent): dropping requestedActionSatisfied for
+  // those two means the gate doesn't verify a response actually FULFILLS the requested action, only
+  // that it's not unsafe/off-topic. decision intent does NOT share this characteristic -- it keeps
+  // coverage/currentObjectiveMatch enforced (see decisionPhrasingRelaxed), so the same vague content
+  // is correctly rejected for decision while still passing for opinion/conversation.
+  test('vague non-committal content still passes for opinion/conversation (pre-existing, unrelated to decision intent) but is correctly rejected for decision', () => {
+    const vagueContent = 'You should think about reliability. The system could recommend adding a second provider later.'
+    const decision = evaluateCeoQuality({ objective: 'Recommend whether we should add a second provider.', content: vagueContent, path: 'full', intent: 'decision', responseAction: 'recommend' })
+    const opinion = evaluateCeoQuality({ objective: 'Recommend whether we should add a second provider.', content: vagueContent, path: 'full', intent: 'opinion', responseAction: 'recommend' })
+    expect(decision.decision).not.toBe('PASS')
+    expect(opinion.decision).toBe('PASS')
   })
 
   test('P2 accepts explicit truthful outcomes for verify and execute without lucky wording', () => {

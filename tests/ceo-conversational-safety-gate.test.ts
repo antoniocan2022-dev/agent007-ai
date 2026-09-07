@@ -192,3 +192,118 @@ describe('CEO conversational safety gate: second pre-existing bug, found by wiri
     expect(result.consistent).toBe(true)
   })
 })
+
+// Found auditing this session's own Steps 1-3 for real integration/coordination correctness (not
+// just unit correctness): ceo-pre-router.ts classifies many realistic recommendation/decision
+// requests ("Should we spend the whole budget on paid ads?") as intent 'decision', not
+// 'conversation'/'opinion' -- so Step 1's original relaxation never actually reached them in real
+// traffic, and the exact literal-phrase-matching bug it fixed reproduced identically for decision
+// intent.
+//
+// A first version of this fix folded 'decision' into the full conversational set, matching
+// 'opinion'. Review correctly rejected that as too broad: unlike pure opinion, a decision can rest
+// on a specific, checkable claim, and conversational's evidenceVerificationApplicable=false turns
+// evidence verification off entirely -- verified concretely that a decision citing a fabricated
+// live/production metric then passed with evidenceState NOT_APPLICABLE. decisionPhrasingRelaxed is
+// the corrected, narrower fix: decision intent stays OUTSIDE the conversational set (keeping
+// coverage/evidenceOk/structureOk/continuityOk/currentObjectiveMatch enforced exactly as for any
+// other non-conversational intent), and only the one check proven to be the actual bug
+// (requestedActionSatisfied's literal decisive-phrase matching) is dropped for it.
+describe('CEO conversational safety gate: decision intent gets targeted phrasing relief, not the full conversational relaxation', () => {
+  test('a good recommendation without the literal decisive phrase now passes -- the real case found broken in production routing', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we spend the whole budget on paid ads?',
+      content: 'Not the whole budget -- paid ads have diminishing returns past a certain spend, and organic channels are cheaper right now. I would split it 60/40 toward organic and retention work.',
+      path: 'fast',
+      intent: 'decision',
+      responseAction: 'recommend',
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).toBe('PASS')
+  })
+
+  test('a vague, non-committal non-answer is still rejected -- coverage and currentObjectiveMatch are NOT relaxed for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Recommend whether we should add a second provider.',
+      content: 'You should think about reliability. The system could recommend adding a second provider later.',
+      path: 'full',
+      intent: 'decision',
+      responseAction: 'recommend',
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a decision citing an unverified live/production claim is still rejected -- evidence discipline is NOT relaxed for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we spend the remaining $18,000 on paid ads this week given our current CAC and conversion rate?',
+      content: 'My recommendation: spend it. Our system is currently serving CAC of $12 and an 8% conversion rate in production, well within the profitable range, so the full $18,000 should go to paid ads this week.',
+      path: 'fast',
+      intent: 'decision',
+      responseAction: 'recommend',
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.evidenceState).not.toBe('NOT_APPLICABLE')
+  })
+
+  test('a hallucinated, off-topic decision-intent answer is still rejected', () => {
+    const prior = [
+      { role: 'user' as const, content: 'Now let’s forget that and discuss the provider architecture.', createdAt: '2026-09-06T12:00:00.000Z' },
+      { role: 'assistant' as const, content: 'We are discussing provider architecture and provider resilience.', createdAt: '2026-09-06T12:00:05.000Z' },
+    ]
+    const result = evaluateCeoQuality({
+      objective: 'What are we discussing now?',
+      content: 'We are discussing acceptance, acceleration, and the ability to achieve goals.',
+      path: 'fast',
+      intent: 'decision',
+      priorTurns: prior,
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('leaked internal artifacts are still rejected for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we deploy now?',
+      content: 'Answer\n1. [continuous_loop_trace] continuous_loop:abc { currentStage: "PERCEIVE" }',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a false completion claim is still rejected for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we deploy the update?',
+      content: 'I have already deployed the update to production.',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+      externalAgencyAvailable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a response echoing internal evaluation vocabulary is still rejected for decision intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Should we scale up the fleet?',
+      content: 'Your request has been received. Evidence state: NOT_APPLICABLE. Quality gate: PASS.',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+      externalExecutionSucceeded: true,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('a self-contradictory decision answer is still rejected via claim consistency', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Is GEOS available for purchase?',
+      content: 'GEOS is available for purchase. GEOS is not available for purchase.',
+      path: 'fast',
+      intent: 'decision',
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+})
