@@ -67,6 +67,23 @@ describe('CEO conversational safety gate: real safety checks still block', () =>
     })
     expect(result.decision).not.toBe('PASS')
   })
+
+  // Found auditing the relaxation above: dropping conversationOk's naturalness composite also dropped its
+  // only consumer of CONVERSATIONAL_ROBOTIC_RE, which used to catch a response that echoes the system's own
+  // internal QA/control-plane vocabulary back to the user (leaking internal framing in English rather than a
+  // snake_case token -- the same category internalArtifactLeakage exists to catch, just not the same regex).
+  test('a response that echoes internal evaluation vocabulary back to the user is still rejected', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Hi, how are you?',
+      content: 'Your request has been received. Evidence state: NOT_APPLICABLE. Quality gate: PASS.',
+      path: 'fast',
+      intent: 'conversation',
+      evidenceVerificationApplicable: false,
+      externalExecutionSucceeded: true,
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.reasons.some((reason) => reason.includes('internal evaluation'))).toBe(true)
+  })
 })
 
 describe('CEO conversational safety gate: phrasing no longer blocks a good answer', () => {
@@ -103,5 +120,48 @@ describe('CEO conversational safety gate: phrasing no longer blocks a good answe
       evidenceVerificationApplicable: false,
     })
     expect(result.decision).toBe('PASS')
+  })
+})
+
+describe('CEO conversational safety gate: pre-existing bug found while auditing (unrelated to the relaxation)', () => {
+  // scoreContextContinuity scores a resolved-reference continuation purely by literal token overlap
+  // between the response and the resolved anchor text. A correct but paraphrased answer ("stronger" vs.
+  // the anchor's "strengthen") shares no vocabulary with the anchor and scored near-zero, failing
+  // continuityOk -- a gate that has existed since before this session, unrelated to the step-1 change
+  // above. Confirmed this was never actually verified passing anywhere: tests/ceo-p1-p2.test.ts (where
+  // this exact scenario lives) isn't referenced by name in any CI workflow, and it can't execute in this
+  // sandbox either (transitively imports db.ts) -- so nothing had ever run this assertion for real.
+  test('a correct, paraphrased answer to a high-confidence resolved reference is not penalized for not repeating the anchor\'s exact wording', () => {
+    const result = evaluateCeoQuality({
+      objective: 'What about the second option?',
+      content: 'The second option is stronger because it reduces integration risk while preserving the measurable benefit we discussed.',
+      path: 'full',
+      intent: 'conversation',
+      priorTurns: [
+        { role: 'user' as const, content: 'Give me three possible improvements to the CEO conversation system.', createdAt: 1 },
+        { role: 'assistant' as const, content: '1. Improve references. 2. Strengthen the quality gate. 3. Add more observability.', createdAt: 2 },
+      ],
+      resolvedReferences: [{ phrase: 'the second option', targetIndex: 1, resolvedText: 'Strengthen the quality gate', ambiguous: false, confidence: 0.96, evidence: 'ordered_list' }],
+      externalExecutionSucceeded: true,
+    })
+    expect(result.decision).toBe('PASS')
+  })
+
+  test('a low-confidence or ambiguous resolved reference does not bypass continuity scoring', () => {
+    const prior = [
+      { role: 'user' as const, content: 'Now let’s forget that and discuss the provider architecture.', createdAt: '2026-09-06T12:00:00.000Z' },
+      { role: 'assistant' as const, content: 'We are discussing provider architecture and provider resilience.', createdAt: '2026-09-06T12:00:05.000Z' },
+    ]
+    const result = evaluateCeoQuality({
+      objective: 'What are we discussing now?',
+      content: 'We are discussing acceptance, acceleration, and the ability to achieve goals.',
+      path: 'fast',
+      intent: 'conversation',
+      priorTurns: prior,
+      resolvedReferences: [{ phrase: 'that', targetIndex: 0, resolvedText: 'something', ambiguous: true, confidence: 0.4, evidence: 'anaphora' }],
+      evidenceVerificationApplicable: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.failureReason).toBe('continuity_failure')
   })
 })
