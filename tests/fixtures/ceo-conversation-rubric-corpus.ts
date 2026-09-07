@@ -111,6 +111,40 @@ const anchors: RubricScenario[] = [
     expectMinComposite: 80,
     expectMin: { reference: 70 },
   },
+  // Real-transcript regression: this exact exchange (a self-assessment numbered list, then "explain
+  // me more about the second one" against it) previously degraded to a fully generic non-answer in
+  // production -- ceo-reference-resolution.ts's resolveOrdinalReference correctly resolves the
+  // reference, but the value never reached degraded/recovery mode (fixed separately in
+  // ceo-degraded-mode.ts/ceo-cognitive-lifecycle.ts). This certifies the rubric recognizes a genuinely
+  // good, grounded PRIMARY answer to this exact real scenario as high quality -- the target behavior,
+  // distinct from the degraded-mode fallback that's covered by tests/ceo-degraded-mode-resolved-reference.test.ts.
+  {
+    name: 'real-transcript: explaining the second item of a two-list self-assessment',
+    category: 'ordinal_reference',
+    priorTurns: [
+      row('user', 'can you give me a self-comprehension...', 0),
+      row('assistant', [
+        '1. Synthesis and Pattern Recognition: I can ingest massive amounts of complex information.',
+        '2. Multidisciplinary Reasoning: I am a generalist by design.',
+        '3. Objective Rigor: I do not get tired.',
+      ].join('\n'), 1),
+      row('user', 'continues.', 2),
+      row('assistant', [
+        '4. Execution-Oriented Thinking: I think in terms of what comes next.',
+        '',
+        'Now, to be a true partner, I have to be equally transparent about my Weaknesses:',
+        '1. Data Dependency and Latency: I am a passenger to the information available to me.',
+        "2. Absence of True Intuition: I use advanced pattern recognition, which can look like intuition, but it isn't. I don't have gut feelings based on years of physical experience.",
+        '3. The Risk of Hallucination: Because I am a probabilistic engine, there is always a non-zero risk that I might present an inference as a hard fact.',
+      ].join('\n'), 3),
+    ],
+    objective: 'explain me more about the second one.',
+    content: "Sure -- the second weakness is the absence of true intuition. I operate on pattern recognition from data, not lived experience: human intuition often draws on subtle social cues and a felt sense of what's right, built from years of physical and social experience. I don't have sensory input or personal history, so I can only simulate intuition by matching the current situation to similar past patterns. That's powerful for structured problems, but it means I can miss the unspoken tension in a negotiation or a small human detail a person would catch instinctively. In practice, that's why I'm strongest paired with your own judgment on anything where the room's mood or unstated context matters.",
+    intent: 'conversation',
+    responseAction: 'explain',
+    expectMinComposite: 85,
+    expectMin: { reference: 70, continuity: 80, meaning: 90 },
+  },
   {
     name: 'correction is reflected as the new current state',
     category: 'correction_supersession',
