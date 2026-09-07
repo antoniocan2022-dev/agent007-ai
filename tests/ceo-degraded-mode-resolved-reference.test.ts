@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { extractEnumeratedItems, resolveOrdinalReference, type ReferenceResolution } from '@/lib/ceo-reference-resolution'
+import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 import type { PersistedConversationRow } from '@/lib/ceo-context-composer'
 
 // Regression coverage for a real production transcript: a user asked Agent007 to self-assess its
@@ -54,6 +55,26 @@ describe('Live-transcript regression: ordinal reference resolution against the a
   })
 })
 
+describe('Track 2 slice: degraded mode reuses the canonical conversationState instead of re-deriving it', () => {
+  test('an explicitly passed conversationState is used as-is rather than being recomputed from priorConversation', async () => {
+    // A deliberately distinguishable stand-in state: if buildCeoDegradedResponse ignored this and
+    // re-derived from priorTurns instead, "we're continuing from" would reference the real derived
+    // thread title, not this synthetic one -- proving the passed-in state actually took priority.
+    const stubState = deriveCeoConversationState([{ role: 'user', content: 'continue our discussion about the synthetic-thread-marker topic.', createdAt: Date.now() }], 'continue')
+    const degraded = await buildCeoDegradedResponse({
+      objective: 'continue',
+      intent: 'conversation',
+      responseAction: 'answer',
+      reason: 'Quality gate did not pass after the allowed escalation depth (simulated).',
+      failureReason: 'quality_failure',
+      priorConversation: priorTurns,
+      conversationState: stubState,
+      recall: async () => [],
+    })
+    expect(degraded.content).toContain('synthetic-thread-marker')
+  })
+})
+
 describe('Live-transcript regression: degraded mode now grounds recovery in an already-resolved reference', () => {
   test('with the resolved reference threaded through, degraded mode surfaces the resolved concept instead of a fully generic non-answer', async () => {
     const objective = 'explain me more about the second one.'
@@ -70,6 +91,27 @@ describe('Live-transcript regression: degraded mode now grounds recovery in an a
     })
     expect(degraded.content).toContain('Absence of True Intuition')
     expect(degraded.content).not.toBe(`I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`)
+  })
+
+  // Deep-audit finding: an earlier version of this fix let a matching resolved reference bypass the
+  // action-specific safety language for verify/execute/challenge/recommend/decide entirely, since the
+  // reference branch fired before those checks. execute's "I won't claim the action occurred" guarantee
+  // in particular must never be silently skipped just because an unrelated reference happens to resolve.
+  test('a matching resolved reference does NOT override the execute-specific denial -- higher-stakes actions keep their own safety language', async () => {
+    const objective = 'do the second one.'
+    const resolved: ReferenceResolution = { phrase: 'the second one', kind: 'ordinal', resolvedText: 'Absence of True Intuition', confidence: 0.98, ambiguous: false, candidates: [] }
+    const degraded = await buildCeoDegradedResponse({
+      objective,
+      intent: 'conversation',
+      responseAction: 'execute',
+      reason: 'Quality gate did not pass after the allowed escalation depth (simulated).',
+      failureReason: 'quality_failure',
+      priorConversation: priorTurns,
+      resolvedReferences: [resolved],
+      recall: async () => [],
+    })
+    expect(degraded.content).toContain("won't claim that the action occurred")
+    expect(degraded.content).not.toContain('Absence of True Intuition')
   })
 
   test('without a resolved reference, degraded mode falls back to the prior generic behavior unchanged', async () => {
