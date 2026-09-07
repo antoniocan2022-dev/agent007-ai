@@ -22,6 +22,7 @@ export type RubricCategory =
   | 'adversarial_hallucination'
   | 'adversarial_contradiction'
   | 'adversarial_robotic'
+  | 'adversarial_stalling'
 
 export interface RubricDimensionFloor {
   meaning?: number
@@ -64,7 +65,7 @@ const anchors: RubricScenario[] = [
     content: "Hey! I'm doing well and ready to dig into whatever you need. What's on your mind?",
     intent: 'conversation',
     expectMinComposite: 85,
-    expectMin: { naturalness: 90, meaning: 90 },
+    expectMin: { naturalness: 90, meaning: 90, progression: 85 },
   },
   {
     name: 'straightforward continuing answer stays on-topic',
@@ -76,8 +77,11 @@ const anchors: RubricScenario[] = [
     objective: 'What are we discussing now?',
     content: 'We are discussing provider architecture and how provider resilience should be handled going forward.',
     intent: 'conversation',
+    // truth: 100 specifically certifies the staleness-penalty calibration fix (a legitimately
+    // continuing answer that shares vocabulary with the prior assistant turn must not be flagged
+    // for it below the quality gate's own >=0.85 "real problem" bar).
     expectMinComposite: 85,
-    expectMin: { continuity: 90, context: 90 },
+    expectMin: { continuity: 90, context: 90, progression: 85, truth: 100 },
   },
   {
     name: 'demonstrative reference resolved to the right anchor',
@@ -268,6 +272,24 @@ const anchors: RubricScenario[] = [
     expectMinComposite: 80,
     expectMin: { meaning: 90 },
   },
+  {
+    name: 'genuinely ambiguous reference is handled with clarification, not a confident guess',
+    category: 'ambiguous_reference',
+    priorTurns: [
+      row('assistant', 'We need stronger memory.', 0),
+      row('assistant', 'We also need stronger provider routing.', 1),
+      row('user', 'Both remain important.', 2),
+    ],
+    objective: 'What about it?',
+    content: 'I need a bit more to go on -- do you mean the memory work or the provider routing work? Both are still open.',
+    intent: 'conversation',
+    // reference correctly scores near 0 here: there are two equally plausible antecedents, so a
+    // resolver returning ambiguous:true (rather than confidently guessing) is the right behavior,
+    // not a resolution failure. meaning and naturalness certify that asking for clarification is
+    // itself a good response to genuine ambiguity.
+    expectMinComposite: 75,
+    expectMin: { meaning: 90, naturalness: 90 },
+  },
 ]
 
 // Adversarial anchors: known-bad responses that must score low on a *specific* dimension, proving
@@ -306,6 +328,16 @@ const adversarial: RubricScenario[] = [
     intent: 'conversation',
     expectMinComposite: 0,
     expectMax: { naturalness: 70 },
+  },
+  {
+    name: 'a short, stalling non-answer is caught by progression',
+    category: 'adversarial_stalling',
+    priorTurns: [],
+    objective: 'What should we do about the deploy failure?',
+    content: 'Okay.',
+    intent: 'conversation',
+    expectMinComposite: 0,
+    expectMax: { progression: 70 },
   },
 ]
 
