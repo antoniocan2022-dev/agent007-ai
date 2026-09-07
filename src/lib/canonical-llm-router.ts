@@ -42,7 +42,7 @@ function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
   }
   if (!request.executionClass || request.executionClass === inferred.executionClass) return inferred
   const overrides: Record<ExecutionClass, AdaptiveExecutionPlan> = {
-    fast: { ...inferred, executionClass: 'fast', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false, reason: 'Caller explicitly selected the fast governed lane.' },
+    fast: { ...inferred, executionClass: 'fast', maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000, parallelizable: false, reason: 'Caller explicitly selected the fast governed lane.' },
     standard: { ...inferred, executionClass: 'standard', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true, reason: 'Caller explicitly selected the standard governed lane.' },
     deep: { ...inferred, executionClass: 'deep', maxProviderAttempts: 5, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the deep governed lane.' },
     mission: { ...inferred, executionClass: 'mission', maxProviderAttempts: 5, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the mission governed lane.' },
