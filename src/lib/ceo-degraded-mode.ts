@@ -53,14 +53,26 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   if (intent === 'mission_action' && grounding) return `I couldn't complete the normal mission reasoning path, but I recovered relevant internal mission evidence. I won't present it as fresh external verification.\n\n${grounding.slice(0, 12000)}`
   if (isCurrentTopicRequest(objective) && continuableThread) return `We’re currently discussing ${[continuableThread.currentObjective, continuableThread.topic, continuableThread.title].filter(Boolean).join(' ').slice(0, 1000)}.`
   if (isCorrectionRequest(objective)) return `Got it. The correction is clear, and I’ll treat “${objective.replace(/^\s*(?:no|nah)[,\s]*/i, '').replace(/\s*$/,'').slice(0, 500)}” as the active direction from here.`
-  const resolvedReference = highConfidenceReferenceForObjective(objective, input.resolvedReferences)
-  if (resolvedReference?.resolvedText) return `I couldn't complete a fresh, verified answer through the normal reasoning path, but I know exactly what you're referring to:\n\n${resolvedReference.resolvedText.slice(0, 2000)}\n\nI don't want to expand on it without the verified reasoning path succeeding, so go ahead and ask again in a moment.`
   if (/copy|competitor/i.test(lower)) return `I wouldn't make copying a competitor our safest strategy. My preference is to study what works, keep the useful underlying principles, and build the version that fits our strengths and creates a reason for customers to choose us.`
   if (action === 'challenge') return `I couldn't complete the challenge path reliably, so I don't want to manufacture an argument or pretend I evaluated the current question properly.${grounding && input.isSuppliedByCaller ? ' I can use the supplied context to continue once the reasoning path is available.' : ''}`
   if (action === 'recommend' || action === 'decide') { if (!grounding || !input.isSuppliedByCaller) return `I couldn't produce a reliable recommendation for this specific request, so I won't substitute a generic priority or repeat an earlier decision.`; return `I couldn't complete the recommendation path reliably. I can preserve the supplied evidence, but I won't turn it into a stronger recommendation than the failed path supports.` }
-  if (action === 'explain') return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
   if (action === 'verify') return `I couldn't complete the verification path for this specific request, so I won't claim that the requested fact or state was verified.`
   if (action === 'execute') return `I couldn't complete the execution path for this specific request, so I won't claim that the action occurred.`
+  // Deliberately restricted to answer/explain: those are the exact response actions the live-transcript
+  // bug affected, and both are pure conversational recall with no completion/verification claim at
+  // stake. Placed after every higher-stakes action branch above (verify/execute/challenge/recommend/
+  // decide) so a matching reference can never bypass their deliberately conservative, action-specific
+  // denial language -- an earlier version of this branch fired unconditionally before those checks,
+  // which would have let a resolved reference silently skip e.g. execute's explicit "I won't claim the
+  // action occurred" guarantee.
+  if (action === 'answer' || action === 'explain') {
+    const resolvedReference = highConfidenceReferenceForObjective(objective, input.resolvedReferences)
+    if (resolvedReference?.resolvedText) {
+      const safeResolvedText = sanitizeRecalledText(resolvedReference.resolvedText)
+      if (safeResolvedText) return `I couldn't complete a fresh, verified answer through the normal reasoning path, but I know exactly what you're referring to:\n\n${safeResolvedText.slice(0, 2000)}\n\nI don't want to expand on it without the verified reasoning path succeeding, so go ahead and ask again in a moment.`
+    }
+  }
+  if (action === 'explain') return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
   if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(grounding) || /compliance/i.test(priorUsers.join(' '))) return `I'd put compliance first, then build the operations foundation around it, and add new integrations after that.`; if (/revenue/i.test(lower)) return `I'd treat revenue as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure it.` }
   if (action === 'answer' && !isContinuityRecoveryRequest(objective)) return `I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`
   if (grounding && input.isSuppliedByCaller) return `I couldn't complete the normal reasoning path, but I can safely preserve the supplied context without presenting it as a verified conclusion.\n\n${grounding.slice(0, 4000)}`
