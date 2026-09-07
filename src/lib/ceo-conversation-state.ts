@@ -92,7 +92,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     thread.topic = [...new Set([...tokens(thread.topic), ...topicTokens])].slice(0, 6).join(', ')
     thread.entities = [...new Set([...thread.entities, ...(content.match(ENTITY_RE) ?? [])])].slice(-12)
     if (QUESTION_RE.test(content)) thread.unresolvedQuestions = uniqueRecent([...thread.unresolvedQuestions, content], 4)
-    if (DECISION_RE.test(content)) thread.decisions = uniqueRecent([...thread.decisions, content], 4)
+    if (DECISION_RE.test(content) && !QUESTION_RE.test(content)) thread.decisions = uniqueRecent([...thread.decisions, content], 4)
     thread.lastTouchedAt = timestamp(row.createdAt)
     thread.status = threadStatus(content, now, thread.lastTouchedAt, false)
   }
@@ -151,7 +151,12 @@ export function deriveCeoConversationState(rows: readonly PersistedConversationR
   const recentUserGoals = uniqueRecent([...durableGoals, ...recentGoalRows], 8)
   const recentCorrections = uniqueRecent(userRows.filter((row) => isCorrectionRequest(row.content)).map((row) => normalize(row.content)), 6)
   const corrections = correctionEvents(userRows)
-  const decisionSignals = deriveSupersedableSignals(clean, (content) => DECISION_RE.test(content), corrections).slice(-12)
+  // Excludes question-phrased content: DECISION_RE matches on keywords like "priority"/"decided"
+  // alone, so a question that merely asks about a decision ("What is the current priority?") would
+  // otherwise be misclassified as a decision itself -- most visibly when ceo-world-model.ts appends
+  // the current message as a row before deriving state, turning every "what did we decide?"-style
+  // question into a spurious, freshly-tagged "current" decision signal.
+  const decisionSignals = deriveSupersedableSignals(clean, (content) => DECISION_RE.test(content) && !QUESTION_RE.test(content), corrections).slice(-12)
   const decisions = decisionSignals.filter((signal) => signal.status === 'current').map((signal) => signal.text).slice(-6)
   const supersededDecisions = decisionSignals.filter((signal) => signal.status === 'superseded').map((signal) => signal.text).slice(-6)
   const unresolvedQuestions = uniqueRecent(userRows.filter((row) => QUESTION_RE.test(row.content)).map((row) => normalize(row.content)), 6)

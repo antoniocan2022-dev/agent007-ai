@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
+import { buildCeoWorldModel } from '@/lib/ceo-world-model'
 import { isCorrectionRequest } from '@/lib/ceo-conversational-signals'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -118,5 +119,36 @@ describe('CEO conversation state: one canonical correction classifier used every
     const snapshot = buildWorldStateSnapshot(state, rows)
     const original = snapshot.decisions.find((record) => record.text.includes('architecture priority one'))
     expect(original?.status).toBe('superseded')
+  })
+})
+
+describe('CEO conversation state: a question is never misclassified as a decision', () => {
+  // Found auditing Step 2: DECISION_RE matches on keywords like "priority"/"decided" alone, with no
+  // regard for whether the sentence is a question asking about a decision or an actual decision. A
+  // message like "What is the current priority?" was silently entering state.decisions (and, after
+  // Step 2, decisionSignals) as a freshly-tagged "current" user_asserted decision -- most visibly via
+  // ceo-world-model.ts, which appends the current message as a row before deriving state, turning
+  // every "what did we decide?"-style question into a spurious decision on every single turn.
+  test('a bare question containing a decision keyword produces no decision signal', () => {
+    const rows = [row('user', 'What is the current priority?', 1)]
+    const state = deriveCeoConversationState(rows, 'What is the current priority?')
+    expect(state.decisions).toEqual([])
+    expect(state.decisionSignals).toEqual([])
+  })
+
+  test('the same bug does not resurface through ceo-world-model.ts, which re-derives state with the current message appended as a row', () => {
+    const state = deriveCeoConversationState([], 'What is the current priority?')
+    const context = buildCanonicalConversationContext({ currentMessage: 'What is the current priority?', rows: [], state, references: [] })
+    const model = buildCeoWorldModel({ context, priorConversation: [] })
+    expect(model.business.data.decisions).toEqual([])
+  })
+
+  test('a genuine decision statement is still captured even alongside an unrelated later question', () => {
+    const rows = [
+      row('user', 'The commercial priority is marketing automation.', 1),
+      row('user', 'Should we prioritize the routing decision instead?', 2),
+    ]
+    const state = deriveCeoConversationState(rows, 'ok')
+    expect(state.decisions).toEqual(['The commercial priority is marketing automation.'])
   })
 })
