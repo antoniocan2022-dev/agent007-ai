@@ -17,7 +17,12 @@ describe('Adaptive Execution Architecture', () => {
   test('keeps short informational questions fast', () => {
     const plan = classifyExecution(user('What is a database connection pool?'))
     expect(plan.executionClass).toBe('fast')
-    expect(plan.maxTokens).toBe(1200)
+    // Raised from 1200: a real production transcript showed a short question getting a legitimate,
+    // substantive answer that hit exactly this ceiling and was cut off mid-sentence. The fast lane
+    // should stay cheap/quick relative to standard/deep (4000/8000), not so tight that an ordinary
+    // answer runs out of room.
+    expect(plan.maxTokens).toBe(2400)
+    expect(plan.maxTokens).toBeGreaterThan(1200)
     expect(shouldUseFastLane(plan, 0)).toBe(true)
   })
 

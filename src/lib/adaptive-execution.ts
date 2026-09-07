@@ -70,12 +70,17 @@ export function classifyExecution(
     return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
   }
 
+  // maxTokens/timeoutMs raised from 1200/15000 (2026-09): a short question routinely deserves a
+  // substantive answer -- a real production transcript showed a fully legitimate reply hitting this
+  // exact ceiling and getting cut off mid-sentence. DEEP_RE and the >800-char check above already
+  // promote genuinely complex requests to the 8000-token lane; this lane is specifically short
+  // requests that stayed short because the QUESTION is short, not because the answer should be.
   if (normalized.length <= 220 && FAST_RE.test(normalized)) {
-    return { executionClass: 'fast', reason: 'Short informational request can use the low-overhead governed lane.', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false }
+    return { executionClass: 'fast', reason: 'Short informational request can use the low-overhead governed lane.', maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000, parallelizable: false }
   }
 
   if (normalized.length <= 280) {
-    return { executionClass: 'fast', reason: 'Short request without deep-work indicators.', maxProviderAttempts: 2, maxTokens: 1200, timeoutMs: 15000, parallelizable: false }
+    return { executionClass: 'fast', reason: 'Short request without deep-work indicators.', maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000, parallelizable: false }
   }
 
   return { executionClass: 'standard', reason: 'Normal request requiring standard governed model execution.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true }

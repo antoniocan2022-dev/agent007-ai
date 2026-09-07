@@ -37,8 +37,8 @@ describe('CEO conversational intelligence', () => {
     expect(refs[0]?.confidence).toBeGreaterThan(0.3)
   })
 
-  test('composer injects state and natural communication rules without exposing governance metadata', () => {
-    const composition = composeCeoContext({
+  test('composer injects state and natural communication rules without exposing governance metadata', async () => {
+    const composition = await composeCeoContext({
       systemPrompt: 'You are Agent007.',
       currentUserMessage: 'Hi, how are you?',
       persistedMessages: [row('user', 'We are improving the CEO conversation.', 1), row('assistant', 'We are working on continuity.', 2)],
@@ -95,11 +95,11 @@ describe('CEO conversational intelligence', () => {
     expect(getProviderTaskPolicy('reasoning').providerOrder).toEqual(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
   })
 
-  test('context expands safely for long conversations while keeping current turn singular', () => {
+  test('context expands safely for long conversations while keeping current turn singular', async () => {
     const rows = Array.from({ length: 80 }, (_, index) => row(index % 2 === 0 ? 'user' : 'assistant', index % 2 === 0 ? `We are discussing project thread ${index % 8} and the Agent007 architecture.` : `The CEO should remember project thread ${index % 8} and preserve continuity.`, index + 1))
     const current = 'Continue the Agent007 architecture discussion.'
     rows.push(row('user', current, 1000))
-    const composition = composeCeoContext({ systemPrompt: 'You are Agent007.', currentUserMessage: current, persistedMessages: rows, recentMessageLimit: 16, relevantOlderLimit: 8 })
+    const composition = await composeCeoContext({ systemPrompt: 'You are Agent007.', currentUserMessage: current, persistedMessages: rows, recentMessageLimit: 16, relevantOlderLimit: 8 })
     const currentCopies = composition.messages.filter((message) => message.role === 'user' && message.content === current)
     expect(currentCopies).toHaveLength(1)
     expect(composition.recentMessages).toBe(16)
@@ -122,7 +122,7 @@ const benchmarkTopics = [
 
 for (let index = 0; index < 120; index += 1) {
   const topic = benchmarkTopics[index % benchmarkTopics.length]
-  test(`multi-turn benchmark ${String(index + 1).padStart(3, '0')}: preserves ${topic[0]} thread continuity`, () => {
+  test(`multi-turn benchmark ${String(index + 1).padStart(3, '0')}: preserves ${topic[0]} thread continuity`, async () => {
     const rows = [
       row('user', topic[1], 1),
       row('assistant', `We should make ${topic[0]} explicit, persistent, and testable.`, 2),
@@ -132,7 +132,7 @@ for (let index = 0; index < 120; index += 1) {
     ]
     const state = deriveCeoConversationState(rows, 'What about that one?')
     const references = resolveConversationReferences('What about that one?', rows, state)
-    const context = composeCeoContext({ systemPrompt: 'You are Agent007.', currentUserMessage: 'What about that one?', persistedMessages: rows })
+    const context = await composeCeoContext({ systemPrompt: 'You are Agent007.', currentUserMessage: 'What about that one?', persistedMessages: rows })
     expect(state.topic).toBeTruthy()
     expect(references.length).toBe(1)
     expect(context.messages.some((message) => message.content.includes('CONVERSATION STATE'))).toBe(true)

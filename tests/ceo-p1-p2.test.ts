@@ -8,8 +8,8 @@ import { RecoveryBudget } from '../src/lib/ceo-recovery-policy'
 const row = (role: 'user' | 'assistant', content: string, createdAt: number): { role: string; content: string; createdAt: number } => ({ role, content, createdAt })
 
 describe('CEO P1/P2 context and failure architecture', () => {
-  test('composes conditional modules without turning prior conversation into evidence', () => {
-    const result = composeCeoContext({
+  test('composes conditional modules without turning prior conversation into evidence', async () => {
+    const result = await composeCeoContext({
       systemPrompt: 'CEO',
       currentUserMessage: 'What about the same GEOS plan?',
       persistedMessages: [

@@ -9,9 +9,9 @@ function row(role: 'user' | 'assistant', content: string, createdAt: number) {
 }
 
 describe('CEO conversation continuity', () => {
-  test('preserves recent turns and current context without duplicating the current message', () => {
+  test('preserves recent turns and current context without duplicating the current message', async () => {
     const current = 'What should we focus on next?'
-    const context = composeCeoContext({
+    const context = await composeCeoContext({
       systemPrompt: 'CEO identity.',
       currentUserMessage: current,
       persistedMessages: [
@@ -31,9 +31,9 @@ describe('CEO conversation continuity', () => {
     expect(context.recentMessages).toBeGreaterThanOrEqual(2)
   })
 
-  test('selects relevant older context and summarizes unrelated long history', () => {
+  test('selects relevant older context and summarizes unrelated long history', async () => {
     const current = 'Would you still recommend the retention experiment?'
-    const context = composeCeoContext({
+    const context = await composeCeoContext({
       systemPrompt: 'CEO identity.',
       currentUserMessage: current,
       persistedMessages: [

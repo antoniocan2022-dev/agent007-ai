@@ -43,7 +43,9 @@ describe('CEO self-reflection canonical classifier', () => {
     const plan = classifyExecution(user('How are you doing?'))
     expect(plan.executionClass).toBe('fast')
     expect(plan.maxProviderAttempts).toBe(2)
-    expect(plan.timeoutMs).toBe(15000)
+    // Raised from 15000 alongside maxTokens 1200->2400 (see adaptive-execution.ts): a bigger response
+    // ceiling needs proportionally more generation time, not just more room.
+    expect(plan.timeoutMs).toBe(20000)
     expect(plan.parallelizable).toBe(false)
   })
 

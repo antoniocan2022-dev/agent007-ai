@@ -27,9 +27,9 @@ describe('CEO context boundary', () => {
     expect(composerSource).toContain('previous assistant claims are not factual proof')
   })
 
-  test('current user input is bounded before entering the canonical context', () => {
+  test('current user input is bounded before entering the canonical context', async () => {
     const oversized = 'A'.repeat(20_000)
-    const composed = composeCeoContext({
+    const composed = await composeCeoContext({
       systemPrompt: 'You are Agent007.',
       currentUserMessage: oversized,
       persistedMessages: [],
