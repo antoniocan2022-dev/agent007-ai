@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { extractEnumeratedItems, resolveOrdinalReference, type ReferenceResolution } from '@/lib/ceo-reference-resolution'
+import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 import type { PersistedConversationRow } from '@/lib/ceo-context-composer'
 
 // Regression coverage for a real production transcript: a user asked Agent007 to self-assess its
@@ -51,6 +52,26 @@ describe('Live-transcript regression: ordinal reference resolution against the a
     expect(resolved?.ambiguous).toBe(false)
     expect(resolved?.confidence).toBeGreaterThanOrEqual(0.7)
     expect(resolved?.resolvedText).toContain('Risk of Hallucination')
+  })
+})
+
+describe('Track 2 slice: degraded mode reuses the canonical conversationState instead of re-deriving it', () => {
+  test('an explicitly passed conversationState is used as-is rather than being recomputed from priorConversation', async () => {
+    // A deliberately distinguishable stand-in state: if buildCeoDegradedResponse ignored this and
+    // re-derived from priorTurns instead, "we're continuing from" would reference the real derived
+    // thread title, not this synthetic one -- proving the passed-in state actually took priority.
+    const stubState = deriveCeoConversationState([{ role: 'user', content: 'continue our discussion about the synthetic-thread-marker topic.', createdAt: Date.now() }], 'continue')
+    const degraded = await buildCeoDegradedResponse({
+      objective: 'continue',
+      intent: 'conversation',
+      responseAction: 'answer',
+      reason: 'Quality gate did not pass after the allowed escalation depth (simulated).',
+      failureReason: 'quality_failure',
+      priorConversation: priorTurns,
+      conversationState: stubState,
+      recall: async () => [],
+    })
+    expect(degraded.content).toContain('synthetic-thread-marker')
   })
 })
 
