@@ -121,13 +121,22 @@ describe('CEO deep-audit hardening: generalized vague-question topic guard', () 
     expect(result.understood).toBe(true)
   })
 
+  test('a standalone noun question does not become an implicit current-topic question', () => {
+    const result = scoreContextContinuity({
+      currentUserMessage: 'What is status?',
+      response: 'Status describes the current condition or state of something.',
+      priorTurns: providerPrior,
+    })
+    expect(result.understood).toBe(true)
+  })
+
   // A non-anaphoric vague check-in ("What's the status?") shares no vocabulary with the prior
   // conversation by construction, so the plain relevance filter in scoreContextContinuity always came
-  // back empty for it -- which used to fall through to the "no relevant turns, no context needed"
-  // fast path and report `understood: true` unconditionally, completely bypassing the topic-alignment
-  // guard regardless of what isVagueFollowUpQuestion decided. This silently reopened the exact
-  // hallucination class the guard exists to catch, for any vague phrasing without an anaphora word
-  // ("this"/"that"/"it") or a literal current-topic phrase.
+  // back empty for it -- which used to fall through to the "no context needed" fast path and report
+  // `understood: true` unconditionally, completely bypassing the topic-alignment guard regardless of
+  // what isVagueFollowUpQuestion decided. This silently reopened the exact hallucination class the guard
+  // exists to catch, for any vague phrasing without an anaphora word ("this"/"that"/"it") or a literal
+  // current-topic phrase.
   const vagueNoAnaphoraCases = ['What\'s the status?', 'Any updates?', 'Any progress?', 'What\'s new?', 'What\'s happening?']
   for (const message of vagueNoAnaphoraCases) {
     test(`non-anaphoric vague check-in "${message}" hallucination is rejected`, () => {
