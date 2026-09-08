@@ -5,7 +5,7 @@ import type { CeoFailureReason } from './ceo-failure-reason'
 import { emitConversationIncident } from './ceo-conversation-incident'
 import { emitIncidentRegressionCandidate } from './ceo-incident-regression-candidate'
 import { deriveCeoConversationState, safeConversationRows, type CeoConversationState, type ConversationReference, type PersistedConversationRow } from './ceo-conversation-state'
-import { isCorrectionRequest, isCurrentTopicRequest } from './ceo-conversational-signals'
+import { isCorrectionRequest, isCurrentTopicRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { riskClassForDomain } from './architecture-integrity-contract'
 import { filterConversationalMemories } from './ceo-memory-visibility'
 
@@ -29,7 +29,11 @@ export function buildRiskAbstention(objective: string, reason: string, failureRe
 const DECISION_GRADE_EVIDENCE_FAILURES = new Set<CeoFailureReason>(['evidence_insufficient', 'evidence_unavailable', 'production_verification_failure'])
 export function requiresDecisionGradeAbstention(input: { objective: string; failureReason: CeoFailureReason; domain?: string }): boolean { const inferredDomain = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|invest(?:ing|ment)?|buy|sell|hold|portfolio)\b/i.test(input.objective) ? 'public_equity' : 'general_web'; const domain = (input.domain?.trim() || inferredDomain).toLowerCase(); return riskClassForDomain(domain) === 'HIGH' && DECISION_GRADE_EVIDENCE_FAILURES.has(input.failureReason) }
 function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string { const evidenceBlock = recoveredContext.trim() ? `\n\nHere's what I can ground that in internally:\n${recoveredContext.slice(0, 9000)}` : ''; const readiness = selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false }) : null; const readinessBlock = readiness ? `\n\n${readiness.capability} ${readiness.verified} ${readiness.notProven} What would actually move this forward: ${readiness.nextEvidence}` : ''; return `Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer, organization model, provider failover, execution contracts, quality gates, memory, and operational tooling. That's real, and it's not nothing.\n\nWhat I'm not yet justified in claiming is fully autonomous business management just from having that architecture in place. Real-world readiness also needs verified live execution, reliable external integrations, actual customer outcomes, financial controls, and results that hold up over time.\n\nSo the honest answer is: I'm ready to operate as a governed business-management system with you in the loop. I'm not yet proven for running things unsupervised end to end.${readinessBlock}${evidenceBlock}` }
-function isContinuityRecoveryRequest(objective: string): boolean { return /^\s*(?:continue|go on|keep going|carry on|same thread|same topic|continue from there|where we left off|from where we left off|what did we decide|what did we discuss|what was the reasoning|what have we ruled out|what about the (?:first|second|third|last|other) option|based on what we established|remind me|recap|summarize)\b/i.test(objective) }
+// Delegates to the canonical isContinuationOrRestatementRequest (ceo-conversational-signals.ts) --
+// previously a local, independently-drifting regex; see that function's comment for the consolidation
+// this replaced and the production incident (a "tell me in your words" restatement request landing here
+// unrecognized) that motivated it.
+function isContinuityRecoveryRequest(objective: string): boolean { return isContinuationOrRestatementRequest(objective) }
 // The degraded/recovery path used to have no access to the conversational reference resolver's own
 // output at all -- confirmed by tracing a real production transcript where "explain me more about the
 // second one" and "what about the third one" both correctly resolved upstream (resolveOrdinalReference,
