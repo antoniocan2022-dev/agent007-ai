@@ -30,7 +30,21 @@ const CONTEXT_DEPENDENT_RE = /\b(this|that|these|those|it|they|them|above|previo
 // the fast lane's budget is sized for one short answer, not N. Requires an actual count (digit or
 // number word), not just the word "list", so a genuinely single-item request ("List the priority")
 // still gets classified on length alone rather than being promoted every time.
-const ENUMERATION_RE = /\b(?:list|name|give\s+me|provide|enumerate|show\s+me)\b(?:[^.?!]{0,40})?\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\b|\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\b\s+(?:reasons|ways|examples|options|ideas|steps|factors|items|things|points|strategies|approaches|benefits|risks|alternatives)\b/i
+//
+// Deep-audit fix: the trigger-to-count gap was originally {0,40} chars, wide enough to false-positive
+// on ordinary sentences like "her name is Sarah, we have 3 pending items" or "the company name is
+// listed under 5 different filings" -- "name" followed, well within 40 chars, by an unrelated later
+// digit. Every real enumeration phrasing this detector needs to catch (tested below) puts the count
+// directly adjacent to the trigger word (a 1-2 char gap: "list 5", "give me three", "name four"), so
+// tightening the gap to {0,10} removes that false-positive class while still matching every real case.
+//
+// Deep-audit fix (found via independent adversarial review, then confirmed directly): the first
+// alternative has no requirement that the count refer to a listable item, so "Give me 5 minutes to think
+// about this" / "Give me three hours to finish this" also matched -- a time allowance, not an
+// enumeration request. Excludes the clearest, most common such class (a following time-duration unit)
+// rather than requiring an exhaustive noun list on this alternative, which the second alternative
+// already does for its own narrower phrasing ("N reasons/ways/examples/...").
+const ENUMERATION_RE = /\b(?:list|name|give\s+me|provide|enumerate|show\s+me)\b(?:[^.?!]{0,10})?\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\b(?!\s*(?:minutes?|seconds?|hours?|days?|weeks?|months?|years?))|\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)\b\s+(?:reasons|ways|examples|options|ideas|steps|factors|items|things|points|strategies|approaches|benefits|risks|alternatives)\b/i
 
 function latestUserMessage(messages: readonly { role: string; content: string }[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {

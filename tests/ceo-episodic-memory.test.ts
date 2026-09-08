@@ -65,4 +65,38 @@ describe('deriveEpisodicDecisionWrites: pure derivation, no database', () => {
     expect(writes.upserts).toHaveLength(0)
     expect(writes.deletes).toHaveLength(0)
   })
+
+  // Deep-audit fix: a decision containing an internal artifact token (e.g. leaked from a contaminated
+  // upstream source) must never be upserted -- filterConversationalMemories would already block it from
+  // ever being rendered back into a prompt at read time, but persisting it anyway would grow the table
+  // with dead rows and break the invariant that 'decision' category content is always safe to recall.
+  test('a decision carrying an internal artifact token is never upserted, even though it would otherwise be a valid current decision', () => {
+    const writes = deriveEpisodicDecisionWrites({
+      decisions: ['We decided to prioritize revenue recovery first.', 'Leaked continuous_loop_trace state as the priority.'],
+      supersededDecisions: [],
+    })
+    expect(writes.upserts).toHaveLength(1)
+    expect(writes.upserts[0]?.value).toBe('We decided to prioritize revenue recovery first.')
+  })
+
+  test('filtering happens before the 6-item cap, not after -- an unsafe decision inside the naive last-6 window does not silently occupy a slot or push out a safe, older one incorrectly', () => {
+    // 8 items: d0, d1, [unsafe], d2..d6. A naive slice(-6) BEFORE filtering would keep
+    // [unsafe, d2, d3, d4, d5, d6] and wrongly include "unsafe" while dropping d1. Filtering first
+    // removes "unsafe", leaving 7 safe decisions, and slice(-6) then correctly keeps the 6 most recent
+    // of those: d1..d6, not d0.
+    const decisions = [
+      'Decision d0.',
+      'Decision d1.',
+      'Leaked continuous_loop_trace as an unsafe entry.',
+      'Decision d2.',
+      'Decision d3.',
+      'Decision d4.',
+      'Decision d5.',
+      'Decision d6.',
+    ]
+    const writes = deriveEpisodicDecisionWrites({ decisions, supersededDecisions: [] })
+    expect(writes.upserts).toHaveLength(6)
+    expect(writes.upserts.map((write) => write.value)).toEqual(['Decision d1.', 'Decision d2.', 'Decision d3.', 'Decision d4.', 'Decision d5.', 'Decision d6.'])
+    expect(writes.upserts.some((write) => write.value.includes('continuous_loop_trace'))).toBe(false)
+  })
 })

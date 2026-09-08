@@ -44,3 +44,44 @@ describe('CEO pre-router: bare generic verbs in purely internal requests are NOT
     })
   }
 })
+
+// Deep-audit fix: EXTERNAL_LOOKUP_PHRASE_RE's original "current (price|news|status) of" alternative
+// false-positived on ordinary internal status/pricing questions -- verified directly, all 5 of these
+// previously routed to intent:'research', evidenceClass:'external_web', toolRequired:true, meaning the
+// CEO would attempt a live web search to answer a question about its own internal state. "status" was
+// dropped entirely (it skews internal far more than "price"/"news" in a business-CEO context and had
+// zero existing test coverage requiring it); "price"/"news" now exclude "of our/my/internal X".
+describe('CEO pre-router: internal status/pricing questions are NOT misrouted to external research', () => {
+  const shouldStayInternal = [
+    'What is the current status of the deployment?',
+    'What is the current status of the mission?',
+    'Give me the current status of the revenue pipeline.',
+    'What is the current status of our onboarding project?',
+    'What is the current price of our subscription plan?',
+  ]
+  for (const message of shouldStayInternal) {
+    test(`"${message}" does not route to research intent`, () => {
+      const decision = preRouteCeoRequest(user(message))
+      expect(decision.executionContract.intent).not.toBe('research')
+      expect(decision.executionContract.evidenceClass).not.toBe('external_web')
+    })
+  }
+})
+
+// Deep-audit fix (found via independent adversarial review, then confirmed directly): bare "check
+// online" matched "check online banking for the wire transfer status" and "check online to see if the
+// invoice cleared" -- both about the user's own accounts, misrouted to external web research. "check
+// online" now requires "...for" immediately after, matching a genuine web-search directive.
+describe('CEO pre-router: "check online" about the user\'s own accounts is NOT misrouted to external research', () => {
+  const shouldStayInternal = [
+    'Check online banking for the wire transfer status.',
+    'Check online to see if the invoice cleared.',
+  ]
+  for (const message of shouldStayInternal) {
+    test(`"${message}" does not route to research intent`, () => {
+      const decision = preRouteCeoRequest(user(message))
+      expect(decision.executionContract.intent).not.toBe('research')
+      expect(decision.executionContract.evidenceClass).not.toBe('external_web')
+    })
+  }
+})
