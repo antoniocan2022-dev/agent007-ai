@@ -8,7 +8,7 @@ import type { ActiveProviderId } from './provider-control-plane'
  * changing the platform-wide provider contract.
  */
 export const PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
-export const CEO_CONVERSATION_PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['cloudflare', 'mistral', 'groq', 'cerebras', 'openrouter'] as const
+export const CEO_CONVERSATION_PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['openrouter', 'cloudflare', 'mistral', 'groq', 'cerebras'] as const
 
 const STRICT_TASKS = new Set<TaskType>(['financial', 'security'])
 const ENHANCED_TASKS = new Set<TaskType>(['research', 'reasoning', 'coding', 'analysis', 'operations'])

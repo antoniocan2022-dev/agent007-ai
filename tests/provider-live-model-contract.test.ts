@@ -21,7 +21,7 @@ describe('provider live-model contract', () => {
     expect(PROVIDER_RUNTIME_CONFIG.cloudflare.preferredModels[0]).toBe('@cf/google/gemma-4-26b-a4b-it')
     expect(PROVIDER_RUNTIME_CONFIG.mistral.modelsUrl).toBe('https://api.mistral.ai/v1/models')
     expect(PROVIDER_RUNTIME_CONFIG.cerebras.modelsUrl).toBe('https://api.cerebras.ai/v1/models')
-    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('openrouter/free')
+    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('anthropic/claude-sonnet-5')
     expect(GOVERNED_MODEL_PROFILES.some((profile) => profile.provider === 'cloudflare' && profile.model === '@cf/google/gemma-4-26b-a4b-it' && profile.capabilities.includes('vision'))).toBe(true)
   })
 

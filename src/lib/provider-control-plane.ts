@@ -22,7 +22,7 @@ export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, Provider
   cloudflare: { id: 'cloudflare', label: 'Cloudflare Workers AI', baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1/chat/completions', apiKeyEnv: 'CLOUDFLARE_API_KEY', modelEnv: 'CLOUDFLARE_MODEL', defaultModel: '@cf/google/gemma-4-26b-a4b-it', modelsUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/models/search', accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID', preferredModels: ['@cf/google/gemma-4-26b-a4b-it'], catalogMode: 'live-api' },
   mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest', modelsUrl: 'https://api.mistral.ai/v1/models', preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'], catalogMode: 'live-api' },
   cerebras: { id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b', modelsUrl: 'https://api.cerebras.ai/v1/models', preferredModels: ['gpt-oss-120b', 'llama-3.3-70b'], catalogMode: 'live-api' },
-  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'openrouter/free', preferredModels: ['openrouter/free'], catalogMode: 'execution-validated', emergency: true },
+  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'anthropic/claude-sonnet-5', preferredModels: ['anthropic/claude-sonnet-5', 'openrouter/free'], catalogMode: 'execution-validated' },
 }
 
 export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
@@ -34,6 +34,12 @@ export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
   { provider: 'mistral', model: 'mistral-small-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 84, speed: 92, costTier: 1, maxOutputTokens: 8000 },
   { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
   { provider: 'cerebras', model: 'llama-3.3-70b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 99, costTier: 1, maxOutputTokens: 12000 },
+  // OpenRouter passes requests straight through to the upstream provider in the same OpenAI-compatible
+  // chat/completions shape every other governed provider already uses here, so routing OpenRouter's
+  // governed default at Claude Sonnet 5 needed no request/response adapter -- only this profile plus the
+  // runtime-config default above. quality/costTier are set clearly above every other governed profile so
+  // this wins governed-candidate sorting for any task whose capability requirements it satisfies.
+  { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 98, speed: 75, costTier: 3, maxOutputTokens: 16000 },
   { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 75, speed: 70, costTier: 1, maxOutputTokens: 8000 },
 ]
 
@@ -123,7 +129,7 @@ export async function resolveGovernedModel(provider: ActiveProviderId, taskType:
   if (!governed.length) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: no governed model satisfies task capability requirements`, retryable: false })
   if (requestedModel && !governed.includes(requestedModel)) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: requested model is outside the governed model matrix`, retryable: false })
   const catalog = await resolveLiveCatalog(provider, fetchImpl)
-  if (provider === 'openrouter') return requestedModel ?? 'openrouter/free'
+  if (provider === 'openrouter') return requestedModel ?? governed[0]
   const selected = requestedModel && catalog.modelIds.includes(requestedModel) ? requestedModel : governed.find((model) => catalog.modelIds.includes(model))
   if (!selected) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: no governed model is currently available in the live provider catalog`, retryable: false })
   return selected
