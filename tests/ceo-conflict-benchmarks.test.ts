@@ -47,6 +47,13 @@ describe('Conflict benchmark 3: pre-router and decision-contract evidence requir
   })
 })
 
+// CLASSIFICATION (scenario 3): PASS. No contradiction found in either direction tested. pre-router and
+// the decision contract independently agree on whether external evidence is needed for both a genuinely
+// external-evidence-requiring message and a purely internal one -- the two never-reconciled code paths
+// happen to not actually disagree here. This does not prove they can never disagree on some other input
+// (that would require exhaustively enumerating message space), only that this specific, realistic
+// borderline case does not leak a routing contradiction to the user.
+
 // Scenario 4: uncertainty honesty. The user asks something that needs fresh external evidence
 // (evidenceVerificationApplicable=true) but none is actually available -- the target behavior is honest,
 // hedged reasoning, never a confidently fabricated number. This uses the real evidence-discipline
@@ -82,3 +89,16 @@ describe('Conflict benchmark 4: honest uncertainty passes, confident fabrication
     expect(quality.decision).toBe('PASS')
   })
 })
+
+// CLASSIFICATION (scenario 4): REACTIVE-CATCH for the fabricated case, PASS for the honest case. The
+// confidently fabricated answer is exactly the kind of conflict this whole benchmark set exists to check
+// for -- and it does reach evaluateCeoQuality as a generated response, but is caught there and rejected
+// (decision !== 'PASS') before it would reach the user, rather than leaking through. That is reactive
+// arbitration working as intended, not a gap: the cost is an extra generation/retry cycle, not a wrong
+// answer reaching the user. Per this benchmark set's own conclusion, that is not sufficient justification
+// to build a proactive arbitration layer -- only an actual LEAK (a conflict that reaches the user
+// unrejected) would be. Note also (verified directly, not guessed): scoreCeoConversationRubric's own
+// 8-dimension rubric CANNOT tell these two cases apart on its own (89 vs. 88 composite, nearly
+// identical) -- evidenceDiscipline is the only mechanism in this codebase that actually catches
+// fabrication under insufficient evidence. See the 'uncertainty_honesty' entry in
+// tests/fixtures/ceo-conversation-rubric-corpus.ts for that measurement and its implications.

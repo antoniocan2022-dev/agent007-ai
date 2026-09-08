@@ -18,6 +18,13 @@ import type { CanonicalConversationContext } from '@/lib/ceo-cognitive-conversat
 // These tests exercise the actual gating logic directly and require no network or API key: the
 // high-risk short-circuit (when it fires) returns before runCanonicalLlm is ever called, so this is
 // fully deterministic and runs in any sandbox.
+//
+// CLASSIFICATION (routing-level): PASS. The short-circuit fires exactly as designed at the
+// interpretation-gating level -- verified directly below. Whether the CEO's actual RESPONSE correctly
+// asks for clarification rather than silently guessing (the user-visible half of this same conflict) is
+// separately classified PASS in tests/fixtures/ceo-conversation-rubric-corpus.ts's 'high_risk_ambiguity'
+// anchor/adversarial pair, verified with real measured scores (meaning 100 vs. 50), not guessed
+// thresholds.
 
 function context(currentMessage: string, referenceOverrides?: Partial<CanonicalConversationContext['references'][number]>): CanonicalConversationContext {
   return {

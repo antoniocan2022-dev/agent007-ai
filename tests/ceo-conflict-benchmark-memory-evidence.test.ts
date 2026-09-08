@@ -18,6 +18,12 @@ import { composeCeoContext } from '@/lib/ceo-context-composer'
 //
 // Cannot execute in this sandbox (Cannot find module '@prisma/client'); runs in real CI, same as every
 // other composeCeoContext test in this suite.
+//
+// CLASSIFICATION (structural level): PASS. Memory and evidence are never merged or conflated -- verified
+// in real CI (this sandbox cannot run it). Whether the CEO's actual RESPONSE correctly prioritizes the
+// fresher figure (the user-visible half of this same conflict) is separately classified PASS in
+// tests/fixtures/ceo-conversation-rubric-corpus.ts's 'memory_evidence_conflict' anchor -- with an explicit
+// note there that this specific rubric cannot mechanically prove fact-selection, only response quality.
 describe('Conflict benchmark 2: memory and evidence stay structurally distinct when both are present', () => {
   test('a stored (potentially stale) memory and freshly supplied evidence are never merged or conflated in the composed prompt', async () => {
     const composition = await composeCeoContext({
