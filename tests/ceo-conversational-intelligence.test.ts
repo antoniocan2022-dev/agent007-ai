@@ -91,7 +91,7 @@ describe('CEO conversational intelligence', () => {
 
   test('provider policy remains canonical while CEO uses an explicit quality-first preference', () => {
     expect(validateProviderPriority()).toEqual([])
-    expect(CEO_CONVERSATION_PROVIDER_PRIORITY[0]).toBe('cloudflare')
+    expect(CEO_CONVERSATION_PROVIDER_PRIORITY[0]).toBe('openrouter')
     expect(getProviderTaskPolicy('reasoning').providerOrder).toEqual(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
   })
 

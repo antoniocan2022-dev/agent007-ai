@@ -15,8 +15,8 @@ describe('provider control plane', () => {
     expect(PROVIDER_ORDER).toEqual(['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'])
     expect(PROVIDER_RUNTIME_CONFIG.cloudflare.defaultModel).toBe('@cf/google/gemma-4-26b-a4b-it')
     expect(PROVIDER_RUNTIME_CONFIG.cloudflare.accountIdEnv).toBe('CLOUDFLARE_ACCOUNT_ID')
-    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('openrouter/free')
-    expect(PROVIDER_RUNTIME_CONFIG.openrouter.emergency).toBe(true)
+    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('anthropic/claude-sonnet-5')
+    expect(PROVIDER_RUNTIME_CONFIG.openrouter.emergency).toBeUndefined()
     expect(Object.keys(PROVIDER_RUNTIME_CONFIG)).not.toContain('zai')
     expect(Object.keys(PROVIDER_RUNTIME_CONFIG)).not.toContain('gemini')
   })
@@ -39,9 +39,15 @@ describe('provider control plane', () => {
     expect(catalog.modelIds).toContain('@cf/google/gemma-4-26b-a4b-it')
   })
 
-  test('OpenRouter free router uses execution-validated governance', async () => {
+  test('OpenRouter router uses execution-validated governance and prefers Claude Sonnet 5', async () => {
     process.env.OPENROUTER_API_KEY = 'test'
     const model = await resolveGovernedModel('openrouter', 'reasoning', 'enhanced')
+    expect(model).toBe('anthropic/claude-sonnet-5')
+  })
+
+  test('OpenRouter router honors an explicit request for the free fallback model', async () => {
+    process.env.OPENROUTER_API_KEY = 'test'
+    const model = await resolveGovernedModel('openrouter', 'reasoning', 'enhanced', 'openrouter/free')
     expect(model).toBe('openrouter/free')
   })
 

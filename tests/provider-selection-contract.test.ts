@@ -29,7 +29,7 @@ describe('canonical provider selection', () => {
     expect(PROVIDER_RUNTIME_CONFIG.cerebras.baseUrl).toContain('api.cerebras.ai')
     expect(PROVIDER_RUNTIME_CONFIG.openrouter.baseUrl).toContain('openrouter.ai')
     expect(PROVIDER_RUNTIME_CONFIG.cloudflare.defaultModel).toBe('@cf/google/gemma-4-26b-a4b-it')
-    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('openrouter/free')
+    expect(PROVIDER_RUNTIME_CONFIG.openrouter.defaultModel).toBe('anthropic/claude-sonnet-5')
     expect(PROVIDER_RUNTIME_CONFIG.cerebras.defaultModel).toBe('gpt-oss-120b')
   })
 

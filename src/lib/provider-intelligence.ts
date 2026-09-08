@@ -69,7 +69,7 @@ export function resetProviderHealthForTests(): void {
 }
 
 export function getProviderMetadataSummary(): string {
-  const lines = ['ACTIVE CANONICAL LLM PROVIDERS (Groq → Cloudflare Workers AI → Mistral → Cerebras → OpenRouter emergency fallback):']
+  const lines = ['ACTIVE CANONICAL LLM PROVIDERS (Groq → Cloudflare Workers AI → Mistral → Cerebras → OpenRouter):']
   const catalog = getProviderCatalogSnapshot()
   for (const provider of PROVIDER_ORDER) {
     const health = ensureHealth(provider); const configured = Boolean(process.env[PROVIDER_RUNTIME_CONFIG[provider].apiKeyEnv]?.trim()) && (!PROVIDER_RUNTIME_CONFIG[provider].accountIdEnv || Boolean(process.env[PROVIDER_RUNTIME_CONFIG[provider].accountIdEnv!]?.trim())); const score = getHealthScore(provider); const status = !configured ? 'NOT CONFIGURED' : isCircuitOpen(provider) ? 'CIRCUIT OPEN' : health.totalCalls === 0 ? 'UNKNOWN' : score >= 80 ? 'HEALTHY' : score >= 50 ? 'DEGRADED' : 'UNHEALTHY'; const model = health.currentModel || PROVIDER_RUNTIME_CONFIG[provider].defaultModel; const cacheState = catalog[provider].cached ? `catalog cached ${Math.max(0, Math.round((catalog[provider].ageMs ?? 0) / 1000))}s` : 'catalog not cached'; const successRate = health.totalCalls ? `${Math.round(health.successCount / health.totalCalls * 100)}% success` : 'no runtime data'; const latency = health.avgResponseMs ? `${health.avgResponseMs}ms avg` : 'no latency data'; lines.push(`- ${PROVIDER_RUNTIME_CONFIG[provider].label}: ${status} | model: ${model} | ${successRate} | ${latency} | ${cacheState}`)
