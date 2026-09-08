@@ -18,7 +18,22 @@ const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|de
 // would misroute them into an unnecessary external-evidence requirement (added latency, an evidence
 // bundle that isn't relevant). Each phrase here specifically names an external/web/current-information
 // lookup, the same discipline used for the intent regexes around it.
-const EXTERNAL_LOOKUP_PHRASE_RE = /\b(?:check\s+(?:online|the\s+web|the\s+internet)|google\s+(?:it|this|that|for\s+me)|fact[- ]check|what'?s\s+the\s+latest\s+(?:on|news|update)|current\s+(?:price|news|status)\s+of|look\s+(?:this|that|it)\s+up\s+online)\b/i
+//
+// Deep-audit fix: "current status of" was dropped entirely, and "current (price|news) of" gained a
+// negative lookahead for our/my/internal -- verified directly, "current status of X" false-positived on
+// ordinary internal status checks ("What is the current status of the deployment/mission/revenue
+// pipeline?"), all misrouted to evidenceClass:'external_web' with a live web-search attempt for purely
+// internal state. "status" skews internal far more than "price"/"news" do in a business-CEO context and
+// has zero existing test coverage requiring it; "price"/"news" kept but excluded when asking about our
+// own/internal things ("current price of our subscription plan"), which was the same false-positive
+// class.
+//
+// Deep-audit fix (independently confirmed): bare "check online" false-positived on "check online
+// banking for the wire transfer status" / "check online to see if the invoice cleared" -- both about the
+// user's own accounts, not a web lookup. "check the web"/"check the internet" are unambiguous on their
+// own and unchanged; "check online" now requires "...for" immediately after (a genuine web-search
+// directive: "check online for X"), which the internal-account phrasings above don't have.
+const EXTERNAL_LOOKUP_PHRASE_RE = /\b(?:check\s+online\s+for|check\s+(?:the\s+web|the\s+internet)|google\s+(?:it|this|that|for\s+me)|fact[- ]check|what'?s\s+the\s+latest\s+(?:on|news|update)|current\s+(?:price|news)\s+of(?!\s+(?:our|my|internal))|look\s+(?:this|that|it)\s+up\s+online)\b/i
 const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
 const DIRECT_CEO_MAX_CHARS = 1200
 function latestUserText(messages: readonly { role: string; content: string }[]): string { return [...messages].reverse().find((message) => message.role === 'user' && typeof message.content === 'string')?.content ?? '' }

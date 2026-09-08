@@ -64,6 +64,24 @@ describe('Adaptive Execution Architecture', () => {
       const plan = classifyExecution(user('What is the weather today?'))
       expect(plan.executionClass).toBe('fast')
     })
+
+    // Deep-audit fix: the original {0,40} char gap between the trigger word and the count false-
+    // positived on ordinary sentences using "name" as a noun with an unrelated later digit.
+    test('an unrelated later digit after "name" used as a noun does not falsely trigger enumeration', () => {
+      const plan1 = classifyExecution(user('Her name is Sarah, we have 3 pending items.'))
+      expect(plan1.executionClass).toBe('fast')
+      const plan2 = classifyExecution(user('The company name is listed under 5 different filings.'))
+      expect(plan2.executionClass).toBe('fast')
+    })
+
+    // Deep-audit fix (found via independent adversarial review): a time allowance is not an
+    // enumeration request.
+    test('a time-duration count ("give me 5 minutes") does not falsely trigger enumeration', () => {
+      const plan1 = classifyExecution(user('Give me 5 minutes to review the proposal.'))
+      expect(plan1.executionClass).toBe('fast')
+      const plan2 = classifyExecution(user('Give me three hours to finish the audit.'))
+      expect(plan2.executionClass).toBe('fast')
+    })
   })
 
   test('attachments disable the fast lane', () => {
