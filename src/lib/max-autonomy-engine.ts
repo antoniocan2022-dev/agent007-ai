@@ -19,6 +19,23 @@ import type { ToolResult } from './tools'
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function fail(result: string): ToolResult { return { ok: false, preview: result.slice(0, 120), result } }
 
+// Cold-start deep-audit finding: runSubagent runs an unbounded agentic tool-use loop (up to
+// SUBAGENT_MAX_ITERATIONS=15 steps, each a potential LLM + tool call) with no internal timeout of its
+// own -- it was written assuming the /api/agent route's 300s Vercel Pro budget, but mission/tick runs
+// under a plain 60s maxDuration. Racing each dispatch against this bounds the damage a slow/cold
+// dispatch can do to a single route call: on timeout, the underlying call is left to finish in the
+// background (harmless -- its emit is a no-op and its result is simply discarded) while this route
+// moves on and still returns within budget, instead of Vercel hard-killing the whole request with a
+// 504 that also throws away the unrelated steps (Pulse's real KPI check) that would otherwise have
+// completed successfully.
+export class SubagentTimeoutError extends Error {}
+export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SubagentTimeoutError(`${label} timed out after ${ms}ms (likely cold start or a slow provider)`)), ms)
+    promise.then((value) => { clearTimeout(timer); resolve(value) }, (error) => { clearTimeout(timer); reject(error) })
+  })
+}
+
 /* ════════════════════════════════════════════════════════════════
  * 1. MISSION MODE — Autonomous daily pursuit of $20K/month target
  * ════════════════════════════════════════════════════════════════ */
@@ -110,10 +127,15 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
     // UPGRADE #106: Real Income Verification Loop — Removed Math.random() fake data.
     // Mission tick now reports REAL status, not fabricated projections.
     
-    // Step 1: ACTUALLY dispatch Scout to find opportunities (UPGRADE #133)
-    try {
-      const { runSubagent } = await import('./subagents')
-      const scoutResult = await runSubagent({
+    // Steps 1+2: ACTUALLY dispatch Scout and Aurora (UPGRADE #133). Run concurrently, not sequentially --
+    // Aurora's task is a fixed prompt that never actually consumes Scout's result, so serializing them
+    // only cost latency for no dependency reason. Each dispatch is individually timeout-bounded (see
+    // withTimeout above) so a cold/slow one degrades to a recorded miss instead of consuming this
+    // route's entire 60s budget and taking the whole tick down with it.
+    const DISPATCH_TIMEOUT_MS = 40_000
+    const { runSubagent } = await import('./subagents')
+    const [scoutOutcome, auroraOutcome] = await Promise.allSettled([
+      withTimeout(runSubagent({
         subagentId: 'scout',
         task: 'Find 3 trending AI niches with high search volume and low competition for affiliate marketing. Return the top 3 with search volume estimates.',
         dispatchId: `mission_tick_scout_${Date.now()}`,
@@ -121,24 +143,8 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
         language: 'en',
         emit: async () => {},
         parentConversationId: 'mission',
-      })
-      actions.push(`Scout: DISPATCHED — found opportunities: ${scoutResult.answer.slice(0, 200)}`)
-      // Store the opportunity in mission state
-      missionState.opportunities.push({
-        id: `opp_${Date.now()}`,
-        source: 'scout',
-        title: 'AI niche research from mission tick',
-        potential: scoutResult.answer.slice(0, 500),
-        date: now.slice(0, 10),
-      })
-    } catch (e: any) {
-      actions.push(`Scout: Dispatch failed — ${e?.message?.slice(0, 100)}`)
-    }
-
-    // Step 2: ACTUALLY dispatch Aurora to create monetization strategy (UPGRADE #133)
-    try {
-      const { runSubagent } = await import('./subagents')
-      const auroraResult = await runSubagent({
+      }), DISPATCH_TIMEOUT_MS, 'Scout dispatch'),
+      withTimeout(runSubagent({
         subagentId: 'aurora',
         task: 'Create a monetization strategy for the top AI niche opportunity. Include: content plan, affiliate programs to join, and estimated monthly revenue.',
         dispatchId: `mission_tick_aurora_${Date.now()}`,
@@ -146,10 +152,27 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
         language: 'en',
         emit: async () => {},
         parentConversationId: 'mission',
+      }), DISPATCH_TIMEOUT_MS, 'Aurora dispatch'),
+    ])
+
+    if (scoutOutcome.status === 'fulfilled') {
+      actions.push(`Scout: DISPATCHED — found opportunities: ${scoutOutcome.value.answer.slice(0, 200)}`)
+      // Store the opportunity in mission state
+      missionState.opportunities.push({
+        id: `opp_${Date.now()}`,
+        source: 'scout',
+        title: 'AI niche research from mission tick',
+        potential: scoutOutcome.value.answer.slice(0, 500),
+        date: now.slice(0, 10),
       })
-      actions.push(`Aurora: DISPATCHED — created monetization strategy: ${auroraResult.answer.slice(0, 200)}`)
-    } catch (e: any) {
-      actions.push(`Aurora: Dispatch failed — ${e?.message?.slice(0, 100)}`)
+    } else {
+      actions.push(`Scout: Dispatch failed — ${scoutOutcome.reason?.message?.slice(0, 100)}`)
+    }
+
+    if (auroraOutcome.status === 'fulfilled') {
+      actions.push(`Aurora: DISPATCHED — created monetization strategy: ${auroraOutcome.value.answer.slice(0, 200)}`)
+    } else {
+      actions.push(`Aurora: Dispatch failed — ${auroraOutcome.reason?.message?.slice(0, 100)}`)
     }
 
     // Step 3: Pulse KPI check (REAL income from DB, not random)
@@ -187,7 +210,7 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
     if (missionState.kpis.month === 0 && missionState.totalRuns >= 7) {
       try {
         const { runSubagent } = await import('./subagents')
-        const pivotResult = await runSubagent({
+        const pivotResult = await withTimeout(runSubagent({
           subagentId: 'quantum',
           task: 'Our current strategy has generated $0 revenue after ' + missionState.totalRuns + ' mission ticks. Analyze what is wrong and propose 3 alternative strategies. Focus on what we can execute immediately with existing tools (affiliate marketing, content creation, SaaS). Consider: are we targeting the right niche? Is our content reaching the right audience? Should we pivot to a different revenue model?',
           dispatchId: `strategy_pivot_${Date.now()}`,
@@ -195,7 +218,7 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
           language: 'en',
           emit: async () => {},
           parentConversationId: 'mission',
-        })
+        }), DISPATCH_TIMEOUT_MS, 'Quantum strategy-pivot dispatch')
         actions.push(`🔄 STRATEGY PIVOT: QUANTUM dispatched — ${pivotResult.answer.slice(0, 200)}`)
 
         // Notify owner via Telegram
