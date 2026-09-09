@@ -6,6 +6,7 @@ import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { readFileSync } from 'node:fs'
 
 const originalFetch = globalThis.fetch
@@ -237,6 +238,78 @@ describe('CEO cognitive lifecycle', () => {
     // of degrading the whole request.
     expect(result.degraded).toBe(false)
     expect(result.content).toContain('Recommendation')
+  })
+
+  test('escalation loop retries within its budget instead of abandoning it after one transient provider failure', async () => {
+    // Real production incident (traced via live runtime logs, request 99a00917): the escalation call
+    // itself failed on a transient provider error, and the old code unconditionally broke out of the
+    // whole escalation loop on ANY error -- discarding the rest of decisionPlan.maxEscalations (2 for a
+    // critical path) even though the budget allowed another attempt. This locks in the fix: a failed
+    // escalation attempt no longer ends the loop early; the next attempt still runs within budget.
+    //
+    // Deliberately resets provider health/circuit-breaker state first: this is the one test in this file
+    // that relies on the SAME small provider set failing then succeeding within one test, so leftover
+    // recentFailures accumulated by earlier tests in this file (e.g. the independent-review/synthesis
+    // failures two tests up) could otherwise push a circuit open before this test's own retry has a
+    // chance to prove anything -- confirmed as the real cause of this test failing in CI on the first push
+    // (both here and, independently, in the "critical lifecycle falls back..." test's shared provider
+    // pool), not a flaw in the underlying escalation-loop fix itself.
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    let escalationCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('/accounts/account-123/ai/models/search')) return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('You are an escalation reviewer')) {
+          escalationCalls++
+          // Fail only the first escalation-tagged call, then succeed -- proving the second outer attempt
+          // actually runs rather than the loop having given up after the first failure.
+          //
+          // Deliberately one raw call per outer attempt, not two: with only groq/cloudflare/mistral
+          // configured and this request's taskType resolving to 'research' (TASK_CAPABILITIES.research
+          // requires 'long-context', which neither governed groq model profile has), groq always fails
+          // resolveGovernedModel with a silent, non-HTTP MODEL_NOT_GOVERNED error before any fetch call --
+          // confirmed directly by instrumenting runGovernedProviderChat locally. So each outer escalation
+          // attempt's own maxProviderAttempts:2 internal retry only ever produces one real HTTP call (to
+          // mistral, the sole remaining governed candidate after cloudflare is excluded as the prior
+          // stage's provider), not two. A threshold requiring 3 raw calls to succeed (as an earlier version
+          // of this test assumed) can never be reached within maxEscalations:2's budget of 2 outer
+          // attempts -- which is exactly why that version failed in CI without the underlying fix being at
+          // fault (every other check in the same run passed).
+          if (escalationCalls <= 1) return jsonResponse({ error: { message: 'simulated transient upstream failure' } }, 503)
+          return jsonResponse({ choices: [{ message: { content: criticalAnswer } }] })
+        }
+        // Primary, independent-review, and synthesis all return weak, unstructured content so the overall
+        // quality gate fails (ESCALATE) and the escalation loop is what has to recover the request.
+        return jsonResponse({ choices: [{ message: { content: 'Too short.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const now = Date.now()
+    const result = await runCeoCognitiveLifecycle({
+      missionId: 'mission-escalation-retry-test',
+      messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }],
+      timeoutMs: 30000,
+      contextualEvidence: 'Verified live mission evidence is available for this controlled test.',
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
+    expect(result.degraded).toBe(false)
+    expect(result.content).toContain('Recommendation')
+    expect(result.generation.finalStage).toBe('escalation')
+    expect(result.generation.escalationCount).toBeGreaterThanOrEqual(2)
+    // Reset again so the failures this test intentionally caused don't leave a circuit open for any
+    // later test in this file.
+    resetProviderHealthForTests()
   })
 
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {

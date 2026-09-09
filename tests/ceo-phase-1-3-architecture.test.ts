@@ -92,5 +92,27 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', conversationScore: 82, substantive: true })).toBe(true)
     expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason: 'evidence_insufficient', conversationScore: 92, substantive: true })).toBe(false)
     expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', conversationScore: 74, substantive: true })).toBe(false)
+    expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason: 'continuity_failure', conversationScore: 92, substantive: true })).toBe(false)
+  })
+
+  // Semantic continuity tie-breaker: the lexical continuity heuristics (staleResponseLikelihood/
+  // scoreContextContinuity) are bag-of-words token-overlap scores, proven by a real production incident
+  // to false-positive on a genuinely coherent response. semanticContinuityConfirmed is a real LLM
+  // judgment call (semanticContinuityCheck in ceo-cognitive-lifecycle.ts), not another lexical proxy, and
+  // it can rescue ONLY continuity_failure -- never the other three forbidden reasons, which are about
+  // factual/evidentiary integrity, not conversational coherence.
+  test('a confirmed semantic continuity judgment can rescue continuity_failure specifically', () => {
+    expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason: 'continuity_failure', conversationScore: 92, substantive: true, semanticContinuityConfirmed: true })).toBe(true)
+  })
+
+  test('an unconfirmed or unchecked semantic continuity judgment does NOT rescue continuity_failure -- it must be positively confirmed, not merely not-denied', () => {
+    expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason: 'continuity_failure', conversationScore: 92, substantive: true, semanticContinuityConfirmed: false })).toBe(false)
+    expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason: 'continuity_failure', conversationScore: 92, substantive: true })).toBe(false)
+  })
+
+  test('the semantic continuity override cannot rescue evidence or claim-consistency failures, even when confirmed true', () => {
+    for (const failureReason of ['evidence_unavailable', 'evidence_insufficient', 'claim_consistency_failure']) {
+      expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason, conversationScore: 92, substantive: true, semanticContinuityConfirmed: true })).toBe(false)
+    }
   })
 })

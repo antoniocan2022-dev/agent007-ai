@@ -307,3 +307,72 @@ describe('CEO conversational safety gate: decision intent gets targeted phrasing
     expect(result.decision).not.toBe('PASS')
   })
 })
+
+// Extended decisionPhrasingRelaxed to 'analysis' on the same surgical basis used for 'decision' above,
+// not a broader relaxation. Found by probing directly: requestedActionSatisfied's 'explain' branch (the
+// action analysis defaults to whenever the objective contains explain/why/how) requires the answer to
+// contain one of a fixed word list, and a genuinely good causal explanation using ordinary phrasing like
+// "due to" hits none of them -- confirmed with "Churn increased due to a pricing change and a
+// competitor's aggressive promotion..." (a correct, specific answer to "Why did churn increase?")
+// failing requestedActionSatisfied outright. Every other check for analysis is untouched: coverage,
+// evidenceOk, structureOk, and continuityOk are all still fully required.
+describe('CEO conversational safety gate: analysis intent gets the same targeted phrasing relief as decision, not a broader relaxation', () => {
+  test('a good causal explanation without the literal explain-vocabulary now passes', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Why did churn increase last quarter?',
+      content: "Churn increased due to a pricing change and a competitor's aggressive promotion, which pulled price-sensitive customers toward the cheaper alternative.\n\n## Findings\n- Pricing change coincided with the churn spike.\n- Competitor promotion targeted the same cohort.\n\n## Next steps\n- Segment renewal offers for the affected cohort.",
+      path: 'full',
+      intent: 'analysis',
+      responseAction: 'explain',
+    })
+    expect(result.decision).toBe('PASS')
+    expect(result.responseIntegrity?.requestedActionSatisfied).toBe(false)
+  })
+
+  test('a vague, non-committal non-answer is still rejected -- coverage and currentObjectiveMatch are NOT relaxed for analysis intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Analyze why churn increased last quarter.',
+      content: 'Lots of things affect churn. It could be many factors, hard to say for sure.',
+      path: 'full',
+      intent: 'analysis',
+      responseAction: 'explain',
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+
+  test('an analysis citing an unverified live/production claim is still rejected -- evidence discipline is NOT relaxed for analysis intent', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Why did churn increase last quarter, based on the latest market data?',
+      content: "According to the latest industry report, churn increased because the market grew 40% and our competitor's pricing dropped 25%, which is the confirmed external cause.\n\n## Findings\n- Market grew 40% per the latest report.\n- Competitor pricing dropped 25%.\n\n## Next steps\n- Revisit pricing strategy.",
+      path: 'full',
+      intent: 'analysis',
+      responseAction: 'explain',
+      evidenceProvided: false,
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.checks.evidenceDiscipline).toBe(false)
+  })
+
+  test('structureOk is NOT relaxed for analysis intent -- an unstructured full-path answer still fails', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Why did churn increase last quarter?',
+      content: "Churn increased due to a pricing change and a competitor's aggressive promotion that pulled price-sensitive customers toward the cheaper alternative in that same period.",
+      path: 'full',
+      intent: 'analysis',
+      responseAction: 'explain',
+    })
+    expect(result.decision).not.toBe('PASS')
+    expect(result.checks.actionableStructure).toBe(false)
+  })
+
+  test('a self-contradictory analysis answer is still rejected via claim consistency', () => {
+    const result = evaluateCeoQuality({
+      objective: 'Is GEOS available for purchase?',
+      content: 'GEOS is available for purchase. GEOS is not available for purchase.',
+      path: 'fast',
+      intent: 'analysis',
+      responseAction: 'answer',
+    })
+    expect(result.decision).not.toBe('PASS')
+  })
+})
