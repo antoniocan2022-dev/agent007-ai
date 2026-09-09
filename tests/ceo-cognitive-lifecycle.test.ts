@@ -6,6 +6,7 @@ import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { readFileSync } from 'node:fs'
 
 const originalFetch = globalThis.fetch
@@ -245,6 +246,15 @@ describe('CEO cognitive lifecycle', () => {
     // whole escalation loop on ANY error -- discarding the rest of decisionPlan.maxEscalations (2 for a
     // critical path) even though the budget allowed another attempt. This locks in the fix: a failed
     // escalation attempt no longer ends the loop early; the next attempt still runs within budget.
+    //
+    // Deliberately resets provider health/circuit-breaker state first: this is the one test in this file
+    // that relies on the SAME small provider set failing then succeeding within one test, so leftover
+    // recentFailures accumulated by earlier tests in this file (e.g. the independent-review/synthesis
+    // failures two tests up) could otherwise push a circuit open before this test's own retry has a
+    // chance to prove anything -- confirmed as the real cause of this test failing in CI on the first push
+    // (both here and, independently, in the "critical lifecycle falls back..." test's shared provider
+    // pool), not a flaw in the underlying escalation-loop fix itself.
+    resetProviderHealthForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
@@ -286,6 +296,9 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.content).toContain('Recommendation')
     expect(result.generation.finalStage).toBe('escalation')
     expect(result.generation.escalationCount).toBeGreaterThanOrEqual(2)
+    // Reset again so the failures this test intentionally caused don't leave a circuit open for any
+    // later test in this file.
+    resetProviderHealthForTests()
   })
 
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
