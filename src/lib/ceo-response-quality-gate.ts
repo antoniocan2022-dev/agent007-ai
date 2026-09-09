@@ -172,6 +172,11 @@ export function evaluateCeoQuality(input: { objective:string; content:string; pa
   // real probe: isGovernedSoftPassEligible returned true for both). Given their own distinct reasons here
   // so FORBIDDEN_FAILURES can actually name and block them, rather than relying on the generic bucket
   // they used to share with ordinary phrasing misses that soft-pass legitimately can rescue.
+  // Naming note: 'internal_artifact_leak' is deliberately shared by both integrity.internalArtifactLeakage
+  // (a literal leaked token) and roboticSelfReferenceLeak (English control-plane vocabulary echoed to the
+  // user) -- both are the same underlying problem, internal framing reaching the user, just expressed
+  // differently. Treat this reason as "internal control-plane leakage" broadly, not literal-token-only,
+  // wherever it's consumed downstream (soft-pass policy, incident categorization, retry policy).
   if(!passed){if(falseCompletionClaim)failureReason='false_completion_claim';else if(integrity.internalArtifactLeakage)failureReason='internal_artifact_leak';else if(roboticSelfReferenceLeak)failureReason='internal_artifact_leak';else if(integrity.crossObjectiveSubstitution||integrity.staleResponseLikelihood>=0.85||!integrity.currentObjectiveMatch)failureReason='continuity_failure';
   // A requestedActionSatisfied miss on its own (objective match and topic continuity are both fine) means
   // the content is substantively about the right thing but didn't hit the response action's exact accepted

@@ -5,7 +5,7 @@ import { buildCeoExecutionPlan } from '@/lib/ceo-execution-plan'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
-import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityCheck } from '@/lib/ceo-cognitive-lifecycle'
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { readFileSync } from 'node:fs'
 
@@ -309,6 +309,56 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.generation.escalationCount).toBeGreaterThanOrEqual(2)
     // Reset again so the failures this test intentionally caused don't leave a circuit open for any
     // later test in this file.
+    resetProviderHealthForTests()
+  })
+
+  // Deep-audit finding: semanticSubstanceCheck's own {substantive:true, checked:false} default on an
+  // inconclusive verdict or an LLM error was, until this fix, passed straight through to
+  // isGovernedSoftPassEligible as substantive:true -- silently granting the soft-pass protection the judge
+  // exists to provide, exactly when the judge itself failed to run. This locks in that the judge's own
+  // return value correctly distinguishes "positively confirmed substantive" from "unchecked", which is what
+  // the ceo-cognitive-lifecycle.ts call site now requires (semanticCheck.checked && semanticCheck.substantive)
+  // instead of trusting substantive alone -- mirroring the fail-closed contract semanticContinuityCheck
+  // already established for the one other forbidden-failure override.
+  test('semantic substance judge marks itself unchecked (not silently substantive) on an inconclusive verdict or a provider error', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') return jsonResponse({ choices: [{ message: { content: 'I cannot determine that.' } }] })
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const inconclusive = await semanticSubstanceCheck('What should we prioritize?', 'It depends on several factors.')
+    expect(inconclusive.checked).toBe(false)
+    expect(inconclusive.substantive).toBe(true)
+
+    globalThis.fetch = (async () => { throw new Error('simulated network failure') }) as typeof fetch
+    const errored = await semanticSubstanceCheck('What should we prioritize?', 'It depends on several factors.')
+    expect(errored.checked).toBe(false)
+    expect(errored.substantive).toBe(true)
+
+    resetProviderHealthForTests()
+  })
+
+  // Deep-audit finding: semanticContinuityCheck previously received only request.priorConversation, denying
+  // the one judge whose entire job is rescuing a genuinely coherent response the retrieved older history
+  // (relevantOlderConversation) most likely to prove that coherence. Confirms the judge's outbound prompt
+  // now actually includes older-conversation content when it is supplied, not just the six most recent turns.
+  test('semantic continuity judge includes relevant older conversation in its prompt, not just recent turns', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let capturedBody = ''
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') { capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'COHERENT' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const olderTurns = [{ role: 'user' as const, content: 'ARCHIVAL_MARKER_TOKEN_9F2 established the budget was fixed at $50k.', createdAt: Date.now() - 1_000_000 }]
+    const recentTurns = [{ role: 'user' as const, content: 'Continue from where we left off.', createdAt: Date.now() }]
+    await semanticContinuityCheck('What was the budget again?', recentTurns, 'The budget is $50k, as established earlier.', olderTurns)
+    expect(capturedBody).toContain('ARCHIVAL_MARKER_TOKEN_9F2')
     resetProviderHealthForTests()
   })
 
