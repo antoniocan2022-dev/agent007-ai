@@ -129,4 +129,26 @@ describe('CEO Phases 1-3 architecture contracts', () => {
       expect(isGovernedSoftPassEligible({ intent: 'decision', qualityDecision: 'ESCALATE', failureReason, conversationScore: 92, substantive: true, semanticContinuityConfirmed: true })).toBe(false)
     }
   })
+
+  // Deep-audit finding: SOFT_PASS_POLICY.requiresSemanticSubstanceCheck:true asserted a contract the
+  // ceo-cognitive-lifecycle.ts call site did not actually enforce -- it passed semanticCheck.substantive
+  // straight through, which defaults to true on both a confirmed SUBSTANTIVE verdict AND an unchecked
+  // (inconclusive/errored) judge. Locks in that the call site combines both fields, matching what
+  // isGovernedSoftPassEligible's own substantive:boolean input has always meant: a positively confirmed
+  // judgment, not merely "not denied" -- the same standard already enforced for semanticContinuityConfirmed.
+  test('the lifecycle wires the substance judge as checked-and-substantive, not substantive alone, honoring requiresSemanticSubstanceCheck', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain('substantive: semanticCheck.checked && semanticCheck.substantive')
+    expect(lifecycle).not.toContain('substantive: semanticCheck.substantive,')
+  })
+
+  // Deep-audit finding: semanticContinuityCheck (the sole rescue path for continuity_failure) received only
+  // request.priorConversation, while evaluateCeoQuality -- the gate that produces continuity_failure in the
+  // first place -- also considers relevantOlderMessages. Locks in that the lifecycle now supplies the judge
+  // with the same older-conversation context the gate itself relies on, so the override is never weaker
+  // than the failure it exists to rescue.
+  test('the lifecycle gives the continuity judge relevantOlderConversation, not just recent turns', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain('semanticContinuityCheck(objective, request.priorConversation ?? [], result.content, request.relevantOlderConversation ?? [])')
+  })
 })
