@@ -271,10 +271,21 @@ describe('CEO cognitive lifecycle', () => {
         const body = init?.body ? String(init.body) : ''
         if (body.includes('You are an escalation reviewer')) {
           escalationCalls++
-          // Fail every escalation-tagged call across the first outer attempt's full provider-retry budget,
-          // then succeed -- proving a subsequent outer attempt actually runs rather than the loop having
-          // given up after the first failure.
-          if (escalationCalls <= 2) return jsonResponse({ error: { message: 'simulated transient upstream failure' } }, 503)
+          // Fail only the first escalation-tagged call, then succeed -- proving the second outer attempt
+          // actually runs rather than the loop having given up after the first failure.
+          //
+          // Deliberately one raw call per outer attempt, not two: with only groq/cloudflare/mistral
+          // configured and this request's taskType resolving to 'research' (TASK_CAPABILITIES.research
+          // requires 'long-context', which neither governed groq model profile has), groq always fails
+          // resolveGovernedModel with a silent, non-HTTP MODEL_NOT_GOVERNED error before any fetch call --
+          // confirmed directly by instrumenting runGovernedProviderChat locally. So each outer escalation
+          // attempt's own maxProviderAttempts:2 internal retry only ever produces one real HTTP call (to
+          // mistral, the sole remaining governed candidate after cloudflare is excluded as the prior
+          // stage's provider), not two. A threshold requiring 3 raw calls to succeed (as an earlier version
+          // of this test assumed) can never be reached within maxEscalations:2's budget of 2 outer
+          // attempts -- which is exactly why that version failed in CI without the underlying fix being at
+          // fault (every other check in the same run passed).
+          if (escalationCalls <= 1) return jsonResponse({ error: { message: 'simulated transient upstream failure' } }, 503)
           return jsonResponse({ choices: [{ message: { content: criticalAnswer } }] })
         }
         // Primary, independent-review, and synthesis all return weak, unstructured content so the overall
