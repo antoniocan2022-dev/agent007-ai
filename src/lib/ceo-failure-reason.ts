@@ -12,6 +12,8 @@ export type CeoFailureReason =
   | 'quality_failure'
   | 'continuity_failure'
   | 'claim_consistency_failure'
+  | 'false_completion_claim'
+  | 'internal_artifact_leak'
   | 'recovery_budget_exhausted'
   | 'execution_timeout'
   | 'production_verification_failure'
@@ -42,6 +44,10 @@ export const CEO_FAILURE_RETRYABLE: Record<CeoFailureReason, boolean> = {
   quality_failure: true,
   continuity_failure: true,
   claim_consistency_failure: true,
+  // Not transient -- retrying the same request without a constraint change won't coincidentally make a
+  // false completion claim or a leaked internal artifact go away, unlike a provider hiccup or timeout.
+  false_completion_claim: false,
+  internal_artifact_leak: false,
   recovery_budget_exhausted: false,
   execution_timeout: true,
   production_verification_failure: true,
