@@ -239,6 +239,55 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.content).toContain('Recommendation')
   })
 
+  test('escalation loop retries within its budget instead of abandoning it after one transient provider failure', async () => {
+    // Real production incident (traced via live runtime logs, request 99a00917): the escalation call
+    // itself failed on a transient provider error, and the old code unconditionally broke out of the
+    // whole escalation loop on ANY error -- discarding the rest of decisionPlan.maxEscalations (2 for a
+    // critical path) even though the budget allowed another attempt. This locks in the fix: a failed
+    // escalation attempt no longer ends the loop early; the next attempt still runs within budget.
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    let escalationCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('/accounts/account-123/ai/models/search')) return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('You are an escalation reviewer')) {
+          escalationCalls++
+          // Fail every escalation-tagged call across the first outer attempt's full provider-retry budget,
+          // then succeed -- proving a subsequent outer attempt actually runs rather than the loop having
+          // given up after the first failure.
+          if (escalationCalls <= 2) return jsonResponse({ error: { message: 'simulated transient upstream failure' } }, 503)
+          return jsonResponse({ choices: [{ message: { content: criticalAnswer } }] })
+        }
+        // Primary, independent-review, and synthesis all return weak, unstructured content so the overall
+        // quality gate fails (ESCALATE) and the escalation loop is what has to recover the request.
+        return jsonResponse({ choices: [{ message: { content: 'Too short.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const now = Date.now()
+    const result = await runCeoCognitiveLifecycle({
+      missionId: 'mission-escalation-retry-test',
+      messages: [{ role: 'user', content: 'Decide the best mission strategy for Agent007 and explain the evidence, risks, and next actions.' }],
+      timeoutMs: 30000,
+      contextualEvidence: 'Verified live mission evidence is available for this controlled test.',
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: now, maxAgeMs: 60_000 },
+    })
+    expect(result.degraded).toBe(false)
+    expect(result.content).toContain('Recommendation')
+    expect(result.generation.finalStage).toBe('escalation')
+    expect(result.generation.escalationCount).toBeGreaterThanOrEqual(2)
+  })
+
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
