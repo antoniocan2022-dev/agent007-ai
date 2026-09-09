@@ -115,4 +115,18 @@ describe('CEO Phases 1-3 architecture contracts', () => {
       expect(isGovernedSoftPassEligible({ intent: 'conversation', qualityDecision: 'ESCALATE', failureReason, conversationScore: 92, substantive: true, semanticContinuityConfirmed: true })).toBe(false)
     }
   })
+
+  // Deep-audit finding, verified with a real probe before this fix existed: false_completion_claim and
+  // internal_artifact_leak used to collapse into the generic 'quality_failure' reason, which was never on
+  // FORBIDDEN_FAILURES -- so isGovernedSoftPassEligible returned true for both, given a high enough
+  // conversationScore and substantive:true (a confident false claim reads as specific, not shallow; a
+  // fluent response with an embedded artifact token can score just as well). Neither is overridable by
+  // anything, including the semantic continuity confirmation that can rescue continuity_failure -- these
+  // are about factual/artifact integrity, not conversational coherence.
+  test('false_completion_claim and internal_artifact_leak are permanently forbidden from soft-pass, matching the factual/evidentiary reasons', () => {
+    for (const failureReason of ['false_completion_claim', 'internal_artifact_leak']) {
+      expect(isGovernedSoftPassEligible({ intent: 'decision', qualityDecision: 'ESCALATE', failureReason, conversationScore: 92, substantive: true })).toBe(false)
+      expect(isGovernedSoftPassEligible({ intent: 'decision', qualityDecision: 'ESCALATE', failureReason, conversationScore: 92, substantive: true, semanticContinuityConfirmed: true })).toBe(false)
+    }
+  })
 })

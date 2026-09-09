@@ -14,7 +14,15 @@ export interface SoftPassPolicyInput {
   semanticContinuityConfirmed?: boolean
 }
 
-const FORBIDDEN_FAILURES = new Set(['evidence_unavailable', 'evidence_insufficient', 'claim_consistency_failure', 'continuity_failure'])
+// Deep-audit finding: false_completion_claim and internal_artifact_leak used to be indistinguishable from
+// an ordinary phrasing miss (both collapsed into the generic 'quality_failure' reason, which was never on
+// this list) -- verified directly with a real probe that isGovernedSoftPassEligible returned true for a
+// confident false completion claim and for a leaked internal artifact, given a high enough
+// conversationScore and a semanticSubstanceCheck verdict of SUBSTANTIVE (a confident false claim reads as
+// specific, not shallow). Their own distinct reasons (ceo-response-quality-gate.ts) let them be named here
+// and permanently forbidden, like the factual/evidentiary reasons below -- never overridable, not even by
+// the continuity tie-breaker.
+const FORBIDDEN_FAILURES = new Set(['evidence_unavailable', 'evidence_insufficient', 'claim_consistency_failure', 'continuity_failure', 'false_completion_claim', 'internal_artifact_leak'])
 const ALLOWED_INTENTS = new Set(['conversation', 'opinion', 'decision', 'analysis'])
 // continuity_failure is the one forbidden reason that can be overridden, and only by a real semantic
 // judgment call, not another heuristic. The lexical continuity signals that produce it

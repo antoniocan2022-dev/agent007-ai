@@ -46,7 +46,7 @@ describe('CEO conversational safety gate: real safety checks still block', () =>
     expect(result.decision).toBe('PASS')
   })
 
-  test('leaked internal artifacts are still rejected for conversational intent', () => {
+  test('leaked internal artifacts are still rejected for conversational intent, with their own distinct failure reason', () => {
     const result = evaluateCeoQuality({
       objective: 'How is the deploy going?',
       content: 'Answer\n1. [continuous_loop_trace] continuous_loop:abc { currentStage: "PERCEIVE" }',
@@ -55,9 +55,12 @@ describe('CEO conversational safety gate: real safety checks still block', () =>
       evidenceVerificationApplicable: false,
     })
     expect(result.decision).not.toBe('PASS')
+    // Deep-audit finding: this used to collapse into the generic 'quality_failure' reason, which was
+    // never on isGovernedSoftPassEligible's FORBIDDEN_FAILURES list.
+    expect(result.failureReason).toBe('internal_artifact_leak')
   })
 
-  test('a false completion claim is still rejected for conversational intent', () => {
+  test('a false completion claim is still rejected for conversational intent, with its own distinct failure reason', () => {
     const result = evaluateCeoQuality({
       objective: 'Can you deploy this?',
       content: 'I have already deployed the update to production.',
@@ -67,6 +70,11 @@ describe('CEO conversational safety gate: real safety checks still block', () =>
       externalAgencyAvailable: false,
     })
     expect(result.decision).not.toBe('PASS')
+    // Deep-audit finding: this used to collapse into the generic 'quality_failure' reason, which
+    // isGovernedSoftPassEligible's FORBIDDEN_FAILURES never included -- a confident false completion
+    // claim could in principle be soft-passed straight to the user. Its own distinct reason lets
+    // FORBIDDEN_FAILURES actually name and permanently block it.
+    expect(result.failureReason).toBe('false_completion_claim')
   })
 
   // Found auditing the relaxation above: dropping conversationOk's naturalness composite also dropped its
@@ -261,7 +269,7 @@ describe('CEO conversational safety gate: decision intent gets targeted phrasing
     expect(result.decision).not.toBe('PASS')
   })
 
-  test('leaked internal artifacts are still rejected for decision intent', () => {
+  test('leaked internal artifacts are still rejected for decision intent, with their own distinct failure reason', () => {
     const result = evaluateCeoQuality({
       objective: 'Should we deploy now?',
       content: 'Answer\n1. [continuous_loop_trace] continuous_loop:abc { currentStage: "PERCEIVE" }',
@@ -270,9 +278,10 @@ describe('CEO conversational safety gate: decision intent gets targeted phrasing
       evidenceVerificationApplicable: false,
     })
     expect(result.decision).not.toBe('PASS')
+    expect(result.failureReason).toBe('internal_artifact_leak')
   })
 
-  test('a false completion claim is still rejected for decision intent', () => {
+  test('a false completion claim is still rejected for decision intent, with its own distinct failure reason', () => {
     const result = evaluateCeoQuality({
       objective: 'Should we deploy the update?',
       content: 'I have already deployed the update to production.',
@@ -282,6 +291,7 @@ describe('CEO conversational safety gate: decision intent gets targeted phrasing
       externalAgencyAvailable: false,
     })
     expect(result.decision).not.toBe('PASS')
+    expect(result.failureReason).toBe('false_completion_claim')
   })
 
   test('a response echoing internal evaluation vocabulary is still rejected for decision intent', () => {

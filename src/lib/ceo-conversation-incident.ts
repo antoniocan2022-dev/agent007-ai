@@ -14,7 +14,7 @@ export interface ConversationIncidentContract {
 
 function categoryFor(reason: CeoFailureReason): ConversationIncidentCategory {
   if (reason === 'continuity_failure') return 'state'
-  if (reason === 'quality_failure' || reason === 'claim_consistency_failure') return 'quality'
+  if (reason === 'quality_failure' || reason === 'claim_consistency_failure' || reason === 'false_completion_claim' || reason === 'internal_artifact_leak') return 'quality'
   if (reason === 'context_unavailable') return 'understanding'
   if (reason.startsWith('provider_') || reason === 'execution_timeout') return 'provider'
   return 'unknown'

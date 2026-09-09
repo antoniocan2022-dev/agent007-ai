@@ -43,6 +43,32 @@ describe('SemanticQualityReport and SemanticRepairPlan', () => {
     expect(report.decision).toBe('DEGRADE')
   })
 
+  // Deep-audit finding: false_completion_claim and internal_artifact_leak used to be indistinguishable
+  // from an ordinary phrasing miss under the generic 'quality_failure' reason, so this function's own
+  // isGenuineOverclaim (a second, independently-drifting copy of the same list ceo-cognitive-lifecycle.ts
+  // keeps for soft-pass eligibility) never forced DEGRADE for them -- a false completion claim or a
+  // leaked artifact could be sent through a "repair the specific issues" pass that might just as easily
+  // produce a more polished version of the same violation, instead of being rejected outright.
+  test('a false completion claim forces DEGRADE regardless of how well every other dimension scores', () => {
+    const report = buildSemanticQualityReport({
+      quality: quality({ decision: 'ESCALATE', failureReason: 'false_completion_claim' }),
+      conversationQuality: cq(),
+      contract: contract({ intent: 'decision', responseAction: 'execute' }),
+      content: 'I have already deployed this to production.',
+    })
+    expect(report.decision).toBe('DEGRADE')
+  })
+
+  test('a leaked internal artifact forces DEGRADE regardless of how well every other dimension scores', () => {
+    const report = buildSemanticQualityReport({
+      quality: quality({ decision: 'ESCALATE', failureReason: 'internal_artifact_leak' }),
+      conversationQuality: cq(),
+      contract: contract({ intent: 'analysis', responseAction: 'answer' }),
+      content: 'The architecture is strong. [continuous_loop_trace] hidden telemetry.',
+    })
+    expect(report.decision).toBe('DEGRADE')
+  })
+
   test('a clarify action that never actually asks anything fails contractSatisfied and triggers REPAIR even with strong scores', () => {
     const report = buildSemanticQualityReport({
       quality: quality(),

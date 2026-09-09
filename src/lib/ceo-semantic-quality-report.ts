@@ -77,7 +77,14 @@ export function buildSemanticQualityReport(input: {
   const failedDimensions = Object.entries(dimensionScores).filter(([, score]) => score < DIMENSION_THRESHOLD).map(([name]) => name)
   const repairPriority = REPAIR_PRIORITY_ORDER.filter((dimension) => failedDimensions.includes(dimension))
 
-  const isGenuineOverclaim = input.quality.failureReason === 'evidence_unavailable' || input.quality.failureReason === 'evidence_insufficient' || input.quality.failureReason === 'claim_consistency_failure'
+  // Deep-audit finding: this used to be a second, independently-drifting copy of the same "genuine
+  // overclaim, never repair -- degrade outright" list kept in ceo-cognitive-lifecycle.ts's own local
+  // isGenuineOverclaim, and neither included false_completion_claim/internal_artifact_leak (both used to
+  // be indistinguishable from an ordinary phrasing miss under the generic 'quality_failure' reason). A
+  // false completion claim or a leaked artifact must never be sent through a "repair the specific issues"
+  // pass that could just as easily produce a more polished version of the same violation -- straight to
+  // DEGRADE, matching the factual/evidentiary reasons already here.
+  const isGenuineOverclaim = input.quality.failureReason === 'evidence_unavailable' || input.quality.failureReason === 'evidence_insufficient' || input.quality.failureReason === 'claim_consistency_failure' || input.quality.failureReason === 'false_completion_claim' || input.quality.failureReason === 'internal_artifact_leak'
   let decision: SemanticQualityDecision
   if (!evidenceDiscipline || isGenuineOverclaim) decision = 'DEGRADE'
   else if (!contractSatisfied) decision = 'REPAIR'
