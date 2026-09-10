@@ -137,21 +137,30 @@ export async function probeAllConfiguredProviders(taskType: TaskType = 'reasonin
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const signal = effectiveSignal(request)
   throwIfCeoRequestAborted(signal)
-  const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider)); const closed = rankAvailableProviders(configured, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]
-  // Every configured candidate's circuit is open -- spend the one bounded half-open probe here rather
-  // than failing instantly with zero attempts. See pickHalfOpenCandidate in provider-intelligence.ts.
-  const halfOpen = closed.length ? null : pickHalfOpenCandidate(configured)
-  const circuitAvailable = closed.length ? closed : (halfOpen ? [halfOpen] : [])
+  const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider))
   // Deep-audit finding, root-caused against a real production trace: a provider whose governed model
   // catalog has zero entries for this taskType (e.g. groq/cloudflare/cerebras all lack 'creative') will
   // always fail with MODEL_NOT_GOVERNED regardless of health -- so it was still being counted as a
   // "candidate" and consuming one of maxProviderAttempts's limited tries. On a low-attempt-budget path
   // (2 attempts), a request could exhaust its entire budget on providers structurally incapable of the
   // taskType from the start and throw, even though a genuinely capable, healthy provider (mistral,
-  // openrouter) was sitting right there, simply never reached. Filtering by governance here -- the same
-  // way circuit-open providers already are -- means the limited attempt budget only ever spends itself
-  // on providers that could actually serve this request.
-  const available = circuitAvailable.filter((provider) => getGovernedCandidates(provider, taskType, request.verification).length > 0)
+  // openrouter) was sitting right there, simply never reached. Filtering by governance up front -- the
+  // same way circuit-open providers already are -- means every later step (circuit filtering, half-open
+  // selection, ranking, the attempt budget) only ever operates on providers that could actually serve
+  // this request.
+  //
+  // Adversarial-combination finding: this filter must run BEFORE pickHalfOpenCandidate is given its
+  // input, not after. pickHalfOpenCandidate only reasons about recovery proximity (soonest
+  // circuitOpenUntil); if every circuit is open and the soonest-to-recover provider happens to be
+  // ungoverned for this taskType while a slightly-slower one is governed, filtering governance only
+  // afterward would spend the one half-open probe on the wrong candidate, filter it out, and throw --
+  // even though a genuinely viable half-open candidate existed the whole time.
+  const governedConfigured = configured.filter((provider) => getGovernedCandidates(provider, taskType, request.verification).length > 0)
+  const closed = rankAvailableProviders(governedConfigured, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]
+  // Every governed candidate's circuit is open -- spend the one bounded half-open probe here rather than
+  // failing instantly with zero attempts. See pickHalfOpenCandidate in provider-intelligence.ts.
+  const halfOpen = closed.length ? null : pickHalfOpenCandidate(governedConfigured)
+  const available = closed.length ? closed : (halfOpen ? [halfOpen] : [])
   const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
   if (!candidates.length) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
   const attempts: ActiveProviderId[] = []; const failures: string[] = []
