@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { organizationGraphFingerprint } from '@/lib/organization-graph-fingerprint'
 import { runGovernedProviderChat, type ProviderRuntimeResult } from '@/lib/provider-runtime-v2'
 import { createReleaseAttestation, getReleaseIdentity, newReleaseRequestId, verifyReleaseTriplet } from '@/lib/release-attestation'
+import { verifyBehavioralProbes } from '@/lib/release-health-probes'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -60,11 +61,12 @@ export async function GET(req: NextRequest) {
   const identity = getReleaseIdentity()
   const triplet = verifyReleaseTriplet({ githubMainSha: github.sha, identity })
   const actualExecution = await verifyActualExecution()
+  const behavioralProbes = verifyBehavioralProbes()
   const attestation = createReleaseAttestation(identity, requestId)
-  const releaseGate = triplet.verified && actualExecution.verified && Boolean(identity.deploymentId)
+  const releaseGate = triplet.verified && actualExecution.verified && behavioralProbes.verified && Boolean(identity.deploymentId)
   const tripleProof = triplet.verified
 
-  console.info('[agent007-release-attestation]', JSON.stringify({ requestId, deploymentId: identity.deploymentId, executedCommitSha: identity.releaseCommitSha ?? identity.vercelCommitSha, environment: identity.environment, fingerprint: attestation.fingerprint, tripleProof, actualExecutionVerified: actualExecution.verified }))
+  console.info('[agent007-release-attestation]', JSON.stringify({ requestId, deploymentId: identity.deploymentId, executedCommitSha: identity.releaseCommitSha ?? identity.vercelCommitSha, environment: identity.environment, fingerprint: attestation.fingerprint, tripleProof, actualExecutionVerified: actualExecution.verified, behavioralProbesVerified: behavioralProbes.verified }))
 
   return NextResponse.json(
     {
@@ -81,8 +83,9 @@ export async function GET(req: NextRequest) {
       deployment: { system: 'vercel-runtime', deploymentId: identity.deploymentId, commitSha: identity.vercelCommitSha, verified: Boolean(identity.vercelCommitSha && identity.deploymentId) },
       runtime: { system: 'release-health', deploymentId: identity.deploymentId, commitSha: identity.releaseCommitSha, verified: Boolean(identity.releaseCommitSha && identity.deploymentId) },
       actualExecution: { system: 'governed-provider-runtime', verified: actualExecution.verified, provider: actualExecution.provider, model: actualExecution.model, responseMs: actualExecution.responseMs, error: actualExecution.error, endpoint: '/api/release-health', probeType: 'in-process-provider-canary' },
+      behavioralProbes: { system: 'ceo-fixed-behavior-probes', verified: behavioralProbes.verified, probes: behavioralProbes.probes },
       releaseAttestation: attestation,
-      evidenceHierarchy: ['source', 'build', 'deployment', 'runtime', 'actualExecution', 'releaseAttestation'],
+      evidenceHierarchy: ['source', 'build', 'deployment', 'runtime', 'actualExecution', 'behavioralProbes', 'releaseAttestation'],
       proof: {
         requestId,
         githubMainSha: github.sha,
@@ -94,6 +97,7 @@ export async function GET(req: NextRequest) {
         tripletFailureReason: triplet.reason,
         deploymentIdentityVerified: Boolean(identity.deploymentId && identity.vercelCommitSha),
         actualExecutionVerified: actualExecution.verified,
+        behavioralProbesVerified: behavioralProbes.verified,
         runtimeAttestationVerified: Boolean(attestation.fingerprint && attestation.executedCommitSha),
         cspInterpretation: 'CSP whitelist is a browser policy signal, not provider health or execution proof.',
       },

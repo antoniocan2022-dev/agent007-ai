@@ -151,4 +151,60 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain('semanticContinuityCheck(objective, request.priorConversation ?? [], result.content, request.relevantOlderConversation ?? [])')
   })
+
+  // Sibling-call-site audit: tryDegraded's recovery branch is the LAST chance to save a request, so
+  // diffed its evaluateCeoQuality call against the primary/escalation/semantic-repair calls in
+  // runCeoCognitiveLifecycle. It was missing resolvedReferences and responseAction, which every sibling
+  // call passes -- meaning a recovery response using a correctly-resolved reference or satisfying the
+  // requested action could still be marked continuity_failure or a requested-action miss purely because
+  // the evaluation never saw the context that would have proven it satisfied. Locks in that the recovery
+  // evaluation now receives the same contract-carrying fields every other stage's evaluation already does.
+  test('the recovery-branch quality evaluation receives resolvedReferences and responseAction, matching every sibling evaluateCeoQuality call', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain('relevantOlderMessages: request.relevantOlderConversation, resolvedReferences: request.canonicalContext?.references, responseAction: request.decisionContract?.responseAction, externalAgencyAvailable: decisionPlan.executionContract.orchestrationOwner')
+  })
+
+  // Sibling-call-site audit: every other stage (primary, escalation, semantic repair) derives its
+  // verification tier from selectedVerification, which upgrades to 'strict'/'enhanced' for
+  // critical/high qualityTier requests. tryDegraded's recovery call hardcoded 'standard' regardless of
+  // qualityTier, so a critical-tier request's last-resort recovery ran at a lower quality bar than every
+  // stage that came before it in the same request. Locks in that recovery now derives the same tier.
+  test('the recovery-branch generation call derives verification from decisionPlan.qualityTier, not a hardcoded standard tier', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard'), model: availability.model")
+  })
+
+  // Second-pass sibling-call-site audit, re-auditing the fix above: evidenceProvided/evidenceScope in
+  // tryDegraded's recovery branch were STILL only derived from request-level evidence, never from
+  // ventureEvidence -- the live Venture-state lookup runCeoCognitiveLifecycle performs once up front and
+  // which every sibling evaluateCeoQuality call sees (they all read the evidenceScope/evidenceProvided
+  // variables computed from it at the top of the function). tryDegraded is a standalone function with no
+  // closure over that lookup, so a critical-tier response's recovery attempt could be marked as having no
+  // live evidence -- and fail on exactly that basis -- even when real venture evidence was sitting in the
+  // caller's scope, one parameter away. The recovery generation call had the same gap: it never received
+  // that evidence either, so a "PASS" from it could have been ungrounded. Both are fixed by threading
+  // ventureEvidence/ventureEvidenceFreshness through as parameters and injecting the same live-venture
+  // system message runCeoCognitiveLifecycle's own liveSystemMessages construction uses.
+  test('tryDegraded accepts ventureEvidence and ventureEvidenceFreshness, and every call site after the venture lookup passes them through', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness): Promise<CognitiveLifecycleResult>")
+    const callSitesPassingVentureEvidence = (lifecycle.match(/tryDegraded\([^;]*?, ventureEvidence, ventureEvidenceFreshness\)/g) ?? []).length
+    // The 4 call sites downstream of the venture-evidence lookup (no-usable-output, exhausted-escalation,
+    // quality-gate-failed, and the outer catch) must all pass it through; the 5th call site (the venture
+    // lookup's own failure path) correctly relies on the null/undefined defaults since no evidence exists
+    // yet at that point -- it is deliberately NOT one of these four.
+    expect(callSitesPassingVentureEvidence).toBe(4)
+  })
+
+  test('the recovery branch derives evidenceScope/evidenceProvided from ventureEvidence, matching how runCeoCognitiveLifecycle derives them at its own top', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("const evidenceScope = request.evidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined); const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness;")
+    expect(lifecycle).toContain('evidenceProvided: Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)')
+  })
+
+  test('the recovery generation call is given the live venture evidence in its own messages, not just an honest evidenceProvided flag', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("const recoveryLiveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):")
+    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...request.messages]')
+  })
 })

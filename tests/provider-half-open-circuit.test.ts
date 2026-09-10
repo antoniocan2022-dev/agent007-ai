@@ -127,4 +127,43 @@ describe('runGovernedProviderChat half-open fallback', () => {
     expect(result.provider).toBe('mistral')
     expect(mistralCalled).toBe(true)
   })
+
+  // Adversarial-combination finding: neither the circuit-breaker fix (#113) nor the taskType-governance
+  // fix (#115) alone covers this -- it only shows up when BOTH conditions hold at once. groq and cerebras
+  // have no governed model for 'creative'; mistral does. If every circuit is open AND the soonest-to-
+  // recover provider (groq, opened first) happens to be the ungoverned one, picking the half-open
+  // candidate by recovery proximity alone (ignoring governance) would spend the one bounded probe on
+  // groq, filter it out afterward for lacking 'creative', and throw -- even though mistral, a genuinely
+  // viable half-open candidate, was sitting right there the whole time, just slower to recover. Filtering
+  // governance BEFORE half-open selection (not after) is what makes this combination resolve correctly.
+  test('half-open selection under mixed circuit-open + governance-incapable providers picks the governed candidate, not merely the soonest to recover', async () => {
+    // groq's circuit opens first (soonest to recover) but groq has no governed model for 'creative'.
+    openCircuit('groq')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    // cerebras also lacks 'creative' and opens second.
+    openCircuit('cerebras')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    // mistral opens last (slowest to recover) but is the only one of the three governed for 'creative'.
+    openCircuit('mistral')
+
+    let mistralProbed = false
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('api.cerebras.ai')) return jsonResponse({ data: [{ id: 'gpt-oss-120b' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        if (url.includes('api.groq.com') || url.includes('api.cerebras.ai')) throw new Error(`ungoverned provider was attempted: ${url}`)
+        mistralProbed = true
+        return jsonResponse({ choices: [{ message: { content: 'mistral half-open probe succeeded despite recovering last' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runGovernedProviderChat({ taskType: 'creative', messages: [{ role: 'user', content: 'Weigh affiliate content vs. a SaaS product and recommend one.' }], timeoutMs: 5000 })
+    expect(result.provider).toBe('mistral')
+    expect(mistralProbed).toBe(true)
+  })
 })

@@ -347,6 +347,46 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderHealthForTests()
   })
 
+  // Adversarial-combination finding: this chain has never been exercised end to end before. Primary and
+  // escalation both use mistral (the only provider governed for 'creative' among the two configured) and
+  // both produce quality-failing robotic content, reaching the quality-gate-driven degrade branch (#114's
+  // fix: a genuine recovery attempt is made, not skipped). attemptValidatedReasoningProvider validates
+  // with the universal 'reasoning' taskType and finds groq first in provider order -- groq is healthy for
+  // general reasoning but has NO governed model for 'creative'. So the recovery generation call itself
+  // then hits the exact governance mismatch #115 fixed, inside the one path that fix's own tests never
+  // reached (a recovery attempt, not a primary one). This proves the full chain still degrades cleanly to
+  // the canned template -- no unhandled exception, no crash -- rather than merely trusting each fix's
+  // isolated unit coverage to compose correctly under a combination neither fix's own tests constructed.
+  test('a recovery attempt that itself hits a taskType-governance mismatch degrades cleanly instead of throwing', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    let mistralCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+        if (url.includes('api.groq.com')) throw new Error('groq must never be attempted for the creative recovery generation -- it is ungoverned for creative')
+        mistralCalls += 1
+        // Every mistral call (primary + escalation) returns quality-failing robotic content, so this
+        // never soft-passes and always reaches the quality-gate-driven degrade branch.
+        return jsonResponse({ choices: [{ message: { content: "As an AI, I can tell you affiliate content is the safer bet." } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({ taskType: 'creative', messages: [{ role: 'user', content: 'What do you think about our content strategy?' }], timeoutMs: 30000 })
+    expect(result.degraded).toBe(true)
+    expect(result.content).toContain("I couldn't reliably complete that specific request")
+    expect(mistralCalls).toBeGreaterThan(0)
+    resetProviderHealthForTests()
+  })
+
   // Deep-audit finding: semanticSubstanceCheck's own {substantive:true, checked:false} default on an
   // inconclusive verdict or an LLM error was, until this fix, passed straight through to
   // isGovernedSoftPassEligible as substantive:true -- silently granting the soft-pass protection the judge
