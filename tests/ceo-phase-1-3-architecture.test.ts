@@ -173,4 +173,38 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain("verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard'), model: availability.model")
   })
+
+  // Second-pass sibling-call-site audit, re-auditing the fix above: evidenceProvided/evidenceScope in
+  // tryDegraded's recovery branch were STILL only derived from request-level evidence, never from
+  // ventureEvidence -- the live Venture-state lookup runCeoCognitiveLifecycle performs once up front and
+  // which every sibling evaluateCeoQuality call sees (they all read the evidenceScope/evidenceProvided
+  // variables computed from it at the top of the function). tryDegraded is a standalone function with no
+  // closure over that lookup, so a critical-tier response's recovery attempt could be marked as having no
+  // live evidence -- and fail on exactly that basis -- even when real venture evidence was sitting in the
+  // caller's scope, one parameter away. The recovery generation call had the same gap: it never received
+  // that evidence either, so a "PASS" from it could have been ungrounded. Both are fixed by threading
+  // ventureEvidence/ventureEvidenceFreshness through as parameters and injecting the same live-venture
+  // system message runCeoCognitiveLifecycle's own liveSystemMessages construction uses.
+  test('tryDegraded accepts ventureEvidence and ventureEvidenceFreshness, and every call site after the venture lookup passes them through', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness): Promise<CognitiveLifecycleResult>")
+    const callSitesPassingVentureEvidence = (lifecycle.match(/tryDegraded\([^;]*?, ventureEvidence, ventureEvidenceFreshness\)/g) ?? []).length
+    // The 4 call sites downstream of the venture-evidence lookup (no-usable-output, exhausted-escalation,
+    // quality-gate-failed, and the outer catch) must all pass it through; the 5th call site (the venture
+    // lookup's own failure path) correctly relies on the null/undefined defaults since no evidence exists
+    // yet at that point -- it is deliberately NOT one of these four.
+    expect(callSitesPassingVentureEvidence).toBe(4)
+  })
+
+  test('the recovery branch derives evidenceScope/evidenceProvided from ventureEvidence, matching how runCeoCognitiveLifecycle derives them at its own top', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("const evidenceScope = request.evidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined); const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness;")
+    expect(lifecycle).toContain('evidenceProvided: Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)')
+  })
+
+  test('the recovery generation call is given the live venture evidence in its own messages, not just an honest evidenceProvided flag', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("const recoveryLiveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):")
+    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...request.messages]')
+  })
 })
