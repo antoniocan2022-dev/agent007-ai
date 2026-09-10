@@ -1,5 +1,5 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
-import { isCircuitOpen, recordFailure, recordSuccess } from './provider-intelligence'
+import { isCircuitOpen, recordFailure, recordSuccess, pickHalfOpenCandidate } from './provider-intelligence'
 import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId, type ProviderErrorKind } from './provider-control-plane'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
@@ -13,7 +13,7 @@ export type { ActiveProviderId }
 export { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders }
 export function getProviderRuntimeConfig(provider: ActiveProviderId) { return PROVIDER_RUNTIME_CONFIG[provider] }
 export interface ProviderRuntimeOutcomeEvidence { status: OutcomeStatus; qualityScore?: number; businessValueScore?: number; verificationPassed: boolean }
-export interface ProviderRuntimeRequest { messages: readonly Record<string, unknown>[]; taskType?: TaskType; verification?: VerificationTier; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; excludeProviders?: readonly ActiveProviderId[]; providerOrder?: readonly ActiveProviderId[]; signal?: AbortSignal }
+export interface ProviderRuntimeRequest { messages: readonly Record<string, unknown>[]; taskType?: TaskType; verification?: VerificationTier; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; excludeProviders?: readonly ActiveProviderId[]; providerOrder?: readonly ActiveProviderId[]; signal?: AbortSignal; allowHalfOpenProbe?: boolean }
 export interface ProviderRuntimeResult { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number }
 export type ProviderDiagnosticState = 'healthy' | 'degraded' | 'failed' | 'unknown'
 export interface ProviderRuntimeProbeResult {
@@ -108,7 +108,11 @@ export async function probeProvider(provider: ActiveProviderId, request?: Partia
   throwIfCeoRequestAborted(signal)
   const result = baseDiagnostic(provider); const config = PROVIDER_RUNTIME_CONFIG[provider]
   if (!result.configured) { result.error = `${config.label}: required credentials are not configured`; result.states.execution = 'failed'; recordProviderError(provider, 'AUTHENTICATION'); return result }
-  if (isCircuitOpen(provider)) { result.error = 'Provider circuit breaker is open'; result.states.circuitBreaker = 'degraded'; result.states.execution = 'degraded'; return result }
+  // allowHalfOpenProbe lets one specific, deliberately-chosen caller (attemptValidatedReasoningProvider's
+  // last-resort recovery path) spend its one bounded half-open probe here -- see pickHalfOpenCandidate in
+  // provider-intelligence.ts. Every other caller (health/audit/canary endpoints) keeps strict, honest
+  // circuit-open reporting so real provider status is never silently masked.
+  if (isCircuitOpen(provider) && !request?.allowHalfOpenProbe) { result.error = 'Provider circuit breaker is open'; result.states.circuitBreaker = 'degraded'; result.states.execution = 'degraded'; return result }
   const taskType = request?.taskType ?? 'reasoning'; const verification = request?.verification ?? 'standard'
   const candidates = getGovernedCandidates(provider, taskType, verification); result.governedCandidates = candidates; result.states.taskCapability = candidates.length ? 'healthy' : 'failed'
   if (!candidates.length) { result.error = `${config.label}: no governed model satisfies task capability requirements`; result.states.governedModel = 'failed'; result.states.execution = 'failed'; recordProviderError(provider, 'MODEL_NOT_GOVERNED'); return result }
@@ -133,7 +137,12 @@ export async function probeAllConfiguredProviders(taskType: TaskType = 'reasonin
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const signal = effectiveSignal(request)
   throwIfCeoRequestAborted(signal)
-  const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider)); const available = rankAvailableProviders(configured, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]; const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
+  const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider)); const closed = rankAvailableProviders(configured, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]
+  // Every configured candidate's circuit is open -- spend the one bounded half-open probe here rather
+  // than failing instantly with zero attempts. See pickHalfOpenCandidate in provider-intelligence.ts.
+  const halfOpen = closed.length ? null : pickHalfOpenCandidate(configured)
+  const available = closed.length ? closed : (halfOpen ? [halfOpen] : [])
+  const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
   if (!candidates.length) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
   const attempts: ActiveProviderId[] = []; const failures: string[] = []
   for (const provider of candidates.slice(0, maxAttempts)) {

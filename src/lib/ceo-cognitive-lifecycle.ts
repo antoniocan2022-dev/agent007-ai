@@ -12,7 +12,7 @@ import { composeCeoResponse, sanitizeCeoContentForQualityGate } from './ceo-resp
 import { getCeoVentureEvidenceForObjective } from './ceo-venture-state'
 import { synthesizeExecutiveReadiness } from './ceo-self-reflection'
 import { getConfiguredProviders, PROVIDER_ORDER } from './provider-control-plane'
-import { isCircuitOpen } from './provider-intelligence'
+import { isCircuitOpen, pickHalfOpenCandidate } from './provider-intelligence'
 import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
@@ -61,7 +61,28 @@ function buildReviewPrompt(objective: string, draft: string): { role: 'user'; co
 function buildSynthesisPrompt(objective: string, draft: string, review: string, ventureEvidence?: string, readinessEvidence?: string): { role: 'user'; content: string } { return { role: 'user', content: `Produce the final executive answer. Preserve correct information from the draft, fix every material issue identified by the review, and do not invent facts. The answer must directly satisfy the original objective and clearly distinguish verified facts from assumptions when relevant.${ventureEvidence ? `\n\nLIVE VENTURE EVIDENCE:\n${ventureEvidence}` : ''}${readinessEvidence ? `\n\nGOVERNED EXECUTIVE READINESS SYNTHESIS (INTERNAL EVIDENCE; DO NOT UPGRADE UNPROVEN LEVELS):\n${readinessEvidence}` : ''}\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}\n\nINDEPENDENT REVIEW:\n${review.slice(0, 20000)}` } }
 function stageExclusions(previous?: ActiveProviderId): ActiveProviderId[] { const operational = getConfiguredProviders().filter((provider) => !isCircuitOpen(provider)); return previous && operational.length >= 3 ? [previous] : [] }
 function responseActionInstruction(action?: ConversationDecisionContract['responseAction']): string | null { if (!action) return null; const instructions: Record<ConversationDecisionContract['responseAction'], string> = { answer: 'Response action: answer the user directly and naturally.', clarify: 'Response action: ask one concise, natural clarification question only when necessary to safely resolve the missing meaning. Do not repeat questions already answered by context.', explain: 'Response action: explain the requested concept or reasoning clearly, using the relevant context and avoiding unnecessary procedural structure.', challenge: 'Response action: respectfully challenge the user’s assumption or proposed conclusion when warranted, explain why, and offer the stronger alternative.', recommend: 'Response action: make a clear recommendation, choose a preferred option when the evidence supports one, and explain the decision criteria.', decide: 'Response action: give a decisive executive judgment, distinguish facts from assumptions, and state the chosen direction clearly.', execute: 'Response action: report the governed execution result accurately. Never claim an action occurred unless the execution path actually completed it.', verify: 'Response action: verify the requested claim or state using the governed evidence/execution path, and clearly distinguish verified, unverified, and unknown.' }; return instructions[action] }
-async function attemptValidatedReasoningProvider(timeoutMs: number): Promise<ValidatedAvailability> { const configured = getConfiguredProviders(); const attemptBudget = Math.min(configured.length, 2); for (const provider of configured.slice(0, attemptBudget)) { try { const probe = await probeProvider(provider, { taskType: 'reasoning', verification: 'standard', timeoutMs: Math.max(2500, Math.min(10000, timeoutMs)), maxTokens: 128 }); if (probe.success && probe.model && probe.responseMs !== null) return { provider, model: probe.model, responseMs: probe.responseMs } } catch (error) { if (isCeoRequestAborted(error)) throw error } } return null }
+// Deep-audit finding: this last-resort recovery check used to take the first 2 configured providers in
+// raw config order, never once consulting circuit-breaker state before choosing -- so if those first 2
+// both happened to be circuit-open (fully plausible with a small provider pool during a burst of real
+// transient failures), it exhausted its entire attempt budget on providers already known to be down,
+// while a genuinely closed-circuit provider further down the list went untried. Rebuilt to prefer
+// circuit-closed providers first; only when every configured provider is circuit-open does it fall back
+// to the one bounded half-open probe (see pickHalfOpenCandidate), rather than refusing outright.
+async function attemptValidatedReasoningProvider(timeoutMs: number): Promise<ValidatedAvailability> {
+  const configured = getConfiguredProviders()
+  if (!configured.length) return null
+  const closed = configured.filter((provider) => !isCircuitOpen(provider))
+  const halfOpen = closed.length ? null : pickHalfOpenCandidate(configured)
+  const ordered = closed.length ? closed : (halfOpen ? [halfOpen] : [])
+  const attemptBudget = Math.min(ordered.length, 2)
+  for (const provider of ordered.slice(0, attemptBudget)) {
+    try {
+      const probe = await probeProvider(provider, { taskType: 'reasoning', verification: 'standard', timeoutMs: Math.max(2500, Math.min(10000, timeoutMs)), maxTokens: 128, allowHalfOpenProbe: true })
+      if (probe.success && probe.model && probe.responseMs !== null) return { provider, model: probe.model, responseMs: probe.responseMs }
+    } catch (error) { if (isCeoRequestAborted(error)) throw error }
+  }
+  return null
+}
 function logCeoDegradedTrace(context: { objective: string; intent: string; path: string; failureReason?: CeoFailureReason; attempts: string[]; rawContentLength?: number; qualityChecks?: Record<string, boolean>; priorTurnCount?: number }): void { console.log('[ceo-degraded-trace]', JSON.stringify({ objectiveLength: context.objective.length, intent: context.intent, path: context.path, failureReason: context.failureReason, attempts: context.attempts, rawContentLength: context.rawContentLength ?? 0, qualityChecks: context.qualityChecks, priorTurnCount: context.priorTurnCount ?? 0 })) }
 // Exported alongside runCeoCognitiveLifecycle so tests can exercise the judge directly -- the same
 // established pattern as resetProviderHealthForTests in provider-intelligence.ts -- rather than only

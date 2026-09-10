@@ -54,6 +54,21 @@ export function recordSuccess(provider: string, responseMs: number): void { if (
 export function recordFailure(provider: string): void { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return; const health = ensureHealth(provider as ActiveProviderId); health.totalCalls++; health.failCount++; health.lastFailAt = Date.now(); const now = Date.now(); health.recentFailures = health.recentFailures.filter((timestamp) => now - timestamp < 60_000); health.recentFailures.push(now); if (health.recentFailures.length >= 3 && !withinColdStartGrace(now)) { health.circuitOpen = true; health.circuitOpenUntil = now + 60_000 } }
 export function getHealthScore(provider: string): number { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return 0; const health = ensureHealth(provider as ActiveProviderId); if (!health.totalCalls) return 50; const successRate = health.successCount / health.totalCalls * 100; const recencyScore = health.lastSuccessAt ? Math.max(0, Math.min(100, 100 - (Date.now() - health.lastSuccessAt) / 3_600_000 * 100)) : 0; const speedScore = health.avgResponseMs > 0 ? Math.max(0, Math.min(100, 100 - (health.avgResponseMs - 500) / 45)) : 50; return Math.round(successRate * 0.7 + recencyScore * 0.2 + speedScore * 0.1) }
 export function isCircuitOpen(provider: string): boolean { if (!PROVIDER_ORDER.includes(provider as ActiveProviderId)) return false; const health = ensureHealth(provider as ActiveProviderId); if (health.circuitOpen && Date.now() < health.circuitOpenUntil) return true; if (health.circuitOpen) { health.circuitOpen = false; health.circuitOpenUntil = 0; health.recentFailures = [] } return false }
+// Deep-audit finding, verified with a real production incident: a circuit breaker with only two
+// states (closed/open) is an incomplete implementation of the pattern -- when every configured
+// candidate's circuit happens to be open at once (plausible with a small provider pool and a burst
+// of real transient failures), the caller had no path back to service except waiting out the 60s
+// cooldown, so a request landing in that window got an instant, zero-attempt failure with no real
+// chance to prove the provider had actually recovered. A well-formed breaker's missing third state
+// -- half-open -- allows exactly one bounded probe through in that situation instead of refusing
+// outright: recordSuccess/recordFailure (already called by every real provider attempt) close or
+// re-open the circuit from that probe's real outcome, same as any other attempt. This picks the
+// single best candidate to spend that one probe on: whichever is closest to its own cooldown expiry,
+// since that one has the best odds of already being fine again.
+export function pickHalfOpenCandidate(candidates: readonly ActiveProviderId[]): ActiveProviderId | null {
+  if (!candidates.length) return null
+  return [...candidates].sort((a, b) => ensureHealth(a).circuitOpenUntil - ensureHealth(b).circuitOpenUntil)[0]!
+}
 export function getDiscoveredModel(provider: string): string | null { return PROVIDER_ORDER.includes(provider as ActiveProviderId) ? ensureHealth(provider as ActiveProviderId).currentModel : null }
 export function getBestProvider(availableProviders: readonly string[]): string | null { return [...availableProviders].filter((provider) => PROVIDER_ORDER.includes(provider as ActiveProviderId)).filter((provider) => !isCircuitOpen(provider)).sort((a, b) => getHealthScore(b) - getHealthScore(a))[0] ?? null }
 
