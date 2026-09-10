@@ -312,6 +312,41 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderHealthForTests()
   })
 
+  // Deep-audit finding, root-caused against a real failing production trace: when the quality gate
+  // rejects a response and soft-pass isn't eligible, the lifecycle used to call tryDegraded with
+  // availabilityAttempted hardcoded to true WITHOUT ever actually attempting a validated-provider
+  // recovery -- a false claim that skipped the one real last-resort chance and went straight to the
+  // canned "I couldn't reliably complete that specific request..." template, even with a genuinely
+  // available provider sitting right there. Live trace showed exactly this shape: primary generation
+  // technically succeeded (ESCALATE, not an error), one escalation ran and still didn't pass, and the
+  // final response was the generic bail-out despite zero actual provider outage. This proves the fix:
+  // a working provider IS now used for real recovery content instead of the canned template.
+  test('quality-gate-driven degrade genuinely attempts provider recovery instead of skipping straight to the canned template', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let nonProbeCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+        nonProbeCalls += 1
+        // First 2 calls (primary + the one allowed escalation) return content that trips the robotic
+        // self-reference regex -- an unconditionally forbidden, non-overridable failure reason, so this
+        // is guaranteed to reach the quality-gate-driven degrade branch, not the soft-pass path.
+        if (nonProbeCalls <= 2) return jsonResponse({ choices: [{ message: { content: "As an AI, I can tell you the biggest risk is execution consistency across teams." } }] })
+        return jsonResponse({ choices: [{ message: { content: 'The real answer: our biggest cultural risk is inconsistent execution standards across teams, not a lack of talent.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What do you think about our team culture?' }], timeoutMs: 30000 })
+    expect(result.content).toContain('inconsistent execution standards')
+    expect(result.content).not.toContain("I couldn't reliably complete that specific request")
+    resetProviderHealthForTests()
+  })
+
   // Deep-audit finding: semanticSubstanceCheck's own {substantive:true, checked:false} default on an
   // inconclusive verdict or an LLM error was, until this fix, passed straight through to
   // isGovernedSoftPassEligible as substantive:true -- silently granting the soft-pass protection the judge
