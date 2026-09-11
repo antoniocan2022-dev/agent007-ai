@@ -1,6 +1,11 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import { db, ensureDbReady } from '@/lib/db'
+// Canonical AES-256-GCM credential encryption -- previously duplicated here (and a THIRD time in
+// dr-recovery.ts, now also consolidated) as private copies of the same scheme. getEncryptionKey now
+// also accepts a dedicated CREDENTIAL_ENCRYPTION_KEY in addition to BACKUP_ENCRYPTION_KEY -- a pure
+// widening, not a behavior change: BACKUP_ENCRYPTION_KEY alone still works exactly as before.
+import { encryptSecretValue as encryptSecret, decryptSecretValue as decryptSecret, getCredentialEncryptionKey as getEncryptionKey } from '@/lib/credential-encryption'
 
 export const BACKUP_V2_VERSION = '2.1'
 
@@ -26,38 +31,6 @@ const SECRET_COLUMNS: Record<string, string[]> = {
   Transaction: ['rawPayload'],
   TwoFactorSecret: ['secret', 'backupCodes'],
   User: ['passwordHash'],
-}
-
-function getEncryptionKey(): Buffer | null {
-  const raw = process.env.BACKUP_ENCRYPTION_KEY?.trim()
-  if (!raw) return null
-  if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, 'hex')
-  return createHash('sha256').update(raw, 'utf8').digest()
-}
-
-function encryptSecret(value: unknown): string {
-  const key = getEncryptionKey()
-  if (!key) throw new Error('BACKUP_ENCRYPTION_KEY is required to encrypt secret fields')
-  const iv = randomBytes(12)
-  const cipher = createCipheriv('aes-256-gcm', key, iv)
-  const plaintext = Buffer.from(JSON.stringify(value), 'utf8')
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return [iv, tag, ciphertext].map(b => b.toString('base64url')).join('.')
-}
-
-function decryptSecret(payload: string): unknown {
-  const key = getEncryptionKey()
-  if (!key) throw new Error('BACKUP_ENCRYPTION_KEY is required to decrypt secret fields')
-  const [ivB64, tagB64, dataB64] = payload.split('.')
-  if (!ivB64 || !tagB64 || !dataB64) throw new Error('Invalid encrypted secret envelope')
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB64, 'base64url'))
-  decipher.setAuthTag(Buffer.from(tagB64, 'base64url'))
-  const plaintext = Buffer.concat([
-    decipher.update(Buffer.from(dataB64, 'base64url')),
-    decipher.final(),
-  ])
-  return JSON.parse(plaintext.toString('utf8'))
 }
 
 function normalize(value: unknown): unknown {
