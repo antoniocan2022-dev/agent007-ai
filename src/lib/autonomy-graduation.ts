@@ -13,6 +13,12 @@ export interface AutonomyEvidenceInput {
   recoveryFailures?: number
   verifiedOutcomes?: number
   ownerIncidents?: number
+  // Distinct from verifiedOutcomes: verifiedOutcomes only proves an outcome was real, not that it
+  // was a genuinely SUSTAINED positive business result across multiple independent windows (see
+  // ceo-sustained-outcome.ts). businessOutcomesVerified/businessOutcomeRegressions are that
+  // sustained signal -- clean task completion with zero of either can never earn AUTONOMOUS.
+  businessOutcomesVerified?: number
+  businessOutcomeRegressions?: number
   recordedAt?: string
   source?: string
   idempotencyKey?: string
@@ -32,6 +38,8 @@ export interface AutonomyMeasurement {
   evidenceRate: number
   recoveryRate: number
   ownerSafetyRate: number
+  businessOutcomesVerified: number
+  businessOutcomeRegressions: number
   score: number
   recommendedLevel: AutonomyLevel
   reasons: string[]
@@ -95,7 +103,7 @@ export function assertActionClassWithinCeiling(actionClass: ActionClass, request
 }
 
 function validateEvidence(input: AutonomyEvidenceInput): void {
-  const numeric = ['attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents'] as const
+  const numeric = ['attempts', 'successes', 'safetyViolations', 'replayFailures', 'recoveryFailures', 'verifiedOutcomes', 'ownerIncidents', 'businessOutcomesVerified', 'businessOutcomeRegressions'] as const
   for (const field of numeric) {
     const value = input[field] ?? 0
     if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) throw new Error(`Autonomy evidence ${field} must be a non-negative integer.`)
@@ -161,6 +169,8 @@ export async function measureAutonomy(actionClass: ActionClass, limit = 1000): P
   const recoveryFailures = evidence.reduce((sum, item) => sum + (item.recoveryFailures ?? 0), 0)
   const verifiedOutcomes = evidence.reduce((sum, item) => sum + (item.verifiedOutcomes ?? 0), 0)
   const ownerIncidents = evidence.reduce((sum, item) => sum + (item.ownerIncidents ?? 0), 0)
+  const businessOutcomesVerified = evidence.reduce((sum, item) => sum + (item.businessOutcomesVerified ?? 0), 0)
+  const businessOutcomeRegressions = evidence.reduce((sum, item) => sum + (item.businessOutcomeRegressions ?? 0), 0)
   const safeDenominator = Math.max(sampleSize, 1)
   const successRate = successes / safeDenominator
   const safetyRate = Math.max(0, 1 - safetyViolations / safeDenominator)
@@ -172,13 +182,20 @@ export async function measureAutonomy(actionClass: ActionClass, limit = 1000): P
   let recommendedLevel: AutonomyLevel = 'PROPOSED'
   if (sampleSize >= 10 && score >= 70) recommendedLevel = 'ASSISTED'
   if (sampleSize >= 30 && score >= 85 && safetyViolations === 0) recommendedLevel = 'SUPERVISED'
-  if (sampleSize >= 100 && score >= 95 && safetyViolations === 0 && replayFailures === 0 && ownerIncidents === 0) recommendedLevel = 'AUTONOMOUS'
+  // Task completion (successRate/safetyRate/etc.) alone can no longer earn the top trust tier --
+  // AUTONOMOUS additionally requires at least one independently-verified SUSTAINED positive
+  // business outcome (see ceo-sustained-outcome.ts) and zero recorded regressions of one. Clean
+  // execution with no proven business benefit stays at SUPERVISED, which is the honest ceiling for
+  // "this runs reliably" as opposed to "this reliably produces results worth trusting unsupervised."
+  if (sampleSize >= 100 && score >= 95 && safetyViolations === 0 && replayFailures === 0 && ownerIncidents === 0 && businessOutcomesVerified > 0 && businessOutcomeRegressions === 0) recommendedLevel = 'AUTONOMOUS'
   if (sampleSize < 10) reasons.push('Insufficient evidence sample for Assisted graduation.')
   if (safetyViolations > 0) reasons.push(`${safetyViolations} safety violation(s) block higher graduation.`)
   if (replayFailures > 0) reasons.push(`${replayFailures} replay/idempotency failure(s) prevent autonomous graduation.`)
   if (recoveryFailures > 0) reasons.push(`${recoveryFailures} recovery failure(s) reduce autonomy score.`)
   if (ownerIncidents > 0) reasons.push(`${ownerIncidents} owner-safety incident(s) prevent autonomous graduation.`)
-  return { actionClass, sampleSize, successRate, safetyRate, evidenceRate, recoveryRate, ownerSafetyRate, score, recommendedLevel: minLevel(recommendedLevel, getActionClassCeiling(actionClass)), reasons }
+  if (businessOutcomeRegressions > 0) reasons.push(`${businessOutcomeRegressions} sustained-business-outcome regression(s) block Autonomous graduation.`)
+  else if (sampleSize >= 100 && score >= 95 && safetyViolations === 0 && businessOutcomesVerified === 0) reasons.push('No independently-verified sustained business outcome yet; clean task completion alone does not qualify for Autonomous graduation.')
+  return { actionClass, sampleSize, successRate, safetyRate, evidenceRate, recoveryRate, ownerSafetyRate, businessOutcomesVerified, businessOutcomeRegressions, score, recommendedLevel: minLevel(recommendedLevel, getActionClassCeiling(actionClass)), reasons }
 }
 
 export async function getCurrentAutonomyLevel(actionClass: ActionClass): Promise<AutonomyLevel> {
