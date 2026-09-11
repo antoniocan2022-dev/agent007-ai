@@ -12,12 +12,25 @@ export type CanonicalLlmRequest = { messages: readonly { role: 'system' | 'user'
 export type CanonicalLlmResult = { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number; policy: ProviderTaskPolicy; executionClass: ExecutionClass; adaptivePlan: AdaptiveExecutionPlan }
 export type ParallelCanonicalResult = { index: number; result?: CanonicalLlmResult; error?: unknown }
 
+// Live-production root cause, caught via runtime-log trace: 'creative' is the ONLY taskType in
+// TASK_CAPABILITIES governed by just 2 of 5 providers (mistral, openrouter) -- every other taskType
+// (reasoning, analysis, coding, research, financial, security, operations) is governed by all 5. The
+// bare word "content" alone routed ordinary business-strategy questions ("weigh affiliate content vs.
+// a SaaS product") into that one fragile 2-provider lane just because "content" is a common business
+// noun (content strategy, content marketing, content calendar), not because the request asked for any
+// writing. #115 and #117 already made that lane's provider selection and recovery validation fully
+// correct; this fixes the actual defect one layer up -- a request that isn't creative writing at all
+// should never have been confined to the lane with the least redundancy in the first place, so it
+// doesn't strand itself when both of those 2 providers happen to be degraded at the same moment (a
+// real, survivable event on the full 5-provider roster). "write" alone already covers genuine
+// content-creation asks ("write content for our landing page"); removing the bare noun only removes
+// the false-positive match on business language that merely mentions content as a channel/asset.
 const TASK_HINTS: Array<[TaskType, RegExp]> = [
   ['coding', /\b(code|coding|bug|typescript|javascript|python|refactor|implement|patch|compile|build)\b/i],
   ['financial', /\b(finance|financial|investment|revenue|margin|cash|bank|trade|portfolio|payment)\b/i],
   ['security', /\b(security|vulnerability|auth|password|2fa|exploit|cve|owasp)\b/i],
   ['research', /\b(research|market|competitor|source|evidence|investigate|compare)\b/i],
-  ['creative', /\b(write|content|creative|copy|headline|brand|design)\b/i],
+  ['creative', /\b(write|creative|copy|headline|brand|design)\b/i],
   ['operations', /\b(health|monitor|incident|ops|deployment|uptime|status)\b/i],
   ['analysis', /\b(analyze|analysis|evaluate|diagnose|audit|assess)\b/i],
 ]

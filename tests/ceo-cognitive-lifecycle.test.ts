@@ -383,15 +383,15 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderHealthForTests()
   })
 
-  // The exact production incident this fix closes, reproduced end to end: "Weigh the tradeoffs between
-  // doubling down on affiliate content vs. building a SaaS product" classifies taskType 'creative'
-  // (inferTaskType matches "content"), letting no explicit taskType through so decisionPlan.taskClass
-  // drives it, exactly like the real request. Primary generation correctly narrows to mistral (the only
-  // configured provider governed for 'creative') and gets a real transient failure (429 rate limit) --
-  // not a governance error. Pre-fix, recovery's availability probe used taskType 'reasoning' and could
-  // validate a provider ungoverned for 'creative', so it would guarantee-fail and degrade even though
-  // mistral itself was healthy again by the time recovery ran. Post-fix, the probe validates against the
-  // real taskType, correctly re-validates mistral, and the real recovery generation succeeds.
+  // The #117 mechanism, reproduced end to end for a genuinely creative-taskType request (explicit here
+  // since inferTaskType no longer infers 'creative' from the bare word "content" -- see the TASK_HINTS
+  // fix in canonical-llm-router.ts for why, and the next test for the actual live incident this exposed).
+  // Primary generation correctly narrows to mistral (the only configured provider governed for
+  // 'creative') and gets a real transient failure (429 rate limit) -- not a governance error. Pre-#117,
+  // recovery's availability probe used taskType 'reasoning' and could validate a provider ungoverned for
+  // 'creative', so it would guarantee-fail and degrade even though mistral itself was healthy again by
+  // the time recovery ran. Post-#117, the probe validates against the real taskType, correctly
+  // re-validates mistral, and the real recovery generation succeeds.
   test('a governed provider that failed transiently during primary generation is the one recovery validates and succeeds with -- not an ungoverned one', async () => {
     resetProviderHealthForTests()
     process.env.GROQ_API_KEY = 'test-groq'
@@ -412,17 +412,51 @@ describe('CEO cognitive lifecycle', () => {
         // First real generation call is primary -- fails with a genuine transient rate limit, not a
         // governance error. Second is recovery's real generation -- succeeds with substantive content.
         if (mistralGenerationCalls === 1) return jsonResponse({ error: { message: 'rate limit exceeded' } }, 429)
-        return jsonResponse({ choices: [{ message: { content: 'Affiliate content offers faster near-term cash flow with lower build risk, while a SaaS product offers stronger long-term margins and defensibility but requires more upfront investment and a longer path to revenue. I recommend continuing affiliate content for the next two quarters to fund a deliberate SaaS buildout rather than switching all at once.' } }] })
+        return jsonResponse({ choices: [{ message: { content: 'Write three headline options for the landing page, along with a one-line rationale for each so we can pick the strongest one.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({ taskType: 'creative', messages: [{ role: 'user', content: 'Write three headline options for the landing page.' }], timeoutMs: 30000 })
+    expect(groqAttempted).toBe(false)
+    expect(result.degraded).toBe(false)
+    expect(result.provider).toBe('mistral')
+    expect(result.content).not.toContain("I couldn't reliably complete that specific request")
+    expect(result.content).toContain('headline')
+    resetProviderHealthForTests()
+  })
+
+  // Live-production root cause: this exact message previously inferred taskType 'creative' purely from
+  // the bare word "content" in "affiliate content" -- a business noun, not a request to write anything --
+  // which confined an ordinary business-strategy question to the one taskType governed by only 2 of 5
+  // providers. When both of those 2 happened to be genuinely down at once (a real, live incident: mistral
+  // 429 rate-limited, openrouter failed UNKNOWN), the request had nowhere left to go and degraded to the
+  // canned template -- not because #115/#117's fixes failed, but because the request was never supposed
+  // to be confined to that fragile 2-provider lane in the first place. Locks in that it now correctly
+  // falls through to 'reasoning' (governed by all 5 configured providers), so this exact question
+  // survives losing any 2 providers simultaneously, not just recovers cleanly from a 2-of-2 outage.
+  test('a business-strategy question that merely mentions "content" as a noun is no longer confined to the 2-provider creative lane', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        // groq is ungoverned for 'creative' but IS governed for 'reasoning' -- reaching it here proves
+        // this request is no longer restricted to the 2-provider creative lane.
+        return jsonResponse({ choices: [{ message: { content: 'I recommend continuing affiliate content for now while funding a deliberate SaaS buildout in parallel, rather than switching all at once.' } }] })
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
 
     const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'Weigh the tradeoffs between doubling down on affiliate content vs. building a SaaS product, and give me a recommendation.' }], timeoutMs: 30000 })
-    expect(groqAttempted).toBe(false)
+    expect(result.decisionPlan.taskClass).toBe('reasoning')
     expect(result.degraded).toBe(false)
-    expect(result.provider).toBe('mistral')
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
-    expect(result.content).toContain('affiliate content')
     resetProviderHealthForTests()
   })
 
