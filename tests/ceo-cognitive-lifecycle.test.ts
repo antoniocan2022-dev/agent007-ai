@@ -357,11 +357,47 @@ describe('CEO cognitive lifecycle', () => {
   // reached (a recovery attempt, not a primary one). This proves the full chain still degrades cleanly to
   // the canned template -- no unhandled exception, no crash -- rather than merely trusting each fix's
   // isolated unit coverage to compose correctly under a combination neither fix's own tests constructed.
-  test('a recovery attempt that itself hits a taskType-governance mismatch degrades cleanly instead of throwing', async () => {
+  // Live-production regression: pre-fix, attemptValidatedReasoningProvider validated with a hardcoded
+  // taskType 'reasoning' regardless of the request's actual taskType, so it could hand back a provider
+  // (e.g. groq) that recovery's real generation call -- using the request's real taskType -- was
+  // structurally ungoverned to serve, guaranteeing a "no governed providers" throw with zero chance of a
+  // real answer. When truly NO configured provider is governed for the request's taskType (unlike the
+  // scenario below, where a governed provider exists but is temporarily failing), recovery should now
+  // decline to probe at all (governedConfigured is empty) and degrade cleanly -- honestly, not via a
+  // guaranteed-to-fail wasted attempt.
+  test('when no configured provider is governed for the taskType at all, recovery declines cleanly with zero wasted attempts', async () => {
+    resetProviderHealthForTests()
+    // groq and cloudflare are both configured but neither has a governed model for 'creative'.
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'POST') throw new Error(`no provider is governed for 'creative' -- no POST should ever be attempted: ${url}`)
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({ taskType: 'creative', messages: [{ role: 'user', content: 'What do you think about our content strategy?' }], timeoutMs: 30000 })
+    expect(result.degraded).toBe(true)
+    expect(result.content).toContain("I couldn't reliably complete that specific request")
+    resetProviderHealthForTests()
+  })
+
+  // The exact production incident this fix closes, reproduced end to end: "Weigh the tradeoffs between
+  // doubling down on affiliate content vs. building a SaaS product" classifies taskType 'creative'
+  // (inferTaskType matches "content"), letting no explicit taskType through so decisionPlan.taskClass
+  // drives it, exactly like the real request. Primary generation correctly narrows to mistral (the only
+  // configured provider governed for 'creative') and gets a real transient failure (429 rate limit) --
+  // not a governance error. Pre-fix, recovery's availability probe used taskType 'reasoning' and could
+  // validate a provider ungoverned for 'creative', so it would guarantee-fail and degrade even though
+  // mistral itself was healthy again by the time recovery ran. Post-fix, the probe validates against the
+  // real taskType, correctly re-validates mistral, and the real recovery generation succeeds.
+  test('a governed provider that failed transiently during primary generation is the one recovery validates and succeeds with -- not an ungoverned one', async () => {
     resetProviderHealthForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.MISTRAL_API_KEY = 'test-mistral'
-    let mistralCalls = 0
+    let mistralGenerationCalls = 0
+    let groqAttempted = false
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = String(init?.method ?? 'GET')
       if (method === 'GET') {
@@ -369,21 +405,24 @@ describe('CEO cognitive lifecycle', () => {
         if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
       }
       if (method === 'POST') {
+        if (url.includes('api.groq.com')) { groqAttempted = true; throw new Error('groq is ungoverned for creative and must never be attempted, not even for recovery availability validation') }
         const body = init?.body ? String(init.body) : ''
         if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
-        if (url.includes('api.groq.com')) throw new Error('groq must never be attempted for the creative recovery generation -- it is ungoverned for creative')
-        mistralCalls += 1
-        // Every mistral call (primary + escalation) returns quality-failing robotic content, so this
-        // never soft-passes and always reaches the quality-gate-driven degrade branch.
-        return jsonResponse({ choices: [{ message: { content: "As an AI, I can tell you affiliate content is the safer bet." } }] })
+        mistralGenerationCalls += 1
+        // First real generation call is primary -- fails with a genuine transient rate limit, not a
+        // governance error. Second is recovery's real generation -- succeeds with substantive content.
+        if (mistralGenerationCalls === 1) return jsonResponse({ error: { message: 'rate limit exceeded' } }, 429)
+        return jsonResponse({ choices: [{ message: { content: 'Affiliate content offers faster near-term cash flow with lower build risk, while a SaaS product offers stronger long-term margins and defensibility but requires more upfront investment and a longer path to revenue. I recommend continuing affiliate content for the next two quarters to fund a deliberate SaaS buildout rather than switching all at once.' } }] })
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
 
-    const result = await runCeoCognitiveLifecycle({ taskType: 'creative', messages: [{ role: 'user', content: 'What do you think about our content strategy?' }], timeoutMs: 30000 })
-    expect(result.degraded).toBe(true)
-    expect(result.content).toContain("I couldn't reliably complete that specific request")
-    expect(mistralCalls).toBeGreaterThan(0)
+    const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'Weigh the tradeoffs between doubling down on affiliate content vs. building a SaaS product, and give me a recommendation.' }], timeoutMs: 30000 })
+    expect(groqAttempted).toBe(false)
+    expect(result.degraded).toBe(false)
+    expect(result.provider).toBe('mistral')
+    expect(result.content).not.toContain("I couldn't reliably complete that specific request")
+    expect(result.content).toContain('affiliate content')
     resetProviderHealthForTests()
   })
 

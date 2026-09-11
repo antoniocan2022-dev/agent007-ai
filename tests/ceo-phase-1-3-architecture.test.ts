@@ -169,9 +169,35 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   // critical/high qualityTier requests. tryDegraded's recovery call hardcoded 'standard' regardless of
   // qualityTier, so a critical-tier request's last-resort recovery ran at a lower quality bar than every
   // stage that came before it in the same request. Locks in that recovery now derives the same tier.
+  // Since extracted into the shared recoveryTaskContext helper (see the live-production
+  // taskType-governance fix below), so this checks the helper's derivation directly.
   test('the recovery-branch generation call derives verification from decisionPlan.qualityTier, not a hardcoded standard tier', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
-    expect(lifecycle).toContain("verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard'), model: availability.model")
+    expect(lifecycle).toContain("verification: request.verification ?? (decisionPlan.qualityTier === 'critical' ? 'strict' : decisionPlan.qualityTier === 'high' ? 'enhanced' : 'standard'),")
+    expect(lifecycle).toContain('verification: recoveryVerification, model: availability.model')
+  })
+
+  // Live-production finding, caught via a real runtime-log trace: "Weigh the tradeoffs between doubling
+  // down on affiliate content vs. building a SaaS product" classifies taskType 'creative' (inferTaskType
+  // matches the word "content"). Primary generation correctly narrowed to [mistral, openrouter] -- the
+  // only providers governed for 'creative' -- per #115, and both failed for real reasons that request
+  // (mistral:RATE_LIMIT:429, openrouter:UNKNOWN). Recovery then validated availability with
+  // attemptValidatedReasoningProvider using a HARDCODED taskType 'reasoning' (universally governed), got
+  // back groq, then generated with the request's real taskType 'creative' while excludeProviders locked
+  // execution to ONLY groq -- which has zero governed models for 'creative'. The recovery attempt was
+  // therefore guaranteed to fail with "No governed providers configured and healthy after exclusions",
+  // not a flake, and the request degraded to the canned template live in production. Fixed by validating
+  // availability against the real taskType/verification the recovery generation will use (both derived
+  // once via recoveryTaskContext), so attemptValidatedReasoningProvider can never hand back a provider
+  // recovery is structurally unable to use.
+  test('attemptValidatedReasoningProvider validates against the real recovery taskType/verification, not a hardcoded reasoning/standard pair', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain("async function attemptValidatedReasoningProvider(timeoutMs: number, taskType: TaskType = 'reasoning', verification: VerificationTier = 'standard')")
+    expect(lifecycle).toContain('const governedConfigured = configured.filter((provider) => getGovernedCandidates(provider, taskType, verification).length > 0)')
+    expect(lifecycle).toContain('const probe = await probeProvider(provider, { taskType, verification, timeoutMs:')
+    // Every call site passes the shared recoveryTaskContext derivation, not the old hardcoded default.
+    const callSites = (lifecycle.match(/, recoveryTaskType, recoveryVerification\)/g) ?? []).length
+    expect(callSites).toBe(3)
   })
 
   // Second-pass sibling-call-site audit, re-auditing the fix above: evidenceProvided/evidenceScope in
