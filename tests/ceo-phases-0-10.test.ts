@@ -65,7 +65,11 @@ describe('CEO phase 9 living world model', () => {
     const model = buildCeoWorldModel({ context, priorConversation: [{ role: 'user', content: 'Our main goal is reliable operations.', createdAt: Date.now() }] })
     expect(model.user.data.goals.length).toBeGreaterThan(0)
     expect(model.business.data.decisions).toContain(message)
-    expect(model.system.data.architecture).toContain('capability-oriented runtime')
+    // The system facet reflects real, live provider/capability state (canonical-llm-router.ts's
+    // circuit-breaker and health-score telemetry), not a static claim -- so it names the actual
+    // number of governed capability domains rather than a fixed marketing-sounding string.
+    expect(model.system.data.architecture.some((line) => line.includes(`${CEO_CAPABILITY_ARCHITECTURE.length} governed capability domains`))).toBe(true)
+    expect(model.system.data.deploymentState[0]).toMatch(/^\d+\/\d+ configured providers currently available$/)
     expect(model.external.data.evidenceState).toBe('none')
     expect(model.conversation.data.currentMessage).toBe(message)
   })

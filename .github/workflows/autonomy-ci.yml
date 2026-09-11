@@ -46,7 +46,7 @@ jobs:
       - name: Reconcile commercial database schema contract
         run: bun run db:reconcile
       - name: Commercial database integrity integration suite
-        run: bun test tests/commercial-database-integration.test.ts
+        run: bun test tests/commercial-database-integration.test.ts tests/ceo-partner-intelligence.test.ts
       - name: Commercial lifecycle integration contract suite
         run: bun test tests/commercial-lifecycle-integration.test.ts
       - name: Commercial autonomy P0/P1 proof suite
