@@ -104,4 +104,23 @@ describe('Control Reachability Audit — CEO cognitive lifecycle', () => {
     expect(outcomeLearningSource).toContain("await import('./ceo-continuous-loop')")
     expect(outcomeLearningSource).toMatch(/catch \(error\) \{ console\.warn\('\[ceo-recommendation\] continuous-loop initialization failed:'/)
   })
+
+  // FIXED GAP (was live in production through #116): buildCeoDecisionPlan computes qualityTier
+  // ('critical'/'high'/'standard', escalating for mission-relevant/financial/security requests)
+  // specifically so runCeoCognitiveLifecycle's selectedVerification -- and, since #117,
+  // recoveryTaskContext -- can escalate verification strictness with risk. But both of
+  // /api/agent's call sites (the only entry point real chat traffic reaches) hardcoded
+  // verification:'standard' unconditionally, short-circuiting request.verification's `??`
+  // fallback before qualityTier was ever consulted. A financial- or security-classified chat
+  // request ran at the exact same verification rigor as "hi, how are you" -- the escalation
+  // machinery existed and was internally consistent (per #116/#117) but was never reachable from
+  // real traffic. DecisionPlan.verificationRequired, a sibling field computed for the same
+  // purpose, remains genuinely dead (computed, never read anywhere) -- that part is out of scope
+  // here since no functional behavior depends on it. Fixed by removing the hardcoded override so
+  // request.verification stays undefined and the qualityTier-derived fallback actually runs.
+  test('verification tier is no longer hardcoded to standard on either /api/agent call site -- qualityTier-driven escalation is now reachable from real chat traffic', () => {
+    expect(routeSource).not.toContain("verification: 'standard'")
+    const callSites = (routeSource.match(/runCeoCognitiveLifecycle\(\{ attachmentsCount: atts\.length, messages: [^,]+, taskType: preRoute\.taskClass, timeoutMs:/g) ?? []).length
+    expect(callSites).toBe(2)
+  })
 })
