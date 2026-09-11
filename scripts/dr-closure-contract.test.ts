@@ -32,7 +32,12 @@ describe('Disaster Recovery closure contract', () => {
   })
 
   test('offsite upload verifies the object after upload', () => {
-    expect(workflowSource).toContain('head-object')
-    expect(workflowSource).toContain('put-object')
+    // The workflow uploads and verifies via boto3 (client.put_object / client.head_object),
+    // not the AWS CLI's hyphenated `s3api put-object`/`head-object` subcommands -- this
+    // assertion was written for an earlier CLI-based version of the workflow and never
+    // updated when it was rewritten to use boto3, so it failed on every PR regardless of
+    // what that PR actually changed.
+    expect(workflowSource).toContain('head_object')
+    expect(workflowSource).toContain('put_object')
   })
 })
