@@ -26,7 +26,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
   test('route.ts fetches real partner intelligence and both CEO lanes actually receive it', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
     expect(source).toContain('getPartnerIntelligence(sessionUserId)')
-    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the partners facet from real telemetry, not a permanent placeholder', () => {
@@ -40,7 +40,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
   test('route.ts fetches real executive state, gated to self-assessment turns since it is backed by the heavier operational-KPI computation', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
     expect(source).toContain("executionContract.intent === 'self_assessment' ? await getExecutiveBusinessState(")
-    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the executive facet from real strategy/risk/resource state, and surfaces the commitments the snapshot already computed but previously discarded', () => {
@@ -69,5 +69,12 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
     expect(lifecycleSource).toContain('leadership: worldModel.leadership.data')
     expect(lifecycleSource).toContain('synthesizeExecutiveDecision(')
     expect(lifecycleSource).toContain('renderExecutiveDecisionSynthesis(decisionSynthesis!)')
+  })
+
+  test('route.ts fetches the real strategic horizon under the same self-assessment gate, and the lifecycle renders it', () => {
+    const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
+    expect(source).toContain("executionContract.intent === 'self_assessment' ? await getStrategicHorizonView(sessionUserId)")
+    const lifecycleSource = readFileSync(join(ROOT, 'src/lib/ceo-cognitive-lifecycle.ts'), 'utf-8')
+    expect(lifecycleSource).toContain('renderStrategicHorizonContext(request.strategicHorizon)')
   })
 })
