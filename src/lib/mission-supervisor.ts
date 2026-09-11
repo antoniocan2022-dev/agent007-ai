@@ -115,7 +115,7 @@ async function advanceDurableMission(mission: ActiveMission): Promise<ActiveMiss
 
 async function getSubagentsModule() { return import('./subagents') }
 
-async function findReplacement(stage: MissionStage, currentLeader: string) {
+async function findReplacement(stage: MissionStage, currentLeader: string, ownerId: string | null) {
   const profile = getSubagentGovernanceProfile(currentLeader)
   const requirement = capabilityRequirementForStage(stage)
   if (!profile || !requirement || profile.riskLevel === 'critical' || stage === 'OWNER_APPROVAL') return null
@@ -123,19 +123,28 @@ async function findReplacement(stage: MissionStage, currentLeader: string) {
   const agents = await getAllSubagents({ includeDisabled: false })
   const { assessMissionCapabilityReadiness } = await import('./mission-capability-readiness')
   const candidates = getAllGovernanceProfiles().filter((candidate) => candidate.id !== currentLeader && candidate.class === profile.class && candidate.taskTypes.includes(requirement.requiredTaskType))
+  const ready: { id: string; name: string }[] = []
   for (const candidate of candidates) {
     const agent = agents.find((item) => item.id === candidate.id && item.enabled !== false)
     if (!agent) continue
     const readiness = await assessMissionCapabilityReadiness(stage, candidate.id)
-    if (readiness.ready) return { id: candidate.id, name: agent.name }
+    if (readiness.ready) ready.push({ id: candidate.id, name: agent.name })
   }
-  return null
+  if (ready.length === 0) return null
+  if (ready.length === 1 || !ownerId) return ready[0]
+  // Correction: among multiple otherwise-valid replacements, prefer the one with the better
+  // real cross-mission track record instead of always taking the first capability-ready match --
+  // this is the persistent-leadership feedback loop, not a change to whether a replan happens.
+  const { getLeadershipPerformanceLedger } = await import('./ceo-leadership-performance')
+  const ledger = await getLeadershipPerformanceLedger(ownerId)
+  const scoreOf = (id: string) => ledger.find((record) => record.leaderId === id)?.reliabilityScore ?? 0
+  return [...ready].sort((a, b) => scoreOf(b.id) - scoreOf(a.id))[0]
 }
 
 async function applySafeReplan(mission: ActiveMission, reason: string) {
   const handoff = handoffFor(mission)
   if (!handoff) return { applied: false, reason: 'No current stage handoff exists.' }
-  const candidate = await findReplacement(mission.currentStage, handoff.team)
+  const candidate = await findReplacement(mission.currentStage, handoff.team, mission.ownerId)
   if (!candidate) return { applied: false, reason: 'No safe same-class replacement leader is available.' }
   const previous = `${handoff.team}/${handoff.leader}`
   handoff.team = candidate.id
@@ -181,7 +190,7 @@ export async function inspectMission(mission: ActiveMission, options?: { staleMi
   if (!readiness.ready) {
     const policy = evaluateFailurePolicy(state.consecutiveFailures + 1)
     if (policy === 'ESCALATE') return { missionId: mission.id, stage: mission.currentStage, action: 'ESCALATE', reason: `Capability readiness failed after ${state.consecutiveFailures + 1} consecutive failures: ${readiness.missing.join(', ')}.`, leaderId: handoff.team, leaderName: handoff.leader, stale, capabilityReady: false, artifactRequired: handoff.artifactRequired, artifactVerified: handoff.artifactVerified, state }
-    const candidate = await findReplacement(mission.currentStage, handoff.team)
+    const candidate = await findReplacement(mission.currentStage, handoff.team, mission.ownerId)
     return { missionId: mission.id, stage: mission.currentStage, action: candidate ? 'REPLAN_AND_CONTINUE' : policy === 'REPLAN' ? 'REPLAN_REQUIRED' : 'RETRY_LEADER', reason: candidate ? `Current leader is not ready; compliant replacement ${candidate.id} is available.` : `Leader capability readiness failed: ${readiness.missing.join(', ')}.`, leaderId: handoff.team, leaderName: handoff.leader, stale, capabilityReady: false, artifactRequired: handoff.artifactRequired, artifactVerified: handoff.artifactVerified, state }
   }
   if (handoff.artifactRequired !== 'none' && handoff.artifactValue && !handoff.artifactVerified) return { missionId: mission.id, stage: mission.currentStage, action: evaluateFailurePolicy(state.consecutiveFailures + 1) === 'ESCALATE' ? 'ESCALATE' : 'WAIT_FOR_ARTIFACT', reason: 'Artifact exists but is not verified; do not advance until canonical verification succeeds.', leaderId: handoff.team, leaderName: handoff.leader, stale, capabilityReady: true, artifactRequired: handoff.artifactRequired, artifactVerified: false, state }

@@ -3,6 +3,7 @@ import { buildCeoWorldModel } from '@/lib/ceo-world-model'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 import { CEO_CAPABILITY_ARCHITECTURE } from '@/lib/ceo-capability-architecture'
+import { EMPTY_EXECUTIVE_BUSINESS_STATE, type ExecutiveBusinessState } from '@/lib/ceo-executive-state'
 
 function contextFor(message: string) {
   const state = deriveCeoConversationState([], message)
@@ -55,5 +56,39 @@ describe('world model system facet reflects real, live provider state instead of
     const model = buildCeoWorldModel({ context: contextFor(message) })
     expect(model.system.data.architecture[0]).toBe('1/5 LLM providers configured (Groq)')
     expect(model.system.data.deploymentState[0]).toBe('1/1 configured providers currently available')
+  })
+})
+
+// buildWorldStateSnapshot already computed commitments alongside decisions/goals, but the business
+// facet dropped them on the floor -- extracted, matched against the same status filter as
+// decisions/goals, but never surfaced anywhere.
+describe('world model business facet surfaces commitments that were already being computed', () => {
+  test('a stated commitment is captured in business.commitments', () => {
+    const message = 'I will have the report ready by Friday.'
+    const model = buildCeoWorldModel({ context: contextFor(message), priorConversation: [{ role: 'user', content: message, createdAt: Date.now() }] })
+    expect(model.business.data.commitments.length).toBeGreaterThan(0)
+  })
+
+  test('a message with no commitment language leaves commitments empty', () => {
+    const message = 'What is our current revenue?'
+    const model = buildCeoWorldModel({ context: contextFor(message) })
+    expect(model.business.data.commitments).toEqual([])
+  })
+})
+
+// The executive facet defaults honestly to "not fetched" (EMPTY_EXECUTIVE_BUSINESS_STATE) unless
+// the caller supplies real state -- it never fabricates strategy/risk/resource data.
+describe('world model executive facet defaults honestly and passes through real supplied state', () => {
+  test('with no executive state supplied, the facet is the honest empty default', () => {
+    const message = 'Status check.'
+    const model = buildCeoWorldModel({ context: contextFor(message) })
+    expect(model.executive.data).toEqual(EMPTY_EXECUTIVE_BUSINESS_STATE)
+  })
+
+  test('a supplied executive state is passed through unchanged', () => {
+    const executive: ExecutiveBusinessState = { ...EMPTY_EXECUTIVE_BUSINESS_STATE, strategy: { dataAvailable: true, items: [] } }
+    const message = 'How are we doing overall?'
+    const model = buildCeoWorldModel({ context: contextFor(message), executive })
+    expect(model.executive.data).toEqual(executive)
   })
 })

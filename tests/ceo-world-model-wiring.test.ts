@@ -26,7 +26,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
   test('route.ts fetches real partner intelligence and both CEO lanes actually receive it', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
     expect(source).toContain('getPartnerIntelligence(sessionUserId)')
-    expect(source.match(/partnerIntelligence\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the partners facet from real telemetry, not a permanent placeholder', () => {
@@ -35,5 +35,25 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
     const lifecycleSource = readFileSync(join(ROOT, 'src/lib/ceo-cognitive-lifecycle.ts'), 'utf-8')
     expect(lifecycleSource).toContain('partners: request.partnerIntelligence')
     expect(lifecycleSource).toContain('renderPartnerIntelligenceContext(worldModel.partners.data)')
+  })
+
+  test('route.ts fetches real executive state, gated to self-assessment turns since it is backed by the heavier operational-KPI computation', () => {
+    const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
+    expect(source).toContain("executionContract.intent === 'self_assessment' ? await getExecutiveBusinessState(")
+    expect(source.match(/partnerIntelligence,\s*executiveState\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+  })
+
+  test('the world model builds the executive facet from real strategy/risk/resource state, and surfaces the commitments the snapshot already computed but previously discarded', () => {
+    const worldModelSource = readFileSync(join(ROOT, 'src/lib/ceo-world-model.ts'), 'utf-8')
+    expect(worldModelSource).toContain("executive: { updatedAt: now, data: input.executive ?? EMPTY_EXECUTIVE_BUSINESS_STATE }")
+    expect(worldModelSource).toContain('const commitments = snapshot.commitments')
+    expect(worldModelSource).toContain('commitments }')
+    const lifecycleSource = readFileSync(join(ROOT, 'src/lib/ceo-cognitive-lifecycle.ts'), 'utf-8')
+    expect(lifecycleSource).toContain('executive: request.executiveState')
+    expect(lifecycleSource).toContain('renderExecutiveBusinessStateContext(worldModel!.executive.data)')
+    // Guardian risk awareness must reach every generation stage -- inserting the new executive-state
+    // message must not have broken that adjacency (see tests/ceo-guardian.test.ts,
+    // tests/ceo-control-reachability-matrix.test.ts).
+    expect(lifecycleSource.match(/\[\.\.\.worldModelMessages, \.\.\.guardianMessages,/g)?.length ?? 0).toBeGreaterThanOrEqual(4)
   })
 })
