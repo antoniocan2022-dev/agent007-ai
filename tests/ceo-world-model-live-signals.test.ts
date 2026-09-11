@@ -92,3 +92,20 @@ describe('world model executive facet defaults honestly and passes through real 
     expect(model.executive.data).toEqual(executive)
   })
 })
+
+// The leadership facet defaults to an empty ledger (never fabricated leader records) unless the
+// caller supplies real, already-fetched performance data.
+describe('world model leadership facet defaults honestly and passes through real supplied data', () => {
+  test('with no leadership ledger supplied, the facet is an empty array', () => {
+    const message = 'Status check.'
+    const model = buildCeoWorldModel({ context: contextFor(message) })
+    expect(model.leadership.data).toEqual([])
+  })
+
+  test('a supplied leadership ledger is passed through unchanged', () => {
+    const leadership = [{ leaderId: 'aurora', mandate: null, missionsInvolved: 1, stagesAdvanced: 2, retries: 0, escalations: 0, timesReplaced: 0, reliabilityScore: 1, lastActiveAt: null }]
+    const message = 'How are we doing overall?'
+    const model = buildCeoWorldModel({ context: contextFor(message), leadership })
+    expect(model.leadership.data).toEqual(leadership)
+  })
+})

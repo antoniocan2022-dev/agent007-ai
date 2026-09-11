@@ -7,6 +7,7 @@ import { getCanonicalProviderTelemetry } from './canonical-llm-router'
 import { CEO_CAPABILITY_ARCHITECTURE } from './ceo-capability-architecture'
 import { EMPTY_PARTNER_INTELLIGENCE, type PartnerIntelligenceSummary } from './ceo-partner-intelligence'
 import { EMPTY_EXECUTIVE_BUSINESS_STATE, type ExecutiveBusinessState } from './ceo-executive-state'
+import type { LeaderPerformanceRecord } from './ceo-leadership-performance'
 
 export interface CeoWorldFacet<T> { updatedAt: number; data: T }
 export interface CeoWorldModel {
@@ -19,6 +20,7 @@ export interface CeoWorldModel {
   conversation: CeoWorldFacet<{ currentMessage: string; relation: string; openLoops: string[]; recentTurns: number }>
   partners: CeoWorldFacet<PartnerIntelligenceSummary>
   executive: CeoWorldFacet<ExecutiveBusinessState>
+  leadership: CeoWorldFacet<readonly LeaderPerformanceRecord[]>
 }
 
 function userRows(rows: readonly PersistedConversationRow[] = []): string[] {
@@ -45,7 +47,7 @@ function systemFacetData(): { architecture: string[]; incidents: string[]; deplo
   return { architecture, incidents, deploymentState }
 }
 
-export function buildCeoWorldModel(input: { context: CanonicalConversationContext; priorConversation?: readonly PersistedConversationRow[]; olderConversation?: readonly PersistedConversationRow[]; evidence?: EvidenceBundle; partners?: PartnerIntelligenceSummary; executive?: ExecutiveBusinessState }): CeoWorldModel {
+export function buildCeoWorldModel(input: { context: CanonicalConversationContext; priorConversation?: readonly PersistedConversationRow[]; olderConversation?: readonly PersistedConversationRow[]; evidence?: EvidenceBundle; partners?: PartnerIntelligenceSummary; executive?: ExecutiveBusinessState; leadership?: readonly LeaderPerformanceRecord[] }): CeoWorldModel {
   const now = Date.now()
   const priorRows = [...(input.priorConversation ?? []), ...(input.olderConversation ?? [])]
   const safePriorRows = safeConversationRows(priorRows)
@@ -75,9 +77,10 @@ export function buildCeoWorldModel(input: { context: CanonicalConversationContex
     conversation: { updatedAt: now, data: { currentMessage: input.context.currentMessage, relation: input.context.speechAct, openLoops: input.context.worldModel.openLoops, recentTurns: allRows.length } },
     partners: { updatedAt: now, data: input.partners ?? EMPTY_PARTNER_INTELLIGENCE },
     executive: { updatedAt: now, data: input.executive ?? EMPTY_EXECUTIVE_BUSINESS_STATE },
+    leadership: { updatedAt: now, data: input.leadership ?? [] },
   }
 }
 
 export function renderCeoWorldContext(model: CeoWorldModel): string {
-  return JSON.stringify({ user: model.user.data, business: model.business.data, system: model.system.data, external: model.external.data, conversation: model.conversation.data, partners: model.partners.data, executive: model.executive.data })
+  return JSON.stringify({ user: model.user.data, business: model.business.data, system: model.system.data, external: model.external.data, conversation: model.conversation.data, partners: model.partners.data, executive: model.executive.data, leadership: model.leadership.data })
 }

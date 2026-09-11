@@ -26,7 +26,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
   test('route.ts fetches real partner intelligence and both CEO lanes actually receive it', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
     expect(source).toContain('getPartnerIntelligence(sessionUserId)')
-    expect(source.match(/partnerIntelligence,\s*executiveState\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the partners facet from real telemetry, not a permanent placeholder', () => {
@@ -40,7 +40,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
   test('route.ts fetches real executive state, gated to self-assessment turns since it is backed by the heavier operational-KPI computation', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
     expect(source).toContain("executionContract.intent === 'self_assessment' ? await getExecutiveBusinessState(")
-    expect(source.match(/partnerIntelligence,\s*executiveState\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the executive facet from real strategy/risk/resource state, and surfaces the commitments the snapshot already computed but previously discarded', () => {
@@ -55,5 +55,19 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
     // message must not have broken that adjacency (see tests/ceo-guardian.test.ts,
     // tests/ceo-control-reachability-matrix.test.ts).
     expect(lifecycleSource.match(/\[\.\.\.worldModelMessages, \.\.\.guardianMessages,/g)?.length ?? 0).toBeGreaterThanOrEqual(4)
+  })
+
+  test('route.ts fetches the real leadership performance ledger under the same self-assessment gate as executive state', () => {
+    const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
+    expect(source).toContain("executionContract.intent === 'self_assessment' ? await getLeadershipPerformanceLedger(sessionUserId)")
+  })
+
+  test('the world model builds the leadership facet, and the lifecycle synthesizes one cross-domain judgment from it plus partners/executive/system state', () => {
+    const worldModelSource = readFileSync(join(ROOT, 'src/lib/ceo-world-model.ts'), 'utf-8')
+    expect(worldModelSource).toContain('leadership: { updatedAt: now, data: input.leadership ?? [] }')
+    const lifecycleSource = readFileSync(join(ROOT, 'src/lib/ceo-cognitive-lifecycle.ts'), 'utf-8')
+    expect(lifecycleSource).toContain('leadership: worldModel.leadership.data')
+    expect(lifecycleSource).toContain('synthesizeExecutiveDecision(')
+    expect(lifecycleSource).toContain('renderExecutiveDecisionSynthesis(decisionSynthesis!)')
   })
 })
