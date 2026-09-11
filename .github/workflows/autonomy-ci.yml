@@ -163,7 +163,13 @@ jobs:
       - name: P0/P1/P2 context and release integrity corpus
         run: bun test tests/ceo-context-boundary-integrity.test.ts tests/release-integrity-contract.test.ts tests/release-integrity-manifest.test.ts tests/critical-file-integrity.test.ts tests/governance-release-regression.test.ts
       - name: Unified release integrity manifest preflight
-        if: github.event_name != 'pull_request'
+        # build-release-integrity-manifest.ts asserts the checked-out commit equals main's tip --
+        # a check that's only meaningful for an actual push to main. This workflow's push trigger
+        # also fires on feature-branch patterns (development/**, feat/**, fix/**, integration/**,
+        # arch/**), and the old `github.event_name != 'pull_request'` guard let the step run there
+        # too, where HEAD is never main's tip -- so it failed unconditionally on every such push,
+        # unrelated to whatever that push actually changed.
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: mkdir -p .artifacts && OUTPUT_PATH=.artifacts/release-integrity-manifest.json bun scripts/build-release-integrity-manifest.ts
       - name: Full Recommendations 1-8 audit
         run: bun scripts/recommendations-1-8-audit.ts
