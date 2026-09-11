@@ -460,6 +460,46 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderHealthForTests()
   })
 
+  // Strengthens the test above from proving reachability to proving resilience: the original incident
+  // was survivable specifically BECAUSE it lost exactly the number of providers ('creative' has only 2)
+  // that made total loss possible. This proves the reclassified request actually tolerates losing that
+  // same count (2) of its now-5-provider roster and still produces a real answer, not just that a wider
+  // roster theoretically exists on paper.
+  test('the reclassified affiliate-content question survives losing 2 of its 5 reasoning-governed providers, mirroring the exact failure count of the original incident', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    let mistralAttempted = false
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET') {
+        if (url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('/accounts/test-account/ai/models/search')) return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+        if (url.includes('api.mistral.ai')) return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      }
+      if (method === 'POST') {
+        // groq and cloudflare fail for real reasons (mirroring mistral+openrouter's real 429/UNKNOWN
+        // failures in the actual incident) -- not because they're ungoverned, they're both fully governed
+        // for 'reasoning'. mistral is the third, surviving provider.
+        if (url.includes('api.groq.com')) return jsonResponse({ error: { message: 'rate limit exceeded' } }, 429)
+        if (url.includes('api.cloudflare.com')) throw new Error('simulated network failure')
+        mistralAttempted = true
+        return jsonResponse({ choices: [{ message: { content: 'I recommend continuing affiliate content for now while funding a deliberate SaaS buildout in parallel, rather than switching all at once.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'Weigh the tradeoffs between doubling down on affiliate content vs. building a SaaS product, and give me a recommendation.' }], timeoutMs: 30000 })
+    expect(result.decisionPlan.taskClass).toBe('reasoning')
+    expect(mistralAttempted).toBe(true)
+    expect(result.provider).toBe('mistral')
+    expect(result.degraded).toBe(false)
+    expect(result.content).not.toContain("I couldn't reliably complete that specific request")
+    resetProviderHealthForTests()
+  })
+
   // Deep-audit finding: semanticSubstanceCheck's own {substantive:true, checked:false} default on an
   // inconclusive verdict or an LLM error was, until this fix, passed straight through to
   // isGovernedSoftPassEligible as substantive:true -- silently granting the soft-pass protection the judge
