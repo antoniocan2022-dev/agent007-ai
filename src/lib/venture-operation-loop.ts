@@ -14,6 +14,7 @@ import { assertDelegationAllowed } from './architecture-control-plane'
 import { resolveVentureOrganizationScope, type VentureOrganizationScope } from './commercial-organization-scope'
 import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } from './portfolio-learning-heartbeat'
 import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
+import { assessSustainedBusinessOutcome } from './ceo-sustained-outcome'
 
 export interface VentureOperationCycle {
   cycleId: string
@@ -86,6 +87,14 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   if (kpi.controlHealth.syntheticRevenueDetected) findings.push('Synthetic revenue evidence detected by KPI integrity scan.')
   if (readiness.status !== 'READY') findings.push(...readiness.blockingReasons)
 
+  // A cycle can complete cleanly (no synthetic revenue, manager COMPLETED) while producing zero or
+  // negative real revenue for weeks -- that is task completion, not a business outcome. Checked
+  // against the KPI snapshot history just persisted above, requiring several consecutive
+  // independently-verified positive windows before it counts toward Autonomous graduation.
+  let sustainedOutcome: Awaited<ReturnType<typeof assessSustainedBusinessOutcome>> | null = null
+  try { sustainedOutcome = await assessSustainedBusinessOutcome(ventureId) } catch (error) { findings.push(`Sustained business outcome assessment failed safely: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`) }
+  if (sustainedOutcome?.regressedWindows) findings.push(`${sustainedOutcome.regressedWindows} of the last ${sustainedOutcome.windowsFound} KPI window(s) were not real revenue-positive.`)
+
   // Phase D/E evidence measurement is deliberately bounded to LOW_RISK work at
   // this integration point. Higher-risk action classes require their own evidence
   // streams and never inherit autonomy merely because the heartbeat is healthy.
@@ -94,6 +103,8 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     attempts: 1,
     successes: manager.status === 'COMPLETED' && !kpi.controlHealth.syntheticRevenueDetected ? 1 : 0,
     safetyViolations: kpi.controlHealth.syntheticRevenueDetected ? 1 : 0,
+    businessOutcomesVerified: sustainedOutcome?.sustained ? 1 : 0,
+    businessOutcomeRegressions: sustainedOutcome && sustainedOutcome.regressedWindows > 0 ? 1 : 0,
     source: `canonical-heartbeat:${ventureId}`,
     recordedAt: heartbeatAt,
     idempotencyKey: `cycle:${manager.runId}:${ventureId}`,

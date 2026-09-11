@@ -80,6 +80,55 @@ describe('Autonomy graduation controls', () => {
     expect(measurement.recommendedLevel).toBe('ASSISTED')
   })
 
+  test('clean task-completion evidence alone -- however large and safe -- cannot reach Autonomous without a verified sustained business outcome', async () => {
+    await recordAutonomyEvidence({
+      actionClass: 'LOW_RISK',
+      attempts: 100,
+      successes: 100,
+      verifiedOutcomes: 80,
+      source: 'integration-test',
+      idempotencyKey: `low-risk-clean-${prefix}`,
+    })
+    const measurement = await measureAutonomy('LOW_RISK')
+    expect(measurement.sampleSize).toBeGreaterThanOrEqual(100)
+    expect(measurement.score).toBeGreaterThanOrEqual(95)
+    expect(measurement.businessOutcomesVerified).toBe(0)
+    // Still capped at SUPERVISED by the >=30-sample rule, not AUTONOMOUS, because task completion
+    // alone is not a business outcome.
+    expect(measurement.recommendedLevel).toBe('SUPERVISED')
+    expect(measurement.reasons.some((reason) => reason.includes('does not qualify for Autonomous graduation'))).toBe(true)
+  })
+
+  test('adding a verified sustained business outcome, with zero regressions, is what actually unlocks Autonomous', async () => {
+    await recordAutonomyEvidence({
+      actionClass: 'LOW_RISK',
+      attempts: 1,
+      successes: 1,
+      businessOutcomesVerified: 1,
+      source: 'integration-test',
+      idempotencyKey: `low-risk-outcome-${prefix}`,
+    })
+    const measurement = await measureAutonomy('LOW_RISK')
+    expect(measurement.businessOutcomesVerified).toBeGreaterThan(0)
+    expect(measurement.businessOutcomeRegressions).toBe(0)
+    expect(measurement.recommendedLevel).toBe('AUTONOMOUS')
+  })
+
+  test('a recorded business-outcome regression blocks Autonomous even with a verified outcome on record', async () => {
+    await recordAutonomyEvidence({
+      actionClass: 'LOW_RISK',
+      attempts: 1,
+      successes: 1,
+      businessOutcomeRegressions: 1,
+      source: 'integration-test',
+      idempotencyKey: `low-risk-regression-${prefix}`,
+    })
+    const measurement = await measureAutonomy('LOW_RISK')
+    expect(measurement.businessOutcomeRegressions).toBeGreaterThan(0)
+    expect(measurement.recommendedLevel).not.toBe('AUTONOMOUS')
+    expect(measurement.reasons.some((reason) => reason.includes('regression(s) block Autonomous graduation'))).toBe(true)
+  })
+
   test('high-risk graduation is blocked until explicit owner approval', async () => {
     const idempotencyKey = `high-risk-${prefix}`
     await recordAutonomyEvidence({
