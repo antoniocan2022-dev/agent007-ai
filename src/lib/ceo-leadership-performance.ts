@@ -1,5 +1,5 @@
 import { listActiveMissionsDB } from './active-missions-db'
-import type { MissionControlEvent } from './active-missions'
+import type { ActiveMission, MissionControlEvent } from './active-missions'
 import { getSubagentGovernanceProfile, type RiskLevel, type SubagentClass } from './subagent-governance'
 
 export interface LeaderPerformanceRecord {
@@ -67,8 +67,8 @@ function applyEvent(records: Map<string, LeaderPerformanceRecord>, missionsByLea
 // resets per mission (keyed by ownerId:missionId), so a leader's track record was invisible the moment
 // one mission ended. This instead folds every mission's already-recorded control events (real signals
 // already written by mission-supervisor.ts, not new instrumentation) into one ledger per leader.
-export async function getLeadershipPerformanceLedger(ownerId: string): Promise<LeaderPerformanceRecord[]> {
-  const missions = await listActiveMissionsDB(ownerId)
+export async function getLeadershipPerformanceLedger(ownerId: string, preloadedMissions?: readonly ActiveMission[]): Promise<LeaderPerformanceRecord[]> {
+  const missions = preloadedMissions ?? await listActiveMissionsDB(ownerId)
   const records = new Map<string, LeaderPerformanceRecord>()
   const missionsByLeader = new Map<string, Set<string>>()
   for (const mission of missions) for (const event of mission.controlEvents ?? []) applyEvent(records, missionsByLeader, mission.id, event)
@@ -89,6 +89,6 @@ export function renderLeadershipPerformanceContext(ledger: readonly LeaderPerfor
   if (!ledger.length) return 'No cross-mission leadership performance history recorded yet.'
   const lines = ledger
     .slice(0, 10)
-    .map((record) => `${record.leaderId} (${record.mandate?.class ?? 'unmandated'}): ${record.missionsInvolved} mission(s), ${record.stagesAdvanced} stage(s) advanced, ${record.escalations} escalation(s), ${record.timesReplaced} replacement(s), reliability ${(record.reliabilityScore * 100).toFixed(0)}%`)
+    .map((record) => `${record.leaderId} (${record.mandate?.class ?? 'unmandated'}): ${record.missionsInvolved} mission(s), ${record.stagesAdvanced} stage(s) advanced, ${record.retries} retr(y/ies), ${record.escalations} escalation(s), ${record.timesReplaced} replacement(s), reliability ${(record.reliabilityScore * 100).toFixed(0)}%`)
   return lines.join('\n')
 }

@@ -15,7 +15,7 @@ describe('renderLeadershipPerformanceContext', () => {
     const rendered = renderLeadershipPerformanceContext([
       { leaderId: 'aurora', mandate: { mission: 'test', class: 'creation', riskLevel: 'medium' }, missionsInvolved: 3, stagesAdvanced: 4, retries: 1, escalations: 1, timesReplaced: 0, reliabilityScore: 0.8, lastActiveAt: null },
     ])
-    expect(rendered).toContain('aurora (creation): 3 mission(s), 4 stage(s) advanced, 1 escalation(s), 0 replacement(s), reliability 80%')
+    expect(rendered).toContain('aurora (creation): 3 mission(s), 4 stage(s) advanced, 1 retr(y/ies), 1 escalation(s), 0 replacement(s), reliability 80%')
   })
 })
 

@@ -78,9 +78,9 @@ function isoWeekStart(now: Date): Date {
 // A real bridge to mission-supervisor.ts's own persisted missions -- "this week's missions" is
 // derived from actual ActiveMission rows created this week, never a separately-maintained list
 // that could drift from what missions genuinely exist.
-export async function getWeeklyMissionsBridge(userId: string, now: Date = new Date()): Promise<readonly WeeklyMissionBridgeItem[]> {
+export async function getWeeklyMissionsBridge(userId: string, now: Date = new Date(), preloadedMissions?: readonly ActiveMission[]): Promise<readonly WeeklyMissionBridgeItem[]> {
   const weekStart = isoWeekStart(now).getTime()
-  const missions = await listActiveMissionsDB(userId)
+  const missions = preloadedMissions ?? await listActiveMissionsDB(userId)
   return missions
     .filter((mission) => Date.parse(mission.createdAt) >= weekStart)
     .map((mission) => ({ id: mission.id, title: mission.title, stage: mission.currentStage, createdAt: mission.createdAt }))
@@ -92,18 +92,28 @@ export interface TodaysActionBridgeItem { missionId: string; title: string; next
 // .nextAction) -- reading its persisted state directly here (same db.userSetting key it writes,
 // stateKey = `mission_supervisor_state_${ownerId}:${missionId}`) rather than importing
 // mission-supervisor.ts itself, whose module graph pulls in autonomy-manager.ts's next-auth
-// dependency and is otherwise unrelated to this read-only bridge.
-async function readMissionNextAction(userId: string, missionId: string): Promise<string | null> {
-  const row = await db.userSetting.findFirst({ where: { userId, key: `mission_supervisor_state_${userId}:${missionId}` } })
-  if (!row) return null
-  try { return (JSON.parse(row.value) as { nextAction?: string | null }).nextAction ?? null } catch { return null }
+// dependency and is otherwise unrelated to this read-only bridge. Batched into one query keyed by
+// mission id rather than one findFirst per mission (an N+1 pattern for any owner with several
+// active missions).
+async function readMissionNextActions(userId: string, missionIds: readonly string[]): Promise<Map<string, string | null>> {
+  const nextActionByMissionId = new Map<string, string | null>()
+  if (!missionIds.length) return nextActionByMissionId
+  const prefix = `mission_supervisor_state_${userId}:`
+  const rows = await db.userSetting.findMany({ where: { userId, key: { in: missionIds.map((missionId) => `${prefix}${missionId}`) } } })
+  for (const row of rows) {
+    const missionId = row.key.slice(prefix.length)
+    try { nextActionByMissionId.set(missionId, (JSON.parse(row.value) as { nextAction?: string | null }).nextAction ?? null) } catch { nextActionByMissionId.set(missionId, null) }
+  }
+  return nextActionByMissionId
 }
 
-export async function getTodaysActionsBridge(userId: string): Promise<readonly TodaysActionBridgeItem[]> {
-  const missions = await listActiveMissionsDB(userId)
+export async function getTodaysActionsBridge(userId: string, preloadedMissions?: readonly ActiveMission[]): Promise<readonly TodaysActionBridgeItem[]> {
+  const missions = preloadedMissions ?? await listActiveMissionsDB(userId)
   const active = missions.filter((mission) => mission.currentStage !== 'COMPLETED')
-  const items = await Promise.all(active.map(async (mission) => ({ missionId: mission.id, title: mission.title, nextAction: await readMissionNextAction(userId, mission.id) })))
-  return items.filter((item) => item.nextAction)
+  const nextActionByMissionId = await readMissionNextActions(userId, active.map((mission) => mission.id))
+  return active
+    .map((mission) => ({ missionId: mission.id, title: mission.title, nextAction: nextActionByMissionId.get(mission.id) ?? null }))
+    .filter((item) => item.nextAction)
 }
 
 export interface StrategicHorizonView {
@@ -118,12 +128,15 @@ export interface StrategicHorizonView {
 // The full vision -> annual -> quarterly -> monthly -> weekly -> daily bridge: the top 4 levels
 // are whatever has genuinely been persisted for the CURRENT period (empty, honestly, when nothing
 // has been set for it), and the bottom 2 levels are live bridges into mission-supervisor.ts's own
-// real mission and next-action state -- never a second, separately-maintained copy of it.
-export async function getStrategicHorizonView(userId: string, now: Date = new Date()): Promise<StrategicHorizonView> {
+// real mission and next-action state -- never a second, separately-maintained copy of it. Missions
+// are fetched once and shared between both bridges rather than each independently re-querying the
+// same table.
+export async function getStrategicHorizonView(userId: string, now: Date = new Date(), preloadedMissions?: readonly ActiveMission[]): Promise<StrategicHorizonView> {
+  const missions = preloadedMissions ?? await listActiveMissionsDB(userId)
   const [state, weeklyMissions, todaysActions] = await Promise.all([
     readHorizonState(userId),
-    getWeeklyMissionsBridge(userId, now),
-    getTodaysActionsBridge(userId),
+    getWeeklyMissionsBridge(userId, now, missions),
+    getTodaysActionsBridge(userId, missions),
   ])
   return {
     vision: state.vision,

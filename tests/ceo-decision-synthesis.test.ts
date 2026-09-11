@@ -78,6 +78,19 @@ describe('synthesizeExecutiveDecision', () => {
     const synthesis = synthesizeExecutiveDecision(baseInput({ partners: { ...EMPTY_PARTNER_INTELLIGENCE, dataAvailable: true } }))
     expect(synthesis.domains.partners).toBe('neutral')
   })
+
+  test('a strategy item merely planned (not yet started) at 0% progress is normal, not stalled', () => {
+    const executive: ExecutiveBusinessState = { ...EMPTY_EXECUTIVE_BUSINESS_STATE, strategy: { dataAvailable: true, items: [{ id: 's1', phase: 'growth', title: 'Not started yet', status: 'planned', priority: 'high', progress: 0, targetDate: null }] } }
+    const synthesis = synthesizeExecutiveDecision(baseInput({ executive }))
+    expect(synthesis.domains.business).toBe('positive')
+  })
+
+  test('a strategy item marked in-progress but stuck at 0% progress is a genuine stall', () => {
+    const executive: ExecutiveBusinessState = { ...EMPTY_EXECUTIVE_BUSINESS_STATE, strategy: { dataAvailable: true, items: [{ id: 's1', phase: 'growth', title: 'Stuck item', status: 'in_progress', priority: 'high', progress: 0, targetDate: null }] } }
+    const synthesis = synthesizeExecutiveDecision(baseInput({ executive }))
+    expect(synthesis.domains.business).toBe('negative')
+    expect(synthesis.reasons.some((reason) => reason.includes('Stuck item'))).toBe(true)
+  })
 })
 
 describe('renderExecutiveDecisionSynthesis', () => {
