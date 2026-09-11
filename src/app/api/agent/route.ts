@@ -29,6 +29,8 @@ import { CeoRequestAbortedError, isCeoRequestAborted } from '@/lib/ceo-cancellat
 import { runWithCeoCancellationContext } from '@/lib/ceo-cancellation-context'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { getPartnerIntelligence, type PartnerIntelligenceSummary } from '@/lib/ceo-partner-intelligence'
+import { getExecutiveBusinessState, type ExecutiveBusinessState } from '@/lib/ceo-executive-state'
+import { extractVentureId } from '@/lib/ceo-venture-state'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
 import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker, CeoResponseSupersededError } from '@/lib/ceo-response-persistence'
@@ -128,6 +130,10 @@ export async function POST(req: NextRequest) {
   const executionContract = preRoute.executionContract
   const decisionContract = buildConversationDecisionContract(contextSeed.canonicalSemanticContext)
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
+  // Best-effort, and only for self-assessment turns: getExecutiveBusinessState is backed by
+  // calculateOperationalKpis, which does real DB scans and transaction-verification work, so it is
+  // never fetched on an ordinary conversational turn that has no use for it.
+  const executiveState: ExecutiveBusinessState | undefined = executionContract.intent === 'self_assessment' ? await getExecutiveBusinessState({ userId: sessionUserId, ventureId: extractVentureId(message) ?? 'venture_001' }).catch(() => undefined) : undefined
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -166,7 +172,7 @@ export async function POST(req: NextRequest) {
           }
           const contextModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, evidence: externalEvidenceContext })
           const composed = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
-          const response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence }))
+          const response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence, executiveState }))
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) { const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle); addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount, enforcedByQualityGate: true }); }
           const finalTraceState = response.degraded ? (externalEvidenceBundle?.sources.length ? 'PARTIAL' : 'ABSTAIN') : 'FULL'
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
@@ -208,7 +214,7 @@ export async function POST(req: NextRequest) {
           console.log('[api/agent] operational execution telemetry', JSON.stringify({ requestId, completedSteps: result.steps.length, toolSteps: result.steps.filter((step) => Boolean(step.toolName)).length }))
           const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence })
           const composedOperational = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: synthesisModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
-          const synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composedOperational.canonicalSemanticContext, partnerIntelligence }))
+          const synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composedOperational.canonicalSemanticContext, partnerIntelligence, executiveState }))
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
           const persistedAssistantMessageId = result.persistedAssistantMessageId
