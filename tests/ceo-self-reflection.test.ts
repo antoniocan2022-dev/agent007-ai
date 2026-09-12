@@ -54,6 +54,19 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
   })
 
+  // Post-merge audit fix (2026-09-12): CAPABILITY_RE briefly included a standalone
+  // `recent (?:upgrades?|additions?|updates?|changes?)` alternative, whose `updates?`/`changes?`
+  // branches are common, generic business phrasing unrelated to a CEO self-capability question. Any
+  // self-referential turn using them would have been misrouted onto the bounded self_assessment fast
+  // lane instead of the real analysis/operational path. Locks in that these are NOT self-reflective.
+  test.each([
+    'Do you have any recent updates on the deal?',
+    'What recent changes did you make to the campaign?',
+    'Any recent updates on the client contract?',
+  ])('does not misclassify a generic business "recent updates/changes" question as self-reflective: %s', (text) => {
+    expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
+  })
+
   test('keeps casual self-reflection on the bounded fast execution class', () => {
     const plan = classifyExecution(user('How are you doing?'))
     expect(plan.executionClass).toBe('fast')

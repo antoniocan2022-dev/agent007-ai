@@ -61,14 +61,24 @@ const ANALYSIS_TARGET_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|comp
 const GREETING_PREFIX_RE = `(?:(?:hi|hey|hello|hiya|howdy|greetings)[,!.\\s]*(?:agent\\s?007|ceo)?[,!.\\s]*)?`
 const CASUAL_CHECKIN_RE = new RegExp(`^${GREETING_PREFIX_RE}(?:how(?:'s|\\s+is)\\s+(?:it|everything|things?)\\s+going|how\\s+are\\s+(?:you|things?)(?:\\s+doing)?(?:\\s+today|\\s+now|\\s+lately|\\s+these\\s+days)?|how\\s+do\\s+you\\s+do|how\\s+is\\s+(?:agent007|the\\s+(?:system|ceo|agent))\\s+doing|you\\s+(?:good|okay|alright)|what(?:'s|\\s+is)\\s+new(?:\\s+with\\s+you)?)[!.?\\s]*$`, 'i')
 const PERFORMANCE_RE = /\b(?:improving|getting\s+better|performance|performing|progress|progressing|better|worse|declining|evolving|evolution|learning|developing|growth|how\s+have\s+you\s+been|how\s+are\s+you\s+performing)\b/i
-// 'upgrades?'/'new features?'/'recently added'/'recent upgrades|additions|updates|changes' added
-// (2026-09-12): a direct "what upgrades have you gotten recently?" or "tell me about your recent
-// upgrades" previously matched no kind at all (fell through every branch to 'none') despite clearly
-// asking the same question this whole classifier exists to answer -- none of strengths/weakness/
-// capability/skills/architecture/verified covers the word "upgrade". Deliberately does not add a
-// bare "what's new" here: that exact phrasing is already claimed, anchored to the whole message, by
-// CASUAL_CHECKIN_RE above as small talk, and duplicating it here would just race that precedence.
-const CAPABILITY_RE = /\b(?:strengths?|weakness(?:es)?|capabilit(?:y|ies)|capable|skills?|limitations?|what\s+can\s+you\s+do|what\s+are\s+you\s+good\s+at|architecture|proven|unproven|(?:not\s+yet\s+|un)?verified|upgrades?|new\s+features?|recently\s+added|recent\s+(?:upgrades?|additions?|updates?|changes?))\b/i
+// 'upgrades?'/'new features?'/'recently added' added (2026-09-12): a direct "what upgrades have you
+// gotten recently?" or "tell me about your recent upgrades" previously matched no kind at all (fell
+// through every branch to 'none') despite clearly asking the same question this whole classifier
+// exists to answer -- none of strengths/weakness/capability/skills/architecture/verified covers the
+// word "upgrade". Deliberately does not add a bare "what's new" here: that exact phrasing is already
+// claimed, anchored to the whole message, by CASUAL_CHECKIN_RE above as small talk, and duplicating
+// it here would just race that precedence.
+//
+// Post-merge audit fix (2026-09-12): the first version of this also added a standalone
+// `recent\s+(?:upgrades?|additions?|updates?|changes?)` alternative. It was redundant for its own
+// stated purpose -- both motivating cases ("What upgrades have you gotten recently?", "Tell me about
+// your recent upgrades.") already match the bare `upgrades?` alternative above -- and its
+// `updates?`/`changes?` branches are two of the most overloaded words in ordinary business speech:
+// any self-referential turn ("do you have any recent updates on the deal?", "what recent changes did
+// you make to the campaign?") matched it and got misrouted onto the bounded, tool-free self_assessment
+// fast lane instead of the real analysis/operational path that could actually answer the question.
+// Removed entirely rather than narrowed, since nothing in this file's own tests needed it.
+const CAPABILITY_RE = /\b(?:strengths?|weakness(?:es)?|capabilit(?:y|ies)|capable|skills?|limitations?|what\s+can\s+you\s+do|what\s+are\s+you\s+good\s+at|architecture|proven|unproven|(?:not\s+yet\s+|un)?verified|upgrades?|new\s+features?|recently\s+added)\b/i
 const READINESS_RE = /\b(?:ready|readiness|prepared|equipped|fit\s+to|able\s+to\s+manage|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?compan(?:y|ies)|business\s+management|autonom(?:y|ous))\b/i
 const IMPROVEMENT_REQUEST_RE = /\b(?:i\s+want\s+to\s+(?:improve|build|change|update|work\s+on|develop)|let'?s\s+(?:improve|focus\s+on|work\s+on|build|develop)|help\s+(?:me\s+)?(?:improve|build)|can\s+(?:we|you)\s+(?:improve|work\s+on|focus\s+on))\b/i
 
