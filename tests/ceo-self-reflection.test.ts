@@ -74,6 +74,26 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(decision.route).toBe('fast')
   })
 
+  // Integration audit (2026-09-12): confirms the full chain a capability-briefing question actually
+  // takes, not just the classifier in isolation -- inferSemanticIntent's `if
+  // (selfReflection.isSelfReflective) return 'self_assessment'` (ceo-pre-router.ts) is what makes
+  // executionContract.selfReflectionKind reach route.ts at all; the contractFor() call site used for
+  // ordinary conversational intent never attaches selfReflectionKind, so this only reaches route.ts's
+  // capability_briefing gate because a capability_assessment question is *always* routed as
+  // self_assessment first, never independently.
+  test.each([
+    'What upgrades have you gotten recently?',
+    'Tell me about your recent upgrades.',
+    'What are your capabilities?',
+    'What new features have you added?',
+  ])('capability question "%s" reaches route.ts with selfReflectionKind intact via the self_assessment lane', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.intent).toBe('self_assessment')
+    expect(decision.executionContract.selfReflectionKind).toBe('capability_assessment')
+    expect(decision.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
+    expect(decision.route).toBe('fast')
+  })
+
   test('production incident 2026-09-12: a pronoun-free self-assessment request reaches the self-assessment contract end to end, not generic analysis', () => {
     const decision = preRouteCeoRequest(user('Give me a full self-assessment across partners, leadership, strategy, and decisions'))
     expect(decision.executionContract.intent).toBe('self_assessment')
