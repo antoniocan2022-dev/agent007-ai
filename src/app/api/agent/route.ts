@@ -32,6 +32,7 @@ import { getPartnerIntelligence, type PartnerIntelligenceSummary } from '@/lib/c
 import { getExecutiveBusinessState, type ExecutiveBusinessState } from '@/lib/ceo-executive-state'
 import { getLeadershipPerformanceLedger, type LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
 import { getStrategicHorizonView, type StrategicHorizonView } from '@/lib/ceo-strategic-horizon'
+import { listActiveMissionsDB } from '@/lib/active-missions-db'
 import { extractVentureId } from '@/lib/ceo-venture-state'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
@@ -133,15 +134,23 @@ export async function POST(req: NextRequest) {
   const decisionContract = buildConversationDecisionContract(contextSeed.canonicalSemanticContext)
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
   // Best-effort, and only for self-assessment turns: getExecutiveBusinessState is backed by
-  // calculateOperationalKpis, which does real DB scans and transaction-verification work, so it is
-  // never fetched on an ordinary conversational turn that has no use for it.
-  const executiveState: ExecutiveBusinessState | undefined = executionContract.intent === 'self_assessment' ? await getExecutiveBusinessState({ userId: sessionUserId, ventureId: extractVentureId(message) ?? 'venture_001' }).catch(() => undefined) : undefined
-  // Same gate and reasoning as executiveState: real cross-mission leadership history, only useful
-  // (and only worth its own DB read) alongside a genuine self-assessment.
-  const leadershipLedger: readonly LeaderPerformanceRecord[] | undefined = executionContract.intent === 'self_assessment' ? await getLeadershipPerformanceLedger(sessionUserId).catch(() => undefined) : undefined
-  // Same gate: the vision/annual/quarterly/monthly levels are a single cheap Memory read, and the
-  // weekly-missions/today's-actions bridges reuse mission data already scanned for the ledger above.
-  const strategicHorizon: StrategicHorizonView | undefined = executionContract.intent === 'self_assessment' ? await getStrategicHorizonView(sessionUserId).catch(() => undefined) : undefined
+  // calculateOperationalKpis, which does real DB scans and transaction-verification work, so none
+  // of this is fetched on an ordinary conversational turn that has no use for it. The three fetches
+  // are independent of each other, so they run concurrently; the mission list they'd otherwise each
+  // query separately (leadership ledger, weekly-missions bridge, today's-actions bridge) is fetched
+  // once up front and shared between them.
+  let executiveState: ExecutiveBusinessState | undefined
+  let leadershipLedger: readonly LeaderPerformanceRecord[] | undefined
+  let strategicHorizon: StrategicHorizonView | undefined
+  if (executionContract.intent === 'self_assessment') {
+    const ventureId = extractVentureId(message) ?? 'venture_001'
+    const sharedMissions = await listActiveMissionsDB(sessionUserId).catch(() => undefined)
+    ;[executiveState, leadershipLedger, strategicHorizon] = await Promise.all([
+      getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined),
+      getLeadershipPerformanceLedger(sessionUserId, sharedMissions).catch(() => undefined),
+      getStrategicHorizonView(sessionUserId, new Date(), sharedMissions).catch(() => undefined),
+    ])
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

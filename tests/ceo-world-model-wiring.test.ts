@@ -39,7 +39,8 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
 
   test('route.ts fetches real executive state, gated to self-assessment turns since it is backed by the heavier operational-KPI computation', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
-    expect(source).toContain("executionContract.intent === 'self_assessment' ? await getExecutiveBusinessState(")
+    expect(source).toContain("if (executionContract.intent === 'self_assessment') {")
+    expect(source).toContain('getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined)')
     expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
@@ -59,7 +60,8 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
 
   test('route.ts fetches the real leadership performance ledger under the same self-assessment gate as executive state', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
-    expect(source).toContain("executionContract.intent === 'self_assessment' ? await getLeadershipPerformanceLedger(sessionUserId)")
+    expect(source).toContain("if (executionContract.intent === 'self_assessment') {")
+    expect(source).toContain('getLeadershipPerformanceLedger(sessionUserId, sharedMissions).catch(() => undefined)')
   })
 
   test('the world model builds the leadership facet, and the lifecycle synthesizes one cross-domain judgment from it plus partners/executive/system state', () => {
@@ -73,7 +75,8 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
 
   test('route.ts fetches the real strategic horizon under the same self-assessment gate, and the lifecycle renders it', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
-    expect(source).toContain("executionContract.intent === 'self_assessment' ? await getStrategicHorizonView(sessionUserId)")
+    expect(source).toContain("if (executionContract.intent === 'self_assessment') {")
+    expect(source).toContain('getStrategicHorizonView(sessionUserId, new Date(), sharedMissions).catch(() => undefined)')
     const lifecycleSource = readFileSync(join(ROOT, 'src/lib/ceo-cognitive-lifecycle.ts'), 'utf-8')
     expect(lifecycleSource).toContain('renderStrategicHorizonContext(request.strategicHorizon)')
   })

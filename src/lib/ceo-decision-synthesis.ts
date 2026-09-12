@@ -35,8 +35,11 @@ const MIN_LEADERSHIP_SAMPLE = 3 // resolved outcomes below this are too thin to 
 function businessSignal(executive: ExecutiveBusinessState, reasons: string[]): DomainSignal {
   if (!executive.strategy.dataAvailable) return 'unknown'
   if (executive.strategy.items.length === 0) return 'neutral'
-  const stalled = executive.strategy.items.filter((item) => item.status === 'planned' && item.progress === 0)
-  if (stalled.length === executive.strategy.items.length) { reasons.push(`All ${stalled.length} tracked strategy item(s) remain at 0% progress.`); return 'negative' }
+  // A 'planned' item at 0% progress is normal -- it hasn't started yet, that's expected, not a
+  // problem. The real warning sign is an item already marked 'in_progress' (someone is supposedly
+  // working it) that still shows 0% progress -- genuinely stuck, not merely queued.
+  const stalled = executive.strategy.items.filter((item) => item.status === 'in_progress' && item.progress === 0)
+  if (stalled.length > 0) { reasons.push(`${stalled.length} strategy item(s) marked in-progress remain at 0% progress: ${stalled.map((item) => item.title).join(', ')}.`); return 'negative' }
   return 'positive'
 }
 
