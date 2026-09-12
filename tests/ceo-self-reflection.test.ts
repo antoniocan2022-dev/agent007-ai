@@ -27,6 +27,14 @@ describe('CEO self-reflection canonical classifier', () => {
     ['I want a self-evaluation of our partnerships, leadership, and strategic decisions', 'readiness_assessment'],
     ['Run a self-audit on partners, leadership, strategy', 'readiness_assessment'],
     ['Time for a self-review', 'readiness_assessment'],
+    // 2026-09-12: none of strengths/weakness/capability/skills/architecture/verified covers the word
+    // "upgrade" -- these previously fell through every branch to kind:'none', despite asking exactly
+    // the question this classifier exists to answer. CAPABILITY_RE now covers upgrade/new-feature
+    // phrasing too (see ceo-self-reflection.ts's CAPABILITY_RE comment).
+    ['What upgrades have you gotten recently?', 'capability_assessment'],
+    ['Tell me about your recent upgrades.', 'capability_assessment'],
+    ['What new features have you added?', 'capability_assessment'],
+    ['What new capabilities do you have?', 'capability_assessment'],
   ] as const)('classifies %j as %s', (text, expected) => {
     const result = classifyCeoSelfReflection(text)
     expect(result.kind).toBe(expected)
