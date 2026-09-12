@@ -582,6 +582,42 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderHealthForTests()
   })
 
+  // Production incident 2026-09-12: self-assessment turns are deliberately given evidenceScope
+  // 'internal_state' only, and evaluateCeoQuality's live-system evidence check (correctly, per its own
+  // "mixed internal and live claims require mixed fresh evidence" guard) still rejects an unhedged
+  // "is verified and serving production traffic"-style claim under that scope. Nothing told the model to
+  // avoid that phrasing, so a genuine self-assessment answer kept tripping the quality gate and falling to
+  // the degraded template almost every turn. Confirms the primary generation call actually receives the
+  // phrasing guidance steering it away from that trap, both for self-assessment and NOT for an unrelated
+  // intent (where the guidance would be irrelevant noise).
+  test('the primary generation path is given self-assessment phrasing guidance only for self-assessment turns', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let capturedBody = ''
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') { if (!capturedBody) capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'Self-assessment content.' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const objective = 'Give me a full self-assessment across partners, leadership, strategy, and decisions'
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], timeoutMs: 30000 })
+    expect(capturedBody).toContain('SELF-ASSESSMENT PHRASING GUIDANCE')
+    resetProviderHealthForTests()
+
+    capturedBody = ''
+    process.env.GROQ_API_KEY = 'test-groq'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') { if (!capturedBody) capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'Compound interest is interest earned on interest.' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is compound interest?' }], timeoutMs: 30000 })
+    expect(capturedBody).not.toContain('SELF-ASSESSMENT PHRASING GUIDANCE')
+    resetProviderHealthForTests()
+  })
+
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
