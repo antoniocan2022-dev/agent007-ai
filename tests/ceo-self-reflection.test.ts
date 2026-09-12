@@ -159,6 +159,24 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(mixed.evidenceState).toBe('LIVE_VERIFIED')
   })
 
+  // Production incident 2026-09-12: "but tell me that in your own words" -- a legitimate continuation
+  // follow-up inside a self-assessment thread -- was rejected for "not adequately covering the requested
+  // objective." objectiveCoverage() is a literal token-overlap check between the objective and the
+  // answer; a short continuation request has almost no content tokens of its own to overlap with (it
+  // refers back to the prior turn, not to itself), so it can never satisfy a token-overlap threshold no
+  // matter how good the answer is. p2ResponseIntegrity's currentObjectiveMatch and requestedActionSatisfied
+  // already carry this exact continuation bypass; `coverage` itself is the one check that never did, even
+  // though it is an unconditional, non-bypassable requirement in the overall PASS decision.
+  test('a short continuation/restatement follow-up is not rejected for low objective/answer token overlap', () => {
+    const priorTurns = [
+      { role: 'user' as const, content: 'Give me a full self-assessment across partners, leadership, strategy, and decisions', createdAt: new Date(Date.now() - 60_000).toISOString() },
+      { role: 'assistant' as const, content: "Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer.", createdAt: new Date(Date.now() - 55_000).toISOString() },
+    ]
+    const content = 'In plain terms: I have the governance and tooling in place, but nothing here has actually been proven under real, unsupervised operation yet.'
+    const result = evaluateCeoQuality({ objective: 'but tell me that in your own words.', content, path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true, evidenceScope: 'internal_state', priorTurns })
+    expect(result.checks.objectiveCoverage).toBe(true)
+  })
+
   test('negative evidence statements do not become unsupported positive claims', () => {
     const result = evaluateCeoQuality({ objective: 'Are you ready to manage businesses?', content: 'I am not yet proven for unsupervised business ownership, and sustained customer and revenue outcomes remain unverified.', path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true, evidenceScope: 'internal_state' })
     expect(result.checks.evidenceDiscipline).toBe(true)
