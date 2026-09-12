@@ -192,6 +192,16 @@ model KnowledgeChunk {
   content    String
   chunkIndex Int
   keywords   String   @default("")
+  // Embedding vector for semantic retrieval (see ceo-memory-embeddings.ts's getMemoryEmbedding,
+  // reused here rather than a second embeddings implementation). Populated at index time on a
+  // best-effort basis -- empty when MISTRAL_API_KEY isn't configured or the embeddings call
+  // failed, in which case search falls back to keyword-only matching for this chunk, exactly like
+  // memory ranking already does. Plain Postgres float array, not pgvector: search computes cosine
+  // similarity in JS over a bounded, keyword-prefiltered candidate set (see knowledge-base.ts),
+  // the same no-ANN-index approach ceo-context-composer.ts's rankMemories already uses in
+  // production -- adding a real vector index/extension is future scaling work, not required for
+  // this to be a genuine (if unindexed) semantic signal today.
+  embedding  Float[]  @default([])
   createdAt  DateTime @default(now())
 
   @@index([userId])

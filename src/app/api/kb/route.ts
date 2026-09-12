@@ -3,16 +3,20 @@ import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner
 import { db } from '@/lib/db'
 import { getSessionUserId } from '@/lib/session-user'
 import { indexDocument } from '@/lib/knowledge-base'
+import { extractDocumentText } from '@/lib/document-parsers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/kb/upload
- * Body: multipart/form-data with field "file" (PDF/TXT/MD/CSV/JSON)
+ * Body: multipart/form-data with field "file" (PDF/DOCX/XLSX/PPTX/TXT/MD/CSV/JSON), max 5MB.
+ * For larger files already uploaded via the OCI large-upload path, use POST /api/kb/ingest-remote
+ * instead (see document-ingestion.ts).
  *
- * Extracts text from the uploaded document, chunks it, indexes the chunks
- * into the KnowledgeChunk table for keyword search.
+ * Extracts text from the uploaded document (real per-format parsing for PDF/DOCX/XLSX/PPTX, see
+ * document-parsers.ts), chunks it, indexes the chunks and their best-effort embeddings into the
+ * KnowledgeChunk table for keyword + semantic search (see knowledge-base.ts).
  *
  * Returns { doc: { id, filename, chunkCount } }
  */
@@ -44,25 +48,22 @@ export async function POST(req: NextRequest) {
   try {
     if (mimeType === 'text/plain' || mimeType === 'text/markdown' || mimeType === 'application/json' || mimeType === 'text/csv' || filename.match(/\.(txt|md|json|csv|js|ts|tsx|jsx|py|go|rs|java|c|cpp|h|sh|sql|yaml|yml|xml|html|css)$/i)) {
       text = buffer.toString('utf-8')
-    } else if (mimeType === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')) {
-      // PDF text extraction requires a library like pdf-parse.
-      // For now, attempt to read as text (works for some PDFs) and note limitation.
-      try {
-        // Try to extract readable text from PDF buffer (very basic — looks for text between BT/ET markers)
-        const raw = buffer.toString('latin1')
-        const matches = raw.match(/\(([^)]+)\)/g) || []
-        text = matches.map((m) => m.slice(1, -1)).join(' ').slice(0, 50000)
-        if (text.length < 100) {
-          text = `[PDF uploaded: ${filename}. Note: Install pdf-parse for proper PDF text extraction. The file was stored but text extraction is limited.]`
-        }
-      } catch {
-        text = `[PDF uploaded: ${filename}. Text extraction failed — file stored only.]`
-      }
     } else if (mimeType.startsWith('image/')) {
       text = `[Image uploaded: ${filename}. Use the vision tool to analyze this image.]`
     } else {
-      // Try utf-8 as fallback
-      text = buffer.toString('utf-8').slice(0, 50000)
+      // PDF/DOCX/XLSX/PPTX: real per-format extraction (see document-parsers.ts) -- decompresses
+      // FlateDecode PDF streams and unzips OOXML parts, rather than the previous raw-byte regex
+      // scan that only ever caught uncompressed PDF text and treated DOCX/XLSX/PPTX as plain text.
+      const parsed = extractDocumentText(buffer, filename, mimeType)
+      if (parsed) {
+        text = parsed.text || `[${filename} uploaded. ${parsed.warning ?? 'No text could be extracted.'}]`
+      } else {
+        // Unrecognized binary format: try utf-8 as a last resort (works for genuinely text-like
+        // files with an unexpected mime type; produces mostly-unusable output for real binaries,
+        // which the short length/garbled content will make apparent rather than silently pretending
+        // otherwise).
+        text = buffer.toString('utf-8').slice(0, 50000)
+      }
     }
   } catch (e: any) {
     return NextResponse.json({ error: `Text extraction failed: ${e?.message}` }, { status: 500 })
