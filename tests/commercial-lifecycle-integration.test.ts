@@ -69,6 +69,6 @@ describe('commercial lifecycle integration', () => {
     expect(source).toContain('CustomerSuccessState_ownerUserId_fkey')
     expect(source).toContain('Transaction_customerId_idx')
     expect(source).toContain('Transaction_customerId_fkey')
-    expect(source).toContain('if (indexes.length !== 16)')
+    expect(source).toContain('if (indexes.length !== 19)')
   })
 })

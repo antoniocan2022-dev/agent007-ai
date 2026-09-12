@@ -94,6 +94,11 @@ const statements = [
   'ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "clientRequestId" TEXT',
   'CREATE UNIQUE INDEX IF NOT EXISTS "Message_conversationId_clientRequestId_key" ON "Message" ("conversationId", "clientRequestId")',
   `ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "turnStatus" TEXT NOT NULL DEFAULT 'closed'`,
+  // Executive causal spine (2026-09-12), Phase 2.
+  `CREATE TABLE IF NOT EXISTS "RecommendationMissionLink" ("id" TEXT PRIMARY KEY,"recommendationId" TEXT NOT NULL,"missionId" TEXT NOT NULL,"relation" TEXT NOT NULL DEFAULT 'implements',"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS "RecommendationMissionLink_recommendationId_missionId_key" ON "RecommendationMissionLink" ("recommendationId", "missionId")',
+  'CREATE INDEX IF NOT EXISTS "RecommendationMissionLink_missionId_idx" ON "RecommendationMissionLink" ("missionId")',
+  'CREATE INDEX IF NOT EXISTS "RecommendationMissionLink_recommendationId_idx" ON "RecommendationMissionLink" ("recommendationId")',
 ]
 
 async function main() {
@@ -109,18 +114,19 @@ async function main() {
   }
   const required = await prisma.$queryRaw<Array<{ table_name: string }>>`
     SELECT table_name FROM information_schema.tables WHERE table_schema='public'
-      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState')
+      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink')
   `
   const requiredSet = new Set(required.map(row => row.table_name))
-  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState'].filter(name => !requiredSet.has(name))
+  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink'].filter(name => !requiredSet.has(name))
   if (missingTables.length) throw new Error(`Schema reconciliation incomplete. Missing tables: ${missingTables.join(', ')}`)
   const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN (
       'ExecutionReceipt_missionId_idempotencyKey_key','EvidenceLedger_missionId_idempotencyKey_key','EvidenceLedger_missionId_version_key','EvidenceClaim_ledgerId_claimKey_key',
-      'BusinessUnit_ownerUserId_businessKey_key','BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','Transaction_customerId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx','Subscription_ventureId_idx','Invoice_ventureId_idx','CustomerSuccessState_ventureId_customerId_key'
+      'BusinessUnit_ownerUserId_businessKey_key','BusinessUnit_ownerUserId_idx','Venture_ownerUserId_idx','Customer_ventureId_idx','Opportunity_ventureId_idx','Transaction_ventureId_idx','Transaction_customerId_idx','MarketingCampaign_ventureId_idx','IncomeEntry_ventureId_idx','Subscription_ventureId_idx','Invoice_ventureId_idx','CustomerSuccessState_ventureId_customerId_key',
+      'RecommendationMissionLink_recommendationId_missionId_key','RecommendationMissionLink_missionId_idx','RecommendationMissionLink_recommendationId_idx'
     )
   `
-  if (indexes.length !== 16) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/16`)
+  if (indexes.length !== 19) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/19`)
 
   const transactionColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
     SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Transaction' AND column_name IN ('ventureId','customerId')

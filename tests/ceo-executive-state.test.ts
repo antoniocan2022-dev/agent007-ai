@@ -29,6 +29,7 @@ describe('renderExecutiveBusinessStateContext', () => {
       risk: { dataAvailable: true, ventureId: 'venture_001', status: 'READY', score: 100, threshold: 80, missingEvidence: [] },
       customers: { dataAvailable: true, ventureId: 'venture_001', totalCustomersWithState: 12, atRisk: 2, churned: 1, averageHealthScore: 78.5 },
       resources: { dataAvailable: true, ventureId: 'venture_001', grossRevenue: 1000, netRevenue: 900, currency: 'usd', autonomyMode: 'AUTONOMOUS', leaseHealthy: true },
+      decisions: { dataAvailable: true, total: 3, open: 1, awaitingOutcome: 1, overdueReview: 0 },
     }
     const rendered = renderExecutiveBusinessStateContext(state)
     expect(rendered).toContain('Launch referral program')
@@ -36,6 +37,13 @@ describe('renderExecutiveBusinessStateContext', () => {
     expect(rendered).toContain('12 tracked, 2 at risk, 1 churned')
     expect(rendered).toContain('$1000.00 gross / $900.00 net revenue')
     expect(rendered).toContain('autonomy AUTONOMOUS')
+    expect(rendered).toContain('Executive decisions: 3 recorded, 1 open, 1 awaiting outcome.')
+  })
+
+  test('reports the executive decision ledger honestly for empty, populated and overdue states', () => {
+    expect(renderExecutiveBusinessStateContext({ ...EMPTY_EXECUTIVE_BUSINESS_STATE, decisions: { dataAvailable: false, total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0 } })).toContain('Executive decisions: not evaluated for this turn.')
+    expect(renderExecutiveBusinessStateContext({ ...EMPTY_EXECUTIVE_BUSINESS_STATE, decisions: { dataAvailable: true, total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0 } })).toContain('Executive decisions: none recorded yet.')
+    expect(renderExecutiveBusinessStateContext({ ...EMPTY_EXECUTIVE_BUSINESS_STATE, decisions: { dataAvailable: true, total: 2, open: 1, awaitingOutcome: 1, overdueReview: 1 } })).toContain('1 overdue for review')
   })
 })
 
