@@ -91,6 +91,49 @@ export async function persistEvidenceLedger(input:EvidenceLedgerInput){
   try{const ledger=await db.$transaction(async(tx)=>{const created=await tx.evidenceLedger.create({data:{missionId:input.missionId,userId:input.userId,idempotencyKey:input.idempotencyKey,version,title:input.title,status,previousHash,contentHash}});const createdSources: Array<{ id: string }> = [];for(const s of prepared)createdSources.push(await tx.evidenceSource.create({data:{ledgerId:created.id,provider:s.provider,sourceUrl:s.sourceUrl,retrievedAt:s.retrievedAt,rawEvidenceRef:s.rawEvidenceRef,rawEvidenceHash:s.rawEvidenceHash,requestHash:s.requestHash}}));for(const c of input.claims)await tx.evidenceClaim.create({data:{ledgerId:created.id,sourceId:c.sourceIndex===undefined?undefined:createdSources[c.sourceIndex]?.id,claimKey:c.claimKey,claimText:c.claimText,classification:c.classification,confidence:c.confidence,verificationStatus:c.verificationStatus,notes:c.notes}});return tx.evidenceLedger.findUniqueOrThrow({where:{id:created.id},include:{Source:true,Claim:true}})});return{ledger,created:true}}catch(error){const concurrent=await db.evidenceLedger.findUnique({where:{missionId_idempotencyKey:{missionId:input.missionId,idempotencyKey:input.idempotencyKey}},include:{Source:true,Claim:true}});if(!concurrent)throw error;assertLedgerCompatible(concurrent,input);return{ledger:concurrent,created:false}}
 }
 
+export interface ExecutionReceiptRecord { id:string; missionId:string; userId:string|null; actorId:string; actorType:string; action:string; status:string; idempotencyKey:string; requestHash:string|null; inputReference:string|null; outputReference:string|null; errorCode:string|null; startedAt:string; completedAt:string|null; createdAt:string; recordHash:string; metadata:Record<string,unknown>|null }
+function toReceiptRecord(row:{id:string;missionId:string;userId:string|null;actorId:string;actorType:string;action:string;status:string;idempotencyKey:string;requestHash:string|null;inputReference:string|null;outputReference:string|null;errorCode:string|null;startedAt:Date;completedAt:Date|null;createdAt:Date;recordHash:string;metadata:string|null}):ExecutionReceiptRecord {
+  return {id:row.id,missionId:row.missionId,userId:row.userId,actorId:row.actorId,actorType:row.actorType,action:row.action,status:row.status,idempotencyKey:row.idempotencyKey,requestHash:row.requestHash,inputReference:row.inputReference,outputReference:row.outputReference,errorCode:row.errorCode,startedAt:row.startedAt.toISOString(),completedAt:row.completedAt?row.completedAt.toISOString():null,createdAt:row.createdAt.toISOString(),recordHash:row.recordHash,metadata:parseMetadata(row.metadata)}
+}
+// CEO self-inspection reads (Executive causal spine): ExecutionReceipt was write-only until this
+// point -- recordExecutionReceipt() and execution-contract.ts's status update were the only two
+// callers that ever touched the table, and nothing (not the CEO, not a human) ever read a receipt
+// back. These five functions are the read half of that same durable, idempotent record, answering
+// exactly the questions assessCeoSelfInspection() needs: what did I do, what am I doing right now
+// (started, never completed), what recently failed, and what did a specific actor do across
+// missions. All fail closed to an empty result on a DB error rather than throwing into the
+// reasoning path -- a self-inspection lookup that can't complete should read as "no history found",
+// never crash the turn it was meant to inform.
+export async function getExecutionReceipt(missionId:string,idempotencyKey:string):Promise<ExecutionReceiptRecord|null> {
+  const trimmedMission=missionId.trim();const trimmedKey=idempotencyKey.trim()
+  if(!trimmedMission||!trimmedKey) return null
+  try { const row=await db.executionReceipt.findUnique({where:{missionId_idempotencyKey:{missionId:trimmedMission,idempotencyKey:trimmedKey}}}); return row?toReceiptRecord(row):null } catch { return null }
+}
+export async function getExecutionReceiptsForMission(missionId:string,limit=50):Promise<readonly ExecutionReceiptRecord[]> {
+  const trimmed=missionId.trim()
+  if(!trimmed) return []
+  try { const rows=await db.executionReceipt.findMany({where:{missionId:trimmed},orderBy:{createdAt:'desc'},take:Math.max(1,Math.min(limit,200))}); return rows.map(toReceiptRecord) } catch { return [] }
+}
+// "Open" means recorded as STARTED and never reached a terminal status -- a receipt still in
+// flight, or one whose completion update never landed. Never inferred from elapsed time: a slow
+// but still-running execution and an abandoned one look identical from wall-clock age alone, so
+// this reports exactly what the record says (status/completedAt), not a guessed staleness cutoff.
+export async function getOpenExecutions(missionId:string):Promise<readonly ExecutionReceiptRecord[]> {
+  const trimmed=missionId.trim()
+  if(!trimmed) return []
+  try { const rows=await db.executionReceipt.findMany({where:{missionId:trimmed,status:'STARTED',completedAt:null},orderBy:{createdAt:'desc'},take:100}); return rows.map(toReceiptRecord) } catch { return [] }
+}
+export async function getExecutionFailures(missionId:string,limit=20):Promise<readonly ExecutionReceiptRecord[]> {
+  const trimmed=missionId.trim()
+  if(!trimmed) return []
+  try { const rows=await db.executionReceipt.findMany({where:{missionId:trimmed,status:{in:['FAILED','DENIED']}},orderBy:{createdAt:'desc'},take:Math.max(1,Math.min(limit,100))}); return rows.map(toReceiptRecord) } catch { return [] }
+}
+export async function getRecentExecutionOutcomes(actorId:string,limit=20):Promise<readonly ExecutionReceiptRecord[]> {
+  const trimmed=actorId.trim()
+  if(!trimmed) return []
+  try { const rows=await db.executionReceipt.findMany({where:{actorId:trimmed,completedAt:{not:null}},orderBy:{createdAt:'desc'},take:Math.max(1,Math.min(limit,100))}); return rows.map(toReceiptRecord) } catch { return [] }
+}
+
 export async function verifyEvidenceLedger(ledgerId:string):Promise<EvidenceLedgerVerification>{
   assertNonEmpty('ledgerId',ledgerId);const ledger=await db.evidenceLedger.findUnique({where:{id:ledgerId},include:{Source:true,Claim:true}});if(!ledger)throw new Error(`Evidence ledger ${ledgerId} was not found`)
   const errors:string[]=[];const sourceById=new Map(ledger.Source.map((s)=>[s.id,s]));const hashClaims=ledger.Claim.map((c)=>({claimKey:c.claimKey,claimText:c.claimText,classification:c.classification,confidence:c.confidence,verificationStatus:c.verificationStatus,sourceKey:c.sourceId?sourceKey(sourceById.get(c.sourceId)!):null,notes:c.notes??null}));const actualHash=ledgerContentHash({missionId:ledger.missionId,version:ledger.version,title:ledger.title,status:ledger.status,previousHash:ledger.previousHash,sources:ledger.Source,claims:hashClaims})

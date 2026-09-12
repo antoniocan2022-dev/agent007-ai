@@ -741,3 +741,23 @@ model RecommendationMissionLink {
   @@index([missionId])
   @@index([recommendationId])
 }
+
+/// Executive causal spine (2026-09-12), Phase 6 (CEO Evidence & Supervision Layer): a human owner's
+/// explicit review action against a recorded recommendation -- the missing "supervision" half of a
+/// ledger that could already answer "what happened" but not "what did an authorized human decide
+/// about it." Append-only by design, not upserted: a recommendation can be reviewed more than once
+/// over time (a later review, a correction of an earlier verdict), and each review is its own
+/// permanent record rather than a single mutable state that would silently overwrite prior judgment.
+model RecommendationReview {
+  id               String   @id @default(cuid())
+  recommendationId String
+  reviewerId       String
+  /// REVIEWED | APPROVED | FLAGGED | CORRECTED | CLOSED
+  verdict          String
+  note             String   @default("")
+  evidenceRef      String?
+  createdAt        DateTime @default(now())
+
+  @@index([recommendationId])
+  @@index([reviewerId])
+}
