@@ -10,6 +10,7 @@ import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import type { LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
+import { EMPTY_PARTNER_INTELLIGENCE, type PartnerIntelligenceSummary } from '@/lib/ceo-partner-intelligence'
 import { readFileSync } from 'node:fs'
 
 const originalFetch = globalThis.fetch
@@ -615,6 +616,72 @@ describe('CEO cognitive lifecycle', () => {
     }) as typeof fetch
     await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is compound interest?' }], timeoutMs: 30000 })
     expect(capturedBody).not.toContain('SELF-ASSESSMENT PHRASING GUIDANCE')
+    resetProviderHealthForTests()
+  })
+
+  // Production incident 2026-09-12 (part 2): "but tell me that in your own words" got back the same
+  // opening paragraph as the answer it was asking to be rephrased, because nothing told the model this
+  // was a restatement of its own prior turn rather than a fresh report request. Confirms the primary
+  // generation call actually receives both the continuation signal and the prior answer to paraphrase.
+  test('the primary generation path is told when a self-assessment turn is a restatement of its own prior answer', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let capturedBody = ''
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') { if (!capturedBody) capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'In plain terms, here is the same honest answer, said more simply.' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const objective = 'but tell me that in your own words.'
+    const priorConversation = [
+      { role: 'user' as const, content: 'Give me a full self-assessment across partners, leadership, strategy, and decisions', createdAt: new Date(Date.now() - 60_000).toISOString() },
+      { role: 'assistant' as const, content: "Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer.", createdAt: new Date(Date.now() - 55_000).toISOString() },
+    ]
+    // A real self-assessment continuation is classified by an upstream model-assisted semantic
+    // classifier in production (route.ts), not by regex alone -- reproduced here via a high-confidence
+    // model_assisted suggestedIntent, the same shape buildCanonicalConversationContext trusts.
+    const state = deriveCeoConversationState(priorConversation, objective)
+    const references = resolveConversationReferences(objective, priorConversation, state)
+    const canonicalContext = buildCanonicalConversationContext({ currentMessage: objective, rows: priorConversation, state, references, semanticInterpretation: { schemaVersion: 1, meaning: objective, confidence: 0.9, uncertainty: [], source: 'model_assisted', suggestedIntent: 'self_assessment' } })
+    const preRoute = preRouteCeoRequest([{ role: 'user', content: objective }], 0, canonicalContext)
+    expect(preRoute.executionContract.intent).toBe('self_assessment')
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], priorConversation, canonicalContext, preRoute, timeoutMs: 30000 })
+    expect(capturedBody).toContain('restate, explain, or rephrase')
+    expect(capturedBody).toContain('governed CEO layer')
+    resetProviderHealthForTests()
+  })
+
+  // Production incident 2026-09-12 (part 3): unlike the primary generation call, the degraded-mode
+  // recovery attempt's messages never carried any real subsystem facts at all -- it only had the raw
+  // conversation -- so a self-assessment recovery attempt had nothing honest to answer from and kept
+  // hitting the same evidence-insufficient rejection the primary attempt did. Confirms the recovery call
+  // now receives the same real partner/leadership/strategy facts the primary path already gets.
+  test('the degraded-mode recovery call for self-assessment is grounded in real subsystem facts', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let nonProbeCalls = 0
+    let recoveryBody = ''
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+        nonProbeCalls += 1
+        // First real call (primary) trips the unconditionally forbidden robotic self-reference check,
+        // guaranteeing the quality-gate-driven degrade path (self-assessment's fast path has no
+        // escalation budget, so this is the only call before recovery).
+        if (nonProbeCalls === 1) return jsonResponse({ choices: [{ message: { content: 'As an AI, I can tell you my current state.' } }] })
+        recoveryBody = body
+        return jsonResponse({ choices: [{ message: { content: 'Honestly: the architecture is real, but nothing here is proven under live operation yet.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const partnerIntelligence: PartnerIntelligenceSummary = { ...EMPTY_PARTNER_INTELLIGENCE, dataAvailable: true }
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'Give me a full self-assessment across partners, leadership, strategy, and decisions' }], partnerIntelligence, timeoutMs: 30000 })
+    expect(recoveryBody).toContain('REAL INTERNAL SYSTEM STATE')
+    expect(recoveryBody).toContain('No partnerships tracked yet')
     resetProviderHealthForTests()
   })
 

@@ -32,7 +32,7 @@ function inferFailureReason(message: string): CeoFailureReason { if (/timeout|ti
 export function buildRiskAbstention(objective: string, reason: string, failureReason: CeoFailureReason = 'evidence_insufficient'): DegradedResponse { void reason; return { evidenceState: 'UNAVAILABLE', reason, sourceKeys: [], failureReason, recoveredCapability: 'evidence', content: `I can’t give you a responsible decision-grade answer yet because the evidence required for this high-risk decision is incomplete.\n\nI won’t substitute memory, stale information, or an unverified execution result for the missing evidence.\n\nRequest: ${objective.slice(0, 800)}` } }
 const DECISION_GRADE_EVIDENCE_FAILURES = new Set<CeoFailureReason>(['evidence_insufficient', 'evidence_unavailable', 'production_verification_failure'])
 export function requiresDecisionGradeAbstention(input: { objective: string; failureReason: CeoFailureReason; domain?: string }): boolean { const inferredDomain = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|invest(?:ing|ment)?|buy|sell|hold|portfolio)\b/i.test(input.objective) ? 'public_equity' : 'general_web'; const domain = (input.domain?.trim() || inferredDomain).toLowerCase(); return riskClassForDomain(domain) === 'HIGH' && DECISION_GRADE_EVIDENCE_FAILURES.has(input.failureReason) }
-interface DegradedSelfAssessmentSubsystems {
+export interface DegradedSelfAssessmentSubsystems {
   partnerIntelligence?: PartnerIntelligenceSummary
   executiveState?: ExecutiveBusinessState
   leadershipLedger?: readonly LeaderPerformanceRecord[]
@@ -48,7 +48,7 @@ interface DegradedSelfAssessmentSubsystems {
 // produced a fabricated-looking non-answer instead of the real subsystem state. Render the same subsystems
 // the primary path renders, through the same render*Context functions, so a degraded self-assessment still
 // tells the user what is actually true of the system rather than reciting a template.
-function renderSelfAssessmentSubsystems(subsystems: DegradedSelfAssessmentSubsystems): string {
+export function renderSelfAssessmentSubsystems(subsystems: DegradedSelfAssessmentSubsystems): string {
   const sections: string[] = []
   if (subsystems.partnerIntelligence) sections.push(`Partners: ${renderPartnerIntelligenceContext(subsystems.partnerIntelligence)}`)
   if (subsystems.leadershipLedger) sections.push(`Leadership: ${renderLeadershipPerformanceContext(subsystems.leadershipLedger)}`)
