@@ -8,6 +8,10 @@ import { deriveCeoConversationState, safeConversationRows, type CeoConversationS
 import { isCorrectionRequest, isCurrentTopicRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { riskClassForDomain } from './architecture-integrity-contract'
 import { filterConversationalMemories } from './ceo-memory-visibility'
+import { renderPartnerIntelligenceContext, type PartnerIntelligenceSummary } from './ceo-partner-intelligence'
+import { renderExecutiveBusinessStateContext, type ExecutiveBusinessState } from './ceo-executive-state'
+import { renderLeadershipPerformanceContext, type LeaderPerformanceRecord } from './ceo-leadership-performance'
+import { renderStrategicHorizonContext, type StrategicHorizonView } from './ceo-strategic-horizon'
 
 export interface DegradedResponse { content: string; evidenceState: EvidenceState; reason: string; sourceKeys: string[]; failureReason: CeoFailureReason; recoveredCapability: 'conversation' | 'reasoning' | 'evidence' | 'tool' | 'mission' | 'production' | 'context' }
 type MemoryRecall = typeof recallPersistentMemory
@@ -28,7 +32,43 @@ function inferFailureReason(message: string): CeoFailureReason { if (/timeout|ti
 export function buildRiskAbstention(objective: string, reason: string, failureReason: CeoFailureReason = 'evidence_insufficient'): DegradedResponse { void reason; return { evidenceState: 'UNAVAILABLE', reason, sourceKeys: [], failureReason, recoveredCapability: 'evidence', content: `I can’t give you a responsible decision-grade answer yet because the evidence required for this high-risk decision is incomplete.\n\nI won’t substitute memory, stale information, or an unverified execution result for the missing evidence.\n\nRequest: ${objective.slice(0, 800)}` } }
 const DECISION_GRADE_EVIDENCE_FAILURES = new Set<CeoFailureReason>(['evidence_insufficient', 'evidence_unavailable', 'production_verification_failure'])
 export function requiresDecisionGradeAbstention(input: { objective: string; failureReason: CeoFailureReason; domain?: string }): boolean { const inferredDomain = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|invest(?:ing|ment)?|buy|sell|hold|portfolio)\b/i.test(input.objective) ? 'public_equity' : 'general_web'; const domain = (input.domain?.trim() || inferredDomain).toLowerCase(); return riskClassForDomain(domain) === 'HIGH' && DECISION_GRADE_EVIDENCE_FAILURES.has(input.failureReason) }
-function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind): string { const evidenceBlock = recoveredContext.trim() ? `\n\nHere's what I can ground that in internally:\n${recoveredContext.slice(0, 9000)}` : ''; const readiness = selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false }) : null; const readinessBlock = readiness ? `\n\n${readiness.capability} ${readiness.verified} ${readiness.notProven} What would actually move this forward: ${readiness.nextEvidence}` : ''; return `Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer, organization model, provider failover, execution contracts, quality gates, memory, and operational tooling. That's real, and it's not nothing.\n\nWhat I'm not yet justified in claiming is fully autonomous business management just from having that architecture in place. Real-world readiness also needs verified live execution, reliable external integrations, actual customer outcomes, financial controls, and results that hold up over time.\n\nSo the honest answer is: I'm ready to operate as a governed business-management system with you in the loop. I'm not yet proven for running things unsupervised end to end.${readinessBlock}${evidenceBlock}` }
+interface DegradedSelfAssessmentSubsystems {
+  partnerIntelligence?: PartnerIntelligenceSummary
+  executiveState?: ExecutiveBusinessState
+  leadershipLedger?: readonly LeaderPerformanceRecord[]
+  strategicHorizon?: StrategicHorizonView
+}
+// Production incident 2026-09-12: this fallback used to be a fixed template plus a generic, query-driven
+// recallPersistentMemory() search -- so a real self-assessment request ("give me a full self-assessment
+// across partners, leadership, strategy, and decisions") got back the same boilerplate paragraphs every
+// time, decorated with whichever unrelated memories happened to match the raw objective text. route.ts
+// already fetches partner intelligence, executive state, the leadership ledger, and the strategic horizon
+// for self-assessment turns (they feed the primary generation path in ceo-cognitive-lifecycle.ts) but
+// never forwarded them into degraded mode, so a real quality-gate rejection of the primary answer still
+// produced a fabricated-looking non-answer instead of the real subsystem state. Render the same subsystems
+// the primary path renders, through the same render*Context functions, so a degraded self-assessment still
+// tells the user what is actually true of the system rather than reciting a template.
+function renderSelfAssessmentSubsystems(subsystems: DegradedSelfAssessmentSubsystems): string {
+  const sections: string[] = []
+  if (subsystems.partnerIntelligence) sections.push(`Partners: ${renderPartnerIntelligenceContext(subsystems.partnerIntelligence)}`)
+  if (subsystems.leadershipLedger) sections.push(`Leadership: ${renderLeadershipPerformanceContext(subsystems.leadershipLedger)}`)
+  if (subsystems.executiveState) sections.push(`Strategy & decisions: ${renderExecutiveBusinessStateContext(subsystems.executiveState)}`)
+  if (subsystems.strategicHorizon) sections.push(`Strategic horizon: ${renderStrategicHorizonContext(subsystems.strategicHorizon)}`)
+  return sections.join('\n\n')
+}
+function buildSelfAssessmentArchitectureFallback(objective: string, recoveredContext: string, selfReflectionKind?: SelfReflectionKind, subsystems: DegradedSelfAssessmentSubsystems = {}): string {
+  void objective
+  const subsystemState = renderSelfAssessmentSubsystems(subsystems)
+  const subsystemBlock = subsystemState.trim() ? `\n\nHere's the actual current state across the subsystems that self-assessment depends on:\n${subsystemState.slice(0, 9000)}` : ''
+  // Only fall back to the generic memory recall when no real subsystem data was supplied at all -- once
+  // subsystem state is available it is strictly more accurate and specific than an untargeted memory
+  // search keyed on the raw objective text, so it fully replaces the generic evidence block rather than
+  // being appended alongside it.
+  const evidenceBlock = !subsystemState.trim() && recoveredContext.trim() ? `\n\nHere's what I can ground that in internally:\n${recoveredContext.slice(0, 9000)}` : ''
+  const readiness = selfReflectionKind === 'readiness_assessment' ? synthesizeExecutiveReadiness({ operationalCapabilityVerified: true, liveExecutionVerified: false, productionTrafficVerified: false, repeatableBusinessOutcomesVerified: false, sustainedAutonomyVerified: false }) : null
+  const readinessBlock = readiness ? `\n\n${readiness.capability} ${readiness.verified} ${readiness.notProven} What would actually move this forward: ${readiness.nextEvidence}` : ''
+  return `Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer, organization model, provider failover, execution contracts, quality gates, memory, and operational tooling. That's real, and it's not nothing.\n\nWhat I'm not yet justified in claiming is fully autonomous business management just from having that architecture in place. Real-world readiness also needs verified live execution, reliable external integrations, actual customer outcomes, financial controls, and results that hold up over time.\n\nSo the honest answer is: I'm ready to operate as a governed business-management system with you in the loop. I'm not yet proven for running things unsupervised end to end.${readinessBlock}${subsystemBlock}${evidenceBlock}`
+}
 // Delegates to the canonical isContinuationOrRestatementRequest (ceo-conversational-signals.ts) --
 // previously a local, independently-drifting regex; see that function's comment for the consolidation
 // this replaced and the production incident (a "tell me in your words" restatement request landing here
@@ -87,11 +127,11 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   }
   return null
 }
-export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[] }): Promise<DegradedResponse> {
+export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; partnerIntelligence?: PartnerIntelligenceSummary; executiveState?: ExecutiveBusinessState; leadershipLedger?: readonly LeaderPerformanceRecord[]; strategicHorizon?: StrategicHorizonView }): Promise<DegradedResponse> {
   const failureReason = input.failureReason ?? inferFailureReason(input.reason); if (requiresDecisionGradeAbstention({ objective: input.objective, failureReason, domain: input.domain })) return buildRiskAbstention(input.objective, input.reason, failureReason); if (input.intent === 'conversation' || input.intent === 'opinion') { const incident = emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason }); emitIncidentRegressionCandidate({ incident, message: input.objective }) }
   const suppliedContext = input.contextualEvidence?.trim(); const recall = input.recall ?? recallPersistentMemory; const query = [input.missionId, input.objective].filter(Boolean).join(' '); const memories = suppliedContext ? [] : filterConversationalMemories(await recall(query, 5)); const recoveredContext = suppliedContext || formatMemoryEvidence(memories); const sourceKeys = memories.map((entry) => entry.key); const recoveredCapability = capabilityForFailure(failureReason)
   const conversationState = input.conversationState ?? (input.priorConversation?.length ? deriveCeoConversationState(input.priorConversation, input.objective) : undefined)
-  if (input.intent === 'self_assessment') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind) }
+  if (input.intent === 'self_assessment') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind, { partnerIntelligence: input.partnerIntelligence, executiveState: input.executiveState, leadershipLedger: input.leadershipLedger, strategicHorizon: input.strategicHorizon }) }
   if (input.missionId && recoveredContext.trim()) return { evidenceState: 'MEMORY_ONLY', reason: input.reason, sourceKeys, failureReason, recoveredCapability: 'mission', content: `I couldn't complete the normal mission reasoning path, but I recovered relevant internal mission evidence already established for ${input.missionId}. I won't present it as fresh external verification.\n\n${recoveredContext.slice(0, 12000)}` }
   const natural = buildNaturalRecoveryResponse({ objective: input.objective, action: input.responseAction, priorConversation: safeConversationRows(input.priorConversation ?? []), recoveredContext, isSuppliedByCaller: Boolean(suppliedContext), intent: input.intent, conversationState, resolvedReferences: input.resolvedReferences })
   if (natural) { const safeContent = natural.includes('continuous_loop_trace') ? `I couldn't complete that specific request reliably, so I won't expose internal execution records.` : natural; const missionRecovery = (input.intent === 'mission_action' || Boolean(input.missionId)) && sourceKeys.length > 0; return { evidenceState: missionRecovery ? 'MEMORY_ONLY' : (suppliedContext ? 'PARTIAL_UNCONFIRMED' : (sourceKeys.length > 0 ? 'MEMORY_ONLY' : 'PARTIAL_UNCONFIRMED')), reason: input.reason, sourceKeys: missionRecovery || sourceKeys.length > 0 ? sourceKeys : [], failureReason, recoveredCapability, content: safeContent } }
