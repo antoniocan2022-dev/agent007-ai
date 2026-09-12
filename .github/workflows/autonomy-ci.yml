@@ -52,7 +52,7 @@ jobs:
       - name: CEO evidence and supervision layer integration suite
         run: bun test tests/ceo-evidence-supervision-layer.test.ts
       - name: Document ingestion pipeline suite
-        run: bun test tests/document-parsers.test.ts tests/media-transcription.test.ts tests/document-ingestion.test.ts tests/media-tools.test.ts tests/ceo-context-composer-knowledge-module.test.ts
+        run: bun test tests/document-parsers.test.ts tests/media-transcription.test.ts tests/document-ingestion.test.ts tests/media-tools.test.ts tests/ceo-context-composer-knowledge-module.test.ts tests/knowledge-base.test.ts tests/kb-route-wiring.test.ts
       - name: Commercial lifecycle integration contract suite
         run: bun test tests/commercial-lifecycle-integration.test.ts
       - name: Commercial autonomy P0/P1 proof suite

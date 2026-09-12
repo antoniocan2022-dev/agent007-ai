@@ -7,7 +7,7 @@ import { cosineSimilarity, getMemoryEmbedding, SEMANTIC_RELEVANCE_THRESHOLD } fr
  * Retrieval blends two signals, the same way ceo-context-composer.ts's memory ranking does:
  *   1. On upload: extract text, split into ~500-char chunks, tokenize each chunk into keywords
  *      (lowercased, deduped, stopwords removed), and best-effort embed each chunk (see
- *      getMemoryEmbedding/embedChunksBestEffort below) -- an exact term match is still strong,
+ *      indexDocument's use of getMemoryEmbedding below) -- an exact term match is still strong,
  *      cheap, high-precision evidence on its own and is never replaced by the semantic signal.
  *   2. On search: tokenize the query, find chunks whose keywords overlap the most (unchanged,
  *      today's behavior), then recover additional chunks via embedding cosine similarity for
@@ -142,6 +142,16 @@ const MAX_SEMANTIC_RECOVERY_POOL = 200
  * embedding the query and comparing against a bounded pool of already-embedded chunks. Mirrors
  * ceo-context-composer.ts's recoverSemanticMemories: fails safe to an empty array (never throws) on
  * any problem -- missing MISTRAL_API_KEY, network error, or a user with no embedded chunks yet.
+ *
+ * Post-merge audit fix (2026-09-12): already-lexically-matched chunks are now excluded in the query
+ * itself (`id: notIn`), not filtered out of the fetched page afterward -- the previous version could
+ * fetch a full page of MAX_SEMANTIC_RECOVERY_POOL chunks and then discard most of them if they
+ * overlapped the caller's lexical matches, silently shrinking the effective candidate pool below
+ * its stated bound. The pool is still ordered by recency, not relevance -- for a knowledge base with
+ * more embedded chunks than MAX_SEMANTIC_RECOVERY_POOL, older documents are less likely to surface
+ * via semantic recovery than recently-ingested ones. That is a real, known scaling limit (the same
+ * "no ANN index yet" tradeoff this file's top comment already documents), not a correctness bug --
+ * keyword search above still covers the full corpus regardless of age.
  */
 async function recoverSemanticChunks(
   userId: string,
@@ -152,13 +162,12 @@ async function recoverSemanticChunks(
   const queryEmbedding = await getMemoryEmbedding(queryText)
   if (!queryEmbedding) return []
   const pool = await db.knowledgeChunk.findMany({
-    where: { userId, embedding: { isEmpty: false } },
+    where: { userId, embedding: { isEmpty: false }, id: { notIn: [...excludeIds] } },
     take: MAX_SEMANTIC_RECOVERY_POOL,
     orderBy: { createdAt: 'desc' },
-    select: { id: true, docId: true, content: true, chunkIndex: true, embedding: true },
+    select: { docId: true, content: true, chunkIndex: true, embedding: true },
   })
   const scored = pool
-    .filter((chunk: any) => !excludeIds.has(chunk.id))
     .map((chunk: any) => ({ docId: chunk.docId, chunkIndex: chunk.chunkIndex, content: chunk.content, score: cosineSimilarity(queryEmbedding, chunk.embedding) }))
     .filter((chunk) => chunk.score >= SEMANTIC_RELEVANCE_THRESHOLD)
   scored.sort((a, b) => b.score - a.score)
