@@ -83,7 +83,7 @@ function estimateTokens(messages: Array<{ role: string; content: string }>): num
 // uploaded to durable object storage is always announced honestly -- its content was never
 // extracted or analyzed, so the model must not be left to guess or the user left to assume
 // it was read.
-function attachmentContextSuffix(attachments: AttachmentMeta[]): string {
+export function attachmentContextSuffix(attachments: AttachmentMeta[]): string {
   const textFiles = attachments.filter((a) => a.textContent)
   const images = attachments.filter((a) => a.mimeType.startsWith('image/') && a.dataUrl)
   const remoteOnly = attachments.filter((a) => a.remote)

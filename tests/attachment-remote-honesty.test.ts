@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { buildHistoryMessages } from '../src/lib/agent'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { buildHistoryMessages, attachmentContextSuffix } from '../src/lib/agent'
 import { toolVision } from '../src/lib/tools'
 import type { AttachmentMeta, ToolContext } from '../src/lib/tools'
+import { composeCeoContext } from '../src/lib/ceo-context-composer'
+
+const ROOT = join(import.meta.dir, '..')
 
 const REMOTE_ATTACHMENT: AttachmentMeta = {
   filename: 'uploads/2026/user1-key-report.pdf',
@@ -67,5 +72,51 @@ describe('toolVision refuses honestly on remote-only images instead of silently 
     const result = await toolVision({}, ctx([]))
     expect(result.ok).toBe(false)
     expect(result.result).toContain('Ask the user to attach an image first')
+  })
+})
+
+describe('route.ts also informs the direct ceo_lifecycle lane about attachments, not only the orchestrator lane', () => {
+  // ceo-pre-router.ts forces route:'full' whenever attachmentsCount > 0 ("Attachments require
+  // contextual inspection and cannot use the direct CEO conversational lane"), but route.ts's
+  // branch into the pure ceo_lifecycle path (as opposed to the operational_orchestrator path
+  // that actually runs tools like `vision`) is keyed on executionContract.orchestrationOwner,
+  // not on that route value -- a 'conversation'/'analysis'/'opinion' intent with an attachment
+  // still resolves orchestrationOwner to 'ceo_lifecycle' (ceo-pre-router.ts's own contractFor).
+  // Without this wiring, that lane's composeCeoContext call never mentions attachments at all,
+  // so the model would have no way to know one exists and nothing stopping it from fabricating
+  // a description of a file or image it was never shown.
+  //
+  // This is threaded through buildCeoContextModules/composeCeoContext's existing module system
+  // (like the pre-existing evidence/execution/organization modules) rather than route.ts hand-
+  // assembling a messages array itself -- tests/ceo-context-boundary-integrity.test.ts forbids
+  // route-level message assembly outside the canonical composer, and rightly so.
+  test('the ceo_lifecycle branch (contextModules) and the operational synthesis branch (synthesisModules) both pass attachmentContextSuffix into buildCeoContextModules', () => {
+    const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
+    expect(source).toContain("import { attachmentContextSuffix } from '@/lib/agent'")
+    expect(source.match(/attachmentContextSuffix\(atts\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source).toContain('modules: contextModules')
+    expect(source).toContain('modules: synthesisModules')
+  })
+
+  test('the canonical composer renders the attachments module as its own explicit, honestly-labeled context block', () => {
+    const composerSource = readFileSync(join(ROOT, 'src/lib/ceo-context-composer.ts'), 'utf-8')
+    expect(composerSource).toContain("'attachments'")
+    expect(composerSource).toContain('ATTACHMENTS CONTEXT')
+    expect(composerSource).toContain('input.modules?.attachments')
+  })
+
+  test('composeCeoContext actually renders a supplied attachments module into the message list and reports it in modules', async () => {
+    const composed = await composeCeoContext({
+      systemPrompt: 'You are Agent007.',
+      currentUserMessage: 'what is in this photo?',
+      persistedMessages: [],
+      memories: [],
+      modules: { attachments: attachmentContextSuffix([REMOTE_IMAGE]) },
+    })
+    expect(composed.modules).toContain('attachments')
+    const attachmentsMessage = composed.messages.find((m) => m.content.includes('ATTACHMENTS CONTEXT'))
+    expect(attachmentsMessage).toBeTruthy()
+    expect(attachmentsMessage!.content).toContain('site-photo.png')
+    expect(attachmentsMessage!.content).toContain('NOT read or analyzed')
   })
 })
