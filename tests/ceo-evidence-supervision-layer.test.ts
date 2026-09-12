@@ -81,12 +81,45 @@ describe('assessCeoSelfInspection (pure)', () => {
     const decision = assessCeoSelfInspection(fakeContext({ currentMessage: 'Can you explain how caching works?' }), fakeContract({ responseAction: 'explain' }))
     expect(decision.inspect).toBe(false)
   })
+
+  // Post-merge audit fix (2026-09-12): the original SELF_HISTORY_SIGNAL_RE matched a bare temporal
+  // word ("before", "already", "again", "earlier") anywhere in the message, so all of these ordinary,
+  // history-unrelated sentences set inspect:true and tripped route.ts's full CEO Grounding Policy
+  // fetch. Each of these was confirmed to false-positive against the pre-fix regex.
+  test.each([
+    'Can we schedule the call before Friday?',
+    'I already paid the invoice, can you confirm receipt?',
+    "Let's sync again next week about the roadmap.",
+    'What should I focus on earlier in the sprint?',
+    'The report is due before end of month.',
+    "Let's do this again sometime.",
+    'The report is due already, please expedite.',
+  ])('ordinary sentence with a bare temporal word does not warrant inspection: %s', (message) => {
+    const decision = assessCeoSelfInspection(fakeContext({ currentMessage: message }), fakeContract())
+    expect(decision.inspect).toBe(false)
+  })
+
+  test.each([
+    'Did we already try raising prices before?',
+    'Have I already recommended this?',
+    'Have I tried this before?',
+    'Was this tried before?',
+    'What happened to the last campaign?',
+    'Did this work?',
+    'Have we done this previously?',
+    'We tried this before and it failed.',
+    'This failed before, will it work now?',
+  ])('a genuine history-referencing question still warrants inspection: %s', (message) => {
+    const decision = assessCeoSelfInspection(fakeContext({ currentMessage: message }), fakeContract())
+    expect(decision.inspect).toBe(true)
+  })
 })
 
 describe('gatherCeoSelfInspectionEvidence (pure, no DB access without identifiers)', () => {
-  test('returns the honest empty-evidence shape when neither ventureId nor missionId is supplied', async () => {
+  test('returns the honest empty-evidence shape when neither ventureId nor missionIds is supplied', async () => {
     const evidence = await gatherCeoSelfInspectionEvidence({})
-    expect(evidence.dataAvailable).toBe(false)
+    expect(evidence.recommendationsAvailable).toBe(false)
+    expect(evidence.executionHistoryAvailable).toBe(false)
     expect(evidence.openRecommendations).toEqual([])
     expect(evidence.recentFailures).toEqual([])
     expect(evidence.openExecutions).toEqual([])
@@ -171,16 +204,47 @@ describe('CEO evidence & supervision layer (real database)', () => {
     const failKey = `ci-evidence-fail-${randomUUID()}`
     const failExec = await startMandatoryExecution({ missionId, actorId: 'ci-actor', actorType: 'test', action: 'ci.evidence_fail', idempotencyKey: failKey, args: {} })
     await completeMandatoryExecution({ receiptId: failExec.receipt.id, missionId, status: 'FAILED', requestHash: failExec.requestHash, errorCode: 'CI_SIMULATED' })
-    const evidence = await gatherCeoSelfInspectionEvidence({ ventureId, missionId })
-    expect(evidence.dataAvailable).toBe(true)
+    const evidence = await gatherCeoSelfInspectionEvidence({ ventureId, missionIds: [missionId] })
+    expect(evidence.recommendationsAvailable).toBe(true)
+    expect(evidence.executionHistoryAvailable).toBe(true)
     expect(evidence.openRecommendations.map((r) => r.recommendationId)).toContain(rec.recommendationId)
     expect(evidence.recentFailures.map((r) => r.idempotencyKey)).toContain(failKey)
+  })
+
+  // Post-merge audit fix (2026-09-12): route.ts previously called gatherCeoSelfInspectionEvidence
+  // with only a ventureId, never a missionId -- meaning getOpenExecutions/getExecutionFailures could
+  // never return real data through the only live call site. Fixed by accepting missionIds (plural),
+  // fed from the same active-missions list route.ts already fetches. This proves the fan-out across
+  // more than one mission actually merges results, not just a single-mission passthrough.
+  test('gatherCeoSelfInspectionEvidence fans out across multiple missionIds and merges their failures', async () => {
+    const secondMissionId = `${missionId}-second`
+    const failKeyA = `ci-multi-fail-a-${randomUUID()}`
+    const failKeyB = `ci-multi-fail-b-${randomUUID()}`
+    const execA = await startMandatoryExecution({ missionId, actorId: 'ci-actor', actorType: 'test', action: 'ci.multi_a', idempotencyKey: failKeyA, args: {} })
+    const execB = await startMandatoryExecution({ missionId: secondMissionId, actorId: 'ci-actor', actorType: 'test', action: 'ci.multi_b', idempotencyKey: failKeyB, args: {} })
+    await completeMandatoryExecution({ receiptId: execA.receipt.id, missionId, status: 'FAILED', requestHash: execA.requestHash, errorCode: 'CI_A' })
+    await completeMandatoryExecution({ receiptId: execB.receipt.id, missionId: secondMissionId, status: 'FAILED', requestHash: execB.requestHash, errorCode: 'CI_B' })
+    try {
+      const evidence = await gatherCeoSelfInspectionEvidence({ missionIds: [missionId, secondMissionId] })
+      const keys = evidence.recentFailures.map((r) => r.idempotencyKey)
+      expect(keys).toContain(failKeyA)
+      expect(keys).toContain(failKeyB)
+    } finally {
+      await db.executionReceipt.deleteMany({ where: { missionId: secondMissionId } }).catch(() => {})
+    }
   })
 
   test('recordRecommendationReview rejects an invalid verdict', async () => {
     const rec = await recordCeoRecommendation({ correlationId: `ci-review-invalid-${randomUUID()}`, objective: 'Review verdict validation.', responseAction: 'decide', ventureId })
     createdRecommendationIds.push(rec.recommendationId)
     await expect(recordRecommendationReview({ recommendationId: rec.recommendationId, reviewerId: 'owner-1', verdict: 'MAYBE' as never })).rejects.toThrow('Invalid recommendation review verdict')
+  })
+
+  // Post-merge audit fix (2026-09-12): previously any recommendationId string was accepted, silently
+  // creating an orphaned review for a typo'd/nonexistent id and returning a false 200 success from
+  // the API route. recordRecommendationReview must now confirm the recommendation actually exists.
+  test('recordRecommendationReview rejects a recommendationId with no matching recommendation', async () => {
+    await expect(recordRecommendationReview({ recommendationId: `ci-nonexistent-${randomUUID()}`, reviewerId: 'owner-1', verdict: 'REVIEWED' })).rejects.toThrow('No recommendation found')
   })
 
   test('a recommendation can be reviewed more than once -- append-only, never overwritten', async () => {

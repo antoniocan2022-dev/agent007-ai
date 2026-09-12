@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
       getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined),
       getLeadershipPerformanceLedger(sessionUserId, sharedMissions).catch(() => undefined),
       getStrategicHorizonView(sessionUserId, new Date(), sharedMissions).catch(() => undefined),
-      selfInspection.inspect ? gatherCeoSelfInspectionEvidence({ ventureId }) : Promise.resolve(undefined),
+      selfInspection.inspect ? gatherCeoSelfInspectionEvidence({ ventureId, missionIds: sharedMissions?.map((mission) => mission.id) }) : Promise.resolve(undefined),
     ])
     executiveState = groundingState
     leadershipLedger = groundingLeadership

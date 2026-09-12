@@ -165,6 +165,14 @@ export async function recordRecommendationReview(input: { recommendationId: stri
   if (!recommendationId || !reviewerId) throw new Error('Recording a recommendation review requires recommendationId and reviewerId.')
   if (!RECOMMENDATION_REVIEW_VERDICTS.includes(input.verdict)) throw new Error(`Invalid recommendation review verdict: ${input.verdict}`)
   const { db } = await import('./db')
+  // Post-merge audit fix (2026-09-12): this used to accept any recommendationId string, silently
+  // creating an orphaned review row for a typo'd or nonexistent id -- the caller got back a 200
+  // "success" for what was actually a no-op, since summarizeRecommendationLedger's reviewedCount
+  // only ever matches a review against a real recommendation's correlationId/recommendationId.
+  // recordCeoRecommendation stores each recommendation under Memory key `ceo_recommendation_<id>`,
+  // so that is the one place able to confirm the id is real before a review is recorded against it.
+  const recommendationExists = await db.memory.findUnique({ where: { key: `ceo_recommendation_${recommendationId}` }, select: { id: true } })
+  if (!recommendationExists) throw new Error(`No recommendation found for id "${recommendationId}". Cannot record a review against a recommendation that does not exist.`)
   const row = await db.recommendationReview.create({ data: { recommendationId, reviewerId, verdict: input.verdict, note: input.note?.trim().slice(0, 4000) ?? '', evidenceRef: input.evidenceRef?.trim() || null } })
   return { id: row.id, recommendationId: row.recommendationId, reviewerId: row.reviewerId, verdict: row.verdict as RecommendationReviewVerdict, note: row.note, evidenceRef: row.evidenceRef, createdAt: row.createdAt.toISOString() }
 }
