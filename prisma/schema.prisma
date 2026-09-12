@@ -717,3 +717,27 @@ model EvidenceClaim {
   @@index([ledgerId, verificationStatus])
   @@index([sourceId])
 }
+
+/// Executive causal spine (2026-09-12), Phase 2: links a durable CEO recommendation/decision
+/// (ceo-outcome-learning.ts's CeoRecommendation, correlationId) to a mission that was deliberately
+/// created to carry it out. Deliberately additive and narrow: it does not duplicate the
+/// recommendation record itself (that stays owned by ceo-outcome-learning.ts / the Memory table)
+/// or the mission record (owned by active-missions-db.ts's JSON-backed store, referenced here only
+/// by its scalar id, the same convention ExecutionReceipt already uses since missions are not a
+/// relational Prisma entity). One decision can produce more than one mission (a retry, a follow-up),
+/// so this is a proper one-to-many join table rather than a single missionId column on the
+/// recommendation record. Written only from the real mission-creation call site
+/// (/api/mission-active's create action) when a recommendationId is explicitly supplied -- never
+/// inferred from an unscoped execution receipt or a fuzzy venture/mission match.
+model RecommendationMissionLink {
+  id               String   @id @default(cuid())
+  recommendationId String
+  missionId        String
+  /// implements | validates | remediates | monitors
+  relation         String   @default("implements")
+  createdAt        DateTime @default(now())
+
+  @@unique([recommendationId, missionId])
+  @@index([missionId])
+  @@index([recommendationId])
+}

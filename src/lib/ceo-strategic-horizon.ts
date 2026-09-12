@@ -1,6 +1,7 @@
 import { db } from './db'
 import { listActiveMissionsDB } from './active-missions-db'
 import type { ActiveMission } from './active-missions'
+import { summarizeRecommendationLedger, type RecommendationLedgerSummary } from './ceo-outcome-learning'
 
 const horizonKey = (userId: string) => `strategic_horizon:${userId}`
 
@@ -123,6 +124,10 @@ export interface StrategicHorizonView {
   monthlyPriorities: readonly string[]
   weeklyMissions: readonly WeeklyMissionBridgeItem[]
   todaysActions: readonly TodaysActionBridgeItem[]
+  // Executive causal spine (2026-09-12): a global summary of the durable recommendation/decision
+  // ledger ceo-outcome-learning.ts owns -- not scoped to a period, since decisions don't yet carry
+  // a horizon-period link of their own (only a strategyId, when one was resolvable at write time).
+  openDecisions: RecommendationLedgerSummary
 }
 
 // The full vision -> annual -> quarterly -> monthly -> weekly -> daily bridge: the top 4 levels
@@ -133,10 +138,11 @@ export interface StrategicHorizonView {
 // same table.
 export async function getStrategicHorizonView(userId: string, now: Date = new Date(), preloadedMissions?: readonly ActiveMission[]): Promise<StrategicHorizonView> {
   const missions = preloadedMissions ?? await listActiveMissionsDB(userId)
-  const [state, weeklyMissions, todaysActions] = await Promise.all([
+  const [state, weeklyMissions, todaysActions, openDecisions] = await Promise.all([
     readHorizonState(userId),
     getWeeklyMissionsBridge(userId, now, missions),
     getTodaysActionsBridge(userId, missions),
+    summarizeRecommendationLedger(),
   ])
   return {
     vision: state.vision,
@@ -145,6 +151,7 @@ export async function getStrategicHorizonView(userId: string, now: Date = new Da
     monthlyPriorities: state.monthly[currentMonthLabel(now)] ?? [],
     weeklyMissions,
     todaysActions,
+    openDecisions,
   }
 }
 
@@ -156,6 +163,7 @@ export function renderStrategicHorizonContext(view: StrategicHorizonView): strin
     `Monthly priorities: ${view.monthlyPriorities.length ? view.monthlyPriorities.join('; ') : 'none set for this month.'}`,
     `This week's missions: ${view.weeklyMissions.length ? view.weeklyMissions.map((mission) => `${mission.title} (${mission.stage})`).join('; ') : 'none created this week.'}`,
     `Today's actions: ${view.todaysActions.length ? view.todaysActions.map((action) => `${action.title}: ${action.nextAction}`).join('; ') : 'no pending next actions recorded.'}`,
+    `Executive decisions: ${view.openDecisions.total ? `${view.openDecisions.total} recorded, ${view.openDecisions.open} open, ${view.openDecisions.awaitingOutcome} awaiting outcome${view.openDecisions.overdueReview ? `, ${view.openDecisions.overdueReview} overdue for review` : ''}.` : 'none recorded yet.'}`,
   ]
   return lines.join('\n')
 }

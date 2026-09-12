@@ -1,5 +1,6 @@
 import { db } from './db'
 import { calculateOperationalKpis, type OperationalKpiSnapshot } from './operational-kpi-engine'
+import { summarizeRecommendationLedger, type RecommendationLedgerSummary } from './ceo-outcome-learning'
 
 export interface ExecutiveStrategyItem {
   id: string
@@ -22,6 +23,10 @@ export interface ExecutiveBusinessState {
   risk: { dataAvailable: boolean; ventureId?: string; status?: string; score?: number; threshold?: number; missingEvidence: readonly string[] }
   customers: { dataAvailable: boolean; ventureId?: string; totalCustomersWithState: number; atRisk: number; churned: number; averageHealthScore: number | null }
   resources: { dataAvailable: boolean; ventureId?: string; grossRevenue?: number; netRevenue?: number; currency?: string | null; autonomyMode?: string; leaseHealthy?: boolean }
+  // Executive causal spine (2026-09-12): the durable recommendation/decision ledger already owned
+  // by ceo-outcome-learning.ts, summarized here rather than duplicated -- see
+  // summarizeRecommendationLedger's own comment for why "open" is correlation-based, not inferred.
+  decisions: RecommendationLedgerSummary & { dataAvailable: boolean }
 }
 
 export const EMPTY_EXECUTIVE_BUSINESS_STATE: ExecutiveBusinessState = Object.freeze<ExecutiveBusinessState>({
@@ -30,6 +35,7 @@ export const EMPTY_EXECUTIVE_BUSINESS_STATE: ExecutiveBusinessState = Object.fre
   risk: { dataAvailable: false, missingEvidence: [] },
   customers: { dataAvailable: false, totalCustomersWithState: 0, atRisk: 0, churned: 0, averageHealthScore: null },
   resources: { dataAvailable: false },
+  decisions: { dataAvailable: false, total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0 },
 })
 
 // calculateOperationalKpis already computes venture readiness (risk), revenue/autonomy
@@ -58,9 +64,10 @@ const PRIORITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 }
 function priorityRank(priority: string): number { return PRIORITY_RANK[priority] ?? 0 }
 
 export async function getExecutiveBusinessState(input: { userId: string; ventureId?: string }): Promise<ExecutiveBusinessState> {
-  const [strategyRows, ventureSlice] = await Promise.all([
+  const [strategyRows, ventureSlice, decisionSummary] = await Promise.all([
     db.businessStrategy.findMany({ where: { userId: input.userId, status: { in: ['planned', 'in_progress', 'active'] } }, orderBy: { updatedAt: 'desc' }, take: 20 }),
     input.ventureId ? getVentureExecutiveSlice(input.ventureId) : Promise.resolve(null),
+    summarizeRecommendationLedger(input.ventureId ? { ventureId: input.ventureId } : {}),
   ])
   const strategy: ExecutiveStrategyItem[] = strategyRows
     .map((row) => ({ id: row.id, phase: row.phase, title: row.title, status: row.status, priority: row.priority, progress: row.progress, targetDate: row.targetDate ? row.targetDate.toISOString() : null }))
@@ -71,6 +78,7 @@ export async function getExecutiveBusinessState(input: { userId: string; venture
     risk: ventureSlice?.risk ?? EMPTY_EXECUTIVE_BUSINESS_STATE.risk,
     customers: ventureSlice?.customers ?? EMPTY_EXECUTIVE_BUSINESS_STATE.customers,
     resources: ventureSlice?.resources ?? EMPTY_EXECUTIVE_BUSINESS_STATE.resources,
+    decisions: { dataAvailable: true, ...decisionSummary },
   }
 }
 
@@ -97,6 +105,13 @@ export function renderExecutiveBusinessStateContext(state: ExecutiveBusinessStat
     state.resources.dataAvailable
       ? `Resources: $${state.resources.grossRevenue?.toFixed(2)} gross / $${state.resources.netRevenue?.toFixed(2)} net revenue (24h)${state.resources.currency ? ` ${state.resources.currency}` : ''}, autonomy ${state.resources.autonomyMode}${state.resources.leaseHealthy ? '' : ' (lease unhealthy)'}`
       : 'Resources: not evaluated for this turn (no venture in scope).',
+  )
+  lines.push(
+    state.decisions.dataAvailable
+      ? state.decisions.total
+        ? `Executive decisions: ${state.decisions.total} recorded, ${state.decisions.open} open, ${state.decisions.awaitingOutcome} awaiting outcome${state.decisions.overdueReview ? `, ${state.decisions.overdueReview} overdue for review` : ''}.`
+        : 'Executive decisions: none recorded yet.'
+      : 'Executive decisions: not evaluated for this turn.',
   )
   return lines.join('\n')
 }

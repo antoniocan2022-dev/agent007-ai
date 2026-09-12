@@ -18,6 +18,7 @@ export const BACKUP_TABLES = [
   'PayPalAccount', 'PendingManageAction', 'PhoneConfig', 'Prediction', 'RiskRegister',
   'Schedule', 'ServicePackage', 'SystemHealth', 'Transaction', 'TwoFactorSecret', 'User',
   'UserSetting', 'Experiment', 'PlatformConnection', 'RiskProfile', 'ScalingPlan', 'SentimentLog',
+  'RecommendationMissionLink',
 ] as const
 
 type BackupTable = typeof BACKUP_TABLES[number]
@@ -174,7 +175,7 @@ const RESTORE_ORDER: BackupTable[] = [
   'PendingManageAction', 'PhoneConfig', 'Prediction', 'RiskProfile', 'RiskRegister', 'ScalingPlan',
   'ServicePackage', 'SystemHealth', 'Transaction', 'TwoFactorSecret', 'Experiment',
   'PlatformConnection', 'MissionTracker', 'SentimentLog', 'Schedule', 'CustomSubagent',
-  'Conversation', 'Message', 'NotificationLog',
+  'Conversation', 'Message', 'NotificationLog', 'RecommendationMissionLink',
 ]
 
 export async function restoreBackupV2(input: any, dryRun = true, targetClient: PrismaClient = db) {

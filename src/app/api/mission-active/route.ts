@@ -5,6 +5,7 @@ import { verifyCanonicalArtifact } from '@/lib/artifact-verifier'
 import { createActiveMissionDB, getActiveMissionDB, listActiveMissionsDB, saveActiveMissionDB } from '@/lib/active-missions-db'
 import { STAGE_ORDER } from '@/lib/active-missions'
 import { resolveMissionOwnerId } from '@/lib/mission-owner'
+import { linkRecommendationToMission, type RecommendationMissionRelation } from '@/lib/ceo-outcome-learning'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -46,7 +47,22 @@ export async function POST(req: NextRequest) {
         category: body.category,
       })
       if (!mission) return fail('Mission persistence unavailable.', 503)
-      return NextResponse.json({ ok: true, mission })
+      // Executive causal spine (2026-09-12), Phase 2: only linked when the caller explicitly
+      // names the CEO recommendation this mission carries out -- this is the real, deliberate
+      // mission-creation call site (unlike startMandatoryExecution's generic execution scope),
+      // so it's the correct place to record "a mission was created to implement this decision."
+      // Never inferred, and never allowed to fail mission creation itself.
+      let recommendationLink: { recommendationId: string; missionId: string; relation: RecommendationMissionRelation } | null = null
+      if (typeof body.recommendationId === 'string' && body.recommendationId.trim()) {
+        const relation: RecommendationMissionRelation = ['implements', 'validates', 'remediates', 'monitors'].includes(body.relation) ? body.relation : 'implements'
+        try {
+          const link = await linkRecommendationToMission({ recommendationId: body.recommendationId, missionId: mission.id, relation })
+          recommendationLink = { recommendationId: link.recommendationId, missionId: link.missionId, relation: link.relation }
+        } catch (error) {
+          console.warn('[api/mission-active] Recommendation-mission link failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))
+        }
+      }
+      return NextResponse.json({ ok: true, mission, recommendationLink })
     }
 
     if (!body.missionId || typeof body.missionId !== 'string') return fail('missionId required')
