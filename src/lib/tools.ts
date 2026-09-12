@@ -22,6 +22,11 @@ export interface AttachmentMeta {
   dataUrl?: string
   // for text-like files: inline text content
   textContent?: string
+  // Set instead of dataUrl/textContent for large files uploaded directly to OCI Object
+  // Storage (see src/lib/oci-large-upload.ts) rather than inlined into the message payload.
+  // Its content is not extracted or analyzed automatically -- tools must say so honestly
+  // rather than silently ignoring it or fabricating an analysis.
+  remote?: { provider: 'oci'; bucket: string; key: string; checksum: { algorithm: string; value: string } }
 }
 
 export interface ToolContext {
@@ -467,6 +472,12 @@ export async function toolVision(
   const idx = Number(args?.image_index ?? 0)
   const images = ctx.attachments.filter((a) => a.mimeType.startsWith('image/') && a.dataUrl)
   if (images.length === 0) {
+    const remoteImages = ctx.attachments.filter((a) => a.mimeType.startsWith('image/') && a.remote)
+    if (remoteImages.length > 0) {
+      return badResult(
+        `${remoteImages.length} image(s) were uploaded to durable object storage (too large to inline) and have not been analyzed: ${remoteImages.map((a) => a.originalName).join(', ')}. Vision analysis is not yet available for remote-only attachments; ask the user to download and re-attach a smaller version if analysis is needed now.`
+      )
+    }
     return badResult(
       'No attached image available for vision analysis. Ask the user to attach an image first.'
     )

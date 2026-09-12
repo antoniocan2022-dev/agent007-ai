@@ -7,6 +7,7 @@ export interface PublicConversationAttachment {
   mimeType?: string
   size?: number
   textContent?: string
+  remote?: AttachmentMeta['remote']
 }
 
 export interface PublicConversationMessage {
@@ -30,6 +31,7 @@ function parseAttachments(value: string | null | undefined): PublicConversationA
         mimeType: typeof item.mimeType === 'string' ? item.mimeType : undefined,
         size: typeof item.size === 'number' && Number.isFinite(item.size) ? item.size : undefined,
         textContent: typeof item.textContent === 'string' ? item.textContent.slice(0, 8000) : undefined,
+        remote: item.remote && typeof item.remote === 'object' ? item.remote : undefined,
       }
     })
   } catch {

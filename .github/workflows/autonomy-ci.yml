@@ -93,6 +93,10 @@ jobs:
         run: bun test tests/system-proof-and-context-contract.test.ts
       - name: Canonical runtime architecture
         run: bun test tests/canonical-runtime-integrity.test.ts
+      - name: Attachment remote-storage honesty contract
+        run: bun test tests/attachment-remote-honesty.test.ts
+      - name: OCI attachment storage signing contract
+        run: bun test tests/oci-attachments-storage.test.ts
       - name: Adaptive execution architecture
         run: bun test tests/adaptive-execution.test.ts
       - name: CEO Decision Kernel

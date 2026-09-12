@@ -9,6 +9,7 @@ import { ReasoningTimeline } from './reasoning-timeline'
 import { ReasoningPanel } from './reasoning-panel'
 import { HexAvatar } from './nexus-logo'
 import type { AttachmentMeta } from '@/lib/tools'
+import { formatBytes } from '@/lib/format-bytes'
 
 function MessageBubbleComponent({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
@@ -52,5 +53,5 @@ function AttachmentChip({ att }: { att: AttachmentMeta }) {
   const isImage = att.mimeType.startsWith('image/') || att.dataUrl
   if (isImage && att.dataUrl) return <a href={att.dataUrl} target="_blank" rel="noreferrer" className="block group"><img src={att.dataUrl} alt={att.originalName} className="w-24 h-24 object-cover rounded-md border border-cyan-400/30 group-hover:border-cyan-400/70 transition" /><div className="text-[9px] text-[#7c89b5] mt-0.5 truncate max-w-[96px]">{att.originalName}</div></a>
   const isText = /\.(txt|md|csv|json|js|ts|tsx|jsx|html|css|xml|yaml|yml|log|py|go|rs|java|c|cpp|h)$/i.test(att.originalName)
-  return <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-cyan-400/5 border border-cyan-400/20 text-xs text-[#9bb5d4] max-w-[220px]">{isText ? <FileText className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" /> : <Paperclip className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />}<span className="truncate">{att.originalName}</span><span className="text-[9px] text-[#7c89b5] flex-shrink-0">{(att.size / 1024).toFixed(1)}KB</span></div>
+  return <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-cyan-400/5 border border-cyan-400/20 text-xs text-[#9bb5d4] max-w-[220px]">{isText ? <FileText className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" /> : <Paperclip className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />}<span className="truncate">{att.originalName}</span><span className="text-[9px] text-[#7c89b5] flex-shrink-0">{formatBytes(att.size)}{att.remote ? ' · not analyzed' : ''}</span></div>
 }

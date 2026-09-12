@@ -79,19 +79,31 @@ export function parseAssistant(content: string): Parsed {
   return { thought, tool, dispatch, textBeforeTool, textAfterTool, raw: content }
 }
 function estimateTokens(messages: Array<{ role: string; content: string }>): number { return Math.ceil(messages.reduce((total, message) => total + String(message.content ?? '').length, 0) / 4) }
+// Shared by both prior-turn history rows and the current turn's attachments so a large file
+// uploaded to durable object storage is always announced honestly -- its content was never
+// extracted or analyzed, so the model must not be left to guess or the user left to assume
+// it was read.
+export function attachmentContextSuffix(attachments: AttachmentMeta[]): string {
+  const textFiles = attachments.filter((a) => a.textContent)
+  const images = attachments.filter((a) => a.mimeType.startsWith('image/') && a.dataUrl)
+  const remoteOnly = attachments.filter((a) => a.remote)
+  let suffix = ''
+  if (textFiles.length) suffix += `\n\n[ATTACHED TEXT FILES]\n${textFiles.map((a) => `--- ${a.originalName} ---\n${a.textContent?.slice(0, 8000)}`).join('\n\n')}`
+  if (images.length) suffix += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.`
+  if (remoteOnly.length) suffix += `\n\n[ATTACHED LARGE FILES (durable storage, NOT read or analyzed): ${remoteOnly.map((a) => `${a.originalName} (${a.size} bytes)`).join(', ')}] These were too large to inline into context. Do not describe or summarize their contents -- you have not seen them. Tell the user their content has not been analyzed if asked about it.`
+  return suffix
+}
 export async function buildHistoryMessages(conversationId: string, currentUserMessage: string, currentAttachments: AttachmentMeta[]): Promise<Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> {
   let priorMessages: any[] = []; try { priorMessages = await db.message.findMany({ where: { conversationId }, orderBy: { createdAt: 'asc' } }) } catch (error: any) { console.warn('[buildHistoryMessages] DB query failed:', error?.message?.slice(0, 120)) }
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
   for (const row of priorMessages) {
     if (row.role === 'user') {
-      let content = String(row.content ?? ''); try { const attachments = row.attachments ? JSON.parse(row.attachments) as AttachmentMeta[] : []; const textFiles = attachments.filter((a) => a.textContent); const images = attachments.filter((a) => a.mimeType.startsWith('image/')); if (textFiles.length) content += `\n\n[ATTACHED TEXT FILES]\n${textFiles.map((a) => `--- ${a.originalName} ---\n${a.textContent?.slice(0, 8000)}`).join('\n\n')}`; if (images.length) content += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.` } catch {}
+      let content = String(row.content ?? ''); try { const attachments = row.attachments ? JSON.parse(row.attachments) as AttachmentMeta[] : []; content += attachmentContextSuffix(attachments) } catch {}
       messages.push({ role: 'user', content })
     } else if (row.role === 'assistant') { const content = String(row.content ?? ''); if (content.trim() && !containsInternalArtifactToken(content)) messages.push({ role: 'assistant', content }) }
     else if (row.role === 'tool') messages.push({ role: 'user', content: `[TOOL_RESULT] ${row.toolName}: ${row.toolResult ?? ''}` })
   }
-  let userContent = currentUserMessage; const textFiles = currentAttachments.filter((a) => a.textContent); const images = currentAttachments.filter((a) => a.mimeType.startsWith('image/'))
-  if (textFiles.length) userContent += `\n\n[ATTACHED TEXT FILES]\n${textFiles.map((a) => `--- ${a.originalName} ---\n${a.textContent?.slice(0, 8000)}`).join('\n\n')}`
-  if (images.length) userContent += `\n\n[ATTACHED IMAGES: ${images.map((a) => a.originalName).join(', ')}] Use the vision tool with image_index to analyze them.`
+  const userContent = currentUserMessage + attachmentContextSuffix(currentAttachments)
   messages.push({ role: 'user', content: userContent })
   const MAX_TOKENS = 50_000; const KEEP_TOKENS = 30_000
   if (estimateTokens(messages) > MAX_TOKENS) {
