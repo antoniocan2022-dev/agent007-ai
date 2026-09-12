@@ -71,6 +71,31 @@ describe('presignOciS3Url (pure signing, no network)', () => {
   })
 })
 
+describe('isOwnedUploadKey (pure regex check, no network)', () => {
+  test('accepts a key matching the safeObjectName shape for its own userId', async () => {
+    const { isOwnedUploadKey } = await import('../src/lib/oci-s3-signer')
+    expect(isOwnedUploadKey('uploads/2026-01-01/user123-11111111-1111-1111-1111-111111111111-report.pdf', 'user123')).toBe(true)
+  })
+
+  test('rejects a key belonging to a different userId', async () => {
+    const { isOwnedUploadKey } = await import('../src/lib/oci-s3-signer')
+    expect(isOwnedUploadKey('uploads/2026-01-01/user123-11111111-1111-1111-1111-111111111111-report.pdf', 'user456')).toBe(false)
+  })
+
+  test('rejects a path-traversal or otherwise malformed key', async () => {
+    const { isOwnedUploadKey } = await import('../src/lib/oci-s3-signer')
+    expect(isOwnedUploadKey('../../etc/passwd', 'user123')).toBe(false)
+    expect(isOwnedUploadKey('uploads/2026-01-01/user123-not-a-uuid-report.pdf', 'user123')).toBe(false)
+  })
+
+  test('escapes regex-special characters in userId rather than letting them alter the match', async () => {
+    const { isOwnedUploadKey } = await import('../src/lib/oci-s3-signer')
+    const trickyUserId = 'user.+*['
+    expect(isOwnedUploadKey(`uploads/2026-01-01/${trickyUserId}-11111111-1111-1111-1111-111111111111-report.pdf`, trickyUserId)).toBe(true)
+    expect(isOwnedUploadKey('uploads/2026-01-01/userX11111111-1111-1111-1111-111111111111X-report.pdf', trickyUserId)).toBe(false)
+  })
+})
+
 describe('OCI Object Storage live credential probe (real environment only)', () => {
   // This deliberately does NOT write, upload, or delete anything -- DR_BACKUP_S3_BUCKET (the
   // fallback attachments bucket) has a retention/immutability policy, so a write-then-cleanup

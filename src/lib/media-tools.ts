@@ -1,23 +1,37 @@
 /**
- * media-tools.ts — 8 tools for full file/media manipulation.
- * 
- * Agent007 can create, read, delete, modify ANY type of file:
- * - Images (PNG, JPG, GIF, WEBP, SVG, BMP)
- * - Videos (MP4, AVI, MOV, MKV, WEBM)
- * - Audio (MP3, WAV, OGG, FLAC, AAC, M4A)
- * - Documents (PDF, DOCX, XLSX, PPTX, TXT, CSV, JSON, code)
- * - Archives (ZIP, TAR, GZ)
+ * media-tools.ts — 8 tools for filesystem I/O and best-effort media processing.
+ *
+ * Honest capability summary:
+ * - File create/read/delete/modify operate on the filesystem visible to the running process.
+ *   In local development that's the project checkout; on Vercel's serverless runtime the
+ *   deployed bundle is read-only and only /tmp is writable, so create/delete/modify only work
+ *   there against /tmp-rooted paths, not the deployed source tree. These tools do not give
+ *   Agent007 access to "ANY type of file" anywhere -- only what this process can already see.
+ * - Images: info/base64 always work; 'analyze' asks the canonical LLM router to describe a
+ *   downscaled inline copy -- real, but bounded by whatever vision capability the routed model has.
+ * - Audio and the video containers Groq's Whisper endpoint accepts directly (mp4, webm) get a real
+ *   transcription via media-transcription.ts (GROQ_API_KEY). Other video containers (avi, mov, mkv)
+ *   cannot be transcribed here -- there is no ffmpeg/transcoding toolchain in this runtime -- and
+ *   frame extraction is best-effort, degrading honestly when python3/opencv aren't installed.
+ * - For real document-format text extraction (PDF/DOCX/XLSX/PPTX) and knowledge-base ingestion of
+ *   large OCI-stored files, see document-parsers.ts and document-ingestion.ts -- this module only
+ *   handles ad hoc local files, not the ingestion pipeline.
  */
 
 import { type ToolContext, type ToolResult } from './tools'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { transcribeAudioOrVideo, isTranscribableExtension } from './media-transcription'
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
 
-const BASE_DIR = '/home/z/my-project'
+// The project root when running locally/in CI; on Vercel's serverless runtime this resolves to the
+// deployed bundle's root, which is read-only -- writes there fail honestly rather than silently
+// landing nowhere. Callers needing a writable location in production should pass an absolute /tmp
+// path instead of a bare filename.
+const BASE_DIR = process.cwd()
 
 /* ================================================================ *
  * 1. FILE_CREATE — Create any type of file
@@ -93,7 +107,7 @@ export async function toolFileDelete(args: {
     const fullPath = filepath.startsWith('/') ? filepath : path.join(BASE_DIR, filepath)
     
     // Safety: don't allow deleting critical system files
-    const protectedPaths = ['/home/z/my-project/src/lib/auth.ts', '/home/z/my-project/src/lib/db.ts', '/home/z/my-project/src/lib/owner-auth.ts', '/home/z/my-project/prisma/schema.prisma']
+    const protectedPaths = ['src/lib/auth.ts', 'src/lib/db.ts', 'src/lib/owner-auth.ts', 'prisma/schema.prisma'].map((p) => path.join(BASE_DIR, p))
     if (protectedPaths.includes(fullPath)) {
       return bad(`Cannot delete protected file: ${fullPath}`)
     }
@@ -222,21 +236,10 @@ export async function toolAudioProcess(args: {
     }
     
     if (action === 'transcribe') {
-      try {
-        const apiKey = process.env.OPENAI_API_KEY
-        if (!apiKey) throw new Error('ASR requires OPENAI_API_KEY')
-        const buf = await fsp.readFile(fullPath)
-        const form = new FormData()
-        form.append('file', new Blob([buf], { type: 'application/octet-stream' }), path.basename(fullPath))
-        form.append('model', 'whisper-1')
-        const asrResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(30000) })
-        if (!asrResponse.ok) throw new Error(`ASR failed: HTTP ${asrResponse.status}`)
-        const result = await asrResponse.json()
-        const transcript = result?.text || result?.transcript || 'Transcription failed'
-        return ok(`Transcribed: ${path.basename(fullPath)}`, `Audio: ${fullPath}\n\nTranscript:\n${transcript}`)
-      } catch (e: any) {
-        return ok(`Audio info (transcribe unavailable): ${path.basename(fullPath)}`, `Audio: ${fullPath}\nSize: ${Math.round(stat.size / 1024)}KB\n\nTranscription failed: ${e?.message}\n\nThe audio file is saved and ready for manual transcription.`)
-      }
+      const buf = await fsp.readFile(fullPath)
+      const result = await transcribeAudioOrVideo(buf, path.basename(fullPath))
+      if (result.ok) return ok(`Transcribed: ${path.basename(fullPath)}`, `Audio: ${fullPath}\n\nTranscript:\n${result.text}`)
+      return ok(`Audio info (transcribe unavailable): ${path.basename(fullPath)}`, `Audio: ${fullPath}\nSize: ${Math.round(stat.size / 1024)}KB\n\nTranscription failed: ${result.error}`)
     }
     
     return bad(`Unknown action: ${action}. Use 'info' or 'transcribe'.`)
@@ -248,24 +251,34 @@ export async function toolAudioProcess(args: {
  * ================================================================ */
 export async function toolVideoProcess(args: {
   filepath?: string
-  action?: string // 'info' | 'frames'
+  action?: string // 'info' | 'frames' | 'transcribe'
 }, _ctx: ToolContext): Promise<ToolResult> {
   const filepath = (args.filepath ?? '').toString().trim()
   if (!filepath) return bad('Missing "filepath" argument')
   const action = (args.action ?? 'info').toString()
-  
+
   try {
     const fullPath = filepath.startsWith('/') ? filepath : path.join(BASE_DIR, filepath)
     const stat = await fsp.stat(fullPath)
     const ext = path.extname(fullPath).toLowerCase()
     const isVideo = ['.mp4', '.avi', '.mov', '.mkv', '.webm'].includes(ext)
-    
+
     if (!isVideo) return bad(`Not a video file: ${ext}`)
-    
+
     if (action === 'info') {
-      return ok(`Video info: ${path.basename(fullPath)}`, `Video: ${fullPath}\nSize: ${Math.round(stat.size / 1024)}KB\nFormat: ${ext}\n\nUse action='frames' to extract key frames for analysis.`)
+      return ok(`Video info: ${path.basename(fullPath)}`, `Video: ${fullPath}\nSize: ${Math.round(stat.size / 1024)}KB\nFormat: ${ext}\n\nUse action='frames' to extract key frames for analysis, or action='transcribe' for speech-to-text (mp4/webm only -- other containers need local transcoding this runtime cannot perform).`)
     }
-    
+
+    if (action === 'transcribe') {
+      if (!isTranscribableExtension(ext)) {
+        return ok(`Video info (transcription unsupported for ${ext}): ${path.basename(fullPath)}`, `Video: ${fullPath}\n\nThis container format (${ext}) is not one Groq's transcription endpoint accepts directly, and this runtime has no ffmpeg/transcoding toolchain to convert it. Supported containers: mp4, webm.`)
+      }
+      const buf = await fsp.readFile(fullPath)
+      const result = await transcribeAudioOrVideo(buf, path.basename(fullPath))
+      if (result.ok) return ok(`Transcribed: ${path.basename(fullPath)}`, `Video: ${fullPath}\n\nTranscript (audio track):\n${result.text}`)
+      return ok(`Video info (transcribe unavailable): ${path.basename(fullPath)}`, `Video: ${fullPath}\nSize: ${Math.round(stat.size / 1024)}KB\n\nTranscription failed: ${result.error}`)
+    }
+
     if (action === 'frames') {
       // Use Python to extract frames with OpenCV
       try {
@@ -299,7 +312,7 @@ print(f'Extracted 5 frames. Total: {total}, FPS: {fps:.1f}, Duration: {duration:
       }
     }
     
-    return bad(`Unknown action: ${action}. Use 'info' or 'frames'.`)
+    return bad(`Unknown action: ${action}. Use 'info', 'frames', or 'transcribe'.`)
   } catch (e: any) { return bad(`video_process failed: ${e?.message}`) }
 }
 
@@ -310,7 +323,7 @@ export async function toolDirectoryList(args: {
   dirpath?: string
   recursive?: boolean
 }, _ctx: ToolContext): Promise<ToolResult> {
-  const dirpath = (args.dirpath ?? '/home/z/my-project').toString().trim()
+  const dirpath = (args.dirpath ?? BASE_DIR).toString().trim()
   const recursive = args.recursive === true
   
   try {

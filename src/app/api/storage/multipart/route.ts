@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { randomUUID } from 'node:crypto'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { ociStorageConfig, presignOciS3Url } from '@/lib/oci-s3-signer'
+import { ociStorageConfig, presignOciS3Url, isOwnedUploadKey } from '@/lib/oci-s3-signer'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,11 +16,6 @@ const CHECKSUM_ALGORITHM = 'SHA256'
 function safeObjectName(name: string, userId: string) {
   const cleaned = name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'upload.bin'
   return `uploads/${new Date().toISOString().slice(0, 10)}/${userId}-${randomUUID()}-${cleaned}`
-}
-
-function isOwnedUploadKey(key: string, userId: string) {
-  const escapedUserId = userId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`^uploads\\/\\d{4}-\\d{2}-\\d{2}\\/${escapedUserId}-[0-9a-f-]{36}-[a-zA-Z0-9._-]+$`).test(key)
 }
 
 async function requireSessionUser() {
