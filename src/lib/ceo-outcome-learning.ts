@@ -149,8 +149,35 @@ export async function listMissionsForRecommendation(recommendationId: string): P
   return rows.map((row) => ({ id: row.id, recommendationId: row.recommendationId, missionId: row.missionId, relation: row.relation as RecommendationMissionRelation, createdAt: row.createdAt.toISOString() }))
 }
 
-export interface RecommendationLedgerSummary { total: number; open: number; awaitingOutcome: number; overdueReview: number }
-const EMPTY_RECOMMENDATION_LEDGER_SUMMARY: RecommendationLedgerSummary = { total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0 }
+export type RecommendationReviewVerdict = 'REVIEWED' | 'APPROVED' | 'FLAGGED' | 'CORRECTED' | 'CLOSED'
+const RECOMMENDATION_REVIEW_VERDICTS: readonly RecommendationReviewVerdict[] = ['REVIEWED', 'APPROVED', 'FLAGGED', 'CORRECTED', 'CLOSED']
+export interface RecommendationReviewRecord { id: string; recommendationId: string; reviewerId: string; verdict: RecommendationReviewVerdict; note: string; evidenceRef: string | null; createdAt: string }
+// Executive causal spine (2026-09-12), Phase 6: the missing supervision half of a ledger that could
+// already answer "what happened" but not "what did an authorized human decide about it." Append-
+// only, not upserted -- a recommendation can legitimately be reviewed more than once (a later
+// review, a correction of an earlier verdict), and each review is its own permanent record rather
+// than a single mutable state that would silently overwrite prior human judgment. Requires an
+// explicit reviewerId and verdict from the whitelisted lifecycle; never inferred, never defaulted
+// to an approval.
+export async function recordRecommendationReview(input: { recommendationId: string; reviewerId: string; verdict: RecommendationReviewVerdict; note?: string; evidenceRef?: string }): Promise<RecommendationReviewRecord> {
+  const recommendationId = input.recommendationId.trim()
+  const reviewerId = input.reviewerId.trim()
+  if (!recommendationId || !reviewerId) throw new Error('Recording a recommendation review requires recommendationId and reviewerId.')
+  if (!RECOMMENDATION_REVIEW_VERDICTS.includes(input.verdict)) throw new Error(`Invalid recommendation review verdict: ${input.verdict}`)
+  const { db } = await import('./db')
+  const row = await db.recommendationReview.create({ data: { recommendationId, reviewerId, verdict: input.verdict, note: input.note?.trim().slice(0, 4000) ?? '', evidenceRef: input.evidenceRef?.trim() || null } })
+  return { id: row.id, recommendationId: row.recommendationId, reviewerId: row.reviewerId, verdict: row.verdict as RecommendationReviewVerdict, note: row.note, evidenceRef: row.evidenceRef, createdAt: row.createdAt.toISOString() }
+}
+export async function listRecommendationReviews(recommendationId: string): Promise<readonly RecommendationReviewRecord[]> {
+  const trimmed = recommendationId.trim()
+  if (!trimmed) return []
+  const { db } = await import('./db')
+  const rows = await db.recommendationReview.findMany({ where: { recommendationId: trimmed }, orderBy: { createdAt: 'asc' } }).catch(() => [])
+  return rows.map((row) => ({ id: row.id, recommendationId: row.recommendationId, reviewerId: row.reviewerId, verdict: row.verdict as RecommendationReviewVerdict, note: row.note, evidenceRef: row.evidenceRef, createdAt: row.createdAt.toISOString() }))
+}
+
+export interface RecommendationLedgerSummary { total: number; open: number; awaitingOutcome: number; overdueReview: number; reviewedCount: number }
+const EMPTY_RECOMMENDATION_LEDGER_SUMMARY: RecommendationLedgerSummary = { total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0, reviewedCount: 0 }
 // Executive causal spine (2026-09-12): a read-only aggregate over the same durable recommendation/
 // outcome records getRecommendationOutcomeCorrelation() already reads one-at-a-time, so
 // ceo-executive-state.ts and ceo-strategic-horizon.ts can finally show "how many decisions are open"
@@ -160,11 +187,13 @@ const EMPTY_RECOMMENDATION_LEDGER_SUMMARY: RecommendationLedgerSummary = { total
 export async function summarizeRecommendationLedger(filter: { strategyId?: string; ventureId?: string } = {}): Promise<RecommendationLedgerSummary> {
   try {
     const { db } = await import('./db')
-    const [recommendationRecords, observedOutcomeRecords, businessOutcomeRecords] = await Promise.all([
+    const [recommendationRecords, observedOutcomeRecords, businessOutcomeRecords, reviewRows] = await Promise.all([
       db.memory.findMany({ where: { category: 'ceo_recommendation' } }).catch(() => []),
       db.memory.findMany({ where: { category: 'ceo_observed_outcome' } }).catch(() => []),
       db.memory.findMany({ where: { category: 'architecture_business_outcome' } }).catch(() => []),
+      db.recommendationReview.findMany({ select: { recommendationId: true } }).catch(() => []),
     ])
+    const reviewedRecommendationIds = new Set(reviewRows.map((row) => row.recommendationId))
     const outcomeRecommendationIds = new Set<string>()
     for (const record of [...observedOutcomeRecords, ...businessOutcomeRecords]) {
       try {
@@ -182,6 +211,7 @@ export async function summarizeRecommendationLedger(filter: { strategyId?: strin
         if (filter.ventureId && parsed.ventureId !== filter.ventureId) continue
         const id = parsed.correlationId ?? parsed.recommendationId
         if (!id) continue
+        if (reviewedRecommendationIds.has(id)) summary = { ...summary, reviewedCount: summary.reviewedCount + 1 }
         summary = { ...summary, total: summary.total + 1 }
         const hasOutcome = outcomeRecommendationIds.has(id)
         if (!hasOutcome) summary = { ...summary, open: summary.open + 1, awaitingOutcome: summary.awaitingOutcome + 1 }

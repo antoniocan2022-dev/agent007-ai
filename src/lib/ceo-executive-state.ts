@@ -35,7 +35,7 @@ export const EMPTY_EXECUTIVE_BUSINESS_STATE: ExecutiveBusinessState = Object.fre
   risk: { dataAvailable: false, missingEvidence: [] },
   customers: { dataAvailable: false, totalCustomersWithState: 0, atRisk: 0, churned: 0, averageHealthScore: null },
   resources: { dataAvailable: false },
-  decisions: { dataAvailable: false, total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0 },
+  decisions: { dataAvailable: false, total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0, reviewedCount: 0 },
 })
 
 // calculateOperationalKpis already computes venture readiness (risk), revenue/autonomy
@@ -109,7 +109,7 @@ export function renderExecutiveBusinessStateContext(state: ExecutiveBusinessStat
   lines.push(
     state.decisions.dataAvailable
       ? state.decisions.total
-        ? `Executive decisions: ${state.decisions.total} recorded, ${state.decisions.open} open, ${state.decisions.awaitingOutcome} awaiting outcome${state.decisions.overdueReview ? `, ${state.decisions.overdueReview} overdue for review` : ''}.`
+        ? `Executive decisions: ${state.decisions.total} recorded, ${state.decisions.open} open, ${state.decisions.awaitingOutcome} awaiting outcome${state.decisions.overdueReview ? `, ${state.decisions.overdueReview} overdue for review` : ''}${state.decisions.reviewedCount ? `, ${state.decisions.reviewedCount} reviewed by an owner` : ''}.`
         : 'Executive decisions: none recorded yet.'
       : 'Executive decisions: not evaluated for this turn.',
   )

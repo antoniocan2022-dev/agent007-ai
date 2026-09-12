@@ -163,7 +163,7 @@ export function renderStrategicHorizonContext(view: StrategicHorizonView): strin
     `Monthly priorities: ${view.monthlyPriorities.length ? view.monthlyPriorities.join('; ') : 'none set for this month.'}`,
     `This week's missions: ${view.weeklyMissions.length ? view.weeklyMissions.map((mission) => `${mission.title} (${mission.stage})`).join('; ') : 'none created this week.'}`,
     `Today's actions: ${view.todaysActions.length ? view.todaysActions.map((action) => `${action.title}: ${action.nextAction}`).join('; ') : 'no pending next actions recorded.'}`,
-    `Executive decisions: ${view.openDecisions.total ? `${view.openDecisions.total} recorded, ${view.openDecisions.open} open, ${view.openDecisions.awaitingOutcome} awaiting outcome${view.openDecisions.overdueReview ? `, ${view.openDecisions.overdueReview} overdue for review` : ''}.` : 'none recorded yet.'}`,
+    `Executive decisions: ${view.openDecisions.total ? `${view.openDecisions.total} recorded, ${view.openDecisions.open} open, ${view.openDecisions.awaitingOutcome} awaiting outcome${view.openDecisions.overdueReview ? `, ${view.openDecisions.overdueReview} overdue for review` : ''}${view.openDecisions.reviewedCount ? `, ${view.openDecisions.reviewedCount} reviewed by an owner` : ''}.` : 'none recorded yet.'}`,
   ]
   return lines.join('\n')
 }

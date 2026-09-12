@@ -30,7 +30,7 @@ describe('period labels', () => {
 
 describe('renderStrategicHorizonContext', () => {
   test('honestly reports every unset level instead of fabricating content', () => {
-    const view: StrategicHorizonView = { vision: null, annualStrategy: [], quarterlyObjectives: [], monthlyPriorities: [], weeklyMissions: [], todaysActions: [], openDecisions: { total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0 } }
+    const view: StrategicHorizonView = { vision: null, annualStrategy: [], quarterlyObjectives: [], monthlyPriorities: [], weeklyMissions: [], todaysActions: [], openDecisions: { total: 0, open: 0, awaitingOutcome: 0, overdueReview: 0, reviewedCount: 0 } }
     const rendered = renderStrategicHorizonContext(view)
     expect(rendered).toContain('Vision: not set.')
     expect(rendered).toContain('Annual strategy: none set for this year.')
@@ -47,13 +47,18 @@ describe('renderStrategicHorizonContext', () => {
       monthlyPriorities: ['Close partner integrations'],
       weeklyMissions: [{ id: 'm1', title: 'Ship affiliate tracker fix', stage: 'IN_PROGRESS', createdAt: new Date().toISOString() }],
       todaysActions: [{ missionId: 'm1', title: 'Ship affiliate tracker fix', nextAction: 'Run the newly active stage leader.' }],
-      openDecisions: { total: 4, open: 2, awaitingOutcome: 2, overdueReview: 1 },
+      openDecisions: { total: 4, open: 2, awaitingOutcome: 2, overdueReview: 1, reviewedCount: 0 },
     }
     const rendered = renderStrategicHorizonContext(view)
     expect(rendered).toContain('Build a self-sustaining autonomous venture portfolio.')
     expect(rendered).toContain('Ship affiliate tracker fix (IN_PROGRESS)')
     expect(rendered).toContain('Ship affiliate tracker fix: Run the newly active stage leader.')
     expect(rendered).toContain('Executive decisions: 4 recorded, 2 open, 2 awaiting outcome, 1 overdue for review.')
+  })
+
+  test('mentions owner review count when present', () => {
+    const view: StrategicHorizonView = { vision: null, annualStrategy: [], quarterlyObjectives: [], monthlyPriorities: [], weeklyMissions: [], todaysActions: [], openDecisions: { total: 2, open: 0, awaitingOutcome: 0, overdueReview: 0, reviewedCount: 2 } }
+    expect(renderStrategicHorizonContext(view)).toContain('2 reviewed by an owner')
   })
 })
 

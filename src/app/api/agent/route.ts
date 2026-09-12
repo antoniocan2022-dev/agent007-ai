@@ -33,6 +33,7 @@ import { getPartnerIntelligence, type PartnerIntelligenceSummary } from '@/lib/c
 import { getExecutiveBusinessState, type ExecutiveBusinessState } from '@/lib/ceo-executive-state'
 import { getLeadershipPerformanceLedger, type LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
 import { getStrategicHorizonView, type StrategicHorizonView } from '@/lib/ceo-strategic-horizon'
+import { assessCeoSelfInspection, gatherCeoSelfInspectionEvidence, renderCeoSelfInspectionContext } from '@/lib/ceo-self-inspection'
 import { listActiveMissionsDB } from '@/lib/active-missions-db'
 import { extractVentureId } from '@/lib/ceo-venture-state'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
@@ -134,23 +135,42 @@ export async function POST(req: NextRequest) {
   const executionContract = preRoute.executionContract
   const decisionContract = buildConversationDecisionContract(contextSeed.canonicalSemanticContext)
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
-  // Best-effort, and only for self-assessment turns: getExecutiveBusinessState is backed by
-  // calculateOperationalKpis, which does real DB scans and transaction-verification work, so none
-  // of this is fetched on an ordinary conversational turn that has no use for it. The three fetches
-  // are independent of each other, so they run concurrently; the mission list they'd otherwise each
-  // query separately (leadership ledger, weekly-missions bridge, today's-actions bridge) is fetched
-  // once up front and shared between them.
+  // CEO Grounding Policy: retrieve the minimum sufficient live context, not everything on every
+  // turn. getExecutiveBusinessState is backed by calculateOperationalKpis, which does real DB scans
+  // and transaction-verification work, so it stays gated -- but the gate used to be self_assessment
+  // only, which meant ceo-decision-synthesis.ts's cross-domain judgment (fed by exactly these three
+  // inputs) never received real data on the decision/recommendation/mission turns it exists for.
+  // Widened to the turns that actually consume this state: self-assessment (unchanged), analysis/
+  // decision intent, a recommend/decide response action, and mission-relevant turns. Ordinary
+  // conversation still fetches none of this.
+  const selfInspection = assessCeoSelfInspection(contextSeed.canonicalSemanticContext, decisionContract)
+  const groundingWarranted = executionContract.intent === 'self_assessment'
+    || executionContract.intent === 'analysis'
+    || executionContract.intent === 'decision'
+    || decisionContract.responseAction === 'recommend'
+    || decisionContract.responseAction === 'decide'
+    || preRoute.missionRelevant
+    || selfInspection.inspect
   let executiveState: ExecutiveBusinessState | undefined
   let leadershipLedger: readonly LeaderPerformanceRecord[] | undefined
   let strategicHorizon: StrategicHorizonView | undefined
-  if (executionContract.intent === 'self_assessment') {
+  // Only populated (and only then passed to buildCeoContextModules below) when self-inspection
+  // actually has something to report -- like the evidence/mission/execution modules, an irrelevant
+  // turn gets no self-inspection system message at all, not an honest-but-noisy "not evaluated" one.
+  let selfInspectionContext: string | undefined
+  if (groundingWarranted) {
     const ventureId = extractVentureId(message) ?? 'venture_001'
     const sharedMissions = await listActiveMissionsDB(sessionUserId).catch(() => undefined)
-    ;[executiveState, leadershipLedger, strategicHorizon] = await Promise.all([
+    const [groundingState, groundingLeadership, groundingHorizon, selfInspectionEvidence] = await Promise.all([
       getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined),
       getLeadershipPerformanceLedger(sessionUserId, sharedMissions).catch(() => undefined),
       getStrategicHorizonView(sessionUserId, new Date(), sharedMissions).catch(() => undefined),
+      selfInspection.inspect ? gatherCeoSelfInspectionEvidence({ ventureId }) : Promise.resolve(undefined),
     ])
+    executiveState = groundingState
+    leadershipLedger = groundingLeadership
+    strategicHorizon = groundingHorizon
+    if (selfInspectionEvidence) selfInspectionContext = renderCeoSelfInspectionContext(selfInspectionEvidence)
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -188,7 +208,7 @@ export async function POST(req: NextRequest) {
             addEvidenceTraceEvent(evidenceTrace, externalEvidenceBundle.sufficient ? 'source_accepted' : 'source_rejected', { sources: externalEvidenceBundle.sources.length, sufficient: externalEvidenceBundle.sufficient })
             safeEnqueue(sse('progress', { phase: 'evidence_complete', sources: externalEvidenceBundle.sources.length, claims: externalEvidenceBundle.claims.length, sufficient: externalEvidenceBundle.sufficient, attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, pageReads: evidenceExecution.pageReads, secSources: evidenceExecution.secSources, failures: evidenceExecution.failures.slice(0, 5) }))
           }
-          const contextModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, evidence: externalEvidenceContext, attachments: atts.length ? attachmentContextSuffix(atts) : undefined })
+          const contextModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, evidence: externalEvidenceContext, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext })
           const composed = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) { const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle); addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount, enforcedByQualityGate: true }); }
@@ -229,12 +249,12 @@ export async function POST(req: NextRequest) {
             safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract }))
           }
         } else {
-          const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement })
+          const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, selfInspection: selfInspectionContext })
           const baseOperationalContext = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: operationalModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
           const operationalEvidence = result.finalAnswer.slice(0, 24000)
           console.log('[api/agent] operational execution telemetry', JSON.stringify({ requestId, completedSteps: result.steps.length, toolSteps: result.steps.filter((step) => Boolean(step.toolName)).length }))
-          const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence, attachments: atts.length ? attachmentContextSuffix(atts) : undefined })
+          const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext })
           const composedOperational = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: synthesisModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composedOperational.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
