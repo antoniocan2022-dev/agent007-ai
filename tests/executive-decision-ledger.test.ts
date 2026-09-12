@@ -92,6 +92,20 @@ describe('executive decision ledger (real database)', () => {
     await expect(closeRecommendationWithSustainedOutcome({ recommendationId: 'x', ventureId: '' })).rejects.toThrow('recommendationId and ventureId')
   })
 
+  test('closing the same recommendation twice is idempotent and writes no duplicate outcome record', async () => {
+    const rec = await seedRecommendation({ ventureId: ventureA })
+    await seedKpiWindows(ventureA, 3, { netRevenue: 100, syntheticRevenueDetected: false })
+    const first = await closeRecommendationWithSustainedOutcome({ recommendationId: rec.recommendationId, ventureId: ventureA })
+    const second = await closeRecommendationWithSustainedOutcome({ recommendationId: rec.recommendationId, ventureId: ventureA })
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(second!.outcome.outcomeId).toBe(first!.outcome.outcomeId)
+    expect(second!.sustained).toBe(first!.sustained)
+    const outcomeRows = await db.memory.findMany({ where: { category: 'ceo_observed_outcome' } })
+    const matchingRows = outcomeRows.filter((row) => row.value.includes(rec.recommendationId) && row.value.includes('ceo_sustained_outcome_assessment'))
+    expect(matchingRows.length).toBe(1)
+  })
+
   test('a single good KPI window (fewer than requested) stays pending, not sustained, and is not force-closed', async () => {
     const rec = await seedRecommendation({ ventureId: ventureA })
     await seedKpiWindows(ventureA, 1, { netRevenue: 100, syntheticRevenueDetected: false })

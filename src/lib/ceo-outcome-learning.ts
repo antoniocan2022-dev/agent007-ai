@@ -47,10 +47,26 @@ export interface SustainedOutcomeClosureResult { recommendationId: string; ventu
 // recorded as a positive or negative outcome. This function only ever writes evidence; it never
 // changes autonomy level, strategy, or allocation itself (see docs/executive-decision-ledger-phase-4.md
 // for why that stays a separate, explicitly-gated future step).
+// Idempotent by recommendationId: recordObservedRecommendationOutcome's own dedup key is a hash
+// that includes observedAt, which this function never pins to a fixed value -- so without the
+// check below, a retried call (timeout, at-least-once delivery) would mint a second, differently
+// timestamped outcome record instead of being a no-op, and the ledger would show one recommendation
+// "closed" twice. Once this function has recorded a sustained-outcome closure for a recommendation,
+// every later call returns that same closure rather than re-assessing and writing again.
 export async function closeRecommendationWithSustainedOutcome(input: { recommendationId: string; ventureId: string; windows?: number }): Promise<SustainedOutcomeClosureResult | null> {
   const recommendationId = input.recommendationId.trim()
   const ventureId = input.ventureId.trim()
   if (!recommendationId || !ventureId) throw new Error('Closing a recommendation with a sustained-outcome assessment requires recommendationId and ventureId.')
+  const { db } = await import('./db')
+  const priorOutcomes = await db.memory.findMany({ where: { category: 'ceo_observed_outcome' } }).catch(() => [])
+  for (const record of priorOutcomes) {
+    try {
+      const parsed = JSON.parse(record.value) as ObservedRecommendationOutcome
+      if (parsed.recommendationId !== recommendationId || parsed.source !== 'ceo_sustained_outcome_assessment') continue
+      const meta = parsed.metadata as { sustained?: boolean; ventureId?: string }
+      return { recommendationId, ventureId: typeof meta.ventureId === 'string' ? meta.ventureId : ventureId, sustained: Boolean(meta.sustained), outcome: parsed }
+    } catch {}
+  }
   const { assessSustainedBusinessOutcome } = await import('./ceo-sustained-outcome')
   const assessment = await assessSustainedBusinessOutcome(ventureId, input.windows ?? 3)
   if (assessment.windowsFound === 0) return null
