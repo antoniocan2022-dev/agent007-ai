@@ -199,6 +199,23 @@ describe('CEO conversational safety gate: second pre-existing bug, found by wiri
     const result = evaluateClaimConsistency('Phoenix is the stronger choice here because of lower acquisition cost. Denver remains a good secondary market once Phoenix stabilizes.')
     expect(result.consistent).toBe(true)
   })
+
+  // Production incident 2026-09-12: a real multi-domain self-assessment ("partners, leadership,
+  // strategy, and decisions") was rejected by the quality gate for "claim-level contradictions" even
+  // though every sentence was true and about a different subsystem. evaluateClaimConsistency's overlap
+  // check counted shared evaluative vocabulary ("available", "verified", "operational", ...) as evidence
+  // the two claims were about the same topic, so honest good/bad news about unrelated subsystems -- which
+  // routinely shares exactly that vocabulary -- tripped the opposing-polarity contradiction check.
+  test('honest mixed-polarity claims about different subsystems are not flagged as contradictory', () => {
+    const result = evaluateClaimConsistency('No partnerships are currently tracked, so partner evidence is not available. Leadership performance data is available and shows strong reliability across missions.')
+    expect(result.consistent).toBe(true)
+  })
+
+  test('a genuine contradiction about the same subsystem is still caught even when described in similar evaluative language', () => {
+    const result = evaluateClaimConsistency('Partner integration evidence is available and verified for this quarter. Partner integration evidence is not available and unverified for this quarter.')
+    expect(result.consistent).toBe(false)
+    expect(result.contradictions.length).toBeGreaterThan(0)
+  })
 })
 
 // Found auditing this session's own Steps 1-3 for real integration/coordination correctness (not

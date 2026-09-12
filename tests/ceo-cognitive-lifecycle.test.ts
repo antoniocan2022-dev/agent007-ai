@@ -7,6 +7,9 @@ import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityCheck } from '@/lib/ceo-cognitive-lifecycle'
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
+import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
+import type { LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
 import { readFileSync } from 'node:fs'
 
 const originalFetch = globalThis.fetch
@@ -547,6 +550,35 @@ describe('CEO cognitive lifecycle', () => {
     const recentTurns = [{ role: 'user' as const, content: 'Continue from where we left off.', createdAt: Date.now() }]
     await semanticContinuityCheck('What was the budget again?', recentTurns, 'The budget is $50k, as established earlier.', olderTurns)
     expect(capturedBody).toContain('ARCHIVAL_MARKER_TOKEN_9F2')
+    resetProviderHealthForTests()
+  })
+
+  // Production incident 2026-09-12: renderLeadershipPerformanceContext existed and was already correct,
+  // but was never called anywhere in this file -- leadership ledger detail fed synthesizeExecutiveDecision's
+  // aggregated cross-domain signal only, and never reached the model as its own context block on any path,
+  // primary included. A self-assessment answer that was supposed to cover "partners, leadership, strategy,
+  // and decisions" could not actually describe leadership specifics because the model never saw them.
+  test('the primary generation path includes real leadership ledger detail in its outbound context', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let capturedBody = ''
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') { if (!capturedBody) capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'Self-assessment across partners, leadership, strategy, and decisions.' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const objective = 'Give me a full self-assessment across partners, leadership, strategy, and decisions'
+    const state = deriveCeoConversationState([], objective)
+    const references = resolveConversationReferences(objective, [], state)
+    const canonicalContext = buildCanonicalConversationContext({ currentMessage: objective, rows: [], state, references })
+    const leadershipLedger: LeaderPerformanceRecord[] = [
+      { leaderId: 'ops-lead-1', mandate: { mission: 'growth', class: 'operations', riskLevel: 'medium' }, missionsInvolved: 5, stagesAdvanced: 9, retries: 1, escalations: 0, timesReplaced: 0, reliabilityScore: 0.9, lastActiveAt: new Date().toISOString() },
+    ]
+
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], canonicalContext, leadershipLedger, timeoutMs: 30000 })
+    expect(capturedBody).toContain('ops-lead-1')
     resetProviderHealthForTests()
   })
 

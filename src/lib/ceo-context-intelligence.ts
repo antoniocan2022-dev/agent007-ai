@@ -249,10 +249,31 @@ function numericValues(claim: string): string[] {
   return [...claim.toLowerCase().matchAll(/\b\d+(?:\.\d+)?\s*(?:%|percent|ms|seconds?|minutes?|hours?|days?)\b/g)].map((m) => m[0])
 }
 
+// The same words that decide polarity() also tend to be the words two unrelated claims share: an
+// executive self-assessment naturally states several domains' evidence state ("partners: not yet
+// tracked", "leadership: verified reliable") in the same register, so "available/verified/proven/
+// operational/..." routinely overlaps between sentences that are not actually about the same subject.
+// Counting that evaluative vocabulary as shared "topic" overlap turns ordinary multi-domain candor into
+// a false contradiction. Strip it from the tokens used to detect a shared subject (polarity() itself is
+// unaffected, since it reads the original claim text) so a contradiction only fires when two claims share
+// a genuine subject AND disagree about it -- not merely when they both describe state in similar words.
+const EVALUATIVE_VOCABULARY = new Set([
+  'available', 'unavailable', 'verified', 'unverified', 'proven', 'unproven', 'confirmed', 'failed',
+  'unknown', 'uncertain', 'succeeded', 'governed', 'capability', 'capabilities', 'evidence', 'verify',
+  'verification', 'operational', 'production', 'live', 'current', 'currently', 'state', 'ready',
+  'readiness', 'tracked', 'tracking',
+])
+
+function claimSubjectTokens(claim: string): Set<string> {
+  const result = new Set<string>()
+  for (const token of tokens(claim)) if (!EVALUATIVE_VOCABULARY.has(token)) result.add(token)
+  return result
+}
+
 export function evaluateClaimConsistency(content: string): ClaimConsistencyResult {
   const claims = sentenceClaims(content)
   const contradictions: ClaimConsistencyResult['contradictions'] = []
-  const claimTokens = claims.map((claim) => tokens(claim))
+  const claimTokens = claims.map((claim) => claimSubjectTokens(claim))
   for (let i = 0; i < claims.length; i += 1) {
     for (let j = i + 1; j < claims.length; j += 1) {
       const shared = overlap(claimTokens[i]!, claimTokens[j]!)
