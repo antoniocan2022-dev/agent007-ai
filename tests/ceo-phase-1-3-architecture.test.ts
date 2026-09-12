@@ -231,6 +231,6 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   test('the recovery generation call is given the live venture evidence in its own messages, not just an honest evidenceProvided flag', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain("const recoveryLiveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):")
-    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...selfAssessmentGuidanceMessages(decisionPlan.executionContract.intent), ...request.messages]')
+    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...recoverySelfAssessmentFactsMessages, ...selfAssessmentGuidanceMessages(')
   })
 })
