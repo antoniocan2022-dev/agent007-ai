@@ -57,4 +57,34 @@ describe('ingestOciDocument input validation (no network/DB required)', () => {
       expect(result.error).toContain('not been analyzed')
     }
   })
+
+  // Post-merge audit fix (2026-09-12): checksum used to be optional, so a caller could skip content
+  // integrity verification entirely despite this pipeline's own docstring claiming the download is
+  // "checksum-verified against the original upload". This check runs before any network call (the
+  // real upload flow always returns a checksum, so a legitimate caller always has one), so it's safe
+  // to test without OCI credentials.
+  test('rejects a request with no checksum -- never silently skips content-integrity verification', async () => {
+    const result = await ingestOciDocument({
+      userId: 'user-a',
+      key: 'uploads/2026-01-01/user-a-11111111-1111-1111-1111-111111111111-file.pdf',
+      filename: 'file.pdf',
+      mimeType: 'application/pdf',
+      size: 1000,
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('checksum')
+  })
+
+  test('rejects a checksum object with an empty value the same way as a missing checksum', async () => {
+    const result = await ingestOciDocument({
+      userId: 'user-a',
+      key: 'uploads/2026-01-01/user-a-11111111-1111-1111-1111-111111111111-file.pdf',
+      filename: 'file.pdf',
+      mimeType: 'application/pdf',
+      size: 1000,
+      checksum: { algorithm: 'SHA256', value: '' },
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('checksum')
+  })
 })

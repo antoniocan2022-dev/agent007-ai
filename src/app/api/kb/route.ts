@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import path from 'node:path'
 import { requestOwnerAuthorization, verifyOwnerAuthorization } from '@/lib/owner-auth'
 import { db } from '@/lib/db'
 import { getSessionUserId } from '@/lib/session-user'
 import { indexDocument } from '@/lib/knowledge-base'
 import { extractDocumentText } from '@/lib/document-parsers'
+import { transcribeAudioOrVideo, isTranscribableExtension } from '@/lib/media-transcription'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -50,6 +52,20 @@ export async function POST(req: NextRequest) {
       text = buffer.toString('utf-8')
     } else if (mimeType.startsWith('image/')) {
       text = `[Image uploaded: ${filename}. Use the vision tool to analyze this image.]`
+    } else if (mimeType.startsWith('audio/') || mimeType.startsWith('video/') || isTranscribableExtension(path.extname(filename))) {
+      // Post-merge audit fix (2026-09-12): this branch previously didn't exist, so a small audio/
+      // video file fell through to the generic binary fallback below and had its raw bytes decoded
+      // as if it were utf-8 text -- garbage that then got chunked and indexed into the knowledge
+      // base. media-transcription.ts is already shared, real infrastructure (used by the OCI
+      // ingest-remote path and media-tools.ts); reusing it here makes both upload entry points
+      // capable of the same thing instead of only one of them actually transcribing audio/video.
+      const ext = path.extname(filename).toLowerCase()
+      if (!isTranscribableExtension(ext)) {
+        text = `[Audio/video uploaded: ${filename}. This container format (${ext || mimeType}) is not one this runtime can transcribe (no ffmpeg/transcoding toolchain). Supported: mp3, wav, ogg, flac, m4a, mp4, webm, mpeg, mpga.]`
+      } else {
+        const transcription = await transcribeAudioOrVideo(buffer, filename)
+        text = transcription.ok ? transcription.text : `[Audio/video uploaded: ${filename}. Transcription failed: ${transcription.error}]`
+      }
     } else {
       // PDF/DOCX/XLSX/PPTX: real per-format extraction (see document-parsers.ts) -- decompresses
       // FlateDecode PDF streams and unzips OOXML parts, rather than the previous raw-byte regex

@@ -13,8 +13,11 @@ export const maxDuration = 300
 
 /**
  * POST /api/kb/ingest-remote
- * Body: { key, filename, mimeType, size, checksum? } -- the same fields oci-large-upload.ts's
- * uploadLargeFile() returns once an OCI large-file upload has completed and been verified.
+ * Body: { key, filename, mimeType, size, checksum: { algorithm, value } } -- the same fields
+ * oci-large-upload.ts's uploadLargeFile() returns once an OCI large-file upload has completed and
+ * been verified. checksum is required (not merely recommended): the pipeline verifies the
+ * downloaded bytes against it before indexing anything, and a genuine caller always has one from a
+ * successful upload.
  *
  * Downloads the object, extracts real text (transcription for audio/video, real per-format parsing
  * for PDF/DOCX/XLSX/PPTX, direct decode for plain text), and indexes it into the same
@@ -45,6 +48,7 @@ export async function POST(req: NextRequest) {
 
   if (!key) return NextResponse.json({ error: 'Missing "key"' }, { status: 400 })
   if (!Number.isSafeInteger(size) || size <= 0) return NextResponse.json({ error: 'Missing or invalid "size"' }, { status: 400 })
+  if (!checksum?.value) return NextResponse.json({ error: 'Missing "checksum" -- required to verify ingestion against the original upload' }, { status: 400 })
 
   const result = await ingestOciDocument({ userId, key, filename, mimeType, size, checksum })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 422 })
