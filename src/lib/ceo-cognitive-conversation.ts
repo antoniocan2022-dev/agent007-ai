@@ -3,6 +3,7 @@ import type { CeoConversationState, ConversationReference } from './ceo-conversa
 import { buildConversationDecisionContract, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { SemanticUncertainty } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest } from './ceo-conversational-signals'
+import { hasExplicitSelfAssessmentPhrase } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
 export type ReferenceScope = 'none' | 'same_turn' | 'cross_turn' | 'mixed'
@@ -13,9 +14,21 @@ export interface ConversationalWorldModel { schemaVersion: 1; workingTopic: stri
 export interface CanonicalConversationContext { schemaVersion: 1; currentMessage: string; meaning: string; semanticInterpretation: SemanticInterpretation; intentHint: SemanticIntentHint; speechAct: SemanticSpeechAct; cognitiveDepth: CognitiveDepth; referenceScope: ReferenceScope; references: readonly ConversationReference[]; worldModel: ConversationalWorldModel; state: CeoConversationState }
 function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
 function unique(items: readonly string[], max = 8): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
+// This function used to carry its own, independently-maintained regex for recognizing an explicit
+// self-assessment phrase, which had drifted out of sync with ceo-self-reflection.ts's canonical
+// EXPLICIT_SELF_ASSESSMENT_RE (this one recognized "is Agent007 ready"-style phrasing that the
+// canonical one didn't gate the same way, and the canonical one recognized "self-assessment"/
+// "self-evaluation"/etc that this one didn't) -- exactly the kind of duplicate-logic drift that let a
+// real self-assessment request go misclassified as 'analysis' in production (2026-09-12). This now
+// calls the shared, single-sourced hasExplicitSelfAssessmentPhrase() for that literal-phrase check
+// instead of re-implementing it. It deliberately does NOT call the fuller classifyCeoSelfReflection
+// (which also matches bare capability/readiness words like "weakness" or "ready") -- that broader net
+// is right for ceo-pre-router.ts's routing decision but too permissive here, where a bare capability
+// word inside an incomplete, unrelated sentence fragment should not by itself commit to self_assessment
+// intent (see tests/ceo-conversation-behavioral.test.ts's incomplete-message cases).
 function userIntentHint(message: string): SemanticIntentHint {
   const text = message.trim().toLowerCase()
-  if (/\b(?:self[- ]assessment|readiness\s+assessment|system\s+readiness|capability\s+assessment|are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing))\b/i.test(text)) return 'self_assessment'
+  if (hasExplicitSelfAssessmentPhrase(message) || /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing)|readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return 'self_assessment'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'

@@ -35,6 +35,23 @@ export interface ExecutiveReadinessSynthesis {
 }
 
 const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo|the\s+(?:agent|system|assistant))\b/i
+// A request for "a self-assessment" (or self-evaluation/-review/-audit/-reflection) is unambiguously
+// about the entity being asked, with no second-person pronoun required -- unlike SELF_REFERENCE_RE,
+// which only recognizes self-reference via an explicit "you/your/CEO/agent007/the system" word. A live
+// production incident (2026-09-12) showed a request phrased entirely in third person ("give me a full
+// self-assessment across partners, leadership, strategy, and decisions") failing SELF_REFERENCE_RE,
+// falling through to a bare "strategy" keyword match, and getting misclassified as generic analysis --
+// so the self-assessment data pipeline never ran and the model had nothing real to answer from. This
+// is a second, independent path into self-reflection recognition (checked below), not a patch that
+// special-cases that one sentence.
+const EXPLICIT_SELF_ASSESSMENT_RE = /\bself[- ](?:assessment|evaluation|review|audit|reflection)\b/i
+// Exported so other intent classifiers (e.g. ceo-cognitive-conversation.ts's userIntentHint) can
+// recognize this same explicit phrasing without re-implementing their own copy of the pattern, which
+// is what let two independent self-assessment regexes drift out of sync in the first place. Those
+// callers intentionally do NOT get the fuller isSelfReflective check below (READINESS_RE/CAPABILITY_RE/
+// PERFORMANCE_RE) -- that broader net is calibrated for this module's own routing decision and is too
+// permissive for contexts (like completeness/fragment detection) that need a precise, explicit signal.
+export function hasExplicitSelfAssessmentPhrase(text: string): boolean { return EXPLICIT_SELF_ASSESSMENT_RE.test(text) }
 const OPERATIONAL_COMMAND_RE = /^(?:please\s+)?(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|enable|disable|schedule|commit)\b/i
 const TARGETED_OPERATION_RE = /\b(?:deploy|publish|send|buy|sell|invest|transfer|execute|implement|fix|create|delete|edit|update|change|launch|ship|start|stop|enable|disable|schedule|commit)\s+(?:this|the|my|our|approved|production|release|build|customer|invoice|mission|venture|business|company|campaign)\b/i
 const RESEARCH_RE = /\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i
@@ -52,13 +69,22 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   const normalized = text.replace(/\s+/g, ' ').trim()
   if (!normalized) return { kind: 'none', isSelfReflective: false, reason: 'No substantive request.' }
   if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
-  if (!SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
+  const explicitSelfAssessmentRequest = EXPLICIT_SELF_ASSESSMENT_RE.test(normalized)
+  if (!explicitSelfAssessmentRequest && !SELF_REFERENCE_RE.test(normalized)) return { kind: 'none', isSelfReflective: false, reason: 'No CEO self-reference detected.' }
 
-  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || MISSION_ACTION_RE.test(normalized) || ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized)) {
+  // MISSION_ACTION_RE matches "run the company"/"manage a business" wherever it appears in the
+  // sentence, including inside a readiness QUESTION about the CEO's own capability ("is Agent007
+  // ready to run the company by itself?") rather than an imperative command to actually do it now.
+  // READINESS_RE already recognizes that same phrase as a genuine self-readiness question (its own
+  // "run/manage a business/company" alternatives), so when both match, this is a capability question,
+  // not an operational command -- MISSION_ACTION_RE's precedence should not apply here.
+  const readinessSignal = READINESS_RE.test(normalized)
+  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || (!readinessSignal && MISSION_ACTION_RE.test(normalized)) || ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized)) {
     return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, external-analysis, or improvement-planning language takes precedence.' }
   }
 
   if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
+  if (explicitSelfAssessmentRequest) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Explicit self-assessment/self-evaluation/self-review/self-audit/self-reflection request; recognized regardless of pronoun.' }
   if (READINESS_RE.test(normalized)) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
   if (CAPABILITY_RE.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }
   if (PERFORMANCE_RE.test(normalized) || /\b(?:how|where)\s+are\s+you\b/i.test(normalized)) return { kind: 'performance_reflection', isSelfReflective: true, reason: 'Self-performance or progress reflection.' }

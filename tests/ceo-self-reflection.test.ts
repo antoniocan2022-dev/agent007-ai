@@ -20,6 +20,13 @@ describe('CEO self-reflection canonical classifier', () => {
     ['Are you ready to manage a business?', 'readiness_assessment'],
     ['Are you prepared to run a company?', 'readiness_assessment'],
     ['Hows it going? make a sekf analysis and tell me if you are ready to mange businesses?', 'readiness_assessment'],
+    // 2026-09-12 production incident: this exact phrasing has no second-person pronoun ("you"/"your"/
+    // "CEO"/"agent007"/"the system") at all, so it failed the old SELF_REFERENCE_RE gate entirely and
+    // fell through to a bare "strategy" keyword match elsewhere, misclassifying as generic analysis.
+    ['Give me a full self-assessment across partners, leadership, strategy, and decisions', 'readiness_assessment'],
+    ['I want a self-evaluation of our partnerships, leadership, and strategic decisions', 'readiness_assessment'],
+    ['Run a self-audit on partners, leadership, strategy', 'readiness_assessment'],
+    ['Time for a self-review', 'readiness_assessment'],
   ] as const)('classifies %j as %s', (text, expected) => {
     const result = classifyCeoSelfReflection(text)
     expect(result.kind).toBe(expected)
@@ -56,6 +63,13 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(decision.executionContract.executionRequirement).toBe('llm_only')
     expect(decision.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
     expect(decision.executionContract.latencyBudgetMs).toBe(30000)
+    expect(decision.route).toBe('fast')
+  })
+
+  test('production incident 2026-09-12: a pronoun-free self-assessment request reaches the self-assessment contract end to end, not generic analysis', () => {
+    const decision = preRouteCeoRequest(user('Give me a full self-assessment across partners, leadership, strategy, and decisions'))
+    expect(decision.executionContract.intent).toBe('self_assessment')
+    expect(decision.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
     expect(decision.route).toBe('fast')
   })
 
