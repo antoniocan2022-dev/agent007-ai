@@ -28,6 +28,18 @@ describe('canonical cognitive conversation architecture', () => {
     expect(context.worldModel.decisions.length).toBeGreaterThan(0)
   })
 
+  // Production incident 2026-09-12: userIntentHint used to keep its own, independently-maintained
+  // self-assessment regex here, out of sync with ceo-self-reflection.ts's canonical classifier -- this
+  // exact pronoun-free phrasing matched neither the old regex here nor the old SELF_REFERENCE_RE there,
+  // and fell through to a bare "strategy" keyword match instead. Now both consult one canonical source.
+  test('intentHint recognizes a pronoun-free self-assessment request via the canonical self-reflection classifier', () => {
+    const current = 'Give me a full self-assessment across partners, leadership, strategy, and decisions'
+    const state = deriveCeoConversationState([], current)
+    const references = resolveConversationReferences(current, [], state)
+    const context = buildCanonicalConversationContext({ currentMessage: current, rows: [], state, references })
+    expect(context.intentHint).toBe('self_assessment')
+  })
+
   test('first-turn conversational proposition remains direct rather than forced into deep execution', () => {
     expect(classifyCognitiveDepthFromMessages('I think these are the three priorities for the CEO conversation.', 0, 0)).toBe('direct')
   })
