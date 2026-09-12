@@ -38,7 +38,13 @@ function canonicalHeaders(headers: Record<string, string>) {
 function getConfig() {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
-  const bucket = process.env.DR_BACKUP_S3_BUCKET
+  // DR_BACKUP_S3_BUCKET is an immutable, retention-locked bucket (see dr-offsite-backup.yml --
+  // "Immutability is provided by the configured storage retention policy"). User-uploaded chat
+  // attachments need normal delete semantics (removed messages, aborted uploads, deletion
+  // requests), which a retention lock defeats. CHAT_ATTACHMENTS_S3_BUCKET lets attachments use a
+  // separate, non-locked bucket once one is provisioned; it falls back to the DR bucket only so
+  // existing configuration keeps working until that separate bucket exists.
+  const bucket = process.env.CHAT_ATTACHMENTS_S3_BUCKET || process.env.DR_BACKUP_S3_BUCKET
   const region = process.env.DR_BACKUP_S3_REGION || 'ca-montreal-1'
   const endpoint = process.env.DR_BACKUP_S3_ENDPOINT || `https://${process.env.DR_BACKUP_S3_NAMESPACE || 'axpyeqhqzuof'}.compat.objectstorage.${region}.oci.customer-oci.com`
 

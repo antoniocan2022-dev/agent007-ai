@@ -728,6 +728,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       size: a.size,
       dataUrl: a.dataUrl,
       textContent: a.textContent,
+      remote: a.remote,
     }))
     const msgs = state.messages
     const idx = msgs.lastIndexOf(lastUser)

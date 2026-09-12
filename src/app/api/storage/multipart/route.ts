@@ -208,6 +208,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    if (action === 'download') {
+      const key = String(body.key || '')
+      if (!isOwnedUploadKey(key, user.id)) return NextResponse.json({ error: 'Invalid download request.' }, { status: 400 })
+      const url = presignOciS3Url({ method: 'GET', key, expiresIn: 900 })
+      return NextResponse.json({ url, expiresIn: 900 })
+    }
+
     return NextResponse.json({ error: 'Unknown multipart action.' }, { status: 400 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected storage error'

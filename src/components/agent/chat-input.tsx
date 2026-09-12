@@ -5,10 +5,13 @@ import { motion } from 'framer-motion'
 import { Paperclip, ArrowUp, Square, X, FileText, Mic } from 'lucide-react'
 import { useChatStore } from '@/store/chat-store'
 import type { AttachmentMeta } from '@/lib/tools'
+import { uploadLargeFile, LARGE_UPLOAD_MIN_BYTES, LARGE_UPLOAD_MAX_BYTES } from '@/lib/oci-large-upload'
+import { formatBytes } from '@/lib/format-bytes'
 
 export function ChatInput() {
   const [text, setText] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [listening, setListening] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -79,19 +82,44 @@ export function ChatInput() {
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
-        if (file.size > 8 * 1024 * 1024) {
-          alert(`File "${file.name}" is too large for the current upload path (max 8MB). Large-file support is being migrated to object storage.`)
+        if (file.size > LARGE_UPLOAD_MAX_BYTES) {
+          alert(`File "${file.name}" (${formatBytes(file.size)}) exceeds the ${formatBytes(LARGE_UPLOAD_MAX_BYTES)} attachment limit.`)
+          continue
+        }
+        if (file.size > LARGE_UPLOAD_MIN_BYTES) {
+          try {
+            setUploadStatus(`Uploading ${file.name}… 0%`)
+            const result = await uploadLargeFile(file, (progress) => {
+              setUploadStatus(`Uploading ${file.name}… ${progress.percent.toFixed(0)}%`)
+            })
+            const meta: AttachmentMeta = {
+              filename: result.key,
+              originalName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              size: result.size,
+              remote: { provider: 'oci', bucket: result.bucket, key: result.key, checksum: result.verification.checksum },
+            }
+            addAttachment(meta)
+          } catch (error) {
+            alert(`Large-file upload failed for ${file.name}: ${error instanceof Error ? error.message : String(error)}`)
+          } finally {
+            setUploadStatus(null)
+          }
           continue
         }
         const fd = new FormData()
         fd.append('file', file)
-        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        const res = await fetch('/api/file', { method: 'POST', body: fd })
         if (!res.ok) {
           alert(`Upload failed for ${file.name}`)
           continue
         }
-        const meta: AttachmentMeta = await res.json()
-        addAttachment(meta)
+        const data = await res.json()
+        if (!data.ok || !data.attachmentMeta) {
+          alert(`Upload failed for ${file.name}: ${data.error ?? 'unknown error'}`)
+          continue
+        }
+        addAttachment(data.attachmentMeta as AttachmentMeta)
       }
     } finally {
       setUploading(false)
@@ -102,13 +130,14 @@ export function ChatInput() {
   return (
     <div className="px-3 sm:px-4 pb-3 pt-2">
       <div className="max-w-[820px] mx-auto">
-        {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2 px-1">{attachments.map((a) => <div key={a.filename} className="relative group flex items-center gap-2 px-2 py-1 rounded-md glass text-xs text-[#9bb5d4] max-w-[260px]">{a.mimeType.startsWith('image/') && a.dataUrl ? <img src={a.dataUrl} alt={a.originalName} className="w-7 h-7 object-cover rounded" /> : <FileText className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />}<span className="truncate max-w-[160px]">{a.originalName}</span><button onClick={() => removeAttachment(a.filename)} className="text-[#7c89b5] hover:text-pink-300" aria-label={`Remove ${a.originalName}`}><X className="w-3 h-3" /></button></div>)}</div>}
+        {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2 px-1">{attachments.map((a) => <div key={a.filename} className="relative group flex items-center gap-2 px-2 py-1 rounded-md glass text-xs text-[#9bb5d4] max-w-[260px]">{a.mimeType.startsWith('image/') && a.dataUrl ? <img src={a.dataUrl} alt={a.originalName} className="w-7 h-7 object-cover rounded" /> : <FileText className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />}<span className="truncate max-w-[160px]">{a.originalName}{a.remote ? ` · ${formatBytes(a.size)}, not analyzed` : ''}</span><button onClick={() => removeAttachment(a.filename)} className="text-[#7c89b5] hover:text-pink-300" aria-label={`Remove ${a.originalName}`}><X className="w-3 h-3" /></button></div>)}</div>}
+        {uploadStatus && <div className="mb-1 px-1 text-[11px] text-cyan-300">{uploadStatus}</div>}
 
         <div className={`glass-strong rounded-2xl px-2.5 py-2 flex items-end gap-2 transition-all ${isBusy ? 'opacity-90' : 'focus-within:neon-border-cyan'}`}>
           <button onClick={() => fileInputRef.current?.click()} disabled={uploading || isBusy} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-40 transition" aria-label="Attach anything" title="Attach files for CEO analysis">
             {uploading ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}><Paperclip className="w-4 h-4" /></motion.div> : <Paperclip className="w-4 h-4" />}
           </button>
-          <input ref={fileInputRef} type="file" multiple className="hidden" accept="image/*,.txt,.md,.csv,.json,.js,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.log,.py,.go,.rs,.java,.c,.cpp,.h,.pdf,.sh,.sql" onChange={handleFile} />
+          <input ref={fileInputRef} type="file" multiple className="hidden" accept="*/*" onChange={handleFile} />
           <textarea ref={textareaRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} placeholder="Ask CEO_AGENT007 anything…" rows={1} className="flex-1 bg-transparent resize-none outline-none text-sm text-[#e0e7ff] placeholder:text-[#5b6a92] py-2 max-h-[200px] overflow-y-auto scroll-cyan" />
           <button onClick={toggleVoice} disabled={isBusy} className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition ${listening ? 'bg-cyan-400/20 border border-cyan-400/60 text-cyan-200' : 'text-cyan-300 hover:bg-cyan-400/10'} disabled:opacity-40`} aria-label="Voice input" title="Voice input"><Mic className="w-4 h-4" /></button>
           {isBusy ? <button onClick={stopStreaming} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center bg-pink-500/20 border border-pink-400/50 text-pink-200 hover:bg-pink-500/30 transition" aria-label="Stop generation" title="Stop"><Square className="w-3.5 h-3.5" fill="currentColor" /></button> : <button onClick={handleSend} disabled={!text.trim() && attachments.length === 0} className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center neon-btn-cyan disabled:cursor-not-allowed" aria-label="Send message" title="Send (Enter)"><ArrowUp className="w-4 h-4" strokeWidth={2.5} /></button>}

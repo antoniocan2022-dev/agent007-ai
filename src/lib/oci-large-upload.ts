@@ -26,6 +26,15 @@ const CONCURRENCY = 4
 const CHECKSUM_HEADER = 'opc-checksum-algorithm'
 const CHECKSUM_ALGORITHM = 'SHA256'
 
+// The server-side multipart route (and OCI itself) supports up to 100 GB, but the chat
+// composer only advertises the 10 GB attachment capability that has been product-scoped and
+// tested end-to-end here. Raising this to the server's full ceiling is a separate decision.
+export const LARGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 * 1024
+// Below this, the existing inline /api/file path (small, base64/text-inlined attachments the
+// CEO can read or view directly) is simpler and sufficient; above it, files are too large to
+// inline into the model context and must go through durable object storage instead.
+export const LARGE_UPLOAD_MIN_BYTES = 8 * 1024 * 1024
+
 async function api(body: Record<string, unknown>) {
   const response = await fetch('/api/storage/multipart', {
     method: 'POST',
@@ -145,4 +154,12 @@ export async function uploadLargeFile(
     }
     throw error
   }
+}
+
+// A short-lived (15 min) presigned GET for a completed upload, scoped to the requesting
+// user's own key by the server (isOwnedUploadKey). Callers should fetch a fresh one right
+// before use rather than caching it.
+export async function getOciDownloadUrl(key: string): Promise<string> {
+  const { url } = await api({ action: 'download', key })
+  return url
 }
