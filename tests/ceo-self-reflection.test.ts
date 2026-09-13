@@ -60,6 +60,23 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
   })
 
+  // Independent post-merge review fix (2026-09-13): the first version of GRANT_ACCESS_RE matched bare
+  // "(what/how) can/do I (do to) (give/grant/enable/provide/connect) you", with no requirement that the
+  // object be about access at all -- so these ordinary business delegation questions, which have nothing
+  // to do with CEO capability, were misrouted onto the bounded, tool-free self-assessment lane and
+  // silently discarded. Every prior addition to CAPABILITY_RE's proximity/phrase alternatives in this
+  // file paired its positive cases with adversarial negatives for exactly this reason -- this is that
+  // pairing for GRANT_ACCESS_RE.
+  test.each([
+    'what can I do to give you the numbers you need for the board deck?',
+    'how can I enable you to close this deal?',
+    'how can I provide you with the budget figures?',
+    'what can I do to connect you with the sales team?',
+    'how do I give you the go-ahead on this?',
+  ])('does not misclassify ordinary business delegation as a capability question: %s', (text) => {
+    expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
+  })
+
   // Post-merge audit fix (2026-09-12): CAPABILITY_RE briefly included a standalone
   // `recent (?:upgrades?|additions?|updates?|changes?)` alternative, whose `updates?`/`changes?`
   // branches are common, generic business phrasing unrelated to a CEO self-capability question. Any

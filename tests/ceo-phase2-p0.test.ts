@@ -91,6 +91,17 @@ describe('P0: research/decision separation (ceo-decision-grade-evidence.ts)', ()
     expect(decide.failClosed).toBe(true)
   })
 
+  // Independent post-merge review fix (2026-09-13): an unspecified operation used to fall to the
+  // permissive research tier here, disagreeing with the conservative ("undefined -> treat as decision
+  // grade") default this session's other two fail-closed checks -- ceo-claim-evidence-gate.ts's
+  // verifyClaimEvidence and ceo-degraded-mode.ts's requiresDecisionGradeAbstention -- both already use.
+  // Only a positively-identified non-decision operation should earn the research tier.
+  test('an unspecified operation for public_equity defaults to the conservative decision tier, not the permissive research tier', () => {
+    const unspecified = requirementsForDecisionEvidence({ domain: 'public_equity' })
+    expect(unspecified.failClosed).toBe(true)
+    expect(unspecified.requiredDimensions).toContain('decision')
+  })
+
   test('an incomplete research-operation assessment reports honest gaps without throwing', () => {
     const source = createEvidenceSource({ url: 'https://example.com/sparse', title: 'Sparse', sourceType: 'web', sourceTier: 3, retrievedAt: Date.now(), text: 'Some unrelated commentary about the sector in general.' })
     const bundle = buildEvidenceBundle({ profile: 'public_equity', operation: 'research', sources: [source], minimumSources: 1, minimumTierOneSources: 0 })
