@@ -13,13 +13,16 @@ const EXTERNAL_CLAIM_RE = /\b(?:according\s+to|latest|market|revenue|sales|earni
 const LIVE_CLAIM_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|in\s+production|production\s+traffic)\b/i
 const INTERNAL_CLAIM_RE = /\b(?:architectur(?:e|al)|designed|implemented|configured|codebase|workflow|contract|module|repository|system\s+design|execution\s+path)\b/i
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','agent007'])
-const NUMBER_RE = /(?:[$€£]\s*)?(\d+(?:\.\d+)?)\s*(k|thousand|m|mn|million|b|bn|billion|percent|%|usd|cad|dollars?)?/gi
+// Deep-audit fix (2026-09-13): widened to also match comma-grouped digits ("10,000"), which the
+// plain \d+ form silently truncated at the first comma (matching only "10"). normalizeNumber strips
+// the commas before calling Number() on the captured group.
+const NUMBER_RE = /(?:[$€£]\s*)?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(k|thousand|m|mn|million|b|bn|billion|percent|%|usd|cad|dollars?)?/gi
 const METRIC_RE = /\b(revenue|sales|earnings|eps|cash|debt|assets|liabilities|income|loss|margin|guidance|backlog|price|market\s+cap|valuation|shares?|contract|dividend)\b/i
 const EVIDENCE_MARKER_RE = /\[(?:S\d+-[0-9a-f]+|SEC-[A-Z0-9]+|PAGE-\d+)\]/gi
 function stripEvidenceMarkers(text: string): string { return text.replace(EVIDENCE_MARKER_RE, ' ') }
 function tokens(value: string): string[] { return [...new Set(stripEvidenceMarkers(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))] }
 function normalizeNumber(value: string, unit?: string): string {
-  const numeric = Number(value)
+  const numeric = Number(value.replace(/,/g, ''))
   if (!Number.isFinite(numeric)) return `${value.toLowerCase()} ${unit?.toLowerCase() ?? ''}`.trim()
   const normalizedUnit = (unit ?? '').toLowerCase()
   const multiplier = normalizedUnit === 'b' || normalizedUnit === 'bn' || normalizedUnit === 'billion' ? 1_000_000_000 : normalizedUnit === 'm' || normalizedUnit === 'mn' || normalizedUnit === 'million' ? 1_000_000 : normalizedUnit === 'k' || normalizedUnit === 'thousand' ? 1_000 : 1
@@ -35,7 +38,15 @@ function claimValueSupported(sentence: string, sources: EvidenceSource[]): boole
   const candidateLines = sources.flatMap((source) => source.text.split(/\n+/).filter((line) => line.trim())).filter((line) => claimMetrics.length === 0 || claimMetrics.some((metric) => new RegExp(`\\b${metric.replace(/\\s+/g, '\\s+')}\\b`, 'i').test(line)))
   return claimNumbers.every((number) => candidateLines.some((line) => numericSignatures(line).includes(number)))
 }
-function claimScope(sentence: string): ClaimVerification['scope'] | null { if (LIVE_CLAIM_RE.test(sentence)) return 'live_system'; if (EXTERNAL_CLAIM_RE.test(sentence)) return 'external_web'; if (INTERNAL_CLAIM_RE.test(sentence)) return 'internal_state'; return null }
+// Deep-audit fix (2026-09-13): a sentence asserting a specific, checkable quantitative change ("We
+// grew 40% last quarter.", "Signups reached 10,000 this week.") matched none of the three scope
+// regexes above -- no revenue/sales/current/architecture-style keyword -- so claimScope returned null
+// and the sentence was excluded from `claims` entirely at its only call site (verifyClaimEvidence),
+// never counted toward requiredClaimCount and never checked against evidence. A change-direction verb
+// co-occurring with a real parsed number is exactly the shape of claim this gate exists to catch, so it
+// now gets the same 'external_web' scope EXTERNAL_CLAIM_RE's business-metric keywords already receive.
+const QUANTITATIVE_CHANGE_RE = /\b(?:grew|grow|growth|grown|reached|rose|rising|increased?|decreased?|declined?|dropped|fell|hit|doubled|tripled|surged|jumped|plunged)\b/i
+function claimScope(sentence: string): ClaimVerification['scope'] | null { if (LIVE_CLAIM_RE.test(sentence)) return 'live_system'; if (EXTERNAL_CLAIM_RE.test(sentence)) return 'external_web'; if (INTERNAL_CLAIM_RE.test(sentence)) return 'internal_state'; if (QUANTITATIVE_CHANGE_RE.test(sentence) && numericSignatures(sentence).length > 0) return 'external_web'; return null }
 function markerIds(sentence: string): string[] { return [...sentence.matchAll(/\[(S\d+-[0-9a-f]+|SEC-[A-Z0-9]+|PAGE-\d+)\]/gi)].map((match) => match[1]) }
 function overlapScore(sentence: string, source: EvidenceSource): number {
   const wanted = tokens(sentence)

@@ -12,10 +12,21 @@ const EXTERNAL_SIGNAL_RE = /\b(?:competitor(?:s)?|rival(?:s)?|news|headlines?|ma
 const EXPLICIT_EXTERNAL_REGULATORY_RE = /\b(?:current|latest|recent|new|changed|updated|what(?: does| do) .* law|legal requirement(?:s)?|regulatory requirement(?:s)?|regulation(?:s)?|rule(?:s)?|filing(?:s)?)\b/i
 const INTERNAL_ONLY_RE = /\b(?:our|we|us|my|internal|this business|our business|our operations|our process|our system)\b/i
 
+// Deep-audit fix (2026-09-13): this re-inclusion list used to also contain 'latest'/'recent', but
+// those two words are already REQUIRED to reach this line at all -- they're part of EXTERNAL_SIGNAL_RE
+// above, which gates entry via the `if (!EXTERNAL_SIGNAL_RE.test(text)) return false` at the top. Any
+// text that reached this point via "latest"/"recent" would therefore always contain "latest"/"recent"
+// itself and automatically satisfy this re-inclusion check, making the whole INTERNAL_ONLY_RE exclusion
+// a no-op for those two triggers: "Any recent changes to our internal process?" matched
+// EXTERNAL_SIGNAL_RE on "recent", matched INTERNAL_ONLY_RE on "our"/"internal", but then also matched
+// this re-inclusion regex on the same "recent" -- so the exclusion never actually fired. Genuinely
+// external-flavored words (competitor/rival/news/market/industry/sector/research/search/etc.) are
+// still real, independent re-inclusion signals and are kept.
+const EXTERNAL_REINCLUSION_RE = /\b(?:competitor|rival|news|market|industry|sector|research|search|look\s+up|fact[- ]check)\b/i
 function externalInvestigationSignal(text: string): boolean {
   if (!EXTERNAL_SIGNAL_RE.test(text)) return false
   if (/\b(?:compliance|regulatory)\b/i.test(text) && !EXPLICIT_EXTERNAL_REGULATORY_RE.test(text)) return false
-  if (INTERNAL_ONLY_RE.test(text) && !/\b(?:competitor|rival|news|market|industry|sector|latest|recent|research|search|look\s+up|fact[- ]check)\b/i.test(text)) return false
+  if (INTERNAL_ONLY_RE.test(text) && !EXTERNAL_REINCLUSION_RE.test(text)) return false
   return true
 }
 

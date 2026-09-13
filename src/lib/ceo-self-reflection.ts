@@ -60,7 +60,31 @@ const ANALYSIS_TARGET_RE = /\b(?:analy[sz]e|assess|evaluate|review|diagnose|comp
 /** Tolerates a leading salutation ("Hi Agent007,") so a greeting doesn't defeat the anchored check-in match below. */
 const GREETING_PREFIX_RE = `(?:(?:hi|hey|hello|hiya|howdy|greetings)[,!.\\s]*(?:agent\\s?007|ceo)?[,!.\\s]*)?`
 const CASUAL_CHECKIN_RE = new RegExp(`^${GREETING_PREFIX_RE}(?:how(?:'s|\\s+is)\\s+(?:it|everything|things?)\\s+going|how\\s+are\\s+(?:you|things?)(?:\\s+doing)?(?:\\s+today|\\s+now|\\s+lately|\\s+these\\s+days)?|how\\s+do\\s+you\\s+do|how\\s+is\\s+(?:agent007|the\\s+(?:system|ceo|agent))\\s+doing|you\\s+(?:good|okay|alright)|what(?:'s|\\s+is)\\s+new(?:\\s+with\\s+you)?)[!.?\\s]*$`, 'i')
-const PERFORMANCE_RE = /\b(?:improving|getting\s+better|performance|performing|progress|progressing|better|worse|declining|evolving|evolution|learning|developing|growth|how\s+have\s+you\s+been|how\s+are\s+you\s+performing)\b/i
+// Deep-audit fix (2026-09-13): every one of these bare words used to match anywhere in the message
+// independent of where the "you/your" satisfying SELF_REFERENCE_RE actually was, so a business
+// question with the self-reference pronoun in an unrelated clause ("You mentioned our revenue growth
+// this quarter, how's it looking?") got misclassified as performance_reflection. `nearSelfReference`
+// (below) requires the word to actually sit close to a self-reference term, in either order, mirroring
+// the same proximity discipline ceo-self-inspection.ts's SELF_HISTORY_SIGNAL_RE already uses for the
+// identical class of bug. The two already-anchored full phrases at the end already embed "you"
+// literally and need no wrapping.
+// Word-count gap rather than a character-count gap: length-invariant across short vs. long trigger
+// words/phrases, and empirically the only version that actually separates the two cases -- a
+// character budget generous enough for "your revenue growth" (adjacent) was, by construction, also
+// generous enough for "our engineers are capable" (four words, ~25 characters) to slip through.
+// maxWords=2 tolerates the short connective phrasing every genuine self-directed question in this
+// file's own test suite actually uses ("are you ready TO MANAGE a business") while excluding the
+// longer, unrelated-subject clauses the audit's adversarial probes used ("do you think OUR ENGINEERS
+// ARE capable" -- four intervening words).
+const SELF_REFERENCE_WORD_RE_SOURCE = '(?:you|your|yourself|agent007|ceo|the\\s+(?:agent|system|assistant))'
+function nearSelfReference(word: string, maxWords = 2): string {
+  const gap = `(?:\\S+\\s+){0,${maxWords}}`
+  return `(?:\\b${SELF_REFERENCE_WORD_RE_SOURCE}\\b\\s+${gap}\\b${word}\\b|\\b${word}\\b\\s+${gap}\\b${SELF_REFERENCE_WORD_RE_SOURCE}\\b)`
+}
+const PERFORMANCE_RE = new RegExp(
+  [nearSelfReference('improving'), nearSelfReference('getting\\s+better'), nearSelfReference('performance'), nearSelfReference('performing'), nearSelfReference('progress'), nearSelfReference('progressing'), nearSelfReference('better'), nearSelfReference('worse'), nearSelfReference('declining'), nearSelfReference('evolving'), nearSelfReference('evolution'), nearSelfReference('learning'), nearSelfReference('developing'), nearSelfReference('growth'), '\\bhow\\s+have\\s+you\\s+been\\b', '\\bhow\\s+are\\s+you\\s+performing\\b'].join('|'),
+  'i',
+)
 // 'upgrades?'/'new features?'/'recently added' added (2026-09-12): a direct "what upgrades have you
 // gotten recently?" or "tell me about your recent upgrades" previously matched no kind at all (fell
 // through every branch to 'none') despite clearly asking the same question this whole classifier
@@ -78,8 +102,26 @@ const PERFORMANCE_RE = /\b(?:improving|getting\s+better|performance|performing|p
 // you make to the campaign?") matched it and got misrouted onto the bounded, tool-free self_assessment
 // fast lane instead of the real analysis/operational path that could actually answer the question.
 // Removed entirely rather than narrowed, since nothing in this file's own tests needed it.
-const CAPABILITY_RE = /\b(?:strengths?|weakness(?:es)?|capabilit(?:y|ies)|capable|skills?|limitations?|what\s+can\s+you\s+do|what\s+are\s+you\s+good\s+at|architecture|proven|unproven|(?:not\s+yet\s+|un)?verified|upgrades?|new\s+features?|recently\s+added)\b/i
-const READINESS_RE = /\b(?:ready|readiness|prepared|equipped|fit\s+to|able\s+to\s+manage|manage\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?business(?:es)?|run\s+(?:a\s+)?compan(?:y|ies)|business\s+management|autonom(?:y|ous))\b/i
+// Deep-audit fix (2026-09-13): same proximity fix as PERFORMANCE_RE above -- "Do you think our
+// engineers are capable of handling this workload?" used to misclassify as capability_assessment
+// purely because "you" and "capable" both appeared somewhere in the message, regardless of how far
+// apart. `what can you do`/`what are you good at` already embed "you" literally and stay bare.
+const CAPABILITY_RE = new RegExp(
+  [nearSelfReference('strengths?'), nearSelfReference('weakness(?:es)?'), nearSelfReference('capabilit(?:y|ies)'), nearSelfReference('capable'), nearSelfReference('skills?'), nearSelfReference('limitations?'), '\\bwhat\\s+can\\s+you\\s+do\\b', '\\bwhat\\s+are\\s+you\\s+good\\s+at\\b', nearSelfReference('architecture'), nearSelfReference('proven'), nearSelfReference('unproven'), nearSelfReference('(?:not\\s+yet\\s+|un)?verified'), nearSelfReference('upgrades?'), nearSelfReference('new\\s+features?'), nearSelfReference('recently\\s+added')].join('|'),
+  'i',
+)
+// Deep-audit fix (2026-09-13): same proximity fix -- "Do you think Sarah is ready to manage a business
+// unit?" used to misclassify as readiness_assessment purely because "you" appeared elsewhere in the
+// message ("ready" itself was bare and matched regardless). All alternatives are now proximity-gated,
+// including ready/readiness/prepared/equipped/fit to/able to manage/autonom(y|ous) -- none of them are
+// meaningfully safer than the business/company phrases in ordinary business speech ("is the report
+// ready? are you free to review it?"). This stays consistent with the MISSION_ACTION_RE-precedence
+// comment below, which only needs the business/company phrases to match near an explicit self-reference
+// like "Agent007" in the same short question -- already satisfied by the proximity gate.
+const READINESS_RE = new RegExp(
+  [nearSelfReference('ready'), nearSelfReference('readiness'), nearSelfReference('prepared'), nearSelfReference('equipped'), nearSelfReference('fit\\s+to'), nearSelfReference('able\\s+to\\s+manage'), nearSelfReference('manage\\s+(?:a\\s+)?business(?:es)?'), nearSelfReference('run\\s+(?:a\\s+)?business(?:es)?'), nearSelfReference('run\\s+(?:a\\s+)?compan(?:y|ies)'), nearSelfReference('business\\s+management'), nearSelfReference('autonom(?:y|ous)')].join('|'),
+  'i',
+)
 const IMPROVEMENT_REQUEST_RE = /\b(?:i\s+want\s+to\s+(?:improve|build|change|update|work\s+on|develop)|let'?s\s+(?:improve|focus\s+on|work\s+on|build|develop)|help\s+(?:me\s+)?(?:improve|build)|can\s+(?:we|you)\s+(?:improve|work\s+on|focus\s+on))\b/i
 
 export function classifyCeoSelfReflection(text: string): SelfReflectionClassification {

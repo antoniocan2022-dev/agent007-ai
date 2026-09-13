@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildCanonicalConversationContext, classifyCognitiveDepthFromMessages } from '@/lib/ceo-cognitive-conversation'
+import { buildCanonicalConversationContext, classifyCognitiveDepth, classifyCognitiveDepthFromMessages } from '@/lib/ceo-cognitive-conversation'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import { buildConversationRegressionContract } from '@/lib/ceo-conversation-regression'
 import { scoreCeoConversationQuality } from '@/lib/ceo-response-quality-gate'
@@ -14,6 +14,34 @@ const rows: Row[] = [
 ]
 
 describe('canonical cognitive conversation architecture', () => {
+  // Deep-audit fix (2026-09-13): speechAct() used to hand-roll its own narrower continuation check,
+  // missing phrases the canonical isContinuationOrRestatementRequest already recognizes elsewhere in
+  // the codebase (quality gate, degraded mode).
+  test.each([
+    'Recap what we discussed.',
+    'Tell me that in your own words.',
+    'What about the second option?',
+  ])('recognizes canonical continuation/restatement phrasing as speechAct "continuation": %s', (message) => {
+    const state = deriveCeoConversationState(rows, message)
+    const references = resolveConversationReferences(message, rows, state)
+    const context = buildCanonicalConversationContext({ currentMessage: message, rows, state, references })
+    expect(context.speechAct).toBe('continuation')
+  })
+
+  // Deep-audit fix (2026-09-13): classifyCognitiveDepth (used for context.cognitiveDepth) and
+  // classifyCognitiveDepthFromMessages (used by canonical-llm-router.ts to gate the 8000-token deep
+  // lane) had independently drifted on their strategic-depth trigger regex -- the former missed
+  // 'assess' and only matched singular 'trade-off'. Both now agree on the same message.
+  test.each([
+    ['Let\'s assess the situation with our vendor contract.', 'strategic'],
+    ['What are the trade-offs of this approach?', 'strategic'],
+  ] as const)('classifyCognitiveDepth and classifyCognitiveDepthFromMessages agree on %j -> %s', (message, expected) => {
+    const state = deriveCeoConversationState([], message)
+    expect(classifyCognitiveDepth(message, state, 0)).toBe(expected)
+    expect(classifyCognitiveDepthFromMessages(message, 0, 0)).toBe(expected)
+  })
+
+
   test('builds one semantic context shared by state, references, world model, and cognitive depth', () => {
     const current = "Okay. Let's work on the second one."
     const state = deriveCeoConversationState(rows, current)

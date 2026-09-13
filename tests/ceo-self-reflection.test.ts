@@ -67,6 +67,39 @@ describe('CEO self-reflection canonical classifier', () => {
     expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
   })
 
+  // Deep-audit fix (2026-09-13): CAPABILITY_RE/READINESS_RE/PERFORMANCE_RE's remaining bare words
+  // (capable, skills, architecture, weakness(es), strengths, limitations, proven, growth, learning,
+  // performance, manage/run a business/company) used to match anywhere in the message independent of
+  // where the self-reference pronoun actually was, so a real business question with "you" in an
+  // unrelated clause got misrouted onto the bounded self-assessment lane. nearSelfReference now
+  // requires the word to actually sit near a self-reference term.
+  test.each([
+    'Do you think our engineers are capable of handling this workload?',
+    'You mentioned our revenue growth this quarter, how is it looking?',
+    'Do you think our team has the skills for this project?',
+    'What do you think about our microservice architecture?',
+    'Do you think there might be any weaknesses in our current marketing plan?',
+    'What are the limitations of our current CRM, in your opinion?',
+    'Do you think Sarah is ready to manage a business unit?',
+    'How is the new hire performing on the sales team, in your view?',
+  ])('does not misclassify a business question with a distant self-reference pronoun as self-reflective: %s', (text) => {
+    expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
+  })
+
+  // The same words still correctly trigger when they actually sit near the self-reference, matching
+  // the pre-existing, still-passing test cases above ("How capable are you?", "What are your
+  // strengths?", "Are you ready to manage a business?") but phrased with the self-reference on the
+  // other side.
+  test.each([
+    ['Are your engineers capable of this workload?', 'capability_assessment'],
+    ['What is your revenue growth like this quarter?', 'performance_reflection'],
+    ['Do you have the skills for this?', 'capability_assessment'],
+    ['Is Agent007 ready to run a company on its own?', 'readiness_assessment'],
+  ] as const)('still classifies %j as %s when the word sits near the self-reference', (text, expected) => {
+    const result = classifyCeoSelfReflection(text)
+    expect(result.kind).toBe(expected)
+  })
+
   test('keeps casual self-reflection on the bounded fast execution class', () => {
     const plan = classifyExecution(user('How are you doing?'))
     expect(plan.executionClass).toBe('fast')

@@ -2,7 +2,7 @@ import type { PersistedConversationRow, PersistedMemoryRow } from './ceo-context
 import type { CeoConversationState, ConversationReference } from './ceo-conversation-state'
 import { buildConversationDecisionContract, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { SemanticUncertainty } from './ceo-cognitive-contract'
-import { isCommitmentStatement, isCorrectionRequest } from './ceo-conversational-signals'
+import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
@@ -35,7 +35,17 @@ function userIntentHint(message: string): SemanticIntentHint {
   if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture)\b/.test(text)) return 'analysis'
   return 'conversation'
 }
-function speechAct(message: string): SemanticSpeechAct { const text = message.trim(); if (isCorrectionRequest(text)) return 'correction'; if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'; if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text)) return 'continuation'; if (text.endsWith('?')) return 'question'; if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'; if (text.length >= 12) return 'proposition'; return 'unknown' }
+// Deep-audit fix (2026-09-13): this used to hand-roll its own narrow continue/go-back/return-to/
+// same-as-before check instead of also recognizing the canonical isContinuationOrRestatementRequest --
+// a 5th independently-drifting copy of the exact concept that function was consolidated to fix (see its
+// own comment in ceo-conversational-signals.ts): "recap", "tell me in your own words", "what about the
+// second option" were all recognized by the canonical check but missed here. Added as an extra OR
+// rather than a replacement for the original bare keyword check: the canonical function is
+// start-anchored to specific phrases, so "No, let's continue with the current plan." (an existing,
+// still-passing test case -- "continue" appearing after a leading "No," that isn't a recognized filler)
+// would lose its 'continuation' classification if the original unanchored bare-keyword check were
+// removed. Keeping both closes the canonical-recognition gap purely additively, with no narrowing.
+function speechAct(message: string): SemanticSpeechAct { const text = message.trim(); if (isCorrectionRequest(text)) return 'correction'; if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'; if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text) || isContinuationOrRestatementRequest(text)) return 'continuation'; if (text.endsWith('?')) return 'question'; if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'; if (text.length >= 12) return 'proposition'; return 'unknown' }
 function hasExplicitDepthSignal(message: string): boolean { return /\b(?:deep|deeply|comprehensive|comprehensively|thorough|thoroughly|in[- ]depth|stress[- ]test|root\s+cause|architecture|trade[- ]offs?|strategy|strategic|long[- ]term)\b/i.test(message) }
 // Found investigating a real production truncation: "Which should we prioritize first: revenue
 // recovery or improving the operations foundation?" classified as 'contextual' depth (not 'strategic')
@@ -47,8 +57,19 @@ function hasExplicitDepthSignal(message: string): boolean { return /\b(?:deep|de
 // noun priority/priorities) -- a message that merely lists or reports priorities ("I think these are
 // the three priorities...") is a direct statement, not a request to weigh and rank options, and an
 // existing test already calibrates that distinction; conflating the two would have reopened it.
-export function classifyCognitiveDepth(message: string, state: CeoConversationState, referenceCount: number): CognitiveDepth { const text = message.toLowerCase(); if (/\b(?:decide|decision|recommend|priorit(?:is|iz)e\w*|trade[- ]off|strategy|strategic|root\s+cause|architecture|compare|evaluate)\b/.test(text) || hasExplicitDepthSignal(message)) return 'strategic'; if (state.turnCount >= 10 || referenceCount >= 2) return 'deep'; if (referenceCount > 0 || state.turnCount > 2 || /\b(?:why|how|which|what)\b/.test(text)) return 'contextual'; return 'direct' }
-export function classifyCognitiveDepthFromMessages(message: string, priorTurnCount: number, referenceCount: number): CognitiveDepth { const safeTurns = Math.max(0, Math.floor(priorTurnCount)); const text = message.trim(); if (/\b(?:decide|decision|recommend|priorit(?:is|iz)e\w*|trade[- ]offs?|strategy|strategic|root\s+cause|architecture|compare|evaluate|assess)\b/i.test(text) || hasExplicitDepthSignal(text)) return 'strategic'; if (safeTurns >= 10 || referenceCount >= 2) return 'deep'; if (referenceCount > 0 || safeTurns >= 2 || /\b(?:why|how|which|what)\b/i.test(text)) return 'contextual'; return 'direct' }
+// Deep-audit fix (2026-09-13): classifyCognitiveDepth and classifyCognitiveDepthFromMessages had
+// independently drifted on this exact trigger regex -- the former missed 'assess' and only matched
+// singular 'trade-off' (word-boundary fails on 'trade-offs'), while the latter had both. Since
+// canonical-llm-router.ts uses classifyCognitiveDepthFromMessages to gate its 8000-token "deep" lane,
+// a message like "let's assess the situation with our vendor contract" could get the router's strategic
+// token budget while this file's own context.cognitiveDepth (read by registerFor() in
+// ceo-conversation-decision-contract.ts) reported a lower depth for the identical message. Single-
+// sourced here; each function keeps its own turn-count threshold untouched (state.turnCount and
+// priorTurnCount come from genuinely different counting bases at their respective call sites, so that
+// comparison is left alone rather than guessed at).
+const STRATEGIC_DEPTH_SIGNAL_RE = /\b(?:decide|decision|recommend|priorit(?:is|iz)e\w*|trade[- ]offs?|strategy|strategic|root\s+cause|architecture|compare|evaluate|assess)\b/i
+export function classifyCognitiveDepth(message: string, state: CeoConversationState, referenceCount: number): CognitiveDepth { const text = message.toLowerCase(); if (STRATEGIC_DEPTH_SIGNAL_RE.test(text) || hasExplicitDepthSignal(message)) return 'strategic'; if (state.turnCount >= 10 || referenceCount >= 2) return 'deep'; if (referenceCount > 0 || state.turnCount > 2 || /\b(?:why|how|which|what)\b/.test(text)) return 'contextual'; return 'direct' }
+export function classifyCognitiveDepthFromMessages(message: string, priorTurnCount: number, referenceCount: number): CognitiveDepth { const safeTurns = Math.max(0, Math.floor(priorTurnCount)); const text = message.trim(); if (STRATEGIC_DEPTH_SIGNAL_RE.test(text) || hasExplicitDepthSignal(text)) return 'strategic'; if (safeTurns >= 10 || referenceCount >= 2) return 'deep'; if (referenceCount > 0 || safeTurns >= 2 || /\b(?:why|how|which|what)\b/i.test(text)) return 'contextual'; return 'direct' }
 function referenceScope(references: readonly ConversationReference[], currentMessage: string): ReferenceScope { if (!references.length) return 'none'; const hasSameTurn = /\b(?:it|they|them|this|that|these|those)\b/i.test(currentMessage) && /\b(?:and|,|both|each)\b/i.test(currentMessage); const hasCrossTurn = references.some((reference) => Boolean(reference.resolvedText)); if (hasSameTurn && hasCrossTurn) return 'mixed'; return hasSameTurn ? 'same_turn' : 'cross_turn' }
 function deterministicMeaning(message: string, state: CeoConversationState, references: readonly ConversationReference[]): string { const current = normalize(message); const resolved = references.find((reference) => reference.resolvedText && !reference.ambiguous); if (resolved) return `${current} [refers to: ${normalize(resolved.resolvedText ?? '')}]`; if (state.topic) return `${current} [conversation topic: ${normalize(state.topic)}]`; return current }
 function buildWorldModel(state: CeoConversationState, memories: readonly PersistedMemoryRow[], rows: readonly PersistedConversationRow[]): ConversationalWorldModel { return { schemaVersion: 1, workingTopic: state.topic, subtopics: unique([...state.topicCandidates.slice(0, 8), ...state.entities], 10), userGoals: unique(state.recentUserGoals, 8), decisions: unique(state.decisions, 8), commitments: unique(rows.filter((row) => row.role === 'user' && isCommitmentStatement(row.content)).map((row) => row.content), 6), openLoops: unique(state.unresolvedQuestions, 6), activeThreads: state.threads.filter((thread) => thread.status === 'active' || thread.status === 'paused').slice(-6).map((thread) => `${thread.title} [${thread.status}]`), importantEntities: unique(state.entities, 12), recentCorrections: unique(state.recentCorrections, 6), durableMemoryKeys: memories.slice(0, 8).map((memory) => memory.key) } }

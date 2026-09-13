@@ -129,9 +129,6 @@ export async function POST(req: NextRequest) {
   // Best-effort: makes this conversation's current decisions durable across future conversations via
   // the existing Memory-backed lexical/semantic retrieval path. Never allowed to affect the response.
   await persistEpisodicDecisionMemory(contextSeed.conversationState).catch(() => {})
-  // Best-effort: real partner-relationship state for the world model's partners facet. A failure here
-  // leaves dataAvailable:false (see ceo-partner-intelligence.ts), never a fabricated empty summary.
-  const partnerIntelligence: PartnerIntelligenceSummary | undefined = await getPartnerIntelligence(sessionUserId).catch(() => undefined)
   const preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext)
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract
@@ -156,6 +153,13 @@ export async function POST(req: NextRequest) {
   let executiveState: ExecutiveBusinessState | undefined
   let leadershipLedger: readonly LeaderPerformanceRecord[] | undefined
   let strategicHorizon: StrategicHorizonView | undefined
+  // Deep-audit fix (2026-09-13): partnerIntelligence used to be fetched unconditionally on every turn
+  // (a real db.partnership.findMany scan) and unconditionally injected into every prompt via
+  // ceo-cognitive-lifecycle.ts's worldModelMessages, directly contradicting the "minimum sufficient
+  // live context, not everything on every turn" policy this same gate exists to enforce for its
+  // sibling calls -- a plain "hi, how's it going" burned a DB scan and got partner-relationship data
+  // injected into its prompt for no reason. Now gated behind the same groundingWarranted flag.
+  let partnerIntelligence: PartnerIntelligenceSummary | undefined
   // Only populated (and only then passed to buildCeoContextModules below) when self-inspection
   // actually has something to report -- like the evidence/mission/execution modules, an irrelevant
   // turn gets no self-inspection system message at all, not an honest-but-noisy "not evaluated" one.
@@ -163,15 +167,17 @@ export async function POST(req: NextRequest) {
   if (groundingWarranted) {
     const ventureId = extractVentureId(message) ?? 'venture_001'
     const sharedMissions = await listActiveMissionsDB(sessionUserId).catch(() => undefined)
-    const [groundingState, groundingLeadership, groundingHorizon, selfInspectionEvidence] = await Promise.all([
+    const [groundingState, groundingLeadership, groundingHorizon, selfInspectionEvidence, groundingPartnerIntelligence] = await Promise.all([
       getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined),
       getLeadershipPerformanceLedger(sessionUserId, sharedMissions).catch(() => undefined),
       getStrategicHorizonView(sessionUserId, new Date(), sharedMissions).catch(() => undefined),
       selfInspection.inspect ? gatherCeoSelfInspectionEvidence({ ventureId, missionIds: sharedMissions?.map((mission) => mission.id) }) : Promise.resolve(undefined),
+      getPartnerIntelligence(sessionUserId).catch(() => undefined),
     ])
     executiveState = groundingState
     leadershipLedger = groundingLeadership
     strategicHorizon = groundingHorizon
+    partnerIntelligence = groundingPartnerIntelligence
     if (selfInspectionEvidence) selfInspectionContext = renderCeoSelfInspectionContext(selfInspectionEvidence)
   }
 
