@@ -30,6 +30,12 @@ export interface IncidentRegressionCandidate {
   expectedAction?: string
   reviewNotes?: string
   status: 'candidate' | 'approved' | 'rejected'
+  // Deep-audit fix (2026-09-13): the governed self-repair pipeline (ceo-self-repair-engine.ts) needs the
+  // domain to risk-tier a candidate before ever considering autonomous correction -- a capability
+  // question about public_equity content must never qualify for auto-approval just because its
+  // inputClass happens to be 'self_assessment'. Optional because most incidents (plain conversation)
+  // have no domain concept at all.
+  domain?: string
 }
 
 // A deliberately conservative, deterministic classifier for the KIND of input, not its correctness --
@@ -49,7 +55,7 @@ function classifyInputClass(message: string): IncidentCandidateInputClass {
   return 'unclassified'
 }
 
-export function buildIncidentRegressionCandidate(input: { incident: ConversationIncidentContract; message: string }): IncidentRegressionCandidate {
+export function buildIncidentRegressionCandidate(input: { incident: ConversationIncidentContract; message: string; domain?: string }): IncidentRegressionCandidate {
   const state = deriveCeoConversationState([], input.message)
   const context = buildCanonicalConversationContext({ currentMessage: input.message, rows: [], state, references: [] })
   const contract = buildConversationDecisionContract(context)
@@ -63,12 +69,13 @@ export function buildIncidentRegressionCandidate(input: { incident: Conversation
     observedSpeechAct: contract.speechAct,
     observedAction: contract.responseAction,
     status: 'candidate',
+    domain: input.domain,
   }
 }
 
 // Emits the candidate as structured telemetry, distinct from the incident log itself, so
 // candidates are discoverable without being confused with the incident stream they came from.
-export function emitIncidentRegressionCandidate(input: { incident: ConversationIncidentContract; message: string }): IncidentRegressionCandidate {
+export function emitIncidentRegressionCandidate(input: { incident: ConversationIncidentContract; message: string; domain?: string }): IncidentRegressionCandidate {
   const candidate = buildIncidentRegressionCandidate(input)
   console.warn('[ceo-incident-candidate]', JSON.stringify(candidate))
   persistIncidentCandidate(candidate).catch(() => {})

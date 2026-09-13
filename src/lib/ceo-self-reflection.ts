@@ -1,3 +1,12 @@
+// Governed self-repair (2026-09-13): the only import this file has ever needed. getLearnedCapabilityPattern
+// is a synchronous, TTL-cached, fail-open in-memory read (never a DB call on this path, never able to
+// throw) -- see ceo-self-repair-engine.ts's own documentation for why this stays safe to call from a
+// classifier this file's own doc below describes as "intentionally free of LLM calls so it cannot add
+// latency or introduce a new provider dependency." It still isn't adding either: no LLM call, no new
+// latency, no new provider dependency -- just an additive, pre-validated pattern this classifier may or
+// may not have learned yet.
+import { getLearnedCapabilityPattern } from './ceo-self-repair-engine'
+
 /** Canonical CEO self-reflection classification.
  *
  * This module is the single source of truth for requests whose subject is
@@ -180,6 +189,15 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   if (explicitSelfAssessmentRequest) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Explicit self-assessment/self-evaluation/self-review/self-audit/self-reflection request; recognized regardless of pronoun.' }
   if (READINESS_RE.test(normalized)) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
   if (CAPABILITY_RE.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }
+  // Governed self-repair (2026-09-13): additive only -- ceo-self-repair-engine.ts autonomously learns
+  // new capability-question phrasings from recurring incidents that CAPABILITY_RE above missed, but only
+  // after they clear a real-recurrence + no-known-false-positive validation bar (see that module's own
+  // documentation for why this is safe where an LLM guessing "the correct answer" would not be). This
+  // check sits strictly after every hardcoded pattern and the operational/research/mission precedence
+  // gate above, so a learned pattern can only ever ADD a new recognized phrasing, never override or
+  // weaken anything a human already reviewed and merged. Returns null (checked via `?.`) until the first
+  // pattern is ever learned in this process -- identical to today's behavior until that happens.
+  if (getLearnedCapabilityPattern()?.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment (autonomously learned pattern, validated against known-safe negatives).' }
   if (PERFORMANCE_RE.test(normalized) || /\b(?:how|where)\s+are\s+you\b/i.test(normalized)) return { kind: 'performance_reflection', isSelfReflective: true, reason: 'Self-performance or progress reflection.' }
 
   return { kind: 'none', isSelfReflective: false, reason: 'Self-reference detected but no safe reflective intent established.' }
