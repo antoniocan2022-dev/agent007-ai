@@ -113,7 +113,18 @@ const PERFORMANCE_RE = new RegExp(
 // YOU X". That inverted phrasing fell through to kind:'none', so renderCeoCapabilityBriefing() never
 // ran and the CEO had no grounded facts about its own live-research tooling to answer from -- the
 // primary generation path then failed and degraded mode returned a fully generic non-answer.
-const GRANT_ACCESS_RE = /\b(?:what|how)\s+(?:can|do|could|would)\s+i\s+(?:do\s+to\s+)?(?:give|grant|enable|provide|hook\s+up|connect)\s+you\b/i
+//
+// Independent post-merge review fix (2026-09-13): the first version of this matched bare "(what/how)
+// can/do I (do to) (give/grant/enable/provide/hook up/connect) you", with no requirement that the
+// object be about ACCESS at all -- so ordinary business delegation questions with zero relation to CEO
+// capability ("what can I do to give you the numbers you need for the board deck?", "how can I enable
+// you to close this deal?", "how can I provide you with the budget figures?", "what can I do to connect
+// you with the sales team?") all matched too, rerouting a real business question onto the bounded,
+// tool-free self-assessment lane and silently discarding it. Narrowed to require the object to actually
+// be about access/permission/credentials, or connecting to a named data/tool/system noun -- exactly the
+// two shapes the motivating cases use -- so a bare "give/provide/connect you X" with an unrelated object
+// no longer matches.
+const GRANT_ACCESS_RE = /\b(?:what|how)\s+(?:can|do|could|would)\s+i\s+(?:do\s+to\s+)?(?:give|grant|enable|provide)\s+you\s+(?:access|permission|credentials?|an?\s+api\s+key)\b|\b(?:what|how)\s+(?:can|do|could|would)\s+i\s+(?:do\s+to\s+)?(?:hook\s+up|connect)\s+you\s+(?:to|with)\s+(?:[a-z]+\s+){0,3}(?:data|apis?|tools?|systems?|sources?|feeds?)\b/i
 const CAPABILITY_RE = new RegExp(
   [nearSelfReference('strengths?'), nearSelfReference('weakness(?:es)?'), nearSelfReference('capabilit(?:y|ies)'), nearSelfReference('capable'), nearSelfReference('skills?'), nearSelfReference('limitations?'), '\\bwhat\\s+can\\s+you\\s+do\\b', '\\bwhat\\s+are\\s+you\\s+good\\s+at\\b', nearSelfReference('architecture'), nearSelfReference('proven'), nearSelfReference('unproven'), nearSelfReference('(?:not\\s+yet\\s+|un)?verified'), nearSelfReference('upgrades?'), nearSelfReference('new\\s+features?'), nearSelfReference('recently\\s+added'), GRANT_ACCESS_RE.source].join('|'),
   'i',

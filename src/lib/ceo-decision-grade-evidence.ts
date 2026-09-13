@@ -145,7 +145,17 @@ export function requirementsForDecisionEvidence(input: { domain: string; operati
   // represent an actual buy/sell/hold judgment (see ceo-cognitive-contract.ts's EvidenceOperation union
   // and ceo-pre-router.ts's inferEvidenceOperation) -- research/explain/compare/forecast/verify are all
   // genuinely research-shaped operations and get the non-fail-closed research tier instead.
-  if (normalized === 'public_equity') return { policy, ...(input.operation === 'recommend' || input.operation === 'decide' ? EQUITY_DECISION_REQUIREMENTS : EQUITY_RESEARCH_REQUIREMENTS) }
+  //
+  // Independent post-merge review fix (2026-09-13): an UNSPECIFIED operation used to fall to the
+  // permissive research tier here -- the one disagreement in an otherwise-aligned three-way check this
+  // session built across this file, ceo-claim-evidence-gate.ts's verifyClaimEvidence, and
+  // ceo-degraded-mode.ts's requiresDecisionGradeAbstention. Both of those treat "we don't know the
+  // operation" as the conservative, fail-closed case for this same HIGH-risk domain, matching the
+  // "fail closed when uncertain" principle used everywhere else in this evidence pipeline -- research is
+  // an earned exemption for an operation positively identified as non-decision, not the default for an
+  // absent one. Aligned to match: only a positively-identified non-decision operation gets the research
+  // tier now.
+  if (normalized === 'public_equity') return { policy, ...(input.operation === undefined || input.operation === 'recommend' || input.operation === 'decide' ? EQUITY_DECISION_REQUIREMENTS : EQUITY_RESEARCH_REQUIREMENTS) }
   if (policy === 'DECISION_GRADE') return {
     policy,
     minimumSources: 3,
