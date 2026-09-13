@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AttachmentMeta } from '@/lib/tools'
+import type { EvidenceState } from '@/lib/ceo-cognitive-contract'
 
 export type Lang = 'en' | 'zh'
 
@@ -55,6 +56,11 @@ export interface ChatMessage {
   createdAt: number
   /** UPGRADE #119 — LLM reasoning (chain-of-thought) extracted from the response */
   reasoning?: string
+  /** Deep-audit fix (2026-09-13): ceo-public-transport.ts's `done` event now discloses this (see that
+   * file's comment) -- previously computed server-side but never reaching the client at all, so a
+   * MEMORY_ONLY/PARTIAL_UNCONFIRMED/UNAVAILABLE turn was indistinguishable from a fully grounded one
+   * unless the response text itself happened to say so. */
+  evidenceState?: EvidenceState
 }
 
 export interface ConversationMeta {
@@ -1017,10 +1023,10 @@ function applyEvent(
     const pendingContent = _pendingTokens
     _pendingTokens = ''
     if (_tokenFlushTimer) { clearTimeout(_tokenFlushTimer); _tokenFlushTimer = null }
-    if (pendingContent) set((s) => ({ messages: s.messages.map((m) => {
+    set((s) => ({ messages: s.messages.map((m) => {
       if (m.id !== assistantId) return m
-      const steps = (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__'))
-      return { ...m, content: m.content + pendingContent, steps }
+      const steps = pendingContent ? (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')) : m.steps
+      return { ...m, content: m.content + pendingContent, steps, evidenceState: data.evidenceState ?? m.evidenceState }
     }) }))
   }
 }

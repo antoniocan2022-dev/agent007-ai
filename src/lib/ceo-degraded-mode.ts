@@ -97,13 +97,16 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   if (intent === 'mission_action' && grounding) return `I couldn't complete the normal mission reasoning path, but I recovered relevant internal mission evidence. I won't present it as fresh external verification.\n\n${grounding.slice(0, 12000)}`
   if (isCurrentTopicRequest(objective) && continuableThread) return `We’re currently discussing ${[continuableThread.currentObjective, continuableThread.topic, continuableThread.title].filter(Boolean).join(' ').slice(0, 1000)}.`
   if (isCorrectionRequest(objective)) return `Got it. The correction is clear, and I’ll treat “${objective.replace(/^\s*(?:no|nah)[,\s]*/i, '').replace(/\s*$/,'').slice(0, 500)}” as the active direction from here.`
-  // Deep-audit fix (2026-09-13): this and the priorit(y)/compliance/revenue branch below were the only
-  // two branches in this function with no disclosure at all that the normal reasoning path failed --
-  // every sibling branch says some form of "I couldn't complete X path" first. Both are canned strategic
-  // opinions, not grounded in this venture's actual data (grounding isn't even checked here), so
-  // presenting them with full confidence risked the exact "confident, undisclosed degraded answer"
-  // failure mode this whole module exists to avoid -- worse now that evidenceState reaches the client
-  // (see ceo-public-transport.ts), since the disclosure text is the only signal a plain-text UI shows.
+  // Deep-audit fix (2026-09-13): this and the priorit(y)/compliance/revenue branch below were, at the
+  // time, the only two branches in this function returning a canned strategic opinion -- not grounded in
+  // this venture's actual data (grounding isn't even checked here) -- with no disclosure at all that the
+  // normal reasoning path failed. Presenting either with full confidence risked the exact "confident,
+  // undisclosed degraded answer" failure mode this whole module exists to avoid -- worse now that
+  // evidenceState reaches the client (see ceo-public-transport.ts), since the disclosure text is the only
+  // signal a plain-text UI shows. Re-audited (2026-09-13): isCurrentTopicRequest/isCorrectionRequest above
+  // and the two isContinuityRecoveryRequest branches below also skip disclosure, but on different,
+  // defensible grounds -- each reports state this module actually has (a tracked correction, an active
+  // thread), not an ungrounded opinion, so there is no failed reasoning path to disclose against.
   if (/copy|competitor/i.test(lower)) return `I couldn't complete the normal reasoning path for this, but as general guidance: I wouldn't make copying a competitor our safest strategy. My preference is to study what works, keep the useful underlying principles, and build the version that fits our strengths and creates a reason for customers to choose us.`
   if (action === 'challenge') return `I couldn't complete the challenge path reliably, so I don't want to manufacture an argument or pretend I evaluated the current question properly.${grounding && input.isSuppliedByCaller ? ' I can use the supplied context to continue once the reasoning path is available.' : ''}`
   if (action === 'recommend' || action === 'decide') { if (!grounding || !input.isSuppliedByCaller) return `I couldn't produce a reliable recommendation for this specific request, so I won't substitute a generic priority or repeat an earlier decision.`; return `I couldn't complete the recommendation path reliably. I can preserve the supplied evidence, but I won't turn it into a stronger recommendation than the failed path supports.` }

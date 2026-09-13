@@ -75,6 +75,26 @@ describe('CEO public transport boundary', () => {
     })).toEqual({ phase: 'evidence_complete' })
   })
 
+  // Re-audited (2026-09-13): orchestrator.ts emits manage_action/subagents_updated/heartbeat/
+  // memory_update, and chat-store.ts has full dedicated handlers expecting these exact event names, but
+  // none of the four were in CeoPublicTransportEvent -- so resolveCeoPublicSseEvent silently collapsed
+  // every one to a bare progress event and the corresponding UI (self-management-action status, the
+  // subagents-panel refresh signal, live heartbeat detail, the memory panel) never updated.
+  test('self-management/subagent-refresh/heartbeat/memory events reach the client instead of collapsing to progress', () => {
+    expect(resolveCeoPublicSseEvent('manage_action')).toBe('manage_action')
+    expect(resolveCeoPublicSseEvent('subagents_updated')).toBe('subagents_updated')
+    expect(resolveCeoPublicSseEvent('heartbeat')).toBe('heartbeat')
+    expect(resolveCeoPublicSseEvent('memory_update')).toBe('memory_update')
+    expect(projectCeoPublicSsePayload('manage_action', {
+      stepId: 's1', status: 'running', action: 'create_agent', attrs: { name: 'Scout' }, thought: 'Fast-path create_agent', stepNumber: 1, internalProviderTrace: { secret: true },
+    })).toEqual({ stepId: 's1', status: 'running', action: 'create_agent', attrs: { name: 'Scout' }, thought: 'Fast-path create_agent', stepNumber: 1 })
+    expect(projectCeoPublicSsePayload('subagents_updated', { action: 'create_agent', internalProviderTrace: { secret: true } })).toEqual({})
+    expect(projectCeoPublicSsePayload('heartbeat', {
+      iteration: 3, maxIterations: 50, toolsCalled: 2, dispatchesCalled: 1, manageActionsCalled: 0, lastToolName: 'search', lastThought: 'Checking runway', startedAt: 1000, elapsedMs: 500, message: 'Working — step 3/50',
+    })).toEqual({ iteration: 3, maxIterations: 50, toolsCalled: 2, lastToolName: 'search', lastThought: 'Checking runway', startedAt: 1000, elapsedMs: 500, message: 'Working — step 3/50' })
+    expect(projectCeoPublicSsePayload('memory_update', { key: 'runway_months', value: '14', category: 'finance', internalProviderTrace: { secret: true } })).toEqual({ key: 'runway_months', value: '14', category: 'finance' })
+  })
+
   test('unknown event payloads fail closed into public progress', () => {
     expect(isSupportedCeoPublicTransportEvent('answer')).toBe(true)
     expect(isSupportedCeoPublicTransportEvent('internal_debug')).toBe(false)

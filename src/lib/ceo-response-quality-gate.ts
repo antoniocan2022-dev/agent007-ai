@@ -41,6 +41,13 @@ const EMOTIONAL_TONE_RE = /\b(?:frustrated|frustrating|excited|happy|worried|con
 // back/rolled out/patched/released/pushed/committed/migrated) -- the original 11-verb list missed
 // common, equally-false completion phrasing like "I've already fixed the bug and merged the PR."
 const EXECUTION_COMPLETION_CLAIM_RE = /\bi(?:'ve|\s+have)?\s+(?:already\s+|just\s+)?(?:deployed|executed|published|shipped|launched|sent|created|deleted|updated|scheduled|fixed|merged|resolved|closed|approved|reverted|rolled\s+back|rolled\s+out|patched|released|pushed|committed|migrated|completed\s+(?:the\s+)?(?:deployment|execution|task|action|migration|rollout))\b/i
+// approved/resolved/closed double as ordinary decisive speech ("I've approved the vendor contract for
+// $50,000 based on strong ROI projections.", "I resolved to move forward with vendor A.") -- verified
+// false-positiving on exactly that under 'decision' intent, where there is never real external agency to
+// complete an operational action against anyway. Dropped from the pattern specifically for 'decision'
+// responses; every other intent (where "I've approved the deploy" or "I closed the ticket" is a genuine,
+// checkable operational claim) keeps the full verb list above.
+const EXECUTION_COMPLETION_CLAIM_DECISION_RE = /\bi(?:'ve|\s+have)?\s+(?:already\s+|just\s+)?(?:deployed|executed|published|shipped|launched|sent|created|deleted|updated|scheduled|fixed|merged|reverted|rolled\s+back|rolled\s+out|patched|released|pushed|committed|migrated|completed\s+(?:the\s+)?(?:deployment|execution|task|action|migration|rollout))\b/i
 // A present-perfect completion claim inside a conditional/future-gated sentence ("once you approve, I
 // have deployed a preview build") is describing what will be true after a condition is met, not
 // asserting the action already happened -- exclude those so the detector doesn't fire on hypotheticals.
@@ -146,8 +153,9 @@ const evidenceVerificationApplicable=conversational?externalClaims:(input.eviden
   // downstream verified the model actually complied. When this call has no real external agency (the pure
   // CEO reasoning lane, which never executes anything itself), any first-person claim of having just
   // deployed/executed/sent/etc. is definitionally false and must fail the gate, not just be discouraged.
-  const conditionalCompletionClaim=sentences(input.content).some((sentence)=>EXECUTION_COMPLETION_CLAIM_RE.test(sentence)&&CONDITIONAL_FUTURE_COMPLETION_RE.test(sentence));
-  const falseCompletionClaim=!input.externalAgencyAvailable&&!conditionalCompletionClaim&&positiveAssertionExists(input.content,EXECUTION_COMPLETION_CLAIM_RE);
+  const completionClaimRe=input.intent==='decision'?EXECUTION_COMPLETION_CLAIM_DECISION_RE:EXECUTION_COMPLETION_CLAIM_RE;
+  const conditionalCompletionClaim=sentences(input.content).some((sentence)=>completionClaimRe.test(sentence)&&CONDITIONAL_FUTURE_COMPLETION_RE.test(sentence));
+  const falseCompletionClaim=!input.externalAgencyAvailable&&!conditionalCompletionClaim&&positiveAssertionExists(input.content,completionClaimRe);
   // Found auditing the conversational-gate relaxation below: CONVERSATIONAL_ROBOTIC_RE ("your request",
   // "evidence state", "quality gate", "as an ai", "execution contract", ...) used to feed only into the
   // naturalness metric inside the old conversationOk composite (removed below -- see Step 4's comment),

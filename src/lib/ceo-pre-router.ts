@@ -129,7 +129,12 @@ function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflec
 // retrospective question -- a single-clause retrospective question that happens to mention an action
 // word while describing what was chosen ("why did we choose to launch the campaign this way") has no
 // second clause to split into, so it is completely unaffected and keeps its original classification.
-const CLAUSE_SPLIT_RE = /[.!?;]+|,\s*(?:then|and then|next)\s+/i
+// Re-audited (2026-09-13): the comma-boundary alternation only recognized "then"/"and then"/"next", so
+// "Remind me why we chose this approach, and deploy it now." -- the same swallowed-command shape, just
+// joined with a bare "and" -- still didn't split and fell back to 'conversation'. Added bare "and" to
+// the alternation (still requires a preceding comma, so it doesn't split an ordinary single-clause "and"
+// like "why did we choose this approach and not that one", which has no comma before it).
+const CLAUSE_SPLIT_RE = /[.!?;]+|,\s*(?:then|and then|next|and)\s+/i
 function findTrailingProductionOrMissionIntent(text: string): 'production_action' | 'mission_action' | undefined {
   const clauses = text.split(CLAUSE_SPLIT_RE).map((clause) => clause.trim()).filter(Boolean)
   if (clauses.length < 2) return undefined
@@ -172,11 +177,28 @@ function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoI
 }
 function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision { return input }
 
-const OBJECTIVE_CONFIRMATION_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)[\s!.?]*$/i
+const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
+// Re-audited (2026-09-13): the original whole-message-anchored OBJECTIVE_CONFIRMATION_RE required the
+// ENTIRE message to be nothing but one listed phrase, so it never matched its own motivating case --
+// "yes, go ahead" fails outright because the comma isn't in its trailing `[\s!.?]*` allowance -- and
+// isContinuationOrRestatementRequest doesn't cover it either (none of its phrases start with "yes"). A
+// bare confirmation/continuation cue is almost always the LAST comma-separated clause of the message,
+// not necessarily the whole thing -- also true of a real production case combining an entity correction
+// with a trailing "continue" ("...MIND Technology, Inc. (MIND), continue"). Checking only the final
+// clause keeps this narrow: an unrelated sentence that happens to use "continue" as an ordinary verb
+// mid-clause ("we should continue monitoring the campaign, though I'm still unsure about budget.") does
+// not qualify, since its final clause isn't a bare confirmation word on its own.
+function isObjectiveConfirmationSignal(text: string): boolean {
+  const cleaned = text.trim().replace(/[!.?]+$/, '')
+  if (!cleaned) return false
+  const clauses = cleaned.split(/\s*,\s*/)
+  const lastClause = clauses[clauses.length - 1]?.trim()
+  return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
+}
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
-  const isContinuation = isContinuationOrRestatementRequest(current) || OBJECTIVE_CONFIRMATION_RE.test(current)
+  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current)
   if (!isContinuation) return undefined
   const candidates = context.state.threads
     .filter((thread) => thread.status === 'active' || thread.status === 'paused')
@@ -267,6 +289,12 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active external-research objective.' : 'External evidence requires governed execution.'), missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   if (semanticIntent === 'mission_action' || missionRelevant) return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  // A bare confirmation/continuation cue ("continue", "yes, go ahead") with no continuable thread to
+  // attach to has already had its one real routing question answered -- there is nothing to continue --
+  // so it should resolve as a plain conversational acknowledgement rather than fall into CONTEXT_RE's
+  // generic "this needs richer conversational analysis" ambiguity, which assumes an unresolved
+  // antecedent might still be found downstream.
+  if (semanticIntent === 'conversation' && !inheritedObjective && semanticContext && isObjectiveConfirmationSignal(text)) { const reason = 'No active objective to continue; treating as a bare conversational acknowledgement.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const contextMatch = text.match(CONTEXT_RE)
   const hasSelfContainedAntecedent = Boolean(contextMatch && contextMatch.index !== undefined && contextMatch.index >= 30 && /,| and /i.test(text.slice(0, contextMatch.index)))
   if (contextMatch && !SIMPLE_RE.test(text) && !hasSelfContainedAntecedent) { const reason = 'Context-dependent request requires richer conversational analysis.'; return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) }) }
