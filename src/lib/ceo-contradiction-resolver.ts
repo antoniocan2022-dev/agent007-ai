@@ -40,7 +40,7 @@ function unitScale(unit?: string): number {
   return 1
 }
 
-function extractMetricValues(source: EvidenceSource): Array<{ metric: string; value: number }> {
+export function extractMetricValues(source: EvidenceSource): Array<{ metric: string; value: number }> {
   const results: Array<{ metric: string; value: number }> = []
   for (const { metric, re } of METRIC_PATTERNS) {
     const match = source.text.match(re)
@@ -52,24 +52,29 @@ function extractMetricValues(source: EvidenceSource): Array<{ metric: string; va
   return results
 }
 
-function relativeDifference(a: number, b: number): number {
+export function relativeDifference(a: number, b: number): number {
   const denominator = Math.max(Math.abs(a), Math.abs(b), 1)
   return Math.abs(a - b) / denominator
 }
 
 // A >15% relative gap on the identical metric is treated as a genuine disagreement worth flagging, not
 // ordinary rounding/measurement-period noise (e.g. a mid-quarter estimate vs. a filed actual).
-const CONTRADICTION_THRESHOLD = 0.15
+export const CONTRADICTION_THRESHOLD = 0.15
 
 function toContradictionValue(sourceId: string, source: EvidenceSource, value: number): ContradictionValue {
   return { sourceId, sourceUrl: source.url, value, sourceTier: source.sourceTier, retrievedAt: source.retrievedAt, publishedAt: source.publishedAt }
 }
 
-function preferBetween(a: { sourceId: string; source: EvidenceSource }, b: { sourceId: string; source: EvidenceSource }): { winner: typeof a; reason: string } {
-  if (a.source.sourceTier !== b.source.sourceTier) { const winner = a.source.sourceTier < b.source.sourceTier ? a : b; return { winner, reason: `${winner.sourceId} is a higher-tier source (tier ${winner.source.sourceTier} vs. tier ${(winner === a ? b : a).source.sourceTier}).` } }
-  const aTime = a.source.publishedAt ?? a.source.retrievedAt, bTime = b.source.publishedAt ?? b.source.retrievedAt
+// Deliberately shaped as a minimal { sourceId, sourceTier, retrievedAt, publishedAt? } candidate rather
+// than a full EvidenceSource -- ceo-claim-ledger.ts reuses this same tier/recency preference rule to
+// compare a freshly retrieved source against a *prior turn's* verified claim, which has no EvidenceSource
+// object of its own (only a stored sourceUrl/retrievedAt), so the comparison must not require one.
+export interface PreferenceCandidate { sourceId: string; sourceTier: 1 | 2 | 3 | 4; retrievedAt: number; publishedAt?: number }
+export function preferBetween(a: PreferenceCandidate, b: PreferenceCandidate): { winnerId: string; reason: string } {
+  if (a.sourceTier !== b.sourceTier) { const winner = a.sourceTier < b.sourceTier ? a : b; const loser = winner === a ? b : a; return { winnerId: winner.sourceId, reason: `${winner.sourceId} is a higher-tier source (tier ${winner.sourceTier} vs. tier ${loser.sourceTier}).` } }
+  const aTime = a.publishedAt ?? a.retrievedAt, bTime = b.publishedAt ?? b.retrievedAt
   const winner = aTime >= bTime ? a : b
-  return { winner, reason: `${winner.sourceId} is the more recently ${winner.source.publishedAt ? 'published' : 'retrieved'} of the two (same source tier).` }
+  return { winnerId: winner.sourceId, reason: `${winner.sourceId} is the more recently ${winner.publishedAt ? 'published' : 'retrieved'} of the two (same source tier).` }
 }
 
 /** Pure, deterministic -- no I/O. Called once per evidence bundle (ceo-evidence-bundle.ts's buildEvidenceBundle). */
@@ -82,8 +87,11 @@ export function detectContradictions(sources: readonly EvidenceSource[]): Contra
       for (let j = i + 1; j < entries.length; j += 1) {
         const a = entries[i], b = entries[j]
         if (relativeDifference(a.value, b.value) < CONTRADICTION_THRESHOLD) continue
-        const { winner, reason } = preferBetween(a, b)
-        contradictions.push({ metric, values: [toContradictionValue(a.sourceId, a.source, a.value), toContradictionValue(b.sourceId, b.source, b.value)], preferredSourceId: winner.sourceId, reason })
+        const { winnerId, reason } = preferBetween(
+          { sourceId: a.sourceId, sourceTier: a.source.sourceTier, retrievedAt: a.source.retrievedAt, publishedAt: a.source.publishedAt },
+          { sourceId: b.sourceId, sourceTier: b.source.sourceTier, retrievedAt: b.source.retrievedAt, publishedAt: b.source.publishedAt },
+        )
+        contradictions.push({ metric, values: [toContradictionValue(a.sourceId, a.source, a.value), toContradictionValue(b.sourceId, b.source, b.value)], preferredSourceId: winnerId, reason })
       }
     }
   }
