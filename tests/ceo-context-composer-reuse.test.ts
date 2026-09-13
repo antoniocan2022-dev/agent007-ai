@@ -22,14 +22,23 @@ const rows = [
   { role: 'assistant' as const, content: 'Hi! How can I help?', createdAt: 1 },
 ]
 
+// deriveCeoConversationState() (ceo-conversation-state.ts) stamps its result with
+// `updatedAt: Date.now()` -- legitimately different on every independent call, reused or not.
+// Comparing raw JSON.stringify output below was flaky: if a millisecond boundary elapsed between
+// the `seed` and `recomputed` calls, `updatedAt` alone would differ even though every semantically
+// meaningful field was identical. This strips volatile timestamp fields before comparing.
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (key, val) => (key === 'updatedAt' ? undefined : val))
+}
+
 describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transparent', () => {
   test('canonicalSemanticContext/conversationState/resolvedReferences are identical whether reused or recomputed from the same inputs', async () => {
     const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [] })
     const recomputed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [], modules: { organization: 'ORG TEXT' } })
     const reused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [], modules: { organization: 'ORG TEXT' }, reuseSemanticContext: { conversationState: seed.conversationState, canonicalSemanticContext: seed.canonicalSemanticContext, resolvedReferences: seed.resolvedReferences } })
-    expect(JSON.stringify(reused.canonicalSemanticContext)).toBe(JSON.stringify(recomputed.canonicalSemanticContext))
-    expect(JSON.stringify(reused.conversationState)).toBe(JSON.stringify(recomputed.conversationState))
-    expect(JSON.stringify(reused.resolvedReferences)).toBe(JSON.stringify(recomputed.resolvedReferences))
+    expect(stableJson(reused.canonicalSemanticContext)).toBe(stableJson(recomputed.canonicalSemanticContext))
+    expect(stableJson(reused.conversationState)).toBe(stableJson(recomputed.conversationState))
+    expect(stableJson(reused.resolvedReferences)).toBe(stableJson(recomputed.resolvedReferences))
   })
 
   test('reuse skips recomputation -- the returned canonicalSemanticContext is the exact same object reference passed in, not a freshly rebuilt equivalent', async () => {

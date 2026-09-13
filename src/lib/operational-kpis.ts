@@ -76,6 +76,9 @@ export function calculateBusinessHealth(business: Business): number {
   return Math.round(automation * 0.35 + roiHealth * 0.25 + lifecycleHealth[business.lifecycle] * 0.25 + brand * 0.15)
 }
 
+// Not to be confused with operational-kpi-engine.ts's own calculateOperationalKpis, which is
+// async and reads live per-venture evidence from the database -- this one is a synchronous,
+// pure function over an already-loaded list of businesses.
 export function calculateOperationalKpis(input: OperationalKpiInput): OperationalKpiSnapshot {
   const reference = input.businesses.find(isReferenceVenture) ?? null
   const realBusinesses = input.businesses.filter((business) => !isReferenceVenture(business))

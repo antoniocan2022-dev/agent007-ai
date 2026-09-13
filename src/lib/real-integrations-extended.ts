@@ -1,5 +1,7 @@
 /**
- * real-integrations-v2.ts — Resend, Affiliate, DataForSEO, PayPal, Analytics (upgrade #56)
+ * real-integrations-extended.ts (renamed from real-integrations-v2.ts; a genuine v1 exists in
+ * real-integrations.ts as a non-overlapping tool set, so "v2" misleadingly implied supersession)
+ * — Resend, Affiliate, DataForSEO, PayPal, Analytics (upgrade #56)
  */
 import { ToolResult, ToolContext, okResult, badResult } from './tools'
 import { db } from './db'

@@ -33,6 +33,9 @@ const WINDOW_MS = 15 * 60 * 1000              // 15-minute rolling window
 
 /**
  * Get client IP from request (handles Vercel's x-forwarded-for)
+ *
+ * Not to be confused with rate-limiter.ts's own getClientIP, which requires a real
+ * Fetch API Request -- this one accepts any loosely-typed header-bag object.
  */
 export function getClientIP(req: any): string {
   const forwarded = req?.headers?.['x-forwarded-for']

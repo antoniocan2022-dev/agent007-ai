@@ -29,28 +29,26 @@
 import { db } from './db'
 import { sendEmail } from './email'
 import { sendWhatsApp } from './whatsapp-bridge'
+import { OWNER_EMAIL, OWNER_PHONE, OWNER_PHONE_DIGITS, OWNER_NAME, isOwnerEmail } from './owner-config'
 
 // ── PERMANENT OWNER CONTACT (cannot be changed at runtime) ──────────
-export const OWNER_EMAIL = 'OWNER_EMAIL'
-export const OWNER_PHONE = 'OWNER_PHONE'
-export const OWNER_PHONE_DIGITS = 'OWNER_PHONE_DIGITS'
-export const OWNER_NAME = 'Antonio'
+// Deep-audit fix: this used to hardcode the literal strings 'OWNER_EMAIL'/'OWNER_PHONE'/
+// 'OWNER_PHONE_DIGITS' as placeholder values instead of ever reading real contact info --
+// isOwnerContact()/isOwnerEmail() below could never match the real owner, and every
+// notification this module sends (approval emails, WhatsApp/SMS links) went to the
+// literal text "OWNER_EMAIL" instead of a real address. Centralized via owner-config.ts
+// (env-var backed) like every other file in this codebase, per that module's own header.
+// isOwnerEmail is re-exported (not redefined) to avoid the two modules drifting again.
+export { OWNER_EMAIL, OWNER_PHONE, OWNER_PHONE_DIGITS, OWNER_NAME, isOwnerEmail }
 
 /**
  * Returns true if the given email/phone matches the permanent owner.
  * This is used to PREVENT changes to the owner's contact info.
  */
 export function isOwnerContact(email?: string, phone?: string): boolean {
-  const emailMatch = email && email.trim().toLowerCase() === OWNER_EMAIL
-  const phoneMatch = phone && phone.replace(/\D/g, '').includes(OWNER_PHONE_DIGITS)
+  const emailMatch = email && isOwnerEmail(email)
+  const phoneMatch = phone && OWNER_PHONE_DIGITS && phone.replace(/\D/g, '').includes(OWNER_PHONE_DIGITS)
   return !!(emailMatch || phoneMatch)
-}
-
-/**
- * Returns true if the given email IS the owner's email.
- */
-export function isOwnerEmail(email: string): boolean {
-  return email.trim().toLowerCase() === OWNER_EMAIL
 }
 
 /**
@@ -99,14 +97,14 @@ TO REJECT (deny access):
 
 SECURITY NOTES:
   - This approval link expires in 24 hours
-  - Only the owner (OWNER_EMAIL) can approve new users
+  - Only the owner (${OWNER_EMAIL}) can approve new users
   - If you did not expect this registration, reject the request
   - The new user CANNOT log in until you approve
 
 — Agent007 AI
-Owner: Antonio
-Phone: +1 514 549 6297
-Email: OWNER_EMAIL`
+Owner: ${OWNER_NAME}
+Phone: ${OWNER_PHONE}
+Email: ${OWNER_EMAIL}`
 
   const sentChannels: string[] = []
 

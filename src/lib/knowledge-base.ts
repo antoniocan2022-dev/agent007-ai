@@ -51,6 +51,8 @@ export function tokenize(text: string): string[] {
   return [...new Set(tokens)] // dedupe
 }
 
+// Not to be confused with agent.ts's own chunkText(text, size), a bare fixed-size splitter --
+// this one takes only text (using module-level CHUNK_SIZE) and breaks at word boundaries.
 export function chunkText(text: string): string[] {
   if (!text) return []
   const chunks: string[] = []

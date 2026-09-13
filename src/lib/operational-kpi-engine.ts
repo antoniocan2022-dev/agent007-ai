@@ -26,6 +26,9 @@ export interface OperationalKpiSnapshot {
 function stableId(...parts: string[]) { return `kpi_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}` }
 function parseJson(value: string): Record<string, any> | null { try { return JSON.parse(value) as Record<string, any> } catch { return null } }
 
+// Not to be confused with operational-kpis.ts's own calculateOperationalKpis, which is a
+// synchronous, DB-free function over an in-memory list of businesses -- this one is async
+// and reads live evidence for a single ventureId/time window from the database.
 export async function calculateOperationalKpis(ventureId = 'venture_001', windowHours = 24): Promise<OperationalKpiSnapshot> {
   if (!ventureId.trim()) throw new Error('ventureId is required.')
   if (!Number.isFinite(windowHours) || windowHours <= 0 || windowHours > 720) throw new Error('windowHours must be between 1 and 720.')

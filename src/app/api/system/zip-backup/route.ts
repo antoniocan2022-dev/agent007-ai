@@ -10,6 +10,7 @@ import {
   getDownloadDir,
   isVercel,
 } from '@/lib/backup-functions'
+import { isAuthorizedOwnerRequest } from '@/lib/owner-request-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,6 +29,9 @@ export const dynamic = 'force-dynamic'
  */
 
 export async function GET(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const url = new URL(req.url)
     const download = url.searchParams.get('download')
@@ -88,6 +92,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json().catch(() => ({}))
     const label = (body.label ?? 'full-system').toString()

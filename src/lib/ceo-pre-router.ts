@@ -46,7 +46,21 @@ const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|resea
 // the word "research". Keep the signal contextual so ordinary internal checks are not routed externally.
 const MARKET_RESEARCH_LOOKUP_RE = /\b(?:check|pull|gather|collect|find)\b[^.!?]{0,80}\b(?:news|headlines?|relevant\s+information|information|updates?)\b/i
 const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
-const SHORT_TICKER_ACTION_RE = /\b(?:buy|sell|invest|trade)\s+(?:in\s+)?([A-Z]{1,5})\b/
+// Deep-audit fix (2026-09-13): the verb alternation here was case-sensitive with no /i flag, while
+// every sibling regex in this file (MARKET_ACTION_RE, EXTERNAL_LOOKUP_PHRASE_RE, etc.) is case-
+// insensitive. A sentence-initial "Buy GEOS." (capitalized, as any normal English sentence would be)
+// never matched literal lowercase "buy", so it fell through equity-research classification entirely
+// and misrouted to plain conversation instead of governed external-evidence handling -- exactly the
+// class of bug this file's own header comment warns about. Capitalizing only the alternation (not
+// adding a blanket /i flag) is deliberate: [A-Z]{1,5} must stay upper-case-only, since matching a
+// lower-case run there would turn this into an unrelated "verb + any short word" detector.
+const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\s+)?([A-Z]{1,5})\b/
+// A bare imperative purchase command ("Buy API credits.", "Purchase more storage.") at the start of
+// the message is a direct action to execute, not a stock-ticker research signal (that's
+// SHORT_TICKER_ACTION_RE's job, checked separately and earlier in inferSemanticIntent) and not a
+// hedged decision/analysis question ("Should we buy...", "Analyze whether we should buy..." --
+// neither starts with the verb, so this anchored-to-start pattern never touches them).
+const IMPERATIVE_ACQUIRE_RE = /^(?:buy|purchase|acquire|order)\b/i
 const COMMON_ACRONYM_RE = /^(?:API|AWS|CPU|CRM|ERP|GPU|HTML|HTTP|HTTPS|RAM|SaaS|SDK|SQL|UI|URL|VPN|XML)$/
 const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
 const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
@@ -159,7 +173,7 @@ function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassif
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
   if (isExternalEquityResearch(text)) return 'research'
   if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate)\b/i.test(text) || EXTERNAL_LOOKUP_PHRASE_RE.test(text)) return 'research'
-  if (TOOL_ACTION_RE.test(text)) return 'tool_action'
+  if (TOOL_ACTION_RE.test(text) || IMPERATIVE_ACQUIRE_RE.test(text)) return 'tool_action'
   if (/\b(?:analy[sz]e|analysis|assess|evaluate|review|diagnose|compare|strategy|strategic|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/\b(?:should|recommend|recommendation|choose|pick|decision)\b/i.test(text)) return 'decision'
   if (/\b(?:think|opinion|take on|agree|disagree|feel)\b/i.test(text)) return 'opinion'

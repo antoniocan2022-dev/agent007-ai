@@ -1,0 +1,71 @@
+name: Coverage Gap CI
+
+# Deep-audit fix: ~70 of this repo's test files were never referenced by name in any CI
+# workflow, so they never ran in CI at all -- two of them (src/lib/commercial-control-plane.test.ts,
+# src/lib/operations-kit-contract.test.ts) turned out to be silently broken/failing as a direct
+# result. This workflow closes that gap by explicitly running every test file not already covered
+# by another workflow. When adding a new test file, either add it to an existing themed workflow
+# or it will need to be added here -- there is no dynamic discovery, matching this repo's existing
+# convention of explicit file lists per CI step.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  coverage-gap:
+    name: Coverage gap
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent007_test
+      NEXTAUTH_SECRET: ci-only-agent007-nextauth-secret
+      OWNER_EMAIL: ci-owner@example.com
+      SEED_EMAIL: ci-owner@example.com
+      OWNER_BOOTSTRAP_PASSWORD: ci-only-strong-bootstrap-password
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agent007_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agent007_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with: { bun-version: '1.3.4' }
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate Prisma client
+        run: bunx prisma generate
+      - name: Prepare test database
+        run: bunx prisma db push --skip-generate
+      - name: Batch 1 — commercial/operations/portfolio lib-colocated tests
+        run: bun test src/lib/ceo-conversation-regression.test.ts src/lib/commercial-architecture.test.ts src/lib/commercial-control-plane-runtime.test.ts src/lib/commercial-control-plane.test.ts src/lib/operations-kit-contract.test.ts src/lib/portfolio-intelligence.test.ts src/lib/revenue-recovery-contract.test.ts
+      - name: Batch 2 — auth, budget, self-repair, provider cold-start
+        run: bun test tests/agent-request-budget.test.ts tests/auth-jwt-recovery.test.ts tests/credential-encryption.test.ts tests/login-password-reset-policy.test.ts tests/provider-governance-attempt-budget.test.ts tests/provider-half-open-circuit.test.ts tests/provider-intelligence-cold-start.test.ts tests/ceo-self-repair-engine.test.ts tests/ceo-self-repair-governance.test.ts
+      - name: Batch 3 — CEO conversation/context/memory
+        run: bun test tests/ceo-active-objective-continuity.test.ts tests/ceo-architecture-invariants.test.ts tests/ceo-artifact-token-detection.test.ts tests/ceo-context-composer-reuse.test.ts tests/ceo-conversation-context.test.ts tests/ceo-cross-session-memory.test.ts tests/ceo-episodic-memory.test.ts tests/ceo-memory-embeddings.test.ts tests/ceo-memory-visibility-p5-gap.test.ts
+      - name: Batch 4 — CEO claims, completion, conflict benchmarks
+        run: bun test tests/ceo-claim-ledger.test.ts tests/ceo-completion-claim-detector.test.ts tests/ceo-conflict-benchmark-memory-evidence.test.ts tests/ceo-conflict-benchmarks.test.ts tests/ceo-control-reachability-matrix.test.ts tests/ceo-curiosity-operator-connection.test.ts tests/ceo-decide-evidence-requirement.test.ts tests/ceo-decision-synthesis.test.ts
+      - name: Batch 5 — CEO degraded-mode variants
+        run: bun test tests/ceo-degraded-mode-continuation-restatement.test.ts tests/ceo-degraded-mode-research-abstention.test.ts tests/ceo-degraded-mode-resolved-reference.test.ts tests/ceo-degraded-mode-self-assessment-grounding.test.ts tests/ceo-risk-abstention-domain-wiring.test.ts
+      - name: Batch 6 — CEO evolution, evidence, governance, guardian
+        run: bun test tests/ceo-evidence-freshness-wiring.test.ts tests/ceo-evolution-engine-connection.test.ts tests/ceo-evolution-proposal.test.ts tests/ceo-governance-applicability.test.ts tests/ceo-guardian.test.ts tests/ceo-incident-regression-candidate.test.ts tests/ceo-operator-intelligence-wiring.test.ts
+      - name: Batch 7 — CEO live-transcript, phases, pre-router
+        run: bun test tests/ceo-live-transcript-investigation-2.test.ts tests/ceo-live-transcript-regression.test.ts tests/ceo-phase2-p0.test.ts tests/ceo-phases-0-10.test.ts tests/ceo-pre-router-external-equity-competitor.test.ts tests/ceo-pre-router-external-lookup-phrasing.test.ts tests/ceo-pre-router-governed-intent-precedence.test.ts tests/ceo-pre-router-retrospective-command-precedence.test.ts
+      - name: Batch 8 — CEO quality-gate, response-composer, semantic, world-model
+        run: bun test tests/ceo-quality-gate-false-positives.test.ts tests/ceo-quality-gate-sanitization-order.test.ts tests/ceo-reference-resolution-markdown.test.ts tests/ceo-response-composer-surgical-strip.test.ts tests/ceo-semantic-interpreter-high-risk-ambiguity.test.ts tests/ceo-semantic-quality-report.test.ts tests/ceo-tier4-hygiene-fixes.test.ts tests/ceo-tool-outcome-learning.test.ts tests/ceo-turn-sequencing.test.ts tests/ceo-verify-overclaim-constraint.test.ts tests/ceo-world-model-live-signals.test.ts tests/ceo-world-model-wiring.test.ts tests/ceo-world-state.test.ts
+      - name: Batch 9 — deployment, release-health, system-audit, tool-honesty
+        run: bun test tests/canonical-diagnostics.test.ts tests/deployment-reality-contract.test.ts tests/max-autonomy-engine-cold-start.test.ts tests/release-health-behavioral-probes.test.ts tests/system-audit-contract.test.ts tests/tool-honesty-fixes.test.ts tests/vercel-build-integrity.test.ts

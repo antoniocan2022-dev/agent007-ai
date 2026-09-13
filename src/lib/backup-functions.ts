@@ -16,7 +16,36 @@ import { getCapabilities } from './system-functions'
 import { getAllUpgrades } from './upgrade-manifest'
 import { getPublicBaseUrl } from './runtime/public-base-url'
 import { isVercelRuntime } from './runtime/host-runtime'
-import { BACKUP_TABLES } from './backup-v2'
+import { BACKUP_TABLES, SECRET_COLUMNS, getEncryptionKey } from './backup-v2'
+import { encryptSecretValue } from './credential-encryption'
+
+// Deep-audit fix: this used to dump every column of every table -- including ApiKey.key,
+// BankAccount.accountNumber/routingNumber, PayPalAccount.clientSecret, User.passwordHash,
+// TwoFactorSecret.secret/backupCodes, PlatformConnection.apiKey/apiSecret/accessToken -- in
+// PLAINTEXT, while the newer backup-v2.ts encrypts (or omits) the exact same columns. Same
+// tables, two different security postures depending on which backup path ran. Reuses backup-v2's
+// own SECRET_COLUMNS registry and its canonical AES-256-GCM credential encryption so both paths
+// now share one policy: encrypt when BACKUP_ENCRYPTION_KEY/CREDENTIAL_ENCRYPTION_KEY is
+// configured, otherwise redact -- never plaintext.
+const SECRET_COLUMNS_BY_CLIENT_NAME: Record<string, string[]> = Object.fromEntries(
+  Object.entries(SECRET_COLUMNS).map(([model, columns]) => [model.charAt(0).toLowerCase() + model.slice(1), columns]),
+)
+
+export function sanitizeSecretColumns(tableName: string, rows: unknown[]): unknown[] {
+  const secretColumns = SECRET_COLUMNS_BY_CLIENT_NAME[tableName]
+  if (!secretColumns?.length) return rows
+  const key = getEncryptionKey()
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row
+    const clean: Record<string, unknown> = { ...(row as Record<string, unknown>) }
+    for (const column of secretColumns) {
+      if (column in clean && clean[column] !== null && clean[column] !== undefined) {
+        clean[column] = key ? encryptSecretValue(clean[column]) : '[REDACTED]'
+      }
+    }
+    return clean
+  })
+}
 
 const BACKUP_DIR = process.env.AGENT007_BACKUP_DIR?.trim() || path.join(os.tmpdir(), 'agent007-backups')
 const DOWNLOAD_DIR = process.env.AGENT007_DOWNLOAD_DIR?.trim() || path.join(os.tmpdir(), 'agent007-downloads')
@@ -97,7 +126,7 @@ export async function createBackup(label = 'full-system'): Promise<BackupResult>
     for (const table of TABLE_NAMES) {
       try {
         const rows = await (db as any)[table].findMany()
-        database[table] = rows
+        database[table] = sanitizeSecretColumns(table, rows)
         counts[table] = rows.length
       } catch {
         database[table] = []

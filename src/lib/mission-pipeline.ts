@@ -592,6 +592,9 @@ async function requestOwnerApproval(missionId: string, missionTitle: string): Pr
  *   - The orchestrator when it detects a "mission" task
  *   - The /api/mission-active/run endpoint (manual trigger)
  *   - The scheduled tick (for autonomous missions)
+ *
+ * Not to be confused with mission-os.ts's own runMissionPipeline, a simpler single-string-
+ * argument pipeline used only by /api/system/mission.
  */
 export async function runMissionPipeline(opts: {
   missionId: string

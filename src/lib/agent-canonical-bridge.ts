@@ -59,6 +59,9 @@ function buildLegacyResult(result: any, startedAt: number, policyTaskClass?: Tas
   }
 }
 
+// Not to be confused with agent.ts's own callLlmWithRetry, which always calls runCanonicalLlm
+// directly and reshapes the result into an OpenAI chat-completion object -- this one branches
+// on getOrchestrationOwner() and returns runCanonicalLlm's own result shape unchanged.
 export async function callLlmWithRetry(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts?: CanonicalBridgeOptions,

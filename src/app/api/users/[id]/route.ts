@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions, hashPassword } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { isOwnerEmail } from '@/lib/owner-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,7 +15,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     const user = await db.user.findUnique({ where: { id } })
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    if (user.email === 'OWNER_EMAIL') return NextResponse.json({ error: 'Cannot delete primary operator' }, { status: 403 })
+    if (isOwnerEmail(user.email)) return NextResponse.json({ error: 'Cannot delete primary operator' }, { status: 403 })
     // UPGRADE #173 fix #7: BEFORE used `conversation` (lowercase — invalid
     // field; Prisma expects the relation name `Conversation` capitalized).
     // AFTER — use the proper relation name with a valid where clause on

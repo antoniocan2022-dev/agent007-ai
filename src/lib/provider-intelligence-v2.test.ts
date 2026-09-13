@@ -1,7 +1,6 @@
 import { describe, expect, test, afterEach } from 'bun:test'
 import { getAllGovernanceProfiles, validateBuiltinGovernanceCoverage } from './subagent-governance'
 import { PROVIDER_PRIORITY, getProviderTaskPolicy, rankAvailableProviders, validateProviderPriority } from './provider-intelligence-policy'
-import { selectPrimaryProvider, selectProvidersForTask } from './provider-intelligence-v2'
 import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, runGovernedProviderChat } from './provider-runtime-v2'
 import { getModelForProvider } from './model-intelligence'
 import { clearOutcomeIntelligenceForTests, getOutcomeSnapshot } from './outcome-intelligence'
@@ -34,14 +33,17 @@ describe('Subagent Governance 2.0', () => {
   })
 })
 
+// Deep-audit fix (2026-09-13): removed provider-intelligence-v2.ts and its two tests here
+// ('selects the highest-priority healthy provider', 'preserves fallback priority order').
+// That module was a "Governance 2.0 provider priority" coordinator that was built and unit-
+// tested but never imported by any live call site -- canonical-llm-router.ts (the actual
+// production provider-selection path) already calls getProviderTaskPolicy/rankAvailableProviders
+// directly and layers additional live logic (CEO_CONVERSATION_PROVIDER_PRIORITY, openai
+// exclusion, execution-class-aware ordering) that the dead coordinator never knew about, so
+// wiring it in as-is would have been a regression, not a fix. The underlying policy it wrapped
+// (PROVIDER_PRIORITY/getProviderTaskPolicy/rankAvailableProviders, tested above) is live and
+// covered; only the superseded wrapper is gone.
 describe('Provider Intelligence 2.0', () => {
-  test('selects the highest-priority healthy provider', () => {
-    expect(selectPrimaryProvider('financial', ['mistral', 'cloudflare', 'groq'])?.provider).toBe('groq')
-    expect(selectPrimaryProvider('general', ['cloudflare', 'mistral'])?.provider).toBe('cloudflare')
-  })
-  test('preserves fallback priority order', () => {
-    expect(selectProvidersForTask('reasoning', ['mistral', 'cloudflare', 'groq']).map((item) => item.provider)).toEqual(['groq', 'cloudflare', 'mistral'])
-  })
   test('has exactly one runtime descriptor for each governed provider', () => {
     expect(Object.keys(PROVIDER_RUNTIME_CONFIG).sort()).toEqual(['cerebras', 'cloudflare', 'groq', 'mistral', 'openrouter'])
     expect(PROVIDER_RUNTIME_CONFIG.groq.baseUrl).toBe('https://api.groq.com/openai/v1/chat/completions')

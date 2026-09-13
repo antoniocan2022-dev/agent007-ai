@@ -15,6 +15,10 @@ const VERIFICATION_THRESHOLD = 70
 export interface MissionStage { stage: string; status: 'pending' | 'running' | 'complete' | 'failed'; output?: string; durationMs?: number }
 export interface MissionResult { missionId: string; goal: string; stages: MissionStage[]; finalDecision: string; confidence: number; learnings: string[]; success: boolean }
 
+// Not to be confused with mission-pipeline.ts's own runMissionPipeline (the canonical pipeline
+// used by the orchestrator, /api/mission-active/run, and the scheduled tick, taking a structured
+// {missionId, pipelineType, objective, ...} options object) -- this one is a simpler, single-
+// string-argument pipeline used only by /api/system/mission.
 export async function runMissionPipeline(userRequest: string): Promise<MissionResult> {
   const missionId = `mission_${Date.now()}`
   const stages: MissionStage[] = []

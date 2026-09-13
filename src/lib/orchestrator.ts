@@ -6,8 +6,18 @@ import { verifyToolAction } from "./tool-action-verification"
 // Helper: fetch internal URL with better error handling for Vercel
 async function internalFetch(url: string, options?: any): Promise<any> {
   try {
+    // Owner-only system/backup/2FA routes require either a browser session or this
+    // internal bearer secret (see owner-request-auth.ts) -- a server-to-server fetch
+    // like this one carries no session cookie, so without this header those routes
+    // would 401 every internal call. Reuses CRON_SECRET, the same trusted-caller
+    // secret already used for every other server-to-server call in this app.
+    const internalSecret = process.env.CRON_SECRET?.trim()
+    const headers = internalSecret
+      ? { ...options?.headers, authorization: `Bearer ${internalSecret}` }
+      : options?.headers
     const res = await fetch(url, {
       ...options,
+      headers,
       redirect: 'follow',
       signal: options?.signal ?? AbortSignal.timeout(15000),
     })

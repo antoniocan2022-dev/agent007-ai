@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { gzipSync } from 'node:zlib'
 import { createBackupV2, inspectBackupV2 } from '@/lib/backup-v2'
+import { isAuthorizedOwnerRequest } from '@/lib/owner-request-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * Backup V2.1 is intentionally protected by the normal application middleware.
+ * Backup V2.1 requires either a signed-in owner session or
+ * `Authorization: Bearer <CRON_SECRET>` -- see src/lib/owner-request-auth.ts.
+ * (There is no application middleware in this repo; this route enforces its
+ * own auth directly rather than relying on one.)
  * It contains sensitive enterprise state and must never be added to the public whitelist.
  *
  * GET ?format=json|gzip       -> complete DB export with encrypted secret columns when configured
@@ -17,6 +21,9 @@ export const maxDuration = 60
  * which has a dedicated AGENT007_DR_DATABASE_URL safety boundary.
  */
 export async function GET(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const format = new URL(req.url).searchParams.get('format') ?? 'json'
     if (format !== 'json' && format !== 'gzip') {
@@ -60,6 +67,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json()
     const mode = body?.mode ?? 'inspect'
