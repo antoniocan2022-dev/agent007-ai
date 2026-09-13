@@ -30,7 +30,16 @@ export function buildCeoDecisionPlan(input: {
   const cognitiveDepth = selfAssessment ? 0 : critical ? 4 : deep ? 2 : 0
   const qualityTier = critical ? 'critical' : deep ? 'high' : 'standard'
   const verificationRequired = critical || deep
-  const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep || conversationalIntent ? 1 : 0
+  // Tier 4 hygiene fix (2026-09-13): on the fast (non-deep, non-critical) path this only granted a
+  // retry budget to conversation/opinion intents, so a plain "decide between vendor A and vendor B"
+  // that stayed fast got 0 escalations while "hi, how are you" got 1 -- backwards, since a decision's
+  // failure modes (an unbacked claim, a false-completion claim) are exactly what the escalation loop in
+  // ceo-cognitive-lifecycle.ts exists to repair, and casual chat rarely needs it. research/tool_action/
+  // production_action/mission_action always route 'full' from the pre-router (see preRouteCeoRequest),
+  // so they always have deep=true here regardless of this branch; only conversation/opinion/decision/
+  // analysis can ever reach 'fast', so decision/analysis are added alongside conversation/opinion.
+  const fastPathEscalationEligible = conversationalIntent || contract.intent === 'decision' || contract.intent === 'analysis'
+  const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep || fastPathEscalationEligible ? 1 : 0
   const maxProviderAttempts = selfAssessment ? 4 : critical ? 5 : deep ? 4 : 2
   const latencyBudgetMs = selfAssessment ? contract.latencyBudgetMs : critical ? 90000 : deep ? 60000 : contract.latencyBudgetMs
   const capabilityRequirements = capabilitiesForDecision(contract)

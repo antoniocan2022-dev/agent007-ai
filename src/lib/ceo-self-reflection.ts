@@ -138,11 +138,26 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   // "run/manage a business/company" alternatives), so when both match, this is a capability question,
   // not an operational command -- MISSION_ACTION_RE's precedence should not apply here.
   const readinessSignal = READINESS_RE.test(normalized)
-  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || (!readinessSignal && MISSION_ACTION_RE.test(normalized)) || ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized)) {
+  // Tier 4 hygiene fix (2026-09-13): explicitSelfAssessmentRequest (computed above) was never exempted
+  // from ANALYSIS_TARGET_RE/IMPROVEMENT_REQUEST_RE, unlike readinessSignal's narrower
+  // MISSION_ACTION_RE-only carve-out. A message like "Do a self-assessment and review the architecture."
+  // matches EXPLICIT_SELF_ASSESSMENT_RE AND ANALYSIS_TARGET_RE ("review" + "the architecture"), so it
+  // fell through to 'none' instead of the readiness_assessment it explicitly asked for -- "review
+  // X"/"assess X" naturally describes the self-assessment's own scope, not a separate action.
+  // Re-audited (2026-09-13): the first version of this exempted the WHOLE block (including
+  // OPERATIONAL_COMMAND_RE/TARGETED_OPERATION_RE/RESEARCH_RE), which is a whole-message substring test
+  // -- "Do a self-review, then deploy this to production and delete the old build." also contains
+  // "self-review" and got misclassified into the bounded, tool-free self-assessment lane, silently
+  // stripping the governed-tool/evidence requirements a real deploy/delete instruction needs. Narrowed
+  // to exactly the two regexes the motivating case needed (ANALYSIS_TARGET_RE/IMPROVEMENT_REQUEST_RE,
+  // which describe planning/review scope, not execution) -- OPERATIONAL_COMMAND_RE/TARGETED_OPERATION_RE/
+  // RESEARCH_RE/MISSION_ACTION_RE (real side-effecting or tool-requiring actions) are never bypassable by
+  // a self-assessment phrase appearing anywhere in the message, mirroring readinessSignal's own
+  // deliberately narrow, single-regex carve-out just above.
+  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || (!readinessSignal && MISSION_ACTION_RE.test(normalized)) || (!explicitSelfAssessmentRequest && (ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized)))) {
     return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, external-analysis, or improvement-planning language takes precedence.' }
   }
 
-  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
   if (explicitSelfAssessmentRequest) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Explicit self-assessment/self-evaluation/self-review/self-audit/self-reflection request; recognized regardless of pronoun.' }
   if (READINESS_RE.test(normalized)) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
   if (CAPABILITY_RE.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }

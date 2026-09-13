@@ -114,6 +114,17 @@ export async function ceoGenerateReport(opts: { missionId: string; missionTitle:
     verificationDecision: verification.decision,
     evidenceCount: verification.findings.some((finding) => finding.code === 'MISSING_REQUIRED_CLAIM') ? 0 : verification.findings.length === 0 ? 1 : 0,
     criticalConflictCount,
+    // Tier 4 hygiene fix (2026-09-13): this is the only call site of evaluateCeoDecision anywhere in the
+    // codebase, and no protected-action detector is wired in here -- so the governance gate's BLOCK
+    // branch (ceo-decision-kernel.ts's governancePass) is currently unreachable in practice, not a
+    // verified "no protected action requested" signal. Left as an honest placeholder rather than
+    // silently implying coverage that doesn't exist.
+    // Re-audited (2026-09-13): ceo-self-reflection.ts's OPERATIONAL_COMMAND_RE/TARGETED_OPERATION_RE do
+    // match a similar verb set, but they're calibrated for a different job -- routing precedence on a
+    // live user turn -- not for classifying a completed mission's objective text as "protected" here;
+    // OPERATIONAL_COMMAND_RE alone (create/edit/update/change/...) would false-BLOCK routine mission
+    // report generation far more often than it would catch anything genuinely protected. A real detector
+    // for this specific gate is still out of scope for a hygiene pass.
     protectedActionRequested: false,
     verificationTier: verification.decision === 'PASS' ? 'enhanced' : 'strict',
   })

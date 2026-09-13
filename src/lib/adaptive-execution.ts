@@ -8,6 +8,7 @@
  */
 
 import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
+import { containsContextualReference } from './ceo-conversational-signals'
 
 export type ExecutionClass = 'fast' | 'standard' | 'deep' | 'mission'
 
@@ -25,7 +26,8 @@ const MISSION_ACTION_RE = /\b(deploy|production\s+change|launch|publish|send|buy
 const MISSION_CONTEXT_RE = /\b(mission|autonom(?:y|ous)|venture|revenue|customer|transaction|production)\b/i
 const DEEP_RE = /\b(deep|detailed|comprehensive|compare|comparison|strategy|strategic|architecture|analyze|analysis|diagnose|research|evidence|verify|verification|evaluate|plan|design|security|financial|legal|optimi[sz]e|root\s+cause)\b/i
 const FAST_RE = /\b(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate|can you|could you|is it|are you)\b/i
-const CONTEXT_DEPENDENT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
+// Tier 4 hygiene fix (2026-09-13): delegates to the canonical containsContextualReference
+// (ceo-conversational-signals.ts) instead of a locally-drifted word list; see that constant's comment.
 // A short question ("List 5 reasons this failed") can still ask for several structured items --
 // the fast lane's budget is sized for one short answer, not N. Requires an actual count (digit or
 // number word), not just the word "list", so a genuinely single-item request ("List the priority")
@@ -85,7 +87,7 @@ export function classifyExecution(
     return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
   }
 
-  if (CONTEXT_DEPENDENT_RE.test(normalized)) {
+  if (containsContextualReference(normalized)) {
     return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
   }
 
