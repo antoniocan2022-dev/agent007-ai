@@ -25,6 +25,10 @@ export type CeoPublicTransportEvent =
   | 'subagent_tool_result'
   | 'token'
   | 'synthesis'
+  | 'manage_action'
+  | 'subagents_updated'
+  | 'heartbeat'
+  | 'memory_update'
 
 // Deep-audit fix (2026-09-13): this boundary's own docstring frames it as a defense against an
 // untrusted public audience, but /api/agent requires an authenticated session whose conversation
@@ -45,6 +49,16 @@ export type CeoPublicTransportEvent =
 //      populate. Not a leak in the other direction: this is the user's own tool call/result on their own
 //      request, not another user's or the model's raw internal reasoning (still excluded via
 //      INTERNAL_EVENT_NAMES below).
+// Re-audited (2026-09-13): a third, more severe gap in the same shape -- orchestrator.ts actually emits
+// `manage_action`, `subagents_updated`, `heartbeat`, and `memory_update` (self-management-action status,
+// the sub-agents-panel refresh signal, the live progress heartbeat, and the memory panel), and
+// chat-store.ts has full dedicated handlers for all four expecting these exact event names -- but none
+// of the four were in the CeoPublicTransportEvent union at all, so resolveCeoPublicSseEvent silently
+// collapsed every one of them to a bare `{phase:'processing'}` progress event before it ever reached the
+// client. Self-management-action UI, subagent-list refresh, live heartbeat detail, and the memory panel
+// were all dark in production. Same trust boundary as the fields restored above: this is the user's own
+// turn's own status/telemetry about actions taken on their own request, not another user's data or the
+// model's raw internal reasoning.
 const PUBLIC_FIELDS_BY_EVENT: Record<CeoPublicTransportEvent, readonly string[]> = {
   answer: ['content', 'provider', 'model', 'responseMs', 'messageId', 'requestId', 'deployment'],
   done: ['messageId', 'steps', 'provider', 'model', 'responseMs', 'requestId', 'deployment', 'recoveryCount', 'evidenceState'],
@@ -65,6 +79,18 @@ const PUBLIC_FIELDS_BY_EVENT: Record<CeoPublicTransportEvent, readonly string[]>
   token: ['content'],
   // The UI may show a coarse synthesis state, never the internal synthesis prompt/draft.
   synthesis: ['message'],
+  // Status plus this turn's own self-management action result -- chat-store.ts's manage_action handler
+  // reads exactly these fields (stepId/status to locate and update the step, the rest to render it).
+  manage_action: ['stepId', 'status', 'action', 'attrs', 'thought', 'stepNumber', 'result'],
+  // Pure refresh signal -- chat-store.ts's handler ignores the payload entirely and just bumps a
+  // counter, so no fields are needed on the wire.
+  subagents_updated: [],
+  // chat-store.ts stores this payload verbatim as UI heartbeat state; scoped to exactly the fields that
+  // state shape reads (iteration/maxIterations/toolsCalled/lastToolName/lastThought/startedAt/elapsedMs/
+  // message), not the extra dispatchesCalled/manageActionsCalled counters orchestrator.ts also sends.
+  heartbeat: ['iteration', 'maxIterations', 'toolsCalled', 'lastToolName', 'lastThought', 'startedAt', 'elapsedMs', 'message'],
+  // The user's own memory panel entry being created/updated on their own request.
+  memory_update: ['key', 'value', 'category'],
 }
 
 const INTERNAL_EVENT_NAMES = new Set([
@@ -86,7 +112,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 export function resolveCeoPublicSseEvent(event: string): CeoPublicTransportEvent {
   if (INTERNAL_EVENT_NAMES.has(event)) return 'progress'
-  return event === 'answer' || event === 'done' || event === 'error' || event === 'superseded' || event === 'duplicate' || event === 'progress' || event === 'ping' || event === 'tool_call' || event === 'tool_result' || event === 'subagent_dispatch' || event === 'subagent_complete' || event === 'subagent_tool_call' || event === 'subagent_tool_result' || event === 'token' || event === 'synthesis'
+  return event === 'answer' || event === 'done' || event === 'error' || event === 'superseded' || event === 'duplicate' || event === 'progress' || event === 'ping' || event === 'tool_call' || event === 'tool_result' || event === 'subagent_dispatch' || event === 'subagent_complete' || event === 'subagent_tool_call' || event === 'subagent_tool_result' || event === 'token' || event === 'synthesis' || event === 'manage_action' || event === 'subagents_updated' || event === 'heartbeat' || event === 'memory_update'
     ? event
     : 'progress'
 }

@@ -33,6 +33,14 @@ function MessageBubbleComponent({ message }: { message: ChatMessage }) {
   const isEmpty = !message.content && (!message.steps || message.steps.length === 0) && !message.reasoning
   const isStreaming = message.isStreaming
   const showCaret = isStreaming && !message.content
+  // Deep-audit fix (2026-09-13): evidenceState now reaches the client (see chat-store.ts's `done`
+  // handler and ceo-public-transport.ts) but had no UI consumer yet -- mirrors the tool-step "UNVERIFIED"
+  // badge below. Only the genuinely degraded states get a badge; NOT_APPLICABLE/LIVE_EXECUTED/
+  // LIVE_VERIFIED/VERIFIED_CACHED are all fully grounded and need no disclosure.
+  const degradedEvidenceLabel = message.evidenceState === 'UNAVAILABLE' ? 'Evidence unavailable for this answer'
+    : message.evidenceState === 'MEMORY_ONLY' ? 'Based on prior context only, not freshly verified'
+    : message.evidenceState === 'PARTIAL_UNCONFIRMED' ? 'Partially unconfirmed'
+    : null
 
   return (
     <motion.div id={anchorId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="flex gap-3 mb-8 scroll-mt-24">
@@ -42,6 +50,12 @@ function MessageBubbleComponent({ message }: { message: ChatMessage }) {
         <ReasoningTimeline steps={message.steps} />
         {message.reasoning && <ReasoningPanel reasoning={message.reasoning} isStreaming={isStreaming} />}
         {isEmpty && showCaret ? <div className="glass rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-[#7c89b5] italic flex items-center gap-2"><span>Initializing agent loop…</span></div> : message.content ? <div className={`glass rounded-2xl rounded-tl-sm px-4 py-3 ${isStreaming ? 'stream-caret' : ''}`}><div className="prose-agent007"><ReactMarkdown>{message.content}</ReactMarkdown></div></div> : null}
+        {!isStreaming && degradedEvidenceLabel && (
+          <div className="mt-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300 w-fit">
+            <span className="font-bold">⚠️ UNVERIFIED</span>
+            <span className="opacity-80">{degradedEvidenceLabel}</span>
+          </div>
+        )}
       </div>
     </motion.div>
   )
