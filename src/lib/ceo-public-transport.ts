@@ -26,21 +26,41 @@ export type CeoPublicTransportEvent =
   | 'token'
   | 'synthesis'
 
+// Deep-audit fix (2026-09-13): this boundary's own docstring frames it as a defense against an
+// untrusted public audience, but /api/agent requires an authenticated session whose conversation
+// ownership is checked (see route.ts), and its only consumer is this same app's own chat UI showing a
+// user their own request. Two independent gaps traced end-to-end to the frontend before this fix:
+//   1. `done`'s allowlist had no `evidenceState`, so the client had no channel at all to learn a turn
+//      was MEMORY_ONLY/PARTIAL_UNCONFIRMED/UNAVAILABLE rather than fully grounded, unless the response
+//      text itself happened to say so. `tool_result` had no `verified`/`verificationWarning` either,
+//      so an unverified tool action (e.g. a tool claiming success with no real artifact found --
+//      exactly what orchestrator.ts's verifyToolAction exists to catch) was indistinguishable in the UI
+//      from a verified one. Both are now allowed through -- they are the honest-disclosure signals this
+//      whole codebase's degraded/verification machinery exists to produce, and hiding them from the
+//      user defeats that purpose without protecting anyone.
+//   2. src/store/chat-store.ts already reads `thought`/`args` (tool_call, subagent_tool_call),
+//      `result`/`preview`/`artifacts` (tool_result, subagent_tool_result), `color`/`icon`/`task`
+//      (subagent_dispatch), and `answer` (subagent_complete) -- none of which were ever allowed
+//      through, so those UI panels (tool preview, subagent identity, subagent final answer) could never
+//      populate. Not a leak in the other direction: this is the user's own tool call/result on their own
+//      request, not another user's or the model's raw internal reasoning (still excluded via
+//      INTERNAL_EVENT_NAMES below).
 const PUBLIC_FIELDS_BY_EVENT: Record<CeoPublicTransportEvent, readonly string[]> = {
   answer: ['content', 'provider', 'model', 'responseMs', 'messageId', 'requestId', 'deployment'],
-  done: ['messageId', 'steps', 'provider', 'model', 'responseMs', 'requestId', 'deployment', 'recoveryCount'],
+  done: ['messageId', 'steps', 'provider', 'model', 'responseMs', 'requestId', 'deployment', 'recoveryCount', 'evidenceState'],
   error: ['message', 'retryable', 'requestId', 'deployment'],
   superseded: ['reason', 'requestId', 'deployment'],
   duplicate: ['message', 'requestId', 'deployment'],
   progress: ['phase', 'message', 'count', 'maxRecoveries'],
   ping: ['ts'],
-  // UI status only. No arguments, thoughts, raw results, traces, contracts, or telemetry.
-  tool_call: ['stepId', 'stepNumber', 'name'],
-  tool_result: ['stepId', 'ok'],
-  subagent_dispatch: ['dispatchId', 'agentId', 'agentName', 'stepNumber'],
-  subagent_complete: ['dispatchId'],
-  subagent_tool_call: ['dispatchId', 'stepId', 'stepNumber', 'name'],
-  subagent_tool_result: ['dispatchId', 'stepId', 'ok'],
+  // Status plus this turn's own tool call/result/verification -- never routing contracts, evidence
+  // traces, or telemetry.
+  tool_call: ['stepId', 'stepNumber', 'name', 'thought', 'args'],
+  tool_result: ['stepId', 'ok', 'result', 'preview', 'artifacts', 'verified', 'verificationWarning'],
+  subagent_dispatch: ['dispatchId', 'agentId', 'agentName', 'stepNumber', 'color', 'icon', 'task'],
+  subagent_complete: ['dispatchId', 'answer'],
+  subagent_tool_call: ['dispatchId', 'stepId', 'stepNumber', 'name', 'thought', 'args'],
+  subagent_tool_result: ['dispatchId', 'stepId', 'ok', 'result', 'preview', 'artifacts'],
   // Final answer chunks are public content by design. They contain no execution metadata.
   token: ['content'],
   // The UI may show a coarse synthesis state, never the internal synthesis prompt/draft.

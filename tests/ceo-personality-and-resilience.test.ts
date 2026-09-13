@@ -81,6 +81,9 @@ describe('CEO conversational degradation resilience', () => {
     })
     expect(response.content).toContain("I wouldn't make copying a competitor our safest strategy")
     expect(response.content).toContain('study what works')
+    // Deep-audit fix (2026-09-13): this canned strategic opinion used to carry no disclosure at all
+    // that the normal reasoning path failed, unlike every sibling branch in the same function.
+    expect(response.content).toContain("I couldn't complete the normal reasoning path for this")
     expect(response.content).not.toContain('Evidence state:')
   })
 })
@@ -131,6 +134,17 @@ describe('CEO curiosity and canonical routing authority', () => {
     expect(curiosity.investigate).toBe(false)
     expect(route.executionContract.evidenceClass).toBe('none')
     expect(route.executionContract.toolRequired).toBe(false)
+  })
+
+  // Deep-audit fix (2026-09-13): 'latest'/'recent' used to be in both EXTERNAL_SIGNAL_RE (the entry
+  // gate) and the internal-only re-inclusion list, so any internal question phrased with either word
+  // defeated its own INTERNAL_ONLY_RE exclusion and triggered curiosity anyway.
+  test('an internal question phrased with "recent"/"latest" does not defeat the internal-only exclusion', () => {
+    const context = contextFor('Any recent changes to our internal process we should discuss?')
+    const contract = buildConversationDecisionContract(context)
+    const curiosity = assessCeoCuriosity(context, contract)
+
+    expect(curiosity.investigate).toBe(false)
   })
 
   test('internal verification language does not become accidental web research', () => {

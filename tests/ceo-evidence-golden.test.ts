@@ -52,3 +52,34 @@ describe('Stage 8 — golden external evidence corpus', () => {
     expect(completed.events.length).toBe(2)
   })
 })
+
+describe('claim-evidence gate: bare quantitative claims', () => {
+  // Deep-audit fix (2026-09-13): a sentence asserting a specific, checkable quantitative change
+  // ("We grew 40% last quarter.") matched none of the scope regexes (no revenue/sales/current/
+  // architecture-style keyword), so it was silently excluded from `claims` entirely -- never counted,
+  // never checked -- letting an unbacked growth/usage/signup number sail through unverified.
+  test('an unsupported growth claim with no evidence is now caught (previously silently skipped)', () => {
+    const source = createEvidenceSource({ url: 'https://example.com/unrelated', title: 'Unrelated report', sourceType: 'news', sourceTier: 2, retrievedAt: Date.now(), publishedAt: Date.now(), text: 'The market is generally healthy this quarter.' })
+    const bundle = buildEvidenceBundle({ profile: 'general_research', sources: [source], minimumSources: 1, minimumTierOneSources: 0 })
+    const result = verifyClaimEvidence('We grew 40% last quarter.', bundle)
+    expect(result.requiredClaimCount).toBe(1)
+    expect(result.passed).toBe(false)
+  })
+
+  test('a growth claim backed by real matching evidence still passes', () => {
+    const source = createEvidenceSource({ url: 'https://example.com/results', title: 'Quarterly results', sourceType: 'news', sourceTier: 1, retrievedAt: Date.now(), publishedAt: Date.now(), text: 'Revenue grew 40% last quarter compared to the prior period.' })
+    const bundle = buildEvidenceBundle({ profile: 'general_research', sources: [source], minimumSources: 1, minimumTierOneSources: 0 })
+    const sourceId = bundle.sources[0].id
+    const result = verifyClaimEvidence(`Revenue grew 40% last quarter [${sourceId}].`, bundle)
+    expect(result.requiredClaimCount).toBe(1)
+    expect(result.passed).toBe(true)
+  })
+
+  test('comma-grouped numbers are recognized (previously silently truncated at the comma)', () => {
+    const source = createEvidenceSource({ url: 'https://example.com/unrelated', title: 'Unrelated report', sourceType: 'news', sourceTier: 2, retrievedAt: Date.now(), publishedAt: Date.now(), text: 'The product roadmap looks solid.' })
+    const bundle = buildEvidenceBundle({ profile: 'general_research', sources: [source], minimumSources: 1, minimumTierOneSources: 0 })
+    const result = verifyClaimEvidence('Signups reached 10,000 this week.', bundle)
+    expect(result.requiredClaimCount).toBe(1)
+    expect(result.passed).toBe(false)
+  })
+})

@@ -45,16 +45,29 @@ const SHORT_TICKER_ACTION_RE = /\b(?:buy|sell|invest|trade)\s+(?:in\s+)?([A-Z]{1
 const COMMON_ACRONYM_RE = /^(?:API|AWS|CPU|CRM|ERP|GPU|HTML|HTTP|HTTPS|RAM|SaaS|SDK|SQL|UI|URL|VPN|XML)$/
 const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
 const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
-const INTERNAL_CONTEXT_RE = /\b(?:our|we|us|my|internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
+// Deep-audit fix (2026-09-13): split into a weak, generic-pronoun signal and a strong, unambiguous
+// internal-topic signal. "our"/"we"/"us"/"my" alone used to unconditionally block equity-research
+// classification, so "Should we buy shares of our competitor?" -- unambiguously about a DIFFERENT
+// company's stock -- lost the equity-specific rigor (multi_source evidence, 8 max turns, 120s budget,
+// public_equity profile) reserved for isExternalEquityResearch, silently downgrading to generic
+// research. The specific internal-operations/finance nouns (spare parts, warehouse, founder, budget,
+// etc.) remain an unconditional block -- those are genuinely internal topics regardless of phrasing.
+const INTERNAL_PRONOUN_RE = /\b(?:our|we|us|my)\b/i
+const INTERNAL_SPECIFIC_TOPIC_RE = /\b(?:internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
+const EXTERNAL_ENTITY_RE = /\b(?:competitor(?:s)?|rival(?:s)?)\b/i
+function isInternalEquityContext(text: string): boolean {
+  if (INTERNAL_SPECIFIC_TOPIC_RE.test(text)) return true
+  return INTERNAL_PRONOUN_RE.test(text) && !EXTERNAL_ENTITY_RE.test(text)
+}
 const INTERNAL_FINANCE_RE = /\b(?:our|my|internal)?\s*(?:earnings\s+report|financial\s+forecast|financials?|budget|accounts?|bookkeeping|accounting)\b/i
 const INTERNAL_OPERATIONS_RE = /\b(?:spare\s+parts?|inventory|stockroom|warehouse|server(?:s)?|equipment|procurement|purchase\s+order|meeting|review\s+meeting|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|operations?|operational)\b/i
 const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|execute|fix|hold\s+(?:a|the)?\s*(?:review\s+)?meeting)\b/i
 
 function isExternalEquityResearch(text: string): boolean {
   const tickerAction = text.match(SHORT_TICKER_ACTION_RE)
-  if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !INTERNAL_CONTEXT_RE.test(text)
+  if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !isInternalEquityContext(text)
   if (!MARKET_SECURITY_RE.test(text) || !MARKET_ACTION_RE.test(text)) return false
-  if (INTERNAL_CONTEXT_RE.test(text)) return false
+  if (isInternalEquityContext(text)) return false
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
 function isExternalDomain(domain: EvidenceDomain): boolean { return domain !== 'none' && domain !== 'unknown' && domain !== 'general_web' && !domain.startsWith('internal_') }
@@ -104,10 +117,34 @@ function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflec
   if (missionRelevant || intent === 'mission_action') return buildExecutionContract({ intent: 'mission_action', evidenceClass: 'mixed', domain: 'business_due_diligence', operation: 'decide', temporalScope: 'current', evidenceProfile: 'business_due_diligence', evidenceRequirement: 'multi_source', executionRequirement: 'mission', orchestrationOwner: 'operational_orchestrator', maxTurns: 12, maxRecoveries: 2, latencyBudgetMs: 60000, toolRequired: true, subagentsRequired: true, reason })
   return buildExecutionContract({ intent, evidenceClass, domain, operation, temporalScope, evidenceProfile, evidenceRequirement: evidenceClass === 'external_web' ? 'external_web' : 'none', executionRequirement: evidenceClass === 'external_web' ? 'multi_source' : 'one_tool', orchestrationOwner: evidenceClass === 'external_web' ? 'ceo_lifecycle' : 'operational_orchestrator', maxTurns: adaptiveExecutionClass === 'deep' ? 6 : 4, maxRecoveries: 1, latencyBudgetMs: adaptiveExecutionClass === 'deep' ? 60000 : 30000, toolRequired: evidenceClass === 'external_web' || intent === 'tool_action', subagentsRequired: false, reason })
 }
+// Deep-audit fix (2026-09-13): a compound message like "Remind me why we chose this approach, then
+// deploy it to production." matched isRetrospectiveConversationRequest on its first clause alone and
+// returned 'conversation' before the production/mission checks below ever ran, silently swallowing a
+// real deploy instruction onto the lowest-scrutiny lane. Only fires for a genuinely multi-clause
+// message (split on sentence punctuation or a "then"/"and then"/"next" clause boundary) and only when
+// a LATER clause independently carries its own production/mission signal and is not itself a
+// retrospective question -- a single-clause retrospective question that happens to mention an action
+// word while describing what was chosen ("why did we choose to launch the campaign this way") has no
+// second clause to split into, so it is completely unaffected and keeps its original classification.
+const CLAUSE_SPLIT_RE = /[.!?;]+|,\s*(?:then|and then|next)\s+/i
+function findTrailingProductionOrMissionIntent(text: string): 'production_action' | 'mission_action' | undefined {
+  const clauses = text.split(CLAUSE_SPLIT_RE).map((clause) => clause.trim()).filter(Boolean)
+  if (clauses.length < 2) return undefined
+  for (const clause of clauses) {
+    if (isRetrospectiveConversationRequest(clause)) continue
+    if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(clause)) return 'production_action'
+    if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(clause) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(clause)) return 'mission_action'
+  }
+  return undefined
+}
 function inferSemanticIntent(text: string, selfReflection: SelfReflectionClassification): CeoIntent {
   if (selfReflection.isSelfReflective) return 'self_assessment'
   // Historical/retrospective questions are semantic conversation requests. Resolve them before action, mission, research, or analysis keywords can steal the route.
-  if (isRetrospectiveConversationRequest(text)) return 'conversation'
+  if (isRetrospectiveConversationRequest(text)) {
+    const trailingIntent = findTrailingProductionOrMissionIntent(text)
+    if (trailingIntent) return trailingIntent
+    return 'conversation'
+  }
   if (/\b(?:deploy|publish|production|ship|launch)\b/i.test(text)) return 'production_action'
   if (/\b(?:mission|autonom(?:y|ous)|venture|revenue|transaction)\b/i.test(text) && /\b(?:run|start|execute|manage|launch|create|fix|implement)\b/i.test(text)) return 'mission_action'
   if (isExternalEquityResearch(text)) return 'research'
@@ -139,7 +176,19 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const taskClass = inferTaskType(messages)
   const deterministicIntent = inferSemanticIntent(text, selfReflection)
   const assistedIntent = semanticIntentToCeoIntent(semanticContext)
-  const semanticIntent = deterministicIntent === 'self_assessment' ? 'self_assessment' : (assistedIntent ?? deterministicIntent)
+  // Deep-audit fix (2026-09-13): only 'self_assessment' was protected from being overridden by the
+  // LLM-assisted intent. ceo-semantic-interpreter.ts's HIGH_RISK_EXECUTION_RE/MISSION_EXECUTION_RE
+  // guards already force deterministic-only classification for most deploy/production/mission-bearing
+  // messages, but TOOL_ACTION_RE (create/delete/edit/update/change/schedule/send/run/execute/fix) is a
+  // materially different word set with no equivalent guard upstream -- "update our pricing strategy
+  // across all products" trips TOOL_ACTION_RE deterministically but neither upstream guard, so a
+  // confident assisted intentHint of 'decision' could silently replace 'tool_action' before contractFor
+  // ever ran, losing its governed toolRequired/executionRequirement entirely (not just downgrading
+  // them, as the evidence/tool overwrite below can also do to production_action/mission_action).
+  // production_action/mission_action are included here too for defense in depth even though the
+  // interpreter-level guard already covers most of their triggering keywords.
+  const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action'
+  const semanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
   const canonicalDecision = semanticContext ? buildConversationDecisionContract(semanticContext) : undefined
   const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
@@ -159,7 +208,24 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(text) : undefined
   const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined
   const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: curiosity?.reason ?? 'Canonical semantic routing decision.', ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
-  if (semanticContext && canonicalDecision) {
+  // Deep-audit fix (2026-09-13): this block used to run for every semanticIntent, unconditionally
+  // overwriting evidenceClass/evidenceRequirement/toolRequired (and, when canonicalDecision.toolRequirement
+  // is 'none', downgrading executionRequirement to 'llm_only') based solely on
+  // canonicalDecision.toolRequirement -- a 3-value enum (SemanticIntentHint-derived, 'required'/'possible'/
+  // 'none') that has no representation at all for tool_action/production_action/mission_action.
+  // contractFor just above already computed intent-specific, correct evidence/tool requirements for
+  // exactly those governed action intents (e.g. production_action's 'live_system'/'production').
+  // Downstream, buildCeoContextModules's includeOrganization check reads evidenceClass and
+  // executionRequirement directly, so this could silently drop the organization-context module from a
+  // real production/tool action turn whenever the LLM-assisted semantic layer's coarser judgment
+  // disagreed with the deterministic classifier -- a real grounding loss, not just a cosmetic field
+  // mismatch. Scoped to only the three action-execution intents -- 'research' deliberately stays
+  // covered by this block: it's how curiosity's internal/external judgment narrows a bare-keyword
+  // "verify our compliance status" (deterministically 'research' via the bare "verify" match, but
+  // actually asking about internal state) down to evidenceClass 'none' instead of contractFor's
+  // research-intent default of 'external_web' -- removing 'research' here broke exactly that case.
+  const governedByDeterministicIntent = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'mission_action'
+  if (semanticContext && canonicalDecision && !governedByDeterministicIntent) {
     const externallyRequired = curiosity?.investigate === true
     const canonicalToolRequired = canonicalDecision.toolRequirement === 'required'
     executionContract.evidenceClass = externallyRequired ? 'external_web' : 'none'
