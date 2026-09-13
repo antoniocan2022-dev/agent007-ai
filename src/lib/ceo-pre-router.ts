@@ -6,7 +6,7 @@ import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 // Item 2 of the "make Agent007 feel like Claude" plan: research|search|look up|find out|verify|validate
@@ -34,7 +34,9 @@ const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|de
 // own and unchanged; "check online" now requires "...for" immediately after (a genuine web-search
 // directive: "check online for X"), which the internal-account phrasings above don't have.
 const EXTERNAL_LOOKUP_PHRASE_RE = /\b(?:check\s+online\s+for|check\s+(?:the\s+web|the\s+internet)|google\s+(?:it|this|that|for\s+me)|fact[- ]check|what'?s\s+the\s+latest\s+(?:on|news|update)|current\s+(?:price|news)\s+of(?!\s+(?:our|my|internal))|look\s+(?:this|that|it)\s+up\s+online)\b/i
-const CONTEXT_RE = /\b(this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before)\b/i
+// Tier 4 hygiene fix (2026-09-13): delegates to the canonical CONTEXTUAL_REFERENCE_RE
+// (ceo-conversational-signals.ts) instead of a locally-drifted word list; see that constant's comment.
+const CONTEXT_RE = CONTEXTUAL_REFERENCE_RE
 const DIRECT_CEO_MAX_CHARS = 1200
 function latestUserText(messages: readonly { role: string; content: string }[]): string { return [...messages].reverse().find((message) => message.role === 'user' && typeof message.content === 'string')?.content ?? '' }
 

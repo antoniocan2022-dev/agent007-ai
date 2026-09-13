@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 import { extractEnumeratedItems, resolveOrdinalReference, hasDedicatedReferenceResolution } from './ceo-reference-resolution'
 import { deriveCeoConversationState, safeConversationRows } from './ceo-conversation-state'
-import { isCurrentTopicRequest } from './ceo-conversational-signals'
+import { isCurrentTopicRequest, containsContextualReference } from './ceo-conversational-signals'
 
 export interface ContextContinuityScore {
   score: number
@@ -49,8 +49,10 @@ function overlap(a: Set<string>, b: Set<string>): number {
   return count
 }
 
+// Tier 4 hygiene fix (2026-09-13): delegates to the canonical containsContextualReference
+// (ceo-conversational-signals.ts) instead of a locally-drifted word list; see that constant's comment.
 function containsAnaphora(value: string): boolean {
-  return /\b(?:this|that|these|those|it|they|them|above|previous|prior|same|again|continue|instead|as before|itself|themself)\b/i.test(value)
+  return containsContextualReference(value)
 }
 
 function containsReferenceSelection(value: string): boolean {

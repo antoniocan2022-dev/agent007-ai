@@ -23,6 +23,16 @@ const LEADING_FILLER_RE = /^\s*(?:(?:mmm+|hmm+|uh+|um+|well|so|ok(?:ay)?|now|act
 // from isRetrospectiveConversationRequest below, which is a different concept (recalling the REASONING
 // behind a past decision, e.g. "why did we choose X") used only for pre-router intent classification.
 const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|same thread|same topic|continue from there|where we left off|from where we left off|what did we decide|what did we discuss|what was the reasoning|what have we ruled out|what about the (?:first|second|third|last|other) option|based on what we established|remind me|recap|summarize|repeat (?:that|this|it)?\b|what did you say|tell me (?:that\s+)?in your (?:own\s+)?words|in your (?:own\s+)?words|put (?:it|that) (?:in your (?:own\s+)?words|your way)|say it your way|how would you (?:say|phrase) (?:it|that)|paraphrase (?:it|that))\b/i
+// Tier 4 hygiene fix (2026-09-13): another canonical-consolidation drift, of the same kind this file
+// already fixed once for continuation/restatement detection. Three near-identical word lists for
+// "this message contains a pronoun/anaphoric reference to prior context" had drifted apart: CONTEXT_RE
+// (ceo-pre-router.ts) and CONTEXT_DEPENDENT_RE (adaptive-execution.ts) were identical to each other but
+// both missing 'itself'/'themself'; containsAnaphora (ceo-context-intelligence.ts) had those two but was
+// missing 'more'/'also'. Consolidated to the union of all three so none of the three call sites
+// under-detects relative to the others.
+// Exported (not just wrapped in a boolean helper) because ceo-pre-router.ts needs the match object
+// itself (for its start index), not just a yes/no test.
+export const CONTEXTUAL_REFERENCE_RE = /\b(?:this|that|these|those|it|they|them|above|previous|prior|continue|again|same|more|also|instead|as before|itself|themself)\b/i
 
 /** Canonical speech-signal classification shared by routing, state derivation, and recovery. */
 export function isRetrospectiveConversationRequest(text: string): boolean {
@@ -50,4 +60,9 @@ export function isCurrentTopicRequest(text: string): boolean {
 
 export function isCommitmentStatement(text: string): boolean {
   return COMMITMENT_RE.test(text)
+}
+
+/** Canonical anaphoric/context-dependent-reference detector; see CONTEXTUAL_REFERENCE_RE's comment. */
+export function containsContextualReference(text: string): boolean {
+  return CONTEXTUAL_REFERENCE_RE.test(text)
 }

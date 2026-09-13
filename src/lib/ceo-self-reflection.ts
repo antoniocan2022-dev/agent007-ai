@@ -138,11 +138,18 @@ export function classifyCeoSelfReflection(text: string): SelfReflectionClassific
   // "run/manage a business/company" alternatives), so when both match, this is a capability question,
   // not an operational command -- MISSION_ACTION_RE's precedence should not apply here.
   const readinessSignal = READINESS_RE.test(normalized)
-  if (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || (!readinessSignal && MISSION_ACTION_RE.test(normalized)) || ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized)) {
+  // Tier 4 hygiene fix (2026-09-13): explicitSelfAssessmentRequest (computed above) was never exempted
+  // from this block, unlike readinessSignal's narrower MISSION_ACTION_RE-only carve-out. A message like
+  // "Do a self-assessment and review the architecture." matches EXPLICIT_SELF_ASSESSMENT_RE AND
+  // ANALYSIS_TARGET_RE ("review" + "the architecture"), so it fell through to 'none' instead of the
+  // readiness_assessment it explicitly asked for. EXPLICIT_SELF_ASSESSMENT_RE is the strongest, most
+  // deliberate signal in this file (an explicit "self-assessment/evaluation/review/audit/reflection"
+  // phrase), so it should win outright here, the same way it already unconditionally wins at its own
+  // check further down.
+  if (!explicitSelfAssessmentRequest && (OPERATIONAL_COMMAND_RE.test(normalized) || TARGETED_OPERATION_RE.test(normalized) || RESEARCH_RE.test(normalized) || (!readinessSignal && MISSION_ACTION_RE.test(normalized)) || ANALYSIS_TARGET_RE.test(normalized) || IMPROVEMENT_REQUEST_RE.test(normalized))) {
     return { kind: 'none', isSelfReflective: false, reason: 'Explicit operational, research, mission, external-analysis, or improvement-planning language takes precedence.' }
   }
 
-  if (CASUAL_CHECKIN_RE.test(normalized)) return { kind: 'casual_checkin', isSelfReflective: false, reason: 'Short conversational check-in; keep it on the normal conversation path.' }
   if (explicitSelfAssessmentRequest) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Explicit self-assessment/self-evaluation/self-review/self-audit/self-reflection request; recognized regardless of pronoun.' }
   if (READINESS_RE.test(normalized)) return { kind: 'readiness_assessment', isSelfReflective: true, reason: 'Self-readiness or business-management capability assessment.' }
   if (CAPABILITY_RE.test(normalized)) return { kind: 'capability_assessment', isSelfReflective: true, reason: 'Self-capability assessment.' }

@@ -38,6 +38,10 @@ export function evaluateCeoDecision(input: CeoDecisionKernelInput): CeoDecisionK
   const evidencePass = input.evidenceCount > 0 && (input.criticalConflictCount ?? 0) === 0
   const artifactPass = input.artifactGatePassed
   const verificationPass = input.verificationDecision === 'PASS'
+  // Tier 4 hygiene note (2026-09-13): this function's only caller (ceo-presenter.ts) always passes
+  // protectedActionRequested: false, so governancePass is currently always true in practice -- the BLOCK
+  // branch below is real logic with no live input driving it yet, not a verified "nothing protected was
+  // requested" guarantee. See the comment at that call site.
   const governancePass = !input.protectedActionRequested
   const passed = [evidencePass, artifactPass, verificationPass, governancePass].filter(Boolean).length
   const confidence = Math.round((passed / 4) * 100)
