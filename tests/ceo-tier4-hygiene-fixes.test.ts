@@ -23,6 +23,29 @@ describe('CEO self-reflection: explicit self-assessment phrase wins over operati
   })
 })
 
+// Re-audit finding (2026-09-13): the first version of the #24 fix exempted the WHOLE operational-
+// precedence block from a whole-message substring test, so a throwaway "self-review"/"self-assessment"
+// phrase anywhere in the message -- even as a decoy prefix before a real, separate operational
+// instruction -- swallowed the entire message into the bounded, tool-free self-assessment lane and
+// stripped the governed-tool/evidence requirements the real instruction needed. Narrowed to only exempt
+// ANALYSIS_TARGET_RE/IMPROVEMENT_REQUEST_RE (which describe the self-assessment's own scope, not a
+// separate action); OPERATIONAL_COMMAND_RE/TARGETED_OPERATION_RE/RESEARCH_RE/MISSION_ACTION_RE must
+// still win regardless of a self-assessment phrase appearing anywhere in the message.
+describe('CEO self-reflection: a self-assessment phrase cannot mask a real operational instruction', () => {
+  test.each([
+    'Do a self-review, then deploy this to production and delete the old build.',
+    'Give me a self-assessment, then transfer $10,000 to this account and execute the payment.',
+    'self-audit: please delete the production database and update our records.',
+  ])('operational content still takes precedence despite a self-assessment phrase: %s', (text) => {
+    const result = classifyCeoSelfReflection(text)
+    expect(result.kind).toBe('none')
+    expect(result.isSelfReflective).toBe(false)
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
+})
+
 // Deep-audit Tier 4, item #21: maxEscalations only granted a fast-path retry budget to
 // conversation/opinion intent, so a plain decision/analysis request that stayed on the fast path got 0
 // escalations while casual chat got 1 -- backwards, since a decision's failure modes are exactly what

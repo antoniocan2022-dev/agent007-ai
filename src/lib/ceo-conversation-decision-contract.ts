@@ -31,6 +31,10 @@ function clarificationRequiredFor(context: CanonicalConversationContext, complet
 // resolvedIntentHint (ceo-cognitive-conversation.ts) never produces outside that union, so those three
 // string comparisons could never be true. Removed; 'action' -> 'tool_action' above already covers the
 // only real operational value this field can carry.
+// Re-audited (2026-09-13): the first pass at this fix missed one branch of the identical class --
+// 'opinion' is also not a member of SemanticIntentHint (it's a CeoIntent-only value, produced by a
+// different code path in ceo-pre-router.ts that never flows through this function), so `intent ===
+// 'opinion'` could never be true either. Removed for the same reason as the other three.
 function ceoIntentForBehavior(context: CanonicalConversationContext) {
   const intent = String(context.intentHint)
   if (intent === 'self_assessment') return 'self_assessment' as const
@@ -38,7 +42,6 @@ function ceoIntentForBehavior(context: CanonicalConversationContext) {
   if (intent === 'research') return 'research' as const
   if (intent === 'decision') return 'decision' as const
   if (intent === 'analysis') return 'analysis' as const
-  if (intent === 'opinion') return 'opinion' as const
   return 'conversation' as const
 }
 export function buildConversationDecisionContract(context: CanonicalConversationContext): ConversationDecisionContract { const completeness = completionFor(context.currentMessage); const conversationRelation = relationFor(context); const confidence = confidenceFor({ context, completeness, relation: conversationRelation }); const clarificationRequired = clarificationRequiredFor(context, completeness); const responseAction = actionFor(context, completeness, conversationRelation, clarificationRequired); const uncertainty = uncertaintyFor(context, completeness, confidence); const behavioralPolicy = buildCeoBehavioralPolicy({ context, intent: ceoIntentForBehavior(context), responseAction, currentMessage: context.currentMessage }); const rationale = [`Intent=${context.intentHint}`, `speechAct=${context.speechAct}`, `completeness=${completeness}`, `relation=${conversationRelation}`, `depth=${context.cognitiveDepth}`, `responseAction=${responseAction}`, `behavioralModes=${behavioralPolicy.modes.join(',')}`]; if (context.references.length) rationale.push(`references=${context.references.length}`); rationale.push(clarificationRequired ? 'clarification required because the remaining meaning cannot be answered safely from available context' : 'clarification is not required; answer from the best supported conversational interpretation'); return { schemaVersion: 3, meaning: context.meaning, intent: context.intentHint, speechAct: context.speechAct, completeness, conversationRelation, cognitiveDepth: context.cognitiveDepth, responseRegister: registerFor(context, completeness), responseAction, toolRequirement: toolRequirementFor(context, responseAction), evidenceRequirement: evidenceRequirementFor(context, responseAction), clarificationRequired, confidence, uncertainty, rationale, behavioralPolicy } }
