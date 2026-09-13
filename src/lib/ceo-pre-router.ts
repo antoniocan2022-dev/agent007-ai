@@ -6,7 +6,7 @@ import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 // Item 2 of the "make Agent007 feel like Claude" plan: research|search|look up|find out|verify|validate
@@ -40,6 +40,9 @@ function latestUserText(messages: readonly { role: string; content: string }[]):
 
 const MARKET_SECURITY_RE = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|market\s+cap(?:italization)?|valuation|earnings|financials?|price\s+target|p\/e|pe\s+ratio|eps|dividend|cash\s+flow|10-k|10-q|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|research|review|recommend(?:ation)?|should|invest|buy|sell|hold|trade|value|price)\b/i
+// Natural-language equity research frequently uses "check/pull/gather + news/information" instead of
+// the word "research". Keep the signal contextual so ordinary internal checks are not routed externally.
+const MARKET_RESEARCH_LOOKUP_RE = /\b(?:check|pull|gather|collect|find)\b[^.!?]{0,80}\b(?:news|headlines?|relevant\s+information|information|updates?)\b/i
 const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 const SHORT_TICKER_ACTION_RE = /\b(?:buy|sell|invest|trade)\s+(?:in\s+)?([A-Z]{1,5})\b/
 const COMMON_ACRONYM_RE = /^(?:API|AWS|CPU|CRM|ERP|GPU|HTML|HTTP|HTTPS|RAM|SaaS|SDK|SQL|UI|URL|VPN|XML)$/
@@ -66,7 +69,7 @@ const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|
 function isExternalEquityResearch(text: string): boolean {
   const tickerAction = text.match(SHORT_TICKER_ACTION_RE)
   if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !isInternalEquityContext(text)
-  if (!MARKET_SECURITY_RE.test(text) || !MARKET_ACTION_RE.test(text)) return false
+  if (!MARKET_SECURITY_RE.test(text) || (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text))) return false
   if (isInternalEquityContext(text)) return false
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
@@ -169,12 +172,35 @@ function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoI
 }
 function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision { return input }
 
+const OBJECTIVE_CONFIRMATION_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)[\s!.?]*$/i
+function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
+  if (!context) return undefined
+  const current = context.currentMessage.trim()
+  const isContinuation = isContinuationOrRestatementRequest(current) || OBJECTIVE_CONFIRMATION_RE.test(current)
+  if (!isContinuation) return undefined
+  const candidates = context.state.threads
+    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
+  const thread = candidates[0]
+  if (!thread) return undefined
+  // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
+  // the original thread title remains the durable objective anchor. This prevents "yes, go ahead" or
+  // an entity correction ending the underlying research/action objective itself.
+  return thread.title.trim() || thread.currentObjective.trim() || undefined
+}
+
 export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext): PreRouteDecision {
   const text = latestUserText(messages).replace(/\s+/g, ' ').trim()
   const selfReflection = classifyCeoSelfReflection(text)
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
-  const deterministicIntent = inferSemanticIntent(text, selfReflection)
+  // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted
+  // semantic layer gets a chance to collapse a short reference like "yes, go ahead" into conversation.
+  // The inherited objective is only used for routing/grounding; the user's actual text remains the
+  // response surface and is never replaced or rewritten.
+  const inheritedObjective = latestContinuableObjective(semanticContext)
+  const routingText = inheritedObjective ? `${inheritedObjective}\n${text}` : text
+  const deterministicIntent = inferSemanticIntent(routingText, selfReflection)
   const assistedIntent = semanticIntentToCeoIntent(semanticContext)
   // Deep-audit fix (2026-09-13): only 'self_assessment' was protected from being overridden by the
   // LLM-assisted intent. ceo-semantic-interpreter.ts's HIGH_RISK_EXECUTION_RE/MISSION_EXECUTION_RE
@@ -187,27 +213,32 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // them, as the evidence/tool overwrite below can also do to production_action/mission_action).
   // production_action/mission_action are included here too for defense in depth even though the
   // interpreter-level guard already covers most of their triggering keywords.
-  const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action'
+  const objectiveContinuationActive = Boolean(inheritedObjective)
+  const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(text))
+  const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action' || deterministicExternalResearch
   const semanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
   const canonicalDecision = semanticContext ? buildConversationDecisionContract(semanticContext) : undefined
   const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
-  const externalSubjectDomain = inferExternalDomain(text)
-  const legacyExternalEvidence = isExternalDomain(externalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
+  const routingExternalSubjectDomain = inferExternalDomain(routingText)
+  const currentExternalSubjectDomain = inferExternalDomain(text)
+  const externalSubjectDomain = objectiveContinuationActive && routingExternalSubjectDomain === 'public_equity' ? 'public_equity' : currentExternalSubjectDomain
+  const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && routingExternalSubjectDomain === 'public_equity'
+  const legacyExternalEvidence = isExternalDomain(routingExternalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
   const canonicalExternalEvidence = Boolean(canonicalDecision && curiosity?.investigate)
-  const shouldUseExternalEvidence = semanticContext ? canonicalExternalEvidence : legacyExternalEvidence
+  const shouldUseExternalEvidence = inheritedExternalResearch || (semanticContext ? canonicalExternalEvidence : legacyExternalEvidence)
   const evidenceClass: EvidenceClass | undefined = shouldUseExternalEvidence ? 'external_web' : undefined
   const domain: EvidenceDomain | undefined = semanticIntent === 'research' || shouldUseExternalEvidence || externalSubjectDomain.startsWith('internal_') ? externalSubjectDomain : undefined
-  const effectiveExecutionClass = externalSubjectDomain === 'public_equity' ? 'deep' : adaptive.executionClass
+  const effectiveExecutionClass = (externalSubjectDomain === 'public_equity' || inheritedExternalResearch) ? 'deep' : adaptive.executionClass
   if (!text) { const reason = 'No substantive request detected.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational)
   const complexitySignals = [effectiveExecutionClass === 'deep' || effectiveExecutionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
-  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(text) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(text) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
+  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
   if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
-  const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(text) : undefined
-  const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(text) : undefined
+  const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined
+  const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined
   const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined
-  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: curiosity?.reason ?? 'Canonical semantic routing decision.', ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
+  const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active conversational objective with its governed execution policy.' : 'Canonical semantic routing decision.'), ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
   // Deep-audit fix (2026-09-13): this block used to run for every semanticIntent, unconditionally
   // overwriting evidenceClass/evidenceRequirement/toolRequired (and, when canonicalDecision.toolRequirement
   // is 'none', downgrading executionRequirement to 'llm_only') based solely on
@@ -224,7 +255,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // "verify our compliance status" (deterministically 'research' via the bare "verify" match, but
   // actually asking about internal state) down to evidenceClass 'none' instead of contractFor's
   // research-intent default of 'external_web' -- removing 'research' here broke exactly that case.
-  const governedByDeterministicIntent = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'mission_action'
+  const governedByDeterministicIntent = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'mission_action' || deterministicExternalResearch || inheritedExternalResearch
   if (semanticContext && canonicalDecision && !governedByDeterministicIntent) {
     const externallyRequired = curiosity?.investigate === true
     const canonicalToolRequired = canonicalDecision.toolRequirement === 'required'
@@ -233,7 +264,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
     executionContract.toolRequired = canonicalToolRequired || externallyRequired
     if (!executionContract.toolRequired && canonicalDecision.toolRequirement === 'none') executionContract.executionRequirement = 'llm_only'
   }
-  if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: curiosity?.reason ?? 'External evidence requires governed execution.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active external-research objective.' : 'External evidence requires governed execution.'), missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   if (semanticIntent === 'mission_action' || missionRelevant) return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   const contextMatch = text.match(CONTEXT_RE)
