@@ -106,8 +106,16 @@ const PERFORMANCE_RE = new RegExp(
 // engineers are capable of handling this workload?" used to misclassify as capability_assessment
 // purely because "you" and "capable" both appeared somewhere in the message, regardless of how far
 // apart. `what can you do`/`what are you good at` already embed "you" literally and stay bare.
+// Live-data-access production incident (2026-09-13): "tell me what can I do to give you access to
+// live information..." is a genuine capability/configuration question -- the user is asking what THEY
+// can do to expand what the CEO can reach -- but every alternative above assumes the question is
+// phrased with "you" as the one being capable ("what can YOU do"), not "what can I do to give/enable
+// YOU X". That inverted phrasing fell through to kind:'none', so renderCeoCapabilityBriefing() never
+// ran and the CEO had no grounded facts about its own live-research tooling to answer from -- the
+// primary generation path then failed and degraded mode returned a fully generic non-answer.
+const GRANT_ACCESS_RE = /\b(?:what|how)\s+(?:can|do|could|would)\s+i\s+(?:do\s+to\s+)?(?:give|grant|enable|provide|hook\s+up|connect)\s+you\b/i
 const CAPABILITY_RE = new RegExp(
-  [nearSelfReference('strengths?'), nearSelfReference('weakness(?:es)?'), nearSelfReference('capabilit(?:y|ies)'), nearSelfReference('capable'), nearSelfReference('skills?'), nearSelfReference('limitations?'), '\\bwhat\\s+can\\s+you\\s+do\\b', '\\bwhat\\s+are\\s+you\\s+good\\s+at\\b', nearSelfReference('architecture'), nearSelfReference('proven'), nearSelfReference('unproven'), nearSelfReference('(?:not\\s+yet\\s+|un)?verified'), nearSelfReference('upgrades?'), nearSelfReference('new\\s+features?'), nearSelfReference('recently\\s+added')].join('|'),
+  [nearSelfReference('strengths?'), nearSelfReference('weakness(?:es)?'), nearSelfReference('capabilit(?:y|ies)'), nearSelfReference('capable'), nearSelfReference('skills?'), nearSelfReference('limitations?'), '\\bwhat\\s+can\\s+you\\s+do\\b', '\\bwhat\\s+are\\s+you\\s+good\\s+at\\b', nearSelfReference('architecture'), nearSelfReference('proven'), nearSelfReference('unproven'), nearSelfReference('(?:not\\s+yet\\s+|un)?verified'), nearSelfReference('upgrades?'), nearSelfReference('new\\s+features?'), nearSelfReference('recently\\s+added'), GRANT_ACCESS_RE.source].join('|'),
   'i',
 )
 // Deep-audit fix (2026-09-13): same proximity fix -- "Do you think Sarah is ready to manage a business
