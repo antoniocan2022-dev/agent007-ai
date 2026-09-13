@@ -9,10 +9,11 @@ import { composeCeoContext } from '@/lib/ceo-context-composer'
 // certifies the new reuseSemanticContext option is behaviorally transparent -- it must produce byte-
 // identical semantic output while still correctly reflecting new modules in the rendered messages.
 //
-// This file (composeCeoContext) transitively requires Prisma to load (ceo-context-composer.ts ->
+// This file (composeCeoContext) transitively imports Prisma (ceo-context-composer.ts ->
 // canonical-organization-prompt.ts -> canonical-runtime-manifest.ts -> capability-runtime-state.ts ->
-// db.ts), a pre-existing dependency unrelated to this change -- confirmed by tracing the import chain
-// directly. Cannot execute in this sandbox; will run in real CI.
+// db.ts) -- the local Prisma client stub loads fine for these tests since none of the scenarios
+// below actually touch the database, so this file does run locally (confirmed by direct
+// execution, not just import-chain tracing).
 //
 // composeCeoContext is now async (semantic memory recovery can make a real embeddings call -- see
 // ceo-memory-embeddings.ts) -- every call site below awaits it.
@@ -66,8 +67,16 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
     expect(JSON.stringify(reused.canonicalSemanticContext.references)).toBe(JSON.stringify(recomputed.canonicalSemanticContext.references))
   })
 
+  // CI fix: this fixture (repeated in the three tests below) used category: 'goal', but
+  // ceo-memory-visibility.ts's fail-closed allowlist only permits 'user_goal' -- 'goal' isn't a
+  // real category anywhere in this codebase. filterConversationalMemories silently dropped the
+  // memory before it ever reached ranking, so selectedMemories was always [] regardless of the
+  // lexical/semantic match this test is actually about. This file could not run in the sandbox
+  // this was written in (see the file header), so the mismatch was never caught until it first
+  // ran in real CI. The two tests that only compare seed vs. reused (both consistently empty)
+  // passed vacuously; only the two asserting real, non-empty content caught it.
   test('reuse also carries selectedMemories through, avoiding a redundant semantic-recovery pass on the second/third call', async () => {
-    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'user_goal', updatedAt: 0 }]
     const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
     expect(seed.selectedMemories.map((memory) => memory.key)).toContain('goal-1')
     const reused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories, modules: { organization: 'ORG TEXT' }, reuseSemanticContext: { conversationState: seed.conversationState, canonicalSemanticContext: seed.canonicalSemanticContext, resolvedReferences: seed.resolvedReferences, selectedMemories: seed.selectedMemories } })
@@ -80,7 +89,7 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
   // similarity-based recall is inherently fuzzier and more prone to being tangentially or wrongly
   // related than an exact token match. semanticMemoryKeys now carries that distinction end to end.
   test('semanticMemoryKeys reports no matches for an exact lexical hit, and the rendered memory line carries no fuzzy-match caveat', async () => {
-    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'user_goal', updatedAt: 0 }]
     const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
     expect(seed.semanticMemoryKeys).toEqual([])
     const memoryLine = seed.messages.find((message) => message.content.includes('SELECTED MEMORY'))?.content
@@ -89,7 +98,7 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
   })
 
   test('reuse carries semanticMemoryKeys through unchanged, not just selectedMemories', async () => {
-    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'user_goal', updatedAt: 0 }]
     const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
     const reused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories, modules: { organization: 'ORG TEXT' }, reuseSemanticContext: { conversationState: seed.conversationState, canonicalSemanticContext: seed.canonicalSemanticContext, resolvedReferences: seed.resolvedReferences, selectedMemories: seed.selectedMemories, semanticMemoryKeys: seed.semanticMemoryKeys } })
     expect(reused.semanticMemoryKeys).toEqual(seed.semanticMemoryKeys)
@@ -102,7 +111,7 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
   // to fold semanticInterpretation in. reuseSemanticContext now supports reusing selectedMemories alone,
   // independent of the other three fields, so a caller isn't forced into an all-or-nothing choice.
   test('selectedMemories can be reused on their own, independent of conversationState/canonicalSemanticContext, which are correctly recomputed fresh', async () => {
-    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'goal', updatedAt: 0 }]
+    const memories = [{ key: 'goal-1', value: 'financial independence objective', category: 'user_goal', updatedAt: 0 }]
     const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories })
     const partiallyReused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'financial independence objective update', persistedMessages: rows, memories, semanticInterpretation: { source: 'model_assisted' }, reuseSemanticContext: { selectedMemories: seed.selectedMemories, semanticMemoryKeys: seed.semanticMemoryKeys } })
     // selectedMemories reused byte-identically (same object reference, not recomputed)...
