@@ -11,6 +11,7 @@ import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 import { RecoveryBudget, RecoveryBudgetExceededError, recoveryEventFromMessage } from '@/lib/ceo-recovery-policy'
 import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
 import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
+import { getSecTickerMap, resolveEquityIssuers } from '@/lib/ceo-issuer-resolution'
 import { executeExternalEvidencePlan, recoverExternalEvidencePlan } from '@/lib/ceo-evidence-executor'
 import { renderEvidenceBundleForPrompt, type EvidenceBundle } from '@/lib/ceo-evidence-bundle'
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
@@ -215,7 +216,18 @@ export async function POST(req: NextRequest) {
           let evidenceTrace: EvidenceTrace | undefined
           if (decisionContract.responseAction !== 'clarify' && (executionContract.evidenceClass === 'external_web' || executionContract.evidenceClass === 'mixed')) {
             evidenceTrace = startEvidenceTrace({ objective: message, profile: executionContract.evidenceProfile })
-            const evidencePlan = buildExternalEvidencePlan({ objective: contextSeed.canonicalSemanticContext.meaning || message, evidenceClass: executionContract.evidenceClass, domain: executionContract.domain, operation: executionContract.operation, temporalScope: executionContract.temporalScope, evidenceProfile: executionContract.evidenceProfile })
+            const evidenceObjective = contextSeed.canonicalSemanticContext.meaning || message
+            // Deep-audit fix (P0, 2026-09-13): resolves company names (not just already-ticker-shaped
+            // tokens) against SEC's real registry before planning -- see ceo-issuer-resolution.ts's own
+            // comment for the full rationale. Best-effort: buildExternalEvidencePlan already treats
+            // resolvedIssuers as optional and falls back to its existing raw-ticker-harvest behavior, so
+            // a SEC ticker-map fetch failure here (rate limit, transient network error) degrades
+            // gracefully to today's behavior rather than failing the whole turn over a resolution step
+            // that only ever adds coverage, never removes it.
+            const resolvedIssuers = executionContract.domain === 'public_equity' && executionContract.evidenceProfile === 'public_equity'
+              ? await getSecTickerMap(requestAbortController.signal).then((tickerMap) => resolveEquityIssuers(evidenceObjective, tickerMap)).catch((error) => { if (isCeoRequestAborted(error)) throw error; return undefined })
+              : undefined
+            const evidencePlan = buildExternalEvidencePlan({ objective: evidenceObjective, evidenceClass: executionContract.evidenceClass, domain: executionContract.domain, operation: executionContract.operation, temporalScope: executionContract.temporalScope, evidenceProfile: executionContract.evidenceProfile, resolvedIssuers })
             addEvidenceTraceEvent(evidenceTrace, 'planned', { queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources })
             safeEnqueue(sse('progress', { phase: 'evidence_acquisition', profile: evidencePlan.profile, queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources }))
             let evidenceExecution = await executeExternalEvidencePlan(evidencePlan, requestAbortController.signal)
