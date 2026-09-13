@@ -71,10 +71,14 @@ function isConversationOnlyObjective(objective: string): boolean {
   return !/[?]/.test(text) && /\b(?:thanks|thank\s+you|great|perfect|nice|awesome|sounds\s+good|good\s+job|well\s+done)\b/i.test(text)
 }
 
-export async function getCeoVentureEvidenceForObjective(objective: string): Promise<{ ventureId: string; evidence: string } | null> {
+// CEO executive-core integration: `decision` is the same structured VentureDecisionResult already
+// computed for `evidence`'s formatted text, just no longer thrown away after formatting -- ceo-decision-
+// synthesis.ts needs the structured form (decision/irreversibleActionBlocked) to fold a real portfolio
+// gate into its reconciled judgment, not another regex over prompt text.
+export async function getCeoVentureEvidenceForObjective(objective: string): Promise<{ ventureId: string; evidence: string; decision: VentureDecisionResult | null } | null> {
   if (isConversationOnlyObjective(objective)) return null
   const ventureId = extractVentureId(objective)
   if (!ventureId) return null
   const state = await readCeoVentureState(ventureId)
-  return { ventureId, evidence: formatCeoVentureEvidence(state) }
+  return { ventureId, evidence: formatCeoVentureEvidence(state), decision: state.decision }
 }

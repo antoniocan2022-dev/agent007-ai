@@ -1,6 +1,8 @@
 import type { ExecutiveBusinessState } from './ceo-executive-state'
 import type { PartnerIntelligenceSummary } from './ceo-partner-intelligence'
 import type { LeaderPerformanceRecord } from './ceo-leadership-performance'
+import type { RecommendationLedgerSummary } from './ceo-outcome-learning'
+import type { VentureDecisionResult } from './venture-decision-engine'
 
 export type DomainSignal = 'positive' | 'neutral' | 'negative' | 'unknown'
 export type ExecutiveJudgment = 'PROCEED' | 'PROCEED_WITH_CAUTION' | 'HOLD' | 'ESCALATE'
@@ -28,6 +30,16 @@ export interface ExecutiveDecisionSynthesisInput {
   partners: PartnerIntelligenceSummary
   leadership: readonly LeaderPerformanceRecord[]
   systemIncidents: readonly string[]
+  // CEO executive-core integration (2026-09-13): this function was the one place in the codebase that
+  // reconciles cross-domain state into a single judgment, but it only ever saw a fraction of what was
+  // already being fetched the same turn -- ceo-strategic-horizon.ts's open-decision governance signal
+  // and ceo-venture-state.ts's portfolio decision gate were computed and rendered as separate, un-
+  // reconciled prompt blocks in ceo-cognitive-lifecycle.ts, never reaching this synthesis at all. Both
+  // are optional: a caller without a canonicalContext/strategicHorizon fetch simply omits them, and the
+  // domain the signal would have informed reports 'unknown' exactly as it already does for any other
+  // missing input, rather than fabricating a signal from data that was never fetched.
+  ventureDecision?: VentureDecisionResult | null
+  strategicHorizonDecisions?: RecommendationLedgerSummary
 }
 
 const MIN_LEADERSHIP_SAMPLE = 3 // resolved outcomes below this are too thin to call a leader unreliable
@@ -70,7 +82,21 @@ function capitalSignal(executive: ExecutiveBusinessState, reasons: string[]): Do
   return 'positive'
 }
 
-function riskSignal(executive: ExecutiveBusinessState, reasons: string[]): DomainSignal {
+// CEO executive-core integration (2026-09-13): folds in two governance signals that were already
+// computed elsewhere in the same request but never reached this synthesis. `executive.decisions`
+// (RecommendationLedgerSummary) was already part of ExecutiveBusinessState -- passed into this function
+// all along -- but no domain signal ever read it; a venture with 5 decisions overdue for review scored
+// identically to one with zero. `ventureDecision` (ceo-venture-state.ts's portfolio decision gate) was
+// computed and rendered as its own separate "LIVE VENTURE STATE" prompt block but never folded into the
+// one function whose whole job is cross-domain reconciliation.
+function riskSignal(executive: ExecutiveBusinessState, ventureDecision: VentureDecisionResult | null | undefined, strategicHorizonDecisions: RecommendationLedgerSummary | undefined, reasons: string[]): DomainSignal {
+  if (ventureDecision?.irreversibleActionBlocked) { reasons.push(`Venture portfolio gate blocks an irreversible action (decision: ${ventureDecision.decision}).`); return 'negative' }
+  if (ventureDecision && (ventureDecision.decision === 'reject' || ventureDecision.decision === 'kill')) { reasons.push(`Venture portfolio gate returned '${ventureDecision.decision}'.`); return 'negative' }
+  // executive.decisions is venture-scoped (more precise); the global strategicHorizonDecisions is used
+  // only as a fallback when no venture-scoped ledger was fetched this turn, to avoid double-reporting
+  // the same overdue count from two overlapping scopes of the same underlying ledger.
+  const ledger = executive.decisions.dataAvailable ? executive.decisions : strategicHorizonDecisions
+  if (ledger && ledger.overdueReview > 0) { reasons.push(`${ledger.overdueReview} recorded decision(s) are overdue for owner review.`); return 'negative' }
   if (!executive.risk.dataAvailable) return 'unknown'
   if (executive.risk.status === 'BLOCKED') { reasons.push(`Venture readiness is BLOCKED (score ${executive.risk.score}/${executive.risk.threshold}).`); return 'negative' }
   if (executive.risk.status === 'NOT_READY') { reasons.push(`Venture readiness is NOT_READY: ${executive.risk.missingEvidence.join(', ') || 'unspecified gaps'}.`); return 'neutral' }
@@ -88,7 +114,7 @@ export function synthesizeExecutiveDecision(input: ExecutiveDecisionSynthesisInp
     people: peopleSignal(input.leadership, reasons),
     partners: partnersSignal(input.partners, reasons),
     capital: capitalSignal(input.executive, reasons),
-    risk: riskSignal(input.executive, reasons),
+    risk: riskSignal(input.executive, input.ventureDecision, input.strategicHorizonDecisions, reasons),
   }
   const values = Object.values(domains)
   const known = values.filter((signal) => signal !== 'unknown')

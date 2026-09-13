@@ -93,6 +93,64 @@ describe('synthesizeExecutiveDecision', () => {
   })
 })
 
+// CEO executive-core integration (2026-09-13): synthesizeExecutiveDecision was the one function whose
+// whole job is cross-domain reconciliation, but it never saw ceo-venture-state.ts's portfolio decision
+// gate or the decision-ledger governance data (executive.decisions) that was already part of its own
+// input the entire time -- both were computed elsewhere in the same request and rendered as separate,
+// un-reconciled prompt blocks instead. These tests lock in that the widened inputs actually change the
+// judgment, not just get threaded through unused.
+describe('synthesizeExecutiveDecision: executive-core integration', () => {
+  test('a venture portfolio gate blocking an irreversible action forces ESCALATE even when every other domain is healthy', () => {
+    const synthesis = synthesizeExecutiveDecision(baseInput({
+      executive: READY_EXECUTIVE, partners: HEALTHY_PARTNERS, leadership: [leader('aurora')],
+      ventureDecision: { engineVersion: 1, businessId: 'venture_001', lifecycle: 'active', decision: 'hold', confidence: 0.9, autonomousEligible: false, irreversibleActionBlocked: true, score: 40, reasons: ['Opportunity score below threshold.'], scorecard: {} },
+    }))
+    expect(synthesis.domains.risk).toBe('negative')
+    expect(synthesis.judgment).toBe('ESCALATE')
+    expect(synthesis.reasons.some((reason) => reason.includes('irreversible action'))).toBe(true)
+  })
+
+  test('a venture portfolio "reject" or "kill" decision makes risk negative even without irreversibleActionBlocked', () => {
+    const synthesis = synthesizeExecutiveDecision(baseInput({
+      executive: READY_EXECUTIVE,
+      ventureDecision: { engineVersion: 1, businessId: 'venture_001', lifecycle: 'active', decision: 'kill', confidence: 0.8, autonomousEligible: false, irreversibleActionBlocked: false, score: 5, reasons: [], scorecard: {} },
+    }))
+    expect(synthesis.domains.risk).toBe('negative')
+    expect(synthesis.reasons.some((reason) => reason.includes("'kill'"))).toBe(true)
+  })
+
+  test('a healthy venture portfolio decision (e.g. "scale") does not itself make risk negative', () => {
+    const synthesis = synthesizeExecutiveDecision(baseInput({
+      executive: READY_EXECUTIVE, partners: HEALTHY_PARTNERS, leadership: [leader('aurora')],
+      ventureDecision: { engineVersion: 1, businessId: 'venture_001', lifecycle: 'active', decision: 'scale', confidence: 0.9, autonomousEligible: true, irreversibleActionBlocked: false, score: 90, reasons: [], scorecard: {} },
+    }))
+    expect(synthesis.domains.risk).toBe('positive')
+  })
+
+  test('overdue decision reviews already present on executive.decisions now count against risk (previously ignored)', () => {
+    const executive: ExecutiveBusinessState = { ...READY_EXECUTIVE, decisions: { dataAvailable: true, total: 5, open: 2, awaitingOutcome: 1, overdueReview: 2, reviewedCount: 3 } }
+    const synthesis = synthesizeExecutiveDecision(baseInput({ executive, partners: HEALTHY_PARTNERS, leadership: [leader('aurora')] }))
+    expect(synthesis.domains.risk).toBe('negative')
+    expect(synthesis.reasons.some((reason) => reason.includes('2 recorded decision(s) are overdue'))).toBe(true)
+  })
+
+  test('strategicHorizonDecisions is used only as a fallback when executive.decisions has no data of its own', () => {
+    const withVentureScoped = synthesizeExecutiveDecision(baseInput({
+      executive: { ...READY_EXECUTIVE, decisions: { dataAvailable: true, total: 1, open: 0, awaitingOutcome: 0, overdueReview: 0, reviewedCount: 1 } },
+      strategicHorizonDecisions: { total: 9, open: 5, awaitingOutcome: 2, overdueReview: 9, reviewedCount: 0 },
+    }))
+    // venture-scoped executive.decisions (0 overdue) wins over the global fallback (9 overdue) since it has real data.
+    expect(withVentureScoped.domains.risk).toBe('positive')
+
+    const withGlobalFallbackOnly = synthesizeExecutiveDecision(baseInput({
+      executive: READY_EXECUTIVE, // decisions.dataAvailable: false in this fixture
+      strategicHorizonDecisions: { total: 9, open: 5, awaitingOutcome: 2, overdueReview: 4, reviewedCount: 0 },
+    }))
+    expect(withGlobalFallbackOnly.domains.risk).toBe('negative')
+    expect(withGlobalFallbackOnly.reasons.some((reason) => reason.includes('4 recorded decision(s) are overdue'))).toBe(true)
+  })
+})
+
 describe('renderExecutiveDecisionSynthesis', () => {
   test('renders judgment, completeness, domains and reasons', () => {
     const synthesis = synthesizeExecutiveDecision(baseInput({ systemIncidents: ['X provider is degraded'] }))
