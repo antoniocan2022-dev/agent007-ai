@@ -159,7 +159,19 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   return null
 }
 export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; operation?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; partnerIntelligence?: PartnerIntelligenceSummary; executiveState?: ExecutiveBusinessState; leadershipLedger?: readonly LeaderPerformanceRecord[]; strategicHorizon?: StrategicHorizonView }): Promise<DegradedResponse> {
-  const failureReason = input.failureReason ?? inferFailureReason(input.reason); if (requiresDecisionGradeAbstention({ objective: input.objective, failureReason, domain: input.domain, operation: input.operation })) return buildRiskAbstention(input.objective, input.reason, failureReason); if (input.intent === 'conversation' || input.intent === 'opinion') { const incident = emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason }); emitIncidentRegressionCandidate({ incident, message: input.objective }) }
+  const failureReason = input.failureReason ?? inferFailureReason(input.reason); if (requiresDecisionGradeAbstention({ objective: input.objective, failureReason, domain: input.domain, operation: input.operation })) return buildRiskAbstention(input.objective, input.reason, failureReason)
+  // Deep-audit fix (2026-09-13): this used to fire only for intent 'conversation'/'opinion' -- so the
+  // GEOS/MIND-class research-intent bug and any future analysis/decision/self-assessment-intent failure
+  // never reached the incident-regression-candidate pipeline at all, no matter how often it recurred.
+  // Widened to every intent the primary generation path can genuinely fail on for classification reasons
+  // (excludes tool_action/mission_action/production_action, which already have their own execution-
+  // receipt/outcome-tracking mechanisms -- see proof-ledger.ts -- and aren't classification incidents in
+  // this sense). Capturing a research/decision/analysis incident here is always safe: the governed self-
+  // repair pipeline (ceo-self-repair-engine.ts) risk-tiers every candidate by its domain before ever
+  // considering autonomous correction, so a public_equity-domain incident always lands in the human-
+  // review queue regardless of how often it recurs.
+  const INCIDENT_CAPTURED_INTENTS: readonly CeoIntent[] = ['conversation', 'opinion', 'research', 'analysis', 'decision', 'self_assessment']
+  if (INCIDENT_CAPTURED_INTENTS.includes(input.intent)) { const incident = emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason }); emitIncidentRegressionCandidate({ incident, message: input.objective, domain: input.domain }) }
   const suppliedContext = input.contextualEvidence?.trim(); const recall = input.recall ?? recallPersistentMemory; const query = [input.missionId, input.objective].filter(Boolean).join(' '); const memories = suppliedContext ? [] : filterConversationalMemories(await recall(query, 5)); const recoveredContext = suppliedContext || formatMemoryEvidence(memories); const sourceKeys = memories.map((entry) => entry.key); const recoveredCapability = capabilityForFailure(failureReason)
   const conversationState = input.conversationState ?? (input.priorConversation?.length ? deriveCeoConversationState(input.priorConversation, input.objective) : undefined)
   if (input.intent === 'self_assessment') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind, { partnerIntelligence: input.partnerIntelligence, executiveState: input.executiveState, leadershipLedger: input.leadershipLedger, strategicHorizon: input.strategicHorizon }) }
