@@ -122,4 +122,10 @@ describe('CEO active objective continuity', () => {
     expect(resolved.executionContract.intent).toBe('conversation')
     expect(resolved.route).toBe('fast')
   })
+
+  it('does not turn a normal internal check into public-equity research', () => {
+    const decision = preRouteCeoRequest([{ role: 'user', content: 'check our stockroom inventory for missing parts' }])
+    expect(decision.executionContract.intent).not.toBe('research')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
 })
