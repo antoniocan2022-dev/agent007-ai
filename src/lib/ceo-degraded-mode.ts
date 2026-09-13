@@ -31,7 +31,28 @@ function inferFailureReason(message: string): CeoFailureReason { if (/timeout|ti
 
 export function buildRiskAbstention(objective: string, reason: string, failureReason: CeoFailureReason = 'evidence_insufficient'): DegradedResponse { void reason; return { evidenceState: 'UNAVAILABLE', reason, sourceKeys: [], failureReason, recoveredCapability: 'evidence', content: `I can’t give you a responsible decision-grade answer yet because the evidence required for this high-risk decision is incomplete.\n\nI won’t substitute memory, stale information, or an unverified execution result for the missing evidence.\n\nRequest: ${objective.slice(0, 800)}` } }
 const DECISION_GRADE_EVIDENCE_FAILURES = new Set<CeoFailureReason>(['evidence_insufficient', 'evidence_unavailable', 'production_verification_failure'])
-export function requiresDecisionGradeAbstention(input: { objective: string; failureReason: CeoFailureReason; domain?: string }): boolean { const inferredDomain = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|invest(?:ing|ment)?|buy|sell|hold|portfolio)\b/i.test(input.objective) ? 'public_equity' : 'general_web'; const domain = (input.domain?.trim() || inferredDomain).toLowerCase(); return riskClassForDomain(domain) === 'HIGH' && DECISION_GRADE_EVIDENCE_FAILURES.has(input.failureReason) }
+// Deep-audit fix (P0, 2026-09-13): riskClassForDomain('public_equity') is unconditionally 'HIGH'
+// regardless of operation (public_equity sits in architecture-integrity-contract.ts's
+// CRITICAL_HIGH_RISK_DOMAINS, checked before that function ever looks at its operation argument) -- and
+// this function was calling it with no operation at all, so a pure research question ("check news about
+// GEOS and MIND Technologies") whose evidence acquisition merely came back insufficient hit the exact
+// same hard, no-recourse abstention as an actual buy/sell/hold judgment would. This is the same
+// domain-only-risk bug already fixed in ceo-decision-grade-evidence.ts's assertDecisionGradeEvidence and
+// ceo-claim-evidence-gate.ts's verifyClaimEvidence, in a third, independent location this session's
+// earlier audit missed: the degraded-mode fallback that runs when the primary generation path fails for
+// ANY reason, not the main evidence-gate path those two fixes cover. Only public_equity gets the
+// operation-aware carve-out here (mirroring EQUITY_RESEARCH_REQUIREMENTS' failClosed:false in
+// ceo-decision-grade-evidence.ts) -- the other CRITICAL_HIGH_RISK_DOMAINS (security/regulatory/
+// business_due_diligence/internal_finance) have no research/decision split built for them, so they keep
+// their original, unconditional hard-abstention on evidence failure.
+export function requiresDecisionGradeAbstention(input: { objective: string; failureReason: CeoFailureReason; domain?: string; operation?: string }): boolean {
+  if (!DECISION_GRADE_EVIDENCE_FAILURES.has(input.failureReason)) return false
+  const inferredDomain = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker|invest(?:ing|ment)?|buy|sell|hold|portfolio)\b/i.test(input.objective) ? 'public_equity' : 'general_web'
+  const domain = (input.domain?.trim() || inferredDomain).toLowerCase()
+  if (riskClassForDomain(domain) !== 'HIGH') return false
+  if (domain === 'public_equity' && input.operation && input.operation !== 'recommend' && input.operation !== 'decide') return false
+  return true
+}
 export interface DegradedSelfAssessmentSubsystems {
   partnerIntelligence?: PartnerIntelligenceSummary
   executiveState?: ExecutiveBusinessState
@@ -137,8 +158,8 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   }
   return null
 }
-export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; partnerIntelligence?: PartnerIntelligenceSummary; executiveState?: ExecutiveBusinessState; leadershipLedger?: readonly LeaderPerformanceRecord[]; strategicHorizon?: StrategicHorizonView }): Promise<DegradedResponse> {
-  const failureReason = input.failureReason ?? inferFailureReason(input.reason); if (requiresDecisionGradeAbstention({ objective: input.objective, failureReason, domain: input.domain })) return buildRiskAbstention(input.objective, input.reason, failureReason); if (input.intent === 'conversation' || input.intent === 'opinion') { const incident = emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason }); emitIncidentRegressionCandidate({ incident, message: input.objective }) }
+export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; operation?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; partnerIntelligence?: PartnerIntelligenceSummary; executiveState?: ExecutiveBusinessState; leadershipLedger?: readonly LeaderPerformanceRecord[]; strategicHorizon?: StrategicHorizonView }): Promise<DegradedResponse> {
+  const failureReason = input.failureReason ?? inferFailureReason(input.reason); if (requiresDecisionGradeAbstention({ objective: input.objective, failureReason, domain: input.domain, operation: input.operation })) return buildRiskAbstention(input.objective, input.reason, failureReason); if (input.intent === 'conversation' || input.intent === 'opinion') { const incident = emitConversationIncident({ objective: input.objective, intent: input.intent, failureReason }); emitIncidentRegressionCandidate({ incident, message: input.objective }) }
   const suppliedContext = input.contextualEvidence?.trim(); const recall = input.recall ?? recallPersistentMemory; const query = [input.missionId, input.objective].filter(Boolean).join(' '); const memories = suppliedContext ? [] : filterConversationalMemories(await recall(query, 5)); const recoveredContext = suppliedContext || formatMemoryEvidence(memories); const sourceKeys = memories.map((entry) => entry.key); const recoveredCapability = capabilityForFailure(failureReason)
   const conversationState = input.conversationState ?? (input.priorConversation?.length ? deriveCeoConversationState(input.priorConversation, input.objective) : undefined)
   if (input.intent === 'self_assessment') return { evidenceState: 'PARTIAL_UNCONFIRMED', reason: input.reason, sourceKeys, failureReason, recoveredCapability, content: buildSelfAssessmentArchitectureFallback(input.objective, recoveredContext, input.selfReflectionKind, { partnerIntelligence: input.partnerIntelligence, executiveState: input.executiveState, leadershipLedger: input.leadershipLedger, strategicHorizon: input.strategicHorizon }) }
