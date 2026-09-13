@@ -35,6 +35,12 @@ describe('CEO self-reflection canonical classifier', () => {
     ['Tell me about your recent upgrades.', 'capability_assessment'],
     ['What new features have you added?', 'capability_assessment'],
     ['What new capabilities do you have?', 'capability_assessment'],
+    // Live-data-access production incident (2026-09-13): the user asking what THEY can do to expand
+    // the CEO's own reach ("what can I do to give you access...") is a genuine capability question,
+    // inverted from every other alternative above which assumes "you" is the one being capable.
+    ['tell me what can I do to give you access to live information where you can pull and anything else?', 'capability_assessment'],
+    ['How can I give you access to more data?', 'capability_assessment'],
+    ['How do I connect you to a new data source?', 'capability_assessment'],
   ] as const)('classifies %j as %s', (text, expected) => {
     const result = classifyCeoSelfReflection(text)
     expect(result.kind).toBe(expected)

@@ -9,10 +9,35 @@ const ROOT = join(import.meta.dir, '..')
 describe('renderCeoCapabilityBriefing', () => {
   const savedGroq = process.env.GROQ_API_KEY
   const savedMistral = process.env.MISTRAL_API_KEY
+  const savedBrave = process.env.BRAVE_API_KEY
 
   afterEach(() => {
     if (savedGroq === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = savedGroq
     if (savedMistral === undefined) delete process.env.MISTRAL_API_KEY; else process.env.MISTRAL_API_KEY = savedMistral
+    if (savedBrave === undefined) delete process.env.BRAVE_API_KEY; else process.env.BRAVE_API_KEY = savedBrave
+  })
+
+  // Live-data-access production incident (2026-09-13): asked "what can I do to give you access to
+  // live information", the CEO had no grounded facts about its own live-research tooling anywhere in
+  // this briefing and fell back to a generic non-answer.
+  test('describes the already-active live research tooling (web search, page reading, SEC) honestly', () => {
+    const briefing = renderCeoCapabilityBriefing()
+    expect(briefing).toContain('Web search and page reading are already live')
+    expect(briefing).toContain('SEC')
+    expect(briefing).toContain('no credentials required')
+    expect(briefing).toContain('There is no chat-based way to grant additional live-data access')
+  })
+
+  test('honestly reports no Brave fallback when BRAVE_API_KEY is absent', () => {
+    delete process.env.BRAVE_API_KEY
+    const briefing = renderCeoCapabilityBriefing()
+    expect(briefing).toContain('NOT configured in this environment -- web search still works')
+  })
+
+  test('reports the Brave fallback as configured when BRAVE_API_KEY is present', () => {
+    process.env.BRAVE_API_KEY = 'test-key'
+    const briefing = renderCeoCapabilityBriefing()
+    expect(briefing).toContain('configured, providing a fallback search path')
   })
 
   test('describes the real, bounded document/transcription/review capabilities honestly', () => {

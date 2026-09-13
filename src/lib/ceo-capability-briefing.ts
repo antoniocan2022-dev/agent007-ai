@@ -16,9 +16,24 @@
 export function renderCeoCapabilityBriefing(): string {
   const transcriptionConfigured = Boolean(process.env.GROQ_API_KEY?.trim())
   const semanticSearchConfigured = Boolean(process.env.MISTRAL_API_KEY?.trim())
+  // Deep-audit fix (2026-09-13): production incident -- asked "what can I do to give you access to live
+  // information", the CEO had no grounded facts about its own live-research tooling anywhere in this
+  // briefing (only document/media ingestion was covered) and fell back to a generic non-answer. The
+  // CEO's actual live-research toolset is the authoritative, curated capability ledger in
+  // ceo-capability-architecture.ts's CEO_CAPABILITY_ARCHITECTURE ('research'/'market_intelligence'
+  // capabilities), not the much larger general tool registry (tools.ts) most of which serves unrelated
+  // operational capabilities (CRM, email, social, etc.) the user did not ask about here -- so this only
+  // describes web_search/page_reader/SEC, the tools ceo-evidence-executor.ts actually calls.
+  const braveConfigured = Boolean(process.env.BRAVE_API_KEY?.trim())
 
   const lines = [
     'CEO CAPABILITY BRIEFING (real, bounded facts about recent additions -- state these accurately, never round up to "any file" or "any type"):',
+    '',
+    'Live research & external information (already active -- nothing to configure to enable these):',
+    '- Web search and page reading are already live for every research/decision turn (see ceo-evidence-executor.ts) -- no setup or credentials needed from the user.',
+    '- SEC company facts (revenue, cash, debt, filings) for US-listed equities are fetched directly from SEC\'s public API, also with no credentials required.',
+    `- Optional redundancy: a Brave Search API key is ${braveConfigured ? 'configured, providing a fallback search path if the primary search provider fails' : 'NOT configured in this environment -- web search still works via the primary provider, but there is no fallback if that provider has an outage; setting a BRAVE_API_KEY environment variable in the deployment would add one'}.`,
+    '- There is no chat-based way to grant additional live-data access: new data sources are added by wiring new tools into the codebase and setting the relevant environment variable in the deployment, not by supplying a credential in conversation.',
     '',
     'Evidence & supervision:',
     '- Before answering a recommendation/decision, or a question about past attempts, checks its own open recommendations and recent execution outcomes (successes, failures, still-running work) rather than guessing. Read-only: it never re-triggers or replays a past action.',
