@@ -100,7 +100,15 @@ export function verifyClaimEvidence(content: string, bundle?: EvidenceBundle): {
   if (!claims.length) return { passed: true, claims, supportedClaimCount: 0, requiredClaimCount: 0 }
   const supportedClaimCount = claims.filter((claim) => claim.supported).length
   const result = { passed: supportedClaimCount === claims.length, claims, supportedClaimCount, requiredClaimCount: claims.length }
-  if (bundle.profile === 'public_equity' && !result.passed) {
+  // Deep-audit fix (P0, 2026-09-13): fail-closed regardless of operation meant a pure research response
+  // ("tell me about GEOS and MIND") whose claims couldn't be fully verified hard-failed the whole turn
+  // identically to a decision response -- mirrors the same research/decision split now applied
+  // pre-acquisition in ceo-decision-grade-evidence.ts (positive-listed on recommend/decide there too,
+  // for the same reason: EvidenceOperation has more members -- none/explain/research/compare/analyze/
+  // forecast/verify -- than are worth naming individually as "not a decision"). bundle.operation is
+  // optional (most bundles never carry one), so an equity bundle built without one keeps the previous
+  // fail-closed behavior rather than silently becoming permissive.
+  if (bundle.profile === 'public_equity' && (bundle.operation === 'recommend' || bundle.operation === 'decide' || bundle.operation === undefined) && !result.passed) {
     const error = new Error(`ABSTAINED_REQUIRED_EVIDENCE: ${result.requiredClaimCount - result.supportedClaimCount} public-equity claim(s) could not be verified against fresh evidence.`)
     error.name = 'DecisionGradeClaimVerificationBlockedError'
     Object.assign(error, { code: 'ABSTAINED_REQUIRED_EVIDENCE', claimVerification: result })
