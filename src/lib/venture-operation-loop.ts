@@ -16,6 +16,32 @@ import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } 
 import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
 import { assessSustainedBusinessOutcome } from './ceo-sustained-outcome'
 
+// Deep-audit fix: ceo-self-repair-engine.ts's runGovernedSelfRepairCycle() and
+// ceo-continuous-loop.ts's runGovernedEvolutionCycle() are both real, complete, deterministic
+// governed pipelines (incident clustering -> pattern extraction -> validation -> risk tiering ->
+// autonomous activation or owner-approval queue, and health report -> initiative -> simulation ->
+// owner-approval queue, respectively) -- both self-documented as safe to call "repeatedly and
+// often ... from a scheduled trigger," but neither had one anywhere in the codebase; they only
+// ran if a human manually hit /api/system/self-repair?cycle=true or /api/system/evolution?cycle=true.
+// Throttled to roughly once per day (not every 15-minute heartbeat) since both scan a multi-hour/
+// multi-day window and do real DB writes -- running on every heartbeat would be redundant churn,
+// not more coverage.
+const GOVERNED_CYCLE_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000
+const SELF_REPAIR_CYCLE_KEY = 'venture-os:last-self-repair-cycle'
+const EVOLUTION_CYCLE_KEY = 'venture-os:last-evolution-cycle'
+
+async function dueForGovernedCycle(key: string): Promise<boolean> {
+  const row = await db.memory.findUnique({ where: { key } }).catch(() => null)
+  if (!row) return true
+  const last = Date.parse(row.value)
+  return !Number.isFinite(last) || Date.now() - last >= GOVERNED_CYCLE_MIN_INTERVAL_MS
+}
+
+async function markGovernedCycleRun(key: string): Promise<void> {
+  const value = new Date().toISOString()
+  await db.memory.upsert({ where: { key }, update: { value, category: 'venture_operation_governed_cycle' }, create: { key, value, category: 'venture_operation_governed_cycle' } }).catch(() => {})
+}
+
 export interface VentureOperationCycle {
   cycleId: string
   ventureId: string
@@ -127,6 +153,37 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     findings.push(`Portfolio learning heartbeat failed safely: ${message.slice(0, 240)}`)
+  }
+
+  // Deep-audit fix: these two governed pipelines (incident-pattern self-repair, org-health-driven
+  // evolution) were fully built and self-documented as safe to run "repeatedly and often ... from
+  // a scheduled trigger," but had no trigger anywhere -- only a manual, owner-authenticated HTTP
+  // call could ever run them. Throttled via dueForGovernedCycle so they run roughly daily, not on
+  // every 15-minute heartbeat.
+  if (await dueForGovernedCycle(SELF_REPAIR_CYCLE_KEY).catch(() => false)) {
+    try {
+      const { runGovernedSelfRepairCycle } = await import('./ceo-self-repair-engine')
+      const selfRepair = await runGovernedSelfRepairCycle()
+      await markGovernedCycleRun(SELF_REPAIR_CYCLE_KEY)
+      if (selfRepair.autoActivated.length) findings.push(`Self-repair cycle auto-activated ${selfRepair.autoActivated.length} learned classifier pattern(s).`)
+      if (selfRepair.awaitingApproval.length) findings.push(`Self-repair cycle queued ${selfRepair.awaitingApproval.length} correction(s) for owner approval.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      findings.push(`Self-repair cycle failed safely: ${message.slice(0, 240)}`)
+    }
+  }
+
+  if (await dueForGovernedCycle(EVOLUTION_CYCLE_KEY).catch(() => false)) {
+    try {
+      const { runGovernedEvolutionCycle } = await import('./ceo-continuous-loop')
+      const evolution = await runGovernedEvolutionCycle()
+      await markGovernedCycleRun(EVOLUTION_CYCLE_KEY)
+      if (evolution.simulated.length) findings.push(`Evolution cycle simulated ${evolution.simulated.length} improvement initiative(s) (org IQ ${evolution.observed.orgIQ}).`)
+      if (evolution.awaitingApproval.length) findings.push(`Evolution cycle queued ${evolution.awaitingApproval.length} initiative(s) for owner approval.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      findings.push(`Evolution cycle failed safely: ${message.slice(0, 240)}`)
+    }
   }
 
   const id = createVentureOperationCycleId(ventureId, manager.runId)
