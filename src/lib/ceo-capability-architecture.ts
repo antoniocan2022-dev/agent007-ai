@@ -88,6 +88,17 @@ export function findCapability(id: string): CapabilityDescriptor | undefined {
   return undefined
 }
 
+// Fresh-audit fix: ceo-tool-selection.ts used to guess a capability's id from its domain by
+// hardcoding the two suffix patterns that happen to exist ("market.competitive" for
+// market_intelligence, "research.general" for research) -- every other domain's real id
+// (finance.analysis, commerce.execution, communication.messaging, etc.) never matched either
+// guessed suffix, so selectCeoTool() silently found zero candidates and fell back to web_search
+// for finance/commerce/every other populated domain, no matter what tools this file lists for
+// them. Each enterprise's own id already equals its CapabilityDomain, so look it up directly.
+export function findCapabilityForDomain(domain: CapabilityDomain): CapabilityDescriptor | undefined {
+  return CEO_CAPABILITY_ARCHITECTURE.find((enterprise) => enterprise.id === domain)?.capabilities[0]
+}
+
 export function capabilityNeedFromDecision(contract: CeoExecutionContract): { domain: CapabilityDomain; operation: EvidenceOperation; capabilities: string[] } {
   return { domain: capabilityForDomain(contract.domain), operation: contract.operation, capabilities: capabilitiesForDecision(contract) }
 }

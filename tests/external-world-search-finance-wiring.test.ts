@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { toolFinnhubQuote } from '@/lib/ai-providers-integration'
-import { CEO_CAPABILITY_ARCHITECTURE, findCapability } from '@/lib/ceo-capability-architecture'
+import { toolExaSearch, toolFinnhubQuote, toolSerpAPI, toolTavilySearch } from '@/lib/ai-providers-integration'
+import { CEO_CAPABILITY_ARCHITECTURE, findCapability, findCapabilityForDomain } from '@/lib/ceo-capability-architecture'
+import type { CeoExecutionContract } from '@/lib/ceo-cognitive-contract'
+import { selectCeoTool } from '@/lib/ceo-tool-selection'
 import { toolAPIIntegrationManager } from '@/lib/mission-lifecycle'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -211,6 +213,236 @@ describe('external-world search + finance access is maximized and genuinely wire
       for (const key of ['TAVILY_API_KEY', 'BRAVE_API_KEY', 'EXA_API_KEY', 'SERPAPI_API_KEY', 'NEWSAPI_KEY', 'PERPLEXITY_API_KEY', 'YDC_API_KEY', 'GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX', 'FINNHUB_API_KEY', 'ALPHA_VANTAGE_API_KEY', 'FRED_API_KEY']) {
         expect(src).toContain(key)
       }
+    })
+  })
+})
+
+// Fresh-audit fix (round 2): an independent adversarial re-audit of this same PR found two genuinely
+// new REAL BUGs the prior review's registry/Prisma/test-suite checks couldn't have caught, because
+// both are integration bugs between this PR's files and pre-existing consumers this PR never touched
+// (ceo-tool-selection.ts, ceo-evidence-executor.ts) -- invisible to any test that only exercises the
+// changed files in isolation, as this suite's earlier tests all do.
+describe('fresh-audit round 2: capability-domain reachability and evidence-pipeline URL parsing', () => {
+  describe('Finding A: finance/commerce capability domains are now actually reachable through selectCeoTool(), not silently falling back to web_search', () => {
+    // The bug: selectCeoTool used to guess a capability's id from its domain via two hardcoded
+    // suffix patterns (".competitive" for market_intelligence, ".general" for research) that only
+    // matched those two domains by coincidence -- finance's real id is "finance.analysis",
+    // commerce's is "commerce.execution", neither matches either guessed suffix, so the lookup
+    // silently returned zero candidates and every finance/commerce contract fell back to web_search
+    // via ceo-evidence-executor.ts's `plan.selectedTool ?? 'web_search'`, no matter how many real
+    // tools this file's own tools arrays listed for those domains.
+    test('findCapabilityForDomain looks up every populated domain by its real id, not a guessed suffix', () => {
+      for (const domain of ['research', 'finance', 'market_intelligence', 'commerce'] as const) {
+        const descriptor = findCapabilityForDomain(domain)
+        expect(descriptor).toBeDefined()
+        const toolIds = descriptor!.services.flatMap((s) => s.tools).map((t) => t.id)
+        expect(toolIds.length).toBeGreaterThan(0)
+      }
+      const finance = findCapabilityForDomain('finance')
+      expect(finance!.id).toBe('finance.analysis')
+      const commerce = findCapabilityForDomain('commerce')
+      expect(commerce!.id).toBe('commerce.execution')
+      expect(commerce!.services.flatMap((s) => s.tools).map((t) => t.id)).toEqual(expect.arrayContaining(['stripe_payment_processor', 'paypal_api']))
+    })
+
+    test('selectCeoTool actually picks a real finance tool for an internal_finance contract, not web_search', () => {
+      const contract: CeoExecutionContract = {
+        intent: 'decision', evidenceClass: 'external_web', domain: 'internal_finance', operation: 'decide',
+        temporalScope: 'current', evidenceProfile: 'general_research', evidenceRequirement: 'external_web',
+        executionRequirement: 'one_tool', orchestrationOwner: 'ceo_lifecycle', maxTurns: 1, maxRecoveries: 0,
+        latencyBudgetMs: 10000, toolRequired: true, subagentsRequired: false, reason: 'test: finance evidence need',
+      }
+      const selection = selectCeoTool(contract)
+      // internal_finance -> capabilityForDomain -> 'finance' capability, which has no web_search entry at all --
+      // before the fix, candidates was always [] and selected was always undefined here.
+      expect(selection.candidates.length).toBeGreaterThan(0)
+      expect(selection.selected).toBeDefined()
+      const financeToolIds = ['yahoo_finance', 'coingecko', 'finnhub_quote', 'alpha_vantage', 'fred_economic', 'financial_tracker', 'payment_processor']
+      expect(financeToolIds).toContain(selection.selected!.id)
+    })
+  })
+
+  describe('Finding B: newly-wired research search tools now emit output the evidence pipeline\'s "URL: <link>" extractor can actually parse', () => {
+    // The bug: ceo-evidence-executor.ts's urlsFromSearchResult only recognizes lines matching
+    // /URL:\s*(https?:\/\/[^\s]+)/gi (the format web_search itself has always used). tavily_search/
+    // serpapi/exa_search used to dump raw JSON.stringify(data) with no such label; perplexity/google/
+    // you.com/brave printed bare links with no "URL:" prefix either. A genuinely successful call to
+    // any of them contributed zero evidence sources, silently -- recorded as status 'partial' even
+    // though the API call itself succeeded, poisoning the observed-reliability feedback loop.
+    const urlLabelRe = /URL:\s*(https?:\/\/[^\s]+)/i
+
+    test('tavily_search formats real results with "URL:" labels the evidence extractor recognizes', async () => {
+      const originalFetch = globalThis.fetch
+      process.env.TAVILY_API_KEY = 'test-tavily-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({
+        results: [{ title: 'Example Result', url: 'https://example.com/article', content: 'Some real content snippet.' }],
+      }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolTavilySearch({ query: 'test query' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toMatch(urlLabelRe)
+        expect(urlLabelRe.exec(result.result)?.[1]).toBe('https://example.com/article')
+      } finally {
+        globalThis.fetch = originalFetch
+        delete process.env.TAVILY_API_KEY
+      }
+    })
+
+    test('serpapi formats real organic_results with "URL:" labels the evidence extractor recognizes', async () => {
+      const originalFetch = globalThis.fetch
+      process.env.SERPAPI_API_KEY = 'test-serpapi-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({
+        organic_results: [{ title: 'Example Result', link: 'https://example.org/page', snippet: 'A snippet.' }],
+      }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolSerpAPI({ query: 'test query' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toMatch(urlLabelRe)
+        expect(urlLabelRe.exec(result.result)?.[1]).toBe('https://example.org/page')
+      } finally {
+        globalThis.fetch = originalFetch
+        delete process.env.SERPAPI_API_KEY
+      }
+    })
+
+    test('exa_search formats real results with "URL:" labels the evidence extractor recognizes', async () => {
+      const originalFetch = globalThis.fetch
+      process.env.EXA_API_KEY = 'test-exa-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({
+        results: [{ title: 'Example Result', url: 'https://example.net/doc', text: 'Some text.' }],
+      }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolExaSearch({ query: 'test query' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toMatch(urlLabelRe)
+        expect(urlLabelRe.exec(result.result)?.[1]).toBe('https://example.net/doc')
+      } finally {
+        globalThis.fetch = originalFetch
+        delete process.env.EXA_API_KEY
+      }
+    })
+
+    test('a provider response with no parseable results falls back to the raw payload instead of losing data', async () => {
+      const originalFetch = globalThis.fetch
+      process.env.TAVILY_API_KEY = 'test-tavily-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({ results: [] }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolTavilySearch({ query: 'test query with zero results 98765' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('"results":[]')
+      } finally {
+        globalThis.fetch = originalFetch
+        delete process.env.TAVILY_API_KEY
+      }
+    })
+
+    test('ai-search-engines.ts: google/you.com/brave/perplexity real-API branches all label result links "URL:"', () => {
+      const src = read('../src/lib/ai-search-engines.ts')
+      // Google: item.link
+      expect(src).toContain('URL: ${item.link}')
+      // You.com: h.url
+      expect(src).toContain('URL: ${h.url}')
+      // Brave: r.url
+      expect(src).toContain('URL: ${r.url}')
+      // Perplexity citations
+      expect(src).toContain('URL: ${c}')
+    })
+  })
+
+  describe('Angle 1: delegateToRealSearch no longer stacks unbounded sequential timeouts', () => {
+    const src = read('../src/lib/ai-search-engines.ts')
+
+    test('delegateToRealSearch races each attempt against a shared overall deadline', () => {
+      expect(src).toContain('overallTimeoutMs = 20000')
+      expect(src).toContain('Promise.race([')
+      expect(src).toContain('const deadline = Date.now() + overallTimeoutMs')
+    })
+
+    test('brave_ai_search no longer stacks a redundant ddg_search attempt ahead of web_search\'s own internal DuckDuckGo fallback', () => {
+      expect(src).not.toContain("delegateToRealSearch(query, ['tavily_search', 'serpapi', 'ddg_search', 'web_search'])")
+    })
+  })
+
+  describe('Angle 3: tavily_search/serpapi now dedupe repeat queries within a short TTL instead of always re-hitting the real API', () => {
+    test('a second identical query is served from cache, not a second real fetch', async () => {
+      const originalFetch = globalThis.fetch
+      process.env.TAVILY_API_KEY = 'test-tavily-key'
+      let fetchCount = 0
+      globalThis.fetch = (async () => {
+        fetchCount += 1
+        return new Response(JSON.stringify({ results: [{ title: 'X', url: 'https://example.com/x', content: 'x' }] }), { status: 200 })
+      }) as typeof fetch
+      try {
+        const first = await toolTavilySearch({ query: 'cache test query unique 12345' })
+        const second = await toolTavilySearch({ query: 'cache test query unique 12345' })
+        expect(first.ok).toBe(true)
+        expect(second.ok).toBe(true)
+        expect(fetchCount).toBe(1)
+      } finally {
+        globalThis.fetch = originalFetch
+        delete process.env.TAVILY_API_KEY
+      }
+    })
+  })
+
+  describe('Angle 7: configured-but-failing credentials now fall back to the honest delegate instead of hard-failing', () => {
+    const src = read('../src/lib/ai-search-engines.ts')
+
+    test('google/perplexity/you.com/brave all delegate on a runtime failure, not only when unconfigured', () => {
+      for (const marker of ['GOOGLE_SEARCH_API_KEY is configured but the live call failed', 'PERPLEXITY_API_KEY is configured but the live call failed', 'YDC_API_KEY is configured but the live call failed', 'BRAVE_API_KEY is configured but the live call failed']) {
+        expect(src).toContain(marker)
+      }
+    })
+
+    test('the dead needKey() helper was removed (every tool used inline badResult calls instead)', () => {
+      expect(src).not.toContain('function needKey(tool: string, envVar: string, url: string)')
+    })
+  })
+
+  describe('Follow-on fix: making finance/commerce domains reachable (Finding A) exposed a latent argument-shape mismatch, now guarded against', () => {
+    // executeSearch in ceo-evidence-executor.ts always dispatches the selected tool with a free-text
+    // {query, num, recency_days} argument shape. Before Finding A's fix, finance/commerce domains were
+    // structurally unreachable, so this mismatch never manifested. Now that selectCeoTool can genuinely
+    // pick finnhub_quote/alpha_vantage/fred_economic/financial_tracker/payment_processor/etc. for a
+    // finance-domain evidence request, dispatching any of them with {query,...} would deterministically
+    // fail (they need "symbol"/"series_id" or no query at all) -- a real regression versus the
+    // previously-working web_search fallback. Confirm the executor only ever hands a genuine
+    // free-text search tool to executeSearch.
+    const src = read('../src/lib/ceo-evidence-executor.ts')
+
+    test('executeOnce only trusts plan.selectedTool when it is a genuine free-text search tool', () => {
+      expect(src).toContain('QUERY_SEARCH_TOOL_IDS')
+      expect(src).toContain("plan.selectedTool && QUERY_SEARCH_TOOL_IDS.has(plan.selectedTool) ? plan.selectedTool : 'web_search'")
+    })
+
+    test('the allowlist excludes the newly-reachable non-search finance/commerce tools', () => {
+      const setLine = src.slice(src.indexOf('const QUERY_SEARCH_TOOL_IDS'), src.indexOf(')', src.indexOf('const QUERY_SEARCH_TOOL_IDS')))
+      for (const nonSearchTool of ['finnhub_quote', 'alpha_vantage', 'fred_economic', 'yahoo_finance', 'coingecko', 'financial_tracker', 'payment_processor', 'stripe_payment_processor', 'paypal_api', 'page_reader', 'jina_reader']) {
+        expect(setLine).not.toContain(`'${nonSearchTool}'`)
+      }
+    })
+
+    test('the allowlist includes every genuine free-text search tool the research/market_intelligence domains list', () => {
+      const setLine = src.slice(src.indexOf('const QUERY_SEARCH_TOOL_IDS'), src.indexOf(')', src.indexOf('const QUERY_SEARCH_TOOL_IDS')))
+      for (const searchTool of ['web_search', 'tavily_search', 'exa_search', 'serpapi', 'perplexity_ai_search', 'newsapi', 'multi_search_compare', 'kb_search']) {
+        expect(setLine).toContain(`'${searchTool}'`)
+      }
+    })
+  })
+
+  describe('pre-existing env-var-name bug found while checking for collisions: security-self-healing.ts now checks the names the real tool readers actually use', () => {
+    test('the API-key self-check list uses ALPHA_VANTAGE_API_KEY, NEWSAPI_KEY, CLOUDFLARE_API_KEY, REMOVE_BG_API_KEY', () => {
+      const src = read('../src/lib/security-self-healing.ts')
+      expect(src).toContain("'ALPHA_VANTAGE_API_KEY'")
+      expect(src).toContain("'NEWSAPI_KEY'")
+      expect(src).toContain("'CLOUDFLARE_API_KEY'")
+      expect(src).toContain("'REMOVE_BG_API_KEY'")
+      // The apiKeys array itself (not just the explanatory comment) must not contain the old wrong names.
+      const arraySrc = src.slice(src.indexOf('const apiKeys = ['), src.indexOf(']', src.indexOf('const apiKeys = [')))
+      expect(arraySrc).not.toContain('ALPHAVANTAGE_API_KEY')
+      expect(arraySrc).not.toContain("'NEWSAPI_API_KEY'")
+      expect(arraySrc).not.toContain('CLOUDFLARE_API_TOKEN')
+      expect(arraySrc).not.toContain('REMOVEBG_API_KEY')
     })
   })
 })

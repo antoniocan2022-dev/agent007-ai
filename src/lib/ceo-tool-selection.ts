@@ -1,5 +1,5 @@
 import type { CeoExecutionContract } from './ceo-cognitive-contract'
-import { capabilityNeedFromDecision, findCapability, type ToolDescriptor } from './ceo-capability-architecture'
+import { capabilityNeedFromDecision, findCapabilityForDomain, type ToolDescriptor } from './ceo-capability-architecture'
 import { getToolOutcomeSnapshot } from './ceo-tool-outcome-intelligence'
 
 export interface ToolScore { relevance: number; reliability: number; freshness: number; latency: number; cost: number; permissions: number; risk: number; verification: number; total: number }
@@ -19,9 +19,7 @@ function scoreTool(tool: ToolDescriptor, need: { operation: string; requiresFres
 
 export function selectCeoTool(contract: CeoExecutionContract, options?: { requiresFreshness?: boolean }): ToolSelection {
   const need = capabilityNeedFromDecision(contract)
-  const capabilityId = findCapability(`${need.domain === 'market_intelligence' ? 'market' : need.domain}.competitive`)?.id
-    ?? findCapability(`${need.domain === 'research' ? 'research' : need.domain}.general` )?.id
-  const descriptor = capabilityId ? findCapability(capabilityId) : undefined
+  const descriptor = findCapabilityForDomain(need.domain)
   const candidates = descriptor?.services.flatMap((service) => service.tools) ?? []
   const scores: Record<string, ToolScore> = {}
   for (const candidate of candidates) scores[candidate.id] = scoreTool(candidate, { operation: contract.operation, requiresFreshness: options?.requiresFreshness ?? contract.temporalScope === 'current', capability: need.domain })

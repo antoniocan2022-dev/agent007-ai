@@ -29,6 +29,17 @@ const FACT_CANDIDATES: Array<{ key: string; label: string }> = [
 function latestUnit(units?: Record<string, SecFactUnit[]>): SecFactUnit | null { const candidates = Object.values(units ?? {}).flat().filter((item) => typeof item.val === 'number' && item.filed); candidates.sort((a, b) => String(b.filed).localeCompare(String(a.filed))); return candidates[0] ?? null }
 async function fetchSecSource(ticker: string, signal?: AbortSignal): Promise<EvidenceSource | null> { const map = await getSecTickerMap(signal), item = map[ticker.toUpperCase()]; if (!item?.cik_str) return null; const cik = String(item.cik_str).padStart(10, '0'), url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, payload = await fetchJson<SecFacts>(url, signal), usGaap = payload.facts?.['us-gaap'] ?? {}; const lines: string[] = [`SEC Company Facts for ${ticker.toUpperCase()} — ${payload.entityName ?? item.title}`]; let latestFiled: string | undefined; for (const candidate of FACT_CANDIDATES) { const fact = latestUnit(usGaap[candidate.key]?.units); if (!fact) continue; if (fact.filed && (!latestFiled || fact.filed > latestFiled)) latestFiled = fact.filed; lines.push(`${candidate.label}: ${fact.val} (${fact.form ?? 'filing'}, filed ${fact.filed}${fact.fp ? `, ${fact.fp}` : ''})`) } if (lines.length === 1) return null; const publishedAt = latestFiled ? Date.parse(`${latestFiled}T00:00:00Z`) : undefined; return createEvidenceSource({ url, title: `${ticker.toUpperCase()} SEC Company Facts`, sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), publishedAt: Number.isFinite(publishedAt) ? publishedAt : undefined, text: lines.join('\n'), id: `SEC-${ticker.toUpperCase()}` }) }
 function cacheBypassArgs(args: Record<string, unknown>): Record<string, unknown> { return { ...args, evidence_refresh_nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } }
+// Fresh-audit fix (round 2): executeSearch below always dispatches the selected tool with
+// {query, num, recency_days} -- a free-text web-search argument shape. Fixing the capability-domain
+// lookup bug in ceo-tool-selection.ts (see ceo-capability-architecture.ts's findCapabilityForDomain)
+// makes the finance/commerce domains' tool lists reachable for the first time, but several of those
+// tools take a completely different argument shape (finnhub_quote/alpha_vantage/yahoo_finance need
+// "symbol", fred_economic needs "series_id", financial_tracker/payment_processor take no query at
+// all -- internal-state only). Dispatching one of those here with {query,...} would deterministically
+// fail ("requires symbol") instead of gathering evidence, regressing what used to be a working
+// web_search fallback for finance-domain external-evidence requests. Only ever hand a genuine
+// free-text search tool to executeSearch; anything else falls back to web_search exactly as before.
+const QUERY_SEARCH_TOOL_IDS = new Set(['web_search', 'tavily_search', 'exa_search', 'serpapi', 'perplexity_ai_search', 'you_com_search', 'google_ai_search', 'brave_ai_search', 'copilot_search', 'chatgpt_search', 'newsapi', 'multi_search_compare', 'kb_search'])
 function urlsFromSearchResult(result: ToolResult): string[] { return [...result.result.matchAll(/URL:\s*(https?:\/\/[^\s]+)/gi)].map((match) => match[1]) }
 function titleFromSearchResult(result: ToolResult, url: string): string { const line = result.result.split('\n').find((candidate) => candidate.includes(url)); return line ? line.replace(/^[0-9]+\.\s*/, '').replace(/\*\*/g, '').trim() || url : url }
 export function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType { if (query.sourcePreference === 'market') return sourceTierForUrl(url) <= 2 ? 'market_data' : 'web'; return 'web' }
@@ -38,7 +49,7 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
   throwIfCeoRequestAborted(signal)
   const failures: string[] = []
   const queries = plan.queries.slice(0, plan.maxSearchQueries).map((query) => querySuffix ? { ...query, query: `${query.query} ${querySuffix}` } : query)
-  const selectedSearchTool = plan.selectedTool ?? 'web_search'
+  const selectedSearchTool = plan.selectedTool && QUERY_SEARCH_TOOL_IDS.has(plan.selectedTool) ? plan.selectedTool : 'web_search'
   assertRuntimeIntegration({ capability: 'evidence_acquisition', owner: 'ceo-evidence-planner + ceo-evidence-executor', runtimeEntryPoint: 'src/app/api/agent/route.ts', verified: true })
   const searchResults = await Promise.all(queries.map(async (query) => {
     try { const outcome = await executeSearch(query, selectedSearchTool, signal); recordToolOutcome({ toolId: selectedSearchTool, capability: plan.capability ?? 'research', status: outcome.sources.length > 0 ? 'succeeded' : 'partial' }); return outcome }

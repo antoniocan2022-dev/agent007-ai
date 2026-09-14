@@ -71,12 +71,17 @@ export async function toolSecurityHealthChecker(args: any): Promise<ToolResult> 
     })
 
     // Check 6: Count configured API keys
+    // Fresh-audit fix: 4 of these names didn't match what the actual tool readers check
+    // (ai-providers-integration.ts, ai-search-engines.ts), so this self-check silently undercounted
+    // those keys even when correctly configured per .env.example: NEWSAPI_API_KEY -> NEWSAPI_KEY,
+    // ALPHAVANTAGE_API_KEY -> ALPHA_VANTAGE_API_KEY, CLOUDFLARE_API_TOKEN -> CLOUDFLARE_API_KEY,
+    // REMOVEBG_API_KEY -> REMOVE_BG_API_KEY.
     const apiKeys = [
       'CEREBRAS_API_KEY', 'SAMBANOVA_API_KEY', 'TOGETHER_API_KEY', 'MISTRAL_API_KEY',
-      'HUGGINGFACE_API_KEY', 'CLOUDFLARE_API_TOKEN', 'COHERE_API_KEY',
-      'TAVILY_API_KEY', 'BRAVE_API_KEY', 'SERPAPI_API_KEY', 'NEWSAPI_API_KEY',
-      'ALPHAVANTAGE_API_KEY', 'FRED_API_KEY', 'EXA_API_KEY', 'STABILITY_API_KEY',
-      'ELEVENLABS_API_KEY', 'DEEPL_API_KEY', 'REMOVEBG_API_KEY',
+      'HUGGINGFACE_API_KEY', 'CLOUDFLARE_API_KEY', 'COHERE_API_KEY',
+      'TAVILY_API_KEY', 'BRAVE_API_KEY', 'SERPAPI_API_KEY', 'NEWSAPI_KEY',
+      'ALPHA_VANTAGE_API_KEY', 'FRED_API_KEY', 'EXA_API_KEY', 'STABILITY_API_KEY',
+      'ELEVENLABS_API_KEY', 'DEEPL_API_KEY', 'REMOVE_BG_API_KEY',
     ]
     const keysSet = apiKeys.filter((k) => process.env[k]).length
     checks.push({
