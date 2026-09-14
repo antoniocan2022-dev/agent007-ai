@@ -32,6 +32,7 @@
 
 import { dispatchTool } from './tools'
 import { SUBAGENTS, getAllSubagents } from './subagents'
+import { db } from './db'
 
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function fail(result: string): ToolResult { return { ok: false, preview: result.slice(0, 120), result } }
@@ -824,148 +825,121 @@ export async function toolGigPipelineTracker(args: any, _ctx: ToolContext): Prom
 /* ================================================================== */
 
 /**
- * payment_processor — multi-gateway payment processing (Stripe,
- * PayPal, crypto, Wise) with auto-reconciliation.
+ * payment_processor — real status of configured payment gateways + real recorded transaction
+ * volume.
+ *
+ * Deep-audit fix: this used to unconditionally fabricate 4 "active" gateways, invented volume
+ * splits, and a specific monthly P&L summary -- no DB read, no API call, no gating, regardless of
+ * what was actually configured. Now reports genuine gateway configuration (env vars, matching the
+ * check real-integrations.ts/real-integrations-extended.ts already use for their real Stripe/
+ * PayPal API calls) and real transaction volume from the Transaction table (the table Stripe/
+ * PayPal webhooks actually write to), never an invented figure.
  */
 export async function toolPaymentProcessor(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  const gateway = (args?.gateway ?? 'all').toString().toLowerCase()
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  const gateways = [
+    { name: 'Stripe', configured: Boolean(process.env.STRIPE_SECRET_KEY), provider: 'stripe' },
+    { name: 'PayPal', configured: Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET), provider: 'paypal' },
+  ]
+
+  let byProvider: Array<{ provider: string; count: number; total: number }> = []
+  try {
+    const rows = await db.transaction.findMany({ where: { createdAt: { gte: since } }, select: { provider: true, amount: true } })
+    const grouped = new Map<string, { count: number; total: number }>()
+    for (const row of rows) {
+      const g = grouped.get(row.provider) ?? { count: 0, total: 0 }
+      g.count += 1
+      g.total += row.amount
+      grouped.set(row.provider, g)
+    }
+    byProvider = [...grouped.entries()].map(([provider, g]) => ({ provider, ...g }))
+  } catch { /* Transaction table unreachable -- report configuration status only, no invented volume */ }
+
+  const totalVolume = byProvider.reduce((sum, p) => sum + p.total, 0)
+  const totalCount = byProvider.reduce((sum, p) => sum + p.count, 0)
+  const configuredCount = gateways.filter(g => g.configured).length
+
+  const report = `PAYMENT PROCESSING SYSTEM\n${'='.repeat(60)}\n\n` +
+    `GATEWAY CONFIGURATION (real -- checked against live env vars):\n` +
+    gateways.map(g => `  • ${g.name}: ${g.configured ? '✅ configured' : '❌ not configured'}`).join('\n') + '\n\n' +
+    `RECORDED TRANSACTIONS (real, from the Transaction table -- populated by actual gateway webhooks; last 30 days):\n` +
+    (totalCount === 0
+      ? '  No transactions recorded yet.\n'
+      : byProvider.map(p => `  • ${p.provider}: ${p.count} transaction(s), $${p.total.toFixed(2)}`).join('\n') + `\n  • TOTAL: ${totalCount} transaction(s), $${totalVolume.toFixed(2)}\n`) +
+    `\nTo process a real payment or check real PayPal balance/orders/payouts, use the stripe_payment_processor or paypal_api tools directly.`
 
   return okResult(
-    `Payment processors: 4 gateways active, $4,820 processed (30d)`,
-    `PAYMENT PROCESSING SYSTEM\n${'='.repeat(60)}\n\n` +
-    `ACTIVE GATEWAYS:\n\n` +
-    `  1. STRIPE (credit cards, Apple Pay, Google Pay)\n` +
-    `     • Transaction fee: 2.9% + $0.30\n` +
-    `     • Payout: daily (rolling 2-day)\n` +
-    `     • Volume (30d): $2,340 (48% of total)\n` +
-    `     • Products: affiliate course, freelance invoices\n\n` +
-    `  2. PAYPAL (balance, cards, Pay Later)\n` +
-    `     • Fee: 3.49% + $0.49\n` +
-    `     • Payout: instant (1% fee) or 1-day (free)\n` +
-    `     • Volume: $1,890 (39%)\n` +
-    `     • Products: freelance, POD Etsy sales\n\n` +
-    `  3. CRYPTO (Coinbase Commerce — BTC, ETH, USDC)\n` +
-    `     • Fee: 0%\n` +
-    `     • Payout: instant to wallet\n` +
-    `     • Volume: $380 (8%)\n` +
-    `     • Products: high-ticket consulting\n\n` +
-    `  4. WISE (international bank transfers)\n` +
-    `     • Fee: 0.5-1.5% (varies by currency)\n` +
-    `     • Payout: 1-2 business days\n` +
-    `     • Volume: $210 (5%)\n` +
-    `     • Products: international freelance clients\n\n` +
-    `AUTO-RECONCILIATION:\n` +
-    `  • Webhooks from each gateway → IncomeEntry in DB\n` +
-    `  • Auto-categorize: affiliate / freelance / POD / consulting\n` +
-    `  • Auto-detect: refunds, chargebacks, fees\n` +
-    `  • Daily 12am ET: reconcile with bank deposits\n\n` +
-    `MONTHLY SUMMARY:\n` +
-    `  Gross revenue: $4,820.50\n` +
-    `  Processing fees: $148.30 (3.07%)\n` +
-    `  Net revenue: $4,672.20\n` +
-    `  Avg transaction: $47.20\n` +
-    `  Refund rate: 1.8% (industry avg: 3-5%)\n\n` +
-    `ALERTS:\n` +
-    `  • Auto-flag transactions > $500 (manual review)\n` +
-    `  • Auto-block: failed AVS, high-risk countries\n` +
-    `  • Auto-pause: > 3 chargebacks in 30 days`
+    `Payment processors: ${configuredCount}/${gateways.length} configured, ${totalCount} real transaction(s) recorded, $${totalVolume.toFixed(2)}`,
+    report
   )
 }
 
 /**
- * financial_tracker — auto-track earnings, expenses, taxes, runway
- * across all income streams.
+ * financial_tracker — real income summary from this venture's own recorded IncomeEntry rows.
+ *
+ * Deep-audit fix: this used to unconditionally fabricate a full P&L (income by stream, expenses,
+ * runway, tax projections, LTV/CAC benchmarks) with no DB read at all. Now reports the real sum
+ * of IncomeEntry rows, grouped by source, and honestly says so when there's nothing recorded yet
+ * rather than inventing a number.
  */
 export async function toolFinancialTracker(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  let entries: Array<{ amount: number; source: string }> = []
+  try {
+    entries = await db.incomeEntry.findMany({ where: { date: { gte: since } }, select: { amount: true, source: true } })
+  } catch (e: any) {
+    return badResult(`financial_tracker: could not read IncomeEntry: ${e?.message ?? String(e)}`)
+  }
+
+  const bySource = new Map<string, number>()
+  let total = 0
+  for (const e of entries) {
+    bySource.set(e.source, (bySource.get(e.source) ?? 0) + e.amount)
+    total += e.amount
+  }
+
+  const report = `FINANCIAL TRACKER (real data from IncomeEntry, last 30 days)\n${'='.repeat(60)}\n\n` +
+    (entries.length === 0
+      ? 'No income entries recorded in the last 30 days.\n'
+      : `INCOME BY SOURCE:\n${[...bySource.entries()].sort((a, b) => b[1] - a[1]).map(([source, amount]) => `  • ${source}: $${amount.toFixed(2)}`).join('\n')}\n\nTOTAL: $${total.toFixed(2)} across ${entries.length} entries\n`) +
+    `\nNote: this tool reports real recorded income only. Expense tracking, tax projections, runway, and CAC/LTV are not backed by any data source in this app and are not reported here to avoid inventing them.`
+
   return okResult(
-    `Financial tracker: $4,672 net (30d), 19.6% to $20K target, 6.2mo runway`,
-    `AUTOMATED FINANCIAL TRACKER\n${'='.repeat(60)}\n\n` +
-    `INCOME (last 30 days):\n` +
-    `  • Affiliate: $2,340.00\n` +
-    `  • Freelance: $1,890.00\n` +
-    `  • POD: $590.50\n` +
-    `  • TOTAL: $4,820.50\n\n` +
-    `EXPENSES (last 30 days):\n` +
-    `  • Tools (Buffer, ConvertKit, etc.): $142.00\n` +
-    `  • Payment processing fees: $148.30\n` +
-    `  • Advertising: $32.00 (Pinterest ads test)\n` +
-    `  • TOTAL: $322.30\n\n` +
-    `NET PROFIT: $4,498.20 (93.3% margin)\n\n` +
-    `MISSION PROGRESS:\n` +
-    `  • Monthly target: $20,000\n` +
-    `  • Current: $4,820.50 (24.1% of target)\n` +
-    `  • Daily avg needed: $666.67\n` +
-    `  • Current daily avg: $160.68\n` +
-    `  • Gap: $506/day (need 4.2x current rate)\n\n` +
-    `RUNWAY ANALYSIS:\n` +
-    `  • Cash reserves: $9,300\n` +
-    `  • Monthly burn: $322.30 (very low — mostly tools)\n` +
-    `  • Runway: 28.9 months (very healthy)\n\n` +
-    `TAX PROJECTION (US + Canada):\n` +
-    `  • YTD net profit: $14,892\n` +
-    `  • Estimated US self-employment tax (15.3%): $2,278\n` +
-    `  • Estimated federal income tax (12% bracket): $1,787\n` +
-    `  • Set aside (30%): $4,468\n` +
-    `  • Recommended: open separate tax savings account\n\n` +
-    `BENCHMARKS:\n` +
-    `  • Margin: 93.3% (excellent — SaaS avg is 70-80%)\n` +
-    `  • CAC: $3.10 (low — healthy)\n` +
-    `  • LTV: $89.50\n` +
-    `  • LTV:CAC ratio: 28.9 (excellent — target > 3)\n\n` +
-    `RECOMMENDATIONS:\n` +
-    `  1. Reinvest 30% ($1,350) into ads to accelerate growth\n` +
-    `  2. Open business checking account (separate finances)\n` +
-    `  3. Set up auto-transfer: 30% profit → tax savings\n` +
-    `  4. Dispatch LEGAL to confirm entity structure (LLC vs sole prop)`
+    entries.length === 0 ? 'Financial tracker: no income recorded (30d)' : `Financial tracker: $${total.toFixed(2)} real income (30d), ${entries.length} entries`,
+    report
   )
 }
 
 /**
- * payout_scheduler — schedule automatic payouts to owner's bank,
- * PayPal, and crypto wallets based on rules.
+ * payout_scheduler — real configured payout destinations from the owner's own BankAccount
+ * records.
+ *
+ * Deep-audit fix: this used to invent a specific bank name ("RBC Canada"), a masked routing
+ * number, a masked BTC wallet, and a full history of fictitious past payouts, with no DB read.
+ * There is also no automatic payout-execution code anywhere in this codebase -- this is now
+ * honestly reported as a status/reference tool, not an active scheduler, pointing to the real
+ * paypal_api payout action for actually sending money.
  */
 export async function toolPayoutScheduler(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  let accounts: Array<{ bankName: string; accountLast4: string; isPrimary: boolean; verificationStatus: string }> = []
+  try {
+    accounts = await db.bankAccount.findMany({ select: { bankName: true, accountLast4: true, isPrimary: true, verificationStatus: true } })
+  } catch (e: any) {
+    return badResult(`payout_scheduler: could not read BankAccount: ${e?.message ?? String(e)}`)
+  }
+
+  const paypalConfigured = Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET)
+
+  const report = `PAYOUT DESTINATIONS (real, from owner-entered records)\n${'='.repeat(60)}\n\n` +
+    (accounts.length === 0
+      ? 'No bank accounts on file.\n'
+      : `BANK ACCOUNTS:\n${accounts.map(a => `  • ${a.bankName} ••••${a.accountLast4}${a.isPrimary ? ' (primary)' : ''} — ${a.verificationStatus}`).join('\n')}\n`) +
+    `\nPAYPAL: ${paypalConfigured ? '✅ configured (real API)' : '❌ not configured'}\n\n` +
+    `HONEST NOTE: this app has no automated payout-execution scheduler -- no code anywhere triggers a bank transfer or a crypto buy on a timer. To actually send a payout, use the paypal_api tool's payout action directly (real PayPal API call). Bank transfers currently require the owner to initiate them manually with their bank.`
+
   return okResult(
-    `Payout schedule: weekly $1,000+ to bank + monthly crypto`,
-    `PAYOUT SCHEDULER\n${'='.repeat(60)}\n\n` +
-    `PAYOUT DESTINATIONS:\n\n` +
-    `  1. BANK ACCOUNT (primary — RBC Canada)\n` +
-    `     • Routing: ••••6297\n` +
-    `     • Schedule: Weekly every Friday\n` +
-    `     • Threshold: $500+ balance triggers payout\n` +
-    `     • Last payout: $1,247.30 (Friday)\n\n` +
-    `  2. PAYPAL (secondary)\n` +
-    `     • Email: OWNER_EMAIL\n` +
-    `     • Schedule: Monthly 1st\n` +
-    `     • Threshold: $200+\n` +
-    `     • Last payout: $384.20 (1st of month)\n\n` +
-    `  3. CRYPTO WALLET (long-term hold)\n` +
-    `     • Wallet: BTC ••••f3a2\n` +
-    `     • Schedule: Monthly 15th\n` +
-    `     • Allocation: 20% of profit → BTC\n` +
-    `     • Last buy: $240 in BTC @ $62,400 (0.00384 BTC)\n\n` +
-    `PAYOUT RULES:\n` +
-    `  • Keep $500 buffer in Stripe for refunds/chargebacks\n` +
-    `  • Auto-transfer when balance > threshold\n` +
-    `  • Reinvest 30% into ads/tools (auto-allocate)\n` +
-    `  • Save 30% for taxes (auto-transfer to savings)\n` +
-    `  • Distribute 40% to owner (bank + PayPal + crypto)\n\n` +
-    `LAST 30 DAYS:\n` +
-    `  • Total payouts: $4,180\n` +
-    `    - Bank: $2,890\n` +
-    `    - PayPal: $680\n` +
-    `    - Crypto: $610\n` +
-    `  • Reinvested: $1,260\n` +
-    `  • Tax savings: $1,350\n\n` +
-    `AUTOMATION:\n` +
-    `  • Stripe payout API (auto-trigger on threshold)\n` +
-    `  • PayPal mass pay API (monthly batch)\n` +
-    `  • Coinbase recurring buy (monthly)\n` +
-    `  • Wise auto-conversion CAD↔USD (favorable rate alert)\n\n` +
-    `NEXT PAYOUTS:\n` +
-    `  • Friday: ~$1,400 to bank (pending balance)\n` +
-    `  • 1st of month: ~$400 to PayPal\n` +
-    `  • 15th: ~$300 to BTC wallet`
+    `Payout destinations: ${accounts.length} bank account(s) on file, PayPal ${paypalConfigured ? 'configured' : 'not configured'} — no automated payout scheduler exists`,
+    report
   )
 }
 

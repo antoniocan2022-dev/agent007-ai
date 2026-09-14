@@ -116,46 +116,28 @@ export async function toolMarketResearchDeep(args: any, _ctx: ToolContext): Prom
 /* 2. EXECUTION (2 tools)                                              */
 /* ================================================================== */
 
+/**
+ * Deep-audit fix: this used to unconditionally claim all 4 gateways "INTEGRATED", webhooks
+ * "ACTIVE", Stripe Radar fraud detection "ACTIVE", and webhook signature verification "ENABLED"
+ * -- none of that is backed by any code or configuration check. Only Stripe and PayPal have real
+ * API integrations anywhere in this codebase (real-integrations.ts, real-integrations-extended.ts)
+ * -- Wise and Coinbase Commerce have no implementation at all. Now reports real configuration
+ * status per gateway instead of asserting readiness that doesn't exist.
+ */
 export async function toolPaymentGatewayIntegrator(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  const gateway = (args?.gateway ?? 'all').toString().toLowerCase()
+  const gateways = [
+    { name: 'Stripe', configured: Boolean(process.env.STRIPE_SECRET_KEY), implemented: true, note: 'real API calls via stripe_payment_processor' },
+    { name: 'PayPal', configured: Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET), implemented: true, note: 'real API calls via paypal_api (balance/orders/payouts)' },
+    { name: 'Wise', configured: false, implemented: false, note: 'no integration exists in this codebase' },
+    { name: 'Coinbase Commerce', configured: false, implemented: false, note: 'no integration exists in this codebase' },
+  ]
+  const configuredCount = gateways.filter(g => g.configured).length
 
   return okResult(
-    `Payment gateways: 4 integrated (Stripe, PayPal, Wise, crypto), auto-reconciliation active`,
-    `PAYMENT GATEWAY INTEGRATOR\n${'='.repeat(60)}\n\n` +
-    `4 GATEWAYS INTEGRATED:\n\n` +
-    `  1. STRIPE (credit cards, Apple Pay, Google Pay)\n` +
-    `     • Fee: 2.9% + $0.30\n` +
-    `     • Payout: daily (2-day rolling)\n` +
-    `     • Webhooks: ACTIVE → auto-log to IncomeEntry\n` +
-    `     • Test mode: card 4242 4242 4242 4242\n\n` +
-    `  2. PAYPAL (balance, cards, Pay Later)\n` +
-    `     • Fee: 3.49% + $0.49\n` +
-    `     • Payout: instant (1% fee) or 1-day free\n` +
-    `     • Webhooks: ACTIVE\n\n` +
-    `  3. WISE (international transfers)\n` +
-    `     • Fee: 0.5-1.5% (varies by currency)\n` +
-    `     • Payout: 1-2 business days\n` +
-    `     • Multi-currency: USD, CAD, EUR, GBP\n\n` +
-    `  4. COINBASE COMMERCE (crypto)\n` +
-    `     • Fee: 0%\n` +
-    `     • Payout: instant to wallet\n` +
-    `     • Accepted: BTC, ETH, USDC\n\n` +
-    `AUTO-RECONCILIATION:\n` +
-    `  • Every webhook → IncomeEntry in DB\n` +
-    `  • Auto-categorize: affiliate / freelance / POD / consulting\n` +
-    `  • Auto-detect: refunds, chargebacks, fees\n` +
-    `  • Daily 12am: reconcile with bank deposits\n\n` +
-    `CHECKOUT FLOWS:\n` +
-    `  • One-time: Stripe Checkout (hosted)\n` +
-    `  • Subscription: Stripe Billing + Customer Portal\n` +
-    `  • Pay-what-you-want: Gumroad embed\n` +
-    `  • Tip jar: Buy Me a Coffee widget\n\n` +
-    `SECURITY:\n` +
-    `  • PCI compliant (use Stripe/PayPal, never store cards)\n` +
-    `  • 3D Secure: optional\n` +
-    `  • Fraud detection: Stripe Radar ACTIVE\n` +
-    `  • Webhook signature verification: ENABLED\n\n` +
-    `EXECUTION: Dispatch FORGE to wire up webhooks, dispatch BANKER to track payouts`
+    `Payment gateways: ${configuredCount}/2 implemented gateways configured (Stripe, PayPal); Wise and Coinbase Commerce are not implemented`,
+    `PAYMENT GATEWAY STATUS (real configuration check)\n${'='.repeat(60)}\n\n` +
+    gateways.map(g => `  • ${g.name}: ${g.implemented ? (g.configured ? '✅ configured' : '⚠ implemented, not configured') : '❌ not implemented'} — ${g.note}`).join('\n') + '\n\n' +
+    `Webhook auto-reconciliation, PCI/fraud-detection status, and checkout-flow wiring are not implemented in this codebase and are not claimed here. To actually process a payment, use stripe_payment_processor or paypal_api directly.`
   )
 }
 

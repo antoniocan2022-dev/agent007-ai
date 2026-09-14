@@ -2476,7 +2476,7 @@ import {
 } from './ai-search-engines'
 
 // Google AI Search — robust, broad, AI-integrated
-TOOL_REGISTRY.google_ai_search = { fn: toolGoogleAiSearch, icon: 'search', label: 'Google AI Search (AI Overview, broadest index, multimodal)' }
+TOOL_REGISTRY.google_ai_search = { fn: toolGoogleAiSearch, icon: 'search', label: 'Google Search (real Custom Search API when configured, honest delegate otherwise)' }
 // Perplexity AI Search — cited sources, real-time
 TOOL_REGISTRY.perplexity_ai_search = { fn: toolPerplexityAiSearch, icon: 'search-check', label: 'Perplexity AI Search (cited sources, focus modes, real-time)' }
 // Microsoft Copilot Search — productivity-focused, GPT-4 powered
@@ -2569,6 +2569,7 @@ import {
   toolHFInference, toolPollinationsImage, toolCraiyonImage, toolStabilityImage,
   toolElevenLabsTTS, toolDeepLTranslate, toolRemoveBg,
   toolSummarizeTech, toolYahooFinance, toolCoinGecko,
+  toolFinnhubQuote,
 } from './ai-providers-integration'
 // LLM Providers (7)
 TOOL_REGISTRY.cerebras_llm = { fn: toolCerebrasLLM, icon: 'cpu', label: 'Cerebras LLM (Llama 3.1 — fastest inference, 2600 tok/s)' }
@@ -2583,6 +2584,7 @@ TOOL_REGISTRY.tavily_search = { fn: toolTavilySearch, icon: 'search', label: 'Ta
 TOOL_REGISTRY.serpapi = { fn: toolSerpAPI, icon: 'search', label: 'SerpAPI (Google results as structured data, 100/month free)' }
 TOOL_REGISTRY.newsapi = { fn: toolNewsAPI, icon: 'newspaper', label: 'NewsAPI (80,000+ news sources, 100 req/day free)' }
 TOOL_REGISTRY.alpha_vantage = { fn: toolAlphaVantage, icon: 'trending-up', label: 'Alpha Vantage (stocks, forex, crypto data, 25 req/day free)' }
+TOOL_REGISTRY.finnhub_quote = { fn: toolFinnhubQuote, icon: 'trending-up', label: 'Finnhub Quote (real-time-ish stock quotes, far more generous free tier than Alpha Vantage)' }
 TOOL_REGISTRY.fred_economic = { fn: toolFREDEconomic, icon: 'bar-chart', label: 'FRED Economic Data (Federal Reserve, unlimited free)' }
 TOOL_REGISTRY.jina_reader = { fn: toolJinaReader, icon: 'book-open', label: 'Jina AI Reader (read ANY URL as clean markdown, free)' }
 TOOL_REGISTRY.exa_search = { fn: toolExaSearch, icon: 'search', label: 'Exa AI (neural search, find similar content, 1000/month free)' }
