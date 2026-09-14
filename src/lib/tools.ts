@@ -1486,10 +1486,6 @@ import {
   toolAdvancedBilling, toolDunningManagement, toolMultiCurrency, toolFraudPrevention,
   toolAdvancedChatbot, toolProactiveSupport, toolMarketIntelligence, toolStrategicPlanning,
   toolResourceAllocation, toolRiskManagementSystems, toolPredictiveAnalyticsV2, toolAdvancedReporting,
-  // Self-Repair (10)
-  toolSystemHealthCheck, toolDatabaseIntegrityCheck, toolApiEndpointTest, toolToolRegistryAudit,
-  toolCacheClear, toolSessionRecovery, toolErrorLogAnalyzer, toolAutoFixCommonIssues,
-  toolBackupCreate, toolRestoreFromBackup,
   // Autonomous Resolution (12)
   toolIssueDetector, toolRootCauseAnalyzer, toolPatchDesigner, toolPatchApplier,
   toolFixVerifier, toolLearningRecorder, toolAutonomousResolver, toolLogTailer,
@@ -1509,6 +1505,17 @@ import {
   // Sub-agent + Phase 3 maps
   SUBAGENT_TOOLS, PHASE3_TOOLS,
 } from './agent007-extensions'
+
+// Deep-audit fix: these 10 self-repair tools used to be imported from agent007-extensions.ts,
+// whose versions are LLM-prompt-driven narrations (ask a model to describe a one-line data
+// summary) rather than real checks. self-repair.ts's versions run actual, deterministic
+// diagnostics against the real database/filesystem/tool registry; they were fully unreachable
+// before this fix (registered under identical names, but this import shadowed them).
+import {
+  toolSystemHealthCheck, toolDatabaseIntegrityCheck, toolApiEndpointTest, toolToolRegistryAudit,
+  toolCacheClear, toolSessionRecovery, toolErrorLogAnalyzer, toolAutoFixCommonIssues,
+  toolBackupCreate, toolRestoreFromBackup,
+} from './self-repair'
 
 
 TOOL_REGISTRY.service_delivery = { fn: toolServiceDelivery, icon: 'package', label: 'Service Delivery Framework' }
@@ -2806,6 +2813,13 @@ TOOL_REGISTRY.accuracy_benchmark = { fn: toolAccuracyBenchmark, icon: 'target', 
 TOOL_REGISTRY.tool_usage_analytics = { fn: toolUsageAnalytics, icon: 'bar-chart', label: 'Tool Usage Analytics (calls, success rates, response times)' }
 TOOL_REGISTRY.integration_test_suite = { fn: toolIntegrationTestSuite, icon: 'check-circle', label: 'Integration Test Suite (multi-tool scenarios)' }
 TOOL_REGISTRY.self_healing_tools = { fn: toolSelfHealingTools, icon: 'wrench', label: 'Self-Healing Tools (auto-detect missing keys, suggest alternates)' }
+
+// Deep-audit fix: self-healing-engine.ts's dispatchWithHealing() had zero callers anywhere in the
+// codebase (its own header claimed an autonomous "Leader fails → Retry → Fallback → Log → Learn"
+// flow, but nothing ever triggered it). It's now wired into mission-supervisor.ts's autonomous
+// leader-dispatch path directly; this registration additionally exposes it as an on-demand tool.
+import { toolHealLeaderDispatch } from './self-healing-engine'
+TOOL_REGISTRY.heal_leader_dispatch = { fn: toolHealLeaderDispatch, icon: 'heart-pulse', label: 'Heal Leader Dispatch (retry a failing leader with a same-purpose fallback, then a direct LLM call)' }
 
 /* ═══ UPGRADE #93 — TOOL SELF-REPAIR ENGINE (10 new tools) ═══ */
 import {

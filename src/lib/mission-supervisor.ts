@@ -8,6 +8,7 @@ import { assessMissionCapabilityReadiness, capabilityRequirementForStage } from 
 import { getAllGovernanceProfiles, getSubagentGovernanceProfile } from './subagent-governance'
 import { appendMissionControlEvent, markMissionProgress } from './active-missions'
 import type { ActiveMission, MissionControlEventType, MissionStage } from './active-missions'
+import { dispatchWithHealing } from './self-healing-engine'
 
 const DEFAULTS = { staleMinutes: 30, maxMissions: 5, maxLeaderRuns: 2 }
 export const FAILURE_THRESHOLDS = { retryAt: 1, replanAt: 2, escalateAt: 3 } as const
@@ -170,11 +171,23 @@ async function runLeader(mission: ActiveMission, leaderId: string, leaderName: s
     const result = await runCeoCognitiveLifecycle({ missionId: mission.id, contextualEvidence: `Mission ${mission.id}\nOwner ${mission.ownerId ?? 'unknown'}\nStage ${mission.currentStage}\nTitle ${mission.title}\nDescription ${mission.description}`, verification: 'enhanced', messages: [{ role: 'system', content: 'You supervise an autonomous mission. Never invent artifacts, deployment, approval, or outcomes.' }, { role: 'user', content: leaderTask(mission, leaderId, leaderName, requiredTaskType) }], timeoutMs: 50_000 })
     return result.content
   }
-  const { getAllSubagents, runSubagent } = await getSubagentsModule()
+  const { getAllSubagents } = await getSubagentsModule()
   const subagent = (await getAllSubagents({ includeDisabled: false })).find((candidate) => candidate.id === leaderId)
   if (!subagent) throw new Error(`No enabled subagent found for '${leaderId}'.`)
-  const result = await runSubagent({ subagentId: subagent.id, task: leaderTask(mission, leaderId, leaderName, requiredTaskType), dispatchId: `mission_supervisor_${mission.id}_${Date.now()}`, attachments: [], language: 'en', emit: async () => {}, parentConversationId: `mission_${mission.id}` })
-  return result.answer || ''
+  // Deep-audit fix: dispatch through self-healing-engine.ts's dispatchWithHealing() instead of
+  // calling runSubagent() directly, so a transient single-leader failure is retried with a
+  // same-purpose fallback leader (and, as an absolute last resort, a direct LLM call) within this
+  // one dispatch, before it ever reaches mission-supervisor's own cross-heartbeat RETRY/REPLAN/
+  // ESCALATE policy below. Bounded tighter than the tool's own defaults (2 attempts, 45s each)
+  // to stay inside this cycle's overall execution budget. A genuinely complete failure (every
+  // leader and the LLM fallback all fail) still throws here, so ESCALATE/REPLAN still fires.
+  const healed = await dispatchWithHealing(leaderId, leaderTask(mission, leaderId, leaderName, requiredTaskType), {
+    maxRetries: 2,
+    timeoutMs: 45_000,
+    parentConversationId: `mission_${mission.id}`,
+  })
+  if (healed.status === 'failed') throw new Error(`Leader dispatch failed after self-healing (${healed.leadersTried.join(' → ')}): ${healed.errors.join(' | ')}`)
+  return healed.result.answer || ''
 }
 
 export async function inspectMission(mission: ActiveMission, options?: { staleMinutes?: number }): Promise<MissionSupervisorDecision> {
