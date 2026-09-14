@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import { db } from '@/lib/db'
 import { SEED_EMAIL, getOwnerBootstrapPassword } from '@/lib/owner-config'
+import { isUserApproved } from '@/lib/user-approval'
 
 export { SEED_EMAIL }
 
@@ -229,6 +230,13 @@ export const authOptions: NextAuthOptions = {
           const proofExpiresAt = Number(credentials?.twofaProofExpiresAt?.toString() ?? '')
           if (!verifyTwoFactorLoginProof(user.id, proof, proofExpiresAt)) return null
         }
+
+        // Deep-audit fix: this callback never checked isUserApproved() -- user-approval.ts's own
+        // documentation claims "New users CANNOT log in until approved", but nothing enforced it,
+        // so any self-registered account could sign in immediately with zero owner involvement.
+        // isUserApproved() already returns true unconditionally for the owner, so this only ever
+        // blocks a genuinely non-owner, non-approved account.
+        if (!(await isUserApproved(user.email))) return null
 
         return { id: user.id, email: user.email, name: user.name ?? user.email }
       },

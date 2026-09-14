@@ -21,9 +21,13 @@
  *        - Email link click
  *        - WhatsApp link click
  *        - SMS link click
- *        - Dashboard → Users panel
- *        - <manage action="approve_user" user_id="..."/>
- *        - <manage action="reject_user" user_id="..."/>
+ *        - PATCH /api/users/:id with { action: 'approve' | 'reject' } (owner session required)
+ *
+ *   Deep-audit fix: this header used to also claim a "Dashboard → Users panel" and
+ *   `<manage action="approve_user"/>` / `<manage action="reject_user"/>` as approval channels.
+ *   Neither existed anywhere in the codebase (no orchestrator manage-action handler, no frontend
+ *   page ever called /api/users) -- pure aspirational documentation for a capability that was
+ *   never built. The PATCH action above is the real, now-implemented equivalent.
  */
 
 import { db } from './db'
@@ -160,6 +164,34 @@ Link expires in 24 hours. — Agent007 AI`
 }
 
 /**
+ * Mark a user account approved. Shared by the token-link flow (processApproval) and the
+ * owner-session flow (PATCH /api/users/:id, now that route is owner-gated -- see deep-audit
+ * fix comment in owner-request-auth.ts for the same "any session != owner" class of bug).
+ */
+export async function approveUserById(userId: string): Promise<void> {
+  try {
+    await db.userSetting.create({
+      data: {
+        userId,
+        key: 'approved',
+        value: JSON.stringify({ approved: true, approvedAt: new Date().toISOString(), approvedBy: OWNER_EMAIL }),
+      },
+    })
+  } catch {
+    // Already exists — update
+    await db.userSetting.updateMany({
+      where: { userId, key: 'approved' },
+      data: { value: JSON.stringify({ approved: true, approvedAt: new Date().toISOString(), approvedBy: OWNER_EMAIL }) },
+    }).catch(() => {})
+  }
+}
+
+/** Reject (delete) a pending user account. Shared by the token-link and owner-session flows. */
+export async function rejectUserById(userId: string): Promise<void> {
+  await db.user.delete({ where: { id: userId } }).catch(() => {})
+}
+
+/**
  * Verify an approval token + approve/reject the user.
  * Called by /api/auth/approve when the owner clicks the link.
  */
@@ -197,42 +229,16 @@ export async function processApproval(opts: {
     if (!newUserId) return { ok: false, message: 'Invalid token data (no userId)' }
 
     if (action === 'approve') {
-      // Mark the user as approved
-      try {
-        await db.userSetting.create({
-          data: {
-            userId: newUserId,
-            key: 'approved',
-            value: JSON.stringify({ approved: true, approvedAt: new Date().toISOString(), approvedBy: OWNER_EMAIL }),
-          },
-        })
-      } catch {
-        // Already exists — update
-        try {
-          await db.userSetting.updateMany({
-            where: { userId: newUserId, key: 'approved' },
-            data: { value: JSON.stringify({ approved: true, approvedAt: new Date().toISOString(), approvedBy: OWNER_EMAIL }) },
-          })
-        } catch {}
-      }
-
-      // Clean up the token
+      await approveUserById(newUserId)
       try { await db.userSetting.delete({ where: { id: tokenRow.id } }) } catch {}
-
       return {
         ok: true,
         message: `✅ User ${newUserEmail} has been APPROVED. They can now log in.`,
         userEmail: newUserEmail,
       }
     } else {
-      // REJECT: delete the user account
-      try {
-        await db.user.delete({ where: { id: newUserId } })
-      } catch {}
-
-      // Clean up the token
+      await rejectUserById(newUserId)
       try { await db.userSetting.delete({ where: { id: tokenRow.id } }) } catch {}
-
       return {
         ok: true,
         message: `❌ User ${newUserEmail} has been REJECTED. Their account has been deleted.`,

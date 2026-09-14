@@ -8,8 +8,9 @@ export const dynamic = 'force-dynamic'
  * POST /api/auth/register
  * Body: { email, password, name? }
  *
- * Creates a new user account. After registration, the client should call
- * signIn('credentials', { email, password }) to authenticate.
+ * Creates a new user account. Unless this is the owner's own account (SEED_EMAIL), the account
+ * requires explicit owner approval (see user-approval.ts) before signIn('credentials', ...) will
+ * succeed -- registerUser() sends the owner an approval request as part of this call.
  */
 export async function POST(req: NextRequest) {
   let body: any
@@ -37,6 +38,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     user: result.user,
-    message: 'Account created. You can now sign in.',
+    pendingApproval: result.pendingApproval ?? false,
+    message: result.pendingApproval
+      ? 'Account created. The owner has been notified and must approve this account before you can sign in.'
+      : 'Account created. You can now sign in.',
   })
 }
