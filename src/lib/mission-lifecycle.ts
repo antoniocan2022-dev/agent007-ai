@@ -191,9 +191,34 @@ export async function toolMultiAgentCoordinator(args: { task?: string }, _ctx: T
     `MULTI-AGENT COORDINATION SYSTEM\n═══════════════════════════════════\nTask: ${args.task || 'income generation mission'}\n\nCOORDINATION PROTOCOL:\n- Central intelligence hub: ACTIVE\n- Real-time task distribution: ENABLED\n- Priority management: AUTOMATED\n- Resource allocation: OPTIMIZED\n\nAGENT ASSIGNMENTS:\n1. SCOUT → Market research + trend identification\n2. AURORA → Content strategy + affiliate funnels\n3. VERTEX → SaaS product architecture\n4. QUANTUM → Investment portfolio optimization\n5. HUNT → Freelance opportunity scanning\n6. FORGE → Code + automation building\n7. QUILL → Content creation\n8. PRISM → Visual assets\n9. PULSE → KPI tracking + analytics\n10. ECHO → Performance optimization\n11. LEGAL → Compliance + tax strategy\n12. BANKER → Banking + treasury\n\nEXPECTED EFFICIENCY GAIN: +40%\nEXPECTED INCOME IMPACT: +$8,000/month`)
 }
 
+/**
+ * Deep-audit fix: this used to unconditionally claim 10 API integrations "✅" -- including Plaid,
+ * which has zero implementation anywhere in this codebase (no client, no API call, ever) -- plus
+ * a fabricated "$5,300/month revenue impact" figure with no data source. Now reports which
+ * integrations actually have real code behind them (grep-verifiable: Stripe and PayPal in
+ * real-integrations.ts/real-integrations-extended.ts) versus which don't exist at all, and drops
+ * the invented revenue figure entirely.
+ */
 export async function toolAPIIntegrationManager(args: { service?: string }, _ctx: ToolContext): Promise<ToolResult> {
-  return ok('API integrations configured',
-    `API INTEGRATION MANAGER\n═══════════════════════════════════\nService: ${args.service || 'all financial platforms'}\n\nINTEGRATED APIs:\n1. Stripe (payments) ✅\n2. PayPal (payments) ✅\n3. Plaid (banking) ✅\n4. Coinbase (crypto) ✅\n5. Alpaca (stocks) ✅\n6. Amazon Associates (affiliate) ✅\n7. ClickBank (digital products) ✅\n8. Shopify (e-commerce) ✅\n9. Mailchimp (email) ✅\n10. HubSpot (CRM) ✅\n\nAUTOMATION:\n- Real-time sync: ENABLED\n- Error handling: AUTOMATED\n- Rate limiting: MANAGED\n- Webhook events: PROCESSED\n\nREVENUE IMPACT:\n- Direct sales: +$3,000/month\n- Affiliate commissions: +$1,500/month\n- Crypto trading: +$800/month\n- Total: +$5,300/month`)
+  const integrations: Array<{ name: string; implemented: boolean; configured: boolean }> = [
+    { name: 'Stripe (payments)', implemented: true, configured: Boolean(process.env.STRIPE_SECRET_KEY) },
+    { name: 'PayPal (payments)', implemented: true, configured: Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) },
+    { name: 'Plaid (banking)', implemented: false, configured: false },
+    { name: 'Coinbase (crypto)', implemented: false, configured: false },
+    { name: 'Alpaca (stocks)', implemented: false, configured: false },
+    { name: 'Amazon Associates (affiliate)', implemented: false, configured: false },
+    { name: 'ClickBank (digital products)', implemented: false, configured: false },
+    { name: 'Shopify (e-commerce)', implemented: false, configured: false },
+    { name: 'Mailchimp (email)', implemented: false, configured: false },
+    { name: 'HubSpot (CRM)', implemented: false, configured: false },
+  ]
+  const implementedCount = integrations.filter(i => i.implemented).length
+  const configuredCount = integrations.filter(i => i.configured).length
+
+  return ok(`API integrations: ${implementedCount}/${integrations.length} implemented (${configuredCount} configured), ${integrations.length - implementedCount} not implemented`,
+    `API INTEGRATION MANAGER (real status)\n═══════════════════════════════════\nService: ${args.service || 'all financial platforms'}\n\n` +
+    integrations.map(i => `${i.implemented ? (i.configured ? '✅' : '⚠ implemented, not configured') : '❌ not implemented'} ${i.name}`).join('\n') + '\n\n' +
+    `Only Stripe and PayPal have real API integration code in this app. The other 8 listed above -- including Plaid, which this app has no live banking connection to at all -- are not implemented. No revenue-impact figure is reported here since none of these integrations produce measurable revenue data.`)
 }
 
 export async function toolPredictiveMLModel(args: { model_type?: string }, _ctx: ToolContext): Promise<ToolResult> {

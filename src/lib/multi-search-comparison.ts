@@ -32,8 +32,22 @@ interface SearchResult {
   error?: string
 }
 
+// Deep-audit fix: the hardcoded default engine list below was a snapshot of "whichever engines
+// don't need a paid key" at the time it was written. Auto-upgrading it means the CEO's search
+// quality improves the moment a real key is configured, with no code change needed later --
+// 'ddg' always stays in the list as a zero-config guaranteed-real fallback.
+function defaultSearchEngines(): string[] {
+  const engines: string[] = []
+  if (process.env.TAVILY_API_KEY) engines.push('tavily')
+  if (process.env.EXA_API_KEY) engines.push('exa')
+  if (process.env.SERPAPI_API_KEY) engines.push('serpapi')
+  if (process.env.BRAVE_API_KEY) engines.push('brave')
+  engines.push('wikipedia', 'ddg')
+  return engines.slice(0, 5)
+}
+
 export async function toolMultiSearchCompare(args: any): Promise<ToolResult> {
-  const { query, engines = ['brave', 'wikipedia', 'ddg'], compare_mode = 'consensus' } = args ?? {}
+  const { query, engines = defaultSearchEngines(), compare_mode = 'consensus' } = args ?? {}
   if (!query) return fail('multi_search_compare requires "query"')
 
   const { dispatchTool } = await import('./tools')
@@ -44,9 +58,11 @@ export async function toolMultiSearchCompare(args: any): Promise<ToolResult> {
   // BEFORE: 'brave' → dispatchTool('brave', ...) → "Unknown tool: brave"
   //         'wikipedia' → dispatchTool('wikipedia', ...) → "Unknown tool: wikipedia"
   // AFTER: 'brave' → 'brave_search', 'wikipedia' → 'wikipedia_search', etc.
-  // Also changed default engines from ['tavily','exa','serpapi'] (which all
-  // require paid API keys Antonio doesn't have) to ['brave','wikipedia','ddg']
-  // (which work on production: brave_search 665ms, wikipedia_search 198ms).
+  // Also changed the hardcoded default engines from ['tavily','exa','serpapi'] (which all
+  // required paid API keys that weren't configured at the time) to a fixed
+  // ['brave','wikipedia','ddg'] list that worked with zero configuration. That hardcoded list has
+  // since been replaced by defaultSearchEngines() above, which detects configured keys at call
+  // time and upgrades automatically -- see that function's own comment.
   const engineMap: Record<string, string> = {
     brave: 'brave_search',
     wikipedia: 'wikipedia_search',

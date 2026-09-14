@@ -10,12 +10,49 @@ export interface EnterpriseCapability { id: CapabilityDomain; description: strin
 const capability = (domain: CapabilityDomain, id: string, description: string, tools: ToolDescriptor[] = []): CapabilityDescriptor => ({ id, domain, description, services: [{ id: `${id}.service`, description: `${description} service`, tools }] })
 const tool = (id: string, description: string, reliability = 0.8, freshness = 0.8, latencyMs = 5000, cost = 0, risk = 0.2, permissions: string[] = []): ToolDescriptor => ({ id, description, reliability, freshness, latencyMs, cost, risk, permissions, functions: [{ id: `${id}.execute`, description }] })
 
+// Deep-audit fix: this catalog was designed to cover the whole tool registry (it has fields for
+// permissions/risk/cost/reliability on every entry, and an enterprise-capability taxonomy
+// spanning finance, commerce, email, cloud, security) but every domain except research/
+// market_intelligence had an empty tools array -- so selectCeoTool() (ceo-tool-selection.ts)
+// could structurally never choose anything but web_search/page_reader, no matter the task.
+// Populated with the tools this codebase's own web/finance audits confirmed are genuinely real
+// (live network calls, honest credential-gated failure, never fabricated data) -- not the tools
+// that were found to fabricate results (the pre-fix ai-search-engines.ts family, the fabricated
+// payment/payout/banking tool cluster). Reliability/freshness/cost/risk are deliberately
+// conservative estimates, not measured telemetry -- selectCeoTool blends them with observed
+// reliability from actual usage, so a wrong guess here self-corrects over time rather than
+// permanently mis-ranking a tool.
 export const CEO_CAPABILITY_ARCHITECTURE: readonly EnterpriseCapability[] = Object.freeze([
-  { id: 'research', description: 'General external and internal research', capabilities: [capability('research', 'research.general', 'Research and source acquisition', [tool('web_search', 'Search external sources', 0.82, 0.95, 6500), tool('page_reader', 'Read an identified source', 0.9, 0.92, 5000)])] },
-  { id: 'finance', description: 'Financial analysis and internal finance operations', capabilities: [capability('finance', 'finance.analysis', 'Analyze financial information')] },
-  { id: 'market_intelligence', description: 'Market, competitor and industry intelligence', capabilities: [capability('market_intelligence', 'market.competitive', 'Competitive and market intelligence', [tool('web_search', 'Acquire current market intelligence', 0.82, 0.95, 6500)])] },
+  { id: 'research', description: 'General external and internal research', capabilities: [capability('research', 'research.general', 'Research and source acquisition', [
+    tool('web_search', 'Search external sources (always available, no key required)', 0.82, 0.95, 6500),
+    tool('page_reader', 'Read an identified source', 0.9, 0.92, 5000),
+    tool('tavily_search', 'AI-optimized search with cited results (credential-gated)', 0.88, 0.95, 4000, 0, 0.15),
+    tool('exa_search', 'Neural/semantic search, finds conceptually similar content (credential-gated)', 0.85, 0.9, 4500, 0, 0.15),
+    tool('serpapi', 'Structured Google results (credential-gated)', 0.85, 0.93, 4000, 0, 0.15),
+    tool('perplexity_ai_search', 'Cited, real-time synthesized answer (credential-gated, honestly delegates to a real search engine otherwise)', 0.8, 0.93, 6000, 0, 0.15),
+    tool('jina_reader', 'Read any URL as clean markdown (free, no key required)', 0.8, 0.88, 5000),
+    tool('kb_search', 'Search the owner\'s ingested knowledge base (documents, transcripts)', 0.85, 0.7, 3000),
+    tool('multi_search_compare', 'Cross-verify a query across multiple real engines at once, detect disagreement', 0.85, 0.93, 12000, 0, 0.15),
+  ])] },
+  { id: 'finance', description: 'Financial analysis and internal finance operations', capabilities: [capability('finance', 'finance.analysis', 'Analyze financial information', [
+    tool('yahoo_finance', 'Live stock/ETF/index quotes (free, no key required)', 0.85, 0.95, 3000),
+    tool('coingecko', 'Live crypto prices and market data (free, no key required)', 0.85, 0.95, 3000),
+    tool('finnhub_quote', 'Real-time-ish stock quotes, generous free tier (credential-gated)', 0.85, 0.95, 3000, 0, 0.15),
+    tool('alpha_vantage', 'Stock/forex/crypto quotes, thin free tier (credential-gated)', 0.8, 0.9, 4000, 0, 0.15),
+    tool('fred_economic', 'Official US Federal Reserve macroeconomic data series (credential-gated, unlimited free)', 0.9, 0.85, 4000, 0, 0.1),
+    tool('financial_tracker', 'Real income/expense summary from this venture\'s own recorded transactions', 0.9, 0.8, 3000),
+    tool('payment_processor', 'Real status of configured payment gateways and recorded transaction volume', 0.9, 0.85, 3000),
+  ])] },
+  { id: 'market_intelligence', description: 'Market, competitor and industry intelligence', capabilities: [capability('market_intelligence', 'market.competitive', 'Competitive and market intelligence', [
+    tool('web_search', 'Acquire current market intelligence', 0.82, 0.95, 6500),
+    tool('newsapi', 'Real-time news search across 80,000+ sources (credential-gated)', 0.82, 0.95, 4000, 0, 0.15),
+    tool('tavily_search', 'AI-optimized search with cited results (credential-gated)', 0.88, 0.95, 4000, 0, 0.15),
+  ])] },
   { id: 'communication', description: 'Communications and external messaging', capabilities: [capability('communication', 'communication.messaging', 'Create and send governed communications')] },
-  { id: 'commerce', description: 'Commerce, orders and transactions', capabilities: [capability('commerce', 'commerce.execution', 'Governed commerce operations')] },
+  { id: 'commerce', description: 'Commerce, orders and transactions', capabilities: [capability('commerce', 'commerce.execution', 'Governed commerce operations', [
+    tool('stripe_payment_processor', 'Real Stripe payment intents (credential-gated)', 0.85, 0.9, 5000, 0, 0.4),
+    tool('paypal_api', 'Real PayPal balance/orders/payouts (credential-gated, defaults to sandbox)', 0.85, 0.9, 5000, 0, 0.4),
+  ])] },
   { id: 'crm', description: 'Customer relationship management', capabilities: [capability('crm', 'crm.relationships', 'Customer and account operations')] },
   { id: 'documents', description: 'Document creation, reading and management', capabilities: [capability('documents', 'documents.management', 'Document workflows')] },
   { id: 'calendar', description: 'Calendar scheduling and commitments', capabilities: [capability('calendar', 'calendar.management', 'Calendar workflows')] },
