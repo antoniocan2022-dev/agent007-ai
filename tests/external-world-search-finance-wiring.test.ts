@@ -162,6 +162,23 @@ describe('external-world search + finance access is maximized and genuinely wire
       expect(autonomyToolsSrc).toContain('RECORDED TRANSACTIONS (real')
     })
 
+    test('payment_processor distinguishes a failed DB check from a confirmed-empty table, instead of conflating them', () => {
+      // Fresh-audit fix: a DB error used to be silently swallowed and the report would print
+      // "No transactions recorded yet" regardless -- indistinguishable from a genuinely empty,
+      // successfully-checked table. Assert the three-way branch exists and is wired to a real
+      // try/catch around the query, not just declared and unused.
+      const fnSrc = autonomyToolsSrc.slice(
+        autonomyToolsSrc.indexOf('export async function toolPaymentProcessor'),
+        autonomyToolsSrc.indexOf('export async function', autonomyToolsSrc.indexOf('export async function toolPaymentProcessor') + 1)
+      )
+      expect(fnSrc).toContain('let transactionQueryFailed = false')
+      expect(fnSrc).toContain('transactionQueryFailed = true')
+      expect(fnSrc).toMatch(/catch\s*\([^)]*\)\s*\{[^}]*transactionQueryFailed = true/)
+      expect(fnSrc).toContain('Could not check')
+      expect(fnSrc).toContain('This is NOT a confirmed zero')
+      expect(fnSrc).toContain("query succeeded; table is genuinely empty")
+    })
+
     test('financial_tracker reads real IncomeEntry rows and reports zero honestly when there are none', () => {
       expect(autonomyToolsSrc).toContain('db.incomeEntry.findMany')
       expect(autonomyToolsSrc).toContain('No income entries recorded')
