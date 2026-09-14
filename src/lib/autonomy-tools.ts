@@ -843,6 +843,8 @@ export async function toolPaymentProcessor(args: any, _ctx: ToolContext): Promis
   ]
 
   let byProvider: Array<{ provider: string; count: number; total: number }> = []
+  let transactionQueryFailed = false
+  let transactionQueryError = ''
   try {
     const rows = await db.transaction.findMany({ where: { createdAt: { gte: since } }, select: { provider: true, amount: true } })
     const grouped = new Map<string, { count: number; total: number }>()
@@ -853,7 +855,15 @@ export async function toolPaymentProcessor(args: any, _ctx: ToolContext): Promis
       grouped.set(row.provider, g)
     }
     byProvider = [...grouped.entries()].map(([provider, g]) => ({ provider, ...g }))
-  } catch { /* Transaction table unreachable -- report configuration status only, no invented volume */ }
+  } catch (e: any) {
+    // Fresh-audit fix: this used to silently swallow the error here and let the report below
+    // print "No transactions recorded yet" regardless -- indistinguishable from a genuinely
+    // empty, successfully-checked table. A DB failure and a confirmed-zero result are different
+    // facts and must be reported differently; conflating them is the same class of overclaiming
+    // this whole fix was meant to remove, just one level more subtle.
+    transactionQueryFailed = true
+    transactionQueryError = e?.message ?? String(e)
+  }
 
   const totalVolume = byProvider.reduce((sum, p) => sum + p.total, 0)
   const totalCount = byProvider.reduce((sum, p) => sum + p.count, 0)
@@ -863,13 +873,15 @@ export async function toolPaymentProcessor(args: any, _ctx: ToolContext): Promis
     `GATEWAY CONFIGURATION (real -- checked against live env vars):\n` +
     gateways.map(g => `  • ${g.name}: ${g.configured ? '✅ configured' : '❌ not configured'}`).join('\n') + '\n\n' +
     `RECORDED TRANSACTIONS (real, from the Transaction table -- populated by actual gateway webhooks; last 30 days):\n` +
-    (totalCount === 0
-      ? '  No transactions recorded yet.\n'
-      : byProvider.map(p => `  • ${p.provider}: ${p.count} transaction(s), $${p.total.toFixed(2)}`).join('\n') + `\n  • TOTAL: ${totalCount} transaction(s), $${totalVolume.toFixed(2)}\n`) +
+    (transactionQueryFailed
+      ? `  ⚠ Could not check -- the Transaction table query failed (${transactionQueryError.slice(0, 200)}). This is NOT a confirmed zero; it means the check itself did not run.\n`
+      : totalCount === 0
+        ? '  No transactions recorded yet (query succeeded; table is genuinely empty for this window).\n'
+        : byProvider.map(p => `  • ${p.provider}: ${p.count} transaction(s), $${p.total.toFixed(2)}`).join('\n') + `\n  • TOTAL: ${totalCount} transaction(s), $${totalVolume.toFixed(2)}\n`) +
     `\nTo process a real payment or check real PayPal balance/orders/payouts, use the stripe_payment_processor or paypal_api tools directly.`
 
   return okResult(
-    `Payment processors: ${configuredCount}/${gateways.length} configured, ${totalCount} real transaction(s) recorded, $${totalVolume.toFixed(2)}`,
+    `Payment processors: ${configuredCount}/${gateways.length} configured, ${transactionQueryFailed ? 'transaction check failed' : `${totalCount} real transaction(s) recorded, $${totalVolume.toFixed(2)}`}`,
     report
   )
 }

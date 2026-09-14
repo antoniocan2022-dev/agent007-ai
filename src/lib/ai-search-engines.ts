@@ -30,20 +30,30 @@
 
 import { ToolResult, ToolContext, okResult, badResult } from './tools'
 
-function needKey(tool: string, envVar: string, url: string): ToolResult {
-  return badResult(`${tool} requires ${envVar}. Get a key at ${url}, then set it in the runtime environment.`)
-}
-
 /**
  * Falls through a preferred list of already-real search tools (each genuinely network-backed;
  * see web-research audit) until one succeeds. Used as the honest fallback for search-engine
  * brands that have no public API of their own to call.
+ *
+ * Fresh-audit fix: each candidate engine already carries its own generous internal timeout (up to
+ * ~43s for web_search's own multi-provider fallback chain), and this function used to try them
+ * fully sequentially with no cap of its own -- worst case a single delegated call could block for
+ * over a minute. Bounded to an overall wall-clock deadline via Promise.race per attempt: once the
+ * deadline passes, remaining engines are skipped. This doesn't cancel an in-flight call (these
+ * tools' own fetches aren't wired for external abort), it just stops waiting on it so the caller
+ * gets a timely answer either way.
  */
-async function delegateToRealSearch(query: string, preferredEngines: string[] = ['tavily_search', 'serpapi', 'web_search']): Promise<{ engineUsed: string; text: string } | null> {
+async function delegateToRealSearch(query: string, preferredEngines: string[] = ['tavily_search', 'serpapi', 'web_search'], overallTimeoutMs = 20000): Promise<{ engineUsed: string; text: string } | null> {
   const { dispatchTool } = await import('./tools')
+  const deadline = Date.now() + overallTimeoutMs
   for (const engine of preferredEngines) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
     try {
-      const result = await dispatchTool(engine, { query, q: query }, { attachments: [], language: 'en' })
+      const result = await Promise.race([
+        dispatchTool(engine, { query, q: query }, { attachments: [], language: 'en' }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), remaining)),
+      ])
       if (result?.ok && result.result && result.result.trim().length > 0) return { engineUsed: engine, text: result.result }
     } catch { /* try the next engine */ }
   }
@@ -72,16 +82,23 @@ export async function toolGoogleAiSearch(args: any, _ctx: ToolContext): Promise<
   if (apiKey && cx) {
     try {
       const res = await fetch(`https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(10000) })
-      if (!res.ok) return badResult(`google_ai_search: Google Custom Search HTTP ${res.status}`)
-      const data = await res.json()
-      const items = Array.isArray(data.items) ? data.items : []
-      const body = items.map((item: any, i: number) => `  [${i + 1}] ${item.title}\n      ${item.link}\n      ${item.snippet ?? ''}`).join('\n\n')
-      return okResult(`Google Custom Search: ${items.length} real results for "${query.slice(0, 60)}"`,
-        `GOOGLE CUSTOM SEARCH — "${query}"\n${'='.repeat(60)}\n\n` +
-        `NOTE: This is Google's real Custom Search JSON API (genuine Google-indexed results). It is not Google's "AI Overview" feature -- Google does not offer that as a public third-party API.\n\n` +
-        `RESULTS (${items.length}):\n${body || '(no results)'}`)
+      if (res.ok) {
+        const data = await res.json()
+        const items = Array.isArray(data.items) ? data.items : []
+        const body = items.map((item: any, i: number) => `  [${i + 1}] ${item.title}\n      URL: ${item.link}\n      ${item.snippet ?? ''}`).join('\n\n')
+        return okResult(`Google Custom Search: ${items.length} real results for "${query.slice(0, 60)}"`,
+          `GOOGLE CUSTOM SEARCH — "${query}"\n${'='.repeat(60)}\n\n` +
+          `NOTE: This is Google's real Custom Search JSON API (genuine Google-indexed results). It is not Google's "AI Overview" feature -- Google does not offer that as a public third-party API.\n\n` +
+          `RESULTS (${items.length}):\n${body || '(no results)'}`)
+      }
+      // Fresh-audit fix: a configured-but-failing key (quota exceeded, revoked, transient 5xx) used
+      // to hard-fail here even though the exact same fallback used for "not configured" was one
+      // branch away -- fall through to it instead of leaving the caller with nothing.
+      const delegated = await delegateToRealSearch(query)
+      return delegatedReport('Google AI Search', query, `GOOGLE_SEARCH_API_KEY is configured but the live call failed (HTTP ${res.status}).`, delegated)
     } catch (e: any) {
-      return badResult(`google_ai_search: ${e?.message ?? String(e)}`)
+      const delegated = await delegateToRealSearch(query)
+      return delegatedReport('Google AI Search', query, `GOOGLE_SEARCH_API_KEY is configured but the live call failed (${e?.message ?? String(e)}).`, delegated)
     }
   }
 
@@ -109,16 +126,22 @@ export async function toolPerplexityAiSearch(args: any, _ctx: ToolContext): Prom
       body: JSON.stringify({ model: 'sonar', messages: [{ role: 'user', content: query }] }),
       signal: AbortSignal.timeout(30000),
     })
-    if (!res.ok) return badResult(`perplexity_ai_search: HTTP ${res.status}`)
-    const data = await res.json()
-    const content = data?.choices?.[0]?.message?.content
-    const citations: string[] = Array.isArray(data?.citations) ? data.citations : []
-    if (typeof content !== 'string' || !content.trim()) return badResult('perplexity_ai_search: response contained no content')
-    return okResult(`Perplexity: real cited answer for "${query.slice(0, 60)}"`,
-      `PERPLEXITY AI SEARCH — "${query}"\n${'='.repeat(60)}\n\n${content}\n\n` +
-      (citations.length ? `SOURCES (${citations.length}, real):\n${citations.map((c, i) => `  [${i + 1}] ${c}`).join('\n')}` : ''))
+    if (res.ok) {
+      const data = await res.json()
+      const content = data?.choices?.[0]?.message?.content
+      const citations: string[] = Array.isArray(data?.citations) ? data.citations : []
+      if (typeof content === 'string' && content.trim()) {
+        return okResult(`Perplexity: real cited answer for "${query.slice(0, 60)}"`,
+          `PERPLEXITY AI SEARCH — "${query}"\n${'='.repeat(60)}\n\n${content}\n\n` +
+          (citations.length ? `SOURCES (${citations.length}, real):\n${citations.map((c, i) => `  [${i + 1}] URL: ${c}`).join('\n')}` : ''))
+      }
+    }
+    // Fresh-audit fix: same fallback-on-runtime-failure fix as google_ai_search above.
+    const delegated = await delegateToRealSearch(query)
+    return delegatedReport('Perplexity AI Search', query, `PERPLEXITY_API_KEY is configured but the live call failed (HTTP ${res.status}).`, delegated)
   } catch (e: any) {
-    return badResult(`perplexity_ai_search: ${e?.message ?? String(e)}`)
+    const delegated = await delegateToRealSearch(query)
+    return delegatedReport('Perplexity AI Search', query, `PERPLEXITY_API_KEY is configured but the live call failed (${e?.message ?? String(e)}).`, delegated)
   }
 }
 
@@ -160,14 +183,19 @@ export async function toolYouComSearch(args: any, _ctx: ToolContext): Promise<To
       headers: { 'X-API-Key': key },
       signal: AbortSignal.timeout(10000),
     })
-    if (!res.ok) return badResult(`you_com_search: HTTP ${res.status}`)
-    const data = await res.json()
-    const hits = Array.isArray(data?.hits) ? data.hits : []
-    const body = hits.slice(0, 10).map((h: any, i: number) => `  [${i + 1}] ${h.title}\n      ${h.url}\n      ${(h.snippets ?? []).join(' ').slice(0, 300)}`).join('\n\n')
-    return okResult(`You.com: ${hits.length} real results for "${query.slice(0, 60)}"`,
-      `YOU.COM SEARCH — "${query}"\n${'='.repeat(60)}\n\nRESULTS (${hits.length}):\n${body || '(no results)'}`)
+    if (res.ok) {
+      const data = await res.json()
+      const hits = Array.isArray(data?.hits) ? data.hits : []
+      const body = hits.slice(0, 10).map((h: any, i: number) => `  [${i + 1}] ${h.title}\n      URL: ${h.url}\n      ${(h.snippets ?? []).join(' ').slice(0, 300)}`).join('\n\n')
+      return okResult(`You.com: ${hits.length} real results for "${query.slice(0, 60)}"`,
+        `YOU.COM SEARCH — "${query}"\n${'='.repeat(60)}\n\nRESULTS (${hits.length}):\n${body || '(no results)'}`)
+    }
+    // Fresh-audit fix: same fallback-on-runtime-failure fix as google_ai_search above.
+    const delegated = await delegateToRealSearch(query)
+    return delegatedReport('You.com Search', query, `YDC_API_KEY is configured but the live call failed (HTTP ${res.status}).`, delegated)
   } catch (e: any) {
-    return badResult(`you_com_search: ${e?.message ?? String(e)}`)
+    const delegated = await delegateToRealSearch(query)
+    return delegatedReport('You.com Search', query, `YDC_API_KEY is configured but the live call failed (${e?.message ?? String(e)}).`, delegated)
   }
 }
 
@@ -180,7 +208,10 @@ export async function toolBraveAiSearch(args: any, _ctx: ToolContext): Promise<T
 
   const key = process.env.BRAVE_API_KEY
   if (!key) {
-    const delegated = await delegateToRealSearch(query, ['tavily_search', 'serpapi', 'ddg_search', 'web_search'])
+    // Fresh-audit fix: this used to list ddg_search ahead of web_search, but web_search already
+    // tries DuckDuckGo internally as one of its own fallback providers -- the extra entry only
+    // added a redundant, fully-serial attempt on top of an already-multi-provider chain.
+    const delegated = await delegateToRealSearch(query)
     return delegatedReport('Brave AI Search', query, 'BRAVE_API_KEY is not set, and Brave does not offer a separate public API for its "AI Answers" feature (only its base web-search index).', delegated)
   }
 
@@ -189,15 +220,20 @@ export async function toolBraveAiSearch(args: any, _ctx: ToolContext): Promise<T
       headers: { Accept: 'application/json', 'X-Subscription-Token': key },
       signal: AbortSignal.timeout(10000),
     })
-    if (!res.ok) return badResult(`brave_ai_search: HTTP ${res.status}`)
-    const data = await res.json()
-    const results = Array.isArray(data?.web?.results) ? data.web.results : []
-    const body = results.slice(0, 10).map((r: any, i: number) => `  [${i + 1}] ${r.title}\n      ${r.url}\n      ${r.description ?? ''}`).join('\n\n')
-    return okResult(`Brave: ${results.length} real results for "${query.slice(0, 60)}"`,
-      `BRAVE SEARCH — "${query}"\n${'='.repeat(60)}\n\n` +
-      `NOTE: Brave's real web-search index (its base API). Brave does not expose a separate public "AI Answers" API.\n\n` +
-      `RESULTS (${results.length}):\n${body || '(no results)'}`)
+    if (res.ok) {
+      const data = await res.json()
+      const results = Array.isArray(data?.web?.results) ? data.web.results : []
+      const body = results.slice(0, 10).map((r: any, i: number) => `  [${i + 1}] ${r.title}\n      URL: ${r.url}\n      ${r.description ?? ''}`).join('\n\n')
+      return okResult(`Brave: ${results.length} real results for "${query.slice(0, 60)}"`,
+        `BRAVE SEARCH — "${query}"\n${'='.repeat(60)}\n\n` +
+        `NOTE: Brave's real web-search index (its base API). Brave does not expose a separate public "AI Answers" API.\n\n` +
+        `RESULTS (${results.length}):\n${body || '(no results)'}`)
+    }
+    // Fresh-audit fix: same fallback-on-runtime-failure fix as google_ai_search above.
+    const delegated = await delegateToRealSearch(query)
+    return delegatedReport('Brave AI Search', query, `BRAVE_API_KEY is configured but the live call failed (HTTP ${res.status}).`, delegated)
   } catch (e: any) {
-    return badResult(`brave_ai_search: ${e?.message ?? String(e)}`)
+    const delegated = await delegateToRealSearch(query)
+    return delegatedReport('Brave AI Search', query, `BRAVE_API_KEY is configured but the live call failed (${e?.message ?? String(e)}).`, delegated)
   }
 }

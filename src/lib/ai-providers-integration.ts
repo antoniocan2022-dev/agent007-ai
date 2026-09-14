@@ -9,6 +9,25 @@ import type { ToolResult } from './tools'
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function fail(result: string): ToolResult { return { ok: false, preview: result.slice(0, 120), result } }
 function needKey(name: string, envVar: string, url: string): ToolResult { return fail(`${name} requires ${envVar} env var. Get a key at ${url}. Set it in the runtime environment.`) }
+
+// Fresh-audit fix: tavily_search/serpapi have no caching or dedup, unlike web_search (tools.ts
+// has its own 1-hour cache). multi_search_compare's defaultSearchEngines() auto-adds tavily the
+// moment TAVILY_API_KEY is set, and delegateToRealSearch (ai-search-engines.ts) also tries tavily
+// first for several other tools -- so one conversation turn can invisibly burn 2+ real calls
+// against the same query, meaningful against SerpAPI's 100/month free tier. A short-lived,
+// same-module cache (mirroring tools.ts's own pattern; can't import its private cache without a
+// circular dependency, since tools.ts imports this file) closes that gap for repeat queries.
+interface SearchCacheEntry { result: ToolResult; at: number }
+const _searchCache = new Map<string, SearchCacheEntry>()
+const SEARCH_CACHE_TTL_MS = 60 * 60 * 1000
+async function cachedSearch(toolName: string, query: string, run: () => Promise<ToolResult>): Promise<ToolResult> {
+  const key = `${toolName}:${query}`
+  const cached = _searchCache.get(key)
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) return cached.result
+  const result = await run()
+  if (result.ok) _searchCache.set(key, { result, at: Date.now() })
+  return result
+}
 function requireMessages(args: any, toolName: string): { messages: any[] } | ToolResult {
   if (!Array.isArray(args?.messages) || args.messages.length === 0) return fail(`${toolName} requires a non-empty "messages" array`)
   return { messages: args.messages }
@@ -79,8 +98,48 @@ export async function toolCohereLLM(args: any): Promise<ToolResult> {
 async function getJson(url: string, headers: Record<string, string> = {}, label: string, timeoutMs = 10000): Promise<ToolResult> {
   try { const response = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) }); if (!response.ok) return fail(`${label}: HTTP ${response.status}`); const data = await response.json(); return ok(label, `${label}:\n${JSON.stringify(data).slice(0, 12000)}`) } catch (error: any) { return fail(`${label}: ${error?.message ?? String(error)}`) }
 }
-export async function toolTavilySearch(args: any): Promise<ToolResult> { const key = process.env.TAVILY_API_KEY; if (!key) return needKey('Tavily Search', 'TAVILY_API_KEY', 'https://tavily.com'); const query = String(args?.query ?? '').trim(); if (!query) return fail('tavily_search requires "query"'); try { const response = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: key, query, max_results: Math.min(Math.max(Number(args?.num ?? 5), 1), 10) }), signal: AbortSignal.timeout(10000) }); if (!response.ok) return fail(`Tavily: HTTP ${response.status}`); const data = await response.json(); return ok('Tavily Search', JSON.stringify(data).slice(0, 12000)) } catch (e: any) { return fail(`Tavily: ${e?.message ?? String(e)}`) } }
-export async function toolSerpAPI(args: any): Promise<ToolResult> { const key = process.env.SERPAPI_API_KEY; if (!key) return needKey('SerpAPI', 'SERPAPI_API_KEY', 'https://serpapi.com'); const q = String(args?.query ?? '').trim(); if (!q) return fail('serpapi_search requires "query"'); return getJson(`https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(key)}`, {}, 'SerpAPI') }
+// Fresh-audit fix: tavily_search/serpapi/exa_search used to return raw JSON.stringify(data) as
+// their whole result text. That's readable to the LLM but the evidence pipeline's URL extractor
+// (ceo-evidence-executor.ts's urlsFromSearchResult) only recognizes the "URL: <link>" line format
+// every other search tool in this codebase uses -- so a genuinely successful call here contributed
+// zero evidence sources, silently. Format real result items with that same label instead of
+// dumping the raw payload; fall back to the raw JSON only if no results parsed, so no information
+// is ever lost even if a provider changes its response shape.
+interface SearchItem { title: string; url: string; snippet?: string }
+function formatSearchItems(brand: string, query: string, items: SearchItem[]): string {
+  const body = items.map((item, i) => `  [${i + 1}] ${item.title || item.url}\n      URL: ${item.url}${item.snippet ? `\n      ${item.snippet.slice(0, 300)}` : ''}`).join('\n\n')
+  return `${brand.toUpperCase()} — "${query}"\n${'='.repeat(60)}\n\nRESULTS (${items.length}):\n${body || '(no results)'}`
+}
+export async function toolTavilySearch(args: any): Promise<ToolResult> {
+  const key = process.env.TAVILY_API_KEY; if (!key) return needKey('Tavily Search', 'TAVILY_API_KEY', 'https://tavily.com')
+  const query = String(args?.query ?? '').trim(); if (!query) return fail('tavily_search requires "query"')
+  return cachedSearch('tavily_search', query, async () => {
+    try {
+      const response = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: key, query, max_results: Math.min(Math.max(Number(args?.num ?? 5), 1), 10) }), signal: AbortSignal.timeout(10000) })
+      if (!response.ok) return fail(`Tavily: HTTP ${response.status}`)
+      const data = await response.json()
+      const results = Array.isArray(data?.results) ? data.results : []
+      const items: SearchItem[] = results.filter((r: any) => typeof r?.url === 'string').map((r: any) => ({ title: r.title, url: r.url, snippet: r.content }))
+      if (!items.length) return ok('Tavily Search', JSON.stringify(data).slice(0, 12000))
+      return ok(`Tavily Search: ${items.length} real results for "${query.slice(0, 60)}"`, formatSearchItems('Tavily Search', query, items))
+    } catch (e: any) { return fail(`Tavily: ${e?.message ?? String(e)}`) }
+  })
+}
+export async function toolSerpAPI(args: any): Promise<ToolResult> {
+  const key = process.env.SERPAPI_API_KEY; if (!key) return needKey('SerpAPI', 'SERPAPI_API_KEY', 'https://serpapi.com')
+  const q = String(args?.query ?? '').trim(); if (!q) return fail('serpapi_search requires "query"')
+  return cachedSearch('serpapi', q, async () => {
+    try {
+      const response = await fetch(`https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(10000) })
+      if (!response.ok) return fail(`SerpAPI: HTTP ${response.status}`)
+      const data = await response.json()
+      const results = Array.isArray(data?.organic_results) ? data.organic_results : []
+      const items: SearchItem[] = results.filter((r: any) => typeof r?.link === 'string').map((r: any) => ({ title: r.title, url: r.link, snippet: r.snippet }))
+      if (!items.length) return ok('SerpAPI', JSON.stringify(data).slice(0, 12000))
+      return ok(`SerpAPI: ${items.length} real results for "${q.slice(0, 60)}"`, formatSearchItems('SerpAPI', q, items))
+    } catch (e: any) { return fail(`SerpAPI: ${e?.message ?? String(e)}`) }
+  })
+}
 export async function toolNewsAPI(args: any): Promise<ToolResult> { const key = process.env.NEWSAPI_KEY || process.env.NEWS_API_KEY; if (!key) return needKey('NewsAPI', 'NEWSAPI_KEY', 'https://newsapi.org'); const q = String(args?.query ?? '').trim(); if (!q) return fail('newsapi_search requires "query"'); return getJson(`https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&pageSize=10&apiKey=${encodeURIComponent(key)}`, {}, 'NewsAPI') }
 export async function toolAlphaVantage(args: any): Promise<ToolResult> { const key = process.env.ALPHA_VANTAGE_API_KEY; if (!key) return needKey('Alpha Vantage', 'ALPHA_VANTAGE_API_KEY', 'https://www.alphavantage.co'); const symbol = String(args?.symbol ?? '').trim(); if (!symbol) return fail('alpha_vantage requires "symbol"'); return getJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(key)}`, {}, 'Alpha Vantage') }
 // Deep-audit fix: Alpha Vantage's free tier is extremely thin (25 requests/day) -- Finnhub's free
@@ -89,7 +148,19 @@ export async function toolAlphaVantage(args: any): Promise<ToolResult> { const k
 export async function toolFinnhubQuote(args: any): Promise<ToolResult> { const key = process.env.FINNHUB_API_KEY; if (!key) return needKey('Finnhub', 'FINNHUB_API_KEY', 'https://finnhub.io/register'); const symbol = String(args?.symbol ?? '').trim().toUpperCase(); if (!symbol) return fail('finnhub_quote requires "symbol"'); return getJson(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(key)}`, {}, 'Finnhub Quote') }
 export async function toolFREDEconomic(args: any): Promise<ToolResult> { const key = process.env.FRED_API_KEY; if (!key) return needKey('FRED', 'FRED_API_KEY', 'https://fred.stlouisfed.org/docs/api/api_key.html'); const seriesId = String(args?.series_id ?? args?.seriesId ?? '').trim(); if (!seriesId) return fail('fred_economic requires "series_id"'); return getJson(`https://api.stlouisfed.org/fred/series/observations?series_id=${encodeURIComponent(seriesId)}&api_key=${encodeURIComponent(key)}&file_type=json`, {}, 'FRED') }
 export async function toolJinaReader(args: any): Promise<ToolResult> { const url = String(args?.url ?? '').trim(); if (!url) return fail('jina_reader requires "url"'); return getJson(`https://r.jina.ai/${encodeURIComponent(url)}`, { Accept: 'text/plain' }, 'Jina Reader', 15000) }
-export async function toolExaSearch(args: any): Promise<ToolResult> { const key = process.env.EXA_API_KEY; if (!key) return needKey('Exa', 'EXA_API_KEY', 'https://exa.ai'); const q = String(args?.query ?? '').trim(); if (!q) return fail('exa_search requires "query"'); try { const response = await fetch('https://api.exa.ai/search', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key }, body: JSON.stringify({ query: q, numResults: Math.min(Math.max(Number(args?.num ?? 5), 1), 20) }), signal: AbortSignal.timeout(10000) }); if (!response.ok) return fail(`Exa: HTTP ${response.status}`); return ok('Exa Search', JSON.stringify(await response.json()).slice(0, 12000)) } catch (e: any) { return fail(`Exa: ${e?.message ?? String(e)}`) } }
+export async function toolExaSearch(args: any): Promise<ToolResult> {
+  const key = process.env.EXA_API_KEY; if (!key) return needKey('Exa', 'EXA_API_KEY', 'https://exa.ai')
+  const q = String(args?.query ?? '').trim(); if (!q) return fail('exa_search requires "query"')
+  try {
+    const response = await fetch('https://api.exa.ai/search', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key }, body: JSON.stringify({ query: q, numResults: Math.min(Math.max(Number(args?.num ?? 5), 1), 20) }), signal: AbortSignal.timeout(10000) })
+    if (!response.ok) return fail(`Exa: HTTP ${response.status}`)
+    const data = await response.json()
+    const results = Array.isArray(data?.results) ? data.results : []
+    const items: SearchItem[] = results.filter((r: any) => typeof r?.url === 'string').map((r: any) => ({ title: r.title, url: r.url, snippet: r.text }))
+    if (!items.length) return ok('Exa Search', JSON.stringify(data).slice(0, 12000))
+    return ok(`Exa Search: ${items.length} real results for "${q.slice(0, 60)}"`, formatSearchItems('Exa Search', q, items))
+  } catch (e: any) { return fail(`Exa: ${e?.message ?? String(e)}`) }
+}
 export async function toolProductHunt(args: any): Promise<ToolResult> { const key = process.env.PRODUCTHUNT_API_KEY; if (!key) return needKey('Product Hunt', 'PRODUCTHUNT_API_KEY', 'https://api.producthunt.com'); const q = String(args?.query ?? '').trim(); if (!q) return fail('producthunt requires "query"'); return fail('Product Hunt API adapter requires a GraphQL query contract; no implicit query is executed.') }
 export async function toolHFInference(args: any): Promise<ToolResult> { return toolHuggingFaceLLM(args) }
 export async function toolPollinationsImage(args: any): Promise<ToolResult> { const prompt = String(args?.prompt ?? '').trim(); if (!prompt) return fail('pollinations_image requires "prompt"'); return ok('Pollinations image URL', `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`) }
