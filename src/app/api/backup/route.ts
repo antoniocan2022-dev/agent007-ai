@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
+import { isAuthorizedOwnerRequest } from '@/lib/owner-request-auth'
+import { sanitizeSecretColumns } from '@/lib/backup-functions'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,6 +23,7 @@ function decrypt(b64: string): string {
 
 /** GET /api/backup — downloads full backup OR vault file */
 export async function GET(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   await ensureDbReady().catch(() => {})
     await new Promise(r => setTimeout(r, 500)) // Give tables time to create
   try {
@@ -79,7 +82,14 @@ export async function GET(req: NextRequest) {
       version: '3.0',
       app: 'Agent007 AI',
       exportedAt: new Date().toISOString(),
-      data: { conversations, memories, incomeEntries, schedules, customSubagents, notificationLogs, userSettings, auditLogs, phoneConfigs, bankAccounts, payPalAccounts, apiKeys, customers, campaigns, partnerships },
+      data: {
+        conversations, memories, incomeEntries, schedules, customSubagents, notificationLogs, userSettings, auditLogs, phoneConfigs,
+        // Same SECRET_COLUMNS policy as backup-v2.ts/backup-functions.ts: encrypt when configured, else redact -- never plaintext.
+        bankAccounts: sanitizeSecretColumns('bankAccount', bankAccounts),
+        payPalAccounts: sanitizeSecretColumns('payPalAccount', payPalAccounts),
+        apiKeys: sanitizeSecretColumns('apiKey', apiKeys),
+        customers, campaigns, partnerships,
+      },
     }
 
     const filename = `agent007-backup-${new Date().toISOString().slice(0, 10)}.json`
@@ -96,6 +106,7 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/backup — restore from backup */
 export async function POST(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   await ensureDbReady().catch(() => {})
     await new Promise(r => setTimeout(r, 500)) // Give tables time to create
   let body: any

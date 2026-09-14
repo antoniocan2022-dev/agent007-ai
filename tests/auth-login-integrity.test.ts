@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { isOwnerEmail, OWNER_EMAIL } from '@/lib/owner-config'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const loginSource = read('../src/app/login/page.tsx')
@@ -12,6 +13,11 @@ const conversationsRouteSource = read('../src/app/api/conversations/route.ts')
 const conversationIdRouteSource = read('../src/app/api/conversations/[id]/route.ts')
 const memoryRouteSource = read('../src/app/api/memory/route.ts')
 const apiKeysRouteSource = read('../src/app/api/api-keys/route.ts')
+const sessionUserSource = read('../src/lib/session-user.ts')
+const ownerRequestAuthSource = read('../src/lib/owner-request-auth.ts')
+const registerRouteSource = read('../src/app/api/auth/register/route.ts')
+const usersRouteSource = read('../src/app/api/users/route.ts')
+const usersIdRouteSource = read('../src/app/api/users/[id]/route.ts')
 
 const requiresSession = (source: string) => source.includes('getServerSession(authOptions)')
 
@@ -85,5 +91,80 @@ describe('authentication hardening', () => {
     expect(apiKeysRouteSource).toContain('getSessionUserId()')
     expect(apiKeysRouteSource).toContain('where: { id, userId }')
     expect(apiKeysRouteSource).toContain("error: 'Not found'")
+  })
+
+  // Deep-audit fix: self-registration used to create a fully usable account with no approval step
+  // -- authorize() never checked isUserApproved(), directly contradicting user-approval.ts's own
+  // documented design. These tests lock in that the approval gate is genuinely wired end to end:
+  // login is gated, registration creates the approval-token record processApproval() expects and
+  // notifies the owner, and every owner-only route guard checks owner identity specifically rather
+  // than accepting any authenticated session (this app supports multi-user registration, so "any
+  // session" was never equivalent to "the owner").
+  describe('self-registration approval gate is genuinely wired, not just documented', () => {
+    // isUserApproved itself is exercised only via source assertions here, not a real import: it
+    // transitively pulls in email.ts -> auth.ts -> next-auth/providers/credentials, which this
+    // sandbox cannot resolve (confirmed: no other test in this codebase imports it directly
+    // either) -- will run as a real import in real CI. owner-config.ts has zero imports of its
+    // own, so isOwnerEmail/OWNER_EMAIL below are exercised for real.
+    test('user-approval.ts unconditionally treats the owner as approved before any database lookup', () => {
+      const userApprovalSource = read('../src/lib/user-approval.ts')
+      expect(userApprovalSource).toMatch(/isUserApproved[\s\S]{0,80}if\s*\(\s*isOwnerEmail\(userEmail\)\s*\)\s*return\s+true/)
+    })
+
+    test('authorize() rejects login for an unapproved account instead of trusting password/2FA alone', () => {
+      expect(authSource).toContain('isUserApproved')
+      expect(authSource).toMatch(/if\s*\(\s*!\s*\(\s*await\s+isUserApproved\(user\.email\)\s*\)\s*\)\s*return\s+null/)
+    })
+
+    test('registerUser creates the approval-token record and notifies the owner', () => {
+      expect(sessionUserSource).toContain('generateApprovalToken')
+      expect(sessionUserSource).toContain('sendApprovalRequest')
+      expect(sessionUserSource).toContain("key: `approval_token:")
+    })
+
+    test('registerUser refuses to register the owner\'s own email, which must only be provisioned via ensureSeedUser+OWNER_BOOTSTRAP_PASSWORD', () => {
+      expect(sessionUserSource).toContain('SEED_EMAIL.trim().toLowerCase()')
+      expect(sessionUserSource).toContain('reserved for the account owner')
+    })
+
+    test('the register route surfaces pending-approval status instead of always claiming immediate sign-in works', () => {
+      expect(registerRouteSource).toContain('pendingApproval')
+    })
+
+    test('owner-only route guards check owner identity specifically, not just any authenticated session', () => {
+      expect(ownerRequestAuthSource).toContain('isOwnerEmail')
+      expect(ownerRequestAuthSource).not.toContain('session?.user) return true')
+      expect(isOwnerEmail(undefined)).toBe(false)
+      expect(isOwnerEmail('not-the-owner@example.com')).toBe(false)
+      expect(isOwnerEmail(OWNER_EMAIL)).toBe(true)
+    })
+
+    // Deep-audit fix: /api/users (list) and /api/users/:id (PATCH/DELETE) used to accept ANY
+    // authenticated session, not just the owner's -- an approved non-owner account could
+    // enumerate every user's email, delete any other account, or PATCH another user's
+    // email/password (full account takeover). Same "any session != owner" bug as
+    // owner-request-auth.ts, now fixed the same way.
+    test('GET /api/users requires owner identity, not just any session, and surfaces approval status', () => {
+      expect(usersRouteSource).toContain('isOwnerEmail')
+      expect(usersRouteSource).not.toContain('if (!session?.user)')
+      expect(usersRouteSource).toContain('approved:')
+    })
+
+    test('DELETE and PATCH /api/users/:id require owner identity, not just any session', () => {
+      expect(usersIdRouteSource).not.toContain('if (!session?.user)')
+      const deleteGuardCount = (usersIdRouteSource.match(/isOwnerEmail\(session\?\.user\?\.email\)/g) ?? []).length
+      expect(deleteGuardCount).toBeGreaterThanOrEqual(2) // one for DELETE, one for PATCH
+    })
+
+    test('owner can approve/reject a pending user via PATCH /api/users/:id, reusing the same approval-record shape processApproval uses', () => {
+      expect(usersIdRouteSource).toContain("body.action === 'approve'")
+      expect(usersIdRouteSource).toContain("body.action === 'reject'")
+      expect(usersIdRouteSource).toContain('approveUserById')
+      expect(usersIdRouteSource).toContain('rejectUserById')
+      const userApprovalSource = read('../src/lib/user-approval.ts')
+      expect(userApprovalSource).toContain('export async function approveUserById')
+      expect(userApprovalSource).toContain('export async function rejectUserById')
+      expect(userApprovalSource).toContain("key: 'approved'")
+    })
   })
 })

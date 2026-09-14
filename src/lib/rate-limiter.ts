@@ -141,6 +141,8 @@ export async function checkRateLimitAsync(ip: string, pathname: string): Promise
   return { ...result, backend: 'memory' }
 }
 
+// Not to be confused with security-hardening.ts's own getClientIP, which takes a loosely-typed
+// header-bag object -- this one requires a real Fetch API Request.
 export function getClientIP(req: Request): string {
   const forwarded = req.headers.get('x-forwarded-for')
   if (forwarded) return forwarded.split(',')[0].trim()

@@ -473,7 +473,7 @@ export async function toolCacheClear(args: { targets?: string }, _ctx: ToolConte
       } catch {}
     }
 
-    const report = `Cache Clear\n══════════════════════════════════════════════\nTargets: ${targets.join(', ')}\n\nCLEARED:\n${cleared.map(c => `  ✅ ${c}`).join('\n')}\n\nNOTE: Some caches (Turbopack, service worker) require a browser refresh or dev server restart to fully take effect. Use the watchdog script (scripts/watchdog.sh) to restart the dev server cleanly.`
+    const report = `Cache Clear\n══════════════════════════════════════════════\nTargets: ${targets.join(', ')}\n\nCLEARED:\n${cleared.map(c => `  ✅ ${c}`).join('\n')}\n\nNOTE: Some caches (Turbopack, service worker) require a browser refresh or dev server restart to fully take effect. Use the watchdog script (scripts/watchdog-permanent.sh) to restart the dev server cleanly.`
 
     return ok(`Cleared ${cleared.length} cache targets`, report)
   } catch (e: any) {

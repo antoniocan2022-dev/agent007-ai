@@ -113,6 +113,9 @@ function validateEvidence(input: AutonomyEvidenceInput): void {
   if (!input.actionClass) throw new Error('Autonomy evidence actionClass is required.')
 }
 
+// Not to be confused with mission-telemetry.ts's own recordAutonomyEvidence, a synchronous
+// setter that mutates a single in-memory MissionTelemetry object -- this one is async and
+// persists a durable graduation-evidence record.
 export async function recordAutonomyEvidence(input: AutonomyEvidenceInput): Promise<AutonomyEvidenceRecord> {
   validateEvidence(input)
   const hasExplicitRecordedAt = Boolean(input.recordedAt)

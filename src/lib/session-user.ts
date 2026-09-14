@@ -1,6 +1,7 @@
 import { getServerSession } from 'next-auth'
 import { authOptions, SEED_EMAIL, hashPassword } from './auth'
 import { db } from './db'
+import { generateApprovalToken, sendApprovalRequest } from './user-approval'
 
 /**
  * Multi-user support helpers.
@@ -55,11 +56,30 @@ export interface RegisterResult {
   ok: boolean
   error?: string
   user?: { id: string; email: string; name: string }
+  pendingApproval?: boolean
 }
 
 /**
  * Register a new user account. Returns the user (without passwordHash) on success.
  * Validation: email format, password >= 8 chars, email not already taken.
+ *
+ * Deep-audit fix: this used to create a fully usable account with no approval step at all,
+ * directly contradicting user-approval.ts's own documented design ("New users CANNOT log in
+ * until approved") -- auth.ts's authorize() never checked isUserApproved(), so anyone who
+ * registered could sign in immediately with zero owner involvement. Now generates the same
+ * approval-token record processApproval() (/api/auth/approve) already expects and notifies the
+ * owner via sendApprovalRequest() -- the existing approval infrastructure, now actually wired to
+ * the account it's supposed to gate. The account row itself is still created immediately (existing
+ * behavior, needed so the token can reference a real userId); what changes is that authorize()
+ * now refuses to issue a session until isUserApproved() returns true for this account.
+ *
+ * Also refuses to register SEED_EMAIL (the owner's own account) at all: that account is only ever
+ * provisioned by ensureSeedUser()+OWNER_BOOTSTRAP_PASSWORD (auth.ts), on the owner's first login
+ * attempt. Before this fix, this endpoint would happily create an account under the owner's exact
+ * email with an attacker-chosen password if hit before that first login ever happened on a fresh
+ * deploy -- ensureSeedUser() only creates the seed user when none exists yet, so it would silently
+ * skip an account already claimed this way, permanently locking the real owner out of their own
+ * email with their real bootstrap password.
  */
 export async function registerUser(email: string, password: string, name?: string): Promise<RegisterResult> {
   const normalizedEmail = email.trim().toLowerCase()
@@ -68,6 +88,9 @@ export async function registerUser(email: string, password: string, name?: strin
   }
   if (!password || password.length < 8) {
     return { ok: false, error: 'Password must be at least 8 characters' }
+  }
+  if (normalizedEmail === SEED_EMAIL.trim().toLowerCase()) {
+    return { ok: false, error: 'This email is reserved for the account owner and cannot self-register.' }
   }
 
   try {
@@ -85,9 +108,26 @@ export async function registerUser(email: string, password: string, name?: strin
       },
     })
 
+    try {
+      const approvalToken = generateApprovalToken()
+      await db.userSetting.create({
+        data: {
+          userId: user.id,
+          key: `approval_token:${approvalToken}`,
+          value: JSON.stringify({ userId: user.id, userEmail: user.email, expiresAt: Date.now() + 24 * 60 * 60 * 1000 }),
+        },
+      })
+      await sendApprovalRequest({ newUserEmail: user.email, newUserName: user.name ?? undefined, approvalToken })
+    } catch (e: any) {
+      // Best-effort: the account still requires approval even if the notification failed to
+      // send -- the owner can still approve from the Dashboard -> Users panel.
+      console.warn('[registerUser] Failed to send approval request:', e?.message)
+    }
+
     return {
       ok: true,
       user: { id: user.id, email: user.email, name: user.name ?? user.email },
+      pendingApproval: true,
     }
   } catch (e: any) {
     return { ok: false, error: `Registration failed: ${e?.message ?? 'unknown error'}` }

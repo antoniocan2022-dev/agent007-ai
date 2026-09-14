@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { COMMERCIAL_BUSINESSES, COMMERCIAL_CATEGORIES, validateCommercialControlPlaneContracts } from './commercial-control-plane'
+import { COMMERCIAL_BUSINESSES, COMMERCIAL_CATEGORIES } from './commercial-control-plane'
+import { validateCommercialControlPlaneContracts } from './commercial-control-plane-governance'
 
 describe('Commercial Control Plane', () => {
   it('defines exactly three venture units plus the shared platform', () => {

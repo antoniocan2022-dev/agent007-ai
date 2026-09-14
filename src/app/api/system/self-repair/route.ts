@@ -10,15 +10,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { isOwnerEmail } from '@/lib/owner-config'
 import { approveSelfRepairPattern, getLearnedPatternById, listPendingSelfRepairPatterns, rejectSelfRepairPattern, runGovernedSelfRepairCycle } from '@/lib/ceo-self-repair-engine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+// Deep-audit fix: owner-only approval surfaces should check owner identity specifically, not just
+// "any authenticated session" -- this app supports multi-user registration, so a non-owner account
+// must not be able to approve/reject self-repair patterns.
 async function requireSession() {
   const session = await getServerSession(authOptions)
-  return session?.user ? session : null
+  return isOwnerEmail(session?.user?.email) ? session : null
 }
 
 export async function GET(req: NextRequest) {

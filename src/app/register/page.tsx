@@ -52,6 +52,16 @@ function RegisterInner() {
         return
       }
 
+      // Deep-audit fix: new (non-owner) accounts now require explicit owner approval before
+      // sign-in succeeds (see user-approval.ts / registerUser()) -- attempting auto-sign-in here
+      // will correctly fail for a pending account, so surface that as the real reason rather than
+      // the previous generic "auto-sign-in failed" message.
+      if (regData.pendingApproval) {
+        setError('Account created. The owner has been notified and must approve your account before you can sign in.')
+        setSubmitting(false)
+        return
+      }
+
       // 2) Sign in immediately
       const signRes = await signIn('credentials', {
         email: email.trim().toLowerCase(),

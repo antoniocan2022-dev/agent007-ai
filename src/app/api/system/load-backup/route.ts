@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbReady } from '@/lib/db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
+import { isAuthorizedOwnerRequest } from '@/lib/owner-request-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -10,6 +11,9 @@ const BACKUP_DIR = '/home/z/my-project/download/backups'
 const DOWNLOAD_DIR = '/home/z/my-project/download'
 
 export async function POST(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     await ensureDbReady()
     const body = await req.json().catch(() => ({}))

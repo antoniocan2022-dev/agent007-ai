@@ -219,4 +219,4 @@ export async function restoreBackupV2(input: any, dryRun = true, targetClient: P
   return { dryRun: false, ...stats }
 }
 
-export { getEncryptionKey, RESTORE_ORDER }
+export { getEncryptionKey, RESTORE_ORDER, SECRET_COLUMNS }

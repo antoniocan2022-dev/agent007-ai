@@ -2,13 +2,14 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-// real-integrations-v2.ts imports from './tools', which transitively pulls in a next-auth import chain
-// that isn't installed in this sandbox (a pre-existing, unrelated limitation -- confirmed no other test
-// in this codebase imports this file either). Verified via direct `bun -e` execution during development
-// that toolAffiliateTracker/toolPayPalAPI behave as asserted below; these tests check the source
+// real-integrations-extended.ts (renamed from real-integrations-v2.ts) imports from './tools',
+// which transitively pulls in a next-auth import chain that isn't installed in this sandbox (a
+// pre-existing, unrelated limitation -- confirmed no other test in this codebase imports this
+// file either). Verified via direct `bun -e` execution during development that
+// toolAffiliateTracker/toolPayPalAPI behave as asserted below; these tests check the source
 // directly so a regression back to the fabricated/fake behavior is still caught in CI.
 const ROOT = join(import.meta.dir, '..')
-const source = readFileSync(join(ROOT, 'src/lib/real-integrations-v2.ts'), 'utf-8')
+const source = readFileSync(join(ROOT, 'src/lib/real-integrations-extended.ts'), 'utf-8')
 
 describe('tool-registry honesty fixes', () => {
   test('the affiliate tracker no longer returns a hardcoded fabricated stats string', () => {

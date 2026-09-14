@@ -38,6 +38,9 @@ function buildIdempotencyKey(context: AuthorizedToolContext, toolName: string): 
   return context.executionIdempotencyKey?.trim() || `tool:${context.missionId ?? 'unscoped'}:${toolName}:${randomUUID()}`
 }
 
+// Not to be confused with tools.ts's own dispatchTool, which takes a plain ToolContext --
+// this one requires an AuthorizedToolContext and layers execution-receipt/proof-ledger
+// recording on top. Import from here for any governed/mission-scoped call path.
 export async function dispatchTool(
   name: string,
   args: any,

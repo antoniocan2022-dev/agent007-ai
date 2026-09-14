@@ -27,6 +27,9 @@ export function startMissionTelemetry(goal: string): MissionTelemetry {
   }
 }
 
+// Not to be confused with autonomy-graduation.ts's own recordAutonomyEvidence, which is async
+// and persists a durable graduation-evidence record -- this one synchronously mutates a
+// single in-memory MissionTelemetry object.
 export function recordAutonomyEvidence(telemetry: MissionTelemetry, evidence: AutonomyMissionEvidence): void { telemetry.autonomyEvidence = { ...evidence } }
 export function recordFailureState(telemetry: MissionTelemetry, failureOccurred: boolean): void { telemetry.failureOccurred = failureOccurred }
 export function recordMissionResumption(telemetry: MissionTelemetry, resumedWithoutHumanRestart: boolean): void { telemetry.resumedWithoutHumanRestart = resumedWithoutHumanRestart }

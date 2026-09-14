@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createBackup } from '@/lib/backup-functions'
 import { createGzip } from 'node:zlib'
 import { Readable } from 'node:stream'
+import { isAuthorizedOwnerRequest } from '@/lib/owner-request-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,11 +30,16 @@ export const dynamic = 'force-dynamic'
  *   ?format=zip    → gzipped JSON (default, smallest)
  *   ?format=json   → raw JSON
  *
+ * AUTH
+ * Owner-only. Requires either a signed-in owner session (browser) or
+ * `Authorization: Bearer <CRON_SECRET>` (server-to-server / curl). See
+ * src/lib/owner-request-auth.ts.
+ *
  * USAGE
- *   - Direct browser download: /api/system/backup-download
+ *   - Direct browser download (while signed in): /api/system/backup-download
  *   - From Agent007: <tool name="download_capabilities">{"format":"zip"}</tool>
  *     (the download_capabilities tool already returns this URL)
- *   - curl: curl -OJ "https://agent007-ai.vercel.app/api/system/backup-download"
+ *   - curl: curl -OJ -H "Authorization: Bearer $CRON_SECRET" "https://agent007-ai.vercel.app/api/system/backup-download"
  *
  * WHAT'S IN THE BACKUP
  * ====================
@@ -45,6 +51,9 @@ export const dynamic = 'force-dynamic'
  * - Config metadata (node version, platform, env var presence flags)
  */
 export async function GET(req: NextRequest) {
+  if (!(await isAuthorizedOwnerRequest(req))) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const url = new URL(req.url)
     const label = (url.searchParams.get('label') ?? 'on-demand').toString().slice(0, 40)

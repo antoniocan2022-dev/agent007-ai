@@ -1,5 +1,6 @@
 /**
- * optimization-tools-v2.ts — 6 new tools covering the owner's requested
+ * optimization-tools.ts (renamed from optimization-tools-v2.ts; no v1 ever existed) — 6 new
+ * tools covering the owner's requested
  * improvements across 3 categories: Performance, Utilization, Accuracy.
  *
  * CATEGORY 1 — PERFORMANCE IMPROVEMENTS (2 tools):

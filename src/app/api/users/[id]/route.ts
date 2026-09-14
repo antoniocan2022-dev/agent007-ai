@@ -2,19 +2,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions, hashPassword } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { isOwnerEmail } from '@/lib/owner-config'
+import { approveUserById, rejectUserById } from '@/lib/user-approval'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+/**
+ * Deep-audit fix: DELETE and PATCH below used to accept ANY authenticated session
+ * (`session?.user`), not just the owner's. Since this app supports multi-user registration, that
+ * meant any approved non-owner account could delete any other user, or PATCH another user's
+ * email/password -- a full account-takeover IDOR. Both handlers are owner-only now, matching the
+ * fix already applied to GET /api/users and owner-request-auth.ts's guard.
+ */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!isOwnerEmail(session?.user?.email)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { id } = await params
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     const user = await db.user.findUnique({ where: { id } })
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    if (user.email === 'OWNER_EMAIL') return NextResponse.json({ error: 'Cannot delete primary operator' }, { status: 403 })
+    if (isOwnerEmail(user.email)) return NextResponse.json({ error: 'Cannot delete primary operator' }, { status: 403 })
     // UPGRADE #173 fix #7: BEFORE used `conversation` (lowercase — invalid
     // field; Prisma expects the relation name `Conversation` capitalized).
     // AFTER — use the proper relation name with a valid where clause on
@@ -37,10 +46,22 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!isOwnerEmail(session?.user?.email)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { id } = await params
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     const body = await req.json()
+
+    if (body.action === 'approve' || body.action === 'reject') {
+      const user = await db.user.findUnique({ where: { id } })
+      if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      if (body.action === 'approve') {
+        await approveUserById(id)
+        return NextResponse.json({ ok: true, message: `User "${user.email}" approved.` })
+      }
+      await rejectUserById(id)
+      return NextResponse.json({ ok: true, message: `User "${user.email}" rejected and deleted.` })
+    }
+
     const update: any = {}
     if (body.email) update.email = body.email.toString().trim().toLowerCase()
     if (body.name !== undefined) update.name = body.name.toString().trim()

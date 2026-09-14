@@ -2381,7 +2381,7 @@ import {
   toolTrainingSessionOrganizer,
   toolAccuracyFeedbackLoop,
   toolAuditScheduler,
-} from './optimization-tools-v2'
+} from './optimization-tools'
 
 // Performance: Optimize Execution Time
 TOOL_REGISTRY.execution_time_optimizer = { fn: toolExecutionTimeOptimizer, icon: 'gauge', label: 'Execution Time Optimizer (23 tools optimized, 38% faster)' }
@@ -2504,7 +2504,7 @@ import {
   toolDataForSEO,
   toolPayPalAPI,
   toolWebsiteAnalytics,
-} from './real-integrations-v2'
+} from './real-integrations-extended'
 TOOL_REGISTRY.resend_email_automation = { fn: toolResendEmailAutomation, icon: 'mail', label: 'Resend Email Automation (REAL API)' }
 TOOL_REGISTRY.affiliate_tracker = { fn: toolAffiliateTracker, icon: 'link', label: 'Affiliate Tracker (click/conversion + payouts)' }
 TOOL_REGISTRY.dataforseo = { fn: toolDataForSEO, icon: 'search', label: 'DataForSEO (REAL API — keywords, backlinks, SERP)' }
