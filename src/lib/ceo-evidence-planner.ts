@@ -12,9 +12,31 @@ export function extractEquityTickers(text: string): string[] { const matches = n
 // nothing ever generated one -- equity research here always searched FOR the investment case
 // (market data, earnings, the filing itself) and never explicitly AGAINST it. A deliberately
 // adversarial query -- debt, dilution, going-concern language, lawsuits, customer concentration,
-// insider selling, regulatory trouble -- closes that gap as one more EvidenceQuery in the plan,
-// with no change needed to the scoring/sufficiency logic downstream.
-function equityQueries(tickers: string[]): EvidenceQuery[] { const queries: EvidenceQuery[] = []; for (const ticker of tickers) { queries.push({ id: `${ticker.toLowerCase()}-market`, ticker, purpose: 'market', sourcePreference: 'market', recencyDays: 7, query: `${ticker} stock price market cap valuation latest` }); queries.push({ id: `${ticker.toLowerCase()}-financials`, ticker, purpose: 'financials', sourcePreference: 'company', recencyDays: 120, query: `${ticker} latest earnings revenue cash debt cash flow financial results` }); queries.push({ id: `${ticker.toLowerCase()}-filing`, ticker, purpose: 'filing', sourcePreference: 'sec', recencyDays: 180, query: `${ticker} SEC 10-K 10-Q latest filing risks outlook` }); queries.push({ id: `${ticker.toLowerCase()}-risks`, ticker, purpose: 'risks', sourcePreference: 'web', recencyDays: 180, query: `${ticker} debt concerns dilution going concern lawsuit customer concentration insider selling regulatory problems` }) } if (tickers.length >= 2) queries.push({ id: 'equity-comparison', purpose: 'comparison', sourcePreference: 'web', recencyDays: 30, query: `${tickers.slice(0, 4).join(' vs ')} comparison valuation financial strength risks` }); return queries }
+// insider selling, regulatory trouble -- closes that gap as one more EvidenceQuery in the plan.
+//
+// Fresh-audit fix (round 2): the queries used to be emitted ticker-by-ticker (all 4 of ticker 1's
+// queries, then all 4 of ticker 2's, ...), so a hard cap on the plan below silently dropped every
+// query -- risks included -- for whichever tickers came last once 3+ tickers were requested. Ordered
+// by purpose-round instead (every ticker's market query, then every ticker's financials query, then
+// every ticker's risks query, before any ticker's filing query) so a tight cap degrades breadth-first:
+// every requested ticker keeps its risks coverage, which is the entire point of this purpose existing.
+function equityQueries(tickers: string[]): EvidenceQuery[] {
+  const perTicker = new Map<string, Record<'market' | 'financials' | 'risks' | 'filing', EvidenceQuery>>()
+  for (const ticker of tickers) {
+    const lower = ticker.toLowerCase()
+    perTicker.set(ticker, {
+      market: { id: `${lower}-market`, ticker, purpose: 'market', sourcePreference: 'market', recencyDays: 7, query: `${ticker} stock price market cap valuation latest` },
+      financials: { id: `${lower}-financials`, ticker, purpose: 'financials', sourcePreference: 'company', recencyDays: 120, query: `${ticker} latest earnings revenue cash debt cash flow financial results` },
+      risks: { id: `${lower}-risks`, ticker, purpose: 'risks', sourcePreference: 'web', recencyDays: 180, query: `${ticker} debt concerns dilution going concern lawsuit customer concentration insider selling regulatory problems` },
+      filing: { id: `${lower}-filing`, ticker, purpose: 'filing', sourcePreference: 'sec', recencyDays: 180, query: `${ticker} SEC 10-K 10-Q latest filing risks outlook` },
+    })
+  }
+  const rounds: Array<'market' | 'financials' | 'risks' | 'filing'> = ['market', 'financials', 'risks', 'filing']
+  const queries: EvidenceQuery[] = []
+  for (const purpose of rounds) for (const ticker of tickers) queries.push(perTicker.get(ticker)![purpose])
+  if (tickers.length >= 2) queries.push({ id: 'equity-comparison', purpose: 'comparison', sourcePreference: 'web', recencyDays: 30, query: `${tickers.slice(0, 4).join(' vs ')} comparison valuation financial strength risks` })
+  return queries
+}
 function capabilityContract(input: { evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile }): CeoExecutionContract { return { intent: 'research', evidenceClass: input.evidenceClass, domain: input.domain, operation: input.operation, temporalScope: input.temporalScope, evidenceProfile: input.evidenceProfile, evidenceRequirement: input.evidenceClass === 'external_web' ? 'external_web' : 'multi_source', executionRequirement: 'one_tool', orchestrationOwner: 'ceo_lifecycle', maxTurns: 4, maxRecoveries: 1, latencyBudgetMs: 30000, toolRequired: true, subagentsRequired: false, reason: 'Evidence acquisition capability selection' } }
 export function buildExternalEvidencePlan(input: { objective: string; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; resolvedIssuers?: readonly IssuerResolution[] }): ExternalEvidencePlan {
   const selection = selectCeoTool(capabilityContract(input), { requiresFreshness: input.temporalScope === 'current' })
@@ -31,10 +53,14 @@ export function buildExternalEvidencePlan(input: { objective: string; evidenceCl
     const resolvedTickers = (input.resolvedIssuers ?? []).flatMap((resolution) => resolution.resolved ? [resolution.resolved.ticker] : [])
     const tickers = [...new Set([...extractEquityTickers(input.objective), ...resolvedTickers])]
     const queries = equityQueries(tickers)
-    // Fresh-audit fix: the cap was 8, tuned for the old 3-queries-per-ticker set. Now that each
-    // ticker contributes a 4th (risks) query, 2 tickers alone produce 8 -- crowding out the
-    // comparison query entirely. Raised to 10 so the new risks queries don't starve the others.
-    if (queries.length > 0) return { profile: 'public_equity', evidenceClass: input.evidenceClass, domain: input.domain, operation: input.operation, temporalScope: input.temporalScope, minimumSources: Math.max(3, Math.min(6, tickers.length * 2)), maxSearchQueries: Math.min(10, queries.length), maxPageReads: Math.max(2, Math.min(4, tickers.length * 2)), queries: queries.slice(0, 10), resolvedIssuers: input.resolvedIssuers, ...selectionMeta }
+    // Fresh-audit fix (round 2): a flat cap of 10 was still too tight once 3+ tickers were requested
+    // (up to 8 tickers are allowed, at 4 queries each = 32, +1 comparison). equityQueries() above now
+    // orders queries by purpose-round (market/financials/risks for every ticker before any ticker's
+    // filing), so a cap of 24 = 3 rounds x the 8-ticker max guarantees every requested ticker keeps its
+    // market, financials, AND risks queries regardless of how many tickers are in play -- only the
+    // filing and cross-ticker comparison queries degrade under extreme multi-ticker requests.
+    const queryCap = Math.min(24, queries.length)
+    if (queries.length > 0) return { profile: 'public_equity', evidenceClass: input.evidenceClass, domain: input.domain, operation: input.operation, temporalScope: input.temporalScope, minimumSources: Math.max(3, Math.min(6, tickers.length * 2)), maxSearchQueries: queryCap, maxPageReads: Math.max(2, Math.min(4, tickers.length * 2)), queries: queries.slice(0, queryCap), resolvedIssuers: input.resolvedIssuers, ...selectionMeta }
   }
   const genericQuery = input.objective.slice(0, 500)
   return { profile: input.evidenceProfile === 'none' ? 'general_research' : input.evidenceProfile, evidenceClass: input.evidenceClass, domain: input.domain, operation: input.operation, temporalScope: input.temporalScope, minimumSources: 2, maxSearchQueries: 2, maxPageReads: 2, queries: [{ id: 'general-1', query: genericQuery, purpose: 'identity', sourcePreference: 'web', recencyDays: input.temporalScope === 'current' ? 7 : 30 }, { id: 'general-2', query: `${genericQuery} official source`, purpose: 'filing', sourcePreference: 'company', recencyDays: 30 }], resolvedIssuers: input.resolvedIssuers, ...selectionMeta }

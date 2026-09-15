@@ -15,6 +15,7 @@
  * COMPARE content across multiple engines for better accuracy.
  */
 import type { ToolResult } from './tools'
+import { sourceTierForUrl } from './ceo-evidence-bundle'
 
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function fail(result: string): ToolResult { return { ok: false, preview: result.slice(0, 120), result } }
@@ -397,12 +398,30 @@ export async function toolSourceQualityRanker(args: any): Promise<ToolResult> {
 
   const ranked = urls.map((url: string) => {
     const urlLower = url.toLowerCase()
-    let ranking = { tier: 'B', score: 70, reason: 'Unknown source — moderate reliability' }
+    let ranking: { tier: string; score: number; reason: string } | undefined
     for (const [domain, r] of Object.entries(SOURCE_RANKINGS)) {
       if (urlLower.includes(domain)) {
         ranking = r
         break
       }
+    }
+    // Fresh-audit fix (round 2): this ranker used to fall straight to a flat "Unknown source" B/70 for
+    // anything not in the hand-curated SOURCE_RANKINGS map above -- which meant it silently contradicted
+    // the codebase's real financial source-authority gate (sourceTierForUrl, the one decision-grade
+    // evidence gating actually uses) for domains that gate recognizes but this older, separately
+    // maintained list never listed (fred.stlouisfed.org, nasdaq.com, stockanalysis.com, morningstar.com,
+    // investing.com, wsj.com, cnbc.com, ft.com, barrons.com, marketwatch.com, forbes.com,
+    // businessinsider.com, bloomberg.com) -- e.g. ranking an official Federal Reserve data source as
+    // merely "moderate reliability". Consulting that same gate as the fallback keeps this ranker
+    // consistent with it for the financial/government sources it specifically recognizes, while this
+    // ranker's own curated entries above (Wikipedia, arXiv, Reddit, vendor blogs, ...) still cover the
+    // general-media/academic judgment sourceTierForUrl was never meant to make.
+    if (!ranking) {
+      const tier = sourceTierForUrl(url)
+      ranking = tier === 1 ? { tier: 'A', score: 95, reason: 'Official government/regulator or stock-exchange source — tier 1 authoritative' }
+        : tier === 2 ? { tier: 'A-', score: 86, reason: 'Major financial data platform — tier 2 authoritative source' }
+        : tier === 3 ? { tier: 'B+', score: 80, reason: 'Major, long-established financial news organization — tier 3 source' }
+        : { tier: 'B', score: 70, reason: 'Unknown source — moderate reliability' }
     }
     return { url, ...ranking }
   }).sort((a: any, b: any) => b.score - a.score)

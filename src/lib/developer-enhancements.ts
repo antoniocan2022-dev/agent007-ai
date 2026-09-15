@@ -20,7 +20,12 @@ function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, r
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
 
 
-async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1800): Promise<string> {
+// Fresh-audit fix (round 2): this used to swallow every LLM failure into the bare string
+// '(LLM unavailable: ...)', and createDevTool below unconditionally appended a blanket "active, no
+// limitations" capability line after it regardless of whether the call above it actually succeeded --
+// the exact same bug already fixed in agent007-extensions.ts's equivalent factory, just not yet
+// ported here. A discriminated result lets createDevTool report the two cases honestly instead.
+async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1800): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
   try {
     const zai = await getCanonicalLlmBridge()
     const completion = await zai.chat.completions.create({
@@ -31,10 +36,10 @@ async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1800): 
       temperature: 0.4,
       max_tokens: maxTokens,
     })
-    return completion?.choices?.[0]?.message?.content ?? ''
-  } catch (e: any) {
-    return `(LLM unavailable: ${e?.message ?? String(e)})`
-  }
+    const content = completion?.choices?.[0]?.message?.content ?? ''
+    if (!content.trim()) return { ok: false, error: 'LLM returned no content' }
+    return { ok: true, content }
+  } catch (e: any) { return { ok: false, error: e?.message ?? String(e) } }
 }
 
 function createDevTool(opts: {
@@ -52,8 +57,12 @@ function createDevTool(opts: {
         dataSection = await opts.executor(args)
       }
       const userPrompt = opts.userPromptTemplate({ ...args, data: dataSection })
-      const analysis = await llm(opts.systemPrompt, userPrompt, 1800)
-      const report = `${opts.toolLabel}\n══════════════════════════════════════════════\nSub-agent: Developer\nCategory: ${opts.category}\n\n${analysis}\n\nCAPABILITY STATUS: Developer enhancement active — full access, no limitations.`
+      const llmResult = await llm(opts.systemPrompt, userPrompt, 1800)
+      const analysis = llmResult.ok ? llmResult.content : `(LLM analysis unavailable: ${llmResult.error})`
+      const accessLine = llmResult.ok
+        ? 'Developer enhancement active — real analysis from a live LLM call this turn.'
+        : `Developer enhancement degraded — the LLM analysis call failed (${llmResult.error}); the report above is raw/fallback data only, not AI-generated analysis.`
+      const report = `${opts.toolLabel}\n══════════════════════════════════════════════\nSub-agent: Developer\nCategory: ${opts.category}\n\n${analysis}\n\nCAPABILITY STATUS: ${accessLine}`
       return ok(`${opts.category}: analysis complete`, report)
     } catch (e: any) {
       return bad(`${opts.toolName} failed: ${e?.message ?? String(e)}`)
