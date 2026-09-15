@@ -202,3 +202,112 @@ export async function toolSummarizeTech(args: any): Promise<ToolResult> { const 
 export async function toolYahooFinance(args: any): Promise<ToolResult> { const symbol = String(args?.symbol ?? '').trim().toUpperCase(); if (!symbol) return fail('yahoo_finance requires "symbol"'); return getJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`, {}, 'Yahoo Finance') }
 export async function toolCoinGecko(args: any): Promise<ToolResult> { const action = String(args?.action ?? 'price').trim().toLowerCase(); const coin = String(args?.coin ?? args?.id ?? '').trim().toLowerCase(); if (action === 'trending') return getJson('https://api.coingecko.com/api/v3/search/trending', {}, 'CoinGecko Trending'); if (action === 'list') return getJson('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&page=1&sparkline=false', {}, 'CoinGecko List'); if (!coin) return fail('coingecko price requires "coin"'); return getJson(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coin)}&vs_currencies=usd`, {}, 'CoinGecko Price') }
 export async function toolTavilyExtract(args: any): Promise<ToolResult> { const url = String(args?.url ?? '').trim(); if (!url) return fail('tavily_extract requires "url"'); const key = process.env.TAVILY_API_KEY; if (!key) return needKey('Tavily Extract', 'TAVILY_API_KEY', 'https://tavily.com'); try { const response = await fetch('https://api.tavily.com/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: key, urls: [url] }), signal: AbortSignal.timeout(15000) }); if (!response.ok) return fail(`Tavily Extract: HTTP ${response.status}`); return ok('Tavily Extract', JSON.stringify(await response.json()).slice(0, 12000)) } catch (e: any) { return fail(`Tavily Extract: ${e?.message ?? String(e)}`) } }
+
+// Dedicated market-data providers -- closes the "OHLCV history + corporate actions" gap the
+// existing quote tools (yahoo_finance/finnhub_quote/alpha_vantage) never covered: those all ask
+// for a live snapshot (yahoo_finance is hardcoded to range=5d), none return years of daily bars or
+// the split/dividend events that silently change what a historical price series means.
+
+export async function toolRoicStockPrices(args: any): Promise<ToolResult> {
+  const key = process.env.ROIC_API_KEY
+  if (!key) return needKey('ROIC.ai Stock Prices', 'ROIC_API_KEY', 'https://www.roic.ai/api')
+  const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
+  if (!ticker) return fail('roic_stock_prices requires "ticker"')
+  const latest = args?.latest === true || args?.latest === 'true'
+  const url = latest
+    ? `https://api.roic.ai/v2/stock-prices/latest/${encodeURIComponent(ticker)}?apikey=${encodeURIComponent(key)}`
+    : `https://api.roic.ai/v2/stock-prices/${encodeURIComponent(ticker)}?apikey=${encodeURIComponent(key)}`
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    if (!response.ok) return fail(`ROIC.ai Stock Prices: HTTP ${response.status}`)
+    const data = await response.json()
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [data]
+    if (!rows.length) return ok(`ROIC.ai Stock Prices: no data for ${ticker}`, JSON.stringify(data).slice(0, 4000))
+    const shown = rows.slice(-60)
+    const lines = shown.map((r: any) => `  ${r.date ?? r.timestamp ?? '?'}: O=${r.open ?? '-'} H=${r.high ?? '-'} L=${r.low ?? '-'} C=${r.close ?? '-'} AdjC=${r.adjClose ?? r.adjusted_close ?? '-'} V=${r.volume ?? '-'}`).join('\n')
+    return ok(`ROIC.ai: ${rows.length} price point(s) for ${ticker}`, `ROIC.AI STOCK PRICES — ${ticker}\n${'='.repeat(60)}\n\n${lines}${rows.length > shown.length ? `\n  ... and ${rows.length - shown.length} more` : ''}`)
+  } catch (e: any) { return fail(`ROIC.ai Stock Prices: ${e?.message ?? String(e)}`) }
+}
+
+export async function toolRoicFinancials(args: any): Promise<ToolResult> {
+  const key = process.env.ROIC_API_KEY
+  if (!key) return needKey('ROIC.ai Financials', 'ROIC_API_KEY', 'https://www.roic.ai/api')
+  const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
+  if (!ticker) return fail('roic_financials requires "ticker"')
+  const statement = String(args?.statement ?? 'income-statement').trim().toLowerCase()
+  const validStatements = new Set(['income-statement', 'balance-sheet', 'cash-flow-statement'])
+  if (!validStatements.has(statement)) return fail(`roic_financials "statement" must be one of: ${[...validStatements].join(', ')}`)
+  const periodType = String(args?.period_type ?? 'annual').trim().toLowerCase()
+  const exchange = String(args?.exchange ?? 'NASDAQ').trim().toUpperCase()
+  const identifier = ticker.includes(':') ? ticker : `${exchange}:${ticker}`
+  return getJson(`https://api.roic.ai/v3.0.0/fundamental/${statement}/${encodeURIComponent(identifier)}?apikey=${encodeURIComponent(key)}&period_type=${encodeURIComponent(periodType)}`, {}, `ROIC.ai ${statement} — ${identifier}`)
+}
+
+export async function toolTiingoDaily(args: any): Promise<ToolResult> {
+  const key = process.env.TIINGO_API_KEY
+  if (!key) return needKey('Tiingo Daily Prices', 'TIINGO_API_KEY', 'https://www.tiingo.com')
+  const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
+  if (!ticker) return fail('tiingo_daily requires "ticker"')
+  const startDate = String(args?.start_date ?? args?.from ?? '').trim()
+  const endDate = String(args?.end_date ?? args?.to ?? '').trim()
+  const params = new URLSearchParams()
+  if (startDate) params.set('startDate', startDate)
+  if (endDate) params.set('endDate', endDate)
+  const qs = params.toString()
+  try {
+    const response = await fetch(`https://api.tiingo.com/tiingo/daily/${encodeURIComponent(ticker)}/prices${qs ? `?${qs}` : ''}`, {
+      headers: { Authorization: `Token ${key}`, Accept: 'application/json' }, signal: AbortSignal.timeout(15000),
+    })
+    if (!response.ok) return fail(`Tiingo Daily Prices: HTTP ${response.status}`)
+    const data = await response.json()
+    const rows = Array.isArray(data) ? data : [data]
+    if (!rows.length) return ok(`Tiingo: no price data for ${ticker}`, JSON.stringify(data).slice(0, 2000))
+    const shown = rows.slice(-60)
+    const lines = shown.map((r: any) => `  ${String(r.date ?? '').slice(0, 10)}: O=${r.open} H=${r.high} L=${r.low} C=${r.close} AdjC=${r.adjClose} V=${r.volume} SplitFactor=${r.splitFactor ?? 1} DivCash=${r.divCash ?? 0}`).join('\n')
+    return ok(`Tiingo: ${rows.length} daily price point(s) for ${ticker}`, `TIINGO DAILY OHLCV — ${ticker}${startDate || endDate ? ` (${startDate || '...'} to ${endDate || '...'})` : ''}\n${'='.repeat(60)}\n\nAdjusted close and per-day split/dividend factors included (SplitFactor != 1 or DivCash != 0 marks a corporate action that day -- no separate corporate-actions call needed).\n\n${lines}`)
+  } catch (e: any) { return fail(`Tiingo Daily Prices: ${e?.message ?? String(e)}`) }
+}
+
+// Polygon.io rebranded to Massive.com in Oct 2025 -- existing API keys and the api.polygon.io base
+// continue to work under extended support (per Massive's own migration announcement), so
+// POLYGON_API_KEY / api.polygon.io are kept rather than forcing a naming change no one asked for.
+export async function toolPolygonAggregates(args: any): Promise<ToolResult> {
+  const key = process.env.POLYGON_API_KEY
+  if (!key) return needKey('Polygon (Massive) Aggregates', 'POLYGON_API_KEY', 'https://massive.com')
+  const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
+  if (!ticker) return fail('polygon_aggregates requires "ticker"')
+  const multiplier = Math.max(1, Number(args?.multiplier ?? 1))
+  const timespan = String(args?.timespan ?? 'day').trim().toLowerCase()
+  const to = String(args?.to ?? new Date().toISOString().slice(0, 10)).trim()
+  const from = String(args?.from ?? new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)).trim()
+  try {
+    const response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/${multiplier}/${encodeURIComponent(timespan)}/${encodeURIComponent(from)}/${encodeURIComponent(to)}?adjusted=true&sort=asc&limit=500&apiKey=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(15000) })
+    if (!response.ok) return fail(`Polygon Aggregates: HTTP ${response.status}`)
+    const data = await response.json()
+    const results = Array.isArray(data?.results) ? data.results : []
+    if (!results.length) return ok(`Polygon: no bars for ${ticker}`, JSON.stringify(data).slice(0, 2000))
+    const shown = results.slice(-60)
+    const lines = shown.map((r: any) => `  ${new Date(r.t).toISOString().slice(0, 10)}: O=${r.o} H=${r.h} L=${r.l} C=${r.c} V=${r.v}`).join('\n')
+    return ok(`Polygon: ${results.length} bar(s) for ${ticker}`, `POLYGON (MASSIVE) OHLCV — ${ticker} (${multiplier} ${timespan}, ${from} to ${to})\n${'='.repeat(60)}\n\n${lines}`)
+  } catch (e: any) { return fail(`Polygon Aggregates: ${e?.message ?? String(e)}`) }
+}
+
+export async function toolPolygonCorporateActions(args: any): Promise<ToolResult> {
+  const key = process.env.POLYGON_API_KEY
+  if (!key) return needKey('Polygon (Massive) Corporate Actions', 'POLYGON_API_KEY', 'https://massive.com')
+  const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
+  if (!ticker) return fail('polygon_corporate_actions requires "ticker"')
+  const kind = String(args?.kind ?? 'splits').trim().toLowerCase()
+  if (kind !== 'splits' && kind !== 'dividends') return fail('polygon_corporate_actions "kind" must be "splits" or "dividends"')
+  try {
+    const response = await fetch(`https://api.polygon.io/v3/reference/${kind}?ticker=${encodeURIComponent(ticker)}&limit=50&apiKey=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(15000) })
+    if (!response.ok) return fail(`Polygon Corporate Actions: HTTP ${response.status}`)
+    const data = await response.json()
+    const results = Array.isArray(data?.results) ? data.results : []
+    if (!results.length) return ok(`Polygon: no ${kind} found for ${ticker}`, JSON.stringify(data).slice(0, 2000))
+    const lines = kind === 'splits'
+      ? results.map((r: any) => `  ${r.execution_date}: ${r.split_from}-for-${r.split_to} split`).join('\n')
+      : results.map((r: any) => `  Ex-date ${r.ex_dividend_date}: $${r.cash_amount} (pay ${r.pay_date ?? 'n/a'}, freq ${r.frequency ?? 'n/a'})`).join('\n')
+    return ok(`Polygon: ${results.length} ${kind} event(s) for ${ticker}`, `POLYGON (MASSIVE) ${kind.toUpperCase()} — ${ticker}\n${'='.repeat(60)}\n\n${lines}`)
+  } catch (e: any) { return fail(`Polygon Corporate Actions: ${e?.message ?? String(e)}`) }
+}

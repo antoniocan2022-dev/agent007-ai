@@ -151,6 +151,41 @@ describe('CEO execution contract', () => {
     expect(sourceTierForUrl('https://www.reuters.com/example')).toBe(3)
   })
 
+  test('richer evidence schema: relatedEntities carries through from source to claim', () => {
+    const source = createEvidenceSource({
+      url: 'https://www.sec.gov/Archives/edgar/data/example/filing.htm', title: 'Example SEC filing', sourceType: 'sec_filing', sourceTier: 1,
+      text: 'Revenue was 100 million dollars and cash was 20 million dollars.', relatedEntities: ['GEOS'],
+    })
+    expect(source.relatedEntities).toEqual(['GEOS'])
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [source] })
+    expect(bundle.claims[0].relatedEntities).toEqual(['GEOS'])
+    expect(bundle.contextText).toContain('Entities: GEOS')
+  })
+
+  test('richer evidence schema: the same claim from two independent source families merges instead of duplicating, and confidence is boosted for corroboration', () => {
+    const claimText = 'Revenue grew 12% year over year to $450 million.'
+    const reuters = createEvidenceSource({ url: 'https://www.reuters.com/article-a', title: 'Reuters coverage', sourceType: 'news', text: claimText })
+    const apnews = createEvidenceSource({ url: 'https://apnews.com/article-b', title: 'AP coverage', sourceType: 'news', text: claimText })
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [reuters, apnews] })
+    expect(bundle.claims).toHaveLength(1)
+    const claim = bundle.claims[0]
+    expect(claim.sourceIds).toHaveLength(2)
+    expect(claim.sourceUrls).toEqual(['https://www.reuters.com/article-a', 'https://apnews.com/article-b'])
+    // Both reuters.com and apnews.com are tier-3 (base confidence 0.75); corroboration from a second
+    // independent source family adds the 0.08 bonus.
+    expect(claim.confidence).toBeCloseTo(0.83, 5)
+  })
+
+  test('richer evidence schema: two URLs from the SAME publisher (same source family) merge the claim without a corroboration bonus', () => {
+    const claimText = 'Revenue grew 12% year over year to $450 million.'
+    const first = createEvidenceSource({ url: 'https://www.reuters.com/article-a', title: 'Reuters coverage', sourceType: 'news', text: claimText })
+    const followUp = createEvidenceSource({ url: 'https://www.reuters.com/article-b', title: 'Reuters follow-up', sourceType: 'news', text: claimText })
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [first, followUp] })
+    expect(bundle.claims).toHaveLength(1)
+    expect(bundle.claims[0].sourceIds).toHaveLength(2)
+    expect(bundle.claims[0].confidence).toBeCloseTo(0.75, 5)
+  })
+
   test('keeps orchestration ownership request-scoped and isolated', async () => {
     expect(getOrchestrationOwner()).toBeNull()
     const seen: string[] = []

@@ -9,6 +9,8 @@ import { toolHealthChecker, toolSelfHealingTools } from '@/lib/tool-testing-coor
 import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
 import { sourceTierForUrl } from '@/lib/ceo-evidence-bundle'
 import { getToolDiscoveryPrompt } from '@/lib/provider-intelligence'
+import { toolRoicStockPrices, toolRoicFinancials, toolTiingoDaily, toolPolygonAggregates, toolPolygonCorporateActions } from '@/lib/ai-providers-integration'
+import { toolFirecrawlScrape, toolFirecrawlMap, toolFirecrawlCrawl, toolSpiderScrape, toolSpiderCrawl, pollFirecrawlJob } from '@/lib/site-crawl-tools'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -791,6 +793,262 @@ describe('Round-2 deep re-audit fixes', () => {
       expect(src).toContain('Developer enhancement active — real analysis from a live LLM call this turn.')
       const devToolCount = (src.match(/createDevTool\(\{/g) ?? []).length
       expect(devToolCount).toBe(12)
+    })
+  })
+})
+
+// User-requested round 3: dedicated market-data providers (ROIC.ai, Tiingo, Polygon/Massive) and
+// whole-site crawlers (Firecrawl, Spider.cloud).
+describe('Round-3: market-data providers and site crawlers', () => {
+  describe('ROIC.ai: historical OHLCV + financial statements', () => {
+    test('both tools honestly require ROIC_API_KEY when unset', async () => {
+      delete process.env.ROIC_API_KEY
+      const prices = await toolRoicStockPrices({ ticker: 'AAPL' })
+      expect(prices.ok).toBe(false)
+      expect(prices.result).toContain('ROIC_API_KEY')
+      const financials = await toolRoicFinancials({ ticker: 'AAPL' })
+      expect(financials.ok).toBe(false)
+      expect(financials.result).toContain('ROIC_API_KEY')
+    })
+
+    test('stock prices formats real OHLCV rows when the call succeeds', async () => {
+      process.env.ROIC_API_KEY = 'test-key'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify([{ date: '2026-01-02', open: 190, high: 195, low: 189, close: 193, adjClose: 193, volume: 1000000 }]), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolRoicStockPrices({ ticker: 'AAPL' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('2026-01-02')
+        expect(result.result).toContain('C=193')
+      } finally { globalThis.fetch = originalFetch; delete process.env.ROIC_API_KEY }
+    })
+
+    test('financials rejects an unrecognized statement type before making a network call', async () => {
+      process.env.ROIC_API_KEY = 'test-key'
+      try {
+        const result = await toolRoicFinancials({ ticker: 'AAPL', statement: 'not-a-real-statement' })
+        expect(result.ok).toBe(false)
+        expect(result.result).toContain('statement')
+      } finally { delete process.env.ROIC_API_KEY }
+    })
+  })
+
+  describe('Tiingo: daily OHLCV with inline split/dividend factors', () => {
+    test('honestly requires TIINGO_API_KEY when unset (not yet configured by the owner)', async () => {
+      delete process.env.TIINGO_API_KEY
+      const result = await toolTiingoDaily({ ticker: 'AAPL' })
+      expect(result.ok).toBe(false)
+      expect(result.result).toContain('TIINGO_API_KEY')
+    })
+
+    test('surfaces per-day split factor and dividend cash as the corporate-actions signal', async () => {
+      process.env.TIINGO_API_KEY = 'test-key'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify([{ date: '2026-01-02T00:00:00.000Z', open: 190, high: 195, low: 189, close: 193, adjClose: 193, volume: 1000000, splitFactor: 1, divCash: 0.24 }]), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolTiingoDaily({ ticker: 'AAPL' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('DivCash=0.24')
+        expect(result.result).toContain('split/dividend factors')
+      } finally { globalThis.fetch = originalFetch; delete process.env.TIINGO_API_KEY }
+    })
+  })
+
+  describe('Polygon (Massive): OHLCV aggregates + corporate actions', () => {
+    test('both tools honestly require POLYGON_API_KEY when unset (not yet configured by the owner)', async () => {
+      delete process.env.POLYGON_API_KEY
+      const aggregates = await toolPolygonAggregates({ ticker: 'AAPL' })
+      expect(aggregates.ok).toBe(false)
+      expect(aggregates.result).toContain('POLYGON_API_KEY')
+      const actions = await toolPolygonCorporateActions({ ticker: 'AAPL' })
+      expect(actions.ok).toBe(false)
+      expect(actions.result).toContain('POLYGON_API_KEY')
+    })
+
+    test('aggregates formats real OHLCV bars when the call succeeds', async () => {
+      process.env.POLYGON_API_KEY = 'test-key'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify({ results: [{ t: 1767398400000, o: 190, h: 195, l: 189, c: 193, v: 1000000 }] }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolPolygonAggregates({ ticker: 'AAPL' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('C=193')
+      } finally { globalThis.fetch = originalFetch; delete process.env.POLYGON_API_KEY }
+    })
+
+    test('corporate actions formats real split events when the call succeeds', async () => {
+      process.env.POLYGON_API_KEY = 'test-key'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify({ results: [{ execution_date: '2020-08-31', split_from: 1, split_to: 4 }] }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolPolygonCorporateActions({ ticker: 'AAPL', kind: 'splits' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('1-for-4 split')
+      } finally { globalThis.fetch = originalFetch; delete process.env.POLYGON_API_KEY }
+    })
+
+    test('rejects an unrecognized "kind" before making a network call', async () => {
+      process.env.POLYGON_API_KEY = 'test-key'
+      try {
+        const result = await toolPolygonCorporateActions({ ticker: 'AAPL', kind: 'mergers' })
+        expect(result.ok).toBe(false)
+      } finally { delete process.env.POLYGON_API_KEY }
+    })
+  })
+
+  describe('Firecrawl: keyless-capable scrape, credential-gated map/crawl', () => {
+    test('scrape works without FIRECRAWL_API_KEY (keyless tier)', async () => {
+      delete process.env.FIRECRAWL_API_KEY
+      const originalFetch = globalThis.fetch
+      let sawAuthHeader = false
+      globalThis.fetch = (async (_url: any, init: any) => {
+        sawAuthHeader = Boolean(init?.headers?.Authorization)
+        return new Response(JSON.stringify({ data: { markdown: 'content', metadata: { title: 'T' } } }), { status: 200 })
+      }) as typeof fetch
+      try {
+        const result = await toolFirecrawlScrape({ url: 'https://example.com' })
+        expect(result.ok).toBe(true)
+        expect(sawAuthHeader).toBe(false)
+      } finally { globalThis.fetch = originalFetch }
+    })
+
+    test('scrape attaches Authorization when FIRECRAWL_API_KEY is set', async () => {
+      process.env.FIRECRAWL_API_KEY = 'fc-test'
+      const originalFetch = globalThis.fetch
+      let authHeader = ''
+      globalThis.fetch = (async (_url: any, init: any) => {
+        authHeader = init?.headers?.Authorization ?? ''
+        return new Response(JSON.stringify({ data: { markdown: 'content', metadata: { title: 'T' } } }), { status: 200 })
+      }) as typeof fetch
+      try {
+        await toolFirecrawlScrape({ url: 'https://example.com' })
+        expect(authHeader).toBe('Bearer fc-test')
+      } finally { globalThis.fetch = originalFetch; delete process.env.FIRECRAWL_API_KEY }
+    })
+
+    test('map honestly requires FIRECRAWL_API_KEY (not available in keyless mode)', async () => {
+      delete process.env.FIRECRAWL_API_KEY
+      const result = await toolFirecrawlMap({ url: 'https://example.com' })
+      expect(result.ok).toBe(false)
+      expect(result.result).toContain('FIRECRAWL_API_KEY')
+    })
+
+    test('map formats discovered URLs with URL: labels for evidence extraction', async () => {
+      process.env.FIRECRAWL_API_KEY = 'fc-test'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify({ links: ['https://example.com/a', 'https://example.com/b'] }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolFirecrawlMap({ url: 'https://example.com' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('URL: https://example.com/a')
+      } finally { globalThis.fetch = originalFetch; delete process.env.FIRECRAWL_API_KEY }
+    })
+
+    test('crawl honestly requires FIRECRAWL_API_KEY (not available in keyless mode)', async () => {
+      delete process.env.FIRECRAWL_API_KEY
+      const result = await toolFirecrawlCrawl({ url: 'https://example.com' })
+      expect(result.ok).toBe(false)
+      expect(result.result).toContain('FIRECRAWL_API_KEY')
+    })
+
+    test('crawl reports honestly when the async job is still running, instead of fabricating completion', async () => {
+      // Calls pollFirecrawlJob directly with a short poll interval so this exercises the real
+      // "still running past the budget" branch without waiting out the production 2.5s cadence.
+      const originalFetch = globalThis.fetch
+      let callCount = 0
+      globalThis.fetch = (async () => { callCount++; return new Response(JSON.stringify({ status: 'scraping', completed: 2, total: 10 }), { status: 200 }) }) as typeof fetch
+      try {
+        const result = await pollFirecrawlJob('job-123', 'fc-test', 120, 20)
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('still running')
+        expect(result.result).toContain('job-123')
+        expect(callCount).toBeGreaterThan(1)
+      } finally { globalThis.fetch = originalFetch }
+    })
+
+    test('crawl starts a new job for a "url" argument and formats the completed result', async () => {
+      process.env.FIRECRAWL_API_KEY = 'fc-test'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async (url: any) => {
+        if (String(url).endsWith('/v2/crawl')) return new Response(JSON.stringify({ id: 'job-new' }), { status: 200 })
+        return new Response(JSON.stringify({ status: 'completed', data: [{ metadata: { title: 'Page', sourceURL: 'https://example.com/a' }, markdown: 'content' }] }), { status: 200 })
+      }) as typeof fetch
+      try {
+        const result = await toolFirecrawlCrawl({ url: 'https://example.com', limit: 10 })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('job-new')
+        expect(result.result).toContain('completed')
+      } finally { globalThis.fetch = originalFetch; delete process.env.FIRECRAWL_API_KEY }
+    })
+
+    test('crawl resumes an existing job via job_id instead of starting a duplicate crawl', async () => {
+      process.env.FIRECRAWL_API_KEY = 'fc-test'
+      const originalFetch = globalThis.fetch
+      let startedNewJob = false
+      globalThis.fetch = (async (url: any) => {
+        if (String(url).endsWith('/v2/crawl')) { startedNewJob = true; return new Response(JSON.stringify({ id: 'unexpected' }), { status: 200 }) }
+        return new Response(JSON.stringify({ status: 'completed', data: [{ metadata: { title: 'Page', sourceURL: 'https://example.com/a' }, markdown: 'content' }] }), { status: 200 })
+      }) as typeof fetch
+      try {
+        const result = await toolFirecrawlCrawl({ job_id: 'existing-job' })
+        expect(result.ok).toBe(true)
+        expect(startedNewJob).toBe(false)
+        expect(result.result).toContain('completed')
+      } finally { globalThis.fetch = originalFetch; delete process.env.FIRECRAWL_API_KEY }
+    })
+  })
+
+  describe('Spider.cloud: anti-bot-resistant scrape/crawl fallback', () => {
+    test('both tools honestly require SPIDER_API_KEY when unset', async () => {
+      delete process.env.SPIDER_API_KEY
+      const scrape = await toolSpiderScrape({ url: 'https://example.com' })
+      expect(scrape.ok).toBe(false)
+      expect(scrape.result).toContain('SPIDER_API_KEY')
+      const crawl = await toolSpiderCrawl({ url: 'https://example.com' })
+      expect(crawl.ok).toBe(false)
+      expect(crawl.result).toContain('SPIDER_API_KEY')
+    })
+
+    test('scrape returns real content when the call succeeds', async () => {
+      process.env.SPIDER_API_KEY = 'sk-test'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify({ content: 'page content', title: 'T' }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolSpiderScrape({ url: 'https://example.com' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('page content')
+      } finally { globalThis.fetch = originalFetch; delete process.env.SPIDER_API_KEY }
+    })
+  })
+
+  describe('all 9 new tools are registered, capability-wired, and discoverable', () => {
+    test('registered in TOOL_REGISTRY', () => {
+      const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
+      for (const id of ['roic_stock_prices', 'roic_financials', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions', 'firecrawl_scrape', 'firecrawl_map', 'firecrawl_crawl', 'spider_scrape', 'spider_crawl']) {
+        expect(toolsSrc).toContain(`TOOL_REGISTRY.${id}`)
+      }
+    })
+
+    test('wired into the finance and research capability domains', () => {
+      const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
+      for (const id of ['roic_stock_prices', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions']) expect(capSrc).toContain(`tool('${id}'`)
+      for (const id of ['firecrawl_scrape', 'firecrawl_map', 'spider_scrape']) expect(capSrc).toContain(`tool('${id}'`)
+    })
+
+    test('named in the tool discovery prompt so the CEO can learn they exist', async () => {
+      const prompt = await getToolDiscoveryPrompt()
+      expect(prompt).toContain('firecrawl_map')
+      expect(prompt).toContain('tiingo_daily')
+      expect(prompt).toContain('polygon_aggregates')
+      expect(prompt).toContain('polygon_corporate_actions')
+    })
+
+    test('none of the 9 are in QUERY_SEARCH_TOOL_IDS -- they take url/ticker, not query, and would fail if the deterministic evidence pipeline dispatched them search-shaped', () => {
+      const executorSrc = readFileSync(new URL('../src/lib/ceo-evidence-executor.ts', import.meta.url), 'utf8')
+      const setLiteral = executorSrc.slice(executorSrc.indexOf('QUERY_SEARCH_TOOL_IDS = new Set('), executorSrc.indexOf('])'))
+      for (const id of ['roic_stock_prices', 'roic_financials', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions', 'firecrawl_scrape', 'firecrawl_map', 'firecrawl_crawl', 'spider_scrape', 'spider_crawl']) {
+        expect(setLiteral).not.toContain(`'${id}'`)
+      }
     })
   })
 })
