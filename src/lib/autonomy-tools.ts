@@ -963,43 +963,47 @@ export async function toolPayoutScheduler(args: any, _ctx: ToolContext): Promise
  * etsy_integration — sync POD products to Etsy, manage listings,
  * track Etsy sales + reviews.
  */
+// Fresh-audit fix: this used to unconditionally return hardcoded, invented sales data (even
+// internally inconsistent -- $148 revenue in the headline, $248.50 a few lines later) with no
+// ETSY_API_KEY check and no real network call at all. Etsy's Open API v3 accepts an API key
+// (x-api-key header) for public shop lookups, but private data -- a shop's own recent orders,
+// monthly revenue, listing management -- requires OAuth 2.0 with a token authorized by that
+// specific shop's owner, which this codebase does not implement. So this now makes a real,
+// public shop lookup and honestly discloses that revenue/order data needs that OAuth flow,
+// rather than fabricating numbers for it.
 export async function toolEtsyIntegration(args: any, _ctx: ToolContext): Promise<ToolResult> {
-  return okResult(
-    `Etsy: 12 active listings, 8 sales this month, $148 revenue`,
-    `ETSY MARKETPLACE INTEGRATION\n${'='.repeat(60)}\n\n` +
-    `SHOP: Agent007Designs\n` +
-    `STATUS: Active (287 days)\n` +
-    `STAR SELLER: Yes (98% 5-star, < 24hr ship)\n\n` +
-    `LISTINGS (12 active):\n` +
-    `  1. "I Let AI Do My Hustling" T-shirt — $24.99 (8 sales)\n` +
-    `  2. "Passive Income Active Coffee" Mug — $16.99 (3 sales)\n` +
-    `  3. "The AI Income Blueprint" Poster — $19.99 (5 sales)\n` +
-    `  + 9 more listings\n\n` +
-    `THIS MONTH (30d):\n` +
-    `  • Sales: 16 orders\n` +
-    `  • Revenue: $248.50\n` +
-    `  • Fees: $52.40 (Etsy 6.5% + transaction $0.20 × 16)\n` +
-    `  • Profit: $196.10\n` +
-    `  • Avg order value: $15.53\n\n` +
-    `AUTO-SYNC:\n` +
-    `  • New design created → auto-publish to Etsy (Printify integration)\n` +
-    `  • Etsy sale → auto-create IncomeEntry in DB\n` +
-    `  • Etsy review → auto-route to sentiment_analyzer\n` +
-    `  • Low inventory alert → auto-reorder via Printify\n\n` +
-    `SEO OPTIMIZATION:\n` +
-    `  • Title: keyword-rich (13 tags max)\n` +
-    `  • Description: first 160 chars = SEO meta\n` +
-    `  • Tags: long-tail buyer keywords\n` +
-    `  • Photos: 10 slots, first photo is hero\n\n` +
-    `ADVERTISING:\n` +
-    `  • Etsy Ads: $3/day budget (auto-optimizes)\n` +
-    `  • Off-Etsy ads: 12% commission on attributed sales\n` +
-    `  • Last 30d ad ROI: 4.2x (Etsy) / 2.8x (off-Etsy)\n\n` +
-    `GROWTH TARGETS:\n` +
-    `  • Add 5 new designs/week\n` +
-    `  • Reach 50 listings by month-end\n` +
-    `  • Goal: $500/month Etsy revenue (2x current)`
-  )
+  const key = process.env.ETSY_API_KEY
+  if (!key) return badResult('etsy_integration requires ETSY_API_KEY. Get a key at https://www.etsy.com/developers/register, then set it in the runtime environment.')
+  const shopId = String(args?.shop_id ?? args?.shopId ?? '').trim()
+  const shopName = String(args?.shop_name ?? args?.shopName ?? '').trim()
+  if (!shopId && !shopName) return badResult('etsy_integration requires "shop_id" or "shop_name" -- Etsy\'s public API has no "my shop" lookup, only a lookup by id or name.')
+  try {
+    const url = shopId
+      ? `https://openapi.etsy.com/v3/application/shops/${encodeURIComponent(shopId)}`
+      : `https://openapi.etsy.com/v3/application/shops?shop_name=${encodeURIComponent(shopName)}`
+    const res = await fetch(url, { headers: { 'x-api-key': key }, signal: AbortSignal.timeout(10000) })
+    if (!res.ok) return badResult(`etsy_integration: Etsy API HTTP ${res.status}`)
+    const data = await res.json()
+    const shop = shopId ? data : (Array.isArray(data?.results) ? data.results[0] : undefined)
+    if (!shop) return badResult(`etsy_integration: no shop found for "${shopId || shopName}"`)
+    const lines = [
+      `ETSY SHOP — real data via Etsy Open API v3`,
+      `${'='.repeat(60)}`,
+      `Shop: ${shop.shop_name ?? 'unknown'} (id ${shop.shop_id ?? 'unknown'})`,
+      `Active listings: ${shop.listing_active_count ?? 'n/a'}`,
+      `All-time sales (Etsy-reported): ${shop.transaction_sold_count ?? 'n/a'}`,
+      `Reviews: ${shop.review_count ?? 'n/a'} (avg ${shop.review_average ?? 'n/a'})`,
+      `Currency: ${shop.currency_code ?? 'n/a'}`,
+      '',
+      'HONEST NOTE: This is public shop data, available with an API key alone. Etsy requires ' +
+      'OAuth 2.0 (a token authorized by the shop\'s owner) for private data -- recent orders, this ' +
+      'month\'s revenue, listing management -- and that flow is not wired in this codebase yet, so ' +
+      'this tool cannot report current sales/revenue or manage listings.',
+    ]
+    return okResult(`Etsy: real shop data for "${shop.shop_name ?? shopId ?? shopName}" (${shop.listing_active_count ?? '?'} active listings)`, lines.join('\n'))
+  } catch (e: any) {
+    return badResult(`etsy_integration: ${e?.message ?? String(e)}`)
+  }
 }
 
 /**

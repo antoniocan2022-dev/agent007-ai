@@ -57,7 +57,11 @@ const TOOL_REQUIRED_ENV: Record<string, string[]> = {
 
   // === SOCIAL MEDIA SCHEDULERS ===
   buffer_scheduler: ['BUFFER_ACCESS_TOKEN'],
-  hootsuite_schedule: ['HOOTSUITE_ACCESS_TOKEN'],
+  // Fresh-audit fix: hootsuite_schedule doesn't call Hootsuite or read HOOTSUITE_ACCESS_TOKEN at
+  // all -- it silently redirects to the Buffer credentials (see external-platform-tools.ts). This
+  // used to always report the tool as blocked even when Buffer was fully configured and the
+  // feature already worked.
+  hootsuite_schedule: ['BUFFER_ACCESS_TOKEN'],
 
   // === AFFILIATE MARKETING ===
   // UPGRADE #175: AMAZON_PA_API_KEY is OPTIONAL — only needed for programmatic
@@ -72,7 +76,10 @@ const TOOL_REQUIRED_ENV: Record<string, string[]> = {
   wordpress_publisher: ['WORDPRESS_URL', 'WORDPRESS_USER', 'WORDPRESS_APP_PASSWORD'],
 
   // === ANALYTICS ===
-  google_analytics: ['GOOGLE_ANALYTICS_API_KEY'],
+  // Fresh-audit fix: the real google_analytics tool (toolGoogleAnalytics) reads GA4_API_KEY +
+  // GA4_PROPERTY_ID -- it never reads GOOGLE_ANALYTICS_API_KEY, so checking that name here could
+  // report "ready" while the tool is actually unconfigured, or "blocked" while it already works.
+  google_analytics: ['GA4_API_KEY', 'GA4_PROPERTY_ID'],
 
   // === COMMUNICATION (notifications) ===
   telegram_notify: ['TELEGRAM_BOT_TOKEN'],
@@ -90,7 +97,10 @@ const TOOL_REQUIRED_ENV: Record<string, string[]> = {
   // CoinGecko is also free (no key)
   coingecko: [],
   // Alpha Vantage needs a key
-  alpha_vantage: ['ALPHAVANTAGE_API_KEY'],
+  // Fresh-audit fix: the real toolAlphaVantage reads ALPHA_VANTAGE_API_KEY (with the underscore);
+  // ALPHAVANTAGE_API_KEY is never read anywhere, so this always reported the tool as blocked
+  // even when the real key was set.
+  alpha_vantage: ['ALPHA_VANTAGE_API_KEY'],
 
   // === LLM TOOLS ===
   multi_provider_compare: ['GROQ_API_KEY'], // needs at least one LLM
@@ -264,11 +274,11 @@ export async function GET() {
       cost: 'Free, 20-30% LIFETIME RECURRING on SaaS products',
     })
   }
-  if (!isEnvSet('GOOGLE_ANALYTICS_API_KEY')) {
+  if (!isEnvSet('GA4_API_KEY') || !isEnvSet('GA4_PROPERTY_ID')) {
     blockingForRevenue.push({
-      envVar: 'GOOGLE_ANALYTICS_API_KEY (optional — GA tag is enough)',
+      envVar: 'GA4_API_KEY + GA4_PROPERTY_ID (optional — installing the GA4 tracking tag on your site is enough for basic analytics; these two unlock the agent querying reports itself via the Data API)',
       tools: ['google_analytics'],
-      setupTime: '~30 min (install GA tag, optional API key)',
+      setupTime: '~30 min (create GA4 property + service-account key)',
       cost: 'Free',
     })
   }

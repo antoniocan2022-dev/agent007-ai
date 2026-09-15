@@ -13,19 +13,34 @@ const _g = globalThis as any
 if (!_g.__toolUsage) _g.__toolUsage = new Map<string, ToolUsage>()
 const usageStore: Map<string, ToolUsage> = _g.__toolUsage
 
-const TOOLS_REQUIRING_KEYS: Record<string, string> = {
-  cerebras_llm: 'CEREBRAS_API_KEY', sambanova_llm: 'SAMBANOVA_API_KEY', together_llm: 'TOGETHER_API_KEY',
-  mistral_llm: 'MISTRAL_API_KEY', hf_llm: 'HUGGINGFACE_API_KEY', cloudflare_llm: 'CLOUDFLARE_API_TOKEN',
-  cohere_llm: 'COHERE_API_KEY', tavily_search: 'TAVILY_API_KEY', serpapi: 'SERPAPI_API_KEY',
-  newsapi: 'NEWSAPI_API_KEY', alpha_vantage: 'ALPHAVANTAGE_API_KEY', exa_search: 'EXA_API_KEY',
-  product_hunt: 'PRODUCTHUNT_API_TOKEN', hf_inference: 'HUGGINGFACE_API_KEY',
-  stability_image: 'STABILITY_API_KEY', elevenlabs_tts: 'ELEVENLABS_API_KEY',
-  deepl_translate: 'DEEPL_API_KEY', remove_bg: 'REMOVEBG_API_KEY', yahoo_finance: 'RAPIDAPI_KEY',
-  stripe_payment_processor: 'STRIPE_SECRET_KEY', wordpress_publisher: 'WP_APP_PASSWORD',
-  etsy_integration: 'ETSY_API_KEY', buffer_scheduler: 'BUFFER_ACCESS_TOKEN',
-  convertkit_email: 'CONVERTKIT_API_KEY', hootsuite_schedule: 'HOOTSUITE_ACCESS_TOKEN',
-  google_analytics: 'GOOGLE_ANALYTICS_API_KEY', hotjar_analytics: 'HOTJAR_API_KEY',
-  ubersuggest_seo: 'UBERSUGGEST_API_KEY', ahrefs_seo: 'AHREFS_API_KEY',
+// Fresh-audit fix: about half of these names didn't match what the real tool implementations
+// actually read (verified against external-platform-tools.ts / ai-providers-integration.ts /
+// autonomy-tools.ts), so toolHealthChecker/toolSelfHealingTools below could report a tool
+// "missing keys" while it was already fully configured, or vice versa. Corrected each one against
+// its real implementation; several tools turned out to redirect internally to a different real
+// integration entirely (Hootsuite -> Buffer, Hotjar/Ubersuggest/Ahrefs -> Google Analytics/
+// SerpAPI/DataForSEO) rather than having their own credential, and yahoo_finance needs no key at
+// all (free v8 API) so it's been removed from this "requires keys" map entirely. Upgraded from a
+// single env-var-per-tool map to var-list-per-tool so a genuinely multi-variable requirement (like
+// Google Analytics' two GA4_* vars, or WordPress' three) can be represented correctly instead of
+// only ever checking one of them.
+const TOOLS_REQUIRING_KEYS: Record<string, string[]> = {
+  cerebras_llm: ['CEREBRAS_API_KEY'], sambanova_llm: ['SAMBANOVA_API_KEY'], together_llm: ['TOGETHER_API_KEY'],
+  mistral_llm: ['MISTRAL_API_KEY'], hf_llm: ['HUGGINGFACE_API_KEY'], cloudflare_llm: ['CLOUDFLARE_API_KEY'],
+  cohere_llm: ['COHERE_API_KEY'], tavily_search: ['TAVILY_API_KEY'], serpapi: ['SERPAPI_API_KEY'],
+  newsapi: ['NEWSAPI_KEY'], alpha_vantage: ['ALPHA_VANTAGE_API_KEY'], exa_search: ['EXA_API_KEY'],
+  product_hunt: ['PRODUCTHUNT_API_KEY'], hf_inference: ['HUGGINGFACE_API_KEY'],
+  stability_image: ['STABILITY_API_KEY'], elevenlabs_tts: ['ELEVENLABS_API_KEY'],
+  deepl_translate: ['DEEPL_API_KEY'], remove_bg: ['REMOVE_BG_API_KEY'],
+  stripe_payment_processor: ['STRIPE_SECRET_KEY'],
+  wordpress_publisher: ['WORDPRESS_URL', 'WORDPRESS_USER', 'WORDPRESS_APP_PASSWORD'],
+  etsy_integration: ['ETSY_API_KEY'], buffer_scheduler: ['BUFFER_ACCESS_TOKEN'],
+  convertkit_email: ['CONVERTKIT_API_KEY'],
+  hootsuite_schedule: ['BUFFER_ACCESS_TOKEN'], // redirects to Buffer internally -- see external-platform-tools.ts
+  google_analytics: ['GA4_API_KEY', 'GA4_PROPERTY_ID'],
+  hotjar_analytics: ['GA4_API_KEY', 'GA4_PROPERTY_ID'], // redirects to google_analytics internally
+  ubersuggest_seo: ['SERPAPI_API_KEY'], // reads SERPAPI_API_KEY, not a separate Ubersuggest credential
+  ahrefs_seo: ['DATAFORSEO_EMAIL', 'DATAFORSEO_PASSWORD'], // reads DataForSEO, not a separate Ahrefs credential
 }
 
 const REAL_EXECUTABLE_TOOLS = new Set([
@@ -77,14 +92,14 @@ export async function toolHealthChecker(args: any): Promise<ToolResult> {
     const { TOOL_REGISTRY } = await import('./tools')
     const allTools = Object.keys(TOOL_REGISTRY)
     const realTools = allTools.filter((t) => REAL_EXECUTABLE_TOOLS.has(t))
-    const keysConfigured = Object.keys(TOOLS_REQUIRING_KEYS).filter((t) => process.env[TOOLS_REQUIRING_KEYS[t]]).length
+    const keysConfigured = Object.values(TOOLS_REQUIRING_KEYS).filter((vars) => vars.every((v) => process.env[v])).length
     const keysMissing = Object.keys(TOOLS_REQUIRING_KEYS).length - keysConfigured
     return ok(`${allTools.length} tools: ${realTools.length} REAL, ${allTools.length - realTools.length} VIRTUAL, ${keysConfigured} keys set, ${keysMissing} keys missing`,
       `TOOL HEALTH CHECKER\n${'='.repeat(60)}\nTotal tools: ${allTools.length}\nREAL executable: ${realTools.length}\nVIRTUAL: ${allTools.length - realTools.length}\nAPI keys configured: ${keysConfigured}\nAPI keys missing: ${keysMissing}`)
   }
   if (action === 'missing_keys') {
-    const missing = Object.entries(TOOLS_REQUIRING_KEYS).filter(([,v]) => !process.env[v])
-    return ok(`${missing.length} tools missing API keys`, `MISSING KEYS:\n${missing.map(([t,v]) => `  ❌ ${t} → ${v}`).join('\n')}`)
+    const missing = Object.entries(TOOLS_REQUIRING_KEYS).filter(([, vars]) => !vars.every((v) => process.env[v]))
+    return ok(`${missing.length} tools missing API keys`, `MISSING KEYS:\n${missing.map(([t, vars]) => `  ❌ ${t} → ${vars.join(' + ')}`).join('\n')}`)
   }
   return fail(`Unknown action: ${action}`)
 }
@@ -114,8 +129,8 @@ export async function toolIntegrationTestSuite(args: any): Promise<ToolResult> {
 export async function toolSelfHealingTools(args: any): Promise<ToolResult> {
   const { action = 'diagnose' } = args ?? {}
   if (action === 'diagnose') {
-    const missing = Object.entries(TOOLS_REQUIRING_KEYS).filter(([,v]) => !process.env[v])
-    return ok(`${missing.length} tools need healing`, `SELF-HEALING DIAGNOSIS\n${missing.length} tools missing API keys:\n${missing.map(([t,v]) => `  ❌ ${t} → ${v}`).join('\n')}`)
+    const missing = Object.entries(TOOLS_REQUIRING_KEYS).filter(([, vars]) => !vars.every((v) => process.env[v]))
+    return ok(`${missing.length} tools need healing`, `SELF-HEALING DIAGNOSIS\n${missing.length} tools missing API keys:\n${missing.map(([t, vars]) => `  ❌ ${t} → ${vars.join(' + ')}`).join('\n')}`)
   }
   return ok('Self-healing tools', `SELF-HEALING TOOLS\nUse action="diagnose" to check missing keys.`)
 }
