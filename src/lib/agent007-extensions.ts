@@ -30,7 +30,13 @@ async function getOperatorUserId() {
   return u?.id ?? null
 }
 
-async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
+// Fresh-audit fix: this used to collapse a real LLM failure into a plain string
+// ("(LLM unavailable: ...)") indistinguishable from genuine analysis text -- createTool below then
+// unconditionally appended a blanket "full access, no limitations" capability line after it,
+// directly contradicting the failure message two lines above. A discriminated result lets the
+// caller report the two cases honestly instead of always claiming full access regardless of what
+// happened.
+async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
   try {
     const zai = await getCanonicalLlmBridge()
     const c = await zai.chat.completions.create({
@@ -38,8 +44,10 @@ async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): 
       temperature: 0.5,
       max_tokens: maxTokens,
     })
-    return c?.choices?.[0]?.message?.content ?? ''
-  } catch (e: any) { return `(LLM unavailable: ${e?.message})` }
+    const content = c?.choices?.[0]?.message?.content ?? ''
+    if (!content.trim()) return { ok: false, error: 'LLM returned no content' }
+    return { ok: true, content }
+  } catch (e: any) { return { ok: false, error: e?.message ?? String(e) } }
 }
 
 /** Factory: creates a data-driven tool that loads DB data + calls LLM for analysis */
@@ -56,8 +64,16 @@ function createTool(opts: {
       if (!userId) return bad('No operator user')
       const data = opts.dataLoader ? await opts.dataLoader(userId, args) : ''
       const userPrompt = opts.userPromptTemplate(data, args)
-      const analysis = await llm(opts.systemPrompt, userPrompt, 1800)
-      const report = `${opts.label}\n══════════════════════════════════════════════\n\n${analysis}\n\nCAPABILITY STATUS: Full access, no limitations.`
+      const llmResult = await llm(opts.systemPrompt, userPrompt, 1800)
+      // Fresh-audit fix: "Full access, no limitations" was hardcoded here regardless of whether
+      // the LLM call above actually succeeded -- an honest ACCESS line now reflects what really
+      // happened this call, matching the enum-style status the rest of this codebase's search/
+      // finance tools already use (available/credential-gated/failed), not a blanket claim.
+      const analysis = llmResult.ok ? llmResult.content : `(LLM analysis unavailable: ${llmResult.error})`
+      const accessLine = llmResult.ok
+        ? 'ACCESS: available -- real data loaded from your own records, analyzed by a live LLM call this turn.'
+        : `ACCESS: partial -- real data loaded from your own records, but the LLM analysis call failed (${llmResult.error}); the report above is raw data only, not AI-generated analysis.`
+      const report = `${opts.label}\n══════════════════════════════════════════════\n\n${analysis}\n\nCAPABILITY STATUS: ${accessLine}`
       return ok(`${opts.name}: complete`, report)
     } catch (e: any) { return bad(`${opts.name} failed: ${e?.message ?? String(e)}`) }
   }

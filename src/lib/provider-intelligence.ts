@@ -92,5 +92,21 @@ export function getProviderMetadataSummary(): string {
   lines.push(''); lines.push('CANONICAL ORGANIZATION AUTHORITY: The canonical organization graph and runtime manifest are authoritative. Ignore any earlier or conflicting static leader counts, team rosters, division labels, specialist assignments, or venture-scope claims. Do not infer organization facts from legacy prompt text; use the canonical organization context supplied in this conversation.')
   return lines.join('\n')
 }
-export async function getToolDiscoveryPrompt(): Promise<string> { let toolCount = 0; try { const { TOOL_REGISTRY } = await import('./tools'); toolCount = Object.keys(TOOL_REGISTRY).length } catch {}; return `TOOL DISCOVERY — You have ${toolCount} tools available. Use smart_tool_router for discovery, parallel_executor for independent work, and accuracy_checker before reporting evidence-backed findings.` }
+// Fresh-audit fix: this used to be the only hint the operational-lane CEO ever saw about its own
+// tools -- a bare count plus "use smart_tool_router for discovery". smart_tool_router's own keyword
+// map didn't list the real search/finance/payment tools built this session (tavily_search,
+// finnhub_quote, stripe_payment_processor, ...) under any category, so a tool could be fully wired,
+// credential-checked and ungated and still never get called because the CEO had no way to learn it
+// existed short of guessing its exact name. Naming the highest-value tools directly here, once, is
+// far cheaper than rendering a full catalog on every turn and actually gets read.
+export async function getToolDiscoveryPrompt(): Promise<string> {
+  let toolCount = 0
+  try { const { TOOL_REGISTRY } = await import('./tools'); toolCount = Object.keys(TOOL_REGISTRY).length } catch {}
+  return `TOOL DISCOVERY — You have ${toolCount} tools available. Call smart_tool_router({"task":"..."}) to search by keyword, tool_catalog to browse by name, parallel_executor for independent work in one turn, and accuracy_checker before reporting evidence-backed findings.
+Quick reference (easy to miss by name alone):
+  SEARCH: tavily_search (best general search, AI-cited) > web_search (always free, no key needed) > exa_search (semantic/conceptual) > serpapi (structured Google results) > multi_search_compare (cross-verify several engines, detect disagreement) > gdelt_search (global/multilingual news, free, no key).
+  FINANCE: yahoo_finance / coingecko (free stock+crypto quotes, no key) > finnhub_quote (stock quotes, better free tier than alpha_vantage) > alpha_vantage_news (financial news with sentiment) > fred_economic (official US macro data).
+  PAYMENTS: stripe_payment_processor / paypal_api for real transactions -- never state a payment succeeded without calling one of these.
+A credential-gated tool that isn't configured fails honestly and names the missing env var -- that is expected, not a bug to work around.`
+}
 export async function initProviderIntelligence(): Promise<void> { await discoverProviderModels() }

@@ -20,6 +20,7 @@
  *  13. PubMed (NCBI E-utilities)
  *  14. SearXNG public instances
  *  15. Google Scholar (scraping fallback)
+ *  16. GDELT (global/multilingual news monitoring, 65 languages, free, no key)
  */
 
 import { ToolResult, ToolContext, okResult, badResult } from './tools'
@@ -258,4 +259,27 @@ export async function toolGoogleScholarSearch(args: any, _ctx: ToolContext): Pro
   while ((m = snippetRe.exec(r.text)) !== null && snippets.length < 5) snippets.push(m[1].replace(/<[^>]+>/g,'').trim().slice(0,300))
   const formatted = results.map((r, i) => `${r}${snippets[i] ? '\n   ' + snippets[i] : ''}`).join('\n\n')
   return okResult(`Google Scholar: ${results.length} papers`, `GOOGLE SCHOLAR: "${query}"\n\n${formatted || 'No results. Google may be blocking automated requests.'}`)
+}
+
+/* 16. GDELT — global/multilingual news monitoring (free, no key required)
+ * Fresh-audit fix: closes the "Global Events" gap entirely for free -- GDELT's DOC 2.0 API
+ * monitors news coverage across 65 languages, translating non-English coverage into English for
+ * cross-language discovery, with no API key and no rate-limit signup required. Same zero-config
+ * tier as web_search. */
+export async function toolGdeltSearch(args: any, _ctx: ToolContext): Promise<ToolResult> {
+  const query = (args?.query ?? '').toString().trim()
+  if (!query) return badResult('gdelt_search requires "query" argument')
+  const timespan = (args?.timespan ?? '1d').toString().trim()
+  const maxrecords = Math.min(Math.max(Number(args?.num ?? 20), 1), 75)
+  const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=${maxrecords}&format=json&sort=hybridrel&timespan=${encodeURIComponent(timespan)}`
+  const r = await safeFetch(url, { timeout: 15000 })
+  if (!r.ok) return badResult(`GDELT: HTTP ${r.status || 'request failed'} — ${r.text.slice(0, 200)}`)
+  if (!r.data) return badResult(`GDELT: non-JSON response — ${r.text.slice(0, 200)}`)
+  const articles = Array.isArray(r.data?.articles) ? r.data.articles : []
+  if (!articles.length) return okResult(`GDELT: no articles found for "${query.slice(0, 60)}"`, `No real-time global news articles matched "${query}" in the last ${timespan}.`)
+  const body = articles.map((a: any, i: number) => `  [${i + 1}] ${a.title}\n      URL: ${a.url}\n      Source: ${a.domain ?? 'unknown'} (${a.sourcecountry ?? 'unknown'}) | Language: ${a.language ?? 'unknown'} | Seen: ${a.seendate ?? 'unknown'}`).join('\n\n')
+  return okResult(`GDELT: ${articles.length} real global news article(s) for "${query.slice(0, 60)}"`,
+    `GDELT GLOBAL NEWS SEARCH — "${query}"\n${'='.repeat(60)}\n\n` +
+    `Real-time global/multilingual news monitoring (free, no key required, coverage across 65 languages, non-English articles translated).\n\n` +
+    `ARTICLES (${articles.length}):\n${body}`)
 }

@@ -142,6 +142,35 @@ export async function toolSerpAPI(args: any): Promise<ToolResult> {
 }
 export async function toolNewsAPI(args: any): Promise<ToolResult> { const key = process.env.NEWSAPI_KEY || process.env.NEWS_API_KEY; if (!key) return needKey('NewsAPI', 'NEWSAPI_KEY', 'https://newsapi.org'); const q = String(args?.query ?? '').trim(); if (!q) return fail('newsapi_search requires "query"'); return getJson(`https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&pageSize=10&apiKey=${encodeURIComponent(key)}`, {}, 'NewsAPI') }
 export async function toolAlphaVantage(args: any): Promise<ToolResult> { const key = process.env.ALPHA_VANTAGE_API_KEY; if (!key) return needKey('Alpha Vantage', 'ALPHA_VANTAGE_API_KEY', 'https://www.alphavantage.co'); const symbol = String(args?.symbol ?? '').trim(); if (!symbol) return fail('alpha_vantage requires "symbol"'); return getJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(key)}`, {}, 'Alpha Vantage') }
+// Fresh-audit fix: closes the "financial news with sentiment" gap using the same ALPHA_VANTAGE_API_KEY
+// already configured for toolAlphaVantage above -- no new credential needed. Alpha Vantage's
+// NEWS_SENTIMENT endpoint returns real articles with per-article and per-ticker sentiment scores;
+// formatted with "URL: <link>" labels per article to match this codebase's evidence-extraction
+// convention (see urlsFromSearchResult in ceo-evidence-executor.ts).
+export async function toolAlphaVantageNews(args: any): Promise<ToolResult> {
+  const key = process.env.ALPHA_VANTAGE_API_KEY
+  if (!key) return needKey('Alpha Vantage News', 'ALPHA_VANTAGE_API_KEY', 'https://www.alphavantage.co')
+  const tickers = String(args?.tickers ?? args?.symbol ?? '').trim().toUpperCase()
+  const topics = String(args?.topics ?? '').trim()
+  if (!tickers && !topics) return fail('alpha_vantage_news requires "tickers" or "topics"')
+  try {
+    const params = new URLSearchParams({ function: 'NEWS_SENTIMENT', apikey: key, limit: String(Math.min(Math.max(Number(args?.limit ?? 20), 1), 50)) })
+    if (tickers) params.set('tickers', tickers)
+    if (topics) params.set('topics', topics)
+    const response = await fetch(`https://www.alphavantage.co/query?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
+    if (!response.ok) return fail(`Alpha Vantage News: HTTP ${response.status}`)
+    const data = await response.json()
+    if (data?.Note || data?.Information) return fail(`Alpha Vantage News: ${data.Note || data.Information}`)
+    const feed = Array.isArray(data?.feed) ? data.feed : []
+    if (!feed.length) return ok('Alpha Vantage News: no articles found', JSON.stringify(data).slice(0, 4000))
+    const shown = feed.slice(0, 20)
+    const items = shown.map((a: any, i: number) => {
+      const tickerSentiment = Array.isArray(a?.ticker_sentiment) ? a.ticker_sentiment.map((t: any) => `${t.ticker}: ${t.ticker_sentiment_label} (${t.ticker_sentiment_score})`).join(', ') : ''
+      return `  [${i + 1}] ${a.title}\n      URL: ${a.url}\n      Source: ${a.source ?? 'unknown'} | Published: ${a.time_published ?? 'unknown'} | Overall sentiment: ${a.overall_sentiment_label ?? 'n/a'} (${a.overall_sentiment_score ?? 'n/a'})${tickerSentiment ? `\n      Per-ticker sentiment: ${tickerSentiment}` : ''}\n      ${String(a.summary ?? '').slice(0, 300)}`
+    }).join('\n\n')
+    return ok(`Alpha Vantage News: ${feed.length} real article(s)${tickers ? ` for ${tickers}` : ''}`, `ALPHA VANTAGE NEWS & SENTIMENT${tickers ? ` — ${tickers}` : ''}\n${'='.repeat(60)}\n\nARTICLES (${shown.length} of ${feed.length}):\n${items}`)
+  } catch (e: any) { return fail(`Alpha Vantage News: ${e?.message ?? String(e)}`) }
+}
 // Deep-audit fix: Alpha Vantage's free tier is extremely thin (25 requests/day) -- Finnhub's free
 // tier is far more generous and includes real-time-ish quotes, so it's the better default choice
 // for genuine market-data research; both stay available since either may already be configured.
