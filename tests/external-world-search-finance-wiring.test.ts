@@ -707,3 +707,90 @@ describe('External World Intelligence upgrades', () => {
     })
   })
 })
+
+// User-requested round 2: a fresh, skeptical re-audit of the 6 items above (dispatched to an
+// Explore subagent) found the wiring largely sound but surfaced 3 real gaps -- fixed here.
+describe('Round-2 deep re-audit fixes', () => {
+  describe('risks-query starvation for 3+ tickers: equityQueries() now orders by purpose-round instead of ticker-then-purpose', () => {
+    test('every requested ticker keeps its risks query regardless of how many tickers are in the request', () => {
+      for (const n of [1, 2, 3, 5, 8]) {
+        const tickers = Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i).repeat(3))
+        const objective = tickers.map((t) => `(${t})`).join(' vs ')
+        const plan = buildExternalEvidencePlan({ objective, evidenceClass: 'external_web', domain: 'public_equity', operation: 'decide', temporalScope: 'current', evidenceProfile: 'public_equity' })
+        const risksCount = plan.queries.filter((q) => q.purpose === 'risks').length
+        expect(risksCount).toBe(n)
+      }
+    })
+
+    test('market and financials queries are also never starved, even at the 8-ticker max extractEquityTickers allows', () => {
+      const tickers = Array.from({ length: 8 }, (_, i) => String.fromCharCode(65 + i).repeat(3))
+      const objective = tickers.map((t) => `(${t})`).join(' vs ')
+      const plan = buildExternalEvidencePlan({ objective, evidenceClass: 'external_web', domain: 'public_equity', operation: 'decide', temporalScope: 'current', evidenceProfile: 'public_equity' })
+      const byPurpose = plan.queries.reduce((acc: Record<string, number>, q) => { acc[q.purpose] = (acc[q.purpose] ?? 0) + 1; return acc }, {})
+      expect(byPurpose.market).toBe(8)
+      expect(byPurpose.financials).toBe(8)
+      expect(byPurpose.risks).toBe(8)
+    })
+
+    test('maxSearchQueries always equals the actual planned query count, so nothing silently gets dropped a second time by the executor', () => {
+      for (const n of [1, 2, 3, 8]) {
+        const tickers = Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i).repeat(3))
+        const objective = tickers.map((t) => `(${t})`).join(' vs ')
+        const plan = buildExternalEvidencePlan({ objective, evidenceClass: 'external_web', domain: 'public_equity', operation: 'decide', temporalScope: 'current', evidenceProfile: 'public_equity' })
+        expect(plan.maxSearchQueries).toBe(plan.queries.length)
+      }
+    })
+  })
+
+  describe('source_quality_ranker no longer contradicts sourceTierForUrl, the gate decision-grade evidence actually uses', () => {
+    test('financial/government hosts sourceTierForUrl recognizes but the old hand-curated list never listed now rank correctly instead of "Unknown source"', async () => {
+      const { toolSourceQualityRanker } = await import('@/lib/multi-search-comparison')
+      const result = await toolSourceQualityRanker({ urls: ['https://fred.stlouisfed.org/series/GDP', 'https://www.nasdaq.com/market-activity', 'https://www.ft.com/content/x'] })
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('TIER A')
+      expect(result.result).not.toContain('Unknown source — moderate reliability] https://fred.stlouisfed.org')
+    })
+
+    test('curated entries (Wikipedia, Reuters, Reddit, ...) are unaffected -- the fallback only applies when nothing in SOURCE_RANKINGS matches', async () => {
+      const { toolSourceQualityRanker } = await import('@/lib/multi-search-comparison')
+      const result = await toolSourceQualityRanker({ urls: ['https://en.wikipedia.org/wiki/Test', 'https://www.reddit.com/r/test'] })
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('Encyclopedic, well-sourced, community-reviewed')
+      expect(result.result).toContain('User-generated — community moderated but unreliable')
+    })
+
+    test('a domain sourceTierForUrl also does not recognize still falls back to the honest generic default', async () => {
+      const { toolSourceQualityRanker } = await import('@/lib/multi-search-comparison')
+      const result = await toolSourceQualityRanker({ urls: ['https://totally-unrecognized-blog.example/post'] })
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('Unknown source — moderate reliability')
+    })
+  })
+
+  describe('"full access, no limitations" overclaim: the same bug pattern is now fixed in the two sibling files it was still live in', () => {
+    test('enhanced-tools.ts no longer hardcodes the blanket claim and its llm() helper is discriminated', () => {
+      const src = readFileSync(new URL('../src/lib/enhanced-tools.ts', import.meta.url), 'utf8')
+      expect(src).not.toContain('full access, no limitations')
+      expect(src).toContain('LlmResult = { ok: true; content: string } | { ok: false; error: string }')
+      expect(src).toContain('function reportFrom(')
+      expect(src).toContain('degraded')
+    })
+
+    test('all 19 enhanced-tools.ts call sites that use the LLM route through reportFrom(), not a hardcoded status string', () => {
+      const src = readFileSync(new URL('../src/lib/enhanced-tools.ts', import.meta.url), 'utf8')
+      const reportFromCalls = src.match(/reportFrom\(/g) ?? []
+      // 1 definition + 19 call sites
+      expect(reportFromCalls.length).toBe(20)
+      expect(src).not.toMatch(/CAPABILITY STATUS: [A-Za-z ]+ active\.`\)/)
+    })
+
+    test('developer-enhancements.ts no longer hardcodes the blanket claim across all 12 dev tools (shared createDevTool factory)', () => {
+      const src = readFileSync(new URL('../src/lib/developer-enhancements.ts', import.meta.url), 'utf8')
+      expect(src).not.toContain('full access, no limitations')
+      expect(src).toContain('Developer enhancement degraded')
+      expect(src).toContain('Developer enhancement active — real analysis from a live LLM call this turn.')
+      const devToolCount = (src.match(/createDevTool\(\{/g) ?? []).length
+      expect(devToolCount).toBe(12)
+    })
+  })
+})
