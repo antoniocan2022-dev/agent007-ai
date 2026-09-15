@@ -14,14 +14,27 @@ export async function toolSmartToolRouter(args: any, _ctx: ToolContext): Promise
   if (!task) return badResult('Missing "task" argument')
 
   const toolMap: Record<string, string[]> = {
-    'search': ['web_search', 'ddg_search', 'brave_search', 'google_scholar_search', 'hn_search', 'reddit_search'],
-    'fetch': ['http_fetch', 'inspect_url', 'page_reader'],
-    'research': ['web_search', 'wikipedia_rest', 'arxiv_search', 'openalex_search', 'semantic_scholar_search', 'pubmed_search'],
+    // Fresh-audit fix: this map used to list only the free fallback engines under 'search' and no
+    // real finance/payment tools under 'money' at all -- so the CEO's own tool-discovery mechanism
+    // could never surface tavily_search, finnhub_quote, stripe_payment_processor, etc. to itself,
+    // even though they were fully wired, credential-checked, and ungated. Since the fallback
+    // broad-label scan below only runs when a category match produces zero results, listing the
+    // old free-only set here meant a task containing the word "search" never reached that fallback
+    // and never saw the better tools. Added them directly, and split "money" into finance/payment
+    // so a stock-quote task and a checkout task each surface the right tool instead of neither.
+    'search': ['web_search', 'tavily_search', 'exa_search', 'serpapi', 'brave_ai_search', 'perplexity_ai_search', 'you_com_search', 'google_ai_search', 'multi_search_compare', 'ddg_search', 'brave_search', 'google_scholar_search', 'hn_search', 'reddit_search'],
+    'news': ['newsapi', 'gdelt_search', 'tavily_search', 'web_search'],
+    'fetch': ['http_fetch', 'inspect_url', 'page_reader', 'jina_reader'],
+    'research': ['web_search', 'tavily_search', 'kb_search', 'wikipedia_rest', 'arxiv_search', 'openalex_search', 'semantic_scholar_search', 'pubmed_search'],
     'code': ['code_exec', 'source_read', 'file_write', 'patch_source_file'],
     'content': ['ai_content_factory', 'quill_content_diversifier', 'content_repurposing_engine'],
     'design': ['image_gen', 'vision', 'prism_design_pipeline', 'pod_design_automation'],
     'analytics': ['cross_stream_analytics', 'predictive_analytics_engine', 'data_analysis_engine', 'kpi_dashboard_builder'],
-    'money': ['revenue_stream_diversifier', 'quantum_revenue_optimizer', 'quantum_income_accelerator', 'financial_report_generator'],
+    'finance': ['yahoo_finance', 'coingecko', 'finnhub_quote', 'alpha_vantage', 'alpha_vantage_news', 'fred_economic', 'financial_tracker'],
+    'stock': ['yahoo_finance', 'finnhub_quote', 'alpha_vantage', 'alpha_vantage_news'],
+    'crypto': ['coingecko'],
+    'payment': ['stripe_payment_processor', 'paypal_api', 'payment_processor'],
+    'money': ['stripe_payment_processor', 'paypal_api', 'financial_tracker', 'revenue_stream_diversifier', 'quantum_revenue_optimizer', 'quantum_income_accelerator', 'financial_report_generator'],
     'marketing': ['automated_social_posting', 'email_marketing_automation_full', 'affiliate_funnel_builder'],
     'test': ['exhaustive_tool_test', 'exhaustive_system_test', 'exhaustive_connectivity_test', 'comprehensive_self_check'],
     'repair': ['self_repair_code', 'force_refresh_settings', 'diagnose_llm', 'verify_deployment', 'fix_hydration'],

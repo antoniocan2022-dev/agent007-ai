@@ -26,7 +26,19 @@ const PROFILE_MAX_AGE_MS: Record<EvidenceProfile, number> = { none: 0, general_r
 function canonicalizeUrl(input: string): string { try { const url = new URL(input.trim()); url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$|ref$|source$)/i.test(key)) url.searchParams.delete(key); return url.toString().replace(/\/$/, '') } catch { return input.trim() } }
 function stableSourceId(url: string, index: number): string { let hash = 2166136261; for (let i = 0; i < url.length; i += 1) hash = Math.imul(hash ^ url.charCodeAt(i), 16777619); return `S${index + 1}-${(hash >>> 0).toString(16)}` }
 function extractClaimCandidates(text: string): string[] { return text.split(/\n+/).map((line) => line.trim()).filter((line) => line.length >= 25 && /\b(?:revenue|sales|earnings|eps|cash|debt|assets|liabilities|income|loss|margin|guidance|backlog|price|market cap|valuation|shares|regulation|competitor|customer)\b/i.test(line)).slice(0, 20) }
-export function sourceTierForUrl(url: string): 1 | 2 | 3 | 4 { try { const host = new URL(url).hostname.toLowerCase(); if (host === 'sec.gov' || host.endsWith('.sec.gov') || host === 'data.sec.gov') return 1; if (host === 'nasdaq.com' || host.endsWith('.nasdaq.com') || host === 'nyse.com' || host.endsWith('.nyse.com') || host === 'stockanalysis.com' || host.endsWith('.stockanalysis.com')) return 2; if (host === 'reuters.com' || host.endsWith('.reuters.com') || host === 'bloomberg.com' || host.endsWith('.bloomberg.com') || host === 'wsj.com' || host.endsWith('.wsj.com') || host === 'cnbc.com' || host.endsWith('.cnbc.com')) return 3 } catch { return 4 }; return 4 }
+// Fresh-audit fix: this used to recognize only ~10 hardcoded hostnames -- sec.gov for tier 1,
+// nasdaq/nyse/stockanalysis for tier 2, reuters/bloomberg/wsj/cnbc for tier 3 -- so every other
+// reputable source (Yahoo Finance, Morningstar, the Fed's own FRED domain, the Financial Times,
+// AP, MarketWatch, ...) silently fell to tier 4 ("everything else") even though decision-grade
+// evidence gating (ceo-decision-grade-evidence.ts) treats tier 1/2 specially. Widened to a
+// data-driven table so it stays easy to extend; still deliberately conservative -- only domains
+// that are unambiguously either an official government/regulator, a stock exchange or a major,
+// long-established financial-news operation get a tier above 4.
+const TIER_1_HOSTS = ['sec.gov', 'data.sec.gov', 'fred.stlouisfed.org', 'federalreserve.gov', 'treasury.gov', 'bls.gov', 'census.gov']
+const TIER_2_HOSTS = ['nasdaq.com', 'nyse.com', 'stockanalysis.com', 'finance.yahoo.com', 'morningstar.com', 'investing.com']
+const TIER_3_HOSTS = ['reuters.com', 'bloomberg.com', 'wsj.com', 'cnbc.com', 'ft.com', 'barrons.com', 'apnews.com', 'marketwatch.com', 'forbes.com', 'businessinsider.com']
+function hostMatches(host: string, list: string[]): boolean { return list.some((candidate) => host === candidate || host.endsWith(`.${candidate}`)) }
+export function sourceTierForUrl(url: string): 1 | 2 | 3 | 4 { try { const host = new URL(url).hostname.toLowerCase(); if (hostMatches(host, TIER_1_HOSTS)) return 1; if (hostMatches(host, TIER_2_HOSTS)) return 2; if (hostMatches(host, TIER_3_HOSTS)) return 3 } catch { return 4 }; return 4 }
 function publisherForUrl(url: string): string { try { return new URL(url).hostname.toLowerCase().replace(/^www\./, '') } catch { return url.trim().toLowerCase() } }
 // Deliberately narrow: only recognizes an explicit wire-service byline/attribution actually present in
 // the source's own text (e.g. "(Reuters)", "-- Bloomberg", "Source: AP") -- never inferred from the

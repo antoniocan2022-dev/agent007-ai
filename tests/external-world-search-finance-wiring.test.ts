@@ -6,6 +6,9 @@ import type { CeoExecutionContract } from '@/lib/ceo-cognitive-contract'
 import { selectCeoTool } from '@/lib/ceo-tool-selection'
 import { toolAPIIntegrationManager } from '@/lib/mission-lifecycle'
 import { toolHealthChecker, toolSelfHealingTools } from '@/lib/tool-testing-coordination'
+import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
+import { sourceTierForUrl } from '@/lib/ceo-evidence-bundle'
+import { getToolDiscoveryPrompt } from '@/lib/provider-intelligence'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -539,6 +542,168 @@ describe('user-requested round: self-check env-var-name bugs fixed, Etsy tool re
     test('honestly discloses the OAuth limitation instead of fabricating revenue/order data', () => {
       expect(fnSrc).toContain('OAuth 2.0')
       expect(fnSrc).toContain('cannot report current sales/revenue')
+    })
+  })
+})
+
+// User-requested round: "External World Intelligence" upgrades applied in priority order --
+// discoverability -> risks-query gap -> Alpha Vantage news/sentiment -> GDELT -> source-tier
+// widening -> the "full access" overclaim.
+describe('External World Intelligence upgrades', () => {
+  describe('discoverability: smart_tool_router keyword map and the always-shown discovery prompt now surface the real tools', () => {
+    const routerSrc = readFileSync(new URL('../src/lib/performance-booster-tools.ts', import.meta.url), 'utf8')
+
+    test('the search category lists the real credential-gated engines, not only the old free fallbacks', () => {
+      const mapSrc = routerSrc.slice(routerSrc.indexOf('const toolMap'), routerSrc.indexOf('const taskLower'))
+      for (const realTool of ['tavily_search', 'exa_search', 'serpapi', 'brave_ai_search', 'perplexity_ai_search', 'you_com_search', 'google_ai_search', 'multi_search_compare', 'gdelt_search']) {
+        expect(mapSrc).toContain(`'${realTool}'`)
+      }
+    })
+
+    test('a dedicated finance/stock/crypto/payment category now exists, not folded into fabricated-sounding "money" tools alone', () => {
+      const mapSrc = routerSrc.slice(routerSrc.indexOf('const toolMap'), routerSrc.indexOf('const taskLower'))
+      expect(mapSrc).toContain("'finance':")
+      for (const realTool of ['yahoo_finance', 'coingecko', 'finnhub_quote', 'alpha_vantage', 'alpha_vantage_news', 'fred_economic']) {
+        expect(mapSrc).toContain(`'${realTool}'`)
+      }
+      expect(mapSrc).toContain("'payment':")
+      expect(mapSrc).toContain("'stripe_payment_processor'")
+      expect(mapSrc).toContain("'paypal_api'")
+    })
+
+    test('getToolDiscoveryPrompt names the highest-value search/finance/payment tools directly, not just a bare count', async () => {
+      const prompt = await getToolDiscoveryPrompt()
+      expect(prompt).toContain('tavily_search')
+      expect(prompt).toContain('finnhub_quote')
+      expect(prompt).toContain('alpha_vantage_news')
+      expect(prompt).toContain('gdelt_search')
+      expect(prompt).toContain('stripe_payment_processor')
+      expect(prompt).toContain('paypal_api')
+      expect(prompt).toMatch(/tools available/)
+    })
+  })
+
+  describe('risks-query gap: equity research now proactively searches for disconfirming evidence', () => {
+    test('buildExternalEvidencePlan generates a risks-purpose query per ticker for a public_equity decision', () => {
+      const plan = buildExternalEvidencePlan({ objective: 'Should I invest in Geospace Technologies (GEOS)?', evidenceClass: 'external_web', domain: 'public_equity', operation: 'decide', temporalScope: 'current', evidenceProfile: 'public_equity' })
+      const purposes = plan.queries.map((q) => q.purpose)
+      expect(purposes).toContain('risks')
+      const risksQuery = plan.queries.find((q) => q.purpose === 'risks')
+      expect(risksQuery?.query).toMatch(/debt|dilution|lawsuit|insider selling/)
+    })
+
+    test('the query cap was raised so the risks query does not crowd out the multi-ticker comparison query', () => {
+      const plan = buildExternalEvidencePlan({ objective: 'Compare Geospace Technologies (GEOS) and MIND Technology (MIND)', evidenceClass: 'external_web', domain: 'public_equity', operation: 'decide', temporalScope: 'current', evidenceProfile: 'public_equity' })
+      const purposes = plan.queries.map((q) => q.purpose)
+      expect(purposes.filter((p) => p === 'risks').length).toBe(2)
+      expect(purposes).toContain('comparison')
+    })
+  })
+
+  describe('Alpha Vantage news/sentiment: real articles via the already-configured ALPHA_VANTAGE_API_KEY', () => {
+    test('requires a "tickers" or "topics" argument', async () => {
+      const { toolAlphaVantageNews } = await import('@/lib/ai-providers-integration')
+      process.env.ALPHA_VANTAGE_API_KEY = 'test-key'
+      try {
+        const result = await toolAlphaVantageNews({})
+        expect(result.ok).toBe(false)
+        expect(result.result).toContain('requires "tickers" or "topics"')
+      } finally { delete process.env.ALPHA_VANTAGE_API_KEY }
+    })
+
+    test('honestly fails when ALPHA_VANTAGE_API_KEY is not set', async () => {
+      const { toolAlphaVantageNews } = await import('@/lib/ai-providers-integration')
+      delete process.env.ALPHA_VANTAGE_API_KEY
+      const result = await toolAlphaVantageNews({ tickers: 'AAPL' })
+      expect(result.ok).toBe(false)
+      expect(result.result).toContain('ALPHA_VANTAGE_API_KEY')
+    })
+
+    test('returns real per-article and per-ticker sentiment, formatted with URL: labels, when the API call succeeds', async () => {
+      const { toolAlphaVantageNews } = await import('@/lib/ai-providers-integration')
+      const originalFetch = globalThis.fetch
+      process.env.ALPHA_VANTAGE_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({
+        feed: [{ title: 'Example headline', url: 'https://example.com/article', source: 'Example Wire', time_published: '20260101T120000', overall_sentiment_label: 'Bullish', overall_sentiment_score: 0.4, summary: 'A summary.', ticker_sentiment: [{ ticker: 'AAPL', ticker_sentiment_label: 'Bullish', ticker_sentiment_score: '0.4' }] }],
+      }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolAlphaVantageNews({ tickers: 'AAPL' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('URL: https://example.com/article')
+        expect(result.result).toContain('AAPL: Bullish')
+      } finally {
+        globalThis.fetch = originalFetch
+        delete process.env.ALPHA_VANTAGE_API_KEY
+      }
+    })
+
+    test('registered in TOOL_REGISTRY and the finance capability domain', () => {
+      const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
+      expect(toolsSrc).toContain('TOOL_REGISTRY.alpha_vantage_news')
+      const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
+      expect(capSrc).toContain("tool('alpha_vantage_news'")
+    })
+  })
+
+  describe('GDELT: free, no-key global/multilingual news search closes the "Global Events" gap', () => {
+    const src = readFileSync(new URL('../src/lib/free-search-tools.ts', import.meta.url), 'utf8')
+    const fnSrc = src.slice(src.indexOf('export async function toolGdeltSearch'))
+
+    test('makes a real fetch to the GDELT DOC 2.0 API, requires no API key', () => {
+      expect(fnSrc).toContain('api.gdeltproject.org/api/v2/doc/doc')
+      expect(fnSrc).not.toContain('process.env')
+    })
+
+    test('honestly reports zero results rather than fabricating articles', () => {
+      expect(fnSrc).toContain('No real-time global news articles matched')
+    })
+
+    test('registered in TOOL_REGISTRY, wired into research and market_intelligence domains, and dispatchable as a query-shaped search tool', () => {
+      const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
+      expect(toolsSrc).toContain('TOOL_REGISTRY.gdelt_search')
+      const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
+      expect(capSrc).toContain("tool('gdelt_search'")
+      const executorSrc = readFileSync(new URL('../src/lib/ceo-evidence-executor.ts', import.meta.url), 'utf8')
+      expect(executorSrc).toContain("'gdelt_search'")
+    })
+  })
+
+  describe('source-tier widening: more reputable domains now get real authority tiers instead of defaulting to tier 4', () => {
+    test('newly recognized domains resolve to the expected tier', () => {
+      expect(sourceTierForUrl('https://fred.stlouisfed.org/series/GDP')).toBe(1)
+      expect(sourceTierForUrl('https://finance.yahoo.com/quote/GEOS')).toBe(2)
+      expect(sourceTierForUrl('https://www.morningstar.com/stocks/xnas/geos')).toBe(2)
+      expect(sourceTierForUrl('https://www.ft.com/content/example')).toBe(3)
+      expect(sourceTierForUrl('https://apnews.com/article/example')).toBe(3)
+      expect(sourceTierForUrl('https://www.marketwatch.com/story/example')).toBe(3)
+    })
+
+    test('still does not over-rank lookalike domains, and existing tier-1/2/3 hosts are unchanged', () => {
+      expect(sourceTierForUrl('https://investorplace.com/article/example')).toBe(4)
+      expect(sourceTierForUrl('https://www.sec.gov/files/company_tickers.json')).toBe(1)
+      expect(sourceTierForUrl('https://www.nasdaq.com/market-activity/stocks/geos')).toBe(2)
+      expect(sourceTierForUrl('https://www.reuters.com/example')).toBe(3)
+    })
+  })
+
+  describe('"Full access, no limitations" overclaim: agent007-extensions.ts now reports an honest ACCESS line', () => {
+    const src = readFileSync(new URL('../src/lib/agent007-extensions.ts', import.meta.url), 'utf8')
+
+    test('no longer hardcodes the blanket claim', () => {
+      expect(src).not.toContain('CAPABILITY STATUS: Full access, no limitations.')
+    })
+
+    test('llm() returns a discriminated result instead of collapsing failure into an indistinguishable string', () => {
+      const fnSrc = src.slice(src.indexOf('async function llm('), src.indexOf('/** Factory'))
+      expect(fnSrc).toContain('{ ok: true; content: string }')
+      expect(fnSrc).toContain('{ ok: false; error: string }')
+    })
+
+    test('createTool reports success and failure as two genuinely different ACCESS lines', () => {
+      const fnSrc = src.slice(src.indexOf('function createTool'), src.indexOf('function createTool') + 2000)
+      expect(fnSrc).toContain('ACCESS: available')
+      expect(fnSrc).toContain('ACCESS: partial')
+      expect(fnSrc).toContain('LLM analysis call failed')
     })
   })
 })

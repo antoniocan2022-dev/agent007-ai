@@ -2215,6 +2215,7 @@ import {
   toolPubMedSearch,
   toolSearXngSearch,
   toolGoogleScholarSearch,
+  toolGdeltSearch,
 } from './free-search-tools'
 
 TOOL_REGISTRY.ddg_search = { fn: toolDuckDuckGoSearch, icon: 'search', label: 'DuckDuckGo Search (free, no key)' }
@@ -2232,6 +2233,7 @@ TOOL_REGISTRY.producthunt_search = { fn: toolProductHuntSearch, icon: 'rocket', 
 TOOL_REGISTRY.pubmed_search = { fn: toolPubMedSearch, icon: 'heart', label: 'PubMed Search (medical research)' }
 TOOL_REGISTRY.searxng_search = { fn: toolSearXngSearch, icon: 'globe', label: 'SearXNG Search (meta-search engine)' }
 TOOL_REGISTRY.google_scholar_search = { fn: toolGoogleScholarSearch, icon: 'graduation-cap', label: 'Google Scholar Search (academic)' }
+TOOL_REGISTRY.gdelt_search = { fn: toolGdeltSearch, icon: 'globe', label: 'GDELT Global News Search (free, no key, 65 languages)' }
 
 /* ================================================================== *
  * QUANTUM AUTONOMOUS TOOLS — 10 next-generation quantum-level tools.
@@ -2569,7 +2571,7 @@ import {
   toolHFInference, toolPollinationsImage, toolCraiyonImage, toolStabilityImage,
   toolElevenLabsTTS, toolDeepLTranslate, toolRemoveBg,
   toolSummarizeTech, toolYahooFinance, toolCoinGecko,
-  toolFinnhubQuote,
+  toolFinnhubQuote, toolAlphaVantageNews,
 } from './ai-providers-integration'
 // LLM Providers (7)
 TOOL_REGISTRY.cerebras_llm = { fn: toolCerebrasLLM, icon: 'cpu', label: 'Cerebras LLM (Llama 3.1 — fastest inference, 2600 tok/s)' }
@@ -2585,6 +2587,7 @@ TOOL_REGISTRY.serpapi = { fn: toolSerpAPI, icon: 'search', label: 'SerpAPI (Goog
 TOOL_REGISTRY.newsapi = { fn: toolNewsAPI, icon: 'newspaper', label: 'NewsAPI (80,000+ news sources, 100 req/day free)' }
 TOOL_REGISTRY.alpha_vantage = { fn: toolAlphaVantage, icon: 'trending-up', label: 'Alpha Vantage (stocks, forex, crypto data, 25 req/day free)' }
 TOOL_REGISTRY.finnhub_quote = { fn: toolFinnhubQuote, icon: 'trending-up', label: 'Finnhub Quote (real-time-ish stock quotes, far more generous free tier than Alpha Vantage)' }
+TOOL_REGISTRY.alpha_vantage_news = { fn: toolAlphaVantageNews, icon: 'newspaper', label: 'Alpha Vantage News & Sentiment (real articles with per-article and per-ticker sentiment scores)' }
 TOOL_REGISTRY.fred_economic = { fn: toolFREDEconomic, icon: 'bar-chart', label: 'FRED Economic Data (Federal Reserve, unlimited free)' }
 TOOL_REGISTRY.jina_reader = { fn: toolJinaReader, icon: 'book-open', label: 'Jina AI Reader (read ANY URL as clean markdown, free)' }
 TOOL_REGISTRY.exa_search = { fn: toolExaSearch, icon: 'search', label: 'Exa AI (neural search, find similar content, 1000/month free)' }

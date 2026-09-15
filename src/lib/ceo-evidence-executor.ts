@@ -39,7 +39,7 @@ function cacheBypassArgs(args: Record<string, unknown>): Record<string, unknown>
 // fail ("requires symbol") instead of gathering evidence, regressing what used to be a working
 // web_search fallback for finance-domain external-evidence requests. Only ever hand a genuine
 // free-text search tool to executeSearch; anything else falls back to web_search exactly as before.
-const QUERY_SEARCH_TOOL_IDS = new Set(['web_search', 'tavily_search', 'exa_search', 'serpapi', 'perplexity_ai_search', 'you_com_search', 'google_ai_search', 'brave_ai_search', 'copilot_search', 'chatgpt_search', 'newsapi', 'multi_search_compare', 'kb_search'])
+const QUERY_SEARCH_TOOL_IDS = new Set(['web_search', 'tavily_search', 'exa_search', 'serpapi', 'perplexity_ai_search', 'you_com_search', 'google_ai_search', 'brave_ai_search', 'copilot_search', 'chatgpt_search', 'newsapi', 'multi_search_compare', 'kb_search', 'gdelt_search'])
 function urlsFromSearchResult(result: ToolResult): string[] { return [...result.result.matchAll(/URL:\s*(https?:\/\/[^\s]+)/gi)].map((match) => match[1]) }
 function titleFromSearchResult(result: ToolResult, url: string): string { const line = result.result.split('\n').find((candidate) => candidate.includes(url)); return line ? line.replace(/^[0-9]+\.\s*/, '').replace(/\*\*/g, '').trim() || url : url }
 export function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType { if (query.sourcePreference === 'market') return sourceTierForUrl(url) <= 2 ? 'market_data' : 'web'; return 'web' }

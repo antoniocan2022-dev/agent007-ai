@@ -33,12 +33,14 @@ export const CEO_CAPABILITY_ARCHITECTURE: readonly EnterpriseCapability[] = Obje
     tool('jina_reader', 'Read any URL as clean markdown (free, no key required)', 0.8, 0.88, 5000),
     tool('kb_search', 'Search the owner\'s ingested knowledge base (documents, transcripts)', 0.85, 0.7, 3000),
     tool('multi_search_compare', 'Cross-verify a query across multiple real engines at once, detect disagreement', 0.85, 0.93, 12000, 0, 0.15),
+    tool('gdelt_search', 'Global/multilingual news monitoring across 65 languages (free, no key required)', 0.8, 0.9, 6000),
   ])] },
   { id: 'finance', description: 'Financial analysis and internal finance operations', capabilities: [capability('finance', 'finance.analysis', 'Analyze financial information', [
     tool('yahoo_finance', 'Live stock/ETF/index quotes (free, no key required)', 0.85, 0.95, 3000),
     tool('coingecko', 'Live crypto prices and market data (free, no key required)', 0.85, 0.95, 3000),
     tool('finnhub_quote', 'Real-time-ish stock quotes, generous free tier (credential-gated)', 0.85, 0.95, 3000, 0, 0.15),
     tool('alpha_vantage', 'Stock/forex/crypto quotes, thin free tier (credential-gated)', 0.8, 0.9, 4000, 0, 0.15),
+    tool('alpha_vantage_news', 'Financial news with per-article and per-ticker sentiment scores (credential-gated, shares alpha_vantage\'s key)', 0.8, 0.93, 5000, 0, 0.15),
     tool('fred_economic', 'Official US Federal Reserve macroeconomic data series (credential-gated, unlimited free)', 0.9, 0.85, 4000, 0, 0.1),
     tool('financial_tracker', 'Real income/expense summary from this venture\'s own recorded transactions', 0.9, 0.8, 3000),
     tool('payment_processor', 'Real status of configured payment gateways and recorded transaction volume', 0.9, 0.85, 3000),
@@ -47,6 +49,7 @@ export const CEO_CAPABILITY_ARCHITECTURE: readonly EnterpriseCapability[] = Obje
     tool('web_search', 'Acquire current market intelligence', 0.82, 0.95, 6500),
     tool('newsapi', 'Real-time news search across 80,000+ sources (credential-gated)', 0.82, 0.95, 4000, 0, 0.15),
     tool('tavily_search', 'AI-optimized search with cited results (credential-gated)', 0.88, 0.95, 4000, 0, 0.15),
+    tool('gdelt_search', 'Global/multilingual news monitoring across 65 languages (free, no key required)', 0.8, 0.9, 6000),
   ])] },
   { id: 'communication', description: 'Communications and external messaging', capabilities: [capability('communication', 'communication.messaging', 'Create and send governed communications')] },
   { id: 'commerce', description: 'Commerce, orders and transactions', capabilities: [capability('commerce', 'commerce.execution', 'Governed commerce operations', [
