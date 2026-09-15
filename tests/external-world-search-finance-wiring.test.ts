@@ -5,6 +5,7 @@ import { CEO_CAPABILITY_ARCHITECTURE, findCapability, findCapabilityForDomain } 
 import type { CeoExecutionContract } from '@/lib/ceo-cognitive-contract'
 import { selectCeoTool } from '@/lib/ceo-tool-selection'
 import { toolAPIIntegrationManager } from '@/lib/mission-lifecycle'
+import { toolHealthChecker, toolSelfHealingTools } from '@/lib/tool-testing-coordination'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -443,6 +444,101 @@ describe('fresh-audit round 2: capability-domain reachability and evidence-pipel
       expect(arraySrc).not.toContain("'NEWSAPI_API_KEY'")
       expect(arraySrc).not.toContain('CLOUDFLARE_API_TOKEN')
       expect(arraySrc).not.toContain('REMOVEBG_API_KEY')
+    })
+  })
+})
+
+// User-requested round: (1) the three self-check var-name bugs flagged in the live API-key audit
+// (Google Analytics, Hootsuite, Product Hunt) fixed everywhere they appear, plus the same class of
+// bug found while fixing them (Alpha Vantage, and 5 more tools whose "requires this key" map
+// pointed at a name the real tool never reads); (2) etsy_integration rebuilt to make a real Etsy
+// API call using ETSY_API_KEY instead of returning hardcoded fabricated sales data.
+describe('user-requested round: self-check env-var-name bugs fixed, Etsy tool rebuilt for real', () => {
+  describe('capability-audit/route.ts: the 3 flagged bugs + the same-class Alpha Vantage bug', () => {
+    const src = readFileSync(new URL('../src/app/api/system/capability-audit/route.ts', import.meta.url), 'utf8')
+
+    test('hootsuite_schedule now checks BUFFER_ACCESS_TOKEN (what the tool actually redirects to)', () => {
+      expect(src).toContain("hootsuite_schedule: ['BUFFER_ACCESS_TOKEN']")
+    })
+
+    test('google_analytics now checks GA4_API_KEY + GA4_PROPERTY_ID (what the real tool actually reads)', () => {
+      expect(src).toContain("google_analytics: ['GA4_API_KEY', 'GA4_PROPERTY_ID']")
+      expect(src).toContain("!isEnvSet('GA4_API_KEY') || !isEnvSet('GA4_PROPERTY_ID')")
+      expect(src).not.toContain("GOOGLE_ANALYTICS_API_KEY'")
+    })
+
+    test('alpha_vantage now checks ALPHA_VANTAGE_API_KEY (with the underscore the real tool reads)', () => {
+      expect(src).toContain("alpha_vantage: ['ALPHA_VANTAGE_API_KEY']")
+    })
+  })
+
+  describe('tool-testing-coordination.ts: the wrong-name map corrected wholesale, and Product Hunt specifically', () => {
+    test('TOOLS_REQUIRING_KEYS no longer contains any of the confirmed-wrong names', () => {
+      const src = readFileSync(new URL('../src/lib/tool-testing-coordination.ts', import.meta.url), 'utf8')
+      const mapSrc = src.slice(src.indexOf('const TOOLS_REQUIRING_KEYS'), src.indexOf('const REAL_EXECUTABLE_TOOLS'))
+      for (const wrongName of ['PRODUCTHUNT_API_TOKEN', 'HOOTSUITE_ACCESS_TOKEN', 'GOOGLE_ANALYTICS_API_KEY', 'ALPHAVANTAGE_API_KEY', 'CLOUDFLARE_API_TOKEN', 'NEWSAPI_API_KEY', 'REMOVEBG_API_KEY', 'RAPIDAPI_KEY', 'WP_APP_PASSWORD', 'HOTJAR_API_KEY', 'UBERSUGGEST_API_KEY', 'AHREFS_API_KEY']) {
+        expect(mapSrc).not.toContain(`'${wrongName}'`)
+      }
+      expect(mapSrc).toContain("product_hunt: ['PRODUCTHUNT_API_KEY']")
+    })
+
+    test('toolHealthChecker’s missing_keys report reflects the corrected names (live)', async () => {
+      const originalProductHuntKey = process.env.PRODUCTHUNT_API_KEY
+      const originalHootsuiteKey = process.env.HOOTSUITE_ACCESS_TOKEN
+      delete process.env.PRODUCTHUNT_API_KEY
+      process.env.HOOTSUITE_ACCESS_TOKEN = 'phantom-value-that-should-not-matter'
+      delete process.env.BUFFER_ACCESS_TOKEN
+      try {
+        const result = await toolHealthChecker({ action: 'missing_keys' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('product_hunt → PRODUCTHUNT_API_KEY')
+        // Hootsuite must show as missing via BUFFER_ACCESS_TOKEN, not as configured just because
+        // the old (now-unused) HOOTSUITE_ACCESS_TOKEN happens to be set.
+        expect(result.result).toContain('hootsuite_schedule → BUFFER_ACCESS_TOKEN')
+      } finally {
+        if (originalProductHuntKey === undefined) delete process.env.PRODUCTHUNT_API_KEY; else process.env.PRODUCTHUNT_API_KEY = originalProductHuntKey
+        if (originalHootsuiteKey === undefined) delete process.env.HOOTSUITE_ACCESS_TOKEN; else process.env.HOOTSUITE_ACCESS_TOKEN = originalHootsuiteKey
+      }
+    })
+
+    test('toolSelfHealingTools diagnose treats a multi-var requirement (Google Analytics) as satisfied only when every var is set', async () => {
+      const originalGa4Key = process.env.GA4_API_KEY
+      const originalGa4Prop = process.env.GA4_PROPERTY_ID
+      process.env.GA4_API_KEY = 'test-key'
+      delete process.env.GA4_PROPERTY_ID
+      try {
+        const result = await toolSelfHealingTools({ action: 'diagnose' })
+        expect(result.result).toContain('google_analytics → GA4_API_KEY + GA4_PROPERTY_ID')
+        process.env.GA4_PROPERTY_ID = 'test-property'
+        const result2 = await toolSelfHealingTools({ action: 'diagnose' })
+        expect(result2.result).not.toContain('google_analytics →')
+      } finally {
+        if (originalGa4Key === undefined) delete process.env.GA4_API_KEY; else process.env.GA4_API_KEY = originalGa4Key
+        if (originalGa4Prop === undefined) delete process.env.GA4_PROPERTY_ID; else process.env.GA4_PROPERTY_ID = originalGa4Prop
+      }
+    })
+  })
+
+  describe('etsy_integration: rebuilt to call the real Etsy Open API v3 with ETSY_API_KEY instead of fabricating', () => {
+    const src = readFileSync(new URL('../src/lib/autonomy-tools.ts', import.meta.url), 'utf8')
+    const fnSrc = src.slice(src.indexOf('export async function toolEtsyIntegration'), src.indexOf('export async function toolAmazonIntegration'))
+
+    test('no more fabricated hardcoded sales figures', () => {
+      expect(fnSrc).not.toContain('Agent007Designs')
+      expect(fnSrc).not.toContain('$148 revenue')
+      expect(fnSrc).not.toContain('$248.50')
+      expect(fnSrc).not.toContain('287 days')
+    })
+
+    test('requires ETSY_API_KEY and makes a real fetch to the Etsy Open API', () => {
+      expect(fnSrc).toContain('process.env.ETSY_API_KEY')
+      expect(fnSrc).toContain('openapi.etsy.com/v3/application/shops')
+      expect(fnSrc).toContain("'x-api-key': key")
+    })
+
+    test('honestly discloses the OAuth limitation instead of fabricating revenue/order data', () => {
+      expect(fnSrc).toContain('OAuth 2.0')
+      expect(fnSrc).toContain('cannot report current sales/revenue')
     })
   })
 })
