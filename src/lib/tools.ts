@@ -2575,6 +2575,9 @@ import {
   toolRoicStockPrices, toolRoicFinancials, toolTiingoDaily, toolPolygonAggregates, toolPolygonCorporateActions,
 } from './ai-providers-integration'
 import { toolFirecrawlScrape, toolFirecrawlMap, toolFirecrawlCrawl, toolSpiderScrape, toolSpiderCrawl } from './site-crawl-tools'
+import { toolEvidenceGraphQuery } from './ceo-evidence-graph'
+import { toolEvidenceTimeline } from './ceo-evidence-timeline'
+import { toolCreateEvidenceWatch, toolListEvidenceWatches, toolCheckEvidenceWatches } from './ceo-evidence-watch'
 // LLM Providers (7)
 TOOL_REGISTRY.cerebras_llm = { fn: toolCerebrasLLM, icon: 'cpu', label: 'Cerebras LLM (Llama 3.1 — fastest inference, 2600 tok/s)' }
 TOOL_REGISTRY.sambanova_llm = { fn: toolSambaNovaLLM, icon: 'cpu', label: 'SambaNova LLM (Llama 3.1 405B — most powerful free LLM)' }
@@ -2608,6 +2611,13 @@ TOOL_REGISTRY.firecrawl_map = { fn: toolFirecrawlMap, icon: 'globe', label: 'Fir
 TOOL_REGISTRY.firecrawl_crawl = { fn: toolFirecrawlCrawl, icon: 'globe', label: 'Firecrawl Crawl (whole-site crawl with markdown extraction, credential-gated, async with job_id polling)' }
 TOOL_REGISTRY.spider_scrape = { fn: toolSpiderScrape, icon: 'globe', label: 'Spider.cloud Scrape (anti-bot-resistant single-page extraction, credential-gated)' }
 TOOL_REGISTRY.spider_crawl = { fn: toolSpiderCrawl, icon: 'globe', label: 'Spider.cloud Crawl (anti-bot-resistant whole-site crawl, credential-gated)' }
+// External World Intelligence, part c: Financial Evidence Graph, temporal timeline, continuous
+// monitoring. Free -- no credential required for any of these five.
+TOOL_REGISTRY.evidence_graph_query = { fn: toolEvidenceGraphQuery, icon: 'share-2', label: 'Financial Evidence Graph (entities genuinely co-researched/compared together in past turns)' }
+TOOL_REGISTRY.evidence_timeline = { fn: toolEvidenceTimeline, icon: 'clock', label: 'Evidence Timeline (chronological events + candidate temporal correlations for a ticker)' }
+TOOL_REGISTRY.create_evidence_watch = { fn: toolCreateEvidenceWatch, icon: 'bell', label: 'Create Evidence Watch (alert when a ticker moves more than X% within N days, checked daily)' }
+TOOL_REGISTRY.list_evidence_watches = { fn: toolListEvidenceWatches, icon: 'bell', label: 'List Evidence Watches' }
+TOOL_REGISTRY.check_evidence_watches = { fn: toolCheckEvidenceWatches, icon: 'bell', label: 'Check Evidence Watches now (manual trigger of the same logic the daily heartbeat runs)' }
 // Content & Image (7)
 TOOL_REGISTRY.hf_inference = { fn: toolHFInference, icon: 'brain', label: 'HF Inference (summarize, translate, classify — any HF model)' }
 TOOL_REGISTRY.pollinations_image = { fn: toolPollinationsImage, icon: 'image', label: 'Pollinations AI (free image generation, no key needed)' }

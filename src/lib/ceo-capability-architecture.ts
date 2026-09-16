@@ -36,7 +36,11 @@ export const CEO_CAPABILITY_ARCHITECTURE: readonly EnterpriseCapability[] = Obje
     tool('gdelt_search', 'Global/multilingual news monitoring across 65 languages (free, no key required)', 0.8, 0.9, 6000),
     tool('firecrawl_scrape', 'Rich single-page extraction (works keyless at a lower rate limit)', 0.8, 0.9, 8000),
     tool('firecrawl_map', 'Discover up to 100,000 URLs under a domain (credential-gated)', 0.82, 0.9, 8000, 0, 0.15),
+    tool('firecrawl_crawl', 'Whole-site crawl with markdown extraction, async with job_id polling (credential-gated)', 0.75, 0.85, 15000, 0, 0.2),
     tool('spider_scrape', 'Anti-bot-resistant single-page extraction (credential-gated)', 0.78, 0.88, 10000, 0, 0.15),
+    tool('spider_crawl', 'Anti-bot-resistant whole-site crawl (credential-gated)', 0.75, 0.85, 20000, 0, 0.2),
+    tool('evidence_graph_query', 'Entities genuinely co-researched/compared together in past turns (free, no key required)', 0.85, 0.7, 4000),
+    tool('evidence_timeline', 'Chronological events + candidate temporal correlations for a ticker (free, no key required)', 0.85, 0.75, 6000),
   ])] },
   { id: 'finance', description: 'Financial analysis and internal finance operations', capabilities: [capability('finance', 'finance.analysis', 'Analyze financial information', [
     tool('yahoo_finance', 'Live stock/ETF/index quotes (free, no key required)', 0.85, 0.95, 3000),
@@ -52,6 +56,9 @@ export const CEO_CAPABILITY_ARCHITECTURE: readonly EnterpriseCapability[] = Obje
     tool('polygon_corporate_actions', 'Stock split and dividend history (credential-gated)', 0.85, 0.8, 4000, 0, 0.15),
     tool('financial_tracker', 'Real income/expense summary from this venture\'s own recorded transactions', 0.9, 0.8, 3000),
     tool('payment_processor', 'Real status of configured payment gateways and recorded transaction volume', 0.9, 0.85, 3000),
+    tool('create_evidence_watch', 'Register a standing price-move alert for a ticker, checked daily (free, no key required)', 0.85, 0.8, 3000),
+    tool('list_evidence_watches', 'List configured evidence watches (free, no key required)', 0.9, 0.8, 2000),
+    tool('check_evidence_watches', 'Manually run the daily evidence-watch check now (free, no key required)', 0.85, 0.8, 8000),
   ])] },
   { id: 'market_intelligence', description: 'Market, competitor and industry intelligence', capabilities: [capability('market_intelligence', 'market.competitive', 'Competitive and market intelligence', [
     tool('web_search', 'Acquire current market intelligence', 0.82, 0.95, 6500),

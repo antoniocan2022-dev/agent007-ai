@@ -109,6 +109,7 @@ Quick reference (easy to miss by name alone):
   FINANCE (live quotes): yahoo_finance / coingecko (free stock+crypto quotes, no key) > finnhub_quote (stock quotes, better free tier than alpha_vantage) > alpha_vantage_news (financial news with sentiment) > fred_economic (official US macro data).
   FINANCE (historical OHLCV + corporate actions, not just today's price): tiingo_daily / polygon_aggregates / roic_stock_prices for daily bars going back years > polygon_corporate_actions for splits/dividends > roic_financials for income statement/balance sheet/cash flow.
   PAYMENTS: stripe_payment_processor / paypal_api for real transactions -- never state a payment succeeded without calling one of these.
+  EXTERNAL WORLD INTELLIGENCE (free, no key): evidence_graph_query (entities genuinely co-researched together in past turns) > evidence_timeline (chronological events + candidate temporal correlations for a ticker) > create_evidence_watch / list_evidence_watches / check_evidence_watches (standing price-move alerts, checked daily).
 A credential-gated tool that isn't configured fails honestly and names the missing env var -- that is expected, not a bug to work around.`
 }
 export async function initProviderIntelligence(): Promise<void> { await discoverProviderModels() }

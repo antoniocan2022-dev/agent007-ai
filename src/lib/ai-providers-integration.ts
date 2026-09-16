@@ -223,6 +223,11 @@ export async function toolRoicStockPrices(args: any): Promise<ToolResult> {
     const data = await response.json()
     const rows = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [data]
     if (!rows.length) return ok(`ROIC.ai Stock Prices: no data for ${ticker}`, JSON.stringify(data).slice(0, 4000))
+    // Fresh-audit fix: an HTTP 200 with an error-shaped body (e.g. {"error":"invalid apikey"}) has
+    // length 1 after the fallback above, so without this check it fell through to the formatting
+    // branch below and produced a plausible-looking but entirely fabricated table (every field
+    // resolving to its "?"/"-" placeholder) instead of surfacing the real error.
+    if (typeof rows[0]?.close !== 'number') return fail(`ROIC.ai Stock Prices: unexpected response shape for ${ticker} — ${JSON.stringify(data).slice(0, 500)}`)
     const shown = rows.slice(-60)
     const lines = shown.map((r: any) => `  ${r.date ?? r.timestamp ?? '?'}: O=${r.open ?? '-'} H=${r.high ?? '-'} L=${r.low ?? '-'} C=${r.close ?? '-'} AdjC=${r.adjClose ?? r.adjusted_close ?? '-'} V=${r.volume ?? '-'}`).join('\n')
     return ok(`ROIC.ai: ${rows.length} price point(s) for ${ticker}`, `ROIC.AI STOCK PRICES — ${ticker}\n${'='.repeat(60)}\n\n${lines}${rows.length > shown.length ? `\n  ... and ${rows.length - shown.length} more` : ''}`)
@@ -262,6 +267,9 @@ export async function toolTiingoDaily(args: any): Promise<ToolResult> {
     const data = await response.json()
     const rows = Array.isArray(data) ? data : [data]
     if (!rows.length) return ok(`Tiingo: no price data for ${ticker}`, JSON.stringify(data).slice(0, 2000))
+    // Fresh-audit fix: same reasoning as ROIC.ai above -- an HTTP 200 with an error-shaped body must
+    // not fall through to the formatting branch and produce a fabricated-looking placeholder table.
+    if (typeof rows[0]?.close !== 'number') return fail(`Tiingo Daily Prices: unexpected response shape for ${ticker} — ${JSON.stringify(data).slice(0, 500)}`)
     const shown = rows.slice(-60)
     const lines = shown.map((r: any) => `  ${String(r.date ?? '').slice(0, 10)}: O=${r.open} H=${r.high} L=${r.low} C=${r.close} AdjC=${r.adjClose} V=${r.volume} SplitFactor=${r.splitFactor ?? 1} DivCash=${r.divCash ?? 0}`).join('\n')
     return ok(`Tiingo: ${rows.length} daily price point(s) for ${ticker}`, `TIINGO DAILY OHLCV — ${ticker}${startDate || endDate ? ` (${startDate || '...'} to ${endDate || '...'})` : ''}\n${'='.repeat(60)}\n\nAdjusted close and per-day split/dividend factors included (SplitFactor != 1 or DivCash != 0 marks a corporate action that day -- no separate corporate-actions call needed).\n\n${lines}`)

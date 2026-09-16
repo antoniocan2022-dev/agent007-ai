@@ -186,6 +186,35 @@ describe('CEO execution contract', () => {
     expect(bundle.claims[0].confidence).toBeCloseTo(0.75, 5)
   })
 
+  test('round-2 deep-audit fix: identical boilerplate claim text from two DIFFERENT, disjoint tickers does NOT merge -- prevents company B evidence from silently backing a claim about company A', () => {
+    // Realistic trigger: near-identical SEC ASC 606 revenue-recognition boilerplate language,
+    // filed by two unrelated companies.
+    const claimText = 'Revenue was recognized in accordance with ASC 606 guidance for the reporting period.'
+    const aapl = createEvidenceSource({ url: 'https://www.sec.gov/aapl-10k', title: 'AAPL 10-K', sourceType: 'sec_filing', sourceTier: 1, text: claimText, relatedEntities: ['AAPL'] })
+    const msft = createEvidenceSource({ url: 'https://www.sec.gov/msft-10k', title: 'MSFT 10-K', sourceType: 'sec_filing', sourceTier: 1, text: claimText, relatedEntities: ['MSFT'] })
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [aapl, msft] })
+    expect(bundle.claims).toHaveLength(2)
+    const bundledAapl = bundle.sources.find((s) => s.relatedEntities?.includes('AAPL'))!
+    const bundledMsft = bundle.sources.find((s) => s.relatedEntities?.includes('MSFT'))!
+    const byEntity = Object.fromEntries(bundle.claims.map((c) => [c.relatedEntities?.[0], c]))
+    expect(byEntity.AAPL.sourceIds).toEqual([bundledAapl.id])
+    expect(byEntity.MSFT.sourceIds).toEqual([bundledMsft.id])
+    // Neither claim's evidence includes the other company's source -- the exact guarantee
+    // ceo-claim-evidence-gate.ts's verifyClaimEvidence depends on.
+    expect(byEntity.AAPL.sourceIds).not.toContain(bundledMsft.id)
+    expect(byEntity.MSFT.sourceIds).not.toContain(bundledAapl.id)
+  })
+
+  test('round-2 deep-audit fix: an unscoped (no relatedEntities) source can still corroborate a ticker-scoped claim -- only DISJOINT non-empty entity sets block merging', () => {
+    const claimText = 'Revenue grew 20% year over year, driven by strong cloud demand.'
+    const scoped = createEvidenceSource({ url: 'https://www.reuters.com/scoped', title: 'Scoped', sourceType: 'news', text: claimText, relatedEntities: ['MSFT'] })
+    const unscoped = createEvidenceSource({ url: 'https://apnews.com/unscoped', title: 'Unscoped', sourceType: 'news', text: claimText })
+    const bundle = buildEvidenceBundle({ profile: 'public_equity', sources: [scoped, unscoped] })
+    expect(bundle.claims).toHaveLength(1)
+    expect(bundle.claims[0].sourceIds).toHaveLength(2)
+    expect(bundle.claims[0].relatedEntities).toEqual(['MSFT'])
+  })
+
   test('keeps orchestration ownership request-scoped and isolated', async () => {
     expect(getOrchestrationOwner()).toBeNull()
     const seen: string[] = []

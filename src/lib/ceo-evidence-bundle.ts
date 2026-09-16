@@ -76,23 +76,37 @@ export function buildEvidenceBundle(input: { profile: EvidenceProfile; operation
   // corroboration. Claims are now deduped by normalized text; a repeat from a NEW, independent
   // source family (not just a re-fetch of the same publisher) merges in and raises confidence
   // instead of appending a duplicate.
+  //
+  // Round-2 deep-audit fix: merging purely on claim TEXT, with no entity scoping, let two sources
+  // about entirely different tickers merge into one claim whenever they happened to share boilerplate
+  // phrasing (SEC filing revenue-recognition language, disclaimers, templated comparison-article
+  // sentences) -- the merged claim's relatedEntities would then include a ticker the claim text has
+  // nothing to do with. Concretely dangerous downstream: ceo-claim-evidence-gate.ts's
+  // verifyClaimEvidence maps a claim's sourceIds back to sources and treats ANY of them as
+  // supporting evidence, so a model's claim about company A could pass the fail-closed evidence gate
+  // using company B's source purely because of shared boilerplate. entitiesCompatible below blocks
+  // exactly the clear-cut dangerous case -- two NON-EMPTY, fully disjoint entity sets -- while still
+  // allowing corroboration merges when at least one side is unscoped (a general web source) or the
+  // sets share any entity in common.
   const normalizeClaimText = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim()
+  const entitiesCompatible = (a: string[] = [], b: string[] = []): boolean => a.length === 0 || b.length === 0 || a.some((entity) => b.includes(entity))
   const claims: EvidenceClaimCandidate[] = []
-  const claimIndexByText = new Map<string, number>()
+  const claimIndicesByText = new Map<string, number[]>()
   const contributingFamiliesByIndex = new Map<number, Set<string>>()
   for (const source of sources) for (const claim of source.claimCandidates.slice(0, 12)) {
     const matchingMetric = [...contradictingSourceIdsByMetric.keys()].find((metric) => new RegExp(`\\b${metric.replace(/_/g, '[\\s_]?')}\\b`, 'i').test(claim))
     const contradictionSourceIds = matchingMetric ? contradictingSourceIdsByMetric.get(matchingMetric)!.filter((id) => id !== source.id) : undefined
     const baseConfidence = source.sourceTier === 1 ? 0.95 : source.sourceTier === 2 ? 0.85 : source.sourceTier === 3 ? 0.75 : 0.55
     const normalized = normalizeClaimText(claim)
-    const existingIndex = claimIndexByText.get(normalized)
-    if (existingIndex !== undefined) {
-      const existing = claims[existingIndex]
+    const candidateIndices = claimIndicesByText.get(normalized) ?? []
+    const mergeIndex = candidateIndices.find((index) => entitiesCompatible(claims[index].relatedEntities, source.relatedEntities))
+    if (mergeIndex !== undefined) {
+      const existing = claims[mergeIndex]
       if (!existing.sourceIds.includes(source.id)) {
-        const families = contributingFamiliesByIndex.get(existingIndex) ?? new Set<string>()
+        const families = contributingFamiliesByIndex.get(mergeIndex) ?? new Set<string>()
         const isIndependentFamily = !families.has(source.sourceFamily)
         families.add(source.sourceFamily)
-        contributingFamiliesByIndex.set(existingIndex, families)
+        contributingFamiliesByIndex.set(mergeIndex, families)
         existing.sourceIds = [...existing.sourceIds, source.id]
         existing.sourceUrls = [...new Set([...existing.sourceUrls, source.url])]
         existing.relatedEntities = [...new Set([...(existing.relatedEntities ?? []), ...(source.relatedEntities ?? [])])]
@@ -102,7 +116,7 @@ export function buildEvidenceBundle(input: { profile: EvidenceProfile; operation
       continue
     }
     claims.push({ claim, sourceIds: [source.id], sourceUrls: [source.url], observedAt: source.retrievedAt, confidence: baseConfidence, relatedEntities: source.relatedEntities ?? [], state: contradictionSourceIds?.length ? 'contradictory' : 'unverified', ...(contradictionSourceIds?.length ? { contradictionSourceIds } : {}) })
-    claimIndexByText.set(normalized, claims.length - 1)
+    claimIndicesByText.set(normalized, [...candidateIndices, claims.length - 1])
     contributingFamiliesByIndex.set(claims.length - 1, new Set([source.sourceFamily]))
   }
   const observedAt = sources.length > 0 ? sources.reduce((latest, source) => Math.max(latest, source.retrievedAt), 0) : createdAt, profileMaxAge = PROFILE_MAX_AGE_MS[input.profile], minimumSources = input.minimumSources ?? (input.profile === 'public_equity' ? 3 : input.profile === 'none' ? 0 : 2), minimumTierOneSources = input.minimumTierOneSources ?? (input.profile === 'public_equity' ? 1 : 0), sufficient = sources.length >= minimumSources && sources.filter((source) => source.sourceTier <= 1).length >= minimumTierOneSources

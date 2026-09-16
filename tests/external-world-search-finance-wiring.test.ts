@@ -11,6 +11,9 @@ import { sourceTierForUrl } from '@/lib/ceo-evidence-bundle'
 import { getToolDiscoveryPrompt } from '@/lib/provider-intelligence'
 import { toolRoicStockPrices, toolRoicFinancials, toolTiingoDaily, toolPolygonAggregates, toolPolygonCorporateActions } from '@/lib/ai-providers-integration'
 import { toolFirecrawlScrape, toolFirecrawlMap, toolFirecrawlCrawl, toolSpiderScrape, toolSpiderCrawl, pollFirecrawlJob } from '@/lib/site-crawl-tools'
+import { coOccurringEntityPairs, toolEvidenceGraphQuery } from '@/lib/ceo-evidence-graph'
+import { buildTimeline, toolEvidenceTimeline } from '@/lib/ceo-evidence-timeline'
+import { watchThresholdBreached, toolCreateEvidenceWatch, toolListEvidenceWatches } from '@/lib/ceo-evidence-watch'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -831,6 +834,18 @@ describe('Round-3: market-data providers and site crawlers', () => {
         expect(result.result).toContain('statement')
       } finally { delete process.env.ROIC_API_KEY }
     })
+
+    test('round-2 deep-audit fix: an HTTP 200 with an error-shaped body fails honestly instead of rendering a fabricated placeholder table', async () => {
+      process.env.ROIC_API_KEY = 'test-key'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'invalid apikey' }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolRoicStockPrices({ ticker: 'AAPL' })
+        expect(result.ok).toBe(false)
+        expect(result.result).toContain('unexpected response shape')
+        expect(result.result).not.toContain('O=- H=- L=- C=-')
+      } finally { globalThis.fetch = originalFetch; delete process.env.ROIC_API_KEY }
+    })
   })
 
   describe('Tiingo: daily OHLCV with inline split/dividend factors', () => {
@@ -850,6 +865,17 @@ describe('Round-3: market-data providers and site crawlers', () => {
         expect(result.ok).toBe(true)
         expect(result.result).toContain('DivCash=0.24')
         expect(result.result).toContain('split/dividend factors')
+      } finally { globalThis.fetch = originalFetch; delete process.env.TIINGO_API_KEY }
+    })
+
+    test('round-2 deep-audit fix: an HTTP 200 with an error-shaped body fails honestly instead of rendering a fabricated placeholder table', async () => {
+      process.env.TIINGO_API_KEY = 'test-key'
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response(JSON.stringify({ detail: 'Not authorized' }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolTiingoDaily({ ticker: 'AAPL' })
+        expect(result.ok).toBe(false)
+        expect(result.result).toContain('unexpected response shape')
       } finally { globalThis.fetch = originalFetch; delete process.env.TIINGO_API_KEY }
     })
   })
@@ -966,6 +992,59 @@ describe('Round-3: market-data providers and site crawlers', () => {
       } finally { globalThis.fetch = originalFetch }
     })
 
+    test('round-2 deep-audit fix: a non-positive budgetMs still performs at least one real check instead of claiming "still running" unchecked', async () => {
+      const originalFetch = globalThis.fetch
+      let callCount = 0
+      globalThis.fetch = (async () => { callCount++; return new Response(JSON.stringify({ status: 'completed', data: [] }), { status: 200 }) }) as typeof fetch
+      try {
+        const result = await pollFirecrawlJob('job-zero-budget', 'fc-test', 0, 20)
+        expect(callCount).toBe(1)
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('completed')
+      } finally { globalThis.fetch = originalFetch }
+    })
+
+    test('round-2 deep-audit fix: a transient HTTP error mid-poll is retried within budget instead of aborting the whole check', async () => {
+      const originalFetch = globalThis.fetch
+      let callCount = 0
+      globalThis.fetch = (async () => {
+        callCount++
+        if (callCount === 1) return new Response('Service Unavailable', { status: 503 })
+        return new Response(JSON.stringify({ status: 'completed', data: [] }), { status: 200 })
+      }) as typeof fetch
+      try {
+        const result = await pollFirecrawlJob('job-transient-error', 'fc-test', 200, 20)
+        expect(callCount).toBeGreaterThan(1)
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('completed')
+      } finally { globalThis.fetch = originalFetch }
+    })
+
+    test('round-2 deep-audit fix: if EVERY attempt fails, reports a real failure rather than fabricating "still running"', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => new Response('Service Unavailable', { status: 503 })) as typeof fetch
+      try {
+        const result = await pollFirecrawlJob('job-always-fails', 'fc-test', 60, 20)
+        expect(result.ok).toBe(false)
+        expect(result.result).toContain('could not check job')
+      } finally { globalThis.fetch = originalFetch }
+    })
+
+    test('round-2 deep-audit fix: a non-numeric "limit" falls back to the default instead of sending NaN/null to the API', async () => {
+      process.env.FIRECRAWL_API_KEY = 'fc-test'
+      const originalFetch = globalThis.fetch
+      let sentLimit: any
+      globalThis.fetch = (async (url: any, init: any) => {
+        if (String(url).endsWith('/v2/crawl')) { sentLimit = JSON.parse(init.body).limit; return new Response(JSON.stringify({ id: 'job-nan' }), { status: 200 }) }
+        return new Response(JSON.stringify({ status: 'completed', data: [] }), { status: 200 })
+      }) as typeof fetch
+      try {
+        await toolFirecrawlCrawl({ url: 'https://example.com', limit: 'not-a-number' })
+        expect(sentLimit).toBe(50)
+        expect(Number.isFinite(sentLimit)).toBe(true)
+      } finally { globalThis.fetch = originalFetch; delete process.env.FIRECRAWL_API_KEY }
+    })
+
     test('crawl starts a new job for a "url" argument and formats the completed result', async () => {
       process.env.FIRECRAWL_API_KEY = 'fc-test'
       const originalFetch = globalThis.fetch
@@ -1019,9 +1098,21 @@ describe('Round-3: market-data providers and site crawlers', () => {
         expect(result.result).toContain('page content')
       } finally { globalThis.fetch = originalFetch; delete process.env.SPIDER_API_KEY }
     })
+
+    test('round-2 deep-audit fix: a non-numeric "limit" falls back to the default instead of sending NaN/null to the API', async () => {
+      process.env.SPIDER_API_KEY = 'sk-test'
+      const originalFetch = globalThis.fetch
+      let sentBody: any = null
+      globalThis.fetch = (async (_url: any, init: any) => { sentBody = JSON.parse(init.body); return new Response(JSON.stringify({ content: 'page content' }), { status: 200 }) }) as typeof fetch
+      try {
+        await toolSpiderCrawl({ url: 'https://example.com', limit: 'not-a-number' })
+        expect(sentBody.limit).toBe(20)
+        expect(Number.isFinite(sentBody.limit)).toBe(true)
+      } finally { globalThis.fetch = originalFetch; delete process.env.SPIDER_API_KEY }
+    })
   })
 
-  describe('all 9 new tools are registered, capability-wired, and discoverable', () => {
+  describe('all 10 new tools are registered, capability-wired, and discoverable', () => {
     test('registered in TOOL_REGISTRY', () => {
       const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
       for (const id of ['roic_stock_prices', 'roic_financials', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions', 'firecrawl_scrape', 'firecrawl_map', 'firecrawl_crawl', 'spider_scrape', 'spider_crawl']) {
@@ -1029,10 +1120,10 @@ describe('Round-3: market-data providers and site crawlers', () => {
       }
     })
 
-    test('wired into the finance and research capability domains', () => {
+    test('wired into the finance and research capability domains (including the crawl tools -- selectCeoTool draws its candidate pool exclusively from this architecture, so a tool absent here is structurally unreachable by scored selection even if registered everywhere else)', () => {
       const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
-      for (const id of ['roic_stock_prices', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions']) expect(capSrc).toContain(`tool('${id}'`)
-      for (const id of ['firecrawl_scrape', 'firecrawl_map', 'spider_scrape']) expect(capSrc).toContain(`tool('${id}'`)
+      for (const id of ['roic_stock_prices', 'roic_financials', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions']) expect(capSrc).toContain(`tool('${id}'`)
+      for (const id of ['firecrawl_scrape', 'firecrawl_map', 'firecrawl_crawl', 'spider_scrape', 'spider_crawl']) expect(capSrc).toContain(`tool('${id}'`)
     })
 
     test('named in the tool discovery prompt so the CEO can learn they exist', async () => {
@@ -1048,6 +1139,147 @@ describe('Round-3: market-data providers and site crawlers', () => {
       const setLiteral = executorSrc.slice(executorSrc.indexOf('QUERY_SEARCH_TOOL_IDS = new Set('), executorSrc.indexOf('])'))
       for (const id of ['roic_stock_prices', 'roic_financials', 'tiingo_daily', 'polygon_aggregates', 'polygon_corporate_actions', 'firecrawl_scrape', 'firecrawl_map', 'firecrawl_crawl', 'spider_scrape', 'spider_crawl']) {
         expect(setLiteral).not.toContain(`'${id}'`)
+      }
+    })
+  })
+})
+
+// Part c full completion: Financial Evidence Graph, temporal timeline, continuous monitoring.
+describe('Part c: Financial Evidence Graph, temporal timeline, continuous monitoring', () => {
+  describe('Financial Evidence Graph: real co-occurrence, never an asserted business relationship', () => {
+    test('coOccurringEntityPairs finds pairs regardless of listing order, and de-dupes repeat co-occurrence into one candidate', () => {
+      const pairs = coOccurringEntityPairs({ sources: [
+        { id: 's1', relatedEntities: ['AAPL', 'MSFT'] } as any,
+        { id: 's2', relatedEntities: ['MSFT', 'AAPL'] } as any,
+      ] })
+      expect(pairs).toHaveLength(1)
+      expect(pairs[0].fromKey).toBe('AAPL')
+      expect(pairs[0].toKey).toBe('MSFT')
+      expect(pairs[0].sourceIds).toEqual(['s1', 's2'])
+    })
+
+    test('a source with only one entity, or none, contributes no pairs', () => {
+      expect(coOccurringEntityPairs({ sources: [{ id: 's1', relatedEntities: ['AAPL'] } as any] })).toHaveLength(0)
+      expect(coOccurringEntityPairs({ sources: [{ id: 's1', relatedEntities: [] } as any] })).toHaveLength(0)
+      expect(coOccurringEntityPairs({ sources: [{ id: 's1' } as any] })).toHaveLength(0)
+    })
+
+    test('three co-occurring entities in one source produce all three pairs', () => {
+      const pairs = coOccurringEntityPairs({ sources: [{ id: 's1', relatedEntities: ['AAPL', 'MSFT', 'GOOG'] } as any] })
+      expect(pairs).toHaveLength(3)
+      const keys = pairs.map((p) => `${p.fromKey}-${p.toKey}`).sort()
+      expect(keys).toEqual(['AAPL-GOOG', 'AAPL-MSFT', 'GOOG-MSFT'])
+    })
+
+    test('evidence_graph_query requires "ticker" and fails closed to an honest "not found" without a live database', async () => {
+      const missing = await toolEvidenceGraphQuery({}, {} as any)
+      expect(missing.ok).toBe(false)
+      const result = await toolEvidenceGraphQuery({ ticker: 'AAPL' }, {} as any)
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('has not co-occurred')
+    })
+
+    test('registered, capability-wired (research domain), and named in the tool discovery prompt', async () => {
+      const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
+      expect(toolsSrc).toContain('TOOL_REGISTRY.evidence_graph_query')
+      const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
+      expect(capSrc).toContain("tool('evidence_graph_query'")
+      const prompt = await getToolDiscoveryPrompt()
+      expect(prompt).toContain('evidence_graph_query')
+    })
+  })
+
+  describe('Evidence Timeline: honest events + candidate temporal correlations, never asserted causation', () => {
+    test('buildTimeline sorts chronologically and flags only CONSECUTIVE events within the window', () => {
+      const day = 86400000
+      const base = Date.parse('2026-01-01T00:00:00Z')
+      const events = [
+        { at: base + 40 * day, kind: 'c', label: 'C', detail: '' },
+        { at: base, kind: 'a', label: 'A', detail: '' },
+        { at: base + 5 * day, kind: 'b', label: 'B', detail: '' },
+      ]
+      const { events: sorted, correlations } = buildTimeline(events, 14)
+      expect(sorted.map((e) => e.kind)).toEqual(['a', 'b', 'c'])
+      // A->B is 5 days apart (within 14-day window); B->C is 35 days apart (outside it).
+      expect(correlations).toHaveLength(1)
+      expect(correlations[0].earlier.kind).toBe('a')
+      expect(correlations[0].later.kind).toBe('b')
+      expect(correlations[0].gapDays).toBeCloseTo(5, 5)
+    })
+
+    test('zero or one event produces zero correlations', () => {
+      expect(buildTimeline([], 14).correlations).toHaveLength(0)
+      expect(buildTimeline([{ at: Date.now(), kind: 'a', label: 'A', detail: '' }], 14).correlations).toHaveLength(0)
+    })
+
+    test('evidence_timeline requires "ticker" and honestly reports no events without a live database or POLYGON_API_KEY', async () => {
+      const missing = await toolEvidenceTimeline({}, {} as any)
+      expect(missing.ok).toBe(false)
+      delete process.env.POLYGON_API_KEY
+      const result = await toolEvidenceTimeline({ ticker: 'AAPL' }, {} as any)
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('No verified, timestamped evidence events are on record yet')
+    })
+
+    test('registered, capability-wired (research domain), and named in the tool discovery prompt', async () => {
+      const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
+      expect(toolsSrc).toContain('TOOL_REGISTRY.evidence_timeline')
+      const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
+      expect(capSrc).toContain("tool('evidence_timeline'")
+      const prompt = await getToolDiscoveryPrompt()
+      expect(prompt).toContain('evidence_timeline')
+    })
+  })
+
+  describe('Continuous monitoring (watch-and-alert): standing checks instead of query-time only', () => {
+    test('watchThresholdBreached compares the absolute move against the threshold', () => {
+      expect(watchThresholdBreached(6, 5)).toBe(true)
+      expect(watchThresholdBreached(-6, 5)).toBe(true)
+      expect(watchThresholdBreached(3, 5)).toBe(false)
+      expect(watchThresholdBreached(5, 5)).toBe(true)
+    })
+
+    test('create_evidence_watch rejects a missing ticker or a non-positive threshold before touching the database', async () => {
+      const noTicker = await toolCreateEvidenceWatch({ threshold_pct: 5 }, {} as any)
+      expect(noTicker.ok).toBe(false)
+      expect(noTicker.result).toContain('ticker')
+      const badThreshold = await toolCreateEvidenceWatch({ ticker: 'AAPL', threshold_pct: -3 }, {} as any)
+      expect(badThreshold.ok).toBe(false)
+      expect(badThreshold.result).toContain('threshold_pct')
+    })
+
+    test('list_evidence_watches is a real async tool wrapper (validated by invoking it -- errors without a live database are expected and handled, not thrown)', async () => {
+      const result = await toolListEvidenceWatches({}, {} as any)
+      expect(typeof result.ok).toBe('boolean')
+      expect(typeof result.result).toBe('string')
+    })
+
+    test('registered, capability-wired (finance domain), and named in the tool discovery prompt', async () => {
+      const toolsSrc = readFileSync(new URL('../src/lib/tools.ts', import.meta.url), 'utf8')
+      for (const id of ['create_evidence_watch', 'list_evidence_watches', 'check_evidence_watches']) expect(toolsSrc).toContain(`TOOL_REGISTRY.${id}`)
+      const capSrc = readFileSync(new URL('../src/lib/ceo-capability-architecture.ts', import.meta.url), 'utf8')
+      for (const id of ['create_evidence_watch', 'list_evidence_watches', 'check_evidence_watches']) expect(capSrc).toContain(`tool('${id}'`)
+      const prompt = await getToolDiscoveryPrompt()
+      expect(prompt).toContain('create_evidence_watch')
+    })
+
+    test('a protected cron route exists and is wired into the daily /api/schedules/tick dispatcher, matching this codebase\'s established daily-job pattern', () => {
+      const routeSrc = readFileSync(new URL('../src/app/api/schedules/evidence-watch-check/route.ts', import.meta.url), 'utf8')
+      expect(routeSrc).toContain('CRON_SECRET')
+      expect(routeSrc).toContain('checkAllEvidenceWatches')
+      const tickSrc = readFileSync(new URL('../src/app/api/schedules/tick/route.ts', import.meta.url), 'utf8')
+      expect(tickSrc).toContain("fireDaily('/api/schedules/evidence-watch-check')")
+    })
+  })
+
+  describe('Prisma schema and the raw-SQL reconciliation script stay in sync for all 4 new tables', () => {
+    test('every new model in schema.prisma has a matching CREATE TABLE in reconcile-production-schema.ts, and vice versa', () => {
+      const schemaSrc = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+      const reconcileSrc = readFileSync(new URL('../src/lib/reconcile-production-schema.ts', import.meta.url), 'utf8')
+      for (const model of ['EvidenceEntityNode', 'EvidenceEntityEdge', 'EvidenceWatch', 'EvidenceWatchHit']) {
+        expect(schemaSrc).toContain(`model ${model} {`)
+        expect(reconcileSrc).toContain(`CREATE TABLE IF NOT EXISTS "${model}"`)
+        expect(reconcileSrc).toContain(`'${model}'`) // present in the verification block's required-table list
       }
     })
   })

@@ -13,6 +13,7 @@ import { getSecTickerMap } from './ceo-issuer-resolution'
 // Deep-audit fix (P0, 2026-09-13): claim-ledger read/write, scoped to SEC company-facts sources only --
 // see ceo-claim-ledger.ts's module doc for why (unambiguous per-ticker attribution).
 import { crossTurnContradictions, DEFAULT_CROSS_TURN_CLAIM_MAX_AGE_MS, lookupRecentVerifiedClaims, recordVerifiedClaims } from './ceo-claim-ledger'
+import { recordEvidenceGraphFromBundle } from './ceo-evidence-graph'
 
 export interface ExternalEvidenceExecution { bundle: ReturnType<typeof buildEvidenceBundle>; attemptedQueries: number; successfulQueries: number; pageReads: number; secSources: number; failures: string[] }
 const DEFAULT_SEC_UA = 'Agent007-AI research/1.0'
@@ -89,6 +90,10 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
     }))).flat()
     if (crossTurnRecords.length) finalBundle = { ...bundle, contradictions: [...bundle.contradictions, ...crossTurnRecords] }
   }
+  // External World Intelligence, part c (2026-09-16): records real co-occurrence (companies genuinely
+  // researched/compared together this turn) into the Financial Evidence Graph -- see
+  // ceo-evidence-graph.ts. Fails open, same convention as recordVerifiedClaims above.
+  await recordEvidenceGraphFromBundle(finalBundle)
   if (plan.profile === 'public_equity' || plan.operation === 'recommend' || plan.operation === 'decide') assertDecisionGradeEvidence({ domain: plan.domain, operation: plan.operation, bundle: finalBundle })
   return { bundle: finalBundle, attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, failures }
 }

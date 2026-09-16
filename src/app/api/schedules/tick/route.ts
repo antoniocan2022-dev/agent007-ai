@@ -134,6 +134,7 @@ export async function POST(req: NextRequest) {
     fireDaily('/api/schedules/investor-intelligence-brief')
     fireDaily('/api/revenue-reconciliation')
     fireDaily('/api/system/mission-supervisor')
+    fireDaily('/api/schedules/evidence-watch-check')
 
     const tickCount = (globalThis as { __tickCount?: number }).__tickCount ?? 0
     ;(globalThis as { __tickCount?: number }).__tickCount = tickCount + 1
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
       count: dispatched.length,
       executedCount: executed.length,
       nextCheck: 1440,
-      monitors: 'daily external/qa, CEO briefs, investor brief, revenue reconciliation, and mission autonomy supervisor fired',
+      monitors: 'daily external/qa, CEO briefs, investor brief, revenue reconciliation, mission autonomy supervisor, and evidence-watch checks fired',
     })
   } catch (error: any) {
     return NextResponse.json({ error: error?.message }, { status: 500 })

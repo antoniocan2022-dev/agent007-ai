@@ -59,16 +59,28 @@ export async function toolFirecrawlMap(args: any, _ctx: ToolContext): Promise<To
 // intervalMs is a parameter (not a hardcoded constant) purely so tests can poll a mocked endpoint
 // on a short interval instead of waiting out the real 2.5s production cadence -- production callers
 // never pass it, so this changes nothing about real crawl behavior.
+//
+// Round-2 deep-audit fixes: (1) a non-positive budgetMs used to skip the loop body entirely (the
+// `while` condition was false before any fetch ran) yet still fell through to the "still running"
+// return -- reporting a status it never actually checked. Restructured so at least one real check
+// always happens, however small the budget. (2) a single transient HTTP error mid-poll used to
+// `return fail(...)` immediately, killing the whole check even though up to ~8 more attempts might
+// remain in budget -- now retries within budget and only reports a hard failure if EVERY attempt
+// failed (never got one real response to report on).
 export async function pollFirecrawlJob(jobId: string, key: string, budgetMs: number, intervalMs = 2500): Promise<ToolResult> {
   const deadline = Date.now() + budgetMs
   let last: any = null
-  while (Date.now() < deadline) {
-    const response = await fetch(`https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(jobId)}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10000) })
-    if (!response.ok) return fail(`Firecrawl Crawl: HTTP ${response.status} checking job ${jobId}`)
-    last = await response.json()
-    if (last?.status === 'completed' || last?.status === 'failed') break
+  let lastError: string | undefined
+  for (;;) {
+    try {
+      const response = await fetch(`https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(jobId)}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10000) })
+      if (response.ok) { last = await response.json(); lastError = undefined; if (last?.status === 'completed' || last?.status === 'failed') break }
+      else { lastError = `HTTP ${response.status}` }
+    } catch (e: any) { lastError = e?.message ?? String(e) }
+    if (Date.now() >= deadline) break
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
+  if (!last) return fail(`Firecrawl Crawl: could not check job ${jobId} — ${lastError ?? 'no response'}`)
   const status = last?.status ?? 'unknown'
   const pages = Array.isArray(last?.data) ? last.data : []
   if (status === 'completed') {
@@ -92,7 +104,8 @@ export async function toolFirecrawlCrawl(args: any, _ctx: ToolContext): Promise<
     if (jobId) return await pollFirecrawlJob(jobId, key, 20000)
     const url = String(args?.url ?? '').trim()
     if (!url) return fail('firecrawl_crawl requires "url" (or "job_id" to check a previously started crawl)')
-    const limit = Math.min(500, Math.max(1, Number(args?.limit ?? 50)))
+    const rawLimit = Number(args?.limit ?? 50)
+    const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 50))
     const response = await fetch('https://api.firecrawl.dev/v2/crawl', { method: 'POST', headers: firecrawlHeaders(), body: JSON.stringify({ url, limit, scrapeOptions: { formats: ['markdown'] } }), signal: AbortSignal.timeout(15000) })
     if (!response.ok) return fail(`Firecrawl Crawl: HTTP ${response.status}`)
     const started = await response.json()
@@ -131,7 +144,8 @@ export async function toolSpiderCrawl(args: any, _ctx: ToolContext): Promise<Too
   if (!headers) return fail('spider_crawl requires SPIDER_API_KEY. Get a key at https://spider.cloud')
   const url = String(args?.url ?? '').trim()
   if (!url) return fail('spider_crawl requires "url"')
-  const limit = Math.min(200, Math.max(1, Number(args?.limit ?? 20)))
+  const rawLimit = Number(args?.limit ?? 20)
+  const limit = Math.min(200, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20))
   try {
     const response = await fetch('https://api.spider.cloud/crawl', { method: 'POST', headers, body: JSON.stringify({ url, limit, return_format: 'markdown' }), signal: AbortSignal.timeout(45000) })
     if (!response.ok) return fail(`Spider Crawl: HTTP ${response.status}`)

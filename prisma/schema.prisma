@@ -771,3 +771,81 @@ model RecommendationReview {
   @@index([recommendationId])
   @@index([reviewerId])
 }
+
+/// External World Intelligence, part c (2026-09-16): Financial Evidence Graph. A minimal, real
+/// graph over the same relational store used everywhere else in this schema (nodes + adjacency
+/// edges), not a separate graph database. Entities discovered via EvidenceSource.relatedEntities
+/// (ceo-evidence-bundle.ts) are recorded as nodes; two entities that genuinely co-occurred within
+/// one evidence bundle (companies actually researched/compared together in the same turn) are
+/// recorded as an edge -- see ceo-evidence-graph.ts for exactly what gets written and why. Edges
+/// are confidence-weighted and additive, never asserted as a stronger relationship (e.g.
+/// "competitor of") than the evidence actually supports.
+model EvidenceEntityNode {
+  id         String   @id @default(cuid())
+  /// company | person | product | event
+  entityType String
+  /// canonical identifier -- uppercase ticker for companies, normalized name otherwise
+  key        String
+  name       String
+  /// small JSON blob, e.g. {"exchange":"NASDAQ"}
+  metadata   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([entityType, key])
+  @@index([entityType])
+}
+
+/// Directed edge between two EvidenceEntityNode rows. sourceIds is a comma-joined list of the
+/// EvidenceSource ids (ceo-evidence-bundle.ts) that support this edge -- kept as a plain string,
+/// not a relation, because EvidenceSource is a transient per-turn object never itself persisted here.
+model EvidenceEntityEdge {
+  id           String   @id @default(cuid())
+  fromNodeId   String
+  toNodeId     String
+  /// co_researched | mentioned_with
+  relationship String
+  confidence   Float    @default(0.5)
+  occurrences  Int      @default(1)
+  sourceIds    String   @default("")
+  observedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([fromNodeId, toNodeId, relationship])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+}
+
+/// External World Intelligence, part c (2026-09-16): continuous monitoring. A watch the owner (or
+/// the CEO on the owner's behalf) registers against a ticker. checkAllEvidenceWatches()
+/// (ceo-evidence-watch.ts) is fired daily from /api/schedules/tick alongside the other protected
+/// jobs, compares fresh data against the threshold, and records an EvidenceWatchHit (plus a
+/// best-effort push notification) when it's crossed. lastCheckedAt/lastTriggeredAt are separate
+/// fields because a watch can be checked many times without ever triggering.
+model EvidenceWatch {
+  id              String    @id @default(cuid())
+  userId          String
+  ticker          String
+  /// price_move_pct is the only watch type implemented so far
+  watchType       String
+  thresholdValue  Float
+  windowDays      Int       @default(1)
+  enabled         Boolean   @default(true)
+  lastCheckedAt   DateTime?
+  lastTriggeredAt DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([enabled])
+}
+
+/// One recorded breach of an EvidenceWatch's threshold.
+model EvidenceWatchHit {
+  id            String   @id @default(cuid())
+  watchId       String
+  observedValue Float
+  detail        String
+  createdAt     DateTime @default(now())
+
+  @@index([watchId, createdAt])
+}
