@@ -65,6 +65,19 @@ export const CEO_CAPABILITY_ARCHITECTURE: readonly EnterpriseCapability[] = Obje
     tool('newsapi', 'Real-time news search across 80,000+ sources (credential-gated)', 0.82, 0.95, 4000, 0, 0.15),
     tool('tavily_search', 'AI-optimized search with cited results (credential-gated)', 0.88, 0.95, 4000, 0, 0.15),
     tool('gdelt_search', 'Global/multilingual news monitoring across 65 languages (free, no key required)', 0.8, 0.9, 6000),
+    // Architecture fix (2026-09-17): public_equity/market/competitor domains map to this capability
+    // (see capabilityForDomain below), but this list previously had zero real price/quote tools --
+    // every one of them lived only under 'finance', a capability equity research never maps to. Real
+    // symbol-scoped dispatch for equity research now goes through a dedicated path in
+    // ceo-evidence-executor.ts (fetchMarketDataSource) rather than through selectCeoTool's generic
+    // free-text query shape, but these entries still belong here so this domain's own capability
+    // listing honestly reflects what market intelligence for a specific ticker actually draws on.
+    tool('yahoo_finance', 'Live stock/ETF/index quotes (free, no key required)', 0.85, 0.95, 3000),
+    tool('finnhub_quote', 'Real-time-ish stock quotes, generous free tier (credential-gated)', 0.85, 0.95, 3000, 0, 0.15),
+    tool('tiingo_daily', 'Historical daily OHLCV with per-day split/dividend factors (credential-gated)', 0.85, 0.85, 4000, 0, 0.15),
+    tool('polygon_aggregates', 'OHLCV bars at any granularity, any date range (credential-gated)', 0.85, 0.88, 4000, 0, 0.15),
+    tool('roic_stock_prices', 'Historical daily OHLCV + adjusted close, 60,000+ tickers (credential-gated)', 0.82, 0.85, 4000, 0, 0.15),
+    tool('alpha_vantage', 'Stock/forex/crypto quotes, thin free tier (credential-gated)', 0.8, 0.9, 4000, 0, 0.15),
   ])] },
   { id: 'communication', description: 'Communications and external messaging', capabilities: [capability('communication', 'communication.messaging', 'Create and send governed communications')] },
   { id: 'commerce', description: 'Commerce, orders and transactions', capabilities: [capability('commerce', 'commerce.execution', 'Governed commerce operations', [

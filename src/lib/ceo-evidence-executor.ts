@@ -15,7 +15,7 @@ import { getSecTickerMap } from './ceo-issuer-resolution'
 import { crossTurnContradictions, DEFAULT_CROSS_TURN_CLAIM_MAX_AGE_MS, lookupRecentVerifiedClaims, recordVerifiedClaims } from './ceo-claim-ledger'
 import { recordEvidenceGraphFromBundle } from './ceo-evidence-graph'
 
-export interface ExternalEvidenceExecution { bundle: ReturnType<typeof buildEvidenceBundle>; attemptedQueries: number; successfulQueries: number; pageReads: number; secSources: number; failures: string[] }
+export interface ExternalEvidenceExecution { bundle: ReturnType<typeof buildEvidenceBundle>; attemptedQueries: number; successfulQueries: number; pageReads: number; secSources: number; marketDataSources: number; failures: string[] }
 const DEFAULT_SEC_UA = 'Agent007-AI research/1.0'
 function toolContext(): ToolContext { return { attachments: [], language: 'en' } }
 async function dispatch(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> { throwIfCeoRequestAborted(signal); return dispatchTool(name, { ...args, __agent007_abort_signal: signal }, toolContext()) }
@@ -30,6 +30,42 @@ const FACT_CANDIDATES: Array<{ key: string; label: string }> = [
 function latestUnit(units?: Record<string, SecFactUnit[]>): SecFactUnit | null { const candidates = Object.values(units ?? {}).flat().filter((item) => typeof item.val === 'number' && item.filed); candidates.sort((a, b) => String(b.filed).localeCompare(String(a.filed))); return candidates[0] ?? null }
 async function fetchSecSource(ticker: string, signal?: AbortSignal): Promise<EvidenceSource | null> { const map = await getSecTickerMap(signal), item = map[ticker.toUpperCase()]; if (!item?.cik_str) return null; const cik = String(item.cik_str).padStart(10, '0'), url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, payload = await fetchJson<SecFacts>(url, signal), usGaap = payload.facts?.['us-gaap'] ?? {}; const lines: string[] = [`SEC Company Facts for ${ticker.toUpperCase()} — ${payload.entityName ?? item.title}`]; let latestFiled: string | undefined; for (const candidate of FACT_CANDIDATES) { const fact = latestUnit(usGaap[candidate.key]?.units); if (!fact) continue; if (fact.filed && (!latestFiled || fact.filed > latestFiled)) latestFiled = fact.filed; lines.push(`${candidate.label}: ${fact.val} (${fact.form ?? 'filing'}, filed ${fact.filed}${fact.fp ? `, ${fact.fp}` : ''})`) } if (lines.length === 1) return null; const publishedAt = latestFiled ? Date.parse(`${latestFiled}T00:00:00Z`) : undefined; return createEvidenceSource({ url, title: `${ticker.toUpperCase()} SEC Company Facts`, sourceType: 'sec_companyfacts', sourceTier: 1, retrievedAt: Date.now(), publishedAt: Number.isFinite(publishedAt) ? publishedAt : undefined, text: lines.join('\n'), id: `SEC-${ticker.toUpperCase()}`, relatedEntities: [ticker.toUpperCase()] }) }
 function cacheBypassArgs(args: Record<string, unknown>): Record<string, unknown> { return { ...args, evidence_refresh_nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}` } }
+// Architecture fix (2026-09-17), root-caused against a real production failure (CEO could not answer
+// "give me updates on GEOS and MIND Technology"): equity-research evidence acquisition had exactly one
+// dispatch shape -- executeSearch below, hardcoded to {query, num, recency_days} -- so the dedicated,
+// symbol-keyed market-data tools (yahoo_finance/tiingo_daily/polygon_aggregates/finnhub_quote/
+// roic_stock_prices/alpha_vantage) could never be called here regardless of how selectCeoTool scored
+// them; QUERY_SEARCH_TOOL_IDS below exists purely to degrade that mismatch to a silent web_search
+// fallback instead of a hard dispatch error. For a thinly-covered small-cap ticker, generic web search
+// frequently returns few or no usable results for a bare price/market-cap query, which is exactly the
+// evidence-insufficient path that produced the generic degraded-mode refusal. This is a second, genuine
+// dispatch channel -- not a patch on executeSearch's shape -- for exactly the one purpose (`market`) that
+// always has a real, structured, symbol-addressable answer: a governed fallback chain of market-data
+// tools, tried in reliability order, stopping at the first real success. Purely additive to the existing
+// search-query path (still runs unchanged for financials/risks/filing/comparison, and for 'market' itself
+// if every provider here is unavailable/unconfigured), so this can only add evidence sources, never
+// remove the coverage that existed before it.
+const MARKET_DATA_TOOL_ORDER = ['yahoo_finance', 'tiingo_daily', 'polygon_aggregates', 'finnhub_quote', 'roic_stock_prices', 'alpha_vantage'] as const
+const MARKET_DATA_TOOL_URL: Record<(typeof MARKET_DATA_TOOL_ORDER)[number], (ticker: string) => string> = {
+  yahoo_finance: (ticker) => `https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}`,
+  tiingo_daily: (ticker) => `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(ticker)}/prices`,
+  polygon_aggregates: (ticker) => `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(ticker)}`,
+  finnhub_quote: (ticker) => `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(ticker)}`,
+  roic_stock_prices: (ticker) => `https://api.roic.ai/v2/stock-prices/${encodeURIComponent(ticker)}`,
+  alpha_vantage: (ticker) => `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(ticker)}`,
+}
+export async function fetchMarketDataSource(ticker: string, signal?: AbortSignal): Promise<EvidenceSource | null> {
+  for (const toolName of MARKET_DATA_TOOL_ORDER) {
+    throwIfCeoRequestAborted(signal)
+    try {
+      const result = await dispatch(toolName, { symbol: ticker, ticker, latest: true }, signal)
+      recordToolOutcome({ toolId: toolName, capability: 'market_intelligence', status: result.ok ? 'succeeded' : 'partial' })
+      if (!result.ok || !result.result.trim()) continue
+      return createEvidenceSource({ url: MARKET_DATA_TOOL_URL[toolName](ticker), title: `${ticker} market data (${toolName})`, sourceType: 'market_data', sourceTier: 1, retrievedAt: Date.now(), text: result.result, id: `MKT-${toolName}-${ticker}`, relatedEntities: [ticker] })
+    } catch (error) { throwIfCeoRequestAborted(signal); recordToolOutcome({ toolId: toolName, capability: 'market_intelligence', status: 'failed' }) }
+  }
+  return null
+}
 // Fresh-audit fix (round 2): executeSearch below always dispatches the selected tool with
 // {query, num, recency_days} -- a free-text web-search argument shape. Fixing the capability-domain
 // lookup bug in ceo-tool-selection.ts (see ceo-capability-architecture.ts's findCapabilityForDomain)
@@ -63,17 +99,27 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
   let pageSources: EvidenceSource[] = []
   if (pagesToRead.length) try { pageSources = await readPages(pagesToRead, signal) } catch (error) { throwIfCeoRequestAborted(signal); failures.push(`page_reader: ${error instanceof Error ? error.message : String(error)}`) }
   let secSources: EvidenceSource[] = []
+  let marketDataSources: EvidenceSource[] = []
   const secSourceByTicker = new Map<string, EvidenceSource>()
   if (plan.profile === 'public_equity') {
     const tickers = [...new Set(plan.queries.map((query) => query.ticker).filter((ticker): ticker is string => Boolean(ticker)))]
-    const secResults = await Promise.all(tickers.map(async (ticker) => {
-      try { return { ticker, source: await fetchSecSource(ticker, signal) } }
-      catch (error) { throwIfCeoRequestAborted(signal); failures.push(`SEC ${ticker}: ${error instanceof Error ? error.message : String(error)}`); return { ticker, source: null } }
+    const tickerResults = await Promise.all(tickers.map(async (ticker) => {
+      const [secSource, marketSource] = await Promise.all([
+        fetchSecSource(ticker, signal).catch((error) => { throwIfCeoRequestAborted(signal); failures.push(`SEC ${ticker}: ${error instanceof Error ? error.message : String(error)}`); return null }),
+        // See fetchMarketDataSource's own comment: this is a dedicated, symbol-keyed dispatch path
+        // for real market data (price/quote), independent of the free-text search-query dispatch
+        // below -- not a substitute for it, purely additional evidence coverage.
+        fetchMarketDataSource(ticker, signal).catch((error) => { throwIfCeoRequestAborted(signal); failures.push(`market-data ${ticker}: ${error instanceof Error ? error.message : String(error)}`); return null }),
+      ])
+      return { ticker, secSource, marketSource }
     }))
-    for (const { ticker, source } of secResults) if (source) { secSources.push(source); secSourceByTicker.set(ticker, source) }
+    for (const { ticker, secSource, marketSource } of tickerResults) {
+      if (secSource) { secSources.push(secSource); secSourceByTicker.set(ticker, secSource) }
+      if (marketSource) marketDataSources.push(marketSource)
+    }
   }
   throwIfCeoRequestAborted(signal)
-  const bundle = buildEvidenceBundle({ profile: plan.profile, operation: plan.operation, sources: [...secSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 })
+  const bundle = buildEvidenceBundle({ profile: plan.profile, operation: plan.operation, sources: [...secSources, ...marketDataSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 })
   // Deep-audit fix (P0, 2026-09-13): cross-turn claim ledger. Each ticker's freshly fetched SEC source is
   // checked against claims verified in an earlier, separate turn/conversation (lookupRecentVerifiedClaims
   // -- see ceo-claim-ledger.ts), and any genuine disagreement is appended to the bundle's contradictions
@@ -95,7 +141,7 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
   // ceo-evidence-graph.ts. Fails open, same convention as recordVerifiedClaims above.
   await recordEvidenceGraphFromBundle(finalBundle)
   if (plan.profile === 'public_equity' || plan.operation === 'recommend' || plan.operation === 'decide') assertDecisionGradeEvidence({ domain: plan.domain, operation: plan.operation, bundle: finalBundle })
-  return { bundle: finalBundle, attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, failures }
+  return { bundle: finalBundle, attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, marketDataSources: marketDataSources.length, failures }
 }
 export async function executeExternalEvidencePlan(plan: ExternalEvidencePlan, signal = getCeoCancellationSignal()): Promise<ExternalEvidenceExecution> { return executeOnce(plan, '', signal) }
 export async function recoverExternalEvidencePlan(plan: ExternalEvidencePlan, signal = getCeoCancellationSignal()): Promise<ExternalEvidenceExecution> { return executeOnce({ ...plan, maxSearchQueries: Math.min(plan.maxSearchQueries, 4), maxPageReads: Math.min(plan.maxPageReads, 3) }, 'official primary source filing', signal) }
