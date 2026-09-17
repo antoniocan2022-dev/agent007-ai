@@ -105,8 +105,11 @@ export async function getToolDiscoveryPrompt(): Promise<string> {
   return `TOOL DISCOVERY — You have ${toolCount} tools available. Call smart_tool_router({"task":"..."}) to search by keyword, tool_catalog to browse by name, parallel_executor for independent work in one turn, and accuracy_checker before reporting evidence-backed findings.
 Quick reference (easy to miss by name alone):
   SEARCH: tavily_search (best general search, AI-cited) > web_search (always free, no key needed) > exa_search (semantic/conceptual) > serpapi (structured Google results) > multi_search_compare (cross-verify several engines, detect disagreement) > gdelt_search (global/multilingual news, free, no key).
-  FINANCE: yahoo_finance / coingecko (free stock+crypto quotes, no key) > finnhub_quote (stock quotes, better free tier than alpha_vantage) > alpha_vantage_news (financial news with sentiment) > fred_economic (official US macro data).
+  SITE CRAWLING (discover/read many pages under a domain, not just one URL): firecrawl_map (fast URL discovery, needs key) > firecrawl_crawl (whole-site crawl, needs key, async -- pass back job_id to check progress) > firecrawl_scrape (single rich page, works keyless at a lower rate limit) > spider_scrape / spider_crawl (anti-bot-resistant fallback when Firecrawl or a direct fetch gets blocked).
+  FINANCE (live quotes): yahoo_finance / coingecko (free stock+crypto quotes, no key) > finnhub_quote (stock quotes, better free tier than alpha_vantage) > alpha_vantage_news (financial news with sentiment) > fred_economic (official US macro data).
+  FINANCE (historical OHLCV + corporate actions, not just today's price): tiingo_daily / polygon_aggregates / roic_stock_prices for daily bars going back years > polygon_corporate_actions for splits/dividends > roic_financials for income statement/balance sheet/cash flow.
   PAYMENTS: stripe_payment_processor / paypal_api for real transactions -- never state a payment succeeded without calling one of these.
+  EXTERNAL WORLD INTELLIGENCE (free, no key): evidence_graph_query (entities genuinely co-researched together in past turns) > evidence_timeline (chronological events + candidate temporal correlations for a ticker) > create_evidence_watch / list_evidence_watches / check_evidence_watches (standing price-move alerts, checked daily).
 A credential-gated tool that isn't configured fails honestly and names the missing env var -- that is expected, not a bug to work around.`
 }
 export async function initProviderIntelligence(): Promise<void> { await discoverProviderModels() }

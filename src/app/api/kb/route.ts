@@ -42,8 +42,12 @@ export async function POST(req: NextRequest) {
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(new Uint8Array(arrayBuffer))
 
-  // Extract text based on mime type
+  // Extract text based on mime type. `warning` is set whenever there is no genuine extracted
+  // content to index -- kept separate from `text` so a placeholder message (image/unsupported
+  // format/failed transcription/empty parse) never gets chunked and indexed as if it were real
+  // document content that a future knowledge-base search could surface as a false hit.
   let text = ''
+  let warning: string | undefined
   const mimeType = file.type
   const filename = file.name
 
@@ -51,7 +55,7 @@ export async function POST(req: NextRequest) {
     if (mimeType === 'text/plain' || mimeType === 'text/markdown' || mimeType === 'application/json' || mimeType === 'text/csv' || filename.match(/\.(txt|md|json|csv|js|ts|tsx|jsx|py|go|rs|java|c|cpp|h|sh|sql|yaml|yml|xml|html|css)$/i)) {
       text = buffer.toString('utf-8')
     } else if (mimeType.startsWith('image/')) {
-      text = `[Image uploaded: ${filename}. Use the vision tool to analyze this image.]`
+      warning = 'Images are not text-extracted on upload. Use the vision tool to analyze this image.'
     } else if (mimeType.startsWith('audio/') || mimeType.startsWith('video/') || isTranscribableExtension(path.extname(filename))) {
       // Post-merge audit fix (2026-09-12): this branch previously didn't exist, so a small audio/
       // video file fell through to the generic binary fallback below and had its raw bytes decoded
@@ -61,10 +65,11 @@ export async function POST(req: NextRequest) {
       // capable of the same thing instead of only one of them actually transcribing audio/video.
       const ext = path.extname(filename).toLowerCase()
       if (!isTranscribableExtension(ext)) {
-        text = `[Audio/video uploaded: ${filename}. This container format (${ext || mimeType}) is not one this runtime can transcribe (no ffmpeg/transcoding toolchain). Supported: mp3, wav, ogg, flac, m4a, mp4, webm, mpeg, mpga.]`
+        warning = `This container format (${ext || mimeType}) is not one this runtime can transcribe (no ffmpeg/transcoding toolchain). Supported: mp3, wav, ogg, flac, m4a, mp4, webm, mpeg, mpga.`
       } else {
         const transcription = await transcribeAudioOrVideo(buffer, filename)
-        text = transcription.ok ? transcription.text : `[Audio/video uploaded: ${filename}. Transcription failed: ${transcription.error}]`
+        if (transcription.ok) text = transcription.text
+        else warning = `Transcription failed: ${transcription.error}`
       }
     } else {
       // PDF/DOCX/XLSX/PPTX: real per-format extraction (see document-parsers.ts) -- decompresses
@@ -72,7 +77,8 @@ export async function POST(req: NextRequest) {
       // scan that only ever caught uncompressed PDF text and treated DOCX/XLSX/PPTX as plain text.
       const parsed = extractDocumentText(buffer, filename, mimeType)
       if (parsed) {
-        text = parsed.text || `[${filename} uploaded. ${parsed.warning ?? 'No text could be extracted.'}]`
+        text = parsed.text
+        warning = parsed.warning ?? (parsed.text ? undefined : 'No text could be extracted.')
       } else {
         // Unrecognized binary format: try utf-8 as a last resort (works for genuinely text-like
         // files with an unexpected mime type; produces mostly-unusable output for real binaries,
@@ -88,20 +94,30 @@ export async function POST(req: NextRequest) {
   // Truncate to 500KB to avoid DB bloat
   text = text.slice(0, 500_000)
 
-  // Create the doc record
+  // Create the doc record. When there's no real extracted text, store a visible placeholder so the
+  // doc is still listed with a clear reason, but never index a placeholder as searchable content.
+  const storedText = text || (warning ? `[${filename} uploaded. ${warning}]` : '')
   const doc = await db.knowledgeDoc.create({
     data: {
       userId,
       filename,
       mimeType,
       size: file.size,
-      text,
+      text: storedText,
       chunkCount: 0,
     },
   })
 
-  // Index chunks
-  const chunkCount = await indexDocument(userId, doc.id, text)
+  // Index chunks (only real extracted text, never the placeholder above), then persist the real
+  // count -- KnowledgeDoc.chunkCount was previously left at its create-time 0 forever, so every
+  // doc in the GET /api/kb list (and the settings-tab UI that renders it) always showed "0 chunks".
+  const chunkCount = text ? await indexDocument(userId, doc.id, text) : 0
+  if (chunkCount > 0) await db.knowledgeDoc.update({ where: { id: doc.id }, data: { chunkCount } })
+
+  // A document whose extracted text lands exactly on chunkText's 500-chunk hard cap
+  // (knowledge-base.ts) very likely had more content truncated rather than happening to end there
+  // -- surface that honestly instead of silently indexing only the first ~250K characters.
+  if (chunkCount >= 500 && !warning) warning = 'This document is large; only the first ~250,000 characters were indexed for search. The full text is stored, but the remainder is not searchable.'
 
   return NextResponse.json({
     doc: {
@@ -109,6 +125,7 @@ export async function POST(req: NextRequest) {
       filename,
       chunkCount,
       size: file.size,
+      warning,
     },
   })
 }

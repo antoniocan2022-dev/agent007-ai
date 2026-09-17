@@ -790,7 +790,11 @@ function KnowledgeBaseSection({ onToast }: { onToast: (msg: string) => void }) {
       const res = await fetch('/api/kb', { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      onToast(`Uploaded "${data.doc.filename}" — ${data.doc.chunkCount} chunks indexed`)
+      onToast(
+        data.doc.warning
+          ? `Uploaded "${data.doc.filename}" — ${data.doc.warning}`
+          : `Uploaded "${data.doc.filename}" — ${data.doc.chunkCount} chunks indexed`
+      )
       await loadDocs()
     } catch (e: any) {
       onToast(`Upload failed: ${e?.message ?? 'error'}`)

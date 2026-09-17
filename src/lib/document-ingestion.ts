@@ -185,6 +185,10 @@ export async function ingestOciDocument(input: RemoteIngestInput): Promise<Remot
       data: { userId, filename, mimeType, size: input.size, text: text.slice(0, 500_000), chunkCount: 0 },
     })
     const chunkCount = await indexDocument(userId, doc.id, text)
+    // KnowledgeDoc.chunkCount was otherwise left at its create-time 0 forever -- GET /api/kb (and
+    // the settings-tab UI that lists it) always showed "0 chunks" for every doc regardless of how
+    // this route's own response reported the real count. Same fix as /api/kb/route.ts.
+    if (chunkCount > 0) await db.knowledgeDoc.update({ where: { id: doc.id }, data: { chunkCount } })
 
     return { ok: true, docId: doc.id, filename, chunkCount, size: input.size, extractionMethod, warning }
   } finally {

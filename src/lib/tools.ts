@@ -1095,9 +1095,10 @@ export async function dispatchTool(
  * kb_search — search the user's uploaded knowledge base (RAG).
  * Returns the top-K chunks matching the query, formatted as context.
  *
- * The actual implementation lives in /src/lib/knowledge-base.ts and uses
- * a simple keyword-overlap ranking (no embeddings — SQLite doesn't support
- * pgvector). For production scale, swap to pgvector + an embedding model.
+ * The actual implementation lives in /src/lib/knowledge-base.ts: keyword-overlap ranking blended
+ * with embedding-based semantic recovery (Postgres native float arrays, no pgvector/ANN index yet
+ * — similarity is computed in JS over a bounded candidate pool; see knowledge-base.ts's own header
+ * comment for the full retrieval design).
  */
 export async function toolKbSearch(
   args: { query?: string; limit?: number },
@@ -2572,7 +2573,12 @@ import {
   toolElevenLabsTTS, toolDeepLTranslate, toolRemoveBg,
   toolSummarizeTech, toolYahooFinance, toolCoinGecko,
   toolFinnhubQuote, toolAlphaVantageNews,
+  toolRoicStockPrices, toolRoicFinancials, toolTiingoDaily, toolPolygonAggregates, toolPolygonCorporateActions,
 } from './ai-providers-integration'
+import { toolFirecrawlScrape, toolFirecrawlMap, toolFirecrawlCrawl, toolSpiderScrape, toolSpiderCrawl } from './site-crawl-tools'
+import { toolEvidenceGraphQuery } from './ceo-evidence-graph'
+import { toolEvidenceTimeline } from './ceo-evidence-timeline'
+import { toolCreateEvidenceWatch, toolListEvidenceWatches, toolCheckEvidenceWatches } from './ceo-evidence-watch'
 // LLM Providers (7)
 TOOL_REGISTRY.cerebras_llm = { fn: toolCerebrasLLM, icon: 'cpu', label: 'Cerebras LLM (Llama 3.1 — fastest inference, 2600 tok/s)' }
 TOOL_REGISTRY.sambanova_llm = { fn: toolSambaNovaLLM, icon: 'cpu', label: 'SambaNova LLM (Llama 3.1 405B — most powerful free LLM)' }
@@ -2592,6 +2598,27 @@ TOOL_REGISTRY.fred_economic = { fn: toolFREDEconomic, icon: 'bar-chart', label: 
 TOOL_REGISTRY.jina_reader = { fn: toolJinaReader, icon: 'book-open', label: 'Jina AI Reader (read ANY URL as clean markdown, free)' }
 TOOL_REGISTRY.exa_search = { fn: toolExaSearch, icon: 'search', label: 'Exa AI (neural search, find similar content, 1000/month free)' }
 TOOL_REGISTRY.product_hunt = { fn: toolProductHunt, icon: 'rocket', label: 'Product Hunt API (trending products, votes)' }
+// Dedicated market-data providers -- real OHLCV history + corporate actions, beyond the live
+// snapshots yahoo_finance/finnhub_quote/alpha_vantage give.
+TOOL_REGISTRY.roic_stock_prices = { fn: toolRoicStockPrices, icon: 'trending-up', label: 'ROIC.ai Stock Prices (historical daily OHLCV + adjusted close, 60,000+ tickers)' }
+TOOL_REGISTRY.roic_financials = { fn: toolRoicFinancials, icon: 'bar-chart', label: 'ROIC.ai Financial Statements (income statement, balance sheet, cash flow)' }
+TOOL_REGISTRY.tiingo_daily = { fn: toolTiingoDaily, icon: 'trending-up', label: 'Tiingo Daily OHLCV (historical prices with per-day split/dividend factors)' }
+TOOL_REGISTRY.polygon_aggregates = { fn: toolPolygonAggregates, icon: 'trending-up', label: 'Polygon (Massive) OHLCV Aggregates (any bar size, any date range)' }
+TOOL_REGISTRY.polygon_corporate_actions = { fn: toolPolygonCorporateActions, icon: 'bar-chart', label: 'Polygon (Massive) Corporate Actions (stock splits and dividend history)' }
+// Whole-site crawling / URL discovery -- jina_reader and page_reader each read one URL; these
+// discover and read many pages under a domain in one call.
+TOOL_REGISTRY.firecrawl_scrape = { fn: toolFirecrawlScrape, icon: 'globe', label: 'Firecrawl Scrape (rich single-page extraction, works keyless at a lower rate limit)' }
+TOOL_REGISTRY.firecrawl_map = { fn: toolFirecrawlMap, icon: 'globe', label: 'Firecrawl Map (discover up to 100,000 URLs under a domain, credential-gated)' }
+TOOL_REGISTRY.firecrawl_crawl = { fn: toolFirecrawlCrawl, icon: 'globe', label: 'Firecrawl Crawl (whole-site crawl with markdown extraction, credential-gated, async with job_id polling)' }
+TOOL_REGISTRY.spider_scrape = { fn: toolSpiderScrape, icon: 'globe', label: 'Spider.cloud Scrape (anti-bot-resistant single-page extraction, credential-gated)' }
+TOOL_REGISTRY.spider_crawl = { fn: toolSpiderCrawl, icon: 'globe', label: 'Spider.cloud Crawl (anti-bot-resistant whole-site crawl, credential-gated)' }
+// External World Intelligence, part c: Financial Evidence Graph, temporal timeline, continuous
+// monitoring. Free -- no credential required for any of these five.
+TOOL_REGISTRY.evidence_graph_query = { fn: toolEvidenceGraphQuery, icon: 'share-2', label: 'Financial Evidence Graph (entities genuinely co-researched/compared together in past turns)' }
+TOOL_REGISTRY.evidence_timeline = { fn: toolEvidenceTimeline, icon: 'clock', label: 'Evidence Timeline (chronological events + candidate temporal correlations for a ticker)' }
+TOOL_REGISTRY.create_evidence_watch = { fn: toolCreateEvidenceWatch, icon: 'bell', label: 'Create Evidence Watch (alert when a ticker moves more than X% within N days, checked daily)' }
+TOOL_REGISTRY.list_evidence_watches = { fn: toolListEvidenceWatches, icon: 'bell', label: 'List Evidence Watches' }
+TOOL_REGISTRY.check_evidence_watches = { fn: toolCheckEvidenceWatches, icon: 'bell', label: 'Check Evidence Watches now (manual trigger of the same logic the daily heartbeat runs)' }
 // Content & Image (7)
 TOOL_REGISTRY.hf_inference = { fn: toolHFInference, icon: 'brain', label: 'HF Inference (summarize, translate, classify — any HF model)' }
 TOOL_REGISTRY.pollinations_image = { fn: toolPollinationsImage, icon: 'image', label: 'Pollinations AI (free image generation, no key needed)' }
