@@ -351,6 +351,69 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderHealthForTests()
   })
 
+  // Production incident (2026-09-17): live traces showed every recovery attempt in a window failing with
+  // "groq:BILLING:413" and falling straight to the canned degraded template, even though OpenRouter was
+  // demonstrably healthy on the very same deployment in the same window (it served the fast conversational
+  // path successfully seconds later). Root cause: attemptValidatedReasoningProvider probed up to 2
+  // candidates but returned only the first one whose cheap 128-token probe succeeded, discarding the
+  // second even when it also passed. tryDegraded then spent its one real recovery generation call --
+  // maxProviderAttempts:1, excludeProviders locked to every OTHER provider -- entirely on that single
+  // probe-validated provider. When Groq's probe succeeded but its real, full-size generation call then
+  // failed for a reason the tiny probe never exercised (a request/billing-size limit), there was nowhere
+  // left to fall back to within the same request, despite OpenRouter having already been probed and
+  // validated. Fixed: attemptValidatedReasoningProvider now returns every validated candidate (still
+  // bounded to the same 2-candidate probe budget), and tryDegraded tries them in order, falling through to
+  // the next validated candidate instead of degrading the moment the first one's real call fails.
+  test('recovery falls through to a second validated provider when the first one probes healthy but fails on the real generation call', async () => {
+    resetProviderHealthForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.OPENROUTER_API_KEY = 'test-openrouter'
+    let groqNonProbeCalls = 0
+    let openrouterNonProbeCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+        // OpenRouter's governed profile deliberately outranks every other provider on quality (see the
+        // comment on its GOVERNED_MODEL_PROFILES entry), so primary/escalation generation tries it FIRST
+        // -- opposite of recovery's plain PROVIDER_ORDER-based probing, which tries groq first regardless
+        // of quality. Failing OpenRouter's first 2 real calls (primary + the one allowed escalation, each
+        // internally falling back to groq within its own maxProviderAttempts budget) forces both stages
+        // through groq with quality-failing robotic content, reaching the quality-gate-driven degrade
+        // branch. Only then does recovery run: probing groq first (as production did), succeeding on the
+        // probe, then failing on the real call with the exact live-incident shape (a billing/payment-limit
+        // error the cheap 128-token probe never exercised) -- and falling through to OpenRouter, the
+        // second validated candidate, which finally succeeds.
+        if (url.includes('openrouter.ai')) {
+          openrouterNonProbeCalls += 1
+          if (openrouterNonProbeCalls <= 2) return jsonResponse({ error: { message: 'temporarily unavailable' } }, 503)
+          return jsonResponse({ choices: [{ message: { content: 'The real answer: our biggest cultural risk is inconsistent execution standards across teams, not a lack of talent.' } }] })
+        }
+        if (url.includes('api.groq.com')) {
+          groqNonProbeCalls += 1
+          if (groqNonProbeCalls <= 2) return jsonResponse({ choices: [{ message: { content: "As an AI, I can tell you the biggest risk is execution consistency across teams." } }] })
+          return jsonResponse({ error: { message: 'Request too large for the organization on this billing plan.' } }, 402)
+        }
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    const result = await runCeoCognitiveLifecycle({ taskType: 'reasoning', messages: [{ role: 'user', content: 'What do you think about our team culture?' }], timeoutMs: 30000 })
+    expect(result.degraded).toBe(false)
+    expect(result.provider).toBe('openrouter')
+    expect(result.content).toContain('inconsistent execution standards')
+    expect(result.content).not.toContain("I couldn't reliably complete that specific request")
+    // groq: 2 quality-failing robotic replies (primary + escalation, each falling back to groq after
+    // OpenRouter's real call fails) + 1 real recovery attempt that fails with the billing error.
+    expect(groqNonProbeCalls).toBe(3)
+    // openrouter: 2 real failures (primary + escalation) + 1 real recovery attempt that succeeds --
+    // the fallback this test exists to prove.
+    expect(openrouterNonProbeCalls).toBe(3)
+    resetProviderHealthForTests()
+  })
+
   // Adversarial-combination finding: this chain has never been exercised end to end before. Primary and
   // escalation both use mistral (the only provider governed for 'creative' among the two configured) and
   // both produce quality-failing robotic content, reaching the quality-gate-driven degrade branch (#114's
