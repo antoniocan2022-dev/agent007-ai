@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { toolExaSearch, toolFinnhubQuote, toolSerpAPI, toolTavilySearch } from '@/lib/ai-providers-integration'
+import { toolExaSearch, toolFinnhubQuote, toolSerpAPI, toolTavilySearch, toolYahooFinance } from '@/lib/ai-providers-integration'
 import { CEO_CAPABILITY_ARCHITECTURE, findCapability, findCapabilityForDomain } from '@/lib/ceo-capability-architecture'
 import type { CeoExecutionContract } from '@/lib/ceo-cognitive-contract'
 import { selectCeoTool } from '@/lib/ceo-tool-selection'
@@ -1282,5 +1282,98 @@ describe('Part c: Financial Evidence Graph, temporal timeline, continuous monito
         expect(reconcileSrc).toContain(`'${model}'`) // present in the verification block's required-table list
       }
     })
+  })
+})
+
+// Production incident (2026-09-17): a real user asked "give me updates about 2 stocks, GEOS and MIND
+// Technology" and the CEO returned the generic degraded-mode refusal instead of an answer. Root cause:
+// ceo-evidence-executor.ts's ONLY dispatch shape for evidence acquisition was executeSearch's hardcoded
+// {query, num, recency_days} free-text search call -- the dedicated, symbol-keyed market-data tools
+// (yahoo_finance/tiingo_daily/polygon_aggregates/finnhub_quote/roic_stock_prices/alpha_vantage) could
+// never be invoked from equity research regardless of how selectCeoTool scored them, and generic web
+// search frequently has sparse or no coverage for a thinly-traded small-cap ticker's bare price/market-cap
+// query. fetchMarketDataSource is a second, purpose-built dispatch channel -- a governed fallback chain
+// tried in reliability order, stopping at the first real success -- giving equity research evidence
+// acquisition a reliable, symbol-addressable path to real price data for ANY valid ticker, not just the
+// ones lucky enough to have strong recent web coverage.
+//
+// fetchMarketDataSource itself is not live-called here: ceo-evidence-executor.ts imports dispatchTool as
+// a real (non-type-only) value from ./tools, which transitively resolves next-auth/providers/credentials
+// -- not installed in this sandbox's node_modules (same class of sandbox-only gap as this session's
+// earlier prisma-CLI/bun-types findings; next-auth is a normal package.json dependency Vercel/CI installs
+// in full). Every other file this test suite live-calls (ceo-evidence-graph.ts, ceo-evidence-watch.ts,
+// ceo-evidence-timeline.ts, site-crawl-tools.ts) only TYPE-imports ./tools, so they never hit this. The
+// underlying tools fetchMarketDataSource dispatches (toolYahooFinance/toolTiingoDaily) ARE live-tested
+// below via their own leaf module (ai-providers-integration.ts, which never imports ./tools); the
+// fallback-chain/wiring logic itself is verified against source, matching this file's established
+// pattern for code this sandbox cannot safely import for real (see e.g. the cron-route tests above).
+describe('Architecture fix: equity-research evidence acquisition can reach real market-data tools, not just web search', () => {
+  const src = read('../src/lib/ceo-evidence-executor.ts')
+
+  test('fetchMarketDataSource tries a governed, reliability-ordered chain of symbol-keyed tools -- not the free-text search dispatch', () => {
+    expect(src).toContain("const MARKET_DATA_TOOL_ORDER = ['yahoo_finance', 'tiingo_daily', 'polygon_aggregates', 'finnhub_quote', 'roic_stock_prices', 'alpha_vantage'] as const")
+    expect(src).toContain('dispatch(toolName, { symbol: ticker, ticker, latest: true }, signal)')
+    expect(src).toContain("sourceType: 'market_data'")
+    expect(src).toContain('sourceTier: 1')
+    // Stops at the first real success and never fabricates a source on failure.
+    expect(src).toContain('if (!result.ok || !result.result.trim()) continue')
+    expect(src).toContain('return null')
+  })
+
+  test('every tool in the fallback chain accepts a {symbol} (or {ticker}) argument shape -- confirmed against each tool\'s own implementation', () => {
+    const providersSrc = read('../src/lib/ai-providers-integration.ts')
+    expect(providersSrc).toContain("const symbol = String(args?.symbol ?? '').trim().toUpperCase(); if (!symbol) return fail('yahoo_finance requires \"symbol\"')")
+    expect(providersSrc).toContain("const symbol = String(args?.symbol ?? '').trim().toUpperCase(); if (!symbol) return fail('finnhub_quote requires \"symbol\"')")
+    for (const toolName of ['roic_stock_prices', 'tiingo_daily', 'polygon_aggregates']) {
+      expect(providersSrc).toContain(`String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()`)
+    }
+  })
+
+  test('the executor fetches market data in parallel with the existing SEC lookup, per ticker, and folds both into the evidence bundle -- purely additive to search/page sources', () => {
+    expect(src).toContain('fetchSecSource(ticker, signal).catch(')
+    expect(src).toContain('fetchMarketDataSource(ticker, signal).catch(')
+    expect(src).toContain('[...secSources, ...marketDataSources, ...pageSources, ...searchSources]')
+  })
+
+  test('ExternalEvidenceExecution reports marketDataSources alongside secSources for observability parity', () => {
+    expect(src).toContain('marketDataSources: number')
+    expect(src).toContain('marketDataSources: marketDataSources.length')
+    const routeSrc = read('../src/app/api/agent/route.ts')
+    expect(routeSrc).toContain('marketDataSources: evidenceExecution.marketDataSources')
+  })
+
+  test('the capability architecture now lists real market-data tools under market_intelligence, the domain public_equity/market research actually maps to', () => {
+    const market = findCapability('market.competitive')
+    const toolIds = market!.services.flatMap((s) => s.tools).map((t) => t.id)
+    for (const id of ['yahoo_finance', 'tiingo_daily', 'polygon_aggregates', 'finnhub_quote', 'roic_stock_prices', 'alpha_vantage']) expect(toolIds).toContain(id)
+  })
+
+  test('yahoo_finance (first in the fallback chain, free/no key) returns real data for a given symbol', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (url: any) => {
+      expect(String(url)).toContain('query1.finance.yahoo.com')
+      expect(String(url)).toContain('GEOS')
+      return new Response(JSON.stringify({ chart: { result: [{ meta: { regularMarketPrice: 12.34, symbol: 'GEOS' } }] } }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const result = await toolYahooFinance({ symbol: 'GEOS' })
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('12.34')
+    } finally { globalThis.fetch = originalFetch }
+  })
+
+  test('tiingo_daily (second in the fallback chain) returns real OHLCV data given a {ticker} arg, the shape fetchMarketDataSource passes', async () => {
+    const originalFetch = globalThis.fetch
+    process.env.TIINGO_API_KEY = 'test-tiingo-key'
+    globalThis.fetch = (async (url: any) => {
+      expect(String(url)).toContain('api.tiingo.com')
+      expect(String(url)).toContain('MIND')
+      return new Response(JSON.stringify([{ date: '2026-09-15', open: 1, high: 2, low: 1, close: 1.5, adjClose: 1.5, volume: 1000 }]), { status: 200 })
+    }) as typeof fetch
+    try {
+      const result = await toolTiingoDaily({ ticker: 'MIND' })
+      expect(result.ok).toBe(true)
+      expect(result.result).toContain('TIINGO DAILY OHLCV')
+    } finally { globalThis.fetch = originalFetch; delete process.env.TIINGO_API_KEY }
   })
 })
