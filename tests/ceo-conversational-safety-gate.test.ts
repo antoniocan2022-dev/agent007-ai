@@ -93,6 +93,46 @@ describe('CEO conversational safety gate: real safety checks still block', () =>
     expect(result.decision).not.toBe('PASS')
     expect(result.reasons.some((reason) => reason.includes('internal evaluation'))).toBe(true)
   })
+
+  // Production incident (2026-09-17): a live "why couldn't you answer my previous message?" follow-up
+  // -- pure conversational diagnosis, no evidence requested by the request itself -- was rejected with
+  // failureReason 'evidence_insufficient'. Root cause: evaluateCeoQuality derives evidenceVerificationApplicable
+  // for conversational intent from the GENERATED ANSWER's own wording (claimScopes(content)), not from the
+  // request's evidence contract -- and NEGATION_RE (which is supposed to exempt a hedged/negated sentence
+  // from counting as a confident external/live-system assertion) didn't recognize ordinary negative
+  // contractions ("couldn't", "wasn't", "hasn't", ...), only "not"/"cannot"/"can't". So the CEO's own
+  // honest explanation of a prior evidence failure -- which necessarily uses words like
+  // "verified"/"confirmed"/"stock"/"market" together with "couldn't"/"wasn't" -- tripped the very check
+  // it was describing, self-referentially reproducing the failure it was trying to explain.
+  describe('a self-referential explanation of a prior evidence failure is not itself treated as an unverified live-evidence claim', () => {
+    test.each([
+      "I couldn't reliably verify the stock price before, that's why the earlier response was blocked",
+      "The block happened because the evidence check failed and the market data wasn't confirmed",
+      "My earlier answer about the stock was rejected since it couldn't be verified in time",
+    ])('does not evidence-reject: %s', (content) => {
+      const result = evaluateCeoQuality({
+        objective: 'can you find where is the block or the reason why you cant answer the previous msj?',
+        content,
+        path: 'fast',
+        intent: 'conversation',
+        responseAction: 'explain',
+      })
+      expect(result.failureReason).not.toBe('evidence_insufficient')
+    })
+
+    // Control case: an UNHEDGED external/live claim in a conversational answer must still be rejected --
+    // this fix narrows a false positive, it does not disable the check that catches a real fabricated
+    // fact (see this file's own header comment on why that check exists).
+    test('a genuinely unhedged external claim in a conversational answer is still evidence-rejected', () => {
+      const result = evaluateCeoQuality({
+        objective: 'Hi, how are you?',
+        content: 'The current stock price is confirmed at $42 and revenue grew sharply this quarter.',
+        path: 'fast',
+        intent: 'conversation',
+      })
+      expect(result.failureReason).toBe('evidence_insufficient')
+    })
+  })
 })
 
 describe('CEO conversational safety gate: phrasing no longer blocks a good answer', () => {

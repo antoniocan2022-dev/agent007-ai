@@ -21,7 +21,19 @@ const EXTERNAL_ASSERTION_RE = /\b(?:latest\s+(?:market|industry|customer|competi
 const EXTERNAL_CITATION_RE = /\b(?:according\s+to|(?:study|studies|report|reports)\s+(?:show|shows|found|find))\b/i
 const BUSINESS_FACT_CONTEXT_RE = /\b(?:market|industry|customer(?:s)?|competitor(?:s)?|revenue|sales|stock(?:s)?|shares?|valuation)\b/i
 const INTERNAL_ASSERTION_RE = /\b(?:architectur(?:e|al)|designed|implemented|configured|codebase|workflow|contract|module|repository|system\s+design|execution\s+path)\b/i
-const NEGATION_RE = /\b(?:not|no|without|unverified|unknown|unclear|uncertain|cannot|can't|never)\b/i
+// Production incident (2026-09-17): a live "why couldn't you answer my previous message?" follow-up
+// -- itself pure conversational diagnosis, evidenceClass 'none' -- got rejected with
+// failureReason 'evidence_insufficient'. Root cause: the model's own honest explanation ("I couldn't
+// reliably verify the stock price before, that's why the earlier response was blocked" /
+// "the market data wasn't confirmed") pairs a claim-scope trigger word (verified/confirmed/stock/
+// market/...) with a negative CONTRACTION this list never recognized -- "not"/"cannot"/"can't" were
+// covered, but "couldn't"/"wasn't"/"didn't"/"hasn't"/etc. were not, so a sentence that is grammatically
+// a negation/hedge (the CEO truthfully saying it did NOT have verified evidence) was scored as a
+// confident, unhedged assertion instead, self-referentially tripping the exact evidence-insufficiency
+// check the explanation was describing. Extending this list (not adding a second, parallel check) is
+// the same mechanism this file already uses for "not"/"cannot" -- just completing its coverage of
+// ordinary negative contractions.
+const NEGATION_RE = /\b(?:not|no|without|unverified|unknown|unclear|uncertain|cannot|can't|couldn't|wasn't|weren't|didn't|doesn't|isn't|aren't|hasn't|haven't|wouldn't|shouldn't|never)\b/i
 const REQUIREMENT_HEDGE_RE = /\b(?:requires?|would\s+require|needs?\s+to|before\s+(?:it|this|that|i)\s+(?:can|could)|not\s+yet|has\s+not\s+yet|is\s+not\s+yet|remains?\s+unproven|is\s+unproven)\b/i
 const CONVERSATIONAL_ROBOTIC_RE = /\b(?:as an ai|as an assistant|i am an ai|your request|the user|objective:|quality gate|evidence state|execution contract|cannot comply|please provide)\b/i
 const REPETITION_RE = /(.{18,80})\s+\1/i
