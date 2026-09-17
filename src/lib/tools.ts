@@ -1095,9 +1095,10 @@ export async function dispatchTool(
  * kb_search — search the user's uploaded knowledge base (RAG).
  * Returns the top-K chunks matching the query, formatted as context.
  *
- * The actual implementation lives in /src/lib/knowledge-base.ts and uses
- * a simple keyword-overlap ranking (no embeddings — SQLite doesn't support
- * pgvector). For production scale, swap to pgvector + an embedding model.
+ * The actual implementation lives in /src/lib/knowledge-base.ts: keyword-overlap ranking blended
+ * with embedding-based semantic recovery (Postgres native float arrays, no pgvector/ANN index yet
+ * — similarity is computed in JS over a bounded candidate pool; see knowledge-base.ts's own header
+ * comment for the full retrieval design).
  */
 export async function toolKbSearch(
   args: { query?: string; limit?: number },

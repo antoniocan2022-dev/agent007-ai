@@ -100,6 +100,23 @@ export function ChatInput() {
               remote: { provider: 'oci', bucket: result.bucket, key: result.key, checksum: result.verification.checksum },
             }
             addAttachment(meta)
+            // The upload above only puts the file in durable storage -- attachmentContextSuffix
+            // (agent.ts) correctly tells the CEO it has NOT read a large attachment's contents.
+            // Fire the real parse/transcribe/chunk/embed pipeline (document-ingestion.ts) in the
+            // background so the file becomes searchable via the knowledge base going forward. This
+            // is best-effort and must never block sending the message or surface as an upload
+            // failure: the attachment itself already succeeded regardless of indexing outcome.
+            fetch('/api/kb/ingest-remote', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                key: result.key,
+                filename: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                size: result.size,
+                checksum: result.verification.checksum,
+              }),
+            }).catch((error) => console.warn(`Background knowledge-base indexing failed for ${file.name}:`, error))
           } catch (error) {
             alert(`Large-file upload failed for ${file.name}: ${error instanceof Error ? error.message : String(error)}`)
           } finally {
