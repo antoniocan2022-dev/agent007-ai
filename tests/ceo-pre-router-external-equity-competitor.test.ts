@@ -30,3 +30,38 @@ describe('pre-router: equity research about a named competitor survives an "our/
     expect(decision.executionContract.domain).not.toBe('public_equity')
   })
 })
+
+// Production incident (2026-09-17): a real user asked "can you give me updates about 2 stocks, GEOS
+// and MIND tecnology, in your own words" and, in a follow-up turn, "yes, today I want ... a full
+// understanding of 2 stock, GEOS and MIND Tecnologi ... Give me the best of the best of you." Both
+// named two real tickers plus the word "stocks", yet fell all the way through inferSemanticIntent to
+// plain 'conversation' -- MARKET_ACTION_RE/MARKET_RESEARCH_LOOKUP_RE only recognized an analytical verb
+// (analyze/research/compare/...) or a check/pull/gather+news/updates phrasing, never the far more common
+// way people actually ask for information (give/tell/share/update/brief/"full understanding"/etc). With
+// intent misclassified as 'conversation', evidenceClass/domain/toolRequired were all forced to
+// 'none'/'none'/false -- no evidence-gathering tool (including the real market-data dispatch path fixed
+// in the immediately preceding round) was ever reachable, regardless of how well it worked, because the
+// request never got routed there in the first place.
+describe('pre-router: a natural information-request ("give me updates on X", "tell me about X") about a named stock is real research, not conversation', () => {
+  test.each([
+    'can you give me updates about 2 stocks, GEOS and MIND tecnology, in your own words.',
+    'yes, today I want you can make a full understanding of 2 stock, GEOS and MIND Tecnologi, but in your own words. Give me the best of the best of you.',
+    'Tell me about NVDA stock.',
+    'Share an update on AAPL shares.',
+  ])('classifies as public_equity research, routed to the governed evidence path: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.toolRequired).toBe(true)
+    expect(decision.route).toBe('full')
+  })
+
+  test.each([
+    'Should we buy more spare parts for our warehouse?',
+    'Give me an update on our internal budget for the team.',
+    'Tell me about our ownership split.',
+  ])('an ordinary internal information request stays excluded even with an info-request verb: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+})

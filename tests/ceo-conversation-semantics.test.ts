@@ -196,6 +196,33 @@ describe('CEO transcript-derived adversarial benchmark', () => {
     expect(result?.resolvedText).toContain('benchmark-first')
   })
 
+  // Production incident (2026-09-17): a real user's opening "hi!" greeting, then much later the same
+  // day, "yes, today I want ... GEOS and MIND ..." -- with no genuine confirmation/decision anywhere in
+  // today's conversation, the old ascending-sort fallback picked the day's chronologically FIRST
+  // message (the "hi!" greeting) and handed it back with ~0.96 confidence, which ceo-degraded-mode.ts's
+  // highConfidenceReferenceForObjective (>= 0.7, !ambiguous) then echoed to the user verbatim as if it
+  // were a meaningful answer.
+  test('"today" with no confirmation in the window does not confidently resolve to an unrelated earlier message (production incident)', () => {
+    const result = resolveTemporalReference(
+      'yes, today I want you can make a full understanding of 2 stock, GEOS and MIND Tecnologi, but in your own words.',
+      [{ role: 'user', content: 'hi!', createdAt: '2026-09-17T09:00:00.000Z' }, { role: 'assistant', content: 'Hey — what\'s up?', createdAt: '2026-09-17T09:00:05.000Z' }],
+      { nowMs: Date.UTC(2026, 8, 17, 20, 22), timeZone: 'UTC' },
+    )
+    expect(result?.ambiguous).toBe(true)
+    expect(result?.confidence).toBeLessThan(0.7)
+    expect(result?.resolvedText).not.toBe('hi!')
+  })
+
+  test('"today" WITH a genuine confirmation in the window still resolves confidently, unaffected by the fix above', () => {
+    const result = resolveTemporalReference(
+      'What did we decide today?',
+      [{ role: 'user', content: 'Should we ship the change today?', createdAt: '2026-09-17T09:00:00.000Z' }, { role: 'assistant', content: 'Yes, agreed, we are shipping today.', createdAt: '2026-09-17T09:05:00.000Z' }],
+      { nowMs: Date.UTC(2026, 8, 17, 20, 22), timeZone: 'UTC' },
+    )
+    expect(result?.ambiguous).toBe(false)
+    expect(result?.resolvedText).toContain('shipping today')
+  })
+
   test('incorrect current-topic answer is rejected despite fluent language', () => {
     const result = evaluateCeoQuality({ objective: 'What are we discussing now?', content: 'We are discussing acceptance, acceleration, and achieving goals.', path: 'fast', intent: 'conversation', priorTurns: [{ role: 'user', content: 'Now let us discuss provider architecture.', createdAt: '2026-09-06T10:00:00.000Z' }, { role: 'assistant', content: 'We are discussing provider architecture and resilience.', createdAt: '2026-09-06T10:00:05.000Z' }], evidenceVerificationApplicable: false })
     expect(result.decision).not.toBe('PASS')

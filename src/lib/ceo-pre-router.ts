@@ -45,6 +45,16 @@ const MARKET_ACTION_RE = /\b(?:analy[sz]e|analysis|assess|evaluate|compare|resea
 // Natural-language equity research frequently uses "check/pull/gather + news/information" instead of
 // the word "research". Keep the signal contextual so ordinary internal checks are not routed externally.
 const MARKET_RESEARCH_LOOKUP_RE = /\b(?:check|pull|gather|collect|find)\b[^.!?]{0,80}\b(?:news|headlines?|relevant\s+information|information|updates?)\b/i
+// Production incident (2026-09-17): "give me updates about 2 stocks, GEOS and MIND Technology, in your
+// own words" and "...I want a full understanding of 2 stock, GEOS and MIND..., give me the best of the
+// best of you" both named two real tickers plus the unambiguous word "stocks", yet fell all the way
+// through to plain 'conversation' -- MARKET_ACTION_RE/MARKET_RESEARCH_LOOKUP_RE only recognized an
+// analytical verb (analyze/research/compare/...) or a check/pull/gather+news/updates phrasing, never
+// the far more common, ordinary way people actually ask for information: give/tell/share/update/brief/
+// explain/summarize/describe/"full understanding"/"walk me through"/"let me know". This is at least as
+// strong a research signal as the verbs already covered, gated the same way (MARKET_SECURITY_RE must
+// also match, and isInternalEquityContext still excludes genuinely internal phrasing below).
+const INFO_REQUEST_ACTION_RE = /\b(?:give|tell|share|update|brief|explain|summar(?:i|y)ze|describe|walk\s+(?:me\s+)?through|let\s+me\s+know|full\s+understanding|overview|rundown|breakdown)\b/i
 const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 // Deep-audit fix (2026-09-13): the verb alternation here was case-sensitive with no /i flag, while
 // every sibling regex in this file (MARKET_ACTION_RE, EXTERNAL_LOOKUP_PHRASE_RE, etc.) is case-
@@ -85,7 +95,7 @@ const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|
 function isExternalEquityResearch(text: string): boolean {
   const tickerAction = text.match(SHORT_TICKER_ACTION_RE)
   if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !isInternalEquityContext(text)
-  if (!MARKET_SECURITY_RE.test(text) || (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text))) return false
+  if (!MARKET_SECURITY_RE.test(text) || (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text))) return false
   if (isInternalEquityContext(text)) return false
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
