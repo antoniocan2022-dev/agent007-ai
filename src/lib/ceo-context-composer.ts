@@ -97,18 +97,22 @@ function buildConversationModule(input: { currentUserMessage: string; persistedM
   return { messages, recent, relevantOlder, summarizedCount: summarizedCandidates.length, excludedContaminatedAssistantMessages }
 }
 
-// route.ts (the only caller) composes context up to three times per request: once deterministic-only
-// to bootstrap interpretCeoSemantics (a genuine chicken-and-egg dependency -- there is no semantic
+// route.ts (the only caller) composes context up to four times per request: once deterministic-only to
+// bootstrap interpretCeoSemantics (a genuine chicken-and-egg dependency -- there is no semantic
 // interpretation yet to fold in), then again once it's available, then a third time once evidence/mission
-// modules are known. The second and third calls are given identical currentUserMessage/persistedMessages/
-// memories/semanticInterpretation -- every input canonicalSemanticContext (and conversationState and
-// references, which it's built from) actually depends on -- so recomputing deriveCeoConversationState/
-// resolveConversationReferences/buildCanonicalConversationContext a third time was provably redundant,
-// not just probably: reuse lets a caller skip that work and pass through the already-computed values
-// instead, while still recomputing messages fresh (modules legitimately differ between calls).
+// (or operational) modules are known -- and, on the operational-orchestrator branch specifically, a
+// fourth time if the direct-response check (Stage 1b) doesn't pass and a full synthesis pass is needed.
+// The non-operational and operational-direct-response paths only ever reach three calls; four is the
+// true maximum, reached only on the operational path's synthesis fallback. Every reused call is given
+// identical currentUserMessage/persistedMessages/memories/semanticInterpretation -- every input
+// canonicalSemanticContext (and conversationState and references, which it's built from) actually
+// depends on -- so recomputing deriveCeoConversationState/resolveConversationReferences/
+// buildCanonicalConversationContext on each of those calls was provably redundant, not just probably:
+// reuse lets a caller skip that work and pass through the already-computed values instead, while still
+// recomputing messages fresh (modules legitimately differ between calls).
 //
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): buildConversationDecisionContract is a
-// pure function of canonicalSemanticContext alone, so every one of route.ts's up-to-five calls that
+// pure function of canonicalSemanticContext alone, so every one of route.ts's up-to-four calls that
 // reuses canonicalSemanticContext unchanged was ALSO silently recomputing a byte-identical
 // decisionContract from it -- the "two separate, overlapping decide-stages run on every turn" this
 // migration's Stage 2 exists to remove. decisionContract now rides along with canonicalSemanticContext

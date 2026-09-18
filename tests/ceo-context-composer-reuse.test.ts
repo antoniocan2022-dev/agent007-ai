@@ -123,7 +123,7 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
   })
 
   // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): buildConversationDecisionContract is
-  // a pure function of canonicalSemanticContext alone, so route.ts's up-to-five composeCeoContext calls
+  // a pure function of canonicalSemanticContext alone, so route.ts's up-to-four composeCeoContext calls
   // that reuse canonicalSemanticContext unchanged were ALSO silently recomputing a byte-identical
   // decisionContract from it every time -- the literal "overlapping decide-stage run on every turn"
   // this migration's Stage 2 exists to remove. decisionContract now rides along with
