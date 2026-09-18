@@ -64,6 +64,17 @@ const INSTRUCTIONAL_TOOLS = new Set([
 ])
 
 /**
+ * Whether a tool is one this module can meaningfully verify (a member of ACTION_TOOLS) -- exported so
+ * a caller holding a ToolVerificationResult can tell "genuinely unverified action" apart from
+ * "instructional tool, or a non-action tool that was never expected to produce an artifact", both of
+ * which also report `verified: false`/`verified: true, artifactType: 'none'` from verifyToolAction
+ * below but mean something different. See ceo-operational-direct-response.ts's Stage 4 usage.
+ */
+export function isKnownActionTool(toolName: string): boolean {
+  return ACTION_TOOLS.has(toolName)
+}
+
+/**
  * Verify if a tool's result contains a verifiable artifact.
  *
  * @param toolName - the name of the tool that was called

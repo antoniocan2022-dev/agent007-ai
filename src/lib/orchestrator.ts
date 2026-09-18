@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import { internalUrl } from "./internal-url"
 import { runSystemAudit, getCapabilities, getManifest, testCommunication, runSelfHeal } from "./system-functions"
-import { verifyToolAction } from "./tool-action-verification"
+import { verifyToolAction, type ToolVerificationResult } from "./tool-action-verification"
 
 // Helper: fetch internal URL with better error handling for Vercel
 async function internalFetch(url: string, options?: any): Promise<any> {
@@ -288,6 +288,14 @@ export interface OrchestratorRunResult {
     toolName?: string
     toolArgs?: any
     toolResult?: ToolResult
+    // Stage 4 of the CEO Conversation Kernel migration (2026-09-18): UPGRADE #124's verifyToolAction
+    // already ran here on every tool call (see below) -- checking the result for a real artifact
+    // (URL, transaction id, message id, file path, an explicit "REAL" marker), not just a bare
+    // `ok: true` -- but its result was only ever used for the SSE `tool_result` UI badge and then
+    // discarded; nothing in the CEO's own evidence/quality pipeline could see it. Persisting it here
+    // is what lets ceo-operational-direct-response.ts use it as the missing execution-outcome VERIFY
+    // step this stage adds.
+    verification?: ToolVerificationResult
     startedAt: number
     finishedAt?: number
   }>
@@ -1694,6 +1702,10 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
 
       // UPGRADE #124 — Verify the tool action (check for real artifact)
       const verification = verifyToolAction(step.toolName!, toolResult)
+      // Stage 4 of the CEO Conversation Kernel migration: persist onto the step (not just the emit
+      // below) so callers of runOrchestrator() -- specifically ceo-operational-direct-response.ts --
+      // can use it as a real execution-outcome VERIFY signal instead of trusting a bare `ok: true`.
+      step.verification = verification
 
       await emit('tool_result', {
         stepId: step.id,
