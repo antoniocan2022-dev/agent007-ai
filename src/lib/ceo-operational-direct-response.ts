@@ -2,6 +2,7 @@ import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
 import { buildCeoExecutionPlan } from './ceo-execution-plan'
 import { evaluateCeoQuality } from './ceo-response-quality-gate'
 import { composeCeoResponse, sanitizeCeoContentForQualityGate } from './ceo-response-composer'
+import { isKnownActionTool } from './tool-action-verification'
 import type { CognitiveLifecycleResult, PreRouteDecision, ResponseAction } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
 import type { PersistedConversationRow } from './ceo-context-composer'
@@ -41,7 +42,10 @@ export function tryOperationalDirectResponse(input: {
   // narrates success despite a real tool failure underneath would sail through the direct-pass
   // gate instead of falling back to a full synthesis pass that could honestly account for the
   // failure. Required (not optional) so no call site can silently skip this check.
-  toolSteps: readonly { toolResult?: { ok: boolean } }[]
+  //
+  // Stage 4 addition: `toolName`/`verification` let this function distinguish a merely-successful
+  // (ok: true) action-tool call from a genuinely CONFIRMED one -- see hasVerifiedActionEvidence below.
+  toolSteps: readonly { toolName?: string; toolResult?: { ok: boolean }; verification?: { verified: boolean } }[]
   priorConversation?: readonly PersistedConversationRow[]
   relevantOlderConversation?: readonly PersistedConversationRow[]
   responseAction?: ResponseAction
@@ -84,13 +88,26 @@ export function tryOperationalDirectResponse(input: {
   // -- there's no separate signal distinguishing a genuinely independently-verified claim from one
   // that merely satisfied the scope-consistency check. 'live_system' was chosen above specifically
   // to make evidenceDiscipline pass for a candidate whose own wording asserts a live-system action
-  // (the common, honest case for "I checked/fixed X") -- but this function never independently
-  // verifies anything. It only checks that the orchestrator's self-reported answer is internally
-  // consistent and well-formed. Reporting that as 'LIVE_VERIFIED' would overclaim exactly the kind
-  // of unearned confidence this codebase has repeatedly had to fix elsewhere. Downgrade to
-  // 'LIVE_EXECUTED' -- action taken, outcome not independently confirmed -- which is what actually
-  // happened here, and which Stage 4 (a real execution-outcome verify step) exists to close.
-  if (quality.evidenceState === 'LIVE_VERIFIED') quality.evidenceState = 'LIVE_EXECUTED'
+  // (the common, honest case for "I checked/fixed X") -- but by itself this function never
+  // independently verifies anything; it only checks that the orchestrator's self-reported answer is
+  // internally consistent and well-formed. Stage 1b downgraded every PASS to 'LIVE_EXECUTED'
+  // unconditionally rather than overclaim.
+  //
+  // Stage 4 of the CEO Conversation Kernel migration (2026-09-18): closes that gap for real, using a
+  // signal that already existed but was going nowhere -- UPGRADE #124's verifyToolAction runs on
+  // every orchestrator tool call and checks the result for an actual artifact (a URL, transaction id,
+  // message id, file path, or an explicit "REAL" marker), not just a bare `ok: true`; orchestrator.ts
+  // now persists it onto each step (see OrchestratorRunResult.steps[].verification), but until this
+  // change nothing outside the SSE UI badge ever read it. hasVerifiedActionEvidence below is true only
+  // when at least one step called a tool this module can actually verify (isKnownActionTool --
+  // payment processors, publishers, senders, and similar) AND that call both succeeded AND produced a
+  // confirmed artifact. Only then does the downgrade get skipped and 'LIVE_VERIFIED' stand -- every
+  // other case (no action-tool calls at all, or one that succeeded without a confirmable artifact)
+  // still downgrades exactly as Stage 1b did, so this can only ever make the label MORE conservative
+  // to MORE accurate, never less: it adds a path to the honestly-stronger claim, it never weakens the
+  // gate itself (quality.decision/`passed` above are completely untouched).
+  const hasVerifiedActionEvidence = input.toolSteps.some((step) => step.toolName && isKnownActionTool(step.toolName) && step.toolResult?.ok === true && step.verification?.verified === true)
+  if (quality.evidenceState === 'LIVE_VERIFIED' && !hasVerifiedActionEvidence) quality.evidenceState = 'LIVE_EXECUTED'
 
   const finalContent = composeCeoResponse({ content: sanitized, evidenceState: quality.evidenceState, quality, degraded: false, responseAction: input.responseAction })
 

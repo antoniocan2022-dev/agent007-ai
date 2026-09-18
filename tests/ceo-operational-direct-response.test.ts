@@ -50,14 +50,15 @@ describe('tryOperationalDirectResponse', () => {
     expect(result!.executionPlan.stages.length).toBeGreaterThan(0)
   })
 
-  // Fresh-audit finding: evaluateCeoQuality derives 'LIVE_VERIFIED' from nothing more than
-  // (passed && evidenceScope is live_system/mixed && fresh) -- there's no independent-verification
-  // signal distinct from "the claim's scope was internally consistent". This function never
-  // independently verifies anything; it only checks that the orchestrator's self-reported answer is
-  // well-formed and consistent. Reporting a genuine PASS as 'LIVE_VERIFIED' would overclaim exactly
-  // the kind of unearned confidence this codebase has repeatedly had to fix elsewhere -- the honest
-  // label is 'LIVE_EXECUTED' (action taken, outcome not independently confirmed).
-  test('a genuine PASS is reported as LIVE_EXECUTED, never the stronger LIVE_VERIFIED this function never actually earns', () => {
+  // Fresh-audit finding (Stage 1b) / Stage 4 update: evaluateCeoQuality derives 'LIVE_VERIFIED' from
+  // nothing more than (passed && evidenceScope is live_system/mixed && fresh) -- there's no
+  // independent-verification signal distinct from "the claim's scope was internally consistent" in
+  // that formula alone. With no tool steps at all (this test's case), this function has no
+  // independent evidence to point to, so the honest label stays 'LIVE_EXECUTED' (action taken, outcome
+  // not independently confirmed). Stage 4 (below, in the "verified action evidence" tests) adds the
+  // one case where 'LIVE_VERIFIED' IS now honestly earned: a known action-tool call that both
+  // succeeded and produced a confirmed artifact.
+  test('a genuine PASS with no tool-verified evidence is reported as LIVE_EXECUTED, not the stronger LIVE_VERIFIED', () => {
     const answer = '## Deployment fixed\n\nThe last build failed because the DATABASE_URL environment variable was missing on the production environment. I took the following actions: added the missing variable in Vercel, then triggered a fresh deployment. The new deployment completed successfully and is now serving traffic. No further action is needed.'
     const result = tryOperationalDirectResponse({
       messages: user(message),
@@ -89,6 +90,57 @@ describe('tryOperationalDirectResponse', () => {
       toolSteps: [{ toolResult: { ok: true } }, { toolResult: { ok: false } }],
     })
     expect(result).toBeNull()
+  })
+
+  // Stage 4 of the CEO Conversation Kernel migration (2026-09-18): a real execution-outcome VERIFY
+  // step. UPGRADE #124's verifyToolAction already checks a tool's result for a genuine artifact (URL,
+  // transaction id, message id, file path, or an explicit "REAL" marker) -- orchestrator.ts now
+  // persists that onto each step instead of discarding it after the UI badge, and this function uses
+  // it as the one case that can honestly earn 'LIVE_VERIFIED' instead of always downgrading to
+  // 'LIVE_EXECUTED'.
+  test('a known action-tool call that succeeded AND produced a confirmed artifact earns the stronger LIVE_VERIFIED label', () => {
+    const answer = '## Deployment fixed\n\nThe last build failed because the DATABASE_URL environment variable was missing on the production environment. I took the following actions: added the missing variable in Vercel, then triggered a fresh deployment. The new deployment completed successfully and is now serving traffic. No further action is needed.'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: [{ toolName: 'send_email', toolResult: { ok: true }, verification: { verified: true } }],
+    })
+    expect(result).not.toBeNull()
+    expect(result!.evidenceState).toBe('LIVE_VERIFIED')
+    expect(result!.quality.evidenceState).toBe('LIVE_VERIFIED')
+  })
+
+  test('a known action-tool call that succeeded but produced NO confirmed artifact still downgrades to LIVE_EXECUTED (a bare ok:true is not enough)', () => {
+    const answer = '## Deployment fixed\n\nThe last build failed because the DATABASE_URL environment variable was missing on the production environment. I took the following actions: added the missing variable in Vercel, then triggered a fresh deployment. The new deployment completed successfully and is now serving traffic. No further action is needed.'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: [{ toolName: 'send_email', toolResult: { ok: true }, verification: { verified: false } }],
+    })
+    expect(result).not.toBeNull()
+    expect(result!.evidenceState).toBe('LIVE_EXECUTED')
+  })
+
+  // A tool this module cannot verify at all (not in isKnownActionTool's list, e.g. an internal-state
+  // read) must never accidentally unlock LIVE_VERIFIED just because it happened to be present.
+  test('a tool step for an unverifiable (non-action) tool does not unlock LIVE_VERIFIED even if marked verified', () => {
+    const answer = '## Deployment fixed\n\nThe last build failed because the DATABASE_URL environment variable was missing on the production environment. I took the following actions: added the missing variable in Vercel, then triggered a fresh deployment. The new deployment completed successfully and is now serving traffic. No further action is needed.'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: [{ toolName: 'smart_tool_router', toolResult: { ok: true }, verification: { verified: true } }],
+    })
+    expect(result).not.toBeNull()
+    expect(result!.evidenceState).toBe('LIVE_EXECUTED')
   })
 
   test('an answer that does not address the actual request fails the gate and returns null (caller must fall back)', () => {
