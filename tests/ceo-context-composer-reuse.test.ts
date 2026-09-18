@@ -121,4 +121,42 @@ describe('Track 2: composeCeoContext reuseSemanticContext is behaviorally transp
     expect(partiallyReused.canonicalSemanticContext).not.toBe(seed.canonicalSemanticContext)
     expect(partiallyReused.conversationState).not.toBe(seed.conversationState)
   })
+
+  // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): buildConversationDecisionContract is
+  // a pure function of canonicalSemanticContext alone, so route.ts's up-to-five composeCeoContext calls
+  // that reuse canonicalSemanticContext unchanged were ALSO silently recomputing a byte-identical
+  // decisionContract from it every time -- the literal "overlapping decide-stage run on every turn"
+  // this migration's Stage 2 exists to remove. decisionContract now rides along with
+  // canonicalSemanticContext in reuseSemanticContext instead.
+  test('decisionContract is present on every composition and is a real, usable object', async () => {
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [] })
+    expect(seed.decisionContract.schemaVersion).toBe(3)
+    expect(seed.decisionContract.responseAction).toBeTruthy()
+    expect(seed.decisionContract.intent).toBeTruthy()
+  })
+
+  test('reuse skips recomputation -- the returned decisionContract is the exact same object reference passed in, not a freshly rebuilt equivalent', async () => {
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [] })
+    const reused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [], modules: { organization: 'ORG TEXT' }, reuseSemanticContext: { conversationState: seed.conversationState, canonicalSemanticContext: seed.canonicalSemanticContext, decisionContract: seed.decisionContract, resolvedReferences: seed.resolvedReferences } })
+    expect(reused.decisionContract).toBe(seed.decisionContract)
+  })
+
+  // A stale/mismatched decisionContract must never be trusted for a FRESH canonicalSemanticContext --
+  // reuse is only valid when both are supplied together (see composeCeoContext's pairing guard). Passing
+  // decisionContract alone, without also reusing canonicalSemanticContext, must be ignored and rebuilt
+  // fresh from the new context, never silently attached to the wrong context.
+  test('decisionContract reuse is ignored (and safely rebuilt) when canonicalSemanticContext is NOT also reused', async () => {
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [] })
+    const differentMessageComposition = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'A completely unrelated later request.', persistedMessages: rows, memories: [], reuseSemanticContext: { decisionContract: seed.decisionContract } })
+    expect(differentMessageComposition.decisionContract).not.toBe(seed.decisionContract)
+    expect(differentMessageComposition.canonicalSemanticContext).not.toBe(seed.canonicalSemanticContext)
+  })
+
+  test('the rendered canonical-context system message reflects the reused decisionContract correctly, matching a fresh rebuild for the same context', async () => {
+    const seed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [] })
+    const recomputed = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [], modules: { organization: 'ORG TEXT' } })
+    const reused = await composeCeoContext({ systemPrompt: 'sys', currentUserMessage: 'Tell me about the second thing.', persistedMessages: rows, memories: [], modules: { organization: 'ORG TEXT' }, reuseSemanticContext: { conversationState: seed.conversationState, canonicalSemanticContext: seed.canonicalSemanticContext, decisionContract: seed.decisionContract, resolvedReferences: seed.resolvedReferences } })
+    const canonicalMessageOf = (composition: typeof seed) => composition.messages.find((message) => message.content.includes('CONVERSATION DECISION CONTRACT'))?.content
+    expect(canonicalMessageOf(reused)).toBe(canonicalMessageOf(recomputed))
+  })
 })
