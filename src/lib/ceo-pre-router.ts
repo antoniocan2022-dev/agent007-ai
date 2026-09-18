@@ -1,7 +1,7 @@
 import { inferTaskType } from './canonical-llm-router'
 import { classifyExecution } from './adaptive-execution'
 import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
-import { buildConversationDecisionContract } from './ceo-conversation-decision-contract'
+import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
@@ -237,7 +237,14 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
   return thread.title.trim() || thread.currentObjective.trim() || undefined
 }
 
-export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext): PreRouteDecision {
+// Stage 2 of the CEO Conversation Kernel migration (2026-09-18): decisionContract lets a caller that
+// already built the authoritative ConversationDecisionContract for this exact semanticContext (route.ts,
+// via composeCeoContext) pass it straight through instead of paying for a second, byte-identical build
+// -- this function otherwise rebuilds it below purely to feed curiosity/evidence narrowing, then
+// discarded it entirely, which was the other half of the "overlapping decide-stage" this migration
+// exists to remove. Omitting it preserves the original self-contained behavior for every other caller
+// (tests, offline tooling) that only has semanticContext to hand.
+export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext, decisionContract?: ConversationDecisionContract): PreRouteDecision {
   const text = latestUserText(messages).replace(/\s+/g, ' ').trim()
   const selfReflection = classifyCeoSelfReflection(text)
   const adaptive = classifyExecution(messages, selfReflection)
@@ -265,7 +272,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(text))
   const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action' || deterministicExternalResearch
   const semanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
-  const canonicalDecision = semanticContext ? buildConversationDecisionContract(semanticContext) : undefined
+  const canonicalDecision = semanticContext ? (decisionContract ?? buildConversationDecisionContract(semanticContext)) : undefined
   const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
