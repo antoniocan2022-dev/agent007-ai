@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
-import { classifyCeoBehavioralModes } from '@/lib/ceo-behavioral-policy'
+import { classifyCeoBehavioralModes, selectLeadingCeoBehavioralMode } from '@/lib/ceo-behavioral-policy'
 import { readFileSync } from 'node:fs'
 
 const user = (content: string) => [{ role: 'user' as const, content }]
@@ -66,6 +66,10 @@ describe('CEO kernel migration -- Stage 0 baseline (pre-router classification)',
     expect(decision.executionContract.toolRequired).toBe(false)
     const modes = classifyCeoBehavioralModes({ intent: decision.executionContract.intent, responseAction: 'answer', currentMessage: "I'm feeling really exhausted and frustrated with how things are going." })
     expect(modes).toContain('friend')
+    // Stage 3: this message triggers only 'friend', so it's trivially also the arbitrated leading mode
+    // -- the real arbitration test (multiple modes, leading mode is NOT the one CEO_BEHAVIORAL_MODES'
+    // fixed order would put first) lives in ceo-behavioral-policy-arbitration.test.ts.
+    expect(selectLeadingCeoBehavioralMode(modes)).toBe('friend')
   })
 })
 
@@ -97,13 +101,16 @@ describe('CEO kernel migration -- Stage 0 structural baseline (source-text, pre-
     expect(contract).toContain('export function buildConversationDecisionContract')
   })
 
-  test('behavioral modes are still an unarbitrated regex union (Stage 3 target)', () => {
+  test('behavioral modes are now arbitrated into one leading mode, not an unranked regex union (Stage 3 shipped)', () => {
     const policy = readFileSync('src/lib/ceo-behavioral-policy.ts', 'utf8')
-    // classifyCeoBehavioralModes returns every mode whose regex matched, in CEO_BEHAVIORAL_MODES
-    // order, with no step that picks a single leading mode. Stage 3 adds that arbitration inside
-    // the Stage 2 consolidated decision -- when it does, update this to assert the new
-    // leading-mode field instead of the plain array return.
+    // classifyCeoBehavioralModes still returns every mode whose regex matched, in CEO_BEHAVIORAL_MODES
+    // order (unchanged -- still useful as supporting-mode context for the rendered prompt), but
+    // buildCeoBehavioralPolicy now also arbitrates a single leadingMode from a fixed priority order
+    // (CEO_BEHAVIORAL_MODE_PRIORITY), and CeoBehavioralPolicy carries that as its own field.
     expect(policy).toContain('modes = new Set<CeoBehavioralMode>()')
     expect(policy).toContain('return CEO_BEHAVIORAL_MODES.filter((mode) => modes.has(mode))')
+    expect(policy).toContain('CEO_BEHAVIORAL_MODE_PRIORITY')
+    expect(policy).toContain('export function selectLeadingCeoBehavioralMode')
+    expect(policy).toContain('leadingMode: CeoBehavioralMode')
   })
 })
