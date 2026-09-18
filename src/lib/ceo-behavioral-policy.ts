@@ -41,7 +41,13 @@ export function classifyCeoBehavioralModes(input: { context?: CanonicalConversat
 // psychology or technical keyword match); friend is last because it is already the code's own fallback
 // default (see the `!modes.size` branch above) for when nothing more specific matched -- consistent
 // with treating it as the least specific, not the least valid, stance.
-const CEO_BEHAVIORAL_MODE_PRIORITY: readonly CeoBehavioralMode[] = ['guardian', 'operator', 'business_partner', 'great_thinker', 'technologist', 'psychological_insight', 'ceo_curiosity', 'friend']
+// Exported (not just used internally) so a test can assert this is exactly a permutation of
+// CEO_BEHAVIORAL_MODES -- no mode omitted, none duplicated. That check matters specifically because
+// selectLeadingCeoBehavioralMode's fallback default is 'friend': a test that only checks "each mode,
+// isolated, is its own leading mode" cannot distinguish 'friend' genuinely being present in this list
+// from 'friend' being silently missing and the fallback masking the gap. Direct inspection of this
+// array sidesteps that blind spot entirely.
+export const CEO_BEHAVIORAL_MODE_PRIORITY: readonly CeoBehavioralMode[] = ['guardian', 'operator', 'business_partner', 'great_thinker', 'technologist', 'psychological_insight', 'ceo_curiosity', 'friend']
 
 export function selectLeadingCeoBehavioralMode(modes: readonly CeoBehavioralMode[]): CeoBehavioralMode {
   return CEO_BEHAVIORAL_MODE_PRIORITY.find((mode) => modes.includes(mode)) ?? 'friend'

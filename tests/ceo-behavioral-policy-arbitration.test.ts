@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { classifyCeoBehavioralModes, selectLeadingCeoBehavioralMode, buildCeoBehavioralPolicy, renderCeoBehavioralPolicy } from '@/lib/ceo-behavioral-policy'
+import { classifyCeoBehavioralModes, selectLeadingCeoBehavioralMode, buildCeoBehavioralPolicy, renderCeoBehavioralPolicy, CEO_BEHAVIORAL_MODES, CEO_BEHAVIORAL_MODE_PRIORITY } from '@/lib/ceo-behavioral-policy'
 
 // Stage 3 of the CEO Conversation Kernel migration (2026-09-18): classifyCeoBehavioralModes's 8 regex
 // checks fire independently, so a single message routinely matches several of them at once. Before this
@@ -54,5 +54,19 @@ describe('CEO behavioral mode arbitration (Stage 3)', () => {
 
   test('selectLeadingCeoBehavioralMode falls back to friend for an empty set (defensive; classifyCeoBehavioralModes itself never returns one)', () => {
     expect(selectLeadingCeoBehavioralMode([])).toBe('friend')
+  })
+
+  // Fresh-audit finding (2026-09-18, same day Stage 3 shipped): a test that only checks "each mode,
+  // isolated, is its own leading mode" (as several tests above effectively do) cannot distinguish
+  // 'friend' genuinely being present in CEO_BEHAVIORAL_MODE_PRIORITY from 'friend' being silently
+  // missing from it -- selectLeadingCeoBehavioralMode's own fallback default is 'friend', so a missing
+  // entry for it would produce the exact same observable result as a correctly-present one. Comparing
+  // the two arrays directly (both exported specifically to make this checkable) closes that blind spot:
+  // it fails loudly if a future mode is ever added to CEO_BEHAVIORAL_MODES without a matching priority
+  // entry, instead of silently misattributing that mode's leading-mode decisions to 'friend'.
+  test('CEO_BEHAVIORAL_MODE_PRIORITY is exactly a permutation of CEO_BEHAVIORAL_MODES -- no mode omitted, none duplicated', () => {
+    expect(CEO_BEHAVIORAL_MODE_PRIORITY.length).toBe(CEO_BEHAVIORAL_MODES.length)
+    expect([...CEO_BEHAVIORAL_MODE_PRIORITY].sort()).toEqual([...CEO_BEHAVIORAL_MODES].sort())
+    expect(new Set(CEO_BEHAVIORAL_MODE_PRIORITY).size).toBe(CEO_BEHAVIORAL_MODE_PRIORITY.length)
   })
 })
