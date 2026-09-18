@@ -977,6 +977,167 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     })
   }
 
+  // Stage 1a of the CEO Conversation Kernel migration (2026-09-18): this identity-reminder
+  // classification used to run fresh on EVERY tool-loop iteration below, even though it depends
+  // only on `userMessage` -- constant across iterations -- and never on the accumulating tool
+  // results or conversation state. For a multi-step action (the common case this loop exists
+  // for), that meant re-running the 4 parallel diagnostic API fetches (health/capability-audit/
+  // team-performance/diagnose-llm) and the cognitive-framework classification pass once per
+  // iteration, up to MAX_ITERATIONS (50) times over, for a result that couldn't change between
+  // iterations. Hoisted out of the loop and computed exactly once. Also dropped the dead
+  // `toolCountForReminder` variable this block used to compute (UPGRADE #180) -- the reminder
+  // text it was built for was itself replaced by UPGRADE #217's cognitive framework below, and
+  // nothing ever read the variable afterward; it just isn't used anywhere in this file.
+  //
+  // UPGRADE #201: Auto-execute diagnostic tools for strategic questions.
+  // The LLM kept ignoring the charter (injected in #200) because its training
+  // distribution for "strategic question → consulting report" is too strong.
+  // No amount of injected rules can override that.
+  //
+  // NEW APPROACH: Instead of injecting RULES the LLM can ignore, inject
+  // REAL DATA the LLM CAN'T ignore. When a strategic question is detected,
+  // auto-execute 4 diagnostic checks in parallel, format the results as a
+  // "System Status Report", and inject it as context. The LLM is then forced
+  // to respond to DATA, not to the abstract question.
+  //
+  // The LLM can't write "consider implementing security audits" when it's
+  // staring at: "cybersecurity_a: 3 scans today, 0 critical findings".
+  const STRATEGIC_KEYWORDS = /\b(improve|enhance|evaluate|evaluation|assess|assessment|how is|how do|what should|what can|strategy|strategic|optimi[sz]e|upgrade|comprehensive|whole system|entire system|deep comprehension|deep analysis|audit|review|performing|status of|state of)\b/i
+  const isStrategicQuestion = STRATEGIC_KEYWORDS.test(userMessage) && userMessage.length > 15
+
+  let systemStatusReport = ''
+  if (isStrategicQuestion) {
+    console.log('[orchestrator] Strategic question detected — auto-executing diagnostics')
+    try {
+      // Auto-execute 4 diagnostic checks in parallel
+      const BASE = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+      const [healthRes, capRes, teamRes, llmRes] = await Promise.allSettled([
+        fetch(`${BASE}/api/health`).then(r => r.json()).catch(() => null),
+        fetch(`${BASE}/api/system/capability-audit`).then(r => r.json()).catch(() => null),
+        fetch(`${BASE}/api/system/team-performance`).then(r => r.json()).catch(() => null),
+        fetch(`${BASE}/api/system/diagnose-llm`).then(r => r.json()).catch(() => null),
+      ])
+
+      // Extract data from results
+      const health = healthRes.status === 'fulfilled' ? healthRes.value : null
+      const cap = capRes.status === 'fulfilled' ? capRes.value : null
+      const team = teamRes.status === 'fulfilled' ? teamRes.value : null
+      const llm = llmRes.status === 'fulfilled' ? llmRes.value : null
+
+      // Format as System Status Report
+      const lines: string[] = []
+      lines.push('═══ SYSTEM STATUS REPORT (auto-generated — you already ran these checks) ═══')
+      lines.push('')
+
+      // Health
+      if (health) {
+        lines.push(`SYSTEM HEALTH:`)
+        lines.push(`  Version: ${health.version}`)
+        lines.push(`  Status: ${health.status}`)
+        lines.push(`  Uptime: ${Math.round((health.uptime_seconds || 0) / 60)} min`)
+        lines.push(`  Region: ${health.region}`)
+        lines.push('')
+      }
+
+      // Capability audit
+      if (cap) {
+        const tools = cap.tools || {}
+        const auto = cap.autonomy_score || {}
+        lines.push(`CAPABILITIES:`)
+        lines.push(`  Total tools: ${tools.total_in_registry || '?'}`)
+        lines.push(`  With credentials: ${tools.with_credentials || '?'}`)
+        lines.push(`  Without credentials: ${tools.without_credentials || '?'}`)
+        lines.push(`  Can earn real money: ${auto.can_earn_real_money_today ? 'YES' : 'NO'}`)
+        lines.push(`  Revenue-critical ready: ${auto.revenue_critical_ready || '?'}`)
+        lines.push('')
+
+        // List missing credentials
+        const missing = tools.tools_without_credentials || []
+        if (missing.length > 0) {
+          lines.push(`MISSING CREDENTIALS (blocking ${missing.length} tools):`)
+          for (const m of missing) {
+            lines.push(`  ❌ ${m.name} — needs: ${m.missingEnvVars?.join(', ')}`)
+          }
+          lines.push('')
+        }
+      }
+
+      // Team performance
+      if (team) {
+        const ts = team.team_summary || {}
+        const agents = team.agents || []
+        lines.push(`TEAM STATUS:`)
+        lines.push(`  Total agents: ${ts.total_agents || agents.length}`)
+        lines.push(`  Tasks completed: ${ts.total_tasks_completed || 0}`)
+        lines.push(`  Avg quality score: ${ts.team_avg_quality_score || 0}`)
+        lines.push(`  Success rate: ${ts.team_success_rate_percent || 0}%`)
+        lines.push('')
+
+        // List agents with 0 tasks (underutilized)
+        const underutilized = agents.filter((a: any) => a.metrics?.total_tasks === 0)
+        if (underutilized.length > 0) {
+          lines.push(`UNDERUTILIZED AGENTS (${underutilized.length} with 0 tasks):`)
+          for (const a of underutilized.slice(0, 5)) {
+            lines.push(`  - ${a.name}: ${a.metrics?.allowed_tools_count || 0} tools, 0 tasks`)
+          }
+          lines.push('')
+        }
+      }
+
+      // LLM status
+      if (llm) {
+        lines.push(`LLM PROVIDERS:`)
+        lines.push(`  Status: ${llm.overallStatus || '?'}`)
+        lines.push(`  Active provider: ${llm.testResult?.provider || '?'}`)
+        lines.push(`  Chain: ${llm.provider || '?'}'`)
+        lines.push('')
+      }
+
+      lines.push('═══ END SYSTEM STATUS REPORT ═══')
+      lines.push('')
+      lines.push('MANDATORY RESPONSE FORMAT for this strategic question:')
+      lines.push('1. Start with: "I checked my system. Here\'s what I found:"')
+      lines.push('2. Report 3-5 specific findings FROM THE DATA ABOVE (cite real numbers)')
+      lines.push('3. List 2-3 concrete actions ranked by impact (based on the data)')
+      lines.push('4. End with: "Want me to fix #1 right now?"')
+      lines.push('5. Do NOT write generic advice. Do NOT say "your system". Say "my system".')
+      lines.push('6. Do NOT recommend building tools you already have. The data shows what exists.')
+      lines.push('7. Do NOT use "Let\'s dive into" or "Leveraging our capabilities".')
+
+      systemStatusReport = lines.join('\n')
+      console.log('[orchestrator] System Status Report generated:', systemStatusReport.length, 'chars')
+    } catch (e: any) {
+      console.log('[orchestrator] Diagnostic auto-execution failed:', e?.message)
+    }
+  }
+
+  // UPGRADE #217: COGNITIVE FRAMEWORK v3 — replaces the old 12-rule
+  // identity reminder + strategic question detection + system status report
+  // with a clean 5-subsystem pipeline:
+  //   1. Intent Engine — classifies what Antonio is asking
+  //   2. Reasoning Engine — generates internal thought + opinion
+  //   3. Communication Engine — chooses response style dynamically
+  //   4. Executive Personality — natural identity, not rules
+  //   5. Reflection Engine — checks for template patterns (runs AFTER response)
+  //
+  // This eliminates "Prompt Dominance Syndrome" — the LLM is no longer
+  // overloaded with formatting rules. Instead, it gets a clean cognitive
+  // context that tells it WHAT to think and HOW to present it, without
+  // constraining every sentence.
+  let cognitiveContext = ''
+  try {
+    const { runCognitivePipeline } = await import('./cognitive-framework')
+    const cognitive = await runCognitivePipeline(userMessage, systemStatusReport || undefined)
+    cognitiveContext = cognitive.cognitiveContext
+    console.log(`[orchestrator] Cognitive pipeline: intent=${cognitive.intent.type} (${cognitive.intent.confidence}%) style=${cognitive.commPlan.style} depth=${cognitive.commPlan.structure}`)
+  } catch (e: any) {
+    console.log('[orchestrator] Cognitive pipeline failed (non-blocking):', e?.message)
+  }
+
+  // If cognitive framework didn't produce context, fall back to minimal reminder
+  const fallbackReminder = `You are Agent007. Think before you speak. Adapt your style to the question. Don't use templates.`
+  const identityReminder = cognitiveContext || fallbackReminder
+
   while (iter < MAX_ITERATIONS) {
     iter++
 
@@ -1006,163 +1167,11 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       // instructions by the time it generates the final answer.
       // Fix: add a SHORT user-message reminder at the END of the conversation
       // RIGHT BEFORE the LLM call. This exploits recency bias — the LAST thing
-      // the LLM sees is the identity check.
-      // UPGRADE #180: Get the real tool count for the identity reminder.
-      let toolCountForReminder = '463'
-      try {
-        const { TOOL_REGISTRY } = await import('./tools')
-        toolCountForReminder = String(Object.keys(TOOL_REGISTRY).length)
-      } catch {}
-
-      // UPGRADE #201: Auto-execute diagnostic tools for strategic questions.
-      // The LLM kept ignoring the charter (injected in #200) because its training
-      // distribution for "strategic question → consulting report" is too strong.
-      // No amount of injected rules can override that.
-      //
-      // NEW APPROACH: Instead of injecting RULES the LLM can ignore, inject
-      // REAL DATA the LLM CAN'T ignore. When a strategic question is detected,
-      // auto-execute 4 diagnostic checks in parallel, format the results as a
-      // "System Status Report", and inject it as context. The LLM is then forced
-      // to respond to DATA, not to the abstract question.
-      //
-      // The LLM can't write "consider implementing security audits" when it's
-      // staring at: "cybersecurity_a: 3 scans today, 0 critical findings".
-      const STRATEGIC_KEYWORDS = /\b(improve|enhance|evaluate|evaluation|assess|assessment|how is|how do|what should|what can|strategy|strategic|optimi[sz]e|upgrade|comprehensive|whole system|entire system|deep comprehension|deep analysis|audit|review|performing|status of|state of)\b/i
-      const isStrategicQuestion = STRATEGIC_KEYWORDS.test(userMessage) && userMessage.length > 15
-
-      let systemStatusReport = ''
-      if (isStrategicQuestion) {
-        console.log('[orchestrator] Strategic question detected — auto-executing diagnostics')
-        try {
-          // Auto-execute 4 diagnostic checks in parallel
-          const BASE = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
-          const [healthRes, capRes, teamRes, llmRes] = await Promise.allSettled([
-            fetch(`${BASE}/api/health`).then(r => r.json()).catch(() => null),
-            fetch(`${BASE}/api/system/capability-audit`).then(r => r.json()).catch(() => null),
-            fetch(`${BASE}/api/system/team-performance`).then(r => r.json()).catch(() => null),
-            fetch(`${BASE}/api/system/diagnose-llm`).then(r => r.json()).catch(() => null),
-          ])
-
-          // Extract data from results
-          const health = healthRes.status === 'fulfilled' ? healthRes.value : null
-          const cap = capRes.status === 'fulfilled' ? capRes.value : null
-          const team = teamRes.status === 'fulfilled' ? teamRes.value : null
-          const llm = llmRes.status === 'fulfilled' ? llmRes.value : null
-
-          // Format as System Status Report
-          const lines: string[] = []
-          lines.push('═══ SYSTEM STATUS REPORT (auto-generated — you already ran these checks) ═══')
-          lines.push('')
-
-          // Health
-          if (health) {
-            lines.push(`SYSTEM HEALTH:`)
-            lines.push(`  Version: ${health.version}`)
-            lines.push(`  Status: ${health.status}`)
-            lines.push(`  Uptime: ${Math.round((health.uptime_seconds || 0) / 60)} min`)
-            lines.push(`  Region: ${health.region}`)
-            lines.push('')
-          }
-
-          // Capability audit
-          if (cap) {
-            const tools = cap.tools || {}
-            const auto = cap.autonomy_score || {}
-            lines.push(`CAPABILITIES:`)
-            lines.push(`  Total tools: ${tools.total_in_registry || '?'}`)
-            lines.push(`  With credentials: ${tools.with_credentials || '?'}`)
-            lines.push(`  Without credentials: ${tools.without_credentials || '?'}`)
-            lines.push(`  Can earn real money: ${auto.can_earn_real_money_today ? 'YES' : 'NO'}`)
-            lines.push(`  Revenue-critical ready: ${auto.revenue_critical_ready || '?'}`)
-            lines.push('')
-
-            // List missing credentials
-            const missing = tools.tools_without_credentials || []
-            if (missing.length > 0) {
-              lines.push(`MISSING CREDENTIALS (blocking ${missing.length} tools):`)
-              for (const m of missing) {
-                lines.push(`  ❌ ${m.name} — needs: ${m.missingEnvVars?.join(', ')}`)
-              }
-              lines.push('')
-            }
-          }
-
-          // Team performance
-          if (team) {
-            const ts = team.team_summary || {}
-            const agents = team.agents || []
-            lines.push(`TEAM STATUS:`)
-            lines.push(`  Total agents: ${ts.total_agents || agents.length}`)
-            lines.push(`  Tasks completed: ${ts.total_tasks_completed || 0}`)
-            lines.push(`  Avg quality score: ${ts.team_avg_quality_score || 0}`)
-            lines.push(`  Success rate: ${ts.team_success_rate_percent || 0}%`)
-            lines.push('')
-
-            // List agents with 0 tasks (underutilized)
-            const underutilized = agents.filter((a: any) => a.metrics?.total_tasks === 0)
-            if (underutilized.length > 0) {
-              lines.push(`UNDERUTILIZED AGENTS (${underutilized.length} with 0 tasks):`)
-              for (const a of underutilized.slice(0, 5)) {
-                lines.push(`  - ${a.name}: ${a.metrics?.allowed_tools_count || 0} tools, 0 tasks`)
-              }
-              lines.push('')
-            }
-          }
-
-          // LLM status
-          if (llm) {
-            lines.push(`LLM PROVIDERS:`)
-            lines.push(`  Status: ${llm.overallStatus || '?'}`)
-            lines.push(`  Active provider: ${llm.testResult?.provider || '?'}`)
-            lines.push(`  Chain: ${llm.provider || '?'}'`)
-            lines.push('')
-          }
-
-          lines.push('═══ END SYSTEM STATUS REPORT ═══')
-          lines.push('')
-          lines.push('MANDATORY RESPONSE FORMAT for this strategic question:')
-          lines.push('1. Start with: "I checked my system. Here\'s what I found:"')
-          lines.push('2. Report 3-5 specific findings FROM THE DATA ABOVE (cite real numbers)')
-          lines.push('3. List 2-3 concrete actions ranked by impact (based on the data)')
-          lines.push('4. End with: "Want me to fix #1 right now?"')
-          lines.push('5. Do NOT write generic advice. Do NOT say "your system". Say "my system".')
-          lines.push('6. Do NOT recommend building tools you already have. The data shows what exists.')
-          lines.push('7. Do NOT use "Let\'s dive into" or "Leveraging our capabilities".')
-
-          systemStatusReport = lines.join('\n')
-          console.log('[orchestrator] System Status Report generated:', systemStatusReport.length, 'chars')
-        } catch (e: any) {
-          console.log('[orchestrator] Diagnostic auto-execution failed:', e?.message)
-        }
-      }
-
-      // UPGRADE #217: COGNITIVE FRAMEWORK v3 — replaces the old 12-rule
-      // identity reminder + strategic question detection + system status report
-      // with a clean 5-subsystem pipeline:
-      //   1. Intent Engine — classifies what Antonio is asking
-      //   2. Reasoning Engine — generates internal thought + opinion
-      //   3. Communication Engine — chooses response style dynamically
-      //   4. Executive Personality — natural identity, not rules
-      //   5. Reflection Engine — checks for template patterns (runs AFTER response)
-      //
-      // This eliminates "Prompt Dominance Syndrome" — the LLM is no longer
-      // overloaded with formatting rules. Instead, it gets a clean cognitive
-      // context that tells it WHAT to think and HOW to present it, without
-      // constraining every sentence.
-      let cognitiveContext = ''
-      try {
-        const { runCognitivePipeline } = await import('./cognitive-framework')
-        const cognitive = await runCognitivePipeline(userMessage, systemStatusReport || undefined)
-        cognitiveContext = cognitive.cognitiveContext
-        console.log(`[orchestrator] Cognitive pipeline: intent=${cognitive.intent.type} (${cognitive.intent.confidence}%) style=${cognitive.commPlan.style} depth=${cognitive.commPlan.structure}`)
-      } catch (e: any) {
-        console.log('[orchestrator] Cognitive pipeline failed (non-blocking):', e?.message)
-      }
-
-      // If cognitive framework didn't produce context, fall back to minimal reminder
-      const fallbackReminder = `You are Agent007. Think before you speak. Adapt your style to the question. Don't use templates.`
-      const identityReminder = cognitiveContext || fallbackReminder
-
+      // the LLM sees is the identity check. `identityReminder` itself (the
+      // strategic-question diagnostics + cognitive-framework classification)
+      // is computed once, above the loop -- see the Stage 1a comment there --
+      // since it depends only on `userMessage`, not on the tool results or
+      // conversation state that accumulate across iterations.
       const messagesWithReminder = [
         ...conversationMessages,
         { role: 'user' as const, content: identityReminder },
