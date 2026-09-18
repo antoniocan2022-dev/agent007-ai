@@ -6,6 +6,7 @@ import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { attachmentContextSuffix } from '@/lib/agent'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { tryOperationalDirectResponse } from '@/lib/ceo-operational-direct-response'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 import { RecoveryBudget, RecoveryBudgetExceededError, recoveryEventFromMessage } from '@/lib/ceo-recovery-policy'
@@ -285,12 +286,27 @@ export async function POST(req: NextRequest) {
         } else {
           const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
           const baseOperationalContext = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: operationalModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+          const operationalStartedAt = Date.now()
           const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
           const operationalEvidence = result.finalAnswer.slice(0, 24000)
           console.log('[api/agent] operational execution telemetry', JSON.stringify({ requestId, completedSteps: result.steps.length, toolSteps: result.steps.filter((step) => Boolean(step.toolName)).length }))
-          const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
-          const composedOperational = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: synthesisModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
-          const synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composedOperational.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
+          // Stage 1b of the CEO Conversation Kernel migration (2026-09-18): before paying for a
+          // second full compose+decide+generate pass on every single action request, verify the
+          // orchestrator's own answer against the same quality gate every other CEO response
+          // already goes through. Falls through to the existing full-synthesis path unchanged when
+          // the direct check doesn't pass -- this only ever skips a redundant regeneration of an
+          // answer that was already correct, never the safety net underneath it.
+          const direct = tryOperationalDirectResponse({ messages: baseOperationalContext.messages, preRoute, missionId: undefined, taskType: preRoute.taskClass, objective: message, candidateContent: result.finalAnswer, responseMsBeforeCheck: Date.now() - operationalStartedAt, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, responseAction: decisionContract?.responseAction })
+          let composedOperational: CeoContextComposition
+          let synthesis: Awaited<ReturnType<typeof runCeoCognitiveLifecycle>>
+          if (direct) {
+            composedOperational = baseOperationalContext
+            synthesis = direct
+          } else {
+            const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
+            composedOperational = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: synthesisModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+            synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionContract, canonicalContext: composedOperational.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
+          }
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
           const persistedAssistantMessageId = result.persistedAssistantMessageId
