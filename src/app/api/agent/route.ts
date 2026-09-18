@@ -296,7 +296,7 @@ export async function POST(req: NextRequest) {
           // already goes through. Falls through to the existing full-synthesis path unchanged when
           // the direct check doesn't pass -- this only ever skips a redundant regeneration of an
           // answer that was already correct, never the safety net underneath it.
-          const direct = tryOperationalDirectResponse({ messages: baseOperationalContext.messages, preRoute, missionId: undefined, taskType: preRoute.taskClass, objective: message, candidateContent: result.finalAnswer, responseMsBeforeCheck: Date.now() - operationalStartedAt, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, responseAction: decisionContract?.responseAction })
+          const direct = tryOperationalDirectResponse({ messages: baseOperationalContext.messages, preRoute, missionId: undefined, taskType: preRoute.taskClass, objective: message, candidateContent: result.finalAnswer, responseMsBeforeCheck: Date.now() - operationalStartedAt, toolSteps: result.steps, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, responseAction: decisionContract?.responseAction })
           let composedOperational: CeoContextComposition
           let synthesis: Awaited<ReturnType<typeof runCeoCognitiveLifecycle>>
           if (direct) {

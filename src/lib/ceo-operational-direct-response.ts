@@ -35,12 +35,21 @@ export function tryOperationalDirectResponse(input: {
   objective: string
   candidateContent: string
   responseMsBeforeCheck: number
+  // Fresh-audit finding (2026-09-18): the ToolResult shape orchestrator.ts's own steps carry
+  // already has an `ok: boolean` per tool call -- this function was unconditionally claiming
+  // externalExecutionSucceeded: true regardless of it, so an orchestrator answer that confidently
+  // narrates success despite a real tool failure underneath would sail through the direct-pass
+  // gate instead of falling back to a full synthesis pass that could honestly account for the
+  // failure. Required (not optional) so no call site can silently skip this check.
+  toolSteps: readonly { toolResult?: { ok: boolean } }[]
   priorConversation?: readonly PersistedConversationRow[]
   relevantOlderConversation?: readonly PersistedConversationRow[]
   responseAction?: ResponseAction
 }): CognitiveLifecycleResult | null {
   const candidate = input.candidateContent.trim()
   if (!candidate) return null
+
+  const anyToolStepFailed = input.toolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
 
   const decisionPlan = buildCeoDecisionPlan({ messages: input.messages, preRoute: input.preRoute, missionId: input.missionId, taskType: input.taskType })
   const executionPlan = buildCeoExecutionPlan(decisionPlan)
@@ -52,7 +61,7 @@ export function tryOperationalDirectResponse(input: {
     path: decisionPlan.path,
     intent: decisionPlan.executionContract.intent,
     reviewed: false,
-    externalExecutionSucceeded: true,
+    externalExecutionSucceeded: !anyToolStepFailed,
     evidenceProvided: true,
     // 'live_system', not 'internal_state': orchestrator.ts's tool loop dispatches real actions
     // against live external systems (GitHub, Vercel, email, ...), not just internal-state reads.
@@ -69,6 +78,19 @@ export function tryOperationalDirectResponse(input: {
     externalAgencyAvailable: true,
   })
   if (quality.decision !== 'PASS') return null
+
+  // Fresh-audit finding (2026-09-18, same day as Stage 1b shipped): evaluateCeoQuality derives
+  // 'LIVE_VERIFIED' from nothing more than (passed && evidenceScope is live_system/mixed && fresh)
+  // -- there's no separate signal distinguishing a genuinely independently-verified claim from one
+  // that merely satisfied the scope-consistency check. 'live_system' was chosen above specifically
+  // to make evidenceDiscipline pass for a candidate whose own wording asserts a live-system action
+  // (the common, honest case for "I checked/fixed X") -- but this function never independently
+  // verifies anything. It only checks that the orchestrator's self-reported answer is internally
+  // consistent and well-formed. Reporting that as 'LIVE_VERIFIED' would overclaim exactly the kind
+  // of unearned confidence this codebase has repeatedly had to fix elsewhere. Downgrade to
+  // 'LIVE_EXECUTED' -- action taken, outcome not independently confirmed -- which is what actually
+  // happened here, and which Stage 4 (a real execution-outcome verify step) exists to close.
+  if (quality.evidenceState === 'LIVE_VERIFIED') quality.evidenceState = 'LIVE_EXECUTED'
 
   const finalContent = composeCeoResponse({ content: sanitized, evidenceState: quality.evidenceState, quality, degraded: false, responseAction: input.responseAction })
 
