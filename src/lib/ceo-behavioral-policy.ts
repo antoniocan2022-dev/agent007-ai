@@ -6,7 +6,7 @@ export interface ConversationalHistoryRow { role: string; content: string; creat
 
 export const CEO_BEHAVIORAL_MODES = ['business_partner','friend','psychological_insight','technologist','great_thinker','operator','guardian','ceo_curiosity'] as const
 export type CeoBehavioralMode = (typeof CEO_BEHAVIORAL_MODES)[number]
-export interface CeoBehavioralPolicy { modes: readonly CeoBehavioralMode[]; requireCurrentObjectiveMatch: boolean; allowGenericRecovery: boolean; internalArtifactsUserVisible: boolean }
+export interface CeoBehavioralPolicy { modes: readonly CeoBehavioralMode[]; leadingMode: CeoBehavioralMode; requireCurrentObjectiveMatch: boolean; allowGenericRecovery: boolean; internalArtifactsUserVisible: boolean }
 
 export function classifyCeoBehavioralModes(input: { context?: CanonicalConversationContext; intent: CeoIntent; responseAction: ResponseAction; currentMessage: string }): CeoBehavioralMode[] {
   const text = input.currentMessage.toLowerCase(), modes = new Set<CeoBehavioralMode>()
@@ -22,8 +22,40 @@ export function classifyCeoBehavioralModes(input: { context?: CanonicalConversat
   return CEO_BEHAVIORAL_MODES.filter((mode) => modes.has(mode))
 }
 
+// Stage 3 of the CEO Conversation Kernel migration (2026-09-18): classifyCeoBehavioralModes's 8 regex
+// checks run independently -- any subset can fire on the same message, and until now the rendered
+// prompt just listed whichever ones matched in a fixed, meaning-free array order (CEO_BEHAVIORAL_MODES'
+// declaration order), giving the model an unranked grab-bag instead of one clear behavioral stance to
+// lead with. This is the arbitration Stage 0's baseline test named as this stage's target: a fixed
+// priority order picks exactly one leading mode from whatever matched, so the rendered policy can state
+// a primary stance with the rest as supporting context, instead of N modes competing for the model's
+// attention with no signal about which should dominate.
+//
+// Rationale for the order (highest priority first): guardian leads because a safety/evidence/risk
+// concern should shape HOW every other active mode gets expressed, never get diluted by one; operator
+// next because when the user needs something actually done, that practical need should dominate over
+// purely discursive modes; business_partner third as the core professional-default identity for
+// substantive business questions; great_thinker/technologist/psychological_insight/ceo_curiosity are
+// the analytical/discursive modes, ordered roughly by how directly the user asked for that stance
+// (an explicit challenge/first-principles request is a more deliberate ask than an incidental
+// psychology or technical keyword match); friend is last because it is already the code's own fallback
+// default (see the `!modes.size` branch above) for when nothing more specific matched -- consistent
+// with treating it as the least specific, not the least valid, stance.
+// Exported (not just used internally) so a test can assert this is exactly a permutation of
+// CEO_BEHAVIORAL_MODES -- no mode omitted, none duplicated. That check matters specifically because
+// selectLeadingCeoBehavioralMode's fallback default is 'friend': a test that only checks "each mode,
+// isolated, is its own leading mode" cannot distinguish 'friend' genuinely being present in this list
+// from 'friend' being silently missing and the fallback masking the gap. Direct inspection of this
+// array sidesteps that blind spot entirely.
+export const CEO_BEHAVIORAL_MODE_PRIORITY: readonly CeoBehavioralMode[] = ['guardian', 'operator', 'business_partner', 'great_thinker', 'technologist', 'psychological_insight', 'ceo_curiosity', 'friend']
+
+export function selectLeadingCeoBehavioralMode(modes: readonly CeoBehavioralMode[]): CeoBehavioralMode {
+  return CEO_BEHAVIORAL_MODE_PRIORITY.find((mode) => modes.includes(mode)) ?? 'friend'
+}
+
 export function buildCeoBehavioralPolicy(input: { context?: CanonicalConversationContext; intent: CeoIntent; responseAction: ResponseAction; currentMessage: string }): CeoBehavioralPolicy {
-  return { modes: classifyCeoBehavioralModes(input), requireCurrentObjectiveMatch: true, allowGenericRecovery: false, internalArtifactsUserVisible: false }
+  const modes = classifyCeoBehavioralModes(input)
+  return { modes, leadingMode: selectLeadingCeoBehavioralMode(modes), requireCurrentObjectiveMatch: true, allowGenericRecovery: false, internalArtifactsUserVisible: false }
 }
 
 export const CEO_INTERNAL_ARTIFACT_TOKENS = ['continuous_loop_trace','evidence_trace','quality_trace','routing_trace','ceo_recommendation','ceo_recommendation_action','ceo_observed_outcome','ceo_conversation_incident','ceo_incident_regression_candidate','architecture_business_outcome','mission_telemetry','runtime_telemetry','ceo_runtime_metrics','provider_telemetry','governed_evolution_cycle'] as const
@@ -38,5 +70,6 @@ export function assertUserFacingText(content: string): string { const value = co
 export function safeConversationRows<T extends ConversationalHistoryRow>(rows: readonly T[] = []): T[] { return rows.filter((row) => row.role === 'user' || (row.role === 'assistant' && Boolean(row.content.trim()) && !containsInternalArtifactToken(row.content))) }
 
 export function renderCeoBehavioralPolicy(policy: CeoBehavioralPolicy): string {
-  return ['CEO BEHAVIORAL POLICY (authoritative, internal):',`Executive modes: ${policy.modes.join(', ')}`,`Current-objective match required: ${policy.requireCurrentObjectiveMatch ? 'yes' : 'no'}`,`Generic recovery allowed: ${policy.allowGenericRecovery ? 'yes' : 'no'}`,`Internal artifacts user-visible: ${policy.internalArtifactsUserVisible ? 'yes' : 'no'}`,'Policy: preserve the current request as the authoritative objective; use prior context only when it helps answer that current request; never substitute a prior objective for the current one.'].join('\n')
+  const supportingModes = policy.modes.filter((mode) => mode !== policy.leadingMode)
+  return ['CEO BEHAVIORAL POLICY (authoritative, internal):', `Primary executive mode: ${policy.leadingMode}`, `Supporting modes: ${supportingModes.join(', ') || 'none'}`, `Current-objective match required: ${policy.requireCurrentObjectiveMatch ? 'yes' : 'no'}`, `Generic recovery allowed: ${policy.allowGenericRecovery ? 'yes' : 'no'}`, `Internal artifacts user-visible: ${policy.internalArtifactsUserVisible ? 'yes' : 'no'}`, 'Policy: lead the response with the primary executive mode\'s stance; let supporting modes inform tone or content without diluting or contradicting it. Preserve the current request as the authoritative objective; use prior context only when it helps answer that current request; never substitute a prior objective for the current one.'].join('\n')
 }
