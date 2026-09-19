@@ -775,8 +775,8 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
 
   const languageInstruction =
     language === 'zh'
-      ? 'LANGUAGE INSTRUCTION: The user has toggled the agent to Chinese. Reply in 中文 (Chinese) for your FINAL answer regardless of input language.'
-      : 'LANGUAGE INSTRUCTION: The user has toggled the agent to English. Reply in English for your FINAL answer unless the user wrote in another language.'
+      ? 'EXECUTION LANGUAGE: use Chinese for internal execution notes when needed; never emit a user-facing answer.'
+      : 'EXECUTION LANGUAGE: use English for internal execution notes when needed; never emit a user-facing answer.'
 
   // Build a DYNAMIC sub-agent list so the LLM knows about custom agents
   // (Cybersecurity A, TRADER, etc.) — not just the 12 built-ins hard-coded
@@ -1620,7 +1620,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       if (dispatchCount >= 3 && iter < MAX_ITERATIONS - 1) {
         conversationMessages.push({
           role: 'user',
-          content: `[SYSTEM] SYNTHESIS CAP (upgrade #86): You have dispatched ${dispatchCount} sub-agents in this turn. That is the maximum allowed before synthesis. DO NOT dispatch another sub-agent. DO NOT call another tool. SYNTHESIZE the results you have RIGHT NOW into a clear, structured final answer for the owner. Use markdown headings (## Summary, ## Findings, ## Recommendations, ## Next Steps). Quote the most important findings from each sub-agent. The owner is waiting — give them the answer NOW.`,
+          content: `[SYSTEM] EXECUTION CAP: You have dispatched ${dispatchCount} sub-agents in this turn. That is the maximum allowed before completion. DO NOT dispatch another sub-agent. DO NOT call another tool unless required to finish an already-started action. Emit <done/> now; the CEO response layer will synthesize the owner-facing answer from the execution receipt.`,
         })
       }
 
