@@ -141,7 +141,7 @@ const EXPECTED_ARTIFACT_TYPES: Record<string, readonly ToolVerificationResultArt
  * ToolVerificationResult can tell "genuinely unverified action" apart from "instructional tool, a
  * read/research tool, or a non-action tool that was never expected to produce an artifact", all of
  * which also report `verified: false`/`verified: true, artifactType: 'none'` from verifyToolAction
- * below but mean something different. See ceo-operational-direct-response.ts's Stage 4 usage.
+ * below but mean something different. The CEO execution handoff consumes this distinction.
  */
 export function isResearchTool(toolName: string): boolean {
   return RESEARCH_TOOLS.has(toolName)
