@@ -3,6 +3,58 @@ import type { SelfReflectionKind } from './ceo-self-reflection'
 import type { CeoFailure, CeoFailureReason } from './ceo-failure-reason'
 import type { OperatorPlan } from './ceo-operator-intelligence'
 
+// Long-document comprehension incident (2026-09-19), Phase 1: a pasted long document ("make a deep
+// analysis of this text") was previously fragmented across three independent, hardcoded slice points
+// that disagreed with each other -- ceo-context-composer.ts's MAX_MESSAGE_CHARS (12,000), the decision
+// plan's objective (ceo-cognitive-kernel.ts, 4,000), and the semantic interpreter's CURRENT MESSAGE
+// preview (ceo-semantic-interpreter.ts, 4,000) -- while the quality gate's own objective
+// (objectiveFrom() in ceo-cognitive-lifecycle.ts) was completely unclamped. One canonical constant closes
+// that fragmentation for any message under this size (the overwhelming majority of real long-text
+// requests see byte-identical content at every layer). Sized against this codebase's real governed
+// providers (Groq Llama 3.3 70B, Mistral Large, Cerebras gpt-oss-120b/Llama 3.3 -- documented ~128K-token
+// context windows; see PROVIDER_RUNTIME_CONFIG in provider-control-plane.ts), not against Claude's 1M
+// window, since only the lowest-priority OpenRouter->Claude path actually has that much room. Leaves
+// headroom under the provider gateway's own preflight budget (DEFAULT_MAX_INPUT_TOKENS) for system
+// prompt, conversation history, and reserved output tokens.
+export const CEO_MESSAGE_CLAMP_CHARS = 200_000
+
+// A message longer than this is treated as "may contain a pasted document," not "is definitely a short
+// instruction" -- see extractInstructionWindow below.
+const INSTRUCTION_WINDOW_THRESHOLD_CHARS = 2_000
+// How much of the head and tail to keep when no explicit lead-in phrase is found. Real instructions
+// overwhelmingly sit at the very start ("please analyze...") or very end ("...so what do you think?") of
+// a long paste, with reference material dominating the middle -- unlike the challenge/verify/recommend
+// keyword scan this replaces, which used to scan the ENTIRE message and could be tripped by that exact
+// vocabulary appearing anywhere in the pasted source material itself.
+const INSTRUCTION_WINDOW_EDGE_CHARS = 600
+// Explicit lead-in phrases that mark everything after them as pasted/quoted source material rather than
+// further instruction. Matched case-insensitively against the first occurrence only, so a document that
+// happens to contain one of these phrases deep inside its own body can't retroactively redefine an
+// earlier instruction. Requires the phrase to be immediately followed by a line break -- i.e. an actual
+// paragraph boundary, not just more prose in the same sentence -- so "read this report and challenge its
+// conclusion" (a complete instruction in its own right) doesn't get truncated at "read this" merely
+// because the word "this" happens to appear early in the sentence.
+const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz|summaris)e?\s+(?:this|the following|these)\s*:?|(?:here(?:'s| is)|the following is)\s+(?:the|a|an)?\s*(?:report|document|text|article|transcript|analysis)\s*:?)(?=\s*\n)/i
+
+/**
+ * Extracts the portion of a user turn that plausibly carries the user's own instruction, as opposed to
+ * pasted/quoted source material the user wants analyzed. Short messages are returned unchanged -- they
+ * ARE the instruction. Long messages either stop at the first explicit lead-in phrase ("analyze this:",
+ * "here is the report:", ...) or, absent one, fall back to a bounded head+tail window. Callers that
+ * classify intent/response-action/routing from keyword matches must scan this window, never the raw
+ * message, so that vocabulary inside a pasted document (e.g. a business report that happens to use the
+ * word "challenge") can never masquerade as a command to Agent007.
+ */
+export function extractInstructionWindow(message: string): string {
+  const trimmed = message.trim()
+  if (trimmed.length <= INSTRUCTION_WINDOW_THRESHOLD_CHARS) return trimmed
+  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
+  if (leadIn && typeof leadIn.index === 'number') return trimmed.slice(0, leadIn.index + leadIn[0].length)
+  const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
+  const tail = trimmed.slice(-INSTRUCTION_WINDOW_EDGE_CHARS)
+  return `${head}\n${tail}`
+}
+
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
 export type CognitivePath = 'fast' | 'full' | 'critical'
 export type ReasoningStrategy = 'direct' | 'multi_pass' | 'independent_review'

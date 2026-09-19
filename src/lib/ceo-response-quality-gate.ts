@@ -1,4 +1,5 @@
 import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness, CeoIntent, ResponseAction } from './ceo-cognitive-contract'
+import { extractInstructionWindow } from './ceo-cognitive-contract'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import { verifyClaimEvidence } from './ceo-claim-evidence-gate'
 import { evaluateClaimConsistency, scoreContextContinuity, type ContextContinuityScore } from './ceo-context-intelligence'
@@ -65,7 +66,13 @@ const EXECUTION_COMPLETION_CLAIM_DECISION_RE = /\bi(?:'ve|\s+have)?\s+(?:already
 // asserting the action already happened -- exclude those so the detector doesn't fire on hypotheticals.
 const CONDITIONAL_FUTURE_COMPLETION_RE = /\b(?:once|after|when|if)\b.{0,40}\b(?:you|your|we|i)\b.{0,40}\b(?:approve|approved|approval|confirm|confirmed|confirmation|sign[- ]off|authoriz\w*|say\s+go|give\s+the\s+go[- ]ahead)\b/i
 function stem(token: string): string { if (token.length > 5 && token.endsWith('es')) return token.slice(0, -2); if (token.length > 4 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1); if (token.length > 6 && token.endsWith('ed') && !token.endsWith('eed')) return token.slice(0, -2); if (token.length > 5 && token.endsWith('e') && !token.endsWith('ee')) return token.slice(0, -1); return token }
-function normalize(value: string): string[] { return value.toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)).map(stem).slice(0, 160) }
+// Long-document incident (2026-09-19): this cap used to be 160 tokens -- for a multi-thousand-word
+// pasted document, everything past roughly the first page of vocabulary was invisible to every check
+// built on this tokenizer (objectiveCoverage, tokenOverlap, actionAnchorSatisfied, currentObjectiveMatch,
+// crossObjectiveSubstitution), regardless of how well the model actually understood the rest. Raised to
+// give document-length objectives a genuinely representative sample; the filtering above already runs on
+// the full input, so this only changes how much of the already-computed token list is retained.
+function normalize(value: string): string[] { return value.toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)).map(stem).slice(0, 2_000) }
 // Splits on ';' as well as '.!?' -- deep-audit fix: "I have already deployed this change; once you
 // approve the budget, we can proceed with phase 2." used to count as one "sentence", so the unrelated
 // conditional clause after the semicolon incorrectly exempted the genuine, unconditioned completion
@@ -78,8 +85,19 @@ function externalWebAssertionExists(content: string): boolean { return sentences
 function claimScopes(content: string): EvidenceScope[] { const scopes: EvidenceScope[] = []; if (positiveAssertionExists(content, INTERNAL_ASSERTION_RE)) scopes.push('internal_state'); if (positiveAssertionExists(content, LIVE_ASSERTION_RE)) scopes.push('live_system'); if (externalWebAssertionExists(content)) scopes.push('external_web'); return scopes }
 function validFreshness(freshness?: EvidenceFreshness): freshness is EvidenceFreshness { return Boolean(freshness && Number.isFinite(freshness.observedAt) && Number.isFinite(freshness.maxAgeMs) && freshness.maxAgeMs >= 0) }
 function evidenceIsFresh(freshness: EvidenceFreshness): boolean { const age = Date.now() - freshness.observedAt; return age >= 0 && age <= freshness.maxAgeMs }
-function objectiveCoverage(objective: string, content: string, path: EvaluationPath): boolean { const wanted = [...new Set(normalize(objective))]; if (!wanted.length) return Boolean(content.trim()); const answer = new Set(normalize(content)); const coverage = wanted.filter((token) => answer.has(token)).length / wanted.length; if (path === 'fast') return coverage >= (wanted.length <= 4 ? 0.5 : 0.25); const minimumCoverage = path === 'critical' ? 0.35 : 0.25; const minimumLength = path === 'critical' ? 320 : Math.min(500, Math.max(180, Math.floor(objective.length * 0.55))); return coverage >= minimumCoverage && content.trim().length >= minimumLength }
-function inferredResponseAction(intent?: CeoIntent, explicit?: ResponseAction, objective = ''): ResponseAction { if (explicit) return explicit; switch (intent) { case 'analysis': return /\b(?:explain|why|how)\b/i.test(objective) ? 'explain' : 'answer'; case 'opinion': return /\b(?:challenge|push\s+back|disagree|debate|test\s+my\s+assumption)\b/i.test(objective) ? 'challenge' : 'answer'; case 'decision': return /\b(?:recommend|recommendation|should|priorit(?:y|ize))\b/i.test(objective) ? 'recommend' : 'decide'; case 'research': return /\b(?:verify|confirm|validate|fact[- ]check)\b/i.test(objective) ? 'verify' : 'answer'; case 'tool_action': case 'mission_action': case 'production_action': return 'execute'; default: return 'answer' } }
+// Long-document incident (2026-09-19): a long objective is almost always a pasted document to comprehend,
+// not a short question -- lexical overlap with the SOURCE's own vocabulary is not a meaningful completion
+// signal for a synthesis/summary task (a concise, accurate answer legitimately reuses little of the
+// source's own wording, especially once normalize()'s 2,000-token sample spans most of a real document).
+// Still requires some topical grounding at a much lower bar, rather than bypassing coverage outright --
+// an unconditional bypass would let a generic non-answer pass just because the objective was long.
+const LONG_OBJECTIVE_CHARS = 4_000
+function objectiveCoverage(objective: string, content: string, path: EvaluationPath): boolean { const wanted = [...new Set(normalize(objective))]; if (!wanted.length) return Boolean(content.trim()); const answer = new Set(normalize(content)); const coverage = wanted.filter((token) => answer.has(token)).length / wanted.length; if (path === 'fast') return coverage >= (wanted.length <= 4 ? 0.5 : 0.25); const minimumCoverage = objective.length >= LONG_OBJECTIVE_CHARS ? 0.08 : path === 'critical' ? 0.35 : 0.25; const minimumLength = path === 'critical' ? 320 : Math.min(500, Math.max(180, Math.floor(objective.length * 0.55))); return coverage >= minimumCoverage && content.trim().length >= minimumLength }
+// Long-document incident (2026-09-19): scans the bounded instruction window (see
+// extractInstructionWindow), not the raw objective -- a long pasted document that happens to use the
+// word "challenge" anywhere in its body must never masquerade as the user asking Agent007 to challenge
+// them. Mirrors the identical fix already applied to actionFor() in ceo-conversation-decision-contract.ts.
+function inferredResponseAction(intent?: CeoIntent, explicit?: ResponseAction, objective = ''): ResponseAction { if (explicit) return explicit; const instructionWindow = extractInstructionWindow(objective); switch (intent) { case 'analysis': return /\b(?:explain|why|how)\b/i.test(instructionWindow) ? 'explain' : 'answer'; case 'opinion': return /\b(?:challenge|push\s+back|disagree|debate|test\s+my\s+assumption)\b/i.test(instructionWindow) ? 'challenge' : 'answer'; case 'decision': return /\b(?:recommend|recommendation|should|priorit(?:y|ize))\b/i.test(instructionWindow) ? 'recommend' : 'decide'; case 'research': return /\b(?:verify|confirm|validate|fact[- ]check)\b/i.test(instructionWindow) ? 'verify' : 'answer'; case 'tool_action': case 'mission_action': case 'production_action': return 'execute'; default: return 'answer' } }
 function tokenOverlap(left: string, right: string): number { const wanted = new Set(normalize(left).filter((token) => token.length > 2)); const answer = new Set(normalize(right).filter((token) => token.length > 2)); if (!wanted.size) return 0; let common = 0; for (const token of wanted) if (answer.has(token)) common += 1; return common / wanted.size }
 function isReferenceContinuation(objective: string): boolean { return isContinuationOrRestatementRequest(objective) }
 function actionAnchorSatisfied(action: ResponseAction, objective: string, content: string, conversational?: boolean): boolean { if (conversational || CASUAL_CONVERSATION_RE.test(objective.trim())) return true; const overlap = tokenOverlap(objective, content); if (overlap >= 0.15) return true; if (action === 'clarify') return true; if (isReferenceContinuation(objective)) return true; return overlap >= 0.08 && objective.length < 80 }

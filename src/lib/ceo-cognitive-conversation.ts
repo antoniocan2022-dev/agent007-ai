@@ -2,6 +2,7 @@ import type { PersistedConversationRow, PersistedMemoryRow } from './ceo-context
 import type { CeoConversationState, ConversationReference } from './ceo-conversation-state'
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { SemanticUncertainty } from './ceo-cognitive-contract'
+import { extractInstructionWindow } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase } from './ceo-self-reflection'
 
@@ -12,7 +13,11 @@ export type SemanticSpeechAct = 'social' | 'question' | 'proposition' | 'continu
 export interface SemanticInterpretation { schemaVersion: 1; meaning: string; confidence: number; uncertainty: SemanticUncertainty[]; source: 'deterministic' | 'model_assisted' | 'hybrid'; suggestedIntent?: SemanticIntentHint; suggestedSpeechAct?: SemanticSpeechAct; suggestedCognitiveDepth?: CognitiveDepth }
 export interface ConversationalWorldModel { schemaVersion: 1; workingTopic: string; subtopics: string[]; userGoals: string[]; decisions: string[]; commitments: string[]; openLoops: string[]; activeThreads: string[]; importantEntities: string[]; recentCorrections: string[]; durableMemoryKeys: string[] }
 export interface CanonicalConversationContext { schemaVersion: 1; currentMessage: string; meaning: string; semanticInterpretation: SemanticInterpretation; intentHint: SemanticIntentHint; speechAct: SemanticSpeechAct; cognitiveDepth: CognitiveDepth; referenceScope: ReferenceScope; references: readonly ConversationReference[]; worldModel: ConversationalWorldModel; state: CeoConversationState }
-function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
+// Long-document incident (2026-09-19): mirrors the identical fix in ceo-context-composer.ts's normalize()
+// -- previously collapsed all whitespace (including newlines) to a single space, flattening a pasted
+// document's headings/lists/paragraph breaks/code fences before deterministicMeaning/classifyCognitiveDepth
+// ever reasoned over currentMessage. Now preserves line breaks and paragraph boundaries.
+function normalize(value: string): string { return value.replace(/[ \t]+/g, ' ').replace(/[ \t]*\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim() }
 function unique(items: readonly string[], max = 8): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
 // This function used to carry its own, independently-maintained regex for recognizing an explicit
 // self-assessment phrase, which had drifted out of sync with ceo-self-reflection.ts's canonical
@@ -26,9 +31,23 @@ function unique(items: readonly string[], max = 8): string[] { return [...new Se
 // is right for ceo-pre-router.ts's routing decision but too permissive here, where a bare capability
 // word inside an incomplete, unrelated sentence fragment should not by itself commit to self_assessment
 // intent (see tests/ceo-conversation-behavioral.test.ts's incomplete-message cases).
+// Long-document incident (2026-09-19): scans the bounded instruction window (see
+// extractInstructionWindow), not the raw message -- this function used to test the entire pasted message
+// including any long document, so a paste that used words like "deploy"/"verify"/"recommend"/"analyze"
+// anywhere in its body (extremely common in ordinary prose) could set the wrong intentHint before
+// actionFor() (ceo-conversation-decision-contract.ts) ever got a chance to classify the response action --
+// its own per-branch keyword scoping fix can't correct for having entered the wrong branch to begin with.
+// hasExplicitSelfAssessmentPhrase still runs against the full message: an explicit self-assessment ask is
+// safe to recognize even if phrased at length, and self_assessment is the one intent this codebase
+// already treats as authoritative over everything else (see deterministicIntentIsAuthoritative below).
 function userIntentHint(message: string): SemanticIntentHint {
-  const text = message.trim().toLowerCase()
-  if (hasExplicitSelfAssessmentPhrase(message) || /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing)|readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return 'self_assessment'
+  const fullText = message.trim().toLowerCase()
+  const text = extractInstructionWindow(message).toLowerCase()
+  // Self-assessment readiness phrasing is checked against the full message, unnarrowed: it's a rare,
+  // specific phrasing (unlike "deploy"/"verify"/"analyze") unlikely to appear misleadingly inside pasted
+  // source material, and self_assessment is already the one intent this codebase treats as authoritative
+  // over everything else (see deterministicIntentIsAuthoritative below) -- no reason to narrow its net.
+  if (hasExplicitSelfAssessmentPhrase(message) || /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing)|readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(fullText)) return 'self_assessment'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'

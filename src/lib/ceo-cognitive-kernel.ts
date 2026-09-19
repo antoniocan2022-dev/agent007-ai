@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PreRouteDecision, DecisionPlan } from './ceo-cognitive-contract'
+import { CEO_MESSAGE_CLAMP_CHARS } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
 import { capabilitiesForDecision } from './ceo-capability-architecture'
 
@@ -44,5 +45,11 @@ export function buildCeoDecisionPlan(input: {
   const latencyBudgetMs = selfAssessment ? contract.latencyBudgetMs : critical ? 90000 : deep ? 60000 : contract.latencyBudgetMs
   const capabilityRequirements = capabilitiesForDecision(contract)
   const requiredCapabilities = [...new Set([taskClass, ...capabilityRequirements, ...(missionRelevant ? ['mission-memory', 'verification'] : [])])]
-  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: latest.trim().slice(0, 4000), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract }
+  // Long-document incident (2026-09-19): raised from a separately-hardcoded 4,000 chars to the shared
+  // CEO_MESSAGE_CLAMP_CHARS -- this field used to disagree with the context composer's own 12,000-char
+  // clamp (now also CEO_MESSAGE_CLAMP_CHARS) and the fully-unclamped objective the quality gate actually
+  // judges against (objectiveFrom() in ceo-cognitive-lifecycle.ts), so the same turn had three
+  // independently-sized views of itself. Nothing currently reads DecisionPlan.objective downstream, but
+  // giving it the same canonical clamp as every other representation keeps that true if something starts.
+  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: latest.trim().slice(0, CEO_MESSAGE_CLAMP_CHARS), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract }
 }

@@ -1,4 +1,5 @@
 import { getCanonicalOrganizationPrompt } from '@/lib/canonical-organization-prompt'
+import { CEO_MESSAGE_CLAMP_CHARS } from './ceo-cognitive-contract'
 import { buildCeoConversationStatePrompt, buildCeoPersonalityContract, deriveCeoConversationState, resolveConversationReferences, safeConversationRows, type CeoConversationState } from './ceo-conversation-state'
 import { buildCanonicalConversationContext, renderCanonicalConversationContext, type CanonicalConversationContext, type SemanticInterpretation } from './ceo-cognitive-conversation'
 import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
@@ -21,9 +22,18 @@ const DEFAULT_MEMORY_ITEMS = 6
 // Bounds how many zero-lexical-overlap memories get an embeddings call per request -- keeps the
 // worst-case network/cost impact small and predictable even with a large memory pool.
 const MAX_SEMANTIC_RECOVERY_CANDIDATES = 12
-const MAX_CONTEXT_CHARS = 48_000
-const MAX_MESSAGE_CHARS = 12_000
-function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
+// Long-document incident (2026-09-19), Phase 1: raised from 48,000/12,000 alongside the shared
+// CEO_MESSAGE_CLAMP_CHARS (see its doc comment in ceo-cognitive-contract.ts for the sizing rationale).
+// MAX_CONTEXT_CHARS bounds the whole assembled request (system modules + conversation history); it stays
+// proportionally larger than MAX_MESSAGE_CHARS alone since the current message never gets trimmed by the
+// MAX_CONTEXT_CHARS reduction loop below (only older system/history messages do).
+const MAX_CONTEXT_CHARS = 400_000
+const MAX_MESSAGE_CHARS = CEO_MESSAGE_CLAMP_CHARS
+// Long-document incident (2026-09-19): previously collapsed ALL whitespace (including newlines) to a
+// single space, flattening a pasted document's headings/lists/paragraph breaks/code fences before any
+// reasoning ever ran over it. Now only collapses redundant horizontal whitespace and excessive blank
+// lines, preserving single line breaks and paragraph boundaries so the model still sees real structure.
+function normalize(value: string): string { return value.replace(/[ \t]+/g, ' ').replace(/[ \t]*\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim() }
 function tokenize(value: string): Set<string> { return new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token))) }
 function asTimestamp(value: Date | string | number): number { if (value instanceof Date) return value.getTime(); if (typeof value === 'number') return value; const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0 }
 function clampMessage(content: string): string { return normalize(content).slice(0, MAX_MESSAGE_CHARS) }
