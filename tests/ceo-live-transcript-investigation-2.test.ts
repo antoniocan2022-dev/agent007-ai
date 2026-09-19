@@ -11,7 +11,7 @@ describe('Live-transcript investigation: three real bugs found and fixed', () =>
     expect(source).not.toContain('OPERATIONAL EXECUTION RESULT')
     expect(source).not.toMatch(/Completed steps:.*Tool steps:/)
     const evidenceLine = source.split('\n').find((line) => line.includes('const operationalEvidence ='))
-    expect(evidenceLine).toContain('result.finalAnswer')
+    expect(evidenceLine).toContain('result.executionSummary')
     expect(evidenceLine).not.toContain('OPERATIONAL EXECUTION RESULT')
   })
 
