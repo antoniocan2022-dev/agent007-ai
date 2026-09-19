@@ -273,7 +273,7 @@ retry with corrections (max 3 rounds) -> next stage -> CEO presents final report
 
 The system auto-handles: quality scoring, cross-leader verification, tool
 boundary audits, learning storage, and Telegram notifications. You don't
-need to manually trigger these -- just dispatch, synthesize, and answer.`
+need to manually trigger these -- dispatch the required execution actions, verify the real outcomes, and emit <done/> when execution is complete.`
 export interface OrchestratorEventEmit {
   (event: string, data: any): Promise<void> | void
 }
