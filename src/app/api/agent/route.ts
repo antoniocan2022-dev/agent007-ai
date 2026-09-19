@@ -315,7 +315,7 @@ export async function POST(req: NextRequest) {
           ))
           const operationalEvidence = result.executionSummary
           const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
-          const anyOperationalToolStepFailed = operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
+          const anyOperationalToolStepFailed = result.executionStatus === 'failed' || operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
           console.log('[api/agent] operational execution telemetry', JSON.stringify({
             requestId,
             completedSteps: result.steps.length,
