@@ -22,8 +22,13 @@ describe('Architecture invariants -- the closed cognitive loop, certified end-to
     expect(source).toMatch(/request\.preRoute\s*\?\?\s*preRouteCeoRequest/)
     // And the route actually supplies it, rather than the acceptance existing but going unused.
     // Uses safeContextRows (the trust-boundary projection), not the raw contextData.rows.
+    // Phase 2 fix (external audit, 2026-09-19), issues 1 and 8: route.ts now also threads
+    // decisionPlan: turnDecision.decisionPlan between preRoute and decisionContract -- the single,
+    // once-per-turn DecisionPlan built by buildCeoTurnDecision (ceo-turn-decision.ts) -- so this
+    // pattern is widened to allow (but not require) that field in between, rather than asserting the
+    // exact two-field shape that predates the single-DECIDE-authority envelope.
     const routeSource = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
-    expect(routeSource).toMatch(/priorConversation:\s*safeContextRows,\s*relevantOlderConversation:\s*safeContextRows,\s*preRoute,\s*decisionContract/)
+    expect(routeSource).toMatch(/priorConversation:\s*safeContextRows,\s*relevantOlderConversation:\s*safeContextRows,\s*preRoute,\s*(?:decisionPlan:\s*turnDecision\.decisionPlan,\s*)?decisionContract/)
   })
 
   test('Invariant B: the decision contract is load-bearing for actual generation, not observability-only -- a clarify action produces a genuinely different instruction than an answer action', () => {

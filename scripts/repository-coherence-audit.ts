@@ -74,6 +74,36 @@ record(performance.includes('recordModelPerformance'), 'Performance Intelligence
 record(runtime.includes('recordModelPerformance'), 'Provider runtime is not feeding observed performance evidence')
 record(runtime.includes('outcomeEvidence') && runtime.includes('recordModelOutcome'), 'Provider runtime has no verified outcome evidence integration seam')
 
+// Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issue 8: "the current
+// one-contract guarantee is strongest in /api/agent, not globally enforced across every possible
+// caller because the contract-building APIs still permit fallback reconstruction." Both builders stay
+// plain exported functions any file COULD call directly -- correctly so, since a handful of real
+// callers legitimately need to (a caller with no canonical contract yet, or a deliberately isolated
+// classification with no real conversation history, e.g. ceo-incident-regression-candidate.ts). What
+// was missing was anything that would catch a NEW call site silently reintroducing a duplicate build
+// instead of reusing the turn's canonical CeoTurnDecision (ceo-turn-decision.ts). These two allowlists
+// make that mechanical: any production source file that calls either builder must already be on the
+// list below, reviewed and reasoned about, or this audit fails and names the file to review.
+const decisionContractCallerAllowlist = new Set([
+  'src/lib/ceo-conversation-decision-contract.ts', // the definition itself
+  'src/lib/ceo-cognitive-conversation.ts', // renderCanonicalConversationContext's own reuse-guarded fallback
+  'src/lib/ceo-context-composer.ts', // Stage 2: the one real per-turn canonical build, reuse-guarded
+  'src/lib/ceo-pre-router.ts', // reuse-guarded fallback for callers without a canonical contract yet
+  'src/lib/ceo-incident-regression-candidate.ts', // deliberately isolated (empty-history) classification, not this turn's real decision
+])
+const decisionPlanCallerAllowlist = new Set([
+  'src/lib/ceo-cognitive-kernel.ts', // the definition itself
+  'src/lib/ceo-turn-decision.ts', // Phase 2: the single per-turn builder (CeoTurnDecision)
+  'src/lib/ceo-cognitive-lifecycle.ts', // falls back to building its own only when no caller supplied one
+  'src/lib/ceo-operational-direct-response.ts', // same fallback pattern, mirrored
+  'scripts/ceo-cognitive-lifecycle-audit.ts', // offline audit tooling, not a request-handling path
+])
+for (const path of tracked.filter(isSource)) {
+  const content = read(path)
+  if (/\bbuildConversationDecisionContract\(/.test(content) && !decisionContractCallerAllowlist.has(path)) failures.push(`New/unreviewed call site of buildConversationDecisionContract in ${path} -- reuse the turn's canonical ConversationDecisionContract via CeoTurnDecision (ceo-turn-decision.ts) where one already exists; only add this path to repository-coherence-audit.ts's allowlist after confirming it deliberately needs an independent build.`)
+  if (/\bbuildCeoDecisionPlan\(/.test(content) && !decisionPlanCallerAllowlist.has(path)) failures.push(`New/unreviewed call site of buildCeoDecisionPlan in ${path} -- reuse the turn's canonical DecisionPlan via CeoTurnDecision (ceo-turn-decision.ts) where one already exists; only add this path to repository-coherence-audit.ts's allowlist after confirming it deliberately needs an independent build.`)
+}
+
 const workflow = read('.github/workflows/autonomy-ci.yml')
 record(workflow.includes('bun install --frozen-lockfile'), 'Autonomy CI does not enforce the frozen Bun lockfile gate')
 record(workflow.includes('scripts/deep-integrity-audit.ts'), 'Autonomy CI does not run the deep integrity audit')
