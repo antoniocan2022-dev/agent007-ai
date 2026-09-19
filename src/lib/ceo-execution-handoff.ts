@@ -9,7 +9,7 @@ export interface OperationalExecutionHandoff {
 
 export interface OperationalExecutionHandoffInput {
   executionStatus: 'completed' | 'partial' | 'failed'
-  steps: readonly Array<{
+  steps: ReadonlyArray<{
     toolName?: string
     toolResult?: { ok: boolean }
     verification?: { verified: boolean }
