@@ -24,7 +24,7 @@ export function classifyOperationalExecution(result: OperationalExecutionHandoff
   const verifiedExternalActions = verification.knownActionSteps > 0 && verification.allKnownActionsVerified
   const completedInternalPipeline = missionPipelineSteps.length > 0 && result.executionStatus === 'completed'
   const externalExecutionSucceeded =
-    result.executionStatus !== 'failed' &&
+    result.executionStatus === 'completed' &&
     (verifiedExternalActions || allManageSucceeded || completedInternalPipeline)
   const evidenceScope = externalExecutionSucceeded ? 'live_system' : 'internal_state'
   return {
