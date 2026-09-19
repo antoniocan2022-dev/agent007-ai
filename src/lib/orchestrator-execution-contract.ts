@@ -18,7 +18,7 @@ export interface OrchestratorExecutionResult {
 export function buildOrchestratorExecutionSummary(input: {
   executionStatus: OrchestratorExecutionStatus
   completionReason: OrchestratorCompletionReason
-  toolSteps: readonly Array<{
+  toolSteps: ReadonlyArray<{
     toolName?: string
     toolResult?: { ok: boolean; result?: string | null }
     verification?: { verified: boolean; artifactType?: string }
