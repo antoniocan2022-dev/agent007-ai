@@ -20,18 +20,23 @@ export interface MissionOutcomeInput {
  *
  * Moved here so every caller (interactive route.ts, the scheduled tick route) fires it from the
  * REAL final content each caller actually settled on, once it has settled on it. looksLikeError is
- * also a genuine improvement, not just a relocation: it now checks real step outcomes (any tool step
- * that actually failed, per orchestrator.ts's own `toolResult.ok`) in addition to the original
- * prose-sniffing heuristic -- a governed answer that describes a real failure diplomatically, without
+ * also a genuine improvement, not just a relocation: when real step outcomes exist (per
+ * orchestrator.ts's own `toolResult.ok`), they are now the SOLE authority, not just one input ORed
+ * against prose-sniffing -- a governed answer that describes a real failure diplomatically, without
  * the literal words "error/failed/crashed" in its first 50 characters, used to slip through as
- * "mission_complete" even though a tool call underneath it had actually failed.
+ * "mission_complete" even though a tool call underneath it had actually failed, and (the external
+ * re-audit that caught this, 2026-09-19) an OR-combination also risked the opposite false positive:
+ * a turn where every real tool step succeeded but the narrative's first 50 characters happened to
+ * contain one of those words for unrelated reasons (e.g. explaining a PAST error it just resolved)
+ * would still have been misclassified mission_failed. Prose-sniffing now only applies when there is
+ * no structured execution data to trust instead -- a pure conversational turn with zero tool calls.
  */
 // Extracted as its own pure function so the classification logic is directly unit-testable without
-// touching the DB/settings/email side effects below -- real step outcomes (any tool that actually
-// failed) now feed this alongside the original prose heuristic.
+// touching the DB/settings/email side effects below.
 export function classifyMissionOutcome(content: string, steps: readonly { toolResult?: { ok: boolean } }[]): 'mission_complete' | 'mission_failed' {
-  const anyStepFailed = steps.some((step) => step.toolResult && step.toolResult.ok === false)
-  const looksLikeError = anyStepFailed || /^⚠️|error|failed|crashed/i.test(content.slice(0, 50))
+  const looksLikeError = steps.length > 0
+    ? steps.some((step) => step.toolResult && step.toolResult.ok === false)
+    : /^⚠️|error|failed|crashed/i.test(content.slice(0, 50))
   return looksLikeError ? 'mission_failed' : 'mission_complete'
 }
 

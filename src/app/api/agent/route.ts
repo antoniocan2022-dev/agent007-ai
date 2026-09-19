@@ -299,7 +299,21 @@ export async function POST(req: NextRequest) {
           const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
           const baseOperationalContext = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: operationalModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const operationalStartedAt = Date.now()
-          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
+          // Phase 3a+ of the CEO Conversation Kernel migration (making the orchestrator
+          // execution-only, 2026-09-19): a fresh external re-audit of PR #174 correctly found that
+          // Phase 3a stopped the orchestrator's raw narrative from being PERSISTED or NOTIFIED on as
+          // the final answer, but left it still STREAMED to the user as live 'token' SSE events --
+          // chat-store.ts appends those to the visible assistant message in real time, then the
+          // governed 'answer' event this branch emits later (via tryOperationalDirectResponse's PASS
+          // or the full-synthesis fallback) replaces that content wholesale. That is exactly the
+          // "orchestrator draft -> streamed to user -> CEO final response" pattern Option 3 exists to
+          // eliminate: the user still sees an unvetted draft before governance has had its say, even
+          // though what gets persisted and notified on is now correct. Every other orchestrator event
+          // (tool_call, tool_result, subagent_dispatch, thought, heartbeat, manage_action, ...) still
+          // streams live progress normally -- only its own answer-text tokens are withheld here, at
+          // the call site, without touching orchestrator.ts's loop/prompt/parsing at all.
+          const emitExecutionOnly: OrchestratorEventEmit = async (event, data) => { if (event === 'token') return; await emit(event, data) }
+          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit: emitExecutionOnly, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
           const operationalEvidence = result.finalAnswer.slice(0, 24000)
           console.log('[api/agent] operational execution telemetry', JSON.stringify({ requestId, completedSteps: result.steps.length, toolSteps: result.steps.filter((step) => Boolean(step.toolName)).length }))
           // Stage 1b of the CEO Conversation Kernel migration (2026-09-18): before paying for a

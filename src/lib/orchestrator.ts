@@ -668,6 +668,26 @@ function classifyQuery(message: string): 'direct' | 'dispatch' {
 // is now honestly what it always structurally was for tool-heavy turns -- an execution transcript, not
 // a pre-approved final answer -- though for 'direct' conversational turns with zero tool calls it is
 // still 100% freeform LLM prose with nothing behind it (the unresolved part of Phase 3b above).
+//
+// Phase 3a+ (external re-audit of the PR shipping the above, same day) caught that persistence and
+// notification were only two of three ways this function's raw narrative reached the user before
+// governance ran -- the third was STREAMING: `emit('token', ...)` below still pushed live chunks of
+// `finalAnswer` straight to the browser as they were generated, and the frontend (chat-store.ts)
+// appends 'token' events to the visible message in real time, then wholesale-replaces that content
+// once route.ts's later 'answer' event carries the governed text. That was still exactly the
+// "orchestrator draft -> streamed to user -> CEO final response" pattern Option 3 exists to eliminate,
+// just at the UI layer instead of the DB layer. Fixed at the call site, not here: route.ts's
+// operational_orchestrator branch now wraps the `emit` it passes into this function so 'token' events
+// are withheld while every other event (tool_call, tool_result, subagent_dispatch, thought, heartbeat,
+// manage_action, ...) still streams live progress normally -- this function's own emit calls, loop,
+// prompt, and parsing are completely untouched by that fix.
+//
+// Two deterministic (non-LLM-narrative) early-return paths inside this file -- runFastPathManage
+// (the create_agent fast path) and the mission-pipeline summary return above -- are explicitly
+// accounted for here, not silently forgotten: both were folded into the SAME single persistence
+// authority as this function's own main-loop return (route.ts now creates the one real assistant
+// message for every OrchestratorRunResult, these two included, and runs the same quality-gate check
+// against their content too), rather than being left as separate, undocumented exceptions.
 export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<OrchestratorRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
 

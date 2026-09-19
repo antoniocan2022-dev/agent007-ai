@@ -33,6 +33,16 @@ describe('classifyMissionOutcome', () => {
     expect(classifyMissionOutcome('Published the post and notified the team.', [{ toolResult: { ok: true } }, { toolResult: { ok: false } }])).toBe('mission_failed')
   })
 
+  // Phase 3a+ fix (external re-audit, 2026-09-19): the original OR-combination risked the opposite
+  // false positive -- a turn where every real tool step succeeded but the narrative's first 50
+  // characters happened to contain a heuristic word for unrelated reasons (explaining a PAST error it
+  // just resolved) would have been misclassified mission_failed even though nothing currently failed.
+  // Real step outcomes are now the sole authority whenever they exist.
+  test('all-successful tool steps override a narrative that coincidentally reads as an error report', () => {
+    const content = 'Error rate dropped to zero after the fix; the deployment is now healthy.'
+    expect(classifyMissionOutcome(content, [{ toolResult: { ok: true } }])).toBe('mission_complete')
+  })
+
   test('a step with no toolResult at all does not itself trigger mission_failed', () => {
     expect(classifyMissionOutcome('All good.', [{}])).toBe('mission_complete')
   })

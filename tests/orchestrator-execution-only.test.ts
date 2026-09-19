@@ -79,4 +79,39 @@ describe('the scheduled tick route persists and notifies for both its call sites
     expect(invocationCount).toBe(2)
     expect(callCount).toBeGreaterThanOrEqual(invocationCount)
   })
+
+  // Phase 3a+ (external re-audit, 2026-09-19): "scheduled convergence" -- the scheduled path should
+  // not have a permanently different definition of "final answer" than the interactive path. Bounded
+  // fix: reuse the same quality gate route.ts's direct-response path already runs, falling back to
+  // exactly Phase 3a's original behavior (the raw transcript) when it doesn't pass.
+  test('persistOrchestratorResult attempts the same governed direct-response gate route.ts uses, with a safe fallback to the raw transcript', () => {
+    expect(source).toContain("import { tryOperationalDirectResponse } from '@/lib/ceo-operational-direct-response'")
+    expect(source).toContain("import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'")
+    expect(source).toContain("import { preRouteCeoRequest } from '@/lib/ceo-pre-router'")
+    expect(source).toContain('const direct = tryOperationalDirectResponse(')
+    expect(source).toContain('if (direct) finalContent = direct.content')
+    // The fallback path must still be the untouched raw transcript, not an empty/thrown state --
+    // finalContent is initialized from result.finalAnswer before the governed attempt runs.
+    expect(source).toContain('let finalContent = result.finalAnswer')
+  })
+})
+
+describe("route.ts withholds the orchestrator's raw narrative from the live token stream (Phase 3a+)", () => {
+  const source = readFileSync('src/app/api/agent/route.ts', 'utf8')
+
+  // Fresh external re-audit finding: Phase 3a stopped the orchestrator's raw narrative from being
+  // PERSISTED or NOTIFIED on as final, but chat-store.ts still rendered it live via 'token' SSE
+  // events before the governed 'answer' event replaced it wholesale -- the user still saw an
+  // unvetted draft. Fixed with a filtering emit wrapper at the call site, not inside orchestrator.ts.
+  test('the operational branch wraps emit to withhold token events before calling runOrchestrator', () => {
+    expect(source).toContain("const emitExecutionOnly: OrchestratorEventEmit = async (event, data) => { if (event === 'token') return; await emit(event, data) }")
+    expect(source).toContain('emit: emitExecutionOnly')
+  })
+
+  test('every other orchestrator event still passes through unfiltered (the wrapper only special-cases token)', () => {
+    const wrapperMatch = source.match(/const emitExecutionOnly: OrchestratorEventEmit = async \(event, data\) => \{ if \(event === 'token'\) return; await emit\(event, data\) \}/)
+    expect(wrapperMatch).not.toBeNull()
+    // No second, narrower filter condition anywhere near the wrapper -- only 'token' is special-cased.
+    expect(source.match(/if \(event === '[a-z_]+'\) return;/g)?.length ?? 0).toBe(1)
+  })
 })
