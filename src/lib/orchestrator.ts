@@ -775,7 +775,7 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
             id: missionId,
             toolName: 'mission_pipeline',
             toolArgs: { pipelineType, objective, missionTitle },
-            toolResult: { ok: result.success, result: executionSummary },
+            toolResult: { ok: result.success, result: executionSummary, preview: executionSummary.slice(0, 700) },
             startedAt: Date.now(),
             finishedAt: Date.now(),
           }],
@@ -1296,7 +1296,7 @@ The system is working correctly — the keys just need to be refreshed.`
         id: stepId,
         toolName: 'manage_action',
         toolArgs: { action, attrs },
-        toolResult: { ok: result.ok, result: result.message },
+        toolResult: { ok: result.ok, result: result.message, preview: result.message },
         startedAt: Date.now(),
         finishedAt: Date.now(),
       })
