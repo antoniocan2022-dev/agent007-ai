@@ -151,7 +151,7 @@ async function executeScheduledRun(conversationId: string, objective: string): P
     provenance,
     capturedTurnSequence,
   })
-  await notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
+  await notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps, executionStatus: result.executionStatus }).catch(() => {})
   return result
 }
 
