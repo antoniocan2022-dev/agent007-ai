@@ -3,6 +3,27 @@ import { db, ensureDbReady } from '@/lib/db'
 import { isInteractiveActive } from '@/lib/load-tracker'
 import { runOrchestrator } from '@/lib/orchestrator'
 import { backgroundFire } from '@/lib/runtime/background-tasks'
+import { notifyMissionOutcome } from '@/lib/mission-notifications'
+
+// Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
+// 2026-09-19): runOrchestrator no longer persists its own `finalAnswer` as the assistant's final
+// Message row or fires the mission-complete/failed notification itself (see that file's own header
+// comment) -- every caller now owns both. Unlike route.ts's interactive path, this scheduled path has
+// no quality-gated synthesis step of its own (no composeCeoContext, no pre-routing, no
+// runCeoCognitiveLifecycle pass) -- persistOrchestratorResult below preserves exactly the fidelity
+// scheduled missions already had (the orchestrator's own transcript text, unchanged) rather than
+// silently losing scheduled-mission history now that the orchestrator itself won't record it. Giving
+// scheduled missions the same governance interactive requests get is real, valuable future work --
+// deliberately not attempted here, since it means building a parallel context/pre-routing pipeline for
+// a codepath that currently has none, not just relocating a persistence call.
+async function persistOrchestratorResult(conversationId: string, result: Awaited<ReturnType<typeof runOrchestrator>>): Promise<void> {
+  try {
+    await db.message.create({ data: { conversationId, role: 'assistant', content: result.finalAnswer } })
+  } catch (dbErr: any) {
+    console.warn('[schedules/tick] DB write failed (assistant message), continuing without persistence:', dbErr?.message?.slice(0, 100))
+  }
+  await notifyMissionOutcome({ conversationId, content: result.finalAnswer, steps: result.steps }).catch(() => {})
+}
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -47,13 +68,14 @@ export async function POST(req: NextRequest) {
           await db.schedule.update({ where: { id: sched.id }, data: { lastConvId: convId } })
         }
 
-        await runOrchestrator({
+        const result = await runOrchestrator({
           conversationId: convId,
           userMessage: sched.prompt,
           attachments: [],
           language: 'en',
           emit: async () => {},
         })
+        await persistOrchestratorResult(convId, result)
       } catch (error: any) {
         console.error('[schedules/tick] Manual execution failed:', error?.message?.slice(0, 150))
       }
@@ -102,6 +124,7 @@ export async function POST(req: NextRequest) {
               language: 'en',
               emit: async () => {},
             })
+            await persistOrchestratorResult(convId, result)
             console.log(`[schedules/tick] Background exec ${sched.id}: ${result.finalAnswer?.slice(0, 100) ?? 'no answer'}`)
           } catch (error: any) {
             console.error(`[schedules/tick] Background exec failed ${sched.id}:`, error?.message?.slice(0, 150))
