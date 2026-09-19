@@ -135,7 +135,13 @@ export function compactMessagesForRequestSize(messages: readonly Record<string, 
   // the system message if trimming everything else still isn't enough.
   const order = [...sizes].sort((a, b) => (Number(a.isSystem) - Number(b.isSystem)) || (b.tokens - a.tokens))
   for (const entry of order) {
-    if (total <= targetTokens || entry.tokens < 200) continue
+    // entry.tokens === 0 means non-string content (an array-part message, e.g. multimodal) that this
+    // function doesn't know how to safely truncate -- never touch it. Anything else stays a candidate:
+    // a floor here (this used to skip anything under ~200 tokens) silently gave up on requests made of
+    // MANY small messages that individually never crossed that floor but cumulatively still exceeded
+    // budget -- the targetCharsForThisMessage check below already skips a message compaction wouldn't
+    // actually shrink, so no separate size floor is needed to stay safe.
+    if (total <= targetTokens || entry.tokens === 0) continue
     const content = String(result[entry.index]!.content ?? '')
     const overage = total - targetTokens
     const targetCharsForThisMessage = Math.max(400, content.length - overage * 4)
@@ -180,9 +186,14 @@ export function classifyProviderError(provider: ActiveProviderId, status?: numbe
   // oversized request was not. Checking status===413 first, unconditionally, means a 413 can never reach
   // the message-text regex at all, regardless of what Groq's (or any provider's) error body happens to say.
   if (status === 413) return { provider, kind: 'REQUEST_TOO_LARGE' as const, status, message, retryable: true }
-  if (status === 402 || /billing|payment|credit|insufficient.{0,20}(credit|fund|balance)|quota exceeded/.test(lower)) return { provider, kind: 'BILLING' as const, status, message, retryable: false }
+  // "quota exceeded" is deliberately NOT in the billing regex below: real rate-limiters (requests-per-
+  // minute/day quotas) use that exact phrase at least as often as billing systems do, and don't always
+  // set HTTP 429. BILLING's consequence is a 24h durable block (PROVIDER_FAILURE_POLICY, never retried);
+  // RATE_LIMIT's is a 60s cooldown. Misreading a transient quota as a billing failure is far more
+  // damaging than the reverse, so the ambiguous phrase is classified as RATE_LIMIT, the cheaper mistake.
+  if (status === 402 || /billing|payment|credit|insufficient.{0,20}(credit|fund|balance)/.test(lower)) return { provider, kind: 'BILLING' as const, status, message, retryable: false }
   if (/request.{0,20}(too large|entity too large)|payload too large|context.{0,20}length|too many tokens|maximum context length/.test(lower)) return { provider, kind: 'REQUEST_TOO_LARGE' as const, status, message, retryable: true }
-  if (status === 429 || /rate.?limit|too many requests/.test(lower)) return { provider, kind: 'RATE_LIMIT' as const, status, message, retryable: true }
+  if (status === 429 || /rate.?limit|too many requests|quota exceeded/.test(lower)) return { provider, kind: 'RATE_LIMIT' as const, status, message, retryable: true }
   if (status === 404 || /model.+(not found|unavailable)|unknown model/.test(lower)) return { provider, kind: 'MODEL_UNAVAILABLE' as const, status, message, retryable: false }
   if (status === 400) return { provider, kind: 'INVALID_REQUEST' as const, status, message, retryable: false }
   if (status !== undefined && status >= 500) return { provider, kind: 'UPSTREAM' as const, status, message, retryable: true }

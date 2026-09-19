@@ -43,6 +43,26 @@ describe('classifyProviderError: REQUEST_TOO_LARGE is checked before the BILLING
   })
 })
 
+describe('classifyProviderError: "quota exceeded" is ambiguous between billing and rate-limiting, and must resolve to the cheaper mistake', () => {
+  test('a bare "quota exceeded" message with no status classifies as RATE_LIMIT (60s cooldown), never BILLING (24h block)', () => {
+    // Deep-audit finding: real rate-limiters (requests-per-minute/day quotas) commonly use this exact
+    // phrase too, not just billing systems, and don't always set HTTP 429. Misreading a transient quota
+    // as a billing failure durably blocks a healthy provider for a day; the reverse mistake self-heals
+    // in a minute -- so the ambiguous phrase must resolve to RATE_LIMIT, not BILLING.
+    const classified = classifyProviderError('groq', undefined, 'Quota exceeded for requests per minute, please retry shortly.')
+    expect(classified.kind).toBe('RATE_LIMIT')
+    expect(classified.retryable).toBe(true)
+  })
+
+  test('an explicit HTTP 402 with billing wording still classifies as BILLING even when "quota" also appears', () => {
+    expect(classifyProviderError('groq', 402, 'Monthly quota exceeded: insufficient account balance, please add a payment method').kind).toBe('BILLING')
+  })
+
+  test('a genuine billing message without any "quota" wording still classifies as BILLING', () => {
+    expect(classifyProviderError('groq', undefined, 'Your account has insufficient credit balance').kind).toBe('BILLING')
+  })
+})
+
 describe('PROVIDER_FAILURE_POLICY: what a failure means is not the same question as whether the provider is unhealthy', () => {
   test('REQUEST_TOO_LARGE never affects provider health and retries the same provider after compaction', () => {
     const policy = getProviderFailurePolicy('REQUEST_TOO_LARGE')
@@ -106,6 +126,33 @@ describe('compactMessagesForRequestSize', () => {
   test('estimateRequestTokens sums estimated tokens across string-content messages', () => {
     const messages = [{ role: 'user', content: 'a'.repeat(400) }, { role: 'assistant', content: 'b'.repeat(400) }]
     expect(estimateRequestTokens(messages)).toBe(estimateTokens('a'.repeat(400)) + estimateTokens('b'.repeat(400)))
+  })
+
+  test('compacts many small messages that individually never cross the old 200-token floor but cumulatively exceed budget', () => {
+    // Deep-audit finding: compaction used to skip any message under ~200 estimated tokens outright, so a
+    // request built from many small messages (each under that floor) could never be compacted at all,
+    // even when their sum was far over budget -- the function would silently leave every one of them
+    // completely untouched. Each message here is ~190 tokens (760 chars); 40 of them sum to ~7600 tokens.
+    // A 400-char-per-message floor (targetCharsForThisMessage's own minimum) means this can't reach an
+    // arbitrarily low target with 40 messages, but it must materially shrink them -- the old bug shrank
+    // by exactly zero.
+    const messages = Array.from({ length: 40 }, (_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: `msg-${i}-` + 'x'.repeat(750) }))
+    const originalTokens = estimateRequestTokens(messages)
+    expect(originalTokens).toBeGreaterThan(1000)
+    const compacted = compactMessagesForRequestSize(messages, 1000)
+    expect(estimateRequestTokens(compacted)).toBeLessThan(originalTokens * 0.7)
+    expect(compacted).toHaveLength(40)
+    expect(compacted.some((m) => String(m.content).includes('truncated'))).toBe(true)
+  })
+
+  test('never touches array/multimodal message content it cannot safely measure or truncate', () => {
+    const messages = [
+      { role: 'user', content: [{ type: 'text', text: 'describe this image' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] },
+      { role: 'assistant', content: 'y'.repeat(40000) },
+    ]
+    const compacted = compactMessagesForRequestSize(messages, 500)
+    expect(compacted[0]!.content).toEqual(messages[0]!.content)
+    expect(String(compacted[1]!.content).length).toBeLessThan(40000)
   })
 })
 
