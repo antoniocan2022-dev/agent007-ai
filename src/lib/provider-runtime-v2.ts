@@ -1,6 +1,7 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess, pickHalfOpenCandidate } from './provider-intelligence'
-import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId, type ProviderErrorKind } from './provider-control-plane'
+import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, getProviderFailurePolicy, estimateRequestTokens, compactMessagesForRequestSize, DEFAULT_MAX_INPUT_TOKENS, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId, type ProviderErrorKind } from './provider-control-plane'
+import { getProviderStandings, recordProviderStanding } from './provider-standing'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
 import { recordModelOutcome, recommendByVerifiedOutcome, type OutcomeStatus } from './outcome-intelligence'
@@ -36,7 +37,11 @@ function extractContent(data: any): string {
   return ''
 }
 function modelFor(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string { return getModelForProvider(provider, taskType, verification) || PROVIDER_RUNTIME_CONFIG[provider].defaultModel }
-function shouldAffectProviderHealth(kind: ProviderErrorKind): boolean { return ['UPSTREAM', 'TIMEOUT', 'NETWORK', 'CATALOG_UNAVAILABLE', 'UNKNOWN'].includes(kind) }
+// Provider Gateway Phase A (2026-09-19): was a hardcoded array here, independent of (and until now,
+// looser than) provider-control-plane.ts's own PROVIDER_FAILURE_POLICY table -- the two could silently
+// drift apart. Now the single source of truth for "does this failure kind mean the provider itself is
+// unhealthy."
+function shouldAffectProviderHealth(kind: ProviderErrorKind): boolean { return getProviderFailurePolicy(kind).affectsProviderHealth }
 function buildProviderFailure(provider: ActiveProviderId, status: number | undefined, message: string): ProviderControlPlaneError { return new ProviderControlPlaneError({ ...classifyProviderError(provider, status, message), message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: ${message}` }) }
 function resolveChatEndpoint(provider: ActiveProviderId): string {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
@@ -79,11 +84,26 @@ async function callProvider(provider: ActiveProviderId, request: ProviderRuntime
     if (!content.trim()) throw buildProviderFailure(provider, undefined, 'response contained no assistant content')
     recordSuccess(provider, responseMs); recordProviderSuccess(provider); recordModelPerformance({ provider, model, taskType, success: true, responseMs })
     if (request.outcomeEvidence) recordModelOutcome({ provider, model, taskType, ...request.outcomeEvidence })
+    // A real success is the strongest possible evidence a durably-blocked/cooldown standing (Provider
+    // Gateway Phase B) no longer applies -- clear it rather than waiting out its own window. Fire-and-
+    // forget: this only needs to reach the DB before some LATER invocation reads it, not before this
+    // one returns, and provider-standing.ts's own in-memory cache means the very next call in this same
+    // warm instance already sees the clear immediately regardless.
+    void recordProviderStanding(provider, 'none').catch(() => {})
     return { provider, model, content, attempts: [provider], responseMs }
   } catch (error) {
     const responseMs = Date.now() - started
     if (signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? error)
-    if (error instanceof ProviderControlPlaneError) { if (shouldAffectProviderHealth(error.kind)) recordFailure(provider); recordProviderError(provider, error.kind); recordModelPerformance({ provider, model, taskType, success: false, responseMs }); throw error }
+    if (error instanceof ProviderControlPlaneError) {
+      if (shouldAffectProviderHealth(error.kind)) recordFailure(provider)
+      // Provider Gateway Phase B (2026-09-19): the durable half of PROVIDER_FAILURE_POLICY's standing
+      // field -- 'blocked' (billing/auth) and 'cooldown' (rate-limit) both need to survive a cold start,
+      // which the in-memory circuit breaker above cannot. Fire-and-forget for the same reason as the
+      // success-clear above.
+      const failurePolicy = getProviderFailurePolicy(error.kind)
+      if (failurePolicy.standing !== 'none') void recordProviderStanding(provider, failurePolicy.standing, error.kind).catch(() => {})
+      recordProviderError(provider, error.kind); recordModelPerformance({ provider, model, taskType, success: false, responseMs }); throw error
+    }
     recordFailure(provider); const classified = buildProviderFailure(provider, undefined, error instanceof Error ? error.message : String(error)); recordProviderError(provider, classified.kind); recordModelPerformance({ provider, model, taskType, success: false, responseMs }); throw classified
   } finally {
     clearTimeout(timeout)
@@ -137,6 +157,12 @@ export async function probeAllConfiguredProviders(taskType: TaskType = 'reasonin
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const signal = effectiveSignal(request)
   throwIfCeoRequestAborted(signal)
+  // Provider Gateway Phase A (2026-09-19): compact up front when the request is already well past the
+  // shared conservative budget, so the FIRST attempt on any candidate isn't spent on a call likely to
+  // come back REQUEST_TOO_LARGE. Best-effort only -- see DEFAULT_MAX_INPUT_TOKENS's own comment; the
+  // reactive per-provider retry below is what actually guarantees correctness.
+  const preflightMessages = estimateRequestTokens(request.messages) > DEFAULT_MAX_INPUT_TOKENS ? compactMessagesForRequestSize(request.messages) : request.messages
+  const requestWithBudget: ProviderRuntimeRequest = preflightMessages === request.messages ? request : { ...request, messages: preflightMessages }
   const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider))
   // Deep-audit finding, root-caused against a real production trace: a provider whose governed model
   // catalog has zero entries for this taskType (e.g. groq/cloudflare/cerebras all lack 'creative') will
@@ -156,10 +182,19 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   // afterward would spend the one half-open probe on the wrong candidate, filter it out, and throw --
   // even though a genuinely viable half-open candidate existed the whole time.
   const governedConfigured = configured.filter((provider) => getGovernedCandidates(provider, taskType, request.verification).length > 0)
-  const closed = rankAvailableProviders(governedConfigured, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]
+  // Provider Gateway Phase B (2026-09-19): the in-memory circuit breaker below only knows about THIS
+  // process's own observations -- a fresh cold start has none, even for a provider a different instance
+  // durably marked 'blocked' (billing/auth) or 'cooldown' (rate-limit) moments ago. Filtering by the
+  // durable standing here, alongside isCircuitOpen, closes that gap without replacing the in-memory
+  // breaker (which stays the faster, finer-grained signal within one warm instance's own lifetime).
+  const standings = await getProviderStandings(governedConfigured)
+  const durablyAvailable = governedConfigured.filter((provider) => (standings.get(provider)?.standing ?? 'none') === 'none')
+  const closed = rankAvailableProviders(durablyAvailable, request.providerOrder ?? policy.providerOrder).filter((provider) => !isCircuitOpen(provider)) as ActiveProviderId[]
   // Every governed candidate's circuit is open -- spend the one bounded half-open probe here rather than
-  // failing instantly with zero attempts. See pickHalfOpenCandidate in provider-intelligence.ts.
-  const halfOpen = closed.length ? null : pickHalfOpenCandidate(governedConfigured)
+  // failing instantly with zero attempts. See pickHalfOpenCandidate in provider-intelligence.ts. Probes
+  // only among durablyAvailable, same adversarial-combination reasoning as the governance filter above:
+  // spending the one probe on a durably-blocked provider would fail for certain and waste it.
+  const halfOpen = closed.length ? null : pickHalfOpenCandidate(durablyAvailable)
   const available = closed.length ? closed : (halfOpen ? [halfOpen] : [])
   const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
   if (!candidates.length) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
@@ -167,9 +202,22 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   for (const provider of candidates.slice(0, maxAttempts)) {
     throwIfCeoRequestAborted(signal)
     attempts.push(provider)
-    try { return { ...(await callProvider(provider, { ...request, signal })), attempts } }
+    try { return { ...(await callProvider(provider, { ...requestWithBudget, signal })), attempts } }
     catch (error) {
       if (signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? error)
+      // Provider Gateway Phase A (2026-09-19): REQUEST_TOO_LARGE is a request problem, not a provider
+      // problem (see PROVIDER_FAILURE_POLICY) -- the same provider gets one more try on a compacted copy
+      // of the SAME request before this candidate is given up on, rather than immediately burning one of
+      // the limited maxProviderAttempts moving to the next (differently-governed, possibly lower-quality)
+      // candidate over a problem that had nothing to do with that provider's health.
+      if (error instanceof ProviderControlPlaneError && error.kind === 'REQUEST_TOO_LARGE') {
+        try { return { ...(await callProvider(provider, { ...requestWithBudget, messages: compactMessagesForRequestSize(requestWithBudget.messages, Math.floor(DEFAULT_MAX_INPUT_TOKENS / 2)), signal })), attempts } }
+        catch (retryError) {
+          if (signal?.aborted || retryError instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? retryError)
+          failures.push(retryError instanceof ProviderControlPlaneError ? `${retryError.provider}:${retryError.kind}${retryError.status ? `:${retryError.status}` : ''} (after compaction)` : `${provider}:UNKNOWN (after compaction)`)
+          continue
+        }
+      }
       failures.push(error instanceof ProviderControlPlaneError ? `${error.provider}:${error.kind}${error.status ? `:${error.status}` : ''}` : `${provider}:UNKNOWN`)
     }
   }

@@ -14,7 +14,6 @@
  * 7. Developer Enhancements (12 tools)
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'

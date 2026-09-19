@@ -8,6 +8,7 @@ import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityCheck } from '@/lib/ceo-cognitive-lifecycle'
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
+import { resetProviderStandingForTests } from '@/lib/provider-standing'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import type { LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
@@ -234,6 +235,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.evidenceState).toBe('UNAVAILABLE')
     expect(result.evidenceState).not.toBe('LIVE_VERIFIED')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Phase 2 fix (external audit, 2026-09-19), issues 1 and 8: route.ts now builds exactly one
@@ -255,6 +257,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.decisionPlan).toBe(turnDecision.decisionPlan)
     expect(result.decisionPlan.requestId).toBe(turnDecision.decisionPlan.requestId)
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   test('critical lifecycle falls back to the primary answer instead of crashing to a generic degraded response when the independent-review/synthesis stage throws', async () => {
@@ -315,6 +318,7 @@ describe('CEO cognitive lifecycle', () => {
     // (both here and, independently, in the "critical lifecycle falls back..." test's shared provider
     // pool), not a flaw in the underlying escalation-loop fix itself.
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
@@ -370,6 +374,7 @@ describe('CEO cognitive lifecycle', () => {
     // Reset again so the failures this test intentionally caused don't leave a circuit open for any
     // later test in this file.
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Deep-audit finding, root-caused against a real failing production trace: when the quality gate
@@ -383,6 +388,7 @@ describe('CEO cognitive lifecycle', () => {
   // a working provider IS now used for real recovery content instead of the canned template.
   test('quality-gate-driven degrade genuinely attempts provider recovery instead of skipping straight to the canned template', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let nonProbeCalls = 0
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -405,6 +411,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.content).toContain('inconsistent execution standards')
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Production incident (2026-09-17): live traces showed every recovery attempt in a window failing with
@@ -422,6 +429,7 @@ describe('CEO cognitive lifecycle', () => {
   // the next validated candidate instead of degrading the moment the first one's real call fails.
   test('recovery falls through to a second validated provider when the first one probes healthy but fails on the real generation call', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.OPENROUTER_API_KEY = 'test-openrouter'
     let groqNonProbeCalls = 0
@@ -468,6 +476,7 @@ describe('CEO cognitive lifecycle', () => {
     // the fallback this test exists to prove.
     expect(openrouterNonProbeCalls).toBe(3)
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Adversarial-combination finding: this chain has never been exercised end to end before. Primary and
@@ -490,6 +499,7 @@ describe('CEO cognitive lifecycle', () => {
   // guaranteed-to-fail wasted attempt.
   test('when no configured provider is governed for the taskType at all, recovery declines cleanly with zero wasted attempts', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     // groq and cloudflare are both configured but neither has a governed model for 'creative'.
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare'
@@ -504,6 +514,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.degraded).toBe(true)
     expect(result.content).toContain("I couldn't reliably complete that specific request")
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // The #117 mechanism, reproduced end to end for a genuinely creative-taskType request (explicit here
@@ -517,6 +528,7 @@ describe('CEO cognitive lifecycle', () => {
   // re-validates mistral, and the real recovery generation succeeds.
   test('a governed provider that failed transiently during primary generation is the one recovery validates and succeeds with -- not an ungoverned one', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.MISTRAL_API_KEY = 'test-mistral'
     let mistralGenerationCalls = 0
@@ -547,6 +559,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
     expect(result.content).toContain('headline')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Live-production root cause: this exact message previously inferred taskType 'creative' purely from
@@ -560,6 +573,7 @@ describe('CEO cognitive lifecycle', () => {
   // survives losing any 2 providers simultaneously, not just recovers cleanly from a 2-of-2 outage.
   test('a business-strategy question that merely mentions "content" as a noun is no longer confined to the 2-provider creative lane', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.MISTRAL_API_KEY = 'test-mistral'
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -581,6 +595,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.degraded).toBe(false)
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Strengthens the test above from proving reachability to proving resilience: the original incident
@@ -590,6 +605,7 @@ describe('CEO cognitive lifecycle', () => {
   // roster theoretically exists on paper.
   test('the reclassified affiliate-content question survives losing 2 of its 5 reasoning-governed providers, mirroring the exact failure count of the original incident', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account'
@@ -621,6 +637,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.degraded).toBe(false)
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Deep-audit finding: semanticSubstanceCheck's own {substantive:true, checked:false} default on an
@@ -633,6 +650,7 @@ describe('CEO cognitive lifecycle', () => {
   // already established for the one other forbidden-failure override.
   test('semantic substance judge marks itself unchecked (not silently substantive) on an inconclusive verdict or a provider error', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = String(init?.method ?? 'GET')
@@ -650,6 +668,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(errored.substantive).toBe(true)
 
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Deep-audit finding: semanticContinuityCheck previously received only request.priorConversation, denying
@@ -658,6 +677,7 @@ describe('CEO cognitive lifecycle', () => {
   // now actually includes older-conversation content when it is supplied, not just the six most recent turns.
   test('semantic continuity judge includes relevant older conversation in its prompt, not just recent turns', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let capturedBody = ''
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -671,6 +691,7 @@ describe('CEO cognitive lifecycle', () => {
     await semanticContinuityCheck('What was the budget again?', recentTurns, 'The budget is $50k, as established earlier.', olderTurns)
     expect(capturedBody).toContain('ARCHIVAL_MARKER_TOKEN_9F2')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Production incident 2026-09-12: renderLeadershipPerformanceContext existed and was already correct,
@@ -680,6 +701,7 @@ describe('CEO cognitive lifecycle', () => {
   // and decisions" could not actually describe leadership specifics because the model never saw them.
   test('the primary generation path includes real leadership ledger detail in its outbound context', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let capturedBody = ''
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -700,6 +722,7 @@ describe('CEO cognitive lifecycle', () => {
     await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], canonicalContext, leadershipLedger, timeoutMs: 30000 })
     expect(capturedBody).toContain('ops-lead-1')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Production incident 2026-09-12: self-assessment turns are deliberately given evidenceScope
@@ -712,6 +735,7 @@ describe('CEO cognitive lifecycle', () => {
   // intent (where the guidance would be irrelevant noise).
   test('the primary generation path is given self-assessment phrasing guidance only for self-assessment turns', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let capturedBody = ''
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -724,6 +748,7 @@ describe('CEO cognitive lifecycle', () => {
     await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], timeoutMs: 30000 })
     expect(capturedBody).toContain('SELF-ASSESSMENT PHRASING GUIDANCE')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
 
     capturedBody = ''
     process.env.GROQ_API_KEY = 'test-groq'
@@ -736,6 +761,7 @@ describe('CEO cognitive lifecycle', () => {
     await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is compound interest?' }], timeoutMs: 30000 })
     expect(capturedBody).not.toContain('SELF-ASSESSMENT PHRASING GUIDANCE')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Production incident 2026-09-12 (part 2): "but tell me that in your own words" got back the same
@@ -744,6 +770,7 @@ describe('CEO cognitive lifecycle', () => {
   // generation call actually receives both the continuation signal and the prior answer to paraphrase.
   test('the primary generation path is told when a self-assessment turn is a restatement of its own prior answer', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let capturedBody = ''
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -769,6 +796,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(capturedBody).toContain('restate, explain, or rephrase')
     expect(capturedBody).toContain('governed CEO layer')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   // Production incident 2026-09-12 (part 3): unlike the primary generation call, the degraded-mode
@@ -778,6 +806,7 @@ describe('CEO cognitive lifecycle', () => {
   // now receives the same real partner/leadership/strategy facts the primary path already gets.
   test('the degraded-mode recovery call for self-assessment is grounded in real subsystem facts', async () => {
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let nonProbeCalls = 0
     let recoveryBody = ''
@@ -802,6 +831,7 @@ describe('CEO cognitive lifecycle', () => {
     expect(recoveryBody).toContain('REAL INTERNAL SYSTEM STATE')
     expect(recoveryBody).toContain('No partnerships tracked yet')
     resetProviderHealthForTests()
+    resetProviderStandingForTests()
   })
 
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {

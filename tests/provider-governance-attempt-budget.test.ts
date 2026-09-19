@@ -3,6 +3,7 @@ import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { clearProviderCatalogCache } from '@/lib/provider-control-plane'
 import { clearOutcomeIntelligenceForTests } from '@/lib/outcome-intelligence'
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
+import { resetProviderStandingForTests } from '@/lib/provider-standing'
 
 const ENV_KEYS = ['GROQ_API_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'MISTRAL_API_KEY'] as const
 const originalFetch = globalThis.fetch
@@ -11,6 +12,7 @@ beforeEach(() => {
   clearProviderCatalogCache()
   clearOutcomeIntelligenceForTests()
   resetProviderHealthForTests()
+  resetProviderStandingForTests()
   process.env.GROQ_API_KEY = 'test-groq'
   process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
   process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
@@ -21,6 +23,7 @@ afterEach(() => {
   clearProviderCatalogCache()
   clearOutcomeIntelligenceForTests()
   resetProviderHealthForTests()
+  resetProviderStandingForTests()
   for (const key of ENV_KEYS) delete process.env[key]
   globalThis.fetch = originalFetch
 })

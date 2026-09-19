@@ -1,6 +1,11 @@
 import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
-import { parseAssistant, callLlmWithRetry, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
+// Provider Gateway Phase B (2026-09-19): runOwnerAwareLlm is agent-canonical-bridge.ts's own export
+// (this '@/lib/agent' alias resolves to that bridge file per tsconfig.json's path mapping) -- it used
+// to be named callLlmWithRetry, identically to agent.ts's genuinely different function of the same
+// name, which this alias's `export *` also re-exports. Sub-agent dispatch deliberately gets the
+// owner-aware fork here, same behavior as before the rename; only the name changed.
+import { parseAssistant, runOwnerAwareLlm, THOUGHT_RE, friendlyLlmError } from '@/lib/agent'
 import { SHARED_MAX_PERFORMANCE_PROTOCOL } from '@/lib/subagent-max-performance'
 
 /* ------------------------------------------------------------------ *
@@ -2356,7 +2361,7 @@ You are operating autonomously inside Agent007's multi-agent network. The Super 
     await throttleAgentCall(sub.id)
     let completion: any
     try {
-      completion = await callLlmWithRetry(conversationMessages)
+      completion = await runOwnerAwareLlm(conversationMessages)
     } catch (e: any) {
       finalAnswer = friendlyLlmError(e)
       break

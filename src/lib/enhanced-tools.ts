@@ -13,7 +13,6 @@
  * 6. Financial Management (2): budget_forecaster, tax_optimizer
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 

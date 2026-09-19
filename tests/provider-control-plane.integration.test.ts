@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { PROVIDER_ORDER, PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, clearProviderCatalogCache, classifyProviderError, getGovernedCandidates, resolveGovernedModel, resolveLiveCatalog } from '../src/lib/provider-control-plane'
 import { runGovernedProviderChat } from '../src/lib/provider-runtime-v2'
+import { resetProviderStandingForTests } from '../src/lib/provider-standing'
 
 const ENV = ['GROQ_API_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'MISTRAL_API_KEY', 'CEREBRAS_API_KEY', 'OPENROUTER_API_KEY'] as const
 const savedEnv: Record<string, string | undefined> = {}
 const originalFetch = globalThis.fetch
 function jsonResponse(payload: unknown, status = 200): Response { return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } }) }
 
-beforeEach(() => { for (const env of ENV) { savedEnv[env] = process.env[env]; delete process.env[env] }; clearProviderCatalogCache() })
-afterEach(() => { globalThis.fetch = originalFetch; for (const env of ENV) { const value = savedEnv[env]; if (value === undefined) delete process.env[env]; else process.env[env] = value }; clearProviderCatalogCache() })
+beforeEach(() => { for (const env of ENV) { savedEnv[env] = process.env[env]; delete process.env[env] }; clearProviderCatalogCache(); resetProviderStandingForTests() })
+afterEach(() => { globalThis.fetch = originalFetch; for (const env of ENV) { const value = savedEnv[env]; if (value === undefined) delete process.env[env]; else process.env[env] = value }; clearProviderCatalogCache(); resetProviderStandingForTests() })
 
 describe('provider control plane', () => {
   test('has one canonical replacement-provider order', () => {

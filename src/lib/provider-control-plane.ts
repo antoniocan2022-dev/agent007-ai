@@ -1,7 +1,61 @@
 import type { ProviderId, TaskType, VerificationTier } from './subagent-governance'
 
 export type ActiveProviderId = Exclude<ProviderId, 'openai'>
-export type ProviderErrorKind = 'AUTHENTICATION' | 'AUTHORIZATION' | 'BILLING' | 'RATE_LIMIT' | 'MODEL_UNAVAILABLE' | 'MODEL_NOT_GOVERNED' | 'CATALOG_UNAVAILABLE' | 'TIMEOUT' | 'NETWORK' | 'INVALID_REQUEST' | 'UPSTREAM' | 'UNKNOWN'
+export type ProviderErrorKind = 'AUTHENTICATION' | 'AUTHORIZATION' | 'BILLING' | 'RATE_LIMIT' | 'MODEL_UNAVAILABLE' | 'MODEL_NOT_GOVERNED' | 'CATALOG_UNAVAILABLE' | 'TIMEOUT' | 'NETWORK' | 'INVALID_REQUEST' | 'REQUEST_TOO_LARGE' | 'UPSTREAM' | 'UNKNOWN'
+
+// Provider Gateway Phase A (2026-09-19): what a failure means is not the same question as whether it
+// means the PROVIDER is unhealthy. A request that's too large for this provider's per-call token
+// ceiling (REQUEST_TOO_LARGE) says nothing about the provider's own availability -- the same provider
+// would happily serve a smaller request seconds later -- so it must never cool down or block the
+// provider, only trigger a same-provider retry after compaction. RATE_LIMIT is a definitive, immediate
+// signal (an explicit 429 unambiguously means "you are rate-limited right now"): cool the provider down
+// for a bounded window rather than treating it as merely one failed attempt. BILLING/AUTHENTICATION/
+// AUTHORIZATION are configuration problems retrying can never fix -- block the provider until the owner
+// fixes the underlying account/credential issue, and don't burn attempts on it in the meantime.
+// MODEL_UNAVAILABLE/MODEL_NOT_GOVERNED are about a specific model, not the provider itself -- the
+// provider may have other governed models that work fine.
+//
+// Genuine infrastructure/connectivity failures (UPSTREAM 5xx, TIMEOUT, NETWORK, CATALOG_UNAVAILABLE)
+// and truly unclassifiable errors (UNKNOWN) DO affect provider health -- but deliberately as
+// affectsProviderHealth only, standing 'none': these are probabilistic, not definitive, signals (a
+// single 503 is often a transient blip, not evidence the provider is actually down), which is exactly
+// why the existing in-memory circuit breaker (provider-intelligence.ts's recordFailure) requires THREE
+// such failures within 60 seconds -- with its own documented cold-start exemption -- before tripping,
+// rather than reacting to the first one. Provider Gateway Phase B's durable standing layer
+// (provider-standing.ts) is reserved for kinds where ONE occurrence is already unambiguous enough to
+// act on immediately and durably (billing/auth/rate-limit); writing a durable 'cooldown' entry on the
+// first UPSTREAM/TIMEOUT/NETWORK blip would make the durable layer MORE trigger-happy than the
+// in-memory breaker it sits alongside, punishing exactly the transient flakiness that breaker was
+// deliberately built to tolerate.
+export interface ProviderFailurePolicy {
+  /** Whether this failure kind is real evidence the PROVIDER (not the request) is unhealthy right now. */
+  affectsProviderHealth: boolean
+  /** What should happen to the provider's DURABLE standing (provider-standing.ts) as a result of this
+   *  failure. 'none' here does not mean the failure is ignored -- affectsProviderHealth above still
+   *  drives the in-memory, threshold-based circuit breaker; it only means this single occurrence isn't
+   *  definitive enough on its own to durably persist across a cold start. */
+  standing: 'none' | 'cooldown' | 'blocked'
+  /** Whether the underlying condition can plausibly resolve on its own (a later attempt might succeed). */
+  retryable: boolean
+  /** Retry the SAME provider once, after compacting the request, instead of moving to the next candidate. */
+  retrySameProviderAfterCompaction: boolean
+}
+export const PROVIDER_FAILURE_POLICY: Readonly<Record<ProviderErrorKind, ProviderFailurePolicy>> = {
+  AUTHENTICATION: { affectsProviderHealth: false, standing: 'blocked', retryable: false, retrySameProviderAfterCompaction: false },
+  AUTHORIZATION: { affectsProviderHealth: false, standing: 'blocked', retryable: false, retrySameProviderAfterCompaction: false },
+  BILLING: { affectsProviderHealth: false, standing: 'blocked', retryable: false, retrySameProviderAfterCompaction: false },
+  RATE_LIMIT: { affectsProviderHealth: false, standing: 'cooldown', retryable: true, retrySameProviderAfterCompaction: false },
+  MODEL_UNAVAILABLE: { affectsProviderHealth: false, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+  MODEL_NOT_GOVERNED: { affectsProviderHealth: false, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+  REQUEST_TOO_LARGE: { affectsProviderHealth: false, standing: 'none', retryable: true, retrySameProviderAfterCompaction: true },
+  INVALID_REQUEST: { affectsProviderHealth: false, standing: 'none', retryable: false, retrySameProviderAfterCompaction: false },
+  CATALOG_UNAVAILABLE: { affectsProviderHealth: true, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+  TIMEOUT: { affectsProviderHealth: true, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+  NETWORK: { affectsProviderHealth: true, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+  UPSTREAM: { affectsProviderHealth: true, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+  UNKNOWN: { affectsProviderHealth: true, standing: 'none', retryable: true, retrySameProviderAfterCompaction: false },
+}
+export function getProviderFailurePolicy(kind: ProviderErrorKind): ProviderFailurePolicy { return PROVIDER_FAILURE_POLICY[kind] }
 
 export class ProviderControlPlaneError extends Error {
   readonly provider: ActiveProviderId
@@ -48,6 +102,53 @@ export const TASK_CAPABILITIES: Readonly<Record<TaskType, readonly ModelCapabili
 }
 export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter']
 
+// Provider Gateway Phase A (2026-09-19): a conservative, shared preflight budget, not a verified
+// per-vendor limit -- this codebase doesn't have confirmed exact per-provider/per-tier token ceilings,
+// and inventing precise-looking numbers per provider would be presenting a guess as fact. This exists
+// only to make an oversized request compact BEFORE spending a round-trip on a call likely to come back
+// REQUEST_TOO_LARGE; the reactive compact-and-retry-same-provider-once path in provider-runtime-v2.ts
+// (triggered by the real classified error) is the authoritative correctness mechanism regardless of
+// whether this preflight guess was right.
+export const DEFAULT_MAX_INPUT_TOKENS = 6000
+// Rough, standard chars-per-token heuristic (~4 chars/token for English prose) -- good enough to decide
+// "is this request plausibly oversized," not a real tokenizer.
+export function estimateTokens(text: string): number { return Math.ceil(text.length / 4) }
+export function estimateRequestTokens(messages: readonly Record<string, unknown>[]): number {
+  let total = 0
+  for (const message of messages) { const content = message.content; if (typeof content === 'string') total += estimateTokens(content); else if (Array.isArray(content)) for (const part of content) if (typeof (part as any)?.text === 'string') total += estimateTokens((part as any).text) }
+  return total
+}
+
+// Provider Gateway Phase A (2026-09-19): the recovery half of REQUEST_TOO_LARGE. Truncates the largest
+// message content(s) -- almost always a long tool result, evidence dump, or conversation history entry,
+// not the system prompt or the user's actual current turn -- down toward a target token budget, keeping
+// every message's role and position (never drops a message outright: some providers require strict
+// role alternation, and silently dropping a message could change what the model believes happened).
+// Head+tail preserved with a clear truncation marker in between, so the model can see both the start and
+// end of what was cut rather than losing context asymmetrically.
+export function compactMessagesForRequestSize(messages: readonly Record<string, unknown>[], targetTokens = DEFAULT_MAX_INPUT_TOKENS): Record<string, unknown>[] {
+  const result = messages.map((message) => ({ ...message }))
+  const sizes = result.map((message, index) => ({ index, tokens: typeof message.content === 'string' ? estimateTokens(message.content) : 0, isSystem: message.role === 'system' }))
+  let total = sizes.reduce((sum, entry) => sum + entry.tokens, 0)
+  if (total <= targetTokens) return result
+  // Compact the largest non-system messages first (evidence/history is the usual bulk); only reach into
+  // the system message if trimming everything else still isn't enough.
+  const order = [...sizes].sort((a, b) => (Number(a.isSystem) - Number(b.isSystem)) || (b.tokens - a.tokens))
+  for (const entry of order) {
+    if (total <= targetTokens || entry.tokens < 200) continue
+    const content = String(result[entry.index]!.content ?? '')
+    const overage = total - targetTokens
+    const targetCharsForThisMessage = Math.max(400, content.length - overage * 4)
+    if (targetCharsForThisMessage >= content.length) continue
+    const headLength = Math.ceil(targetCharsForThisMessage * 0.6)
+    const tailLength = Math.floor(targetCharsForThisMessage * 0.4)
+    const truncated = `${content.slice(0, headLength)}\n\n...[truncated ${content.length - headLength - tailLength} chars to fit the provider's request-size limit]...\n\n${content.slice(content.length - tailLength)}`
+    result[entry.index]!.content = truncated
+    total = total - entry.tokens + estimateTokens(truncated)
+  }
+  return result
+}
+
 export function isProviderConfigured(provider: ActiveProviderId): boolean {
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   return Boolean(process.env[config.apiKeyEnv]?.trim()) && (!config.accountIdEnv || Boolean(process.env[config.accountIdEnv]?.trim()))
@@ -70,7 +171,17 @@ export function classifyProviderError(provider: ActiveProviderId, status?: numbe
   const lower = message.toLowerCase()
   if (status === 401) return { provider, kind: 'AUTHENTICATION' as const, status, message, retryable: false }
   if (status === 403) return { provider, kind: 'AUTHORIZATION' as const, status, message, retryable: false }
+  // Provider Gateway Phase A (2026-09-19): HTTP 413 must be checked, and classified, BEFORE the billing
+  // text-match below -- a real production incident showed Groq's 413 body (request too large for the
+  // model's per-call token ceiling; Groq itself bundles size-driven throttling under rate-limit-flavored
+  // wording) matching this function's billing regex on message text alone, misclassifying a pure
+  // request-size problem as BILLING. That wrongly told the caller the PROVIDER's account was the issue
+  // (see PROVIDER_FAILURE_POLICY above) when the provider itself was perfectly healthy -- only this one
+  // oversized request was not. Checking status===413 first, unconditionally, means a 413 can never reach
+  // the message-text regex at all, regardless of what Groq's (or any provider's) error body happens to say.
+  if (status === 413) return { provider, kind: 'REQUEST_TOO_LARGE' as const, status, message, retryable: true }
   if (status === 402 || /billing|payment|credit|insufficient.{0,20}(credit|fund|balance)|quota exceeded/.test(lower)) return { provider, kind: 'BILLING' as const, status, message, retryable: false }
+  if (/request.{0,20}(too large|entity too large)|payload too large|context.{0,20}length|too many tokens|maximum context length/.test(lower)) return { provider, kind: 'REQUEST_TOO_LARGE' as const, status, message, retryable: true }
   if (status === 429 || /rate.?limit|too many requests/.test(lower)) return { provider, kind: 'RATE_LIMIT' as const, status, message, retryable: true }
   if (status === 404 || /model.+(not found|unavailable)|unknown model/.test(lower)) return { provider, kind: 'MODEL_UNAVAILABLE' as const, status, message, retryable: false }
   if (status === 400) return { provider, kind: 'INVALID_REQUEST' as const, status, message, retryable: false }

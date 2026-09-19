@@ -13,6 +13,14 @@ import { getCanonicalOrganizationPrompt } from './canonical-organization-prompt'
  * runtime directly instead of recursively re-entering the CEO lifecycle.
  * This preserves one authoritative orchestration owner per request while
  * keeping the legacy completion shape stable for existing callers.
+ *
+ * runOwnerAwareLlm (below) is that owner-based fork. It is deliberately not
+ * a raw provider-calling utility -- it decides how much governance a turn
+ * needs (a full multi-stage CEO cognitive lifecycle vs. a direct inference
+ * call), which is an orchestration decision, not a provider-mechanics one.
+ * That decision belongs at this layer, above the provider gateway
+ * (canonical-llm-router.ts / provider-runtime-v2.ts), which never
+ * references orchestration ownership at all.
  */
 export * from './agent'
 
@@ -59,10 +67,17 @@ function buildLegacyResult(result: any, startedAt: number, policyTaskClass?: Tas
   }
 }
 
-// Not to be confused with agent.ts's own callLlmWithRetry, which always calls runCanonicalLlm
-// directly and reshapes the result into an OpenAI chat-completion object -- this one branches
-// on getOrchestrationOwner() and returns runCanonicalLlm's own result shape unchanged.
-export async function callLlmWithRetry(
+// Provider Gateway Phase B (2026-09-19): renamed from callLlmWithRetry. This file's line 17 (`export *
+// from './agent'`) already re-exports agent.ts's OWN, genuinely different callLlmWithRetry -- a local
+// declaration under the identical name here was shadowing that re-export for every caller importing
+// from this file, which is exactly the "two functions with the same name doing different things"
+// footgun a fresh architecture audit flagged (agent.ts always calls runCanonicalLlm directly and
+// reshapes the result into an OpenAI chat-completion object; this one branches on
+// getOrchestrationOwner() and returns runCanonicalLlm's/runCeoCognitiveLifecycle's own result shape
+// unchanged). Renaming resolves the ambiguity by construction instead of leaving it to a doc comment:
+// callLlmWithRetry now unambiguously means agent.ts's version everywhere, including when re-exported
+// from this bridge file.
+export async function runOwnerAwareLlm(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   opts?: CanonicalBridgeOptions,
 ): Promise<any> {

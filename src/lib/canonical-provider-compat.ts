@@ -1,11 +1,11 @@
 import { canonicalWebSearch } from './canonical-web-search'
-import { callLlmWithRetry } from './agent-canonical-bridge'
+import { runOwnerAwareLlm } from './agent-canonical-bridge'
 
 export async function getCanonicalCompatClient() {
   return {
     chat: {
       completions: {
-        create: async (params: any) => callLlmWithRetry(params?.messages ?? [], {
+        create: async (params: any) => runOwnerAwareLlm(params?.messages ?? [], {
           temperature: params?.temperature,
           maxTokens: params?.max_tokens,
         }),
@@ -25,7 +25,7 @@ export async function getCanonicalCompatClient() {
             return { data: { html, title: url, text: text.slice(0, 12000) } }
           }
           case 'vision': {
-            const response = await callLlmWithRetry([{ role: 'user', content: `${String(args?.prompt ?? 'Describe this image in detail.')}\n${String(args?.image_url ?? args?.data_url ?? '')}` }], { taskType: 'analysis', verification: 'standard' })
+            const response = await runOwnerAwareLlm([{ role: 'user', content: `${String(args?.prompt ?? 'Describe this image in detail.')}\n${String(args?.image_url ?? args?.data_url ?? '')}` }], { taskType: 'analysis', verification: 'standard' })
             return { choices: [{ message: { content: response?.content ?? '' } }] }
           }
           case 'image_gen': {

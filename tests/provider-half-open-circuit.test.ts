@@ -3,6 +3,7 @@ import { pickHalfOpenCandidate, recordFailure, resetProviderHealthForTests } fro
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { clearProviderCatalogCache } from '@/lib/provider-control-plane'
 import { clearOutcomeIntelligenceForTests } from '@/lib/outcome-intelligence'
+import { resetProviderStandingForTests } from '@/lib/provider-standing'
 
 type GlobalWithProviderHealth = typeof globalThis & { __providerHealthProcessStartedAt?: number }
 const G = globalThis as GlobalWithProviderHealth
@@ -21,6 +22,7 @@ beforeEach(() => {
   clearProviderCatalogCache()
   clearOutcomeIntelligenceForTests()
   resetProviderHealthForTests()
+  resetProviderStandingForTests()
   process.env.GROQ_API_KEY = 'test-groq'
   process.env.CEREBRAS_API_KEY = 'test-cerebras'
   process.env.MISTRAL_API_KEY = 'test-mistral'
@@ -30,6 +32,7 @@ afterEach(() => {
   clearProviderCatalogCache()
   clearOutcomeIntelligenceForTests()
   resetProviderHealthForTests()
+  resetProviderStandingForTests()
   for (const key of ENV_KEYS) delete process.env[key]
   globalThis.fetch = originalFetch
 })

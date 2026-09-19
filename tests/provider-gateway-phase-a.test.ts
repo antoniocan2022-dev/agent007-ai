@@ -1,0 +1,181 @@
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { classifyProviderError, compactMessagesForRequestSize, estimateRequestTokens, estimateTokens, getProviderFailurePolicy, clearProviderCatalogCache, DEFAULT_MAX_INPUT_TOKENS } from '../src/lib/provider-control-plane'
+import { runGovernedProviderChat } from '../src/lib/provider-runtime-v2'
+import { getProviderAvailabilityStatus, recordFailure, resetProviderHealthForTests } from '../src/lib/provider-intelligence'
+
+// Provider Gateway Phase A (2026-09-19): this suite locks in the fix for a real production incident --
+// Groq's HTTP 413 (request too large) was being misclassified as BILLING because classifyProviderError
+// only checked status===402 plus a message-text regex, and Groq's own 413 body text happened to match
+// that regex. That wrongly told the recovery path Groq's ACCOUNT was the problem (see
+// PROVIDER_FAILURE_POLICY's 'blocked'/no-retry BILLING policy) when the provider itself was fine and
+// only that one oversized request wasn't going to work. See tests/provider-control-plane.integration.test.ts
+// for the pre-existing classification suite this one is deliberately kept separate from (this one is
+// scoped to what Phase A specifically added/changed).
+
+const ENV = ['GROQ_API_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'MISTRAL_API_KEY', 'CEREBRAS_API_KEY', 'OPENROUTER_API_KEY'] as const
+const savedEnv: Record<string, string | undefined> = {}
+const originalFetch = globalThis.fetch
+function jsonResponse(payload: unknown, status = 200): Response { return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } }) }
+
+beforeEach(() => { for (const env of ENV) { savedEnv[env] = process.env[env]; delete process.env[env] }; clearProviderCatalogCache(); resetProviderHealthForTests() })
+afterEach(() => { globalThis.fetch = originalFetch; for (const env of ENV) { const value = savedEnv[env]; if (value === undefined) delete process.env[env]; else process.env[env] = value }; clearProviderCatalogCache(); resetProviderHealthForTests() })
+
+describe('classifyProviderError: REQUEST_TOO_LARGE is checked before the BILLING text-match', () => {
+  test('a bare HTTP 413 classifies as REQUEST_TOO_LARGE, never BILLING, regardless of message text', () => {
+    expect(classifyProviderError('groq', 413, 'Request too large').kind).toBe('REQUEST_TOO_LARGE')
+  })
+
+  test('the real production incident shape: a 413 whose body text incidentally matches the billing regex', () => {
+    // Groq's real 413 bodies read like "Request too large ... on tokens per minute (TPM): Limit 6000,
+    // Requested 9000 ... reduce your message size" -- wording that can incidentally contain phrases the
+    // billing regex (quota exceeded / insufficient .* balance) is looking for. The status check must win.
+    const classified = classifyProviderError('groq', 413, 'Request too large for model on tokens per minute (TPM). Limit 6000, Requested 9000. Quota exceeded for this window, please reduce your message size.')
+    expect(classified.kind).toBe('REQUEST_TOO_LARGE')
+    expect(classified.retryable).toBe(true)
+  })
+
+  test('a genuine billing failure (status 402) still classifies as BILLING, unaffected by the 413 fix', () => {
+    expect(classifyProviderError('groq', 402, 'payment required').kind).toBe('BILLING')
+  })
+
+  test('a non-413 status with request-too-large wording in the body also classifies correctly', () => {
+    expect(classifyProviderError('mistral', 400, 'This model\'s maximum context length is 32768 tokens').kind).toBe('REQUEST_TOO_LARGE')
+  })
+})
+
+describe('PROVIDER_FAILURE_POLICY: what a failure means is not the same question as whether the provider is unhealthy', () => {
+  test('REQUEST_TOO_LARGE never affects provider health and retries the same provider after compaction', () => {
+    const policy = getProviderFailurePolicy('REQUEST_TOO_LARGE')
+    expect(policy.affectsProviderHealth).toBe(false)
+    expect(policy.standing).toBe('none')
+    expect(policy.retrySameProviderAfterCompaction).toBe(true)
+  })
+
+  test('BILLING blocks the provider and is never retried -- retrying can never fix an account problem', () => {
+    const policy = getProviderFailurePolicy('BILLING')
+    expect(policy.affectsProviderHealth).toBe(false)
+    expect(policy.standing).toBe('blocked')
+    expect(policy.retryable).toBe(false)
+  })
+
+  test('RATE_LIMIT cools the provider down but does not mark it as a health failure (it is temporary pressure, not an outage)', () => {
+    const policy = getProviderFailurePolicy('RATE_LIMIT')
+    expect(policy.affectsProviderHealth).toBe(false)
+    expect(policy.standing).toBe('cooldown')
+    expect(policy.retryable).toBe(true)
+  })
+
+  test('genuine infrastructure failures (UPSTREAM, TIMEOUT, NETWORK) still affect provider health, matching the pre-Phase-A circuit breaker behavior', () => {
+    for (const kind of ['UPSTREAM', 'TIMEOUT', 'NETWORK', 'CATALOG_UNAVAILABLE', 'UNKNOWN'] as const) {
+      expect(getProviderFailurePolicy(kind).affectsProviderHealth).toBe(true)
+    }
+  })
+
+  test('MODEL_UNAVAILABLE and MODEL_NOT_GOVERNED never affect provider health -- the model is the problem, not the provider', () => {
+    expect(getProviderFailurePolicy('MODEL_UNAVAILABLE').affectsProviderHealth).toBe(false)
+    expect(getProviderFailurePolicy('MODEL_NOT_GOVERNED').affectsProviderHealth).toBe(false)
+  })
+})
+
+describe('compactMessagesForRequestSize', () => {
+  test('leaves a request under budget untouched', () => {
+    const messages = [{ role: 'system', content: 'You are helpful.' }, { role: 'user', content: 'Hi' }]
+    expect(compactMessagesForRequestSize(messages, 6000)).toEqual(messages)
+  })
+
+  test('truncates the largest non-system message first, preserving message count and roles', () => {
+    const huge = 'x'.repeat(40000)
+    const messages = [{ role: 'system', content: 'You are helpful.' }, { role: 'user', content: huge }, { role: 'assistant', content: 'ok' }]
+    const compacted = compactMessagesForRequestSize(messages, 1000)
+    expect(compacted).toHaveLength(3)
+    expect(compacted.map((m) => m.role)).toEqual(['system', 'user', 'assistant'])
+    expect(String(compacted[1]!.content).length).toBeLessThan(huge.length)
+    expect(String(compacted[1]!.content)).toContain('truncated')
+    expect(compacted[0]!.content).toBe('You are helpful.')
+    expect(compacted[2]!.content).toBe('ok')
+  })
+
+  test('preserves head and tail of the truncated content, not just a hard cutoff', () => {
+    const content = `HEAD-MARKER ${'x'.repeat(40000)} TAIL-MARKER`
+    const compacted = compactMessagesForRequestSize([{ role: 'user', content }], 500)
+    const result = String(compacted[0]!.content)
+    expect(result).toContain('HEAD-MARKER')
+    expect(result).toContain('TAIL-MARKER')
+  })
+
+  test('estimateRequestTokens sums estimated tokens across string-content messages', () => {
+    const messages = [{ role: 'user', content: 'a'.repeat(400) }, { role: 'assistant', content: 'b'.repeat(400) }]
+    expect(estimateRequestTokens(messages)).toBe(estimateTokens('a'.repeat(400)) + estimateTokens('b'.repeat(400)))
+  })
+})
+
+describe('getProviderAvailabilityStatus: a provider with zero observations is UNKNOWN, never DEGRADED', () => {
+  test('an unconfigured provider reports NOT_CONFIGURED', () => {
+    expect(getProviderAvailabilityStatus('groq')).toBe('NOT_CONFIGURED')
+  })
+
+  test('a configured provider with zero calls reports UNKNOWN, not a score-derived DEGRADED/HEALTHY label', () => {
+    process.env.GROQ_API_KEY = 'test'
+    expect(getProviderAvailabilityStatus('groq')).toBe('UNKNOWN')
+  })
+
+  test('a configured provider whose circuit is open reports CIRCUIT_OPEN', () => {
+    process.env.GROQ_API_KEY = 'test'
+    // Past the cold-start grace window (provider-intelligence.ts's COLD_START_GRACE_MS), same technique
+    // tests/provider-intelligence-cold-start.test.ts uses -- a failure burst within that window is
+    // deliberately not evidence of a real outage and must not trip the breaker.
+    const G = globalThis as typeof globalThis & { __providerHealthProcessStartedAt?: number }
+    G.__providerHealthProcessStartedAt = Date.now() - 25_000
+    recordFailure('groq'); recordFailure('groq'); recordFailure('groq')
+    expect(getProviderAvailabilityStatus('groq')).toBe('CIRCUIT_OPEN')
+  })
+})
+
+describe('runGovernedProviderChat: REQUEST_TOO_LARGE retries the same provider after compaction instead of failing over', () => {
+  test('a 413 on the first attempt is recovered by retrying the SAME provider with compacted messages, never reaching a second provider', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
+    let groqPostAttempts = 0
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('groq.com') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('groq.com') && init?.method === 'POST') {
+        groqPostAttempts++
+        if (groqPostAttempts === 1) return jsonResponse({ error: { message: 'Request too large for model on tokens per minute (TPM). Limit 6000, Requested 9000.' } }, 413)
+        return jsonResponse({ choices: [{ message: { content: 'Groq succeeded after compaction.' } }] })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const huge = 'evidence '.repeat(20000)
+    const result = await runGovernedProviderChat({ messages: [{ role: 'user', content: huge }], taskType: 'general', maxProviderAttempts: 2 })
+    expect(groqPostAttempts).toBe(2)
+    expect(result.provider).toBe('groq')
+    expect(result.content).toContain('after compaction')
+    // Never reached Cloudflare -- the retry-same-provider path resolved it without falling over.
+    expect(result.attempts).toEqual(['groq'])
+  })
+
+  test('a REQUEST_TOO_LARGE failure never trips the circuit breaker, even after the compacted retry also fails', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.CLOUDFLARE_API_KEY = 'test-cloudflare'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('groq.com') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('groq.com') && init?.method === 'POST') return jsonResponse({ error: { message: 'Request too large. Quota exceeded for tokens per minute.' } }, 413)
+      if (url.includes('/models/search')) return jsonResponse({ result: [{ name: '@cf/google/gemma-4-26b-a4b-it' }] })
+      if (url.includes('/chat/completions') && init?.method === 'POST') return jsonResponse({ choices: [{ message: { content: 'Cloudflare took over.' } }] })
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const huge = 'evidence '.repeat(20000)
+    const result = await runGovernedProviderChat({ messages: [{ role: 'user', content: huge }], taskType: 'general', maxProviderAttempts: 2 })
+    expect(result.provider).toBe('cloudflare')
+    expect(result.attempts).toEqual(['groq', 'cloudflare'])
+    // Groq failed twice (original + compacted retry) but must still read as healthy -- REQUEST_TOO_LARGE
+    // never affects provider health per PROVIDER_FAILURE_POLICY.
+    process.env.GROQ_API_KEY = 'test-groq'
+    const { isCircuitOpen } = await import('../src/lib/provider-intelligence')
+    expect(isCircuitOpen('groq')).toBe(false)
+  })
+})

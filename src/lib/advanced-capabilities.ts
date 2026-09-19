@@ -14,7 +14,6 @@
  *  10. interdimensional_data    — Multi-dimensional data synthesis
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 

@@ -10,7 +10,6 @@
  * 5. Reflect on its own reasoning and decision-making
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { upsertMemory, recallMemories } from './memory'
 import { promises as fsp } from 'node:fs'
