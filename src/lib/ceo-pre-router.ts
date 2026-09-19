@@ -4,7 +4,7 @@ import { classifyCeoSelfReflection, type SelfReflectionClassification } from './
 import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
-import { assertCeoEvidenceContractInvariant, normalizeCeoEvidenceContract } from './ceo-cognitive-contract'
+import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
@@ -118,14 +118,6 @@ function inferTemporalScope(text: string): TemporalScope {
   if (/\b(?:historical|history|last year|over the last|over five years|5-year|10-year)\b/i.test(text)) return 'historical'
   return 'current'
 }
-function inferEvidenceProfile(domain: EvidenceDomain, _temporalScope: TemporalScope): EvidenceProfile {
-  if (domain === 'public_equity') return 'public_equity'
-  if (domain === 'market') return 'market_current'
-  if (domain === 'news') return 'news_recent'
-  if (domain === 'competitor') return 'competitor_research'
-  if (domain === 'business_due_diligence') return 'business_due_diligence'
-  return 'general_research'
-}
 function inferEvidenceOperation(text: string): EvidenceOperation {
   if (/\b(?:would\s+you\s+invest|should\s+i|should\s+we|recommend(?:ation)?|invest(?:ing|ment)?|buy|sell|hold)\b/i.test(text)) return 'recommend'
   if (/\b(?:compare|versus|vs\.?|better|stronger|weaker)\b/i.test(text)) return 'compare'
@@ -135,7 +127,11 @@ function inferEvidenceOperation(text: string): EvidenceOperation {
   if (/\b(?:research|look\s+up|find\s+(?:out|information))\b/i.test(text)) return 'research'
   return /\b(?:analy[sz]e|analysis|assess|evaluate|review)\b/i.test(text) ? 'analyze' : 'research'
 }
-function buildExecutionContract(input: { intent: CeoIntent; selfReflectionKind?: SelfReflectionClassification['kind']; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }): CeoExecutionContract { return { ...input } }
+function buildExecutionContract(input: { intent: CeoIntent; selfReflectionKind?: SelfReflectionClassification['kind']; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }): CeoExecutionContract {
+  const normalized = normalizeCeoEvidenceContract({ ...input })
+  assertCeoEvidenceContractInvariant(normalized)
+  return normalized
+}
 function contractFor(input: { intent: CeoIntent; selfReflectionKind?: SelfReflectionClassification['kind']; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; missionRelevant: boolean; reason: string; evidenceClass?: EvidenceClass; domain?: EvidenceDomain; operation?: EvidenceOperation; temporalScope?: TemporalScope; evidenceProfile?: EvidenceProfile }): CeoExecutionContract {
   const { intent, selfReflectionKind, adaptiveExecutionClass, missionRelevant, reason, evidenceClass = intent === 'conversation' ? 'none' : 'internal_state', domain = intent === 'conversation' ? 'none' : 'internal_operations', operation = intent === 'conversation' ? 'none' : 'analyze', temporalScope = intent === 'conversation' ? 'none' : 'timeless', evidenceProfile = intent === 'conversation' ? 'none' : 'none' } = input
   if (intent === 'self_assessment') return buildExecutionContract({ intent, selfReflectionKind, evidenceClass: 'internal_state', domain: 'internal_operations', operation: 'analyze', temporalScope: 'current', evidenceProfile: 'none', evidenceRequirement: 'internal_state', executionRequirement: 'llm_only', orchestrationOwner: 'ceo_lifecycle', maxTurns: 2, maxRecoveries: 0, latencyBudgetMs: 30000, toolRequired: false, subagentsRequired: false, reason })
@@ -293,7 +289,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   if (!text) { const reason = 'No substantive request detected.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational)
   const complexitySignals = [effectiveExecutionClass === 'deep' || effectiveExecutionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
-  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
+  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
   if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined
   const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined
