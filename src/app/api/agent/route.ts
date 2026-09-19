@@ -330,7 +330,6 @@ export async function POST(req: NextRequest) {
           const operationalEvidence = result.executionSummary
           const operationalHandoff = classifyOperationalExecution(result)
           const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
-          const anyOperationalToolStepFailed = !operationalHandoff.externalExecutionSucceeded
           console.log('[api/agent] operational execution telemetry', JSON.stringify({
             requestId,
             completedSteps: result.steps.length,
