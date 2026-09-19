@@ -70,6 +70,20 @@ export async function recordProviderStanding(provider: ActiveProviderId, standin
     updatedAt: Date.now(),
   }
   cache.set(provider, { standing: entry, cachedAt: Date.now() })
+  // Real production incident, caught in CI (not locally -- this sandbox's Prisma client is a stub that
+  // always rejects, so a real write never actually lands here in local dev): CI runs the whole suite
+  // against one real, shared Postgres test database across every test FILE in the job, not just within
+  // one file. resetProviderStandingForTests() (every provider test file's beforeEach/afterEach) only
+  // clears this module's in-memory cache -- it was never meant to also reach into a database, the same
+  // way resetProviderHealthForTests() doesn't (provider-intelligence.ts has no DB backing at all). A
+  // real write here durably outlived the test that made it and silently changed an UNRELATED, later
+  // test file's provider selection (tests/ceo-cognitive-lifecycle.test.ts started seeing corrupted
+  // captured request bodies from provider fallout it never mocked). Same precedent this codebase
+  // already established for exactly this shape of problem: ceo-evidence-trace.ts's
+  // persistEvidenceTrace() skips its own write under this identical condition. The in-memory cache
+  // above already gives every test in this session's suite (locally, where writes always fail anyway)
+  // the correct observable behavior without needing a real write at all.
+  if (process.env.NODE_ENV === 'test' || process.env.CI === 'true') return
   try {
     const value = JSON.stringify(entry)
     await db.memory.upsert({ where: { key: memoryKey(provider) }, create: { key: memoryKey(provider), value, category: 'provider_standing' }, update: { value, category: 'provider_standing' } })
