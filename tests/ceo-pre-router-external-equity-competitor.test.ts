@@ -52,6 +52,7 @@ describe('pre-router: a natural information-request ("give me updates on X", "te
     const decision = preRouteCeoRequest(user(text))
     expect(decision.executionContract.intent).toBe('research')
     expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceProfile).toBe('public_equity')
     expect(decision.executionContract.toolRequired).toBe(true)
     expect(decision.route).toBe('full')
   })

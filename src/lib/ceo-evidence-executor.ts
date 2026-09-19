@@ -144,4 +144,33 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
   return { bundle: finalBundle, attemptedQueries: queries.length, successfulQueries: searchResults.filter((entry) => entry.sources.length > 0).length, pageReads: pageSources.length, secSources: secSources.length, marketDataSources: marketDataSources.length, failures }
 }
 export async function executeExternalEvidencePlan(plan: ExternalEvidencePlan, signal = getCeoCancellationSignal()): Promise<ExternalEvidenceExecution> { return executeOnce(plan, '', signal) }
-export async function recoverExternalEvidencePlan(plan: ExternalEvidencePlan, signal = getCeoCancellationSignal()): Promise<ExternalEvidenceExecution> { return executeOnce({ ...plan, maxSearchQueries: Math.min(plan.maxSearchQueries, 4), maxPageReads: Math.min(plan.maxPageReads, 3) }, 'official primary source filing', signal) }
+export async function recoverExternalEvidencePlan(plan: ExternalEvidencePlan, signal = getCeoCancellationSignal()): Promise<ExternalEvidenceExecution> {
+  const equityRecovery = plan.domain === 'public_equity' || plan.profile === 'public_equity'
+  if (!equityRecovery) {
+    return executeOnce({ ...plan, maxSearchQueries: Math.min(plan.maxSearchQueries, 4), maxPageReads: Math.min(plan.maxPageReads, 3) }, 'official primary source filing', signal)
+  }
+
+  // Equity recovery must acquire fresh evidence rather than asking another model to rewrite the same
+  // unsupported answer. Preserve market/financial/risk coverage first, add targeted recent-news queries,
+  // then retain filings/comparison within a bounded search budget.
+  const tickers = [...new Set(plan.queries.map((query) => query.ticker).filter((ticker): ticker is string => Boolean(ticker)))]
+  const newsQueries: EvidenceQuery[] = tickers.map((ticker) => ({
+    id: `${ticker.toLowerCase()}-news-recovery`,
+    ticker,
+    purpose: 'news',
+    sourcePreference: 'web',
+    recencyDays: 14,
+    query: `${ticker} latest news recent developments company update earnings guidance`,
+  }))
+  const broad = plan.queries.filter((query) => query.purpose === 'market' || query.purpose === 'financials' || query.purpose === 'risks')
+  const durable = plan.queries.filter((query) => query.purpose === 'filing' || query.purpose === 'comparison')
+  const recoveryQueries = [...broad, ...newsQueries, ...durable]
+  return executeOnce({
+    ...plan,
+    profile: 'public_equity',
+    evidenceClass: 'external_web',
+    queries: recoveryQueries,
+    maxSearchQueries: Math.min(recoveryQueries.length, 16),
+    maxPageReads: Math.min(Math.max(plan.maxPageReads, 4), 6),
+  }, '', signal)
+}

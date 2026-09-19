@@ -4,6 +4,7 @@ import { classifyCeoSelfReflection, type SelfReflectionClassification } from './
 import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
+import { assertCeoEvidenceContractInvariant, normalizeCeoEvidenceContract } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
@@ -201,7 +202,11 @@ function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoI
   if (context.intentHint === 'action') return 'tool_action'
   return undefined
 }
-function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision { return input }
+function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision {
+  const executionContract = normalizeCeoEvidenceContract(input.executionContract)
+  assertCeoEvidenceContractInvariant(executionContract)
+  return { ...input, executionContract }
+}
 
 const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
 // Re-audited (2026-09-13): the original whole-message-anchored OBJECTIVE_CONFIRMATION_RE required the
