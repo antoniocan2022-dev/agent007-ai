@@ -163,7 +163,7 @@ export interface ToolExecutionVerificationSummary {
 }
 
 export function summarizeToolExecutionVerification(
-  steps: readonly Array<{
+  steps: ReadonlyArray<{
     toolName?: string
     toolResult?: { ok: boolean }
     verification?: Pick<ToolVerificationResult, 'verified'>
