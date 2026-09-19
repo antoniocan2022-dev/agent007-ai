@@ -11,6 +11,7 @@ import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { buildCeoSystemPrompt } from '@/lib/ceo-system-prompt'
+import { persistCeoAssistantMessage } from '@/lib/ceo-response-persistence'
 
 // Phase 3b — scheduled requests now use the same ACT/RESPOND boundary as interactive requests.
 // runOrchestrator returns execution evidence only; this module invokes the canonical CEO lifecycle,
@@ -39,11 +40,23 @@ async function loadScheduledConversationRows(conversationId: string): Promise<Pe
 
 async function executeScheduledRun(conversationId: string, objective: string): Promise<Awaited<ReturnType<typeof runOrchestrator>>> {
   // The scheduler owns the user-turn record because the ACT engine no longer mutates conversation history.
-  try {
-    await db.message.create({ data: { conversationId, role: 'user', content: objective } })
-  } catch (error: any) {
-    console.warn('[schedules/tick] Scheduled user-message persistence failed:', error?.message?.slice(0, 120))
-  }
+  const capturedTurnSequence = await db.$transaction(async (tx) => {
+    const updatedConversation = await tx.conversation.update({
+      where: { id: conversationId },
+      data: { revision: { increment: 1 } },
+      select: { revision: true },
+    })
+    await tx.message.create({
+      data: {
+        conversationId,
+        role: 'user',
+        content: objective,
+        turnSequence: updatedConversation.revision,
+        turnStatus: 'closed',
+      },
+    })
+    return updatedConversation.revision
+  })
 
   const result = await runOrchestrator({
     conversationId,
@@ -132,7 +145,12 @@ async function executeScheduledRun(conversationId: string, objective: string): P
 
   const provenance = synthesis.quality.finalResponseProvenance
   if (!provenance) throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
-  await db.message.create({ data: { conversationId, role: 'assistant', content: synthesis.content } })
+  await persistCeoAssistantMessage({
+    conversationId,
+    content: synthesis.content,
+    provenance,
+    capturedTurnSequence,
+  })
   await notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
   return result
 }
