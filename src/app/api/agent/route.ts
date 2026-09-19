@@ -42,7 +42,8 @@ import { listActiveMissionsDB } from '@/lib/active-missions-db'
 import { extractVentureId } from '@/lib/ceo-venture-state'
 import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
-import { persistCeoAssistantMessage, updateCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker, CeoResponseSupersededError } from '@/lib/ceo-response-persistence'
+import { persistCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker, CeoResponseSupersededError } from '@/lib/ceo-response-persistence'
+import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
 
@@ -298,7 +299,21 @@ export async function POST(req: NextRequest) {
           const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
           const baseOperationalContext = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: operationalModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const operationalStartedAt = Date.now()
-          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
+          // Phase 3a+ of the CEO Conversation Kernel migration (making the orchestrator
+          // execution-only, 2026-09-19): a fresh external re-audit of PR #174 correctly found that
+          // Phase 3a stopped the orchestrator's raw narrative from being PERSISTED or NOTIFIED on as
+          // the final answer, but left it still STREAMED to the user as live 'token' SSE events --
+          // chat-store.ts appends those to the visible assistant message in real time, then the
+          // governed 'answer' event this branch emits later (via tryOperationalDirectResponse's PASS
+          // or the full-synthesis fallback) replaces that content wholesale. That is exactly the
+          // "orchestrator draft -> streamed to user -> CEO final response" pattern Option 3 exists to
+          // eliminate: the user still sees an unvetted draft before governance has had its say, even
+          // though what gets persisted and notified on is now correct. Every other orchestrator event
+          // (tool_call, tool_result, subagent_dispatch, thought, heartbeat, manage_action, ...) still
+          // streams live progress normally -- only its own answer-text tokens are withheld here, at
+          // the call site, without touching orchestrator.ts's loop/prompt/parsing at all.
+          const emitExecutionOnly: OrchestratorEventEmit = async (event, data) => { if (event === 'token') return; await emit(event, data) }
+          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit: emitExecutionOnly, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
           const operationalEvidence = result.finalAnswer.slice(0, 24000)
           console.log('[api/agent] operational execution telemetry', JSON.stringify({ requestId, completedSteps: result.steps.length, toolSteps: result.steps.filter((step) => Boolean(step.toolName)).length }))
           // Stage 1b of the CEO Conversation Kernel migration (2026-09-18): before paying for a
@@ -334,22 +349,27 @@ export async function POST(req: NextRequest) {
           }
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
-          const persistedAssistantMessageId = result.persistedAssistantMessageId
-          // Recommendation 2 (optimistic revision-sequencing): the orchestrator's real actions already
-          // ran by this point (that is not undone -- cooperative cancellation mid-execution is out of
-          // scope here), but the CEO synthesis text that reports on them can still be stale if a newer
-          // user turn arrived while it was being generated. The staleness check and the write happen
-          // inside one transaction (updateCeoAssistantMessage), closing the race window a separate
-          // read-then-write would leave open. A stale synthesis is never written over the orchestrator's
-          // own record of what it did, and is never broadcast as the current answer.
+          // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
+          // 2026-09-19): runOrchestrator no longer persists a placeholder assistant message itself (see
+          // its own header comment) -- this branch now CREATEs the real, governed final message exactly
+          // like the ceo_lifecycle branch above does, via the same persistCeoAssistantMessage helper,
+          // instead of UPDATEing a row the orchestrator had already written with its raw, ungoverned
+          // narrative. The staleness check and the write still happen inside one transaction
+          // (persistCeoAssistantMessage), closing the same race window a separate read-then-write would
+          // leave open -- a stale synthesis is still never added to the visible transcript.
+          let persistedAssistantMessageId: string | null = null
           let responseSuperseded = false
           const synthesisProvenance = synthesis.quality.finalResponseProvenance
           if (synthesisProvenance) {
-            try { await updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, content: synthesis.content, provenance: synthesisProvenance, capturedTurnSequence: myTurnSequence, conversationId }) } catch (persistErr: any) {
+            try { persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: synthesis.content, provenance: synthesisProvenance, capturedTurnSequence: myTurnSequence }) } catch (persistErr: any) {
               if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: synthesis.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
-              else { console.warn('[api/agent] Operational synthesis history update failed:', persistErr?.message?.slice(0, 150)); throw persistErr }
+              else { console.warn('[api/agent] Operational synthesis history persistence failed:', persistErr?.message?.slice(0, 150)); throw persistErr }
             }
           } else throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
+          // Phase 3: fires from the real, governed final content once persistence has actually
+          // succeeded -- not from the orchestrator's raw narrative, and not on a superseded write that
+          // never reached the visible transcript. See mission-notifications.ts's own header comment.
+          if (!responseSuperseded) notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
           streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, superseded: responseSuperseded }))
           if (responseSuperseded) {

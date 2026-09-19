@@ -42,8 +42,12 @@ has('tests/ceo-evidence-golden.test.ts','250 million dollars','Stage 5 quantitat
 // Stage 6 — operational lifecycle integration.
 has('src/app/api/agent/route.ts','runCeoCognitiveLifecycle','Stage 6 operational execution is not fed back into the CEO lifecycle.')
 has('src/app/api/agent/route.ts','const operationalEvidence','Stage 6 operational evidence envelope missing.')
-has('src/app/api/agent/route.ts','updateCeoAssistantMessage','Stage 6 synthesis does not update canonical persisted history.')
-has('src/lib/ceo-response-persistence.ts','tx.message.update','Stage 6 canonical persistence helper does not write to the Message table.')
+// Phase 3 (making the orchestrator execution-only, 2026-09-19): the operational branch used to
+// persist its synthesis via a CREATE-placeholder-then-updateCeoAssistantMessage(tx.message.update)
+// pair; it now calls the same atomic persistCeoAssistantMessage(tx.message.create) the ceo_lifecycle
+// branch uses, so the update-path helper was deleted as dead code. Assert the replacement pattern.
+has('src/app/api/agent/route.ts','persistCeoAssistantMessage','Stage 6 synthesis does not update canonical persisted history.')
+has('src/lib/ceo-response-persistence.ts','tx.message.create','Stage 6 canonical persistence helper does not write to the Message table.')
 
 // Stage 7 — recovery/abstention separation.
 has('src/lib/ceo-evidence-executor.ts','recoverExternalEvidencePlan','Stage 7 evidence recovery path missing.')

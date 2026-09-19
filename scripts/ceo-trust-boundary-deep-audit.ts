@@ -55,7 +55,12 @@ if (contract.includes('decisionId:') && !contract.includes('candidate.contentHas
 requireText(finalizer, 'src/lib/ceo-response-finalizer.ts', ['finalResponseHash', 'ceo-final-', 'assertFinalResponseInvariant'], 'Final response identity')
 requireText(persistence, 'src/lib/ceo-response-persistence.ts', ['$transaction', 'CEO_RESPONSE_PERSISTENCE_HASH_MISMATCH', 'CEO_RESPONSE_PERSISTENCE_ID_MISMATCH', 'finalResponseHash', 'finalizationId'], 'Persistence identity')
 if (route.includes('persistCeoAssistantMessage({ conversationId, content: response.content, provenance')) requireText(route, 'src/app/api/agent/route.ts', ['throw persistErr'], 'CEO persistence fail-closed')
-if (route.includes('updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId')) requireText(route, 'src/app/api/agent/route.ts', ['throw persistErr'], 'Operational synthesis persistence fail-closed')
+// Phase 3 (making the orchestrator execution-only, 2026-09-19): the operational branch's synthesis
+// used to persist via updateCeoAssistantMessage({ messageId: result.persistedAssistantMessageId, ... });
+// it now calls persistCeoAssistantMessage({ conversationId, content: synthesis.content, ... }) instead,
+// the same atomic CREATE helper the CEO-lane branch above uses. Match the current call signature so this
+// fail-closed check stays live instead of silently matching nothing.
+if (route.includes('persistCeoAssistantMessage({ conversationId, content: synthesis.content, provenance')) requireText(route, 'src/app/api/agent/route.ts', ['throw persistErr'], 'Operational synthesis persistence fail-closed')
 
 // 4. PROJECT TRUSTED CONTEXT
 requireText(behavioral, 'src/lib/ceo-behavioral-policy.ts', ['safeConversationRows'], 'Trusted conversation context')

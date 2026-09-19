@@ -40,19 +40,6 @@ export async function persistCeoAssistantMessage(input: CeoAssistantPersistenceI
   return message.id
 }
 
-export async function updateCeoAssistantMessage(input: { messageId: string; content: string; provenance: FinalResponseProvenance; capturedTurnSequence: number; conversationId: string }): Promise<void> {
-  const content = input.content.trim()
-  if (!content) throw new Error('CEO_RESPONSE_PERSISTENCE_EMPTY_CONTENT')
-  await db.$transaction(async (tx) => {
-    const conversation = await tx.conversation.findUnique({ where: { id: input.conversationId }, select: { revision: true } })
-    if (conversation && conversation.revision > input.capturedTurnSequence) throw new CeoResponseSupersededError(conversation.revision)
-    const existing = await tx.message.findUnique({ where: { id: input.messageId }, select: { role: true } })
-    if (!existing || existing.role !== 'assistant') throw new Error('CEO_RESPONSE_PERSISTENCE_ROLE_MISMATCH')
-    await tx.message.update({ where: { id: input.messageId }, data: { content } })
-    await tx.auditLog.create({ data: { action: 'ceo_response_finalized', entity: 'Message', entityId: input.messageId, description: 'Canonical CEO response identity persisted atomically with assistant message update.', metadata: lineageMetadata({ conversationId: input.conversationId, content, provenance: input.provenance }) } })
-  })
-}
-
 // Recommendation 2 (optimistic revision-sequencing): a response that finished computing after a
 // newer user turn was already accepted for the same conversation is stale relative to the "current
 // request" the CEO is supposed to be authoritative for. It is never written into the visible
