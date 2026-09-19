@@ -38,8 +38,11 @@ else {
   const billingRegexIndex = controlPlane.search(/billing\|payment\|credit/)
   if (status413Index === -1) violations.push('classifyProviderError no longer has an explicit status===413 check')
   else if (billingRegexIndex !== -1 && status413Index > billingRegexIndex) violations.push('classifyProviderError checks the billing regex before status===413 -- a 413 could be misclassified as BILLING again')
-  const billingLineMatch = controlPlane.match(/billing\|payment\|credit[^\n]*/)
-  if (billingLineMatch && /quota exceeded/i.test(billingLineMatch[0])) violations.push('BILLING regex once again contains the bare "quota exceeded" phrase -- this durably blocks a provider for 24h on what may just be a transient rate limit (see provider-gateway-phase-a.test.ts)')
+  // Whole line, not just the text from the "billing|payment|credit" match point onward -- a
+  // regex edit that PREPENDS "quota exceeded|" ahead of "billing|payment|credit" on the same
+  // line would otherwise put the phrase before the match point and evade a suffix-only check.
+  const billingLine = billingRegexIndex !== -1 ? controlPlane.slice(controlPlane.lastIndexOf('\n', billingRegexIndex) + 1, controlPlane.indexOf('\n', billingRegexIndex)) : ''
+  if (/quota exceeded/i.test(billingLine)) violations.push('BILLING regex once again contains the bare "quota exceeded" phrase -- this durably blocks a provider for 24h on what may just be a transient rate limit (see provider-gateway-phase-a.test.ts)')
 }
 
 // ── Invariant: PROVIDER_FAILURE_POLICY's shape for the kinds Phase A/B specifically reasoned
@@ -81,7 +84,10 @@ else if (!/NODE_ENV === 'test' \|\| process\.env\.CI === 'true'/.test(standing))
 const bridge = byPath.get('src/lib/agent-canonical-bridge.ts')
 if (!bridge) violations.push('src/lib/agent-canonical-bridge.ts is missing entirely')
 else {
-  if (/\bexport\s+async\s+function\s+callLlmWithRetry\b/.test(bridge)) violations.push('agent-canonical-bridge.ts must not re-declare callLlmWithRetry locally -- it shadows the export * from ./agent re-export, recreating the two-functions-same-name ambiguity Phase B fixed')
+  // Any local binding of this exact name -- function declaration, const/let arrow function,
+  // sync or async -- shadows the `export * from './agent'` re-export the same way the original
+  // bug did; the fix wasn't about the `async function` syntax specifically.
+  if (/\bfunction\s+callLlmWithRetry\b|\b(?:const|let|var)\s+callLlmWithRetry\s*=/.test(bridge)) violations.push('agent-canonical-bridge.ts must not re-declare callLlmWithRetry locally -- it shadows the export * from ./agent re-export, recreating the two-functions-same-name ambiguity Phase B fixed')
   if (!/export\s+async\s+function\s+runOwnerAwareLlm\b/.test(bridge)) violations.push('agent-canonical-bridge.ts must export its owner-aware fork as runOwnerAwareLlm')
 }
 
@@ -90,7 +96,9 @@ else {
 // call site still doing this, where it silently did nothing while mislabeling responses with the
 // wrong provider's name. Request-scoped providerOrder/excludeProviders are the real mechanism. ──
 for (const [path, content] of contents) {
-  if (/process\.env\.LLM_PROVIDER_ORDER\s*=/.test(content)) violations.push(`${path} mutates process.env.LLM_PROVIDER_ORDER -- this is never read by the canonical router and is a known-dead, race-prone pattern Phase C removed; use runCanonicalLlm's request-scoped providerOrder/excludeProviders instead`)
+  // (?!=) excludes ==/=== comparisons (a read, not a mutation) from matching -- only a genuine
+  // single-= assignment is the pattern this guards against.
+  if (/process\.env\.LLM_PROVIDER_ORDER\s*=(?!=)/.test(content)) violations.push(`${path} mutates process.env.LLM_PROVIDER_ORDER -- this is never read by the canonical router and is a known-dead, race-prone pattern Phase C removed; use runCanonicalLlm's request-scoped providerOrder/excludeProviders instead`)
 }
 
 // ── Invariant: canonical-provider-compat.ts stays deleted (confirmed unimported anywhere when

@@ -186,8 +186,16 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
     report += `2. IDENTIFY DISAGREEMENTS — Where do providers differ? Investigate why.\n`
     report += `3. SYNTHESIZE — Combine the best insights from each into your final answer.\n`
     report += `4. CITATION — When you use a specific insight, mention which provider suggested it.\n\n`
-    report += `The fastest provider was: ${succeeded.sort((a, b) => a.elapsedMs - b.elapsedMs)[0].provider} (${succeeded[0].elapsedMs}ms)\n`
-    report += `The longest response was from: ${succeeded.sort((a, b) => b.content.length - a.content.length)[0].provider} (${succeeded[0].content.length} chars)\n`
+    // Fresh-audit fix: this used to re-sort `succeeded` in place (twice, with two different
+    // comparators) and read `succeeded[0]` back out afterward -- correct only because each
+    // sort's mutation happened to land immediately before the read that depended on it. That's a
+    // fragile hidden coupling between statement order and Array.prototype.sort's in-place
+    // mutation, not an actual guarantee; reduce() states the intent directly and doesn't depend
+    // on evaluation order between unrelated-looking expressions.
+    const fastest = succeeded.reduce((min, r) => (r.elapsedMs < min.elapsedMs ? r : min))
+    const longest = succeeded.reduce((max, r) => (r.content.length > max.content.length ? r : max))
+    report += `The fastest provider was: ${fastest.provider} (${fastest.elapsedMs}ms)\n`
+    report += `The longest response was from: ${longest.provider} (${longest.content.length} chars)\n`
   }
 
   return {

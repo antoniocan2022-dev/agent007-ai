@@ -46,6 +46,32 @@ describe('toolMultiProviderCompare: each requested provider is actually the one 
     expect(groqSection).not.toContain('Mistral says hello.')
   })
 
+  test('consensus analysis correctly attributes the fastest provider and the longest response, even when they are different providers', async () => {
+    // Fresh-audit fix: the report used to compute these two facts by re-sorting the same
+    // `succeeded` array in place with two different comparators and reading `[0]` back out --
+    // correct only by relying on each sort's mutation landing immediately before the read that
+    // used it. Three providers with genuinely distinct speed and length, where the fastest is
+    // NOT the one with the longest response, exercises that this is computed correctly rather
+    // than by accident.
+    process.env.GROQ_API_KEY = 'test-groq'
+    process.env.MISTRAL_API_KEY = 'test-mistral'
+    process.env.CEREBRAS_API_KEY = 'test-cerebras'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('groq.com') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('groq.com') && init?.method === 'POST') { await new Promise((r) => setTimeout(r, 5)); return jsonResponse({ choices: [{ message: { content: 'short' } }] }) }
+      if (url.includes('mistral.ai') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'mistral-large-latest' }] })
+      if (url.includes('mistral.ai') && init?.method === 'POST') { await new Promise((r) => setTimeout(r, 40)); return jsonResponse({ choices: [{ message: { content: 'x'.repeat(500) } }] }) }
+      if (url.includes('cerebras.ai') && init?.method === 'GET') return jsonResponse({ data: [{ id: 'gpt-oss-120b' }] })
+      if (url.includes('cerebras.ai') && init?.method === 'POST') { await new Promise((r) => setTimeout(r, 20)); return jsonResponse({ choices: [{ message: { content: 'medium length response' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const result = await toolMultiProviderCompare({ prompt: 'Say hello', providers: ['groq', 'mistral', 'cerebras'] })
+    expect(result.ok).toBe(true)
+    expect(result.result).toContain('The fastest provider was: groq')
+    expect(result.result).toContain('The longest response was from: mistral')
+  })
+
   test('a requested provider that is unavailable (no credentials configured) is never silently answered by a different provider under its name', async () => {
     process.env.GROQ_API_KEY = 'test-groq'
     // mistral is deliberately left unconfigured
