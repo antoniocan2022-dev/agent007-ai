@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
   const executionContract = preRoute.executionContract
   // Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issues 1 and 8: the
   // single "DECIDE" authority for this turn -- built exactly once, here, from the same preRoute and
-  // decisionContract every downstream consumer already uses. decisionPlan.decisionPlan is threaded into
+  // decisionContract every downstream consumer already uses. turnDecision.decisionPlan is threaded into
   // every runCeoCognitiveLifecycle/tryOperationalDirectResponse call below instead of letting each one
   // build its own, so buildCeoDecisionPlan runs at most once per turn by construction, not merely
   // because Stage 1b's branching happens to make those call sites mutually exclusive.
