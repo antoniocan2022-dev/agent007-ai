@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { isKnownActionTool, verifyToolAction } from '@/lib/tool-action-verification'
+import { isKnownActionTool, isResearchTool, summarizeToolExecutionVerification, verifyToolAction } from '@/lib/tool-action-verification'
 
-// Stage 4 of the CEO Conversation Kernel migration (2026-09-18): tool-action-verification.ts
-// (UPGRADE #124) had no dedicated test file at all until this stage wired its output into the CEO's
-// actual evidence pipeline (ceo-operational-direct-response.ts) -- previously verifyToolAction's
-// result only ever fed a UI badge. isKnownActionTool is the new export this stage adds, letting a
-// caller distinguish "genuinely unverified action-tool call" from "instructional tool, or a tool this
+// Stage 4 of the CEO Conversation Kernel migration (2026-09-18): verifyToolAction now feeds the CEO
+// execution handoff, not only a UI badge. isKnownActionTool distinguishes genuinely consequential
+// action tools from instructional/research tools, and the execution summary below is the shared
+// authority for interactive and scheduled RESPOND lanes.
+// // caller distinguish "genuinely unverified action-tool call" from "instructional tool, or a tool this
 // module never expected to produce an artifact" -- both of which also report verified:false/
 // artifactType:'none' from verifyToolAction but mean something different.
 describe('tool-action-verification: isKnownActionTool', () => {
@@ -27,6 +27,9 @@ describe('tool-action-verification: isKnownActionTool', () => {
     expect(isKnownActionTool('http_fetch')).toBe(false)
     expect(isKnownActionTool('web_search')).toBe(false)
     expect(isKnownActionTool('page_reader')).toBe(false)
+    expect(isResearchTool('http_fetch')).toBe(true)
+    expect(isResearchTool('web_search')).toBe(true)
+    expect(isResearchTool('page_reader')).toBe(true)
   })
 })
 
