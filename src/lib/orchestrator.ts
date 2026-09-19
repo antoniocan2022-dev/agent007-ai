@@ -53,7 +53,7 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 // (used to detect built-in ids and reject delete on them).
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 import { assertDelegationAllowed, authorityLevelFor } from './architecture-control-plane'
-import { buildOrchestratorExecutionSummary, type OrchestratorCompletionReason, type OrchestratorExecutionStatus } from './orchestrator-execution-contract'
+import { buildOrchestratorExecutionSummary, type OrchestratorCompletionReason, type OrchestratorExecutionResult, type OrchestratorExecutionStatus } from './orchestrator-execution-contract'
 
 export const MAX_ITERATIONS = 50  // UPGRADE #68 — was 25, raised to 50 for max autonomy
 const MAX_DISPATCHES = 15
@@ -286,7 +286,7 @@ export interface OrchestratorRunOptions {
   emit: OrchestratorEventEmit
 }
 
-export interface OrchestratorRunResult {
+export interface OrchestratorRunResult extends OrchestratorExecutionResult {
   executionSummary: string
   executionStatus: OrchestratorExecutionStatus
   completionReason: OrchestratorCompletionReason
