@@ -108,7 +108,7 @@ function highConfidenceReferenceForObjective(objective: string, resolvedReferenc
   const lower = objective.toLowerCase()
   return resolvedReferences.find((reference) => !reference.ambiguous && reference.confidence >= 0.7 && Boolean(reference.resolvedText?.trim()) && lower.includes(reference.phrase.toLowerCase())) ?? null
 }
-function buildNaturalRecoveryResponse(input: { objective: string; action?: ResponseAction; priorConversation?: readonly PersistedConversationRow[]; recoveredContext?: string; isSuppliedByCaller?: boolean; intent?: CeoIntent; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[] }): string | null {
+function buildNaturalRecoveryResponse(input: { objective: string; action?: ResponseAction; priorConversation?: readonly PersistedConversationRow[]; recoveredContext?: string; isSuppliedByCaller?: boolean; intent?: CeoIntent; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; recoveredExternalEvidence?: boolean }): string | null {
   const objective = input.objective.trim(); if (!objective) return null
   const action = input.action ?? 'answer'; const intent = input.intent ?? 'conversation'
   const priorUsers = safeConversationRows(input.priorConversation ?? []).filter((row) => row.role === 'user').map((row) => row.content.trim()).filter(Boolean)
@@ -149,6 +149,9 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   }
   if (action === 'explain') return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
   if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(grounding) || /compliance/i.test(priorUsers.join(' '))) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd put compliance first, then build the operations foundation around it, and add new integrations after that.`; if (/revenue/i.test(lower)) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd treat revenue as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure it.` }
+  if (input.recoveredExternalEvidence && intent === 'research' && action === 'answer' && grounding) {
+    return `I recovered fresh external evidence for this request, but I couldn't complete the final synthesis reliably. I won't turn the raw evidence into an unsupported conclusion.\n\n${grounding.slice(0, 8000)}`
+  }
   if (action === 'answer' && !isContinuityRecoveryRequest(objective)) return `I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`
   if (grounding && input.isSuppliedByCaller) return `I couldn't complete the normal reasoning path, but I can safely preserve the supplied context without presenting it as a verified conclusion.\n\n${grounding.slice(0, 4000)}`
   if (isContinuityRecoveryRequest(objective)) {
@@ -158,7 +161,7 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   }
   return null
 }
-export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; operation?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; partnerIntelligence?: PartnerIntelligenceSummary; executiveState?: ExecutiveBusinessState; leadershipLedger?: readonly LeaderPerformanceRecord[]; strategicHorizon?: StrategicHorizonView }): Promise<DegradedResponse> {
+export async function buildCeoDegradedResponse(input: { objective: string; intent: CeoIntent; responseAction?: ResponseAction; selfReflectionKind?: SelfReflectionKind; reason: string; failureReason?: CeoFailureReason; missionId?: string; contextualEvidence?: string; priorConversation?: readonly PersistedConversationRow[]; recall?: MemoryRecall; domain?: string; operation?: string; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; recoveredExternalEvidence?: boolean; partnerIntelligence?: PartnerIntelligenceSummary; executiveState?: ExecutiveBusinessState; leadershipLedger?: readonly LeaderPerformanceRecord[]; strategicHorizon?: StrategicHorizonView }): Promise<DegradedResponse> {
   const failureReason = input.failureReason ?? inferFailureReason(input.reason); if (requiresDecisionGradeAbstention({ objective: input.objective, failureReason, domain: input.domain, operation: input.operation })) return buildRiskAbstention(input.objective, input.reason, failureReason)
   // Deep-audit fix (2026-09-13): this used to fire only for intent 'conversation'/'opinion' -- so the
   // GEOS/MIND-class research-intent bug and any future analysis/decision/self-assessment-intent failure
