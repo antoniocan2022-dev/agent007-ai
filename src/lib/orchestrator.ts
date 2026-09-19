@@ -673,8 +673,9 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
         take: 10,
       })
       for (const p of pending) {
+        let attrs: Record<string, string> = {}
         try {
-          const attrs = JSON.parse(p.attrs) as Record<string, string>
+          attrs = JSON.parse(p.attrs) as Record<string, string>
           await emit('manage_action', {
             stepId: `replay_${p.id}`,
             action: p.action,
