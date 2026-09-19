@@ -41,7 +41,6 @@ import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import {
   parseAssistant,
   buildHistoryMessages,
-  chunkText,
   callLlmWithRetry,
   THOUGHT_RE,
   TOOL_RE,
@@ -54,10 +53,13 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 // (used to detect built-in ids and reject delete on them).
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 import { assertDelegationAllowed, authorityLevelFor } from './architecture-control-plane'
+import { buildOrchestratorExecutionSummary, type OrchestratorCompletionReason, type OrchestratorExecutionStatus } from './orchestrator-execution-contract'
 
 export const MAX_ITERATIONS = 50  // UPGRADE #68 — was 25, raised to 50 for max autonomy
 const MAX_DISPATCHES = 15
 const MAX_MANAGE_ACTIONS = 10
+
+const ORCHESTRATOR_EXECUTION_ONLY_REMINDER = '[SYSTEM] EXECUTION-ONLY MODE: You are ACT, not RESPOND. Never write a user-facing answer. Emit exactly one execution action (<tool>, <dispatch>, <manage>) when more work is needed, or emit <done/> when execution is complete. Do not emit markdown, explanations, or final-answer prose. Your tool results are internal evidence for the CEO response layer.'
 
 // Re-export the canonical action list so callers can import it from either
 // location. The single source of truth lives in ./manage-actions to avoid a
@@ -131,9 +133,11 @@ function autoConvertPseudoToolCalls(content: string): string {
 /* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
  * Captures the full tag string; attribute parsing happens in parseManageTag. */
 const MANAGE_RE = /<manage\s+[^>]*?\/>/gi
+const DONE_RE = /<done\s*(?:\/>|>\s*<\/done>)/i
 
 interface OrchestratorParsed {
   thought?: string
+  done?: boolean
   tool?: { name: string; args: any }
   dispatch?: { agentId: string; task: string }
   manage?: { action: string; attrs: Record<string, string>; raw: string }
@@ -150,8 +154,9 @@ function parseOrchestrator(content: string): OrchestratorParsed {
   const dispatchSubagentMatch = content.match(DISPATCH_SUBAGENT_RE)
   const toolMatch = content.match(TOOL_RE)
   const manageMatch = content.match(MANAGE_RE)
+  const doneMatch = content.match(DONE_RE)
 
-  // Priority: dispatch > dispatch_subagent > manage > tool
+  // Priority: dispatch > dispatch_subagent > manage > tool > done
   if (dispatchMatch) {
     const agentId = dispatchMatch[1].trim().toLowerCase()
     const task = dispatchMatch[2].trim()
@@ -226,6 +231,7 @@ function parseOrchestrator(content: string): OrchestratorParsed {
     }
     return { thought, tool: { name, args }, textAfter: '', raw: content }
   }
+  if (doneMatch) return { thought, done: true, textAfter: '', raw: content }
   return { thought, textAfter: content.replace(THOUGHT_RE, '').trim(), raw: content }
 }
 
@@ -251,7 +257,7 @@ ORCHESTRATION:
 You orchestrate 20 subagents. For multi-step tasks, dispatch leaders:
 <dispatch agent="scout" task="find 3 trending AI niches"/>
 <dispatch_subagent id="aurora">Design a content calendar</dispatch_subagent>
-Max 3 dispatches per turn, then synthesize into a final answer.
+Max 3 dispatches per turn, then stop execution with <done/>. Never write a user-facing final answer, summary, markdown report, or notification message from the orchestrator. The CEO cognitive lifecycle is the only RESPOND authority.
 
 TEAM: SCOUT (research) | AURORA (creation) | VERTEX (SaaS) | QUANTUM (revenue)
 ECHO (QA) | FORGE (build) | PULSE (monitor) | QUILL (content) | PRISM (design)
@@ -281,7 +287,9 @@ export interface OrchestratorRunOptions {
 }
 
 export interface OrchestratorRunResult {
-  finalAnswer: string
+  executionSummary: string
+  executionStatus: OrchestratorExecutionStatus
+  completionReason: OrchestratorCompletionReason
   steps: Array<{
     id: string
     thought?: string
@@ -544,7 +552,9 @@ async function runFastPathManage(opts: {
   // creates the real assistant message itself for every OrchestratorRunResult, fast-path ones
   // included, so persisting one here too would leave two rows for the same turn.
   return {
-    finalAnswer,
+    executionSummary: buildOrchestratorExecutionSummary({ executionStatus: result.ok ? 'completed' : 'failed', completionReason: 'fast_path', toolSteps: [{ toolName: 'manage_action', toolResult: { ok: result.ok, result: result.message } }] }),
+    executionStatus: result.ok ? 'completed' : 'failed',
+    completionReason: 'fast_path',
     steps: [],
   }
 }
