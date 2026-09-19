@@ -22,9 +22,15 @@ if (!contract.includes('CeoResponseCandidate') || !contract.includes('CeoQuality
 if (!lifecycle.includes('composeCeoResponse') || !lifecycle.includes('responseAction: request.decisionContract?.responseAction')) failures.push('Lifecycle does not preserve the authoritative response action through finalization')
 if (!persistence.includes('$transaction') || !persistence.includes('finalResponseHash') || !persistence.includes('finalizationId') || !persistence.includes("action: 'ceo_response_finalized'")) failures.push('Transactional persistence lineage contract is incomplete')
 if (!db.includes('export const db')) failures.push('Canonical Prisma client surface missing')
-for (const phrase of ['safeConversationRows','persistCeoAssistantMessage','updateCeoAssistantMessage','projectCeoPublicSsePayload','resolveCeoPublicSseEvent',"sse('answer', { content: response.content", "sse('answer', { content: synthesis.content"]) if (!route.includes(phrase)) failures.push(`Route missing canonical boundary/path: ${phrase}`)
+for (const phrase of ['safeConversationRows','persistCeoAssistantMessage','projectCeoPublicSsePayload','resolveCeoPublicSseEvent',"sse('answer', { content: response.content", "sse('answer', { content: synthesis.content"]) if (!route.includes(phrase)) failures.push(`Route missing canonical boundary/path: ${phrase}`)
 if (route.includes("role: 'assistant', content: response.content")) failures.push('Route still has a direct CEO assistant persistence path bypassing transactional provenance')
 if (route.includes("role: 'assistant', content: synthesis.content")) failures.push('Route still has a direct operational assistant persistence path bypassing transactional provenance')
+// Phase 3 (making the orchestrator execution-only, 2026-09-19): the operational branch used to
+// persist via a CREATE-placeholder-then-updateCeoAssistantMessage(UPDATE) pair; it now calls the same
+// atomic persistCeoAssistantMessage CREATE the ceo_lifecycle branch uses, so updateCeoAssistantMessage
+// was deleted as dead code. Assert the replacement pattern instead of the retired helper's name.
+if (route.includes('updateCeoAssistantMessage')) failures.push('Route still references the retired update-path persistence helper (Phase 3 replaced it with a second persistCeoAssistantMessage CREATE)')
+if ((route.match(/persistCeoAssistantMessage\(\{/g) ?? []).length < 2) failures.push('Route no longer persists both the ceo_lifecycle and operational branches via the canonical persistCeoAssistantMessage boundary')
 if (!route.includes('function sse(event: string, data: unknown)') || !route.includes('projectCeoPublicSsePayload(event, data)') || !route.includes('resolveCeoPublicSseEvent(event)')) failures.push('Route does not enforce the canonical public transport projection boundary')
 if (!publicTransport.includes('PUBLIC_FIELDS_BY_EVENT') || !publicTransport.includes('resolveCeoPublicSseEvent')) failures.push('Public transport boundary is incomplete')
 if (!publicTransportTest.includes('projects only explicit public answer fields') || !publicTransportTest.includes('unknown event payloads fail closed')) failures.push('Public transport regression proof is incomplete')
