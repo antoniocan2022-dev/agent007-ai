@@ -49,6 +49,15 @@ export function classifyCeoBehavioralModes(input: { context?: CanonicalConversat
 // array sidesteps that blind spot entirely.
 export const CEO_BEHAVIORAL_MODE_PRIORITY: readonly CeoBehavioralMode[] = ['guardian', 'operator', 'business_partner', 'great_thinker', 'technologist', 'psychological_insight', 'ceo_curiosity', 'friend']
 
+// Fresh-audit finding (Phase 2, 2026-09-19): this pure-priority selector was Stage 3's whole arbitration
+// mechanism when it shipped, and the Stage 3 comment block above still reads that way in isolation. It
+// no longer is: buildCeoBehavioralPolicy (the one real production caller) now goes through the
+// context-weighted selectLeadingCeoBehavioralModeFromSignals below instead. This function stays exported
+// and correct -- it is still what CEO_BEHAVIORAL_MODE_PRIORITY's tie-break order means in isolation, it
+// is the explicit baseline the arbitration tests below compare against to prove the context-weighted
+// selection actually changes outcomes, and the Stage 0 baseline test pins its literal export -- but it is
+// no longer invoked from the production request path. Read the Stage 3 comment above as "the priority
+// order this file establishes," not as "the function the CEO's responses go through today."
 export function selectLeadingCeoBehavioralMode(modes: readonly CeoBehavioralMode[]): CeoBehavioralMode {
   return CEO_BEHAVIORAL_MODE_PRIORITY.find((mode) => modes.includes(mode)) ?? 'friend'
 }
