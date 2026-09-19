@@ -11,10 +11,8 @@
  * Integration points:
  *   1. orchestrator.ts — calls verifyToolAction() after each tool call and persists the result onto
  *      OrchestratorRunResult.steps[].verification.
- *   2. ceo-operational-direct-response.ts (Stage 4 of the CEO Conversation Kernel migration,
- *      2026-09-18) — reads that persisted result via isKnownActionTool() to decide whether a
- *      response can honestly claim evidenceState 'LIVE_VERIFIED' instead of the more conservative
- *      'LIVE_EXECUTED'.
+ *   2. CEO route/lifecycle handoff — reads the persisted result via isKnownActionTool() to distinguish
+ *      a completed external action from an action that only returned ok:true without independent proof.
  *
  * Stage 5 fresh-audit finding (same migration, same day): this header used to also list
  * "quality_scorer_v2 — penalizes responses that rely on unverified actions" and "Dashboard — shows
@@ -145,8 +143,48 @@ const EXPECTED_ARTIFACT_TYPES: Record<string, readonly ToolVerificationResultArt
  * which also report `verified: false`/`verified: true, artifactType: 'none'` from verifyToolAction
  * below but mean something different. See ceo-operational-direct-response.ts's Stage 4 usage.
  */
+export function isResearchTool(toolName: string): boolean {
+  return RESEARCH_TOOLS.has(toolName)
+}
+
 export function isKnownActionTool(toolName: string): boolean {
   return ACTION_TOOLS.has(toolName) && !RESEARCH_TOOLS.has(toolName)
+}
+
+export interface ToolExecutionVerificationSummary {
+  knownActionSteps: number
+  verifiedActionSteps: number
+  unverifiedActionSteps: number
+  failedActionSteps: number
+  researchSteps: number
+  successfulToolSteps: number
+  hasUnverifiedAction: boolean
+  allKnownActionsVerified: boolean
+}
+
+export function summarizeToolExecutionVerification(
+  steps: readonly Array<{
+    toolName?: string
+    toolResult?: { ok: boolean }
+    verification?: Pick<ToolVerificationResult, 'verified'>
+  }>,
+): ToolExecutionVerificationSummary {
+  const knownActions = steps.filter((step) => Boolean(step.toolName) && isKnownActionTool(step.toolName!))
+  const researchSteps = steps.filter((step) => Boolean(step.toolName) && isResearchTool(step.toolName!)).length
+  const failedActionSteps = knownActions.filter((step) => step.toolResult?.ok === false).length
+  const verifiedActionSteps = knownActions.filter((step) => step.toolResult?.ok === true && step.verification?.verified === true).length
+  const unverifiedActionSteps = knownActions.length - verifiedActionSteps
+  const successfulToolSteps = steps.filter((step) => step.toolResult?.ok === true).length
+  return {
+    knownActionSteps: knownActions.length,
+    verifiedActionSteps,
+    unverifiedActionSteps,
+    failedActionSteps,
+    researchSteps,
+    successfulToolSteps,
+    hasUnverifiedAction: failedActionSteps > 0 || unverifiedActionSteps > 0,
+    allKnownActionsVerified: knownActions.length > 0 && failedActionSteps === 0 && unverifiedActionSteps === 0,
+  }
 }
 
 /**
