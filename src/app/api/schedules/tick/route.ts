@@ -6,16 +6,136 @@ import { backgroundFire } from '@/lib/runtime/background-tasks'
 import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
 import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'
-import { composeCeoContext, type PersistedConversationRow } from '@/lib/ceo-context-composer'
+import { composeCeoContext, buildCeoContextModules, type PersistedConversationRow } from '@/lib/ceo-context-composer'
 import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
 import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
-import { buildCeoContextModules } from '@/lib/ceo-context-composer'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { buildCeoSystemPrompt } from '@/lib/ceo-system-prompt'
 
 // Phase 3b — scheduled requests now use the same ACT/RESPOND boundary as interactive requests.
 // runOrchestrator returns execution evidence only; this module invokes the canonical CEO lifecycle,
 // persists its governed final response, and notifies only after that final response is committed.
+
+async function loadScheduledConversationRows(conversationId: string): Promise<PersistedConversationRow[]> {
+  try {
+    const conversation = await db.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        Message: {
+          orderBy: { createdAt: 'asc' },
+          select: { role: true, content: true, createdAt: true },
+        },
+      },
+    })
+    return safeConversationRows((conversation?.Message ?? []).map((row) => ({
+      role: row.role,
+      content: row.content,
+      createdAt: row.createdAt,
+    })))
+  } catch {
+    return []
+  }
+}
+
+async function executeScheduledRun(conversationId: string, objective: string): Promise<Awaited<ReturnType<typeof runOrchestrator>>> {
+  // The scheduler owns the user-turn record because the ACT engine no longer mutates conversation history.
+  try {
+    await db.message.create({ data: { conversationId, role: 'user', content: objective } })
+  } catch (error: any) {
+    console.warn('[schedules/tick] Scheduled user-message persistence failed:', error?.message?.slice(0, 120))
+  }
+
+  const result = await runOrchestrator({
+    conversationId,
+    userMessage: objective,
+    attachments: [],
+    language: 'en',
+    emit: async () => {},
+  })
+
+  const persistedRows = await loadScheduledConversationRows(conversationId)
+  let contextSeed = await composeCeoContext({
+    systemPrompt: buildCeoSystemPrompt(),
+    currentUserMessage: objective,
+    persistedMessages: persistedRows,
+    memories: [],
+  })
+  let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
+  try {
+    semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext)
+  } catch {}
+
+  contextSeed = await composeCeoContext({
+    systemPrompt: buildCeoSystemPrompt(),
+    currentUserMessage: objective,
+    persistedMessages: persistedRows,
+    memories: [],
+    semanticInterpretation,
+    reuseSemanticContext: {
+      selectedMemories: contextSeed.selectedMemories,
+      semanticMemoryKeys: contextSeed.semanticMemoryKeys,
+    },
+  })
+
+  const decisionContract = contextSeed.decisionContract
+  const preRoute = preRouteCeoRequest(contextSeed.messages, 0, contextSeed.canonicalSemanticContext, decisionContract)
+  const turnDecision = buildCeoTurnDecision({
+    messages: contextSeed.messages,
+    preRoute,
+    taskType: preRoute.taskClass,
+    decisionContract,
+  })
+  const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
+  const anyOperationalToolStepFailed = operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
+
+  const finalModules = buildCeoContextModules({
+    intent: preRoute.executionContract.intent,
+    missionRelevant: preRoute.missionRelevant,
+    evidenceClass: preRoute.executionContract.evidenceClass,
+    taskClass: preRoute.taskClass,
+    executionRequirement: preRoute.executionContract.executionRequirement,
+    execution: result.executionSummary,
+  })
+  const composedFinalContext = await composeCeoContext({
+    systemPrompt: buildCeoSystemPrompt(),
+    currentUserMessage: objective,
+    persistedMessages: persistedRows,
+    memories: [],
+    modules: finalModules,
+    semanticInterpretation,
+    reuseSemanticContext: {
+      conversationState: contextSeed.conversationState,
+      canonicalSemanticContext: contextSeed.canonicalSemanticContext,
+      decisionContract: contextSeed.decisionContract,
+      resolvedReferences: contextSeed.resolvedReferences,
+      selectedMemories: contextSeed.selectedMemories,
+      semanticMemoryKeys: contextSeed.semanticMemoryKeys,
+    },
+  })
+
+  const synthesis = await runCeoCognitiveLifecycle({
+    attachmentsCount: 0,
+    messages: composedFinalContext.messages,
+    taskType: preRoute.taskClass,
+    timeoutMs: Math.min(120000, turnDecision.decisionPlan.latencyBudgetMs),
+    contextualEvidence: result.executionSummary,
+    evidenceScope: operationalToolSteps.length > 0 ? 'live_system' : 'internal_state',
+    evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 },
+    externalExecutionSucceeded: !anyOperationalToolStepFailed,
+    priorConversation: persistedRows,
+    relevantOlderConversation: persistedRows,
+    preRoute,
+    decisionPlan: turnDecision.decisionPlan,
+    decisionContract,
+    canonicalContext: composedFinalContext.canonicalSemanticContext,
+  })
+
+  const provenance = synthesis.quality.finalResponseProvenance
+  if (!provenance) throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
+  await db.message.create({ data: { conversationId, role: 'assistant', content: synthesis.content } })
+  await notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
+  return result
+}
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
