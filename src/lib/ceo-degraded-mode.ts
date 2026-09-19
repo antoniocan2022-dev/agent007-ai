@@ -149,6 +149,9 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   }
   if (action === 'explain') return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
   if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(grounding) || /compliance/i.test(priorUsers.join(' '))) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd put compliance first, then build the operations foundation around it, and add new integrations after that.`; if (/revenue/i.test(lower)) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd treat revenue as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure it.` }
+  if ((intent === 'research' || intent === 'analysis') && action === 'answer' && input.isSuppliedByCaller && grounding) {
+    return `I recovered fresh external evidence for this request, but I couldn't complete the final synthesis reliably. I won't turn the raw evidence into an unsupported conclusion.\n\n${grounding.slice(0, 8000)}`
+  }
   if (action === 'answer' && !isContinuityRecoveryRequest(objective)) return `I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`
   if (grounding && input.isSuppliedByCaller) return `I couldn't complete the normal reasoning path, but I can safely preserve the supplied context without presenting it as a verified conclusion.\n\n${grounding.slice(0, 4000)}`
   if (isContinuityRecoveryRequest(objective)) {
