@@ -161,13 +161,23 @@ export function isProviderConfigured(provider: ActiveProviderId): boolean {
 }
 export function getConfiguredProviders(): ActiveProviderId[] { return PROVIDER_ORDER.filter(isProviderConfigured) }
 
+// Deep-audit finding (2026-09-19): the minimum profile.quality a "strict" request (dual-review
+// verification, or a financial/security task) is willing to accept. getGovernedCandidates only
+// used this as a soft ranking nudge -- it never stopped a caller-requested model that falls below
+// it from being honored, so an explicit model override could silently satisfy a dual-review
+// request with e.g. openrouter/free (quality 75). Shared here so resolveGovernedModel can enforce
+// the same bar as a hard gate on explicit requests, not just a preference among auto-selected ones.
+const STRICT_QUALITY_FLOOR = 90
+function isStrictVerification(taskType: TaskType, verification?: VerificationTier): boolean {
+  return verification === 'dual-review' || taskType === 'financial' || taskType === 'security'
+}
 export function getGovernedCandidates(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string[] {
   const required = TASK_CAPABILITIES[taskType]
-  const strict = verification === 'dual-review' || taskType === 'financial' || taskType === 'security'
+  const strict = isStrictVerification(taskType, verification)
   const preferConversational = taskType === 'reasoning'
   return GOVERNED_MODEL_PROFILES.filter((profile) => profile.provider === provider && required.every((capability) => profile.capabilities.includes(capability)))
     .sort((a, b) => {
-      const score = (x: GovernedModelProfile) => x.quality * 0.55 + x.speed * 0.2 + (x.costTier === 1 ? 10 : x.costTier === 2 ? 5 : 0) + (strict && x.quality >= 90 ? 5 : 0) + (preferConversational && x.capabilities.includes('conversational') ? 6 : 0)
+      const score = (x: GovernedModelProfile) => x.quality * 0.55 + x.speed * 0.2 + (x.costTier === 1 ? 10 : x.costTier === 2 ? 5 : 0) + (strict && x.quality >= STRICT_QUALITY_FLOOR ? 5 : 0) + (preferConversational && x.capabilities.includes('conversational') ? 6 : 0)
       return score(b) - score(a)
     }).map((profile) => profile.model)
 }
@@ -250,6 +260,18 @@ export async function resolveGovernedModel(provider: ActiveProviderId, taskType:
   const governed = getGovernedCandidates(provider, taskType, verification)
   if (!governed.length) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: no governed model satisfies task capability requirements`, retryable: false })
   if (requestedModel && !governed.includes(requestedModel)) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: requested model is outside the governed model matrix`, retryable: false })
+  // Deep-audit finding: an explicit requestedModel used to skip quality-tier enforcement entirely
+  // (most sharply for OpenRouter, the one provider where a requested model bypasses live-catalog
+  // validation below and gets returned unconditionally) -- a dual-review/financial/security
+  // request naming e.g. openrouter/free (quality 75) was honored with no signal that it fell short
+  // of the quality>=90 bar auto-selection already enforces as a soft preference. This provider is
+  // simply unable to serve the request at the quality this call requires; the caller must omit the
+  // override (letting auto-selection pick a compliant model, here or on another provider) or accept
+  // this is not actually a strict request.
+  if (requestedModel && isStrictVerification(taskType, verification)) {
+    const profile = GOVERNED_MODEL_PROFILES.find((candidate) => candidate.provider === provider && candidate.model === requestedModel)
+    if (!profile || profile.quality < STRICT_QUALITY_FLOOR) throw new ProviderControlPlaneError({ provider, kind: 'MODEL_NOT_GOVERNED', message: `${PROVIDER_RUNTIME_CONFIG[provider].label}: requested model ${requestedModel} does not meet the quality bar this ${verification ?? taskType} request requires`, retryable: false })
+  }
   const catalog = await resolveLiveCatalog(provider, fetchImpl)
   if (provider === 'openrouter') return requestedModel ?? governed[0]
   const selected = requestedModel && catalog.modelIds.includes(requestedModel) ? requestedModel : governed.find((model) => catalog.modelIds.includes(model))
