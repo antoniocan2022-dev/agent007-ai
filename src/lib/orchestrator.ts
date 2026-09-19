@@ -41,7 +41,6 @@ import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import {
   parseAssistant,
   buildHistoryMessages,
-  chunkText,
   callLlmWithRetry,
   THOUGHT_RE,
   TOOL_RE,
@@ -54,10 +53,13 @@ import { SUBAGENTS, getAllSubagents, runSubagent, type Subagent } from '@/lib/su
 // (used to detect built-in ids and reject delete on them).
 import { getOperatorUserId, getIncomeSettings, setIncomeSettings } from '@/lib/settings'
 import { assertDelegationAllowed, authorityLevelFor } from './architecture-control-plane'
+import { buildOrchestratorExecutionSummary, type OrchestratorCompletionReason, type OrchestratorExecutionResult, type OrchestratorExecutionStatus } from './orchestrator-execution-contract'
 
 export const MAX_ITERATIONS = 50  // UPGRADE #68 — was 25, raised to 50 for max autonomy
 const MAX_DISPATCHES = 15
 const MAX_MANAGE_ACTIONS = 10
+
+const ORCHESTRATOR_EXECUTION_ONLY_REMINDER = '[SYSTEM] EXECUTION-ONLY MODE: You are ACT, not RESPOND. Never write a user-facing answer. Emit exactly one execution action (<tool>, <dispatch>, <manage>) when more work is needed, or emit <done/> when execution is complete. Do not emit markdown, explanations, or final-answer prose. Your tool results are internal evidence for the CEO response layer.'
 
 // Re-export the canonical action list so callers can import it from either
 // location. The single source of truth lives in ./manage-actions to avoid a
@@ -131,9 +133,11 @@ function autoConvertPseudoToolCalls(content: string): string {
 /* Regex to find <manage action="..." attr="..." ... /> self-closing tags.
  * Captures the full tag string; attribute parsing happens in parseManageTag. */
 const MANAGE_RE = /<manage\s+[^>]*?\/>/gi
+const DONE_RE = /<done\s*(?:\/>|>\s*<\/done>)/i
 
 interface OrchestratorParsed {
   thought?: string
+  done?: boolean
   tool?: { name: string; args: any }
   dispatch?: { agentId: string; task: string }
   manage?: { action: string; attrs: Record<string, string>; raw: string }
@@ -150,8 +154,9 @@ function parseOrchestrator(content: string): OrchestratorParsed {
   const dispatchSubagentMatch = content.match(DISPATCH_SUBAGENT_RE)
   const toolMatch = content.match(TOOL_RE)
   const manageMatch = content.match(MANAGE_RE)
+  const doneMatch = content.match(DONE_RE)
 
-  // Priority: dispatch > dispatch_subagent > manage > tool
+  // Priority: dispatch > dispatch_subagent > manage > tool > done
   if (dispatchMatch) {
     const agentId = dispatchMatch[1].trim().toLowerCase()
     const task = dispatchMatch[2].trim()
@@ -226,6 +231,7 @@ function parseOrchestrator(content: string): OrchestratorParsed {
     }
     return { thought, tool: { name, args }, textAfter: '', raw: content }
   }
+  if (doneMatch) return { thought, done: true, textAfter: '', raw: content }
   return { thought, textAfter: content.replace(THOUGHT_RE, '').trim(), raw: content }
 }
 
@@ -251,7 +257,7 @@ ORCHESTRATION:
 You orchestrate 20 subagents. For multi-step tasks, dispatch leaders:
 <dispatch agent="scout" task="find 3 trending AI niches"/>
 <dispatch_subagent id="aurora">Design a content calendar</dispatch_subagent>
-Max 3 dispatches per turn, then synthesize into a final answer.
+Max 3 dispatches per turn, then stop execution with <done/>. Never write a user-facing final answer, summary, markdown report, or notification message from the orchestrator. The CEO cognitive lifecycle is the only RESPOND authority.
 
 TEAM: SCOUT (research) | AURORA (creation) | VERTEX (SaaS) | QUANTUM (revenue)
 ECHO (QA) | FORGE (build) | PULSE (monitor) | QUILL (content) | PRISM (design)
@@ -267,7 +273,7 @@ retry with corrections (max 3 rounds) -> next stage -> CEO presents final report
 
 The system auto-handles: quality scoring, cross-leader verification, tool
 boundary audits, learning storage, and Telegram notifications. You don't
-need to manually trigger these -- just dispatch, synthesize, and answer.`
+need to manually trigger these -- dispatch the required execution actions, verify the real outcomes, and emit <done/> when execution is complete.`
 export interface OrchestratorEventEmit {
   (event: string, data: any): Promise<void> | void
 }
@@ -280,8 +286,10 @@ export interface OrchestratorRunOptions {
   emit: OrchestratorEventEmit
 }
 
-export interface OrchestratorRunResult {
-  finalAnswer: string
+export interface OrchestratorRunResult extends OrchestratorExecutionResult {
+  executionSummary: string
+  executionStatus: OrchestratorExecutionStatus
+  completionReason: OrchestratorCompletionReason
   steps: Array<{
     id: string
     thought?: string
@@ -510,42 +518,31 @@ async function runFastPathManage(opts: {
     await emit('subagents_updated', { action, attrs, result, fastPath: true })
   }
 
-  // Build a confirmation message and stream it as tokens
-  const agentName = attrs.name ?? 'agent'
-  const roleLine = attrs.role ? ` (${attrs.role})` : ''
-  let finalAnswer: string
-  if (result.ok) {
-    finalAnswer = `✅ Created sub-agent "${agentName}"${roleLine} via fast-path. Use the Sub-Agents panel to verify or edit it.`
-  } else {
-    finalAnswer = `⚠️ Fast-path create_agent for "${agentName}" failed: ${result.message}`
-  }
-
-  const chunks = chunkText(finalAnswer, 80)
-  for (const c of chunks) {
-    await emit('token', { content: c })
-  }
-
-  // Update conversation title
-  try {
-    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-      await db.conversation.update({ where: { id: conversationId }, data: { title } })
-    }
-  } catch {
-    /* ignore */
-  }
-
+  // Phase 3b: this path emits execution events only. The CEO lifecycle owns all user-facing prose,
+  // persistence, and notification after the action has completed.
   // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
   // 2026-09-19): this used to persist an empty assistant row up-front and update it with
-  // `finalAnswer` here -- the same unilateral persistence pattern removed from the main loop's own
+  // this path -- the same unilateral final-answer authority removed from the main loop's own
   // return path (see runOrchestrator's own header comment). Removed for the same reason and to avoid
   // a genuine duplicate-row bug this fast path would otherwise cause: route.ts now unconditionally
   // creates the real assistant message itself for every OrchestratorRunResult, fast-path ones
   // included, so persisting one here too would leave two rows for the same turn.
   return {
-    finalAnswer,
-    steps: [],
+    executionSummary: buildOrchestratorExecutionSummary({
+      executionStatus: result.ok ? 'completed' : 'failed',
+      completionReason: 'fast_path',
+      toolSteps: [{ toolName: 'manage_action', toolResult: { ok: result.ok, result: result.message } }],
+    }),
+    executionStatus: result.ok ? 'completed' : 'failed',
+    completionReason: 'fast_path',
+    steps: [{
+      id: stepId,
+      toolName: 'manage_action',
+      toolArgs: { action, attrs },
+      toolResult: { ok: result.ok, result: result.message, preview: result.message },
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+    }],
   }
 }
 
@@ -641,53 +638,22 @@ function classifyQuery(message: string): 'direct' | 'dispatch' {
   return 'direct'
 }
 
-// Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issue 9 -- and
-// Phase 3 (2026-09-19), which took the first real slice out of it. History, then current state:
+// Phase 3b of the CEO Conversation Kernel migration — true ACT/RESPOND separation (2026-09-19).
 //
-// Phase 2 recorded (deliberately without fixing) that runOrchestrator owns two genuinely different
-// responsibilities: dispatching real tool calls against live external systems (the ACT stage), and,
-// for messages the classifiers above route to 'direct', generating the conversational answer itself
-// via its own LLM call inside the tool loop -- a second, independent answer-generation path alongside
-// ceo-cognitive-lifecycle.ts's, not a delegation to it. That LLM-loop entanglement is still real: there
-// is exactly one LLM call per loop iteration (see callLlmWithRetry below), and whether its output that
-// iteration is "what tool to call next" or "the user-facing final answer" is decided post-hoc by
-// whether the model's response happened to contain an action tag. Untangling that -- making the loop
-// stop at "no more actions to take" and handing ALL prose generation, including for 'direct'
-// conversational turns, to ceo-cognitive-lifecycle.ts -- is still not attempted here: it would change
-// who owns generating the words themselves, not just who owns deciding whether to trust them, and
-// remains its own separately-scoped, separately-reviewed change (Phase 3b).
+// The orchestrator is now an ACT-only engine. Its LLM loop can select and execute tools, dispatch
+// subagents, apply recovery controls, and terminate only with the explicit <done/> control signal.
+// It never generates a user-facing final answer, never streams answer tokens, never persists an
+// assistant final row, never owns conversation titles, and never decides mission notifications.
+// Its only conversational output is internal execution evidence returned as OrchestratorExecutionResult.
 //
-// What Phase 3 DID fix, because it was tractable and high-value on its own: runOrchestrator used to
-// also be a unilateral PERSISTENCE and NOTIFICATION authority for `finalAnswer` -- writing it straight
-// to the Message table as the assistant's final answer, and firing a "mission complete"/"mission
-// failed" operator email off that same raw, ungoverned text, both before route.ts's quality gate
-// (tryOperationalDirectResponse / runCeoCognitiveLifecycle) had even run on it. That's gone: this
-// function now only executes and reports (`return { finalAnswer, steps }`); every caller (route.ts,
-// the scheduled tick route) is responsible for deciding what to persist as the real final answer and
-// for calling notifyMissionOutcome (src/lib/mission-notifications.ts) once it has. `finalAnswer` above
-// is now honestly what it always structurally was for tool-heavy turns -- an execution transcript, not
-// a pre-approved final answer -- though for 'direct' conversational turns with zero tool calls it is
-// still 100% freeform LLM prose with nothing behind it (the unresolved part of Phase 3b above).
+// The CEO cognitive lifecycle is the sole RESPOND authority for orchestrated requests. Interactive
+// route.ts and the scheduled tick route both consume executionSummary and pass the execution outcome
+// into runCeoCognitiveLifecycle, whose governed result is the only assistant response that is persisted
+// and broadcast as final.
 //
-// Phase 3a+ (external re-audit of the PR shipping the above, same day) caught that persistence and
-// notification were only two of three ways this function's raw narrative reached the user before
-// governance ran -- the third was STREAMING: `emit('token', ...)` below still pushed live chunks of
-// `finalAnswer` straight to the browser as they were generated, and the frontend (chat-store.ts)
-// appends 'token' events to the visible message in real time, then wholesale-replaces that content
-// once route.ts's later 'answer' event carries the governed text. That was still exactly the
-// "orchestrator draft -> streamed to user -> CEO final response" pattern Option 3 exists to eliminate,
-// just at the UI layer instead of the DB layer. Fixed at the call site, not here: route.ts's
-// operational_orchestrator branch now wraps the `emit` it passes into this function so 'token' events
-// are withheld while every other event (tool_call, tool_result, subagent_dispatch, thought, heartbeat,
-// manage_action, ...) still streams live progress normally -- this function's own emit calls, loop,
-// prompt, and parsing are completely untouched by that fix.
-//
-// Two deterministic (non-LLM-narrative) early-return paths inside this file -- runFastPathManage
-// (the create_agent fast path) and the mission-pipeline summary return above -- are explicitly
-// accounted for here, not silently forgotten: both were folded into the SAME single persistence
-// authority as this function's own main-loop return (route.ts now creates the one real assistant
-// message for every OrchestratorRunResult, these two included, and runs the same quality-gate check
-// against their content too), rather than being left as separate, undocumented exceptions.
+// This is the completed Phase 3b boundary: ACT and RESPOND are now separate responsibilities while
+// the existing tool parser/dispatch/recovery machinery remains intact. A future refactor may further
+// simplify the internal ACT loop, but doing so is no longer required for the Option 3 architecture.
 export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<OrchestratorRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
 
@@ -773,16 +739,6 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
     const pipelineType = (missionMatch[1] || 'generic').toLowerCase()
     const objective = missionMatch[2].trim().slice(0, 1000)
     if (objective.length >= 10) {
-      // UPGRADE #146 (Critical #2 fix) — Persist the user's "start mission:" message
-      // FIRST, before running the pipeline. Previously the message was persisted AFTER
-      // the pipeline awaited (which can take 5+ minutes), so if Vercel killed the
-      // function at the 60s timeout, the user's input was lost.
-      try {
-        await db.message.create({ data: { conversationId, role: 'user', content: userMessage } })
-      } catch (dbErr: any) {
-        console.warn('[orchestrator] DB write failed (mission user message), continuing:', dbErr?.message?.slice(0, 100))
-      }
-
       try {
         const { runMissionPipeline, MISSION_PIPELINES } = await import('./mission-pipeline')
         const pipeline = MISSION_PIPELINES[pipelineType] || MISSION_PIPELINES.generic
@@ -799,52 +755,30 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
           missionTitle,
         })
 
-        // Build a final summary answer for the UI
-        let summaryAnswer = `## 🎯 Mission Pipeline ${result.success ? 'Complete' : 'Failed'}\n\n`
-        summaryAnswer += `**Mission:** ${missionTitle}\n`
-        summaryAnswer += `**Pipeline:** ${pipeline.name}\n`
-        summaryAnswer += `**Stages:** ${result.stages.length} / ${pipeline.stages.length}\n\n`
-        summaryAnswer += `### Stage Results\n`
-        for (const s of result.stages) {
-          const icon = s.artifactVerified ? '✅' : s.finalScore >= 70 ? '⚠️' : '❌'
-          summaryAnswer += `${icon} Stage ${s.stage} (${s.team}): score ${s.finalScore}/100, ${s.rounds} round(s)\n`
-          if (s.artifactValue) summaryAnswer += `   Artifact: ${s.artifactValue.slice(0, 100)}\n`
+        // Phase 3b: build internal execution evidence only. The CEO lifecycle owns all user-facing prose.
+        let executionSummary = `Mission pipeline ${result.success ? 'completed' : 'failed'}. Mission: ${missionTitle}. Pipeline: ${pipeline.name}. Stages: ${result.stages.length}/${pipeline.stages.length}.\n`
+        for (const stage of result.stages) {
+          const outcome = stage.artifactVerified ? 'artifact_verified' : stage.finalScore >= 70 ? 'partial_quality' : 'failed_quality'
+          executionSummary += `Stage ${stage.stage} (${stage.team}): ${outcome}; score=${stage.finalScore}; rounds=${stage.rounds}`
+          if (stage.artifactValue) executionSummary += `; artifact=${stage.artifactValue.slice(0, 160)}`
+          executionSummary += '\n'
         }
-        if (result.ceoReport?.fullReport) {
-          summaryAnswer += `\n### 🎯 CEO Executive Report\n\n${result.ceoReport.fullReport}\n`
-        }
-        if (result.error) {
-          summaryAnswer += `\n### ⚠️ Error\n${result.error}\n`
-        }
-        summaryAnswer += `\n---\n*Full audit trail: /api/missions/${missionId}/audit-trail*`
-
-        const chunks2 = chunkText(summaryAnswer, 80)
-        for (const c of chunks2) {
-          await emit('token', { content: c })
-        }
-
-        // Update conversation title (user message was already persisted above before the pipeline
-        // ran — Critical #2 fix). Phase 3 of the CEO Conversation Kernel migration (making the
-        // orchestrator execution-only, 2026-09-19): this used to also persist summaryAnswer directly
-        // as the assistant's final Message row here -- removed for the same reason as the main loop's
-        // own return path and the fast-path manage-action return above: route.ts now unconditionally
-        // creates the real assistant message itself for every OrchestratorRunResult, this mission
-        // pipeline's included, so persisting one here too would leave two rows for the same turn.
-        try {
-          const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-          if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-            await db.conversation.update({
-              where: { id: conversationId },
-              data: { title: `Mission: ${missionTitle.slice(0, 40)}` },
-            })
-          }
-        } catch (dbErr: any) {
-          console.warn('[orchestrator] Mission-pipeline conversation title update failed, continuing:', dbErr?.message?.slice(0, 100))
-        }
+        if (result.ceoReport?.fullReport) executionSummary += `Mission pipeline executive report evidence:\n${result.ceoReport.fullReport.slice(0, 6000)}\n`
+        if (result.error) executionSummary += `Mission pipeline error: ${result.error.slice(0, 1200)}\n`
+        executionSummary += `Audit trail: /api/missions/${missionId}/audit-trail`
 
         return {
-          finalAnswer: summaryAnswer,
-          steps: [],
+          executionSummary,
+          executionStatus: result.success ? 'completed' : 'failed',
+          completionReason: 'mission_pipeline',
+          steps: [{
+            id: missionId,
+            toolName: 'mission_pipeline',
+            toolArgs: { pipelineType, objective, missionTitle },
+            toolResult: { ok: result.success, result: executionSummary, preview: executionSummary.slice(0, 700) },
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+          }],
         }
       } catch (missionErr: any) {
         // Fall through to normal orchestration if pipeline fails to start
@@ -859,8 +793,8 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
 
   const languageInstruction =
     language === 'zh'
-      ? 'LANGUAGE INSTRUCTION: The user has toggled the agent to Chinese. Reply in 中文 (Chinese) for your FINAL answer regardless of input language.'
-      : 'LANGUAGE INSTRUCTION: The user has toggled the agent to English. Reply in English for your FINAL answer unless the user wrote in another language.'
+      ? 'EXECUTION LANGUAGE: use Chinese for internal execution notes when needed; never emit a user-facing answer.'
+      : 'EXECUTION LANGUAGE: use English for internal execution notes when needed; never emit a user-facing answer.'
 
   // Build a DYNAMIC sub-agent list so the LLM knows about custom agents
   // (Cybersecurity A, TRADER, etc.) — not just the 12 built-ins hard-coded
@@ -988,7 +922,6 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     }
   }
 
-  let finalAnswer = ''
   let iter = 0
   let dispatchCount = 0
   let manageCount = 0
@@ -1178,6 +1111,9 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   // If cognitive framework didn't produce context, fall back to minimal reminder
   const fallbackReminder = `You are Agent007. Think before you speak. Adapt your style to the question. Don't use templates.`
   const identityReminder = cognitiveContext || fallbackReminder
+  let executionStatus: OrchestratorExecutionStatus = 'partial'
+  let completionReason: OrchestratorCompletionReason = 'iteration_limit'
+  let terminalError: string | undefined
 
   while (iter < MAX_ITERATIONS) {
     iter++
@@ -1215,7 +1151,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       // conversation state that accumulate across iterations.
       const messagesWithReminder = [
         ...conversationMessages,
-        { role: 'user' as const, content: identityReminder },
+        { role: 'user' as const, content: `${identityReminder}\n\n${ORCHESTRATOR_EXECUTION_ONLY_REMINDER}` },
       ]
       completion = await callLlmWithRetry(messagesWithReminder)
     } catch (e: any) {
@@ -1255,7 +1191,9 @@ TO FIX:
 The system is working correctly — the keys just need to be refreshed.`
         const rateLimited = false
         await emit('error', { message: friendly, rateLimited })
-        finalAnswer = friendly
+        terminalError = friendly
+        executionStatus = 'failed'
+        completionReason = 'llm_error'
         break
       }
 
@@ -1268,12 +1206,16 @@ The system is working correctly — the keys just need to be refreshed.`
       // full failure breakdown.
       const rateLimited = (e as any)?._allRateLimited === true
       await emit('error', { message: friendly, rateLimited })
-      finalAnswer = friendly
+      terminalError = friendly
+      executionStatus = 'failed'
+      completionReason = 'llm_error'
       break
     }
     const content: string = completion?.choices?.[0]?.message?.content ?? ''
     if (!content.trim()) {
-      finalAnswer = '(The agent produced no output. Please try rephrasing.)'
+      terminalError = 'The orchestrator LLM produced no output.'
+      executionStatus = 'failed'
+      completionReason = 'invalid_llm_output'
       break
     }
 
@@ -1299,6 +1241,13 @@ The system is working correctly — the keys just need to be refreshed.`
     // Emit thought
     if (parsed.thought) {
       await emit('thought', { content: parsed.thought })
+    }
+
+    // Phase 3b terminal contract: the ACT engine may stop only on <done/>.
+    if (parsed.done && !parsed.tool && !parsed.dispatch && !parsed.manage) {
+      executionStatus = steps.some((step) => step.toolResult?.ok === false) ? 'partial' : 'completed'
+      completionReason = 'done'
+      break
     }
 
     // 0) Manage path — parse <manage .../> tags and execute server-side.
@@ -1343,6 +1292,14 @@ The system is working correctly — the keys just need to be refreshed.`
       }
 
       const result = await executeManageAction(action, attrs)
+      steps.push({
+        id: stepId,
+        toolName: 'manage_action',
+        toolArgs: { action, attrs },
+        toolResult: { ok: result.ok, result: result.message, preview: result.message },
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+      })
       // Refresh the merged subagent list so subsequent dispatches see the new state.
       mergedSubagents = null
 
@@ -1689,7 +1646,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       if (dispatchCount >= 3 && iter < MAX_ITERATIONS - 1) {
         conversationMessages.push({
           role: 'user',
-          content: `[SYSTEM] SYNTHESIS CAP (upgrade #86): You have dispatched ${dispatchCount} sub-agents in this turn. That is the maximum allowed before synthesis. DO NOT dispatch another sub-agent. DO NOT call another tool. SYNTHESIZE the results you have RIGHT NOW into a clear, structured final answer for the owner. Use markdown headings (## Summary, ## Findings, ## Recommendations, ## Next Steps). Quote the most important findings from each sub-agent. The owner is waiting — give them the answer NOW.`,
+          content: `[SYSTEM] EXECUTION CAP: You have dispatched ${dispatchCount} sub-agents in this turn. That is the maximum allowed before completion. DO NOT dispatch another sub-agent. DO NOT call another tool unless required to finish an already-started action. Emit <done/> now; the CEO response layer will synthesize the owner-facing answer from the execution receipt.`,
         })
       }
 
@@ -1736,7 +1693,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       // UPGRADE #124 — Verify the tool action (check for real artifact)
       const verification = verifyToolAction(step.toolName!, toolResult)
       // Stage 4 of the CEO Conversation Kernel migration: persist onto the step (not just the emit
-      // below) so callers of runOrchestrator() -- specifically ceo-operational-direct-response.ts --
+      // below) so callers of runOrchestrator() -- specifically the CEO lifecycle --
       // can use it as a real execution-outcome VERIFY signal instead of trusting a bare `ok: true`.
       step.verification = verification
 
@@ -1821,220 +1778,28 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       continue
     }
 
-    // 3) Final answer path — but FIRST check for "stuck" condition (FIX 2)
-    // If the agent produced ONLY a thought (no tool/dispatch/manage) and the
-    // thought contains "wait"-like language, it's stuck waiting for input
-    // that will never come. Auto-recover by prompting it to continue.
-    const isThoughtOnly = !parsed.tool && !parsed.dispatch && !parsed.manage && !!parsed.thought
-    const stuckPatterns = /(wait|waiting|haven't provided|yet to|will wait|need to wait|i'll wait|let me wait|as i wait)/i
-    const isStuck = isThoughtOnly && parsed.thought && stuckPatterns.test(parsed.thought)
-
-    if (isStuck && iter < MAX_ITERATIONS - 1) {
-      // Auto-recovery: feed back a "continue" prompt + re-enter the loop
-      await emit('thought', { content: `[AUTO-RECOVERY] Detected stuck condition. Auto-continuing...` })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] You appear to be waiting. Do NOT wait — continue executing the task now. Dispatch the next sub-agent or use a tool or give your final answer.',
-      })
-      continue
-    }
-
-    // ── FIX #41: "PROMISE WITHOUT ACTION" DETECTION ──────────────────
-    // If the agent's response is a final answer (no tool/dispatch/manage)
-    // but it contains "I will" / "let me" / "hold on" / "please wait" /
-    // "I'm going to" language, it's PROMISING to do something but NOT
-    // actually doing it. This is the #1 cause of "agent gets stuck and
-    // doesn't provide answers" — the agent says "I will run tests" as a
-    // final answer, the loop breaks, and the user never gets results.
-    // FIX: detect this pattern and auto-recover by forcing the agent to
-    // either emit a tool call NOW or give a real answer.
-    const isPromiseOnly = !parsed.tool && !parsed.dispatch && !parsed.manage
-    const promisePatterns = /(i will run|i will proceed|i will test|i will check|i will execute|let me run|let me test|let me check|let me proceed|hold on|please hold|please wait|give me a moment|i'm going to run|i'm going to test|i'm going to check|one moment|just a moment|bear with me)/i
-    const fullText = (parsed.thought ?? '') + ' ' + (content.replace(THOUGHT_RE, '').trim())
-    const hasPromise = promisePatterns.test(fullText)
-    const hasNoToolCallYet = steps.length === 0  // no tools called this entire turn
-
-    if (isPromiseOnly && hasPromise && hasNoToolCallYet && iter < MAX_ITERATIONS - 1) {
-      // Auto-recovery: force the agent to actually execute NOW
-      await emit('thought', { content: `[AUTO-RECOVERY] Detected "promise without action". Forcing execution now...` })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] CRITICAL: You said "I will run/proceed/test" but you did NOT emit a tool call. Do NOT promise — EXECUTE. Emit the tool call RIGHT NOW in this response. For example, if you said "I will run exhaustive tests", then emit <tool name="exhaustive_tool_test"></tool> immediately. Never respond with just a promise to do something — either DO it (emit tool tags) or report RESULTS.',
-      })
-      continue
-    }
-
-    // If it's thought-only but NOT stuck, check if the text after thought is meaningful
-    const textAfterThought = content.replace(THOUGHT_RE, '').trim()
-    if (isThoughtOnly && textAfterThought.length < 20 && iter < MAX_ITERATIONS - 1) {
-      // The agent produced only a thought with no substantial answer — likely stuck
-      await emit('thought', { content: `[AUTO-RECOVERY] Thought-only response with no answer. Prompting to continue...` })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] You produced only a thought with no action or answer. Please either: (1) dispatch a sub-agent, (2) call a tool, or (3) give your final answer now.',
-      })
-      continue
-    }
-
-    // 3a) Final answer path — emit synthesis signal then stream tokens
-    // UPGRADE #86 + #95 — Strip ALL pseudo-XML / dispatch tags / reasoning traces from the final answer.
-    // Without this, raw `<dispatch_subagent ...>`, `<parallel_executor>`, and "REASONING TRACE:"
-    // blocks leak to the user as the "weird incomprehensible answer" the owner reported.
-    // UPGRADE #95: Use convertedContent (already auto-converted parallel_executor → <tool> format)
-    // so any tools that were called actually ran. Leftover pseudo-XML is stripped here as safety net.
-    finalAnswer = convertedContent
-      .replace(THOUGHT_RE, '')
-      .replace(DISPATCH_RE, '')
-      .replace(DISPATCH_SUBAGENT_RE, '')
-      .replace(PSEUDO_XML_RE, '')
-      .replace(REASONING_TRACE_BLOCK_RE, '')
-      .replace(/<dispatch_subagent[^>]*?(?:\/>|>[\s\S]*?<\/dispatch_subagent>)/gi, '') // safety net: catch any leftover
-      .replace(/<\/?(?:dispatch|dispatch_subagent|parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)[^>]*?>/gi, '') // final sweep: strip any lone tags
-      .replace(/<tool\s+name=["'][^"']+["'][^>]*>[\s\S]*?<\/tool>/gi, '') // UPGRADE #95: strip any leftover <tool> tags that didn't execute
-      .trim() || content.trim()
-
-    // UPGRADE #86 — If finalAnswer is now empty (everything was a tag/thought), retry instead of showing blank
-    if (finalAnswer.length < 10 && iter < MAX_ITERATIONS - 1) {
-      conversationMessages.push({ role: 'assistant', content: convertedContent })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] Your previous response contained only tags (dispatch / thought / pseudo-XML) with no actual answer text. The owner saw nothing comprehensible. Please respond NOW with a clear markdown answer (use ## headings, bullet points, etc.) — NO tags, NO thoughts, NO pseudo-XML. Just plain text the owner can read.',
-      })
-      continue
-    }
-
-    // UPGRADE #134: DELIVERY VERIFICATION — check tool RESULT, not just CALL
-    const deliveryKeywords = /(published|deployed|posted|sent|scheduled|uploaded|listed|created.*listing|live\s+now)/i
-    const deliveryTools = ['wordpress_publisher', 'stripe_payment_processor', 'etsy_integration',
-      'convertkit_email', 'send_email', 'telegram_notify', 'ntfy_notify', 'discord_notify',
-      'buffer_scheduler', 'resend_email', 'file_write']
-    const toolsCalled = steps.map((s: any) => s.toolName).filter(Boolean)
-    const claimsDelivery = deliveryKeywords.test(finalAnswer)
-
-    if (claimsDelivery) {
-      // Find delivery tool steps and check their ACTUAL RESULT
-      const deliverySteps = steps.filter((s: any) => deliveryTools.includes(s.toolName))
-      const successfulDeliveries = deliverySteps.filter((s: any) => {
-        // Check if the tool result indicates success
-        const result = s.toolResult
-        if (!result) return false
-        // toolResult is a ToolResult object with .ok field
-        if (typeof result === 'object' && result.ok === true) return true
-        // Or check if the result string contains success indicators
-        if (typeof result === 'object' && typeof result.result === 'string') {
-          return !/error|fail|unable|not configured|setup required/i.test(result.result)
-        }
-        return false
-      })
-      const failedDeliveries = deliverySteps.filter((s: any) => {
-        const result = s.toolResult
-        if (!result) return true  // no result = failed
-        if (typeof result === 'object' && result.ok === false) return true
-        if (typeof result === 'object' && typeof result.result === 'string') {
-          return /error|fail|unable|not configured|setup required/i.test(result.result)
-        }
-        return false
-      })
-
-      if (deliverySteps.length === 0) {
-        finalAnswer += `\n\n---\n⚠️ **DELIVERY VERIFICATION:** The answer claims delivery, but no delivery tool was called. The action did not occur.`
-      } else if (successfulDeliveries.length > 0 && failedDeliveries.length === 0) {
-        const toolName = successfulDeliveries[0].toolName
-        finalAnswer += `\n\n---\n✅ **DELIVERY VERIFIED:** ${toolName} was called and succeeded.`
-      } else if (successfulDeliveries.length > 0 && failedDeliveries.length > 0) {
-        finalAnswer += `\n\n---\n⚠️ **DELIVERY PARTIAL:** ${successfulDeliveries.length} succeeded, ${failedDeliveries.length} failed. Some deliveries may not have completed.`
-      } else {
-        finalAnswer += `\n\n---\n❌ **DELIVERY FAILED:** Delivery tool was called but returned an error. The action did not complete successfully.`
-      }
-    }
-
-    // UPGRADE #163: REMOVED the mandatory feedback loop that appended
-    // Stripe + GA4 data to EVERY response containing words like "revenue",
-    // "income", "strategy", "traffic", "profit" etc.
-    //
-    // PROBLEM: The regex /revenue|income|sales|published|traffic|conversion|
-    //   strategy|affiliate|monetiz|earn|profit|stripe|ga4/i matched almost
-    //   EVERY response (these words appear naturally in most AI agent answers).
-    //   This caused:
-    //   1. 4-10 seconds added to every response (Stripe API + GA4 API calls)
-    //   2. A wall of raw data appended to the end of every answer
-    //   3. User saw: "response... then 500 chars of Stripe/GA4 dump"
-    //   4. Made responses feel incomplete (the real answer was above the dump)
-    //
-    // FIX: The feedback loop is now ON-DEMAND only. The agent can still
-    // call it via <tool name="real_feedback_loop">{"action":"report"}</tool>
-    // when the user EXPLICITLY asks for revenue/traffic data. But it no
-    // longer auto-appends to every response.
-
-    // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
-    await emit('synthesis', { content: finalAnswer.slice(0, 80) })
-
-    const chunks = chunkText(finalAnswer, 80)
-    for (const c of chunks) {
-      await emit('token', { content: c })
-    }
-    break
+    // Phase 3b: free-form prose is never a terminal response. Reprompt the execution model
+    // until it emits another action or the explicit <done/> control signal.
+    conversationMessages.push({ role: 'assistant', content })
+    conversationMessages.push({
+      role: 'user',
+      content: '[SYSTEM] EXECUTION-ONLY VIOLATION: do not answer the owner. Emit a tool/dispatch/manage control tag for the next action, or emit <done/> when all execution is complete. No markdown, no narrative answer.',
+    })
+    continue
   }
 
-  if (!finalAnswer) {
-    // UPGRADE #86 — Auto-synthesize from what we have (BOTH tool results AND subagent results).
-    // The previous version only collected tool results, missing subagent dispatch results entirely.
-    // This is what caused the "I've reached my iteration limit" message after a long chain of dispatches.
-    const collectedResults: string[] = []
+  const executionSummary = buildOrchestratorExecutionSummary({
+    executionStatus,
+    completionReason,
+    toolSteps: steps,
+    notes: conversationMessages
+      .filter((message) => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SUBAGENT_RESULT]'))
+      .map((message) => String(message.content).replace(/^\[SUBAGENT_RESULT\]\s*/, '').slice(0, 1200)),
+    terminalError,
+  })
 
-    // (a) collect direct tool call results
-    for (const s of steps) {
-      if (s.toolName && s.toolResult?.result) {
-        const preview = s.toolResult.result.slice(0, 400)
-        collectedResults.push(`### 🔧 ${s.toolName}\n${preview}`)
-      }
-    }
+  return { executionSummary, executionStatus, completionReason, steps }
 
-    // (b) collect subagent dispatch results from conversationMessages
-    const subagentResults = conversationMessages
-      .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('[SUBAGENT_RESULT]'))
-      .map((m) => {
-        const txt = (m.content as string).replace(/^\[SUBAGENT_RESULT\]\s*/, '')
-        const colonIdx = txt.indexOf(':')
-        const agentId = colonIdx > 0 ? txt.slice(0, colonIdx).trim() : 'subagent'
-        const body = colonIdx > 0 ? txt.slice(colonIdx + 1).trim() : txt
-        return `### 🤖 ${agentId}\n${body.slice(0, 600)}`
-      })
-    collectedResults.push(...subagentResults)
-
-    if (collectedResults.length > 0) {
-      finalAnswer = `## Summary\nI dispatched ${subagentResults.length} sub-agent(s) and ran ${steps.length} tool call(s) this turn. Here are the consolidated findings:\n\n${collectedResults.join('\n\n---\n\n')}\n\n---\n## Next Steps\nType **"continue"** and I'll pick up where I left off, or ask me to drill into any specific finding above.`
-    } else {
-      finalAnswer =
-        "I've reached my iteration limit for this turn without completing the task. Please type 'continue' and I'll retry."
-    }
-    await emit('token', { content: finalAnswer })
-  }
-
-  // Update conversation title if it's still default
-  try {
-    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-      await db.conversation.update({ where: { id: conversationId }, data: { title } })
-    }
-  } catch (dbErr: any) {
-    console.warn('[orchestrator] DB title update failed, continuing:', dbErr?.message?.slice(0, 80))
-  }
-
-  // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
-  // 2026-09-19): this used to persist `finalAnswer` here, unconditionally, as the assistant's final
-  // Message row -- and fire a "mission complete"/"mission failed" notification off that same raw,
-  // ungoverned narrative -- making the orchestrator a second, unilateral "final answer" authority
-  // that acted before route.ts's quality-gated synthesis (tryOperationalDirectResponse /
-  // runCeoCognitiveLifecycle) had even run. Neither happens here anymore: every caller now owns
-  // persisting and notifying on whatever content it actually settles on as final. See
-  // src/lib/mission-notifications.ts for the relocated (and improved) notification logic, and
-  // route.ts / src/app/api/schedules/tick/route.ts for where persistence now happens.
-  return { finalAnswer, steps }
 }
 
 /* ------------------------------------------------------------------ *

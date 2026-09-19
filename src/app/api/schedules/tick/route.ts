@@ -6,55 +6,153 @@ import { backgroundFire } from '@/lib/runtime/background-tasks'
 import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
 import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'
-import { tryOperationalDirectResponse } from '@/lib/ceo-operational-direct-response'
+import { composeCeoContext, buildCeoContextModules, type PersistedConversationRow } from '@/lib/ceo-context-composer'
+import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
+import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
+import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
+import { buildCeoSystemPrompt } from '@/lib/ceo-system-prompt'
+import { persistCeoAssistantMessage } from '@/lib/ceo-response-persistence'
 
-// Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
-// 2026-09-19): runOrchestrator no longer persists its own `finalAnswer` as the assistant's final
-// Message row or fires the mission-complete/failed notification itself (see that file's own header
-// comment) -- every caller now owns both.
-//
-// Phase 3a+ (external re-audit, same day): the audit's strongest remaining ask was "scheduled
-// convergence" -- route.ts's interactive path and this scheduled path should not have two different
-// definitions of "final answer." A full convergence (composeCeoContext, real pre-routing with a
-// canonical decision contract, the full runCeoCognitiveLifecycle fallback synthesis) would mean
-// building a parallel context/pre-routing pipeline this codepath has never had -- genuinely bigger
-// scope than this pass, deliberately still deferred. What IS bounded and safe: reusing the SAME
-// quality gate route.ts's direct-response path already runs (tryOperationalDirectResponse), which
-// needs only a cheap, deterministic preRouteCeoRequest classification and the turn's DecisionPlan --
-// no DB-backed context composition at all. When the orchestrator's own transcript already passes that
-// gate (the common case for a well-formed, honestly-reported execution), the governed content is
-// persisted instead of the raw transcript. When it doesn't pass, behavior falls through to exactly
-// what Phase 3a already shipped -- the raw transcript, unchanged -- never a regression, only ever an
-// upgrade when the gate happens to pass. priorConversation is deliberately omitted (empty): scheduled
-// missions are typically fresh, single-shot prompts, and thread continuity across ticks is exactly the
-// kind of context-composition work being deferred, not silently half-built here.
-async function persistOrchestratorResult(conversationId: string, objective: string, startedAt: number, result: Awaited<ReturnType<typeof runOrchestrator>>): Promise<void> {
-  let finalContent = result.finalAnswer
+// Phase 3b — scheduled requests now use the same ACT/RESPOND boundary as interactive requests.
+// runOrchestrator returns execution evidence only; this module invokes the canonical CEO lifecycle,
+// persists its governed final response, and notifies only after that final response is committed.
+
+async function loadScheduledConversationRows(conversationId: string): Promise<PersistedConversationRow[]> {
   try {
-    const messages = [{ role: 'user' as const, content: objective }]
-    const preRoute = preRouteCeoRequest(messages)
-    const turnDecision = buildCeoTurnDecision({ messages, preRoute })
-    const direct = tryOperationalDirectResponse({
-      messages,
-      preRoute,
-      decisionPlan: turnDecision.decisionPlan,
-      objective,
-      candidateContent: result.finalAnswer,
-      responseMsBeforeCheck: Date.now() - startedAt,
-      toolSteps: result.steps,
+    const conversation = await db.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        Message: {
+          orderBy: { createdAt: 'asc' },
+          select: { role: true, content: true, createdAt: true },
+        },
+      },
     })
-    if (direct) finalContent = direct.content
-  } catch (error: any) {
-    console.warn('[schedules/tick] Governed direct-response attempt failed, persisting the raw transcript instead:', error?.message?.slice(0, 150))
+    return safeConversationRows((conversation?.Message ?? []).map((row) => ({
+      role: row.role,
+      content: row.content,
+      createdAt: row.createdAt,
+    })))
+  } catch {
+    return []
   }
+}
+
+async function executeScheduledRun(conversationId: string, objective: string): Promise<Awaited<ReturnType<typeof runOrchestrator>>> {
+  // The scheduler owns the user-turn record because the ACT engine no longer mutates conversation history.
+  const capturedTurnSequence = await db.$transaction(async (tx) => {
+    const updatedConversation = await tx.conversation.update({
+      where: { id: conversationId },
+      data: { revision: { increment: 1 } },
+      select: { revision: true },
+    })
+    await tx.message.create({
+      data: {
+        conversationId,
+        role: 'user',
+        content: objective,
+        turnSequence: updatedConversation.revision,
+        turnStatus: 'closed',
+      },
+    })
+    return updatedConversation.revision
+  })
+
+  const result = await runOrchestrator({
+    conversationId,
+    userMessage: objective,
+    attachments: [],
+    language: 'en',
+    emit: async () => {},
+  })
+
+  const persistedRows = await loadScheduledConversationRows(conversationId)
+  let contextSeed = await composeCeoContext({
+    systemPrompt: buildCeoSystemPrompt(),
+    currentUserMessage: objective,
+    persistedMessages: persistedRows,
+    memories: [],
+  })
+  let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
   try {
-    await db.message.create({ data: { conversationId, role: 'assistant', content: finalContent } })
-  } catch (dbErr: any) {
-    console.warn('[schedules/tick] DB write failed (assistant message), continuing without persistence:', dbErr?.message?.slice(0, 100))
-  }
-  // classifyMissionOutcome (mission-notifications.ts) trusts result.steps -- the orchestrator's real
-  // tool-execution outcomes -- regardless of which content (governed or raw) ended up persisted.
-  await notifyMissionOutcome({ conversationId, content: finalContent, steps: result.steps }).catch(() => {})
+    semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext)
+  } catch {}
+
+  contextSeed = await composeCeoContext({
+    systemPrompt: buildCeoSystemPrompt(),
+    currentUserMessage: objective,
+    persistedMessages: persistedRows,
+    memories: [],
+    semanticInterpretation,
+    reuseSemanticContext: {
+      selectedMemories: contextSeed.selectedMemories,
+      semanticMemoryKeys: contextSeed.semanticMemoryKeys,
+    },
+  })
+
+  const decisionContract = contextSeed.decisionContract
+  const preRoute = preRouteCeoRequest(contextSeed.messages, 0, contextSeed.canonicalSemanticContext, decisionContract)
+  const turnDecision = buildCeoTurnDecision({
+    messages: contextSeed.messages,
+    preRoute,
+    taskType: preRoute.taskClass,
+    decisionContract,
+  })
+  const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
+  const anyOperationalToolStepFailed = result.executionStatus === 'failed' || operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
+
+  const finalModules = buildCeoContextModules({
+    intent: preRoute.executionContract.intent,
+    missionRelevant: preRoute.missionRelevant,
+    evidenceClass: preRoute.executionContract.evidenceClass,
+    taskClass: preRoute.taskClass,
+    executionRequirement: preRoute.executionContract.executionRequirement,
+    execution: result.executionSummary,
+  })
+  const composedFinalContext = await composeCeoContext({
+    systemPrompt: buildCeoSystemPrompt(),
+    currentUserMessage: objective,
+    persistedMessages: persistedRows,
+    memories: [],
+    modules: finalModules,
+    semanticInterpretation,
+    reuseSemanticContext: {
+      conversationState: contextSeed.conversationState,
+      canonicalSemanticContext: contextSeed.canonicalSemanticContext,
+      decisionContract: contextSeed.decisionContract,
+      resolvedReferences: contextSeed.resolvedReferences,
+      selectedMemories: contextSeed.selectedMemories,
+      semanticMemoryKeys: contextSeed.semanticMemoryKeys,
+    },
+  })
+
+  const synthesis = await runCeoCognitiveLifecycle({
+    attachmentsCount: 0,
+    messages: composedFinalContext.messages,
+    taskType: preRoute.taskClass,
+    timeoutMs: Math.min(120000, turnDecision.decisionPlan.latencyBudgetMs),
+    contextualEvidence: result.executionSummary,
+    evidenceScope: operationalToolSteps.length > 0 ? 'live_system' : 'internal_state',
+    evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 },
+    externalExecutionSucceeded: !anyOperationalToolStepFailed,
+    priorConversation: persistedRows,
+    relevantOlderConversation: persistedRows,
+    preRoute,
+    decisionPlan: turnDecision.decisionPlan,
+    decisionContract,
+    canonicalContext: composedFinalContext.canonicalSemanticContext,
+  })
+
+  const provenance = synthesis.quality.finalResponseProvenance
+  if (!provenance) throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
+  await persistCeoAssistantMessage({
+    conversationId,
+    content: synthesis.content,
+    provenance,
+    capturedTurnSequence,
+  })
+  await notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps, executionStatus: result.executionStatus }).catch(() => {})
+  return result
 }
 
 export const runtime = 'nodejs'
@@ -100,15 +198,7 @@ export async function POST(req: NextRequest) {
           await db.schedule.update({ where: { id: sched.id }, data: { lastConvId: convId } })
         }
 
-        const manualStartedAt = Date.now()
-        const result = await runOrchestrator({
-          conversationId: convId,
-          userMessage: sched.prompt,
-          attachments: [],
-          language: 'en',
-          emit: async () => {},
-        })
-        await persistOrchestratorResult(convId, sched.prompt, manualStartedAt, result)
+        await executeScheduledRun(convId, sched.prompt)
       } catch (error: any) {
         console.error('[schedules/tick] Manual execution failed:', error?.message?.slice(0, 150))
       }
@@ -150,16 +240,8 @@ export async function POST(req: NextRequest) {
               await db.schedule.update({ where: { id: sched.id }, data: { lastConvId: convId } })
             }
 
-            const backgroundStartedAt = Date.now()
-            const result = await runOrchestrator({
-              conversationId: convId,
-              userMessage: sched.prompt,
-              attachments: [],
-              language: 'en',
-              emit: async () => {},
-            })
-            await persistOrchestratorResult(convId, sched.prompt, backgroundStartedAt, result)
-            console.log(`[schedules/tick] Background exec ${sched.id}: ${result.finalAnswer?.slice(0, 100) ?? 'no answer'}`)
+            const result = await executeScheduledRun(convId, sched.prompt)
+            console.log(`[schedules/tick] Background exec ${sched.id}: status=${result.executionStatus}, reason=${result.completionReason}`)
           } catch (error: any) {
             console.error(`[schedules/tick] Background exec failed ${sched.id}:`, error?.message?.slice(0, 150))
           }

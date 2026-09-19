@@ -22,7 +22,7 @@ if (!contract.includes('CeoResponseCandidate') || !contract.includes('CeoQuality
 if (!lifecycle.includes('composeCeoResponse') || !lifecycle.includes('responseAction: request.decisionContract?.responseAction')) failures.push('Lifecycle does not preserve the authoritative response action through finalization')
 if (!persistence.includes('$transaction') || !persistence.includes('finalResponseHash') || !persistence.includes('finalizationId') || !persistence.includes("action: 'ceo_response_finalized'")) failures.push('Transactional persistence lineage contract is incomplete')
 if (!db.includes('export const db')) failures.push('Canonical Prisma client surface missing')
-for (const phrase of ['safeConversationRows','persistCeoAssistantMessage','projectCeoPublicSsePayload','resolveCeoPublicSseEvent',"sse('answer', { content: response.content", "sse('answer', { content: synthesis.content"]) if (!route.includes(phrase)) failures.push(`Route missing canonical boundary/path: ${phrase}`)
+for (const phrase of ['safeConversationRows','persistCeoAssistantMessage','projectCeoPublicSsePayload','resolveCeoPublicSseEvent',"sse('answer', {", "content: response.content", "content: synthesis.content"]) if (!route.includes(phrase)) failures.push(`Route missing canonical boundary/path: ${phrase}`)
 if (route.includes("role: 'assistant', content: response.content")) failures.push('Route still has a direct CEO assistant persistence path bypassing transactional provenance')
 if (route.includes("role: 'assistant', content: synthesis.content")) failures.push('Route still has a direct operational assistant persistence path bypassing transactional provenance')
 // Phase 3 (making the orchestrator execution-only, 2026-09-19): the operational branch used to

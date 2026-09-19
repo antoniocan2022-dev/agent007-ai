@@ -98,26 +98,18 @@ describe('CEO kernel migration -- Stage 0 baseline (pre-router classification)',
 // means these Phase 1/Phase 2 changes introduced no NEW failures against that fixed baseline, not that
 // the suite has none. State it that way going forward, here and in any report of this suite's health.
 describe('CEO kernel migration -- Stage 0 structural baseline (source-text, pre-migration)', () => {
-  test('route.ts still has two runCeoCognitiveLifecycle call sites, but the second is now conditionally skipped (Stage 1 shipped)', () => {
+  test('route.ts keeps one governed RESPOND call for each ownership branch after Phase 3b', () => {
     const route = readFileSync('src/app/api/agent/route.ts', 'utf8')
     const runCount = (route.match(/runCeoCognitiveLifecycle\(/g) ?? []).length
-    // Stage 5 fresh-audit finding: this test's own comment used to say Stage 1 would "collapse this
-    // to one call reachable from both branches" -- that was the original speculative plan, and it is
-    // NOT what actually shipped. What shipped instead (Stage 1a: hoist the per-iteration
-    // classification runOrchestrator's tool loop was redundantly redoing; Stage 1b:
-    // tryOperationalDirectResponse) is a conditional SKIP, not a call-site merge: route.ts still has
-    // two literal runCeoCognitiveLifecycle( call sites in source (one in the ceo_lifecycle branch,
-    // one -- "synthesis" -- in the operational_orchestrator branch's `else`), but the second one now
-    // only executes when tryOperationalDirectResponse's quality-gate check on the orchestrator's own
-    // answer does NOT already pass. A merged single call site would have meant either branch paying
-    // for context/modules the other doesn't need; the conditional-skip design was the lower-risk
-    // choice Stage 1a's investigation concluded on. See ceo-operational-direct-response.ts for the
-    // actual mechanism and route.ts's `if (direct) { ... } else { ... runCeoCognitiveLifecycle(...) }`
-    // for where the second call is now gated.
+    // Phase 3b: the operational branch no longer has a direct-response bypass. Both CEO-owned and
+    // orchestrated requests now terminate in the same governed lifecycle rather than conditionally
+    // trusting the orchestrator's prose.
     expect(runCount).toBe(2)
     expect(route).toContain('runOrchestrator(')
-    expect(route).toContain('tryOperationalDirectResponse(')
-    expect(route).toContain('if (direct) {')
+    expect(route).toContain('const operationalEvidence = result.executionSummary')
+    expect(route).toContain('runCeoCognitiveLifecycle({')
+    expect(route).not.toContain('tryOperationalDirectResponse')
+    expect(route).not.toContain('if (direct) {')
   })
 
   test('buildCeoDecisionPlan and buildConversationDecisionContract both still exist, by design, and each now builds exactly once per turn (Stage 2 shipped)', () => {

@@ -6,6 +6,10 @@ import { classifyMissionOutcome } from '@/lib/mission-notifications'
 // own raw narrative before any governance had run. classifyMissionOutcome is the pure decision at its
 // core, extracted so it's directly testable without the DB/settings/email side effects around it.
 describe('classifyMissionOutcome', () => {
+  test('structured execution status is authoritative even when no tool steps exist', () => {
+    expect(classifyMissionOutcome('Everything completed successfully.', [], 'failed')).toBe('mission_failed')
+    expect(classifyMissionOutcome('Error rate dropped to zero.', [{ toolResult: { ok: true } }], 'completed')).toBe('mission_complete')
+  })
   test('a successful narrative with no tool steps classifies as mission_complete', () => {
     expect(classifyMissionOutcome('The deployment is live and serving traffic.', [])).toBe('mission_complete')
   })
