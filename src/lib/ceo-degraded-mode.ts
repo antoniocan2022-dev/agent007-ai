@@ -108,7 +108,7 @@ function highConfidenceReferenceForObjective(objective: string, resolvedReferenc
   const lower = objective.toLowerCase()
   return resolvedReferences.find((reference) => !reference.ambiguous && reference.confidence >= 0.7 && Boolean(reference.resolvedText?.trim()) && lower.includes(reference.phrase.toLowerCase())) ?? null
 }
-function buildNaturalRecoveryResponse(input: { objective: string; action?: ResponseAction; priorConversation?: readonly PersistedConversationRow[]; recoveredContext?: string; isSuppliedByCaller?: boolean; intent?: CeoIntent; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[] }): string | null {
+function buildNaturalRecoveryResponse(input: { objective: string; action?: ResponseAction; priorConversation?: readonly PersistedConversationRow[]; recoveredContext?: string; isSuppliedByCaller?: boolean; intent?: CeoIntent; conversationState?: CeoConversationState; resolvedReferences?: readonly ConversationReference[]; recoveredExternalEvidence?: boolean }): string | null {
   const objective = input.objective.trim(); if (!objective) return null
   const action = input.action ?? 'answer'; const intent = input.intent ?? 'conversation'
   const priorUsers = safeConversationRows(input.priorConversation ?? []).filter((row) => row.role === 'user').map((row) => row.content.trim()).filter(Boolean)
