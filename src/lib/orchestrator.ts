@@ -518,32 +518,8 @@ async function runFastPathManage(opts: {
     await emit('subagents_updated', { action, attrs, result, fastPath: true })
   }
 
-  // Build a confirmation message and stream it as tokens
-  const agentName = attrs.name ?? 'agent'
-  const roleLine = attrs.role ? ` (${attrs.role})` : ''
-  let finalAnswer: string
-  if (result.ok) {
-    finalAnswer = `✅ Created sub-agent "${agentName}"${roleLine} via fast-path. Use the Sub-Agents panel to verify or edit it.`
-  } else {
-    finalAnswer = `⚠️ Fast-path create_agent for "${agentName}" failed: ${result.message}`
-  }
-
-  const chunks = chunkText(finalAnswer, 80)
-  for (const c of chunks) {
-    await emit('token', { content: c })
-  }
-
-  // Update conversation title
-  try {
-    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-      await db.conversation.update({ where: { id: conversationId }, data: { title } })
-    }
-  } catch {
-    /* ignore */
-  }
-
+  // Phase 3b: this path emits execution events only. The CEO lifecycle owns all user-facing prose,
+  // persistence, and notification after the action has completed.
   // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
   // 2026-09-19): this used to persist an empty assistant row up-front and update it with
   // `finalAnswer` here -- the same unilateral persistence pattern removed from the main loop's own
