@@ -759,16 +759,6 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
     const pipelineType = (missionMatch[1] || 'generic').toLowerCase()
     const objective = missionMatch[2].trim().slice(0, 1000)
     if (objective.length >= 10) {
-      // UPGRADE #146 (Critical #2 fix) — Persist the user's "start mission:" message
-      // FIRST, before running the pipeline. Previously the message was persisted AFTER
-      // the pipeline awaited (which can take 5+ minutes), so if Vercel killed the
-      // function at the 60s timeout, the user's input was lost.
-      try {
-        await db.message.create({ data: { conversationId, role: 'user', content: userMessage } })
-      } catch (dbErr: any) {
-        console.warn('[orchestrator] DB write failed (mission user message), continuing:', dbErr?.message?.slice(0, 100))
-      }
-
       try {
         const { runMissionPipeline, MISSION_PIPELINES } = await import('./mission-pipeline')
         const pipeline = MISSION_PIPELINES[pipelineType] || MISSION_PIPELINES.generic
@@ -785,51 +775,22 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
           missionTitle,
         })
 
-        // Build a final summary answer for the UI
-        let summaryAnswer = `## 🎯 Mission Pipeline ${result.success ? 'Complete' : 'Failed'}\n\n`
-        summaryAnswer += `**Mission:** ${missionTitle}\n`
-        summaryAnswer += `**Pipeline:** ${pipeline.name}\n`
-        summaryAnswer += `**Stages:** ${result.stages.length} / ${pipeline.stages.length}\n\n`
-        summaryAnswer += `### Stage Results\n`
-        for (const s of result.stages) {
-          const icon = s.artifactVerified ? '✅' : s.finalScore >= 70 ? '⚠️' : '❌'
-          summaryAnswer += `${icon} Stage ${s.stage} (${s.team}): score ${s.finalScore}/100, ${s.rounds} round(s)\n`
-          if (s.artifactValue) summaryAnswer += `   Artifact: ${s.artifactValue.slice(0, 100)}\n`
+        // Phase 3b: build internal execution evidence only. The CEO lifecycle owns all user-facing prose.
+        let executionSummary = `Mission pipeline ${result.success ? 'completed' : 'failed'}. Mission: ${missionTitle}. Pipeline: ${pipeline.name}. Stages: ${result.stages.length}/${pipeline.stages.length}.\n`
+        for (const stage of result.stages) {
+          const outcome = stage.artifactVerified ? 'artifact_verified' : stage.finalScore >= 70 ? 'partial_quality' : 'failed_quality'
+          executionSummary += `Stage ${stage.stage} (${stage.team}): ${outcome}; score=${stage.finalScore}; rounds=${stage.rounds}`
+          if (stage.artifactValue) executionSummary += `; artifact=${stage.artifactValue.slice(0, 160)}`
+          executionSummary += '\n'
         }
-        if (result.ceoReport?.fullReport) {
-          summaryAnswer += `\n### 🎯 CEO Executive Report\n\n${result.ceoReport.fullReport}\n`
-        }
-        if (result.error) {
-          summaryAnswer += `\n### ⚠️ Error\n${result.error}\n`
-        }
-        summaryAnswer += `\n---\n*Full audit trail: /api/missions/${missionId}/audit-trail*`
-
-        const chunks2 = chunkText(summaryAnswer, 80)
-        for (const c of chunks2) {
-          await emit('token', { content: c })
-        }
-
-        // Update conversation title (user message was already persisted above before the pipeline
-        // ran — Critical #2 fix). Phase 3 of the CEO Conversation Kernel migration (making the
-        // orchestrator execution-only, 2026-09-19): this used to also persist summaryAnswer directly
-        // as the assistant's final Message row here -- removed for the same reason as the main loop's
-        // own return path and the fast-path manage-action return above: route.ts now unconditionally
-        // creates the real assistant message itself for every OrchestratorRunResult, this mission
-        // pipeline's included, so persisting one here too would leave two rows for the same turn.
-        try {
-          const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-          if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-            await db.conversation.update({
-              where: { id: conversationId },
-              data: { title: `Mission: ${missionTitle.slice(0, 40)}` },
-            })
-          }
-        } catch (dbErr: any) {
-          console.warn('[orchestrator] Mission-pipeline conversation title update failed, continuing:', dbErr?.message?.slice(0, 100))
-        }
+        if (result.ceoReport?.fullReport) executionSummary += `Mission pipeline executive report evidence:\n${result.ceoReport.fullReport.slice(0, 6000)}\n`
+        if (result.error) executionSummary += `Mission pipeline error: ${result.error.slice(0, 1200)}\n`
+        executionSummary += `Audit trail: /api/missions/${missionId}/audit-trail`
 
         return {
-          finalAnswer: summaryAnswer,
+          executionSummary,
+          executionStatus: result.success ? 'completed' : 'failed',
+          completionReason: 'mission_pipeline',
           steps: [],
         }
       } catch (missionErr: any) {
