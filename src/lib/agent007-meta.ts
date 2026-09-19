@@ -27,8 +27,8 @@ async function getOperatorUserId() {
 
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
   try {
-    const zai = await getCanonicalLlmBridge()
-    const c = await zai.chat.completions.create({
+    const canonicalLlm = await getCanonicalLlmBridge()
+    const c = await canonicalLlm.chat.completions.create({
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       temperature: 0.4,
       max_tokens: maxTokens,
