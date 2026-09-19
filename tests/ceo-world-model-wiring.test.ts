@@ -26,7 +26,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
   test('route.ts fetches real partner intelligence and both CEO lanes actually receive it', () => {
     const source = readFileSync(join(ROOT, 'src/app/api/agent/route.ts'), 'utf-8')
     expect(source).toContain('getPartnerIntelligence(sessionUserId)')
-    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon,?\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the partners facet from real telemetry, not a permanent placeholder', () => {
@@ -48,7 +48,7 @@ describe('Phase 9 world model wired into the live lifecycle', () => {
     expect(source).toContain('preRoute.missionRelevant')
     expect(source).toContain('selfInspection.inspect')
     expect(source).toContain('getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined)')
-    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(source.match(/partnerIntelligence,\s*executiveState,\s*leadershipLedger,\s*strategicHorizon,?\s*\}\)\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
   })
 
   test('the world model builds the executive facet from real strategy/risk/resource state, and surfaces the commitments the snapshot already computed but previously discarded', () => {
