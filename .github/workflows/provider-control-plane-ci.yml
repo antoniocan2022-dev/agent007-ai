@@ -34,6 +34,10 @@ on:
       - 'tests/provider-error-lifecycle.test.ts'
       - 'src/lib/model-intelligence-runtime.test.ts'
       - 'scripts/provider-control-plane-audit.ts'
+      - 'scripts/provider-gateway-invariants-audit.ts'
+      - 'src/lib/multi-provider-comparison.ts'
+      - 'tests/multi-provider-comparison.test.ts'
+      - 'tests/canonical-runtime-integrity.test.ts'
       - 'package.json'
       - 'bun.lock'
       - '.github/workflows/provider-control-plane-ci.yml'
@@ -62,6 +66,8 @@ jobs:
         run: bunx tsc -p tsconfig.ci.json --noEmit
       - name: Provider control-plane integrity audit
         run: bun scripts/provider-control-plane-audit.ts
+      - name: Provider gateway invariants audit (Phase D)
+        run: bun scripts/provider-gateway-invariants-audit.ts
       - name: Provider governance unit and integration matrix
         run: |
           set -euo pipefail
@@ -72,6 +78,7 @@ jobs:
             tests/provider-control-plane.integration.test.ts \
             tests/provider-gateway-phase-a.test.ts \
             tests/provider-gateway-phase-b.test.ts \
+            tests/multi-provider-comparison.test.ts \
             tests/ceo-cognitive-lifecycle.test.ts \
             tests/ceo-availability-recovery.test.ts \
             tests/provider-error-lifecycle.test.ts \
