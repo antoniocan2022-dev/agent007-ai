@@ -21,7 +21,7 @@ export function buildOrchestratorExecutionSummary(input: {
   toolSteps: ReadonlyArray<{
     toolName?: string
     toolResult?: { ok: boolean; result?: string | null }
-    verification?: { verified: boolean; artifactType?: string }
+    verification?: { verified: boolean; artifactType?: string; warning?: string | null }
   }>
   notes?: readonly string[]
   terminalError?: string
@@ -37,7 +37,11 @@ export function buildOrchestratorExecutionSummary(input: {
 
   for (const step of input.toolSteps.slice(-20)) {
     const outcome = step.toolResult?.ok === false ? 'FAILED' : step.toolResult?.ok === true ? 'OK' : 'NO_RESULT'
-    const verification = step.verification?.verified ? ` verified=${step.verification.artifactType ?? 'artifact'}` : ''
+    const verification = step.verification
+      ? step.verification.verified
+        ? ` verification=VERIFIED artifact=${step.verification.artifactType ?? 'artifact'}`
+        : ` verification=UNVERIFIED${step.verification.warning ? ` warning=${step.verification.warning.slice(0, 500).replace(/\\s+/g, ' ').trim()}` : ''}`
+      : ''
     const preview = typeof step.toolResult?.result === 'string' ? step.toolResult.result.slice(0, 700).replace(/\s+/g, ' ').trim() : ''
     lines.push(`- ${step.toolName ?? 'unknown_tool'}: ${outcome}${verification}${preview ? ` — ${preview}` : ''}`)
   }
