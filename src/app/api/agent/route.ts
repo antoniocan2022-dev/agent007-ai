@@ -6,7 +6,6 @@ import { runOrchestrator, type OrchestratorEventEmit } from '@/lib/orchestrator'
 import { attachmentContextSuffix } from '@/lib/agent'
 import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
-import { tryOperationalDirectResponse } from '@/lib/ceo-operational-direct-response'
 import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
 import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
@@ -40,7 +39,7 @@ import { searchKnowledgeBase, formatKbContext } from '@/lib/knowledge-base'
 import { renderCeoCapabilityBriefing } from '@/lib/ceo-capability-briefing'
 import { listActiveMissionsDB } from '@/lib/active-missions-db'
 import { extractVentureId } from '@/lib/ceo-venture-state'
-import { CEO_PERSONALITY_CHARTER } from '@/lib/ceo-personality'
+import { buildCeoSystemPrompt } from '@/lib/ceo-system-prompt'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
 import { persistCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker, CeoResponseSupersededError } from '@/lib/ceo-response-persistence'
 import { notifyMissionOutcome } from '@/lib/mission-notifications'
@@ -61,7 +60,7 @@ async function loadConversationContext(conversationId: string, userId: string): 
   try { memories = filterConversationalMemories(await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })) } catch (error) { console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error)); try { const fallback = await getAllPersistentMemory(); memories = filterConversationalMemories(fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))) } catch (fallbackError) { console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError)) } }
   return { rows, memories }
 }
-function buildSystemPrompt(): string { const identity = 'You are Agent007, the CEO and executive intelligence of a governed AI organization. Answer the user directly, naturally, accurately, and without claiming unperformed actions or verification.'; const personality = CEO_PERSONALITY_CHARTER; const governance = 'For self-assessment requests, evaluate readiness from governed internal organizational state; clearly distinguish known facts, inferred conclusions, current limitations, and unknowns. Do not invent live verification.'; return `${identity}\n\n${personality}\n\n${governance}` }
+
 
 export async function POST(req: NextRequest) {
   await ensureDbReady().catch(() => {})
@@ -125,10 +124,10 @@ export async function POST(req: NextRequest) {
   }
 
   const safeContextRows = safeConversationRows(contextData.rows)
-  let contextSeed: CeoContextComposition = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, signal: requestAbortController.signal })
+  let contextSeed: CeoContextComposition = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, signal: requestAbortController.signal })
   let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
   try { semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch(() => {}); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
-  contextSeed = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+  contextSeed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
   // Best-effort: makes this conversation's current decisions durable across future conversations via
   // the existing Memory-backed lexical/semantic retrieval path. Never allowed to affect the response.
   await persistEpisodicDecisionMemory(contextSeed.conversationState).catch(() => {})
@@ -256,7 +255,7 @@ export async function POST(req: NextRequest) {
             safeEnqueue(sse('progress', { phase: 'evidence_complete', sources: externalEvidenceBundle.sources.length, claims: externalEvidenceBundle.claims.length, sufficient: externalEvidenceBundle.sufficient, attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, pageReads: evidenceExecution.pageReads, secSources: evidenceExecution.secSources, marketDataSources: evidenceExecution.marketDataSources, failures: evidenceExecution.failures.slice(0, 5) }))
           }
           const contextModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, evidence: externalEvidenceContext, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
-          const composed = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+          const composed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionPlan: turnDecision.decisionPlan, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) { const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle); addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount, enforcedByQualityGate: true }); }
           const finalTraceState = response.degraded ? (externalEvidenceBundle?.sources.length ? 'PARTIAL' : 'ABSTAIN') : 'FULL'
@@ -296,88 +295,192 @@ export async function POST(req: NextRequest) {
             safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: executionContract.evidenceClass === 'external_web' ? 2 : 1, executionClass: response.decisionPlan.path, provider: response.provider, model: response.model, evidenceState: response.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract }))
           }
         } else {
-          const operationalModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
-          const baseOperationalContext = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: operationalModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
-          const operationalStartedAt = Date.now()
-          // Phase 3a+ of the CEO Conversation Kernel migration (making the orchestrator
-          // execution-only, 2026-09-19): a fresh external re-audit of PR #174 correctly found that
-          // Phase 3a stopped the orchestrator's raw narrative from being PERSISTED or NOTIFIED on as
-          // the final answer, but left it still STREAMED to the user as live 'token' SSE events --
-          // chat-store.ts appends those to the visible assistant message in real time, then the
-          // governed 'answer' event this branch emits later (via tryOperationalDirectResponse's PASS
-          // or the full-synthesis fallback) replaces that content wholesale. That is exactly the
-          // "orchestrator draft -> streamed to user -> CEO final response" pattern Option 3 exists to
-          // eliminate: the user still sees an unvetted draft before governance has had its say, even
-          // though what gets persisted and notified on is now correct. Every other orchestrator event
-          // (tool_call, tool_result, subagent_dispatch, thought, heartbeat, manage_action, ...) still
-          // streams live progress normally -- only its own answer-text tokens are withheld here, at
-          // the call site, without touching orchestrator.ts's loop/prompt/parsing at all.
-          const emitExecutionOnly: OrchestratorEventEmit = async (event, data) => { if (event === 'token') return; await emit(event, data) }
-          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget((signal) => runOrchestrator({ conversationId, userMessage: message, attachments: atts, language: lang, emit: emitExecutionOnly, signal } as OrchestratorRunOptionsWithSignal), requestBudgetMs, requestAbortController.signal))
-          const operationalEvidence = result.finalAnswer.slice(0, 24000)
-          console.log('[api/agent] operational execution telemetry', JSON.stringify({ requestId, completedSteps: result.steps.length, toolSteps: result.steps.filter((step) => Boolean(step.toolName)).length }))
-          // Stage 1b of the CEO Conversation Kernel migration (2026-09-18): before paying for a
-          // second full compose+decide+generate pass on every single action request, verify the
-          // orchestrator's own answer against the same quality gate every other CEO response
-          // already goes through. Falls through to the existing full-synthesis path unchanged when
-          // the direct check doesn't pass -- this only ever skips a redundant regeneration of an
-          // answer that was already correct, never the safety net underneath it.
-          const direct = tryOperationalDirectResponse({ messages: baseOperationalContext.messages, preRoute, missionId: undefined, taskType: preRoute.taskClass, decisionPlan: turnDecision.decisionPlan, objective: message, candidateContent: result.finalAnswer, responseMsBeforeCheck: Date.now() - operationalStartedAt, toolSteps: result.steps, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, responseAction: decisionContract?.responseAction })
-          let composedOperational: CeoContextComposition
-          let synthesis: Awaited<ReturnType<typeof runCeoCognitiveLifecycle>>
-          if (direct) {
-            composedOperational = baseOperationalContext
-            synthesis = direct
-          } else {
-            const synthesisModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, execution: operationalEvidence, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
-            composedOperational = await composeCeoContext({ systemPrompt: buildSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: synthesisModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
-            // Phase 2 fix (external audit, 2026-09-19), issue 6: this used to hardcode
-            // evidenceScope: 'internal_state' even though runOrchestrator() above already executed real
-            // tool calls against live external systems (GitHub, Vercel, email, ...) -- and
-            // runCeoCognitiveLifecycle's own evaluateCeoQuality calls, in turn, used to hardcode
-            // externalExecutionSucceeded: true regardless of whether any of those real calls actually
-            // failed (see that file's own Phase 2 fix). Both are now derived from the orchestrator's own
-            // real step outcomes: operationalToolSteps.length === 0 means nothing external actually ran
-            // this turn (stays 'internal_state', honest); otherwise the scope is genuinely 'live_system',
-            // and externalExecutionSucceeded reports whether every one of those real calls actually
-            // succeeded -- letting evaluateCeoQuality's own evidenceState derivation (which already
-            // forces 'UNAVAILABLE' when externalExecutionSucceeded is false) do the right thing instead
-            // of the fallback synthesis silently claiming a scope-safe but factually wrong evidence base.
-            const operationalToolSteps = result.steps.filter((step) => step.toolName)
-            const anyOperationalToolStepFailed = operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
-            synthesis = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composedOperational.messages, taskType: preRoute.taskClass, timeoutMs: Math.min(60000, requestBudgetMs), contextualEvidence: operationalEvidence, evidenceScope: operationalToolSteps.length > 0 ? 'live_system' : 'internal_state', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 }, externalExecutionSucceeded: !anyOperationalToolStepFailed, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionPlan: turnDecision.decisionPlan, decisionContract, canonicalContext: composedOperational.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
+          // Phase 3b: the orchestrator is ACT-only. Its receipt is fed into the canonical
+          // CEO lifecycle, which is now the sole RESPOND authority for every operational request.
+          const emitExecutionOnly: OrchestratorEventEmit = async (event, data) => {
+            if (event === 'token') return
+            await emit(event, data)
           }
+          const result = await withOrchestrationOwner('operational_orchestrator', () => runWithAgentRequestBudget(
+            (signal) => runOrchestrator({
+              conversationId,
+              userMessage: message,
+              attachments: atts,
+              language: lang,
+              emit: emitExecutionOnly,
+              signal,
+            } as OrchestratorRunOptionsWithSignal),
+            requestBudgetMs,
+            requestAbortController.signal,
+          ))
+          const operationalEvidence = result.executionSummary
+          const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
+          const anyOperationalToolStepFailed = operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
+          console.log('[api/agent] operational execution telemetry', JSON.stringify({
+            requestId,
+            completedSteps: result.steps.length,
+            toolSteps: operationalToolSteps.length,
+            executionStatus: result.executionStatus,
+            completionReason: result.completionReason,
+          }))
+
+          const synthesisModules = buildCeoContextModules({
+            intent: executionContract.intent,
+            missionRelevant: preRoute.missionRelevant,
+            evidenceClass: executionContract.evidenceClass,
+            taskClass: preRoute.taskClass,
+            executionRequirement: executionContract.executionRequirement,
+            execution: operationalEvidence,
+            attachments: atts.length ? attachmentContextSuffix(atts) : undefined,
+            selfInspection: selfInspectionContext,
+            knowledge: knowledgeContext,
+            capabilityBriefing: capabilityBriefingContext,
+          })
+          const composedOperational = await composeCeoContext({
+            systemPrompt: buildCeoSystemPrompt(),
+            currentUserMessage: message,
+            persistedMessages: safeContextRows,
+            memories: contextData.memories,
+            modules: synthesisModules,
+            semanticInterpretation,
+            reuseSemanticContext: {
+              conversationState: contextSeed.conversationState,
+              canonicalSemanticContext: contextSeed.canonicalSemanticContext,
+              decisionContract: contextSeed.decisionContract,
+              resolvedReferences: contextSeed.resolvedReferences,
+              selectedMemories: contextSeed.selectedMemories,
+              semanticMemoryKeys: contextSeed.semanticMemoryKeys,
+            },
+            signal: requestAbortController.signal,
+          })
+
+          const synthesis = await runWithCeoCancellationContext(
+            requestAbortController.signal,
+            () => runCeoCognitiveLifecycle({
+              attachmentsCount: atts.length,
+              messages: composedOperational.messages,
+              taskType: preRoute.taskClass,
+              timeoutMs: Math.min(60000, requestBudgetMs),
+              contextualEvidence: operationalEvidence,
+              evidenceScope: operationalToolSteps.length > 0 ? 'live_system' : 'internal_state',
+              evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 },
+              externalExecutionSucceeded: !anyOperationalToolStepFailed,
+              priorConversation: safeContextRows,
+              relevantOlderConversation: safeContextRows,
+              preRoute,
+              decisionPlan: turnDecision.decisionPlan,
+              decisionContract,
+              canonicalContext: composedOperational.canonicalSemanticContext,
+              partnerIntelligence,
+              executiveState,
+              leadershipLedger,
+              strategicHorizon,
+            }),
+          )
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
-          // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
-          // 2026-09-19): runOrchestrator no longer persists a placeholder assistant message itself (see
-          // its own header comment) -- this branch now CREATEs the real, governed final message exactly
-          // like the ceo_lifecycle branch above does, via the same persistCeoAssistantMessage helper,
-          // instead of UPDATEing a row the orchestrator had already written with its raw, ungoverned
-          // narrative. The staleness check and the write still happen inside one transaction
-          // (persistCeoAssistantMessage), closing the same race window a separate read-then-write would
-          // leave open -- a stale synthesis is still never added to the visible transcript.
+
           let persistedAssistantMessageId: string | null = null
           let responseSuperseded = false
           const synthesisProvenance = synthesis.quality.finalResponseProvenance
           if (synthesisProvenance) {
-            try { persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: synthesis.content, provenance: synthesisProvenance, capturedTurnSequence: myTurnSequence }) } catch (persistErr: any) {
-              if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: synthesis.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
-              else { console.warn('[api/agent] Operational synthesis history persistence failed:', persistErr?.message?.slice(0, 150)); throw persistErr }
+            try {
+              persistedAssistantMessageId = await persistCeoAssistantMessage({
+                conversationId,
+                content: synthesis.content,
+                provenance: synthesisProvenance,
+                capturedTurnSequence: myTurnSequence,
+              })
+            } catch (persistErr: any) {
+              if (persistErr instanceof CeoResponseSupersededError) {
+                responseSuperseded = true
+                await recordSupersededCeoResponse({
+                  conversationId,
+                  content: synthesis.content,
+                  capturedTurnSequence: myTurnSequence,
+                  latestRevision: persistErr.latestRevision,
+                }).catch((auditErr) => console.warn('[api/agent] Superseded-synthesis audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr)))
+              } else {
+                console.warn('[api/agent] Operational synthesis history persistence failed:', persistErr?.message?.slice(0, 150))
+                throw persistErr
+              }
             }
-          } else throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
-          // Phase 3: fires from the real, governed final content once persistence has actually
-          // succeeded -- not from the orchestrator's raw narrative, and not on a superseded write that
-          // never reached the visible transcript. See mission-notifications.ts's own header comment.
-          if (!responseSuperseded) notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
-          streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
-          console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, superseded: responseSuperseded }))
-          if (responseSuperseded) {
-            safeEnqueue(sse('superseded', { reason: 'A newer message in this conversation was already accepted before the executive synthesis finished computing, so it was not written as the current answer.', deployment: deploymentIdentity, requestId, releaseAttestation }))
-            safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length, executionClass: synthesis.decisionPlan.path, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, recoveryCount: recoveryBudget.used }))
           } else {
-            safeEnqueue(sse('answer', { content: synthesis.content, provider: synthesis.provider, model: synthesis.model, executionClass: synthesis.decisionPlan.path, evidenceState: synthesis.evidenceState, quality: synthesis.quality, cognitiveMetrics: metrics, responseMs: synthesis.responseMs, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract, operationalSteps: result.steps.length, context: { recentMessages: baseOperationalContext.recentMessages, relevantOlderMessages: baseOperationalContext.relevantOlderMessages, summarizedOlderMessages: baseOperationalContext.summarizedOlderMessages, selectedMemoryKeys: baseOperationalContext.selectedMemoryKeys, modules: composedOperational.modules } }))
-            safeEnqueue(sse('done', { messageId: persistedAssistantMessageId, steps: result.steps.length + 1, executionClass: synthesis.decisionPlan.path, provider: synthesis.provider, model: synthesis.model, evidenceState: synthesis.evidenceState, deployment: deploymentIdentity, requestId, releaseAttestation, cognitiveMetrics: metrics, decisionContract, executionContract, recoveryCount: recoveryBudget.used }))
+            throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
+          }
+
+          if (!responseSuperseded) notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
+
+          streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
+          console.log('[ceo-request-trace]', JSON.stringify({
+            requestId,
+            endpoint: '/api/agent',
+            deploymentId: releaseAttestation.deploymentId,
+            executedCommitSha: releaseAttestation.executedCommitSha,
+            fingerprint: releaseAttestation.fingerprint,
+            outcome: streamOutcome,
+            executionPath: synthesis.decisionPlan.path,
+            provider: synthesis.provider,
+            model: synthesis.model,
+            superseded: responseSuperseded,
+          }))
+          if (responseSuperseded) {
+            safeEnqueue(sse('superseded', {
+              reason: 'A newer message in this conversation was already accepted before the executive synthesis finished computing, so it was not written as the current answer.',
+              deployment: deploymentIdentity,
+              requestId,
+              releaseAttestation,
+            }))
+            safeEnqueue(sse('done', {
+              messageId: persistedAssistantMessageId,
+              steps: result.steps.length,
+              executionClass: synthesis.decisionPlan.path,
+              deployment: deploymentIdentity,
+              requestId,
+              releaseAttestation,
+              decisionContract,
+              executionContract,
+              recoveryCount: recoveryBudget.used,
+            }))
+          } else {
+            safeEnqueue(sse('answer', {
+              content: synthesis.content,
+              provider: synthesis.provider,
+              model: synthesis.model,
+              executionClass: synthesis.decisionPlan.path,
+              evidenceState: synthesis.evidenceState,
+              quality: synthesis.quality,
+              cognitiveMetrics: metrics,
+              responseMs: synthesis.responseMs,
+              deployment: deploymentIdentity,
+              requestId,
+              releaseAttestation,
+              decisionContract,
+              executionContract,
+              operationalSteps: result.steps.length,
+              context: {
+                recentMessages: contextSeed.recentMessages,
+                relevantOlderMessages: contextSeed.relevantOlderMessages,
+                summarizedOlderMessages: contextSeed.summarizedOlderMessages,
+                selectedMemoryKeys: contextSeed.selectedMemoryKeys,
+                modules: composedOperational.modules,
+              },
+            }))
+            safeEnqueue(sse('done', {
+              messageId: persistedAssistantMessageId,
+              steps: result.steps.length + 1,
+              executionClass: synthesis.decisionPlan.path,
+              provider: synthesis.provider,
+              model: synthesis.model,
+              evidenceState: synthesis.evidenceState,
+              deployment: deploymentIdentity,
+              requestId,
+              releaseAttestation,
+              cognitiveMetrics: metrics,
+              decisionContract,
+              executionContract,
+              recoveryCount: recoveryBudget.used,
+            }))
           }
         }
       } catch (e: any) {
