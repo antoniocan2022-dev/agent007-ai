@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { composeCeoContext } from '@/lib/ceo-context-composer'
+import { CEO_MESSAGE_CLAMP_CHARS } from '@/lib/ceo-cognitive-contract'
 
 const routeSource = readFileSync(new URL('../src/app/api/agent/route.ts', import.meta.url), 'utf8')
 const composerSource = readFileSync(new URL('../src/lib/ceo-context-composer.ts', import.meta.url), 'utf8')
@@ -28,7 +29,9 @@ describe('CEO context boundary', () => {
   })
 
   test('current user input is bounded before entering the canonical context', async () => {
-    const oversized = 'A'.repeat(20_000)
+    // Bound is CEO_MESSAGE_CLAMP_CHARS (raised 2026-09-19 from a hardcoded 12,000 -- see its doc comment
+    // in ceo-cognitive-contract.ts for the sizing rationale), so the oversized fixture must exceed that.
+    const oversized = 'A'.repeat(CEO_MESSAGE_CLAMP_CHARS + 20_000)
     const composed = await composeCeoContext({
       systemPrompt: 'You are Agent007.',
       currentUserMessage: oversized,
@@ -37,7 +40,7 @@ describe('CEO context boundary', () => {
     })
     const current = composed.messages.at(-1)
     expect(current?.role).toBe('user')
-    expect(current?.content.length).toBeLessThanOrEqual(12_000)
-    expect(composed.canonicalSemanticContext.currentMessage.length).toBeLessThanOrEqual(12_000)
+    expect(current?.content.length).toBeLessThanOrEqual(CEO_MESSAGE_CLAMP_CHARS)
+    expect(composed.canonicalSemanticContext.currentMessage.length).toBeLessThanOrEqual(CEO_MESSAGE_CLAMP_CHARS)
   })
 })

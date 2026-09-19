@@ -109,7 +109,18 @@ export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'cloudflare'
 // REQUEST_TOO_LARGE; the reactive compact-and-retry-same-provider-once path in provider-runtime-v2.ts
 // (triggered by the real classified error) is the authoritative correctness mechanism regardless of
 // whether this preflight guess was right.
-export const DEFAULT_MAX_INPUT_TOKENS = 6000
+//
+// Long-document incident (2026-09-19), Phase 1: raised from 6,000. The previous value was far below what
+// this codebase's actual governed models support -- PROVIDER_RUNTIME_CONFIG's real default models (Groq
+// llama-3.3-70b-versatile, Mistral mistral-large-latest, Cerebras gpt-oss-120b/llama-3.3-70b) are all
+// well-documented ~128K-token-context model families, not the handful-of-thousand-token ceiling this
+// budget previously assumed. 100,000 leaves real headroom under that ~128K ceiling for the largest
+// governed maxOutputTokens (16,000, on the openrouter/anthropic profile) plus this preflight estimate's
+// own chars/4 imprecision. This is still a conservative, shared guess, not a per-vendor verified limit --
+// Cloudflare Workers AI's specific governed model in particular has no confirmed context window here --
+// so the reactive compact-and-retry-on-REQUEST_TOO_LARGE path above remains the real safety net for any
+// provider where this guess is still too high, exactly as it already is when this guess is too low.
+export const DEFAULT_MAX_INPUT_TOKENS = 100_000
 // Rough, standard chars-per-token heuristic (~4 chars/token for English prose) -- good enough to decide
 // "is this request plausibly oversized," not a real tokenizer.
 export function estimateTokens(text: string): number { return Math.ceil(text.length / 4) }
