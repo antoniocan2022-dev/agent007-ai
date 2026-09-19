@@ -95,7 +95,6 @@ const decisionPlanCallerAllowlist = new Set([
   'src/lib/ceo-cognitive-kernel.ts', // the definition itself
   'src/lib/ceo-turn-decision.ts', // Phase 2: the single per-turn builder (CeoTurnDecision)
   'src/lib/ceo-cognitive-lifecycle.ts', // falls back to building its own only when no caller supplied one
-  'src/lib/ceo-operational-direct-response.ts', // same fallback pattern, mirrored
   'scripts/ceo-cognitive-lifecycle-audit.ts', // offline audit tooling, not a request-handling path
 ])
 for (const path of tracked.filter(isSource)) {
