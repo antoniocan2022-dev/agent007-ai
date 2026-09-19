@@ -23,8 +23,10 @@ export function classifyOperationalExecution(result: OperationalExecutionHandoff
   const allManageSucceeded = manageSteps.length > 0 && manageSteps.every((step) => step.toolResult?.ok === true)
   const verifiedExternalActions = verification.knownActionSteps > 0 && verification.allKnownActionsVerified
   const completedInternalPipeline = missionPipelineSteps.length > 0 && result.executionStatus === 'completed'
+  const noUnverifiedConsequentialAction = !verification.hasUnverifiedAction
   const externalExecutionSucceeded =
     result.executionStatus === 'completed' &&
+    noUnverifiedConsequentialAction &&
     (verifiedExternalActions || allManageSucceeded || completedInternalPipeline)
   const evidenceScope = externalExecutionSucceeded ? 'live_system' : 'internal_state'
   return {
