@@ -10,7 +10,6 @@
  * 3. Performance & Optimization (4 tools)
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
@@ -27,8 +26,8 @@ function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 14
 // ported here. A discriminated result lets createDevTool report the two cases honestly instead.
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1800): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
   try {
-    const zai = await getCanonicalLlmBridge()
-    const completion = await zai.chat.completions.create({
+    const canonicalLlm = await getCanonicalLlmBridge()
+    const completion = await canonicalLlm.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

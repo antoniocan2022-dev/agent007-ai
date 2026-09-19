@@ -20,6 +20,7 @@
  *   3. Synthesize a final answer that incorporates the best insights
  */
 import type { ToolResult } from './tools'
+import { PROVIDER_ORDER, type ActiveProviderId } from './provider-control-plane'
 
 interface ProviderResponse {
   provider: string
@@ -33,40 +34,42 @@ interface ProviderResponse {
 
 /**
  * Call a single provider. Returns the response or error.
- * This is a lightweight wrapper that calls the provider's function
- * and normalizes the result.
+ *
+ * Provider Gateway Phase C (2026-09-19): this used to isolate a provider by mutating
+ * process.env.LLM_PROVIDER_ORDER around a call to agent.ts's legacy retry wrapper (see UPGRADE
+ * #169/#170's try/finally dance in git history). That mechanism was a no-op by the time this
+ * ran: the legacy wrapper delegates straight to runCanonicalLlm, which never reads
+ * LLM_PROVIDER_ORDER at all (the canonical router picks providers via its own task-governed
+ * candidate/health ranking) -- so every call here silently ignored the requested provider and
+ * got whichever provider the router's own
+ * ranking happened to choose, while still labeling the response with the REQUESTED provider's
+ * name. A "multi-provider comparison" report could show three different-looking responses all
+ * secretly answered by the same one provider under three false labels, defeating the entire
+ * point of the tool. runCanonicalLlm's excludeProviders is a real, request-scoped parameter (no
+ * shared-Lambda race risk the env mutation had to work around in the first place): excluding
+ * every OTHER governed provider leaves exactly one candidate in the pool from the very first
+ * filtering step, so it fails honestly if that provider isn't currently available rather than
+ * silently substituting another one -- and the label now comes from the result actually
+ * returned, not the request. (providerOrder alone is not strict enough for this: it's a
+ * preference ranking, not an allowlist, and runGovernedProviderChat's half-open-probe fallback
+ * path can still pick a DIFFERENT durably-available provider outside that order when every
+ * providerOrder candidate's circuit is open -- excludeProviders is filtered before that path
+ * ever runs, so it has no such gap.)
  */
 async function callProvider(
-  provider: string,
+  provider: ActiveProviderId,
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
 ): Promise<ProviderResponse> {
   const start = Date.now()
-  // UPGRADE #169 H1: Restore LLM_PROVIDER_ORDER in finally, not in try.
-  // Before: if callLlmWithRetry threw (rate limit, network, auth), the restore
-  // at the end of the try block never ran → the env var stayed mutated for
-  // the lifetime of the Vercel warm Lambda → ALL subsequent LLM calls across
-  // ALL concurrent requests used ONLY that one provider (single-provider
-  // bottleneck under load).
-  // After: try/finally guarantees the env is restored even on throw.
-  const originalOrder = process.env.LLM_PROVIDER_ORDER
   try {
-    // Dynamically import to avoid circular dependencies
-    const { callLlmWithRetry } = await import('./agent')
-
-    // Temporarily set LLM_PROVIDER_ORDER to only use this provider
-    process.env.LLM_PROVIDER_ORDER = provider
-
-    const result = await callLlmWithRetry(messages)
-    const content = result?.choices?.[0]?.message?.content ?? ''
-    const reasoning = result?._reasoning || result?.choices?.[0]?.message?.reasoning || null
-    const model = result?._model || provider
-
+    const { runCanonicalLlm } = await import('./canonical-llm-router')
+    const result = await runCanonicalLlm({ messages, excludeProviders: PROVIDER_ORDER.filter((candidate) => candidate !== provider), maxProviderAttempts: 1, taskType: 'reasoning', verification: 'standard' })
     return {
-      provider,
-      model,
-      content,
-      reasoning,
-      ok: !!content,
+      provider: result.provider,
+      model: result.model,
+      content: result.content,
+      reasoning: null,
+      ok: !!result.content,
       elapsedMs: Date.now() - start,
     }
   } catch (e: any) {
@@ -78,17 +81,6 @@ async function callProvider(
       error: e?.message?.slice(0, 200) || 'Unknown error',
       elapsedMs: Date.now() - start,
     }
-  } finally {
-    // UPGRADE #169 H1 + #170 fix: If originalOrder was undefined (env not set),
-    // we must DELETE the env var — assigning undefined coerces to the literal
-    // string "undefined" (Node.js quirk), which would then be parsed by
-    // callLlmWithRetry as order=['undefined'], zero providers available,
-    // ALL subsequent LLM calls fail. This was a regression introduced by #169 H1.
-    if (originalOrder === undefined) {
-      delete process.env.LLM_PROVIDER_ORDER
-    } else {
-      process.env.LLM_PROVIDER_ORDER = originalOrder
-    }
   }
 }
 
@@ -99,10 +91,10 @@ async function callProvider(
  * side-by-side for comparison. The agent can then synthesize its own
  * analysis from the different perspectives.
  *
- * Available providers (when configured):
- *   mistral, groq, openrouter, cerebras, brave, gemini
- *
- * (OpenAI and z.ai are disabled per UPGRADE #123)
+ * Available providers (when configured): mistral, groq, openrouter, cerebras, cloudflare --
+ * the same 5 governed providers provider-control-plane.ts defines (openai is excluded there;
+ * brave/gemini were never wired into the actual provider switch below despite once being
+ * mentioned here).
  */
 export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
   const { prompt, providers = ['mistral', 'groq', 'openrouter'], systemPrompt } = args ?? {}
@@ -132,7 +124,7 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
     return {
       ok: false,
       preview: 'No configured providers available',
-      result: 'Error: None of the requested providers have API keys configured. Set at least one of: MISTRAL_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, BRAVE_API_KEY, CLOUDFLARE_API_KEY',
+      result: 'Error: None of the requested providers have API keys configured. Set at least one of: MISTRAL_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, CLOUDFLARE_API_KEY (+ CLOUDFLARE_ACCOUNT_ID)',
     }
   }
 
@@ -145,7 +137,7 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
 
   // Call all providers in PARALLEL
   const results = await Promise.all(
-    availableProviders.map((p: string) => callProvider(p.toLowerCase(), messages))
+    availableProviders.map((p: string) => callProvider(p.toLowerCase() as ActiveProviderId, messages))
   )
 
   // Build the comparison report
@@ -194,8 +186,16 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
     report += `2. IDENTIFY DISAGREEMENTS — Where do providers differ? Investigate why.\n`
     report += `3. SYNTHESIZE — Combine the best insights from each into your final answer.\n`
     report += `4. CITATION — When you use a specific insight, mention which provider suggested it.\n\n`
-    report += `The fastest provider was: ${succeeded.sort((a, b) => a.elapsedMs - b.elapsedMs)[0].provider} (${succeeded[0].elapsedMs}ms)\n`
-    report += `The longest response was from: ${succeeded.sort((a, b) => b.content.length - a.content.length)[0].provider} (${succeeded[0].content.length} chars)\n`
+    // Fresh-audit fix: this used to re-sort `succeeded` in place (twice, with two different
+    // comparators) and read `succeeded[0]` back out afterward -- correct only because each
+    // sort's mutation happened to land immediately before the read that depended on it. That's a
+    // fragile hidden coupling between statement order and Array.prototype.sort's in-place
+    // mutation, not an actual guarantee; reduce() states the intent directly and doesn't depend
+    // on evaluation order between unrelated-looking expressions.
+    const fastest = succeeded.reduce((min, r) => (r.elapsedMs < min.elapsedMs ? r : min))
+    const longest = succeeded.reduce((max, r) => (r.content.length > max.content.length ? r : max))
+    report += `The fastest provider was: ${fastest.provider} (${fastest.elapsedMs}ms)\n`
+    report += `The longest response was from: ${longest.provider} (${longest.content.length} chars)\n`
   }
 
   return {
@@ -205,78 +205,3 @@ export async function toolMultiProviderCompare(args: any): Promise<ToolResult> {
   }
 }
 
-/**
- * Self-Decision Provider Selection
- *
- * Lets the agent choose the BEST provider for a specific task based on
- * task characteristics. This is called automatically by the orchestrator
- * when the agent needs an LLM response.
- *
- * Selection criteria (no strict order — agent decides):
- *   - Speed-critical tasks (real-time chat, quick lookups) → Cerebras (2600 tok/s)
- *   - Complex reasoning (analysis, strategy) → Mistral (large model, strong reasoning)
- *   - Long-form content (blogs, reports) → OpenRouter (access to many models)
- *   - Creative tasks (brainstorming, naming) → Groq (Llama 3, good at creative)
- *   - Search-related (trends, news) → Brave (search-optimized)
- *   - Multi-modal (images, vision) → Gemini (native vision support)
- */
-export function selectBestProvider(taskDescription: string): string[] {
-  const lower = taskDescription.toLowerCase()
-
-  // Task-type → preferred providers (in priority order)
-  const taskProviderMap: Array<{ patterns: RegExp[]; providers: string[] }> = [
-    {
-      patterns: [/fast|quick|real.?time|immediate|speed/],
-      providers: ['cerebras', 'groq'],  // Cerebras 2600 tok/s, Groq also fast
-    },
-    {
-      patterns: [/analyz|reason|strategy|compar|evaluat|decide/],
-      providers: ['mistral', 'openrouter'],  // Large models, strong reasoning
-    },
-    {
-      patterns: [/writ|blog|article|report|content|essay/],
-      providers: ['openrouter', 'mistral'],  // Access to many models for long-form
-    },
-    {
-      patterns: [/creat|brainstorm|idea|name|slogan/],
-      providers: ['groq', 'mistral'],  // Llama 3 good at creative
-    },
-    {
-      patterns: [/search|trend|news|current|latest/],
-      providers: ['brave', 'groq'],  // Brave search-optimized
-    },
-    {
-      patterns: [/image|vision|picture|see|visual/],
-      providers: ['cloudflare'],  // Native vision support
-    },
-  ]
-
-  // Find matching task type
-  for (const { patterns, providers } of taskProviderMap) {
-    if (patterns.some((p) => p.test(lower))) {
-      // Filter to only configured providers
-      const configured = providers.filter((p) => {
-        switch (p) {
-          case 'mistral': return !!process.env.MISTRAL_API_KEY
-          case 'groq': return !!process.env.GROQ_API_KEY
-          case 'openrouter': return !!process.env.OPENROUTER_API_KEY
-          case 'cerebras': return !!process.env.CEREBRAS_API_KEY
-          
-          case 'cloudflare': return !!(process.env.CLOUDFLARE_API_KEY && process.env.CLOUDFLARE_ACCOUNT_ID)
-          default: return false
-        }
-      })
-      if (configured.length > 0) return configured
-    }
-  }
-
-  // Default: all configured providers (agent self-selects)
-  const all: string[] = []
-  if (process.env.MISTRAL_API_KEY) all.push('mistral')
-  if (process.env.GROQ_API_KEY) all.push('groq')
-  if (process.env.OPENROUTER_API_KEY) all.push('openrouter')
-  if (process.env.CEREBRAS_API_KEY) all.push('cerebras')
-  if (process.env.BRAVE_API_KEY) all.push('brave')
-  if (process.env.CLOUDFLARE_API_KEY && process.env.CLOUDFLARE_ACCOUNT_ID) all.push('cloudflare')
-  return all
-}

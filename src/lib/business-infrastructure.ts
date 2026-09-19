@@ -8,7 +8,6 @@
  *   Plus: mission tracker + strategy planner
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
 
@@ -27,15 +26,15 @@ export async function toolRealTimeMonitor(args: { focus?: string; interval_minut
   const focus = (args.focus ?? 'all').toString()
   const interval = Math.min(1440, Math.max(5, args.interval_minutes ?? 60))
   try {
-    const zai = await getCanonicalLlmBridge()
+    const canonicalLlm = await getCanonicalLlmBridge()
     const userId = await getOperatorUserId()
     if (!userId) return bad('No operator user')
 
     // Monitor: market opportunities, competitor activity, price changes, trending topics
     const [opps, trends, competitors] = await Promise.all([
-      zai.functions.invoke('web_search', { query: `${focus} passive income opportunity 2026 emerging`, num: 4, recency_days: 7 }).catch(() => []),
-      zai.functions.invoke('web_search', { query: `${focus} trending topics content creation AI 2026`, num: 4, recency_days: 7 }).catch(() => []),
-      zai.functions.invoke('web_search', { query: `${focus} competitor analysis pricing 2026`, num: 3, recency_days: 14 }).catch(() => []),
+      canonicalLlm.functions.invoke('web_search', { query: `${focus} passive income opportunity 2026 emerging`, num: 4, recency_days: 7 }).catch(() => []),
+      canonicalLlm.functions.invoke('web_search', { query: `${focus} trending topics content creation AI 2026`, num: 4, recency_days: 7 }).catch(() => []),
+      canonicalLlm.functions.invoke('web_search', { query: `${focus} competitor analysis pricing 2026`, num: 3, recency_days: 14 }).catch(() => []),
     ])
 
     // Get current income + opportunities from DB
@@ -463,7 +462,7 @@ export async function toolAutonomousRevenue(args: { strategy?: string; target_mo
   const strategy = (args.strategy ?? 'content_agency').toString()
   const target = Number(args.target_monthly ?? 20000)
   try {
-    const zai = await getCanonicalLlmBridge()
+    const canonicalLlm = await getCanonicalLlmBridge()
     const userId = await getOperatorUserId()
     if (!userId) return bad('No operator user')
 
@@ -473,7 +472,7 @@ export async function toolAutonomousRevenue(args: { strategy?: string; target_mo
     const gap = Math.max(0, target - currentMonthly)
 
     // LLM generates autonomous revenue plan
-    const completion = await zai.chat.completions.create({
+    const completion = await canonicalLlm.chat.completions.create({
       messages: [
         {
           role: 'system',
@@ -526,18 +525,18 @@ export async function toolPredictiveBI(args: { market?: string; horizon_months?:
   const market = (args.market ?? 'AI content creation').toString()
   const horizon = Math.min(24, Math.max(3, args.horizon_months ?? 12))
   try {
-    const zai = await getCanonicalLlmBridge()
+    const canonicalLlm = await getCanonicalLlmBridge()
     const userId = await getOperatorUserId()
     if (!userId) return bad('No operator user')
 
     const [trends, predictions] = await Promise.all([
-      zai.functions.invoke('web_search', { query: `${market} market trends 2026 growth forecast`, num: 5, recency_days: 30 }).catch(() => []),
-      zai.functions.invoke('web_search', { query: `${market} opportunity prediction 2026 emerging niches`, num: 5, recency_days: 30 }).catch(() => []),
+      canonicalLlm.functions.invoke('web_search', { query: `${market} market trends 2026 growth forecast`, num: 5, recency_days: 30 }).catch(() => []),
+      canonicalLlm.functions.invoke('web_search', { query: `${market} opportunity prediction 2026 emerging niches`, num: 5, recency_days: 30 }).catch(() => []),
     ])
 
     const allData = [...(Array.isArray(trends) ? trends : []), ...(Array.isArray(predictions) ? predictions : [])].map((r: any) => `${r.name}: ${r.snippet}`).join('\n').slice(0, 3000)
 
-    const completion = await zai.chat.completions.create({
+    const completion = await canonicalLlm.chat.completions.create({
       messages: [
         {
           role: 'system',

@@ -3,6 +3,7 @@ import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
 import { clearProviderCatalogCache } from '@/lib/provider-control-plane'
 import { clearOutcomeIntelligenceForTests } from '@/lib/outcome-intelligence'
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
+import { resetProviderStandingForTests } from '@/lib/provider-standing'
 
 const ENV_KEYS = ['GROQ_API_KEY', 'CEREBRAS_API_KEY'] as const
 const originalEnvironment = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]])) as Record<(typeof ENV_KEYS)[number], string | undefined>
@@ -12,6 +13,7 @@ beforeEach(() => {
   clearProviderCatalogCache()
   clearOutcomeIntelligenceForTests()
   resetProviderHealthForTests()
+  resetProviderStandingForTests()
   for (const key of ENV_KEYS) delete process.env[key]
 })
 
@@ -19,6 +21,7 @@ afterEach(() => {
   clearProviderCatalogCache()
   clearOutcomeIntelligenceForTests()
   resetProviderHealthForTests()
+  resetProviderStandingForTests()
   for (const key of ENV_KEYS) {
     const value = originalEnvironment[key]
     if (value === undefined) delete process.env[key]

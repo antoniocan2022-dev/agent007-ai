@@ -325,7 +325,7 @@ export interface VidMember {
   personality: string[]
   // Tool domain — the category of tools this member controls.
   toolDomain: string
-  // Real tools — linked to actual files in /src/lib/*.ts or zai.functions.invoke registry.
+  // Real tools — linked to actual files in /src/lib/*.ts or the TOOL_REGISTRY in tools.ts.
   tools: { name: string; source: string }[]
   // Output — the concrete deliverable this member produces.
   output: string

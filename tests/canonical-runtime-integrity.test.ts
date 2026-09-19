@@ -24,10 +24,17 @@ function walk(dir: string): string[] {
 // boundaries for legacy callers; the bridge may reference canonical provider
 // runtime directly only for requests already owned by the operational lane.
 const LEGACY_COMPATIBILITY_FILES = new Set([
-  'lib/multi-provider-comparison.ts', 'lib/leader-debate.ts', 'lib/super-agent-verifier.ts', 'lib/mission-os.ts',
+  // Provider Gateway Phase C (2026-09-19): multi-provider-comparison.ts no longer calls
+  // callLlmWithRetry -- it calls runCanonicalLlm directly with a request-scoped
+  // excludeProviders isolation (see that file's own comment for why the old
+  // LLM_PROVIDER_ORDER env-mutation approach was a no-op). Removed from this exemption list so
+  // this test now actively guards against that pattern regressing back into the file.
+  'lib/leader-debate.ts', 'lib/super-agent-verifier.ts', 'lib/mission-os.ts',
   'lib/orchestrator.ts', 'lib/predicted-iq.ts', 'lib/business-portfolio.ts', 'lib/self-healing-engine.ts',
   'lib/real-intelligence-tools.ts', 'lib/mission-pipeline.ts', 'lib/cognitive-framework.ts',
-  'lib/evolution-engine.ts', 'lib/performance-booster-tools.ts', 'lib/canonical-provider-compat.ts',
+  // Provider Gateway Phase C (2026-09-19): canonical-provider-compat.ts deleted -- confirmed
+  // unimported anywhere (grep across src/tests/scripts found only this line and its own file).
+  'lib/evolution-engine.ts', 'lib/performance-booster-tools.ts',
   'app/api/mission-active/[missionId]/route.ts', 'app/api/system/diagnose-llm/route.ts',
   'lib/subagents.ts', 'lib/upgrade-manifest.ts',
 ])

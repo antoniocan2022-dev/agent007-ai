@@ -10,7 +10,6 @@
  * 5. Reflect on its own reasoning and decision-making
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { upsertMemory, recallMemories } from './memory'
 import { promises as fsp } from 'node:fs'
@@ -28,8 +27,8 @@ async function getOperatorUserId() {
 
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
   try {
-    const zai = await getCanonicalLlmBridge()
-    const c = await zai.chat.completions.create({
+    const canonicalLlm = await getCanonicalLlmBridge()
+    const c = await canonicalLlm.chat.completions.create({
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       temperature: 0.4,
       max_tokens: maxTokens,

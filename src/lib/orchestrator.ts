@@ -41,7 +41,12 @@ import { recallMemories, formatMemoryForPrompt } from '@/lib/memory'
 import {
   parseAssistant,
   buildHistoryMessages,
-  callLlmWithRetry,
+  // Provider Gateway Phase B (2026-09-19): this is agent-canonical-bridge.ts's runOwnerAwareLlm (a local
+  // export that shadows this module alias's `export * from './agent'` for the name callLlmWithRetry,
+  // which agent.ts's genuinely different callLlmWithRetry also exports) -- NOT agent.ts's raw
+  // callLlmWithRetry. The orchestrator's tool loop deliberately gets the owner-aware fork
+  // (getOrchestrationOwner()-based) here, same as before the rename; only the name changed.
+  runOwnerAwareLlm,
   THOUGHT_RE,
   TOOL_RE,
   SYSTEM_PROMPT as BASE_SYSTEM_PROMPT,
@@ -1169,7 +1174,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         ...conversationMessages,
         { role: 'user' as const, content: `${identityReminder}\n\n${ORCHESTRATOR_EXECUTION_ONLY_REMINDER}` },
       ]
-      completion = await callLlmWithRetry(messagesWithReminder)
+      completion = await runOwnerAwareLlm(messagesWithReminder)
     } catch (e: any) {
       // UPGRADE #157: Check if ALL providers failed with auth errors (401/403).
       // If so, the API keys are invalid/expired — give a clear actionable message.

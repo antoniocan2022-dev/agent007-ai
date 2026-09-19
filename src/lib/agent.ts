@@ -118,10 +118,14 @@ export async function buildHistoryMessages(conversationId: string, currentUserMe
 export function chunkText(text: string, size: number): string[] { if (!text || size <= 0) return []; const chunks: string[] = []; for (let index = 0; index < text.length; index += size) chunks.push(text.slice(index, index + size)); return chunks }
 export function friendlyLlmError(error: any): string { const failures = Array.isArray(error?._failures) ? error._failures : []; if (failures.length) return `Agent007 provider execution failed.\n\nProviders tried:\n  • ${failures.map((failure: any) => `${failure.provider}: ${failure.isRateLimit ? 'rate limit' : String(failure.error?.message ?? 'failure').slice(0, 120)}`).join('\n  • ')}`; if (isRateLimitError(error)) return 'Agent007 providers are temporarily rate-limited. Please retry shortly.'; return `Agent007 provider execution failed: ${String(error?.message ?? error).slice(0, 400)}` }
 /**
- * Canonical model execution compatibility wrapper used by the legacy orchestrator.
- * Not to be confused with agent-canonical-bridge.ts's own callLlmWithRetry, which branches on
- * getOrchestrationOwner() and returns runCanonicalLlm's own result shape -- this one always
- * calls runCanonicalLlm directly and reshapes the result into an OpenAI chat-completion object.
+ * Canonical model execution compatibility wrapper: always calls runCanonicalLlm directly and
+ * reshapes the result into an OpenAI chat-completion object. Used by the many callers that need a
+ * raw inference call in that legacy shape (orchestrator.ts's tool loop, subagents.ts, and other
+ * lib/ modules), as opposed to agent-canonical-bridge.ts's runOwnerAwareLlm, which additionally
+ * decides whether a turn needs the full CEO cognitive lifecycle. Provider Gateway Phase B
+ * (2026-09-19) renamed that other function specifically to end the "two functions named
+ * callLlmWithRetry, doing different things" ambiguity this comment used to have to explain --
+ * callLlmWithRetry unambiguously means this one now.
  */
 export async function callLlmWithRetry(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, opts?: { thinking?: boolean }): Promise<any> {
   RATE_LIMIT_INFO.retryingNow = true

@@ -14,7 +14,6 @@
  * 7. Developer Enhancements (12 tools)
  */
 import { type ToolContext, type ToolResult } from './tools'
-import { callLlmWithRetry } from './agent-canonical-bridge'
 import { db } from './db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
@@ -38,8 +37,8 @@ async function getOperatorUserId() {
 // happened.
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
   try {
-    const zai = await getCanonicalLlmBridge()
-    const c = await zai.chat.completions.create({
+    const canonicalLlm = await getCanonicalLlmBridge()
+    const c = await canonicalLlm.chat.completions.create({
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
       temperature: 0.5,
       max_tokens: maxTokens,
