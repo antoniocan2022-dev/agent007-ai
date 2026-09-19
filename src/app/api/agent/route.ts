@@ -46,7 +46,7 @@ import { persistCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMa
 import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
-import { summarizeToolExecutionVerification } from '@/lib/tool-action-verification'
+import { classifyOperationalExecution } from '@/lib/ceo-execution-handoff'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -54,28 +54,6 @@ export const maxDuration = 240
 
 type DeploymentIdentity = { deploymentId: string | null; releaseCommit: string | null }
 function getDeploymentIdentity(): DeploymentIdentity { return { deploymentId: process.env.VERCEL_DEPLOYMENT_ID?.trim() || null, releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null } }
-
-function classifyOperationalExecution(result: Awaited<ReturnType<typeof runOrchestrator>>): {
-  externalExecutionSucceeded: boolean
-  evidenceScope: 'internal_state' | 'live_system'
-  evidenceFreshness?: { observedAt: number; maxAgeMs: number }
-  verification: ReturnType<typeof summarizeToolExecutionVerification>
-} {
-  const verification = summarizeToolExecutionVerification(result.steps)
-  const manageSteps = result.steps.filter((step) => step.toolName === 'manage_action')
-  const missionPipelineSteps = result.steps.filter((step) => step.toolName === 'mission_pipeline')
-  const allManageSucceeded = manageSteps.length > 0 && manageSteps.every((step) => step.toolResult?.ok === true)
-  const verifiedExternalActions = verification.knownActionSteps > 0 && verification.allKnownActionsVerified
-  const completedInternalPipeline = missionPipelineSteps.length > 0 && result.executionStatus === 'completed'
-  const externalExecutionSucceeded = result.executionStatus !== 'failed' && (verifiedExternalActions || allManageSucceeded || completedInternalPipeline)
-  const evidenceScope = externalExecutionSucceeded ? 'live_system' : 'internal_state'
-  return {
-    externalExecutionSucceeded,
-    evidenceScope,
-    evidenceFreshness: externalExecutionSucceeded ? { observedAt: Date.now(), maxAgeMs: 300000 } : undefined,
-    verification,
-  }
-}
 
 async function persistPostResponseDecisionMemory(input: { conversationRows: readonly PersistedConversationRow[]; userMessage: string; assistantMessage: string }): Promise<void> {
   const state = deriveCeoConversationState([
