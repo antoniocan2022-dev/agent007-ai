@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { classifyProviderError, compactMessagesForRequestSize, estimateRequestTokens, estimateTokens, getProviderFailurePolicy, clearProviderCatalogCache, DEFAULT_MAX_INPUT_TOKENS } from '../src/lib/provider-control-plane'
+import { classifyProviderError, compactMessagesForRequestSize, estimateRequestTokens, estimateTokens, getProviderFailurePolicy, getGovernedCandidates, resolveGovernedModel, ProviderControlPlaneError, clearProviderCatalogCache, DEFAULT_MAX_INPUT_TOKENS } from '../src/lib/provider-control-plane'
 import { runGovernedProviderChat } from '../src/lib/provider-runtime-v2'
 import { getProviderAvailabilityStatus, recordFailure, resetProviderHealthForTests } from '../src/lib/provider-intelligence'
 
@@ -175,6 +175,50 @@ describe('getProviderAvailabilityStatus: a provider with zero observations is UN
     G.__providerHealthProcessStartedAt = Date.now() - 25_000
     recordFailure('groq'); recordFailure('groq'); recordFailure('groq')
     expect(getProviderAvailabilityStatus('groq')).toBe('CIRCUIT_OPEN')
+  })
+})
+
+describe('resolveGovernedModel: an explicit model override cannot silently violate the quality tier a strict request requires', () => {
+  // Deep-audit finding (post-merge review of the whole provider architecture): getGovernedCandidates
+  // only used the quality>=90 "strict" bar as a soft ranking nudge among AUTO-selected candidates.
+  // An explicit requestedModel bypassed it entirely -- most sharply for OpenRouter, where a
+  // requested model skips live-catalog validation and is returned unconditionally. A dual-review
+  // (or financial/security) request naming openrouter/free (quality 75) got it with no signal the
+  // request's own quality guarantee was violated.
+  test('an explicit low-quality OpenRouter model is rejected for a dual-review request', async () => {
+    process.env.OPENROUTER_API_KEY = 'test'
+    await expect(resolveGovernedModel('openrouter', 'reasoning', 'dual-review', 'openrouter/free')).rejects.toThrow(ProviderControlPlaneError)
+    await expect(resolveGovernedModel('openrouter', 'reasoning', 'dual-review', 'openrouter/free')).rejects.toThrow(/does not meet the quality bar/)
+  })
+
+  test('the same explicit low-quality model is still honored for a standard (non-strict) request', async () => {
+    process.env.OPENROUTER_API_KEY = 'test'
+    const model = await resolveGovernedModel('openrouter', 'reasoning', 'standard', 'openrouter/free')
+    expect(model).toBe('openrouter/free')
+  })
+
+  test('a high-quality explicit model still passes a dual-review request', async () => {
+    process.env.OPENROUTER_API_KEY = 'test'
+    const model = await resolveGovernedModel('openrouter', 'reasoning', 'dual-review', 'anthropic/claude-sonnet-5')
+    expect(model).toBe('anthropic/claude-sonnet-5')
+  })
+
+  test('a financial task rejects an explicit low-quality model even without dual-review verification', async () => {
+    process.env.OPENROUTER_API_KEY = 'test'
+    await expect(resolveGovernedModel('openrouter', 'financial', 'standard', 'openrouter/free')).rejects.toThrow(ProviderControlPlaneError)
+  })
+
+  test('cloudflare (which is governed for both financial and security) never top-ranks a below-floor model for a strict request', () => {
+    // Not every provider is governed for every taskType (financial requires long-context, which
+    // e.g. groq's profiles lack) -- that's TASK_CAPABILITIES filtering, unrelated to this fix.
+    // Cloudflare's single profile (quality 94) is governed for both, so it's a real, non-empty
+    // check that auto-selection's top choice already clears the same bar this fix now enforces
+    // as a hard gate on explicit requests.
+    for (const taskType of ['financial', 'security'] as const) {
+      const candidates = getGovernedCandidates('cloudflare', taskType, 'dual-review')
+      expect(candidates.length).toBeGreaterThan(0)
+      expect(candidates[0]).toBe('@cf/google/gemma-4-26b-a4b-it')
+    }
   })
 })
 
