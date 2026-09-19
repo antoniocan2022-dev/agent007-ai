@@ -1,4 +1,3 @@
-import { deriveEvidenceProfile } from './ceo-cognitive-contract'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract } from './ceo-cognitive-contract'
 import type { EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, TemporalScope, CeoExecutionContract } from './ceo-cognitive-contract'
 import { selectCeoTool } from './ceo-tool-selection'
