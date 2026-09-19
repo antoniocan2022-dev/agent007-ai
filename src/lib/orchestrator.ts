@@ -528,10 +528,21 @@ async function runFastPathManage(opts: {
   // creates the real assistant message itself for every OrchestratorRunResult, fast-path ones
   // included, so persisting one here too would leave two rows for the same turn.
   return {
-    executionSummary: buildOrchestratorExecutionSummary({ executionStatus: result.ok ? 'completed' : 'failed', completionReason: 'fast_path', toolSteps: [{ toolName: 'manage_action', toolResult: { ok: result.ok, result: result.message } }] }),
+    executionSummary: buildOrchestratorExecutionSummary({
+      executionStatus: result.ok ? 'completed' : 'failed',
+      completionReason: 'fast_path',
+      toolSteps: [{ toolName: 'manage_action', toolResult: { ok: result.ok, result: result.message } }],
+    }),
     executionStatus: result.ok ? 'completed' : 'failed',
     completionReason: 'fast_path',
-    steps: [],
+    steps: [{
+      id: stepId,
+      toolName: 'manage_action',
+      toolArgs: { action, attrs },
+      toolResult: { ok: result.ok, result: result.message },
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+    }],
   }
 }
 
@@ -760,7 +771,14 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
           executionSummary,
           executionStatus: result.success ? 'completed' : 'failed',
           completionReason: 'mission_pipeline',
-          steps: [],
+          steps: [{
+            id: missionId,
+            toolName: 'mission_pipeline',
+            toolArgs: { pipelineType, objective, missionTitle },
+            toolResult: { ok: result.success, result: executionSummary },
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+          }],
         }
       } catch (missionErr: any) {
         // Fall through to normal orchestration if pipeline fails to start
@@ -1274,6 +1292,14 @@ The system is working correctly — the keys just need to be refreshed.`
       }
 
       const result = await executeManageAction(action, attrs)
+      steps.push({
+        id: stepId,
+        toolName: 'manage_action',
+        toolArgs: { action, attrs },
+        toolResult: { ok: result.ok, result: result.message },
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+      })
       // Refresh the merged subagent list so subsequent dispatches see the new state.
       mergedSubagents = null
 
@@ -1667,7 +1693,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       // UPGRADE #124 — Verify the tool action (check for real artifact)
       const verification = verifyToolAction(step.toolName!, toolResult)
       // Stage 4 of the CEO Conversation Kernel migration: persist onto the step (not just the emit
-      // below) so callers of runOrchestrator() -- specifically ceo-operational-direct-response.ts --
+      // below) so callers of runOrchestrator() -- specifically the CEO lifecycle --
       // can use it as a real execution-outcome VERIFY signal instead of trusting a bare `ok: true`.
       step.verification = verification
 
