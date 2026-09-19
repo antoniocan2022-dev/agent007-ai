@@ -9,17 +9,21 @@ import { assertDecisionGradeEvidence } from './ceo-decision-grade-evidence'
 // Deep-audit fix (P0, 2026-09-13): getSecTickerMap moved to ceo-issuer-resolution.ts as the single
 // canonical fetcher -- this file previously kept its own private copy, and issuer resolution needed the
 // same data for a second purpose (company-name matching), which would have meant a third divergent copy.
-import { getSecTickerMap } from './ceo-issuer-resolution'
+import { getSecTickerMap, resolveSecUserAgent } from './ceo-issuer-resolution'
 // Deep-audit fix (P0, 2026-09-13): claim-ledger read/write, scoped to SEC company-facts sources only --
 // see ceo-claim-ledger.ts's module doc for why (unambiguous per-ticker attribution).
 import { crossTurnContradictions, DEFAULT_CROSS_TURN_CLAIM_MAX_AGE_MS, lookupRecentVerifiedClaims, recordVerifiedClaims } from './ceo-claim-ledger'
 import { recordEvidenceGraphFromBundle } from './ceo-evidence-graph'
 
 export interface ExternalEvidenceExecution { bundle: ReturnType<typeof buildEvidenceBundle>; attemptedQueries: number; successfulQueries: number; pageReads: number; secSources: number; marketDataSources: number; failures: string[] }
-const DEFAULT_SEC_UA = 'Agent007-AI research/1.0'
 function toolContext(): ToolContext { return { attachments: [], language: 'en' } }
 async function dispatch(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> { throwIfCeoRequestAborted(signal); return dispatchTool(name, { ...args, __agent007_abort_signal: signal }, toolContext()) }
-async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> { throwIfCeoRequestAborted(signal); const response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': process.env.SEC_USER_AGENT?.trim() || DEFAULT_SEC_UA }, redirect: 'follow', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000) }); if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`); return response.json() as Promise<T> }
+// Deep-audit fix: this used to keep its own separate DEFAULT_SEC_UA/User-Agent resolution, duplicating
+// ceo-issuer-resolution.ts's -- a live production incident (every SEC call 403ing) traced back to that
+// default being non-compliant with SEC's fair-access policy, and a fix applied to only one of the two
+// copies would have left the other silently broken. resolveSecUserAgent() is now the single source of
+// truth both files share, so there is exactly one place left to fix or misconfigure.
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> { throwIfCeoRequestAborted(signal); const response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': resolveSecUserAgent() }, redirect: 'follow', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000) }); if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`); return response.json() as Promise<T> }
 interface SecFactUnit { fy?: number; fp?: string; form?: string; filed?: string; val?: number; frame?: string }
 interface SecFacts { entityName?: string; facts?: Record<string, Record<string, { units?: Record<string, SecFactUnit[]> }>> }
 const FACT_CANDIDATES: Array<{ key: string; label: string }> = [
@@ -54,9 +58,19 @@ const MARKET_DATA_TOOL_URL: Record<(typeof MARKET_DATA_TOOL_ORDER)[number], (tic
   roic_stock_prices: (ticker) => `https://api.roic.ai/v2/stock-prices/${encodeURIComponent(ticker)}`,
   alpha_vantage: (ticker) => `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(ticker)}`,
 }
+// Deep-audit fix, same live-production incident: this chain tries up to 6 tools SEQUENTIALLY per
+// ticker, with no overall deadline -- an unconfigured or slow tool early in MARKET_DATA_TOOL_ORDER
+// (missing API key, a real network call that times out on its own multi-second budget) could eat most
+// of a ticker's share of the request's latency budget before ever reaching a tool that would actually
+// succeed, and this runs for every ticker in the request. A bounded overall deadline means a ticker
+// whose easy tools are all unavailable still leaves time for the OTHER evidence sources (search, page
+// reads, the other ticker) rather than exhausting the budget one slow fallback at a time.
+const MARKET_DATA_CHAIN_DEADLINE_MS = 20_000
 export async function fetchMarketDataSource(ticker: string, signal?: AbortSignal): Promise<EvidenceSource | null> {
+  const deadline = Date.now() + MARKET_DATA_CHAIN_DEADLINE_MS
   for (const toolName of MARKET_DATA_TOOL_ORDER) {
     throwIfCeoRequestAborted(signal)
+    if (Date.now() >= deadline) break
     try {
       const result = await dispatch(toolName, { symbol: ticker, ticker, latest: true }, signal)
       recordToolOutcome({ toolId: toolName, capability: 'market_intelligence', status: result.ok ? 'succeeded' : 'partial' })
