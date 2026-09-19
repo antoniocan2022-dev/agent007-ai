@@ -127,7 +127,7 @@ describe('route.ts wiring: capability briefing gated on capability_assessment', 
     expect(source).toContain("executionContract.selfReflectionKind === 'capability_assessment' ? renderCeoCapabilityBriefing() : undefined")
   })
 
-  test('threads capabilityBriefing into all three buildCeoContextModules call sites', () => {
-    expect(source.match(/capabilityBriefing: capabilityBriefingContext/g)?.length ?? 0).toBe(3)
+  test('threads capabilityBriefing into both governed buildCeoContextModules call sites', () => {
+    expect(source.match(/capabilityBriefing: capabilityBriefingContext/g)?.length ?? 0).toBe(2)
   })
 })
