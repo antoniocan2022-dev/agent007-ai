@@ -1,9 +1,11 @@
 import { db } from './db'
+import type { OrchestratorExecutionStatus } from './orchestrator-execution-contract'
 
 export interface MissionOutcomeInput {
   conversationId: string
   content: string
   steps: readonly { toolResult?: { ok: boolean } }[]
+  executionStatus?: OrchestratorExecutionStatus
 }
 
 /**
@@ -33,7 +35,8 @@ export interface MissionOutcomeInput {
  */
 // Extracted as its own pure function so the classification logic is directly unit-testable without
 // touching the DB/settings/email side effects below.
-export function classifyMissionOutcome(content: string, steps: readonly { toolResult?: { ok: boolean } }[]): 'mission_complete' | 'mission_failed' {
+export function classifyMissionOutcome(content: string, steps: readonly { toolResult?: { ok: boolean } }[], executionStatus?: OrchestratorExecutionStatus): 'mission_complete' | 'mission_failed' {
+  if (executionStatus) return executionStatus === 'completed' ? 'mission_complete' : 'mission_failed'
   const looksLikeError = steps.length > 0
     ? steps.some((step) => step.toolResult && step.toolResult.ok === false)
     : /^⚠️|error|failed|crashed/i.test(content.slice(0, 50))
@@ -44,7 +47,7 @@ export async function notifyMissionOutcome(input: MissionOutcomeInput): Promise<
   try {
     const { getNotificationSettings, recentlyNotified, getOperatorUserId } = await import('./settings')
     const notif = await getNotificationSettings()
-    const eventType = classifyMissionOutcome(input.content, input.steps)
+    const eventType = classifyMissionOutcome(input.content, input.steps, input.executionStatus)
     const looksLikeError = eventType === 'mission_failed'
     if (!notif.enabled || !notif.events[eventType as keyof typeof notif.events]) return
     if (await recentlyNotified(eventType, notif.minDelayMinutes)) return
