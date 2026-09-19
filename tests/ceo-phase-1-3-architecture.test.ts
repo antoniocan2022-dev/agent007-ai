@@ -229,13 +229,17 @@ describe('CEO Phases 1-3 architecture contracts', () => {
 
   test('the recovery branch derives evidenceScope/evidenceProvided from ventureEvidence, matching how runCeoCognitiveLifecycle derives them at its own top', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
-    expect(lifecycle).toContain("const evidenceScope = request.evidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined); const evidenceFreshness = request.evidenceFreshness ?? ventureEvidenceFreshness;")
-    expect(lifecycle).toContain('evidenceProvided: Boolean(request.contextualEvidence?.trim() || ventureEvidence?.evidence)')
+    expect(lifecycle).toContain("let recoveredEvidenceScope = request.evidenceScope")
+    expect(lifecycle).toContain("let recoveredEvidenceFreshness = request.evidenceFreshness")
+    expect(lifecycle).toContain("const evidenceScope = recoveredEvidenceScope ?? (ventureEvidence ? 'live_system' : decisionPlan.executionContract.intent === 'self_assessment' ? 'internal_state' : undefined)")
+    expect(lifecycle).toContain("const evidenceFreshness = recoveredEvidenceFreshness ?? ventureEvidenceFreshness")
+    expect(lifecycle).toContain('evidenceProvided: Boolean(request.contextualEvidence?.trim() || recoveredEvidenceContext?.trim() || ventureEvidence?.evidence)')
   })
 
   test('the recovery generation call is given the live venture evidence in its own messages, not just an honest evidenceProvided flag', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain("const recoveryLiveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):")
-    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...recoverySelfAssessmentFactsMessages, ...selfAssessmentGuidanceMessages(')
+    expect(lifecycle).toContain('const recoveryEvidenceMessages = recoveredEvidenceContext ?')
+    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...recoveryEvidenceMessages, ...recoverySelfAssessmentFactsMessages, ...selfAssessmentGuidanceMessages(')
   })
 })
