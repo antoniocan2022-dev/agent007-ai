@@ -26,12 +26,46 @@ export interface IssuerResolution { query: string; resolved: IssuerIdentity | nu
 export type SecTickerMap = Record<string, { cik_str: number; title: string; ticker: string }>
 let cachedSecTickers: { loadedAt: number; value: SecTickerMap } | null = null
 const SEC_TICKER_TTL_MS = 6 * 60 * 60 * 1000
-const DEFAULT_SEC_UA = 'Agent007-AI research/1.0'
+// Live-production root cause (2026-09-19): SEC EDGAR's fair-access policy
+// (https://www.sec.gov/os/accessing-edgar-data) requires the User-Agent to identify a real, contactable
+// requester ("Sample Company Name AdminContact@domain.com") and returns HTTP 403 for anything else --
+// this default never met that bar, so EVERY sec.gov call (ticker-map lookup here, and the per-ticker
+// companyfacts lookup in ceo-evidence-executor.ts, which depends on this same map) failed on every
+// public-equity request. Set SEC_USER_AGENT in the deployment environment to a real "Name email"
+// string; this default is a last-resort fallback, not a fix -- it will very likely still 403.
+export const DEFAULT_SEC_UA = 'Agent007-AI research/1.0'
+/** Single source of truth for the SEC-facing User-Agent -- shared by every sec.gov caller so a fix (or
+ *  a regression) can't apply to only one of them. */
+export function resolveSecUserAgent(): string { return process.env.SEC_USER_AGENT?.trim() || DEFAULT_SEC_UA }
+
+// Deep-audit finding, same incident: SEC's 403 itself returns fast (it's not a hang) -- what actually
+// burned 70-150s per request in production was retrying the exact same doomed call multiple times
+// within one turn (the initial evidence pass AND the recovery pass both call fetchSecSource per ticker,
+// and recovery keeps plan.profile:'public_equity' so it re-attempts SEC every time) while OTHER, slower
+// evidence sources (search/page-read/market-data fallback chains) ran to completion regardless. A
+// definitive block (401/403 -- "your identity is not acceptable", not "try again") is worth remembering
+// for a few minutes so every later call in the same turn (and the next few turns on a warm instance)
+// fails in milliseconds instead of paying a fresh round-trip to relearn what's already known. Never
+// applied to timeouts/5xx: those are exactly the transient failures a retry might still recover from.
+const SEC_BLOCK_TTL_MS = 5 * 60_000
+let secBlockedUntil: { at: number; reason: string } | null = null
+function isSecBlocked(): string | null {
+  if (secBlockedUntil && Date.now() < secBlockedUntil.at) return secBlockedUntil.reason
+  if (secBlockedUntil) secBlockedUntil = null
+  return null
+}
+function recordSecBlock(reason: string): void { secBlockedUntil = { at: Date.now() + SEC_BLOCK_TTL_MS, reason } }
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   throwIfCeoRequestAborted(signal)
-  const response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': process.env.SEC_USER_AGENT?.trim() || DEFAULT_SEC_UA }, redirect: 'follow', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000) })
-  if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`)
+  const blocked = isSecBlocked()
+  if (blocked && new URL(url).hostname.endsWith('sec.gov')) throw new Error(`SEC access is currently blocked (${blocked}); not retrying for ${Math.ceil((secBlockedUntil!.at - Date.now()) / 1000)}s more`)
+  const response = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': resolveSecUserAgent() }, redirect: 'follow', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000) })
+  if (!response.ok) {
+    const hostname = new URL(url).hostname
+    if ((response.status === 401 || response.status === 403) && hostname.endsWith('sec.gov')) recordSecBlock(`HTTP ${response.status} from ${hostname}`)
+    throw new Error(`HTTP ${response.status} from ${hostname}`)
+  }
   return response.json() as Promise<T>
 }
 
@@ -141,3 +175,7 @@ export function resolveEquityIssuers(objective: string, tickerMap: SecTickerMap)
   }
   return resolutions
 }
+
+/** Test-only: clears the ticker-map cache and the SEC negative-cache so each test starts from a known
+ *  state; production code never calls this. */
+export function resetSecCachesForTests(): void { cachedSecTickers = null; secBlockedUntil = null }
