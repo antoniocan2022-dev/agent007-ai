@@ -539,7 +539,7 @@ async function runFastPathManage(opts: {
       id: stepId,
       toolName: 'manage_action',
       toolArgs: { action, attrs },
-      toolResult: { ok: result.ok, result: result.message },
+      toolResult: { ok: result.ok, result: result.message, preview: result.message },
       startedAt: Date.now(),
       finishedAt: Date.now(),
     }],
