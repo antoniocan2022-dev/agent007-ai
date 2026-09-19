@@ -71,6 +71,15 @@ describe('ACT -> VERIFY -> RESPOND execution handoff', () => {
     expect(handoff.evidenceScope).toBe('live_system')
   })
 
+  test('never promotes a failed or partial execution', () => {
+    const partial = classifyOperationalExecution({
+      executionStatus: 'partial',
+      steps: [{ toolName: 'send_email', toolResult: { ok: true }, verification: { verified: true } }],
+    })
+    expect(partial.externalExecutionSucceeded).toBe(false)
+    expect(partial.evidenceScope).toBe('internal_state')
+  })
+
   test('never promotes a failed execution', () => {
     const handoff = classifyOperationalExecution({
       executionStatus: 'failed',
