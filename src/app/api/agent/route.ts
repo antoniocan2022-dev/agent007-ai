@@ -409,7 +409,7 @@ export async function POST(req: NextRequest) {
             throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
           }
 
-          if (!responseSuperseded) notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps }).catch(() => {})
+          if (!responseSuperseded) notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps, executionStatus: result.executionStatus }).catch(() => {})
 
           streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({
