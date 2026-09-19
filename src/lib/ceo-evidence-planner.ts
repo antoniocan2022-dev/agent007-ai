@@ -1,4 +1,5 @@
 import { deriveEvidenceProfile } from './ceo-cognitive-contract'
+import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract } from './ceo-cognitive-contract'
 import type { EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, TemporalScope, CeoExecutionContract } from './ceo-cognitive-contract'
 import { selectCeoTool } from './ceo-tool-selection'
 // Type-only: ceo-issuer-resolution.ts imports extractEquityTickers (a real value) FROM this file, so
@@ -43,9 +44,11 @@ export function buildExternalEvidencePlan(input: { objective: string; evidenceCl
   // Domain is authoritative: callers cannot accidentally downgrade public_equity to generic research by passing a stale profile.
   const effectiveEvidenceProfile = deriveEvidenceProfile(input.domain)
   const effectiveInput = effectiveEvidenceProfile === 'none' ? input : { ...input, evidenceProfile: effectiveEvidenceProfile }
-  const selection = selectCeoTool(capabilityContract(effectiveInput), { requiresFreshness: effectiveInput.temporalScope === 'current' })
+  const normalizedContract = normalizeCeoEvidenceContract(capabilityContract(effectiveInput))
+  assertCeoEvidenceContractInvariant(normalizedContract)
+  const selection = selectCeoTool(normalizedContract, { requiresFreshness: effectiveInput.temporalScope === 'current' })
   const selectionMeta = { capability: selection.capability, selectedTool: selection.selected?.id, toolSelectionScore: selection.selected ? selection.scores[selection.selected.id]?.total : undefined, executionStrategy: selection.executionStrategy, evidenceRequirements: selection.evidenceRequirements }
-  if (effectiveInput.domain === 'public_equity' && effectiveInput.evidenceProfile === 'public_equity') {
+  if (effectiveInput.domain === 'public_equity') {
     // Deep-audit fix (P0, 2026-09-13): extractEquityTickers alone requires a ticker-shaped token
     // (parenthesized or bare-uppercase) somewhere in the raw text -- a company mentioned only by name
     // ("Geospace Technologies", no "(GEOS)" anywhere) resolved to zero tickers, so this whole
@@ -63,8 +66,27 @@ export function buildExternalEvidencePlan(input: { objective: string; evidenceCl
     // filing), so a cap of 24 = 3 rounds x the 8-ticker max guarantees every requested ticker keeps its
     // market, financials, AND risks queries regardless of how many tickers are in play -- only the
     // filing and cross-ticker comparison queries degrade under extreme multi-ticker requests.
+    const genericQuery = effectiveInput.objective.slice(0, 500)
     const queryCap = Math.min(24, queries.length)
     if (queries.length > 0) return { profile: 'public_equity', evidenceClass: effectiveInput.evidenceClass, domain: effectiveInput.domain, operation: effectiveInput.operation, temporalScope: effectiveInput.temporalScope, minimumSources: Math.max(3, Math.min(6, tickers.length * 2)), maxSearchQueries: queryCap, maxPageReads: Math.max(2, Math.min(4, tickers.length * 2)), queries: queries.slice(0, queryCap), resolvedIssuers: effectiveInput.resolvedIssuers, ...selectionMeta }
+    const fallbackQueries: EvidenceQuery[] = [
+      { id: 'equity-overview', purpose: 'identity', sourcePreference: 'web', recencyDays: 14, query: genericQuery },
+      { id: 'equity-financials', purpose: 'financials', sourcePreference: 'company', recencyDays: 120, query: genericQuery + ' financial results revenue cash debt' },
+      { id: 'equity-filing', purpose: 'filing', sourcePreference: 'sec', recencyDays: 180, query: genericQuery + ' SEC latest filing risks outlook' },
+    ]
+    return {
+      profile: 'public_equity',
+      evidenceClass: effectiveInput.evidenceClass,
+      domain: effectiveInput.domain,
+      operation: effectiveInput.operation,
+      temporalScope: effectiveInput.temporalScope,
+      minimumSources: 3,
+      maxSearchQueries: fallbackQueries.length,
+      maxPageReads: 3,
+      queries: fallbackQueries,
+      resolvedIssuers: effectiveInput.resolvedIssuers,
+      ...selectionMeta,
+    }
   }
   const genericQuery = effectiveInput.objective.slice(0, 500)
   return { profile: effectiveInput.evidenceProfile === 'none' ? 'general_research' : effectiveInput.evidenceProfile, evidenceClass: effectiveInput.evidenceClass, domain: effectiveInput.domain, operation: effectiveInput.operation, temporalScope: effectiveInput.temporalScope, minimumSources: 2, maxSearchQueries: 2, maxPageReads: 2, queries: [{ id: 'general-1', query: genericQuery, purpose: 'identity', sourcePreference: 'web', recencyDays: effectiveInput.temporalScope === 'current' ? 7 : 30 }, { id: 'general-2', query: `${genericQuery} official source`, purpose: 'filing', sourcePreference: 'company', recencyDays: 30 }], resolvedIssuers: effectiveInput.resolvedIssuers, ...selectionMeta }
