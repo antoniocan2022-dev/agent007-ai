@@ -522,7 +522,7 @@ async function runFastPathManage(opts: {
   // persistence, and notification after the action has completed.
   // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
   // 2026-09-19): this used to persist an empty assistant row up-front and update it with
-  // `finalAnswer` here -- the same unilateral persistence pattern removed from the main loop's own
+  // this path -- the same unilateral final-answer authority removed from the main loop's own
   // return path (see runOrchestrator's own header comment). Removed for the same reason and to avoid
   // a genuine duplicate-row bug this fast path would otherwise cause: route.ts now unconditionally
   // creates the real assistant message itself for every OrchestratorRunResult, fast-path ones
