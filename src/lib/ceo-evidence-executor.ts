@@ -164,7 +164,10 @@ export async function recoverExternalEvidencePlan(plan: ExternalEvidencePlan, si
   }))
   const broad = plan.queries.filter((query) => query.purpose === 'market' || query.purpose === 'financials' || query.purpose === 'risks')
   const durable = plan.queries.filter((query) => query.purpose === 'filing' || query.purpose === 'comparison')
-  const recoveryQueries = [...broad, ...newsQueries, ...durable]
+  const genericNewsRecovery: EvidenceQuery[] = tickers.length === 0 && plan.queries.length > 0
+    ? [{ id: 'equity-news-recovery', purpose: 'news', sourcePreference: 'web', recencyDays: 14, query: `${plan.queries[0].query} latest news recent developments company update earnings guidance` }]
+    : []
+  const recoveryQueries = [...broad, ...newsQueries, ...genericNewsRecovery, ...durable]
   return executeOnce({
     ...plan,
     profile: 'public_equity',
