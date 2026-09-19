@@ -9,9 +9,22 @@
  * happen.
  *
  * Integration points:
- *   1. orchestrator.ts — calls verifyToolAction() after each tool call
- *   2. quality_scorer_v2 — penalizes responses that rely on unverified actions
- *   3. Dashboard — shows ⚠️ Unverified action badge
+ *   1. orchestrator.ts — calls verifyToolAction() after each tool call and persists the result onto
+ *      OrchestratorRunResult.steps[].verification.
+ *   2. ceo-operational-direct-response.ts (Stage 4 of the CEO Conversation Kernel migration,
+ *      2026-09-18) — reads that persisted result via isKnownActionTool() to decide whether a
+ *      response can honestly claim evidenceState 'LIVE_VERIFIED' instead of the more conservative
+ *      'LIVE_EXECUTED'.
+ *
+ * Stage 5 fresh-audit finding (same migration, same day): this header used to also list
+ * "quality_scorer_v2 — penalizes responses that rely on unverified actions" and "Dashboard — shows
+ * ⚠️ Unverified action badge" as integration points. Neither ever existed: quality_scorer_v2
+ * (max-autonomy-engine.ts's toolQualityScorerV2) is a completely separate, self-contained 10-dimension
+ * heuristic scorer with no reference to this file at all, and no dashboard component ever read a
+ * formatted badge from here -- the real SSE `tool_result` consumer (orchestrator.ts) sends the raw
+ * `verified`/`warning` fields directly. The two functions those integration points described
+ * (calculateUnverifiedPenalty, formatVerificationBadge) had zero callers anywhere in the codebase and
+ * are removed below rather than kept as dead code describing integrations that were never built.
  */
 import type { ToolResult } from './tools'
 
@@ -176,31 +189,4 @@ export function verifyToolAction(toolName: string, result: ToolResult): ToolVeri
     artifactValue: null,
     warning: `${toolName} returned success but no verifiable artifact was found. The action may not have actually occurred.`,
   }
-}
-
-/**
- * Format the verification result as a badge string for the UI.
- */
-export function formatVerificationBadge(verification: ToolVerificationResult): string {
-  if (verification.verified) {
-    if (verification.artifactType === 'none') return ''  // No badge needed for non-action tools
-    return `✅ VERIFIED (${verification.artifactType}: ${verification.artifactValue?.slice(0, 50) ?? ''})`
-  }
-  return `⚠️ UNVERIFIED — ${verification.warning ?? 'No artifact produced'}`
-}
-
-/**
- * Quality penalty for unverified actions.
- * Used by quality_scorer_v2 to penalize responses that rely on
- * unverified tool actions.
- *
- * Returns a penalty score (0-20) that gets subtracted from the quality score.
- */
-export function calculateUnverifiedPenalty(
-  verifications: ToolVerificationResult[]
-): number {
-  const unverified = verifications.filter((v) => !v.verified && v.warning)
-  if (unverified.length === 0) return 0
-  // Each unverified action costs 5 points, up to 20 max
-  return Math.min(20, unverified.length * 5)
 }

@@ -78,25 +78,54 @@ describe('CEO kernel migration -- Stage 0 baseline (pre-router classification)',
 // each later stage's PR has a concrete, mechanical "did I actually change what I meant to change"
 // check, not just a vibe. Update (don't delete) these assertions as each stage ships: flip the
 // expectation and note which stage/PR changed it.
+//
+// Stage 5 (2026-09-18): all five stages of the CEO Conversation Kernel migration are now shipped.
+// This describe block's tests were updated at each stage per this comment's own instruction -- but
+// two of them (Stage 1, Stage 2) had their EXPECTATION VALUES correctly kept from Stage 0 (since the
+// literal source-text shape they check genuinely didn't change) while their COMMENTS kept describing
+// the original pre-implementation speculation as if it were still the plan, well after the real
+// (different, and correctly so) design had shipped. Both are corrected below as part of Stage 5's own
+// "remove dead duplicate paths" mandate -- stale documentation describing a plan that was deliberately
+// not followed is its own kind of dead weight.
 describe('CEO kernel migration -- Stage 0 structural baseline (source-text, pre-migration)', () => {
-  test('route.ts still runs the CEO lifecycle twice for operational_orchestrator requests (Stage 1 target)', () => {
+  test('route.ts still has two runCeoCognitiveLifecycle call sites, but the second is now conditionally skipped (Stage 1 shipped)', () => {
     const route = readFileSync('src/app/api/agent/route.ts', 'utf8')
     const runCount = (route.match(/runCeoCognitiveLifecycle\(/g) ?? []).length
-    // One call in the ceo_lifecycle branch, one call ("synthesis") in the operational_orchestrator
-    // branch after runOrchestrator() already produced a full answer. Stage 1 collapses this to one
-    // call reachable from both branches -- when it does, update this to expect(runCount).toBe(1) (or
-    // however the consolidated call site is counted) and reference the Stage 1 PR here.
+    // Stage 5 fresh-audit finding: this test's own comment used to say Stage 1 would "collapse this
+    // to one call reachable from both branches" -- that was the original speculative plan, and it is
+    // NOT what actually shipped. What shipped instead (Stage 1a: hoist the per-iteration
+    // classification runOrchestrator's tool loop was redundantly redoing; Stage 1b:
+    // tryOperationalDirectResponse) is a conditional SKIP, not a call-site merge: route.ts still has
+    // two literal runCeoCognitiveLifecycle( call sites in source (one in the ceo_lifecycle branch,
+    // one -- "synthesis" -- in the operational_orchestrator branch's `else`), but the second one now
+    // only executes when tryOperationalDirectResponse's quality-gate check on the orchestrator's own
+    // answer does NOT already pass. A merged single call site would have meant either branch paying
+    // for context/modules the other doesn't need; the conditional-skip design was the lower-risk
+    // choice Stage 1a's investigation concluded on. See ceo-operational-direct-response.ts for the
+    // actual mechanism and route.ts's `if (direct) { ... } else { ... runCeoCognitiveLifecycle(...) }`
+    // for where the second call is now gated.
     expect(runCount).toBe(2)
     expect(route).toContain('runOrchestrator(')
+    expect(route).toContain('tryOperationalDirectResponse(')
+    expect(route).toContain('if (direct) {')
   })
 
-  test('two independent decide-stages still exist (Stage 2 target)', () => {
+  test('buildCeoDecisionPlan and buildConversationDecisionContract both still exist, by design, and each now builds exactly once per turn (Stage 2 shipped)', () => {
     const kernel = readFileSync('src/lib/ceo-cognitive-kernel.ts', 'utf8')
     const contract = readFileSync('src/lib/ceo-conversation-decision-contract.ts', 'utf8')
-    // buildCeoDecisionPlan and buildConversationDecisionContract are both real, both run on every
-    // turn, and both independently decide intent/evidence/response-action shape today. Stage 2
-    // consolidates them into one authoritative decision -- when it does, this test should be
-    // rewritten to assert the single surviving decision function's shape instead.
+    // Stage 5 fresh-audit finding: this test's own comment used to say Stage 2 would consolidate the
+    // two functions "into one authoritative decision" and should be "rewritten to assert the single
+    // surviving decision function's shape instead" -- that was the original speculative framing, and
+    // it is NOT what shipped. Stage 2's investigation (a real call-graph audit of curiosity, the
+    // evidence planner, and the quality gate) found the two functions serve genuinely different,
+    // largely non-overlapping concerns -- DecisionPlan is execution/orchestration policy,
+    // ConversationDecisionContract is conversational/semantic decision -- with only responseAction
+    // bridging them at the quality gate. A literal type-level merge would have touched ~20 call sites
+    // for no correctness or performance benefit. The REAL bug Stage 2 fixed was that
+    // buildConversationDecisionContract (a pure function of canonicalSemanticContext alone) was being
+    // rebuilt independently in up to four places on a single turn; composeCeoContext now builds it
+    // exactly once and threads it through reuseSemanticContext -- see ceo-context-composer.ts. Both
+    // functions staying separate, real, and exported is the correct end state, not a leftover.
     expect(kernel).toContain('export function buildCeoDecisionPlan')
     expect(contract).toContain('export function buildConversationDecisionContract')
   })
