@@ -6,8 +6,6 @@ import { runCanonicalLlm, type CanonicalLlmResult } from './canonical-llm-router
 import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
 import { preRouteCeoRequest, resolvePreRoute } from './ceo-pre-router'
 import { buildExternalEvidencePlan } from './ceo-evidence-planner'
-import { recoverExternalEvidencePlan } from './ceo-evidence-executor'
-import { renderEvidenceBundleForPrompt } from './ceo-evidence-bundle'
 import { buildCeoExecutionPlan } from './ceo-execution-plan'
 import { evaluateCeoQuality } from './ceo-response-quality-gate'
 import { buildCeoDegradedResponse, renderSelfAssessmentSubsystems, type DegradedSelfAssessmentSubsystems } from './ceo-degraded-mode'
@@ -298,6 +296,12 @@ async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempt
         temporalScope: decisionPlan.executionContract.temporalScope,
         evidenceProfile: decisionPlan.executionContract.evidenceProfile,
       })
+      // Keep the heavy tool/auth graph out of ordinary CEO module initialization. Evidence recovery
+      // is a rare degraded-path capability, so load it only after the evidence-failure condition is met.
+      const [{ recoverExternalEvidencePlan }, { renderEvidenceBundleForPrompt }] = await Promise.all([
+        import('./ceo-evidence-executor'),
+        import('./ceo-evidence-bundle'),
+      ])
       const recovered = await recoverExternalEvidencePlan(evidencePlan, getCeoCancellationSignal())
       const currentSourceCount = request.evidenceBundle?.sources.length ?? 0
       if (recovered.bundle.sufficient || recovered.bundle.sources.length > currentSourceCount) {
