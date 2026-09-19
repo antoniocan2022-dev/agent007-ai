@@ -1091,14 +1091,8 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       lines.push('═══ END SYSTEM STATUS REPORT ═══')
       lines.push('')
       lines.push('ACT HANDOFF: Treat the diagnostics above as internal system evidence only.')
-      lines.push('1. Start with: "I checked my system. Here\'s what I found:"')
-      lines.push('2. Report 3-5 specific findings FROM THE DATA ABOVE (cite real numbers)')
-      lines.push('3. List 2-3 concrete actions ranked by impact (based on the data)')
-      lines.push('4. End with: "Want me to fix #1 right now?"')
-      lines.push('5. Do NOT write generic advice. Do NOT say "your system". Say "my system".')
-      lines.push('6. Do NOT recommend building tools you already have. The data shows what exists.')
-      lines.push('7. Do NOT use "Let\'s dive into" or "Leveraging our capabilities".')
-
+      lines.push('Use these diagnostics only to choose or verify execution actions when relevant.')
+      lines.push('Do not write a user-facing report. When execution is complete, emit <done/> so the CEO response layer can synthesize the answer.')
       systemStatusReport = lines.join('\n')
       console.log('[orchestrator] System Status Report generated:', systemStatusReport.length, 'chars')
     } catch (e: any) {
