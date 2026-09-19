@@ -23,6 +23,31 @@ export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
 export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }
+
+/** Canonical evidence profile derived from the governed evidence domain. */
+export function deriveEvidenceProfile(domain: EvidenceDomain): EvidenceProfile {
+  if (domain === 'public_equity') return 'public_equity'
+  if (domain === 'market') return 'market_current'
+  if (domain === 'news') return 'news_recent'
+  if (domain === 'competitor') return 'competitor_research'
+  if (domain === 'business_due_diligence') return 'business_due_diligence'
+  if (domain === 'general_web' || domain === 'regulatory') return 'general_research'
+  return 'none'
+}
+
+/** Normalizes the evidence fields so domain and profile cannot silently disagree. */
+export function normalizeCeoEvidenceContract(contract: CeoExecutionContract): CeoExecutionContract {
+  const derivedProfile = deriveEvidenceProfile(contract.domain)
+  const isExternalEvidenceDomain = contract.domain !== 'none' && !contract.domain.startsWith('internal_') && contract.domain !== 'unknown'
+  return isExternalEvidenceDomain ? { ...contract, evidenceProfile: derivedProfile } : contract
+}
+
+/** Fail closed if an impossible public-equity evidence contract crosses a trust boundary. */
+export function assertCeoEvidenceContractInvariant(contract: CeoExecutionContract): void {
+  if (contract.evidenceClass === 'external_web' && contract.domain === 'public_equity' && contract.evidenceProfile !== 'public_equity') {
+    throw new Error('CEO_EVIDENCE_CONTRACT_INVARIANT_VIOLATION: public_equity external_web requires evidenceProfile=public_equity')
+  }
+}
 export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }
 export interface DecisionPlan { requestId: string; preRoute: PreRoute; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract }
 export interface ExecutionStage { name: 'primary' | 'refinement' | 'independent_review' | 'synthesis'; purpose: string }
