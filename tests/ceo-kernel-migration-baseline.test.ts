@@ -32,6 +32,15 @@ describe('CEO kernel migration -- Stage 0 baseline (pre-router classification)',
     expect(['decision', 'analysis', 'opinion']).toContain(decision.executionContract.intent)
   })
 
+  test('general external research: full path, ceo_lifecycle-owned, external evidence required', () => {
+    const decision = preRouteCeoRequest(user('Research the latest AI agent market and summarize the key developments.'))
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+    expect(decision.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
+    expect(decision.executionContract.toolRequired).toBe(true)
+    expect(decision.route).toBe('full')
+  })
+
   test('stock research: full path, ceo_lifecycle-owned, public_equity domain, tools required', () => {
     const decision = preRouteCeoRequest(user('Tell me about NVDA stock.'))
     expect(decision.executionContract.intent).toBe('research')
