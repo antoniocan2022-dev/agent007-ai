@@ -91,10 +91,10 @@ describe('CEO execution contract', () => {
     expect(decision.executionContract.domain).not.toBe('public_equity')
   })
 
-  test('hands generic external research to the operational orchestrator', () => {
+  test('keeps generic external research CEO-owned for governed evidence acquisition', () => {
     const research = preRouteCeoRequest([{ role: 'user', content: 'Research the latest competitors in the AI executive software market.' }])
     expect(research.executionContract.intent).toBe('research')
-    expect(research.executionContract.orchestrationOwner).toBe('operational_orchestrator')
+    expect(research.executionContract.orchestrationOwner).toBe('ceo_lifecycle')
     expect(research.executionContract.evidenceClass).toBe('external_web')
     expect(research.executionContract.domain).toBe('competitor')
     expect(research.executionContract.toolRequired).toBe(true)

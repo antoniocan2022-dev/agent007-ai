@@ -12,6 +12,9 @@ import { interpretCeoSemantics } from '@/lib/ceo-semantic-interpreter'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { buildCeoSystemPrompt } from '@/lib/ceo-system-prompt'
 import { persistCeoAssistantMessage } from '@/lib/ceo-response-persistence'
+import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
+import { persistEpisodicDecisionMemory } from '@/lib/ceo-episodic-memory-writer'
+import { classifyOperationalExecution } from '@/lib/ceo-execution-handoff'
 
 // Phase 3b — scheduled requests now use the same ACT/RESPOND boundary as interactive requests.
 // runOrchestrator returns execution evidence only; this module invokes the canonical CEO lifecycle,
@@ -98,8 +101,7 @@ async function executeScheduledRun(conversationId: string, objective: string): P
     taskType: preRoute.taskClass,
     decisionContract,
   })
-  const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
-  const anyOperationalToolStepFailed = result.executionStatus === 'failed' || operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
+  const operationalHandoff = classifyOperationalExecution(result)
 
   const finalModules = buildCeoContextModules({
     intent: preRoute.executionContract.intent,
@@ -132,9 +134,9 @@ async function executeScheduledRun(conversationId: string, objective: string): P
     taskType: preRoute.taskClass,
     timeoutMs: Math.min(120000, turnDecision.decisionPlan.latencyBudgetMs),
     contextualEvidence: result.executionSummary,
-    evidenceScope: operationalToolSteps.length > 0 ? 'live_system' : 'internal_state',
-    evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 },
-    externalExecutionSucceeded: !anyOperationalToolStepFailed,
+    evidenceScope: operationalHandoff.evidenceScope,
+    evidenceFreshness: operationalHandoff.evidenceFreshness,
+    externalExecutionSucceeded: operationalHandoff.externalExecutionSucceeded,
     priorConversation: persistedRows,
     relevantOlderConversation: persistedRows,
     preRoute,
@@ -151,6 +153,11 @@ async function executeScheduledRun(conversationId: string, objective: string): P
     provenance,
     capturedTurnSequence,
   })
+  await persistEpisodicDecisionMemory(deriveCeoConversationState([
+    ...persistedRows,
+    { role: 'user', content: objective, createdAt: Date.now() },
+    { role: 'assistant', content: synthesis.content, createdAt: Date.now() },
+  ], objective)).catch((memoryError) => console.warn('[schedules/tick] Post-response decision memory persistence failed:', memoryError instanceof Error ? memoryError.message.slice(0, 150) : String(memoryError)))
   await notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps, executionStatus: result.executionStatus }).catch(() => {})
   return result
 }

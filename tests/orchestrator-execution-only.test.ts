@@ -22,6 +22,8 @@ describe('Phase 3b — orchestrator is ACT-only', () => {
     expect(orchestrator).toContain('if (parsed.done && !parsed.tool && !parsed.dispatch && !parsed.manage)')
     expect(orchestrator).toContain('EXECUTION-ONLY VIOLATION')
     expect(orchestrator).toContain('Do not emit markdown, explanations, or final-answer prose.')
+    expect(orchestrator).toContain('const residual = content.replace(THOUGHT_RE, \'\').replace(DONE_RE, \'\').trim()')
+    expect(orchestrator).toContain('if (!residual) return { thought, done: true')
   })
 
   test('orchestrator never emits answer tokens or owns assistant-message persistence', () => {
@@ -33,6 +35,7 @@ describe('Phase 3b — orchestrator is ACT-only', () => {
 
   test('orchestrator no longer owns conversation-title mutations', () => {
     expect(orchestrator).not.toContain('db.conversation.update')
+    expect(orchestrator).toContain("toolName: 'manage_action'")
   })
 
   test('orchestrator no longer owns notification classification/settings/email', () => {

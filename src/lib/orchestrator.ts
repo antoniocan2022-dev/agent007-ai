@@ -231,7 +231,10 @@ function parseOrchestrator(content: string): OrchestratorParsed {
     }
     return { thought, tool: { name, args }, textAfter: '', raw: content }
   }
-  if (doneMatch) return { thought, done: true, textAfter: '', raw: content }
+  if (doneMatch) {
+    const residual = content.replace(THOUGHT_RE, '').replace(DONE_RE, '').trim()
+    if (!residual) return { thought, done: true, textAfter: '', raw: content }
+  }
   return { thought, textAfter: content.replace(THOUGHT_RE, '').trim(), raw: content }
 }
 
@@ -656,6 +659,7 @@ function classifyQuery(message: string): 'direct' | 'dispatch' {
 // simplify the internal ACT loop, but doing so is no longer required for the Option 3 architecture.
 export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<OrchestratorRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
+  const steps: OrchestratorRunResult['steps'] = []
 
   // 0a) Replay any pending manage actions left over from prior failed runs.
   //     We surface them as `manage_action` events (status=done|error) so the
@@ -669,8 +673,9 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
         take: 10,
       })
       for (const p of pending) {
+        let attrs: Record<string, string> = {}
         try {
-          const attrs = JSON.parse(p.attrs) as Record<string, string>
+          attrs = JSON.parse(p.attrs) as Record<string, string>
           await emit('manage_action', {
             stepId: `replay_${p.id}`,
             action: p.action,
@@ -680,7 +685,17 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
             status: 'running',
             replay: true,
           })
+          const replayStartedAt = Date.now()
           const result = await executeManageAction(p.action, attrs)
+          const replayFinishedAt = Date.now()
+          steps.push({
+            id: `replay_${p.id}`,
+            toolName: 'manage_action',
+            toolArgs: { action: p.action, attrs, replay: true },
+            toolResult: { ok: result.ok, result: result.message, preview: result.message },
+            startedAt: replayStartedAt,
+            finishedAt: replayFinishedAt,
+          })
           await db.pendingManageAction.update({
             where: { id: p.id },
             data: {
@@ -698,6 +713,14 @@ export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<Orc
             replay: true,
           })
         } catch (replayErr: any) {
+          steps.push({
+            id: `replay_${p.id}`,
+            toolName: 'manage_action',
+            toolArgs: { action: p.action, attrs, replay: true },
+            toolResult: { ok: false, result: replayErr?.message ?? 'replay error', preview: replayErr?.message ?? 'replay error' },
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+          })
           await db.pendingManageAction.update({
             where: { id: p.id },
             data: { status: 'failed', result: replayErr?.message ?? 'replay error' },
@@ -866,7 +889,6 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   const continuePatterns = /^(continue|keep going|go ahead|go on|ok|okay|yes|proceed|finish|done\?|are you done\?|status|update|what's the status|keep working|don't stop|resume)\s*\.?\s*$/i
   const isContinueCommand = continuePatterns.test(userMessage.trim())
 
-  const steps: OrchestratorRunResult['steps'] = []
   let conversationMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   if (isContinueCommand) {
     const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant')
@@ -944,13 +966,13 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   // get an immediate 500-1500 word smart answer, not a slow dispatch loop.
   const queryType = classifyQuery(userMessage)
   if (queryType === 'direct') {
-    // Inject a system nudge that tells the agent to answer directly
+    // ACT-only router nudge: a direct request usually needs no subagent. It must still terminate through
+    // the execution protocol, never by generating user-facing prose in the ACT engine.
     conversationMessages.push({
       role: 'user',
-      content: `[SYSTEM ROUTER] This is a direct question/analysis/advice request. Do NOT dispatch to a subagent. Answer DIRECTLY with a deep, intelligent response (500-1500 words for complex questions, concise for simple ones). Use ## headers, **bold**, bullet lists. Provide examples. Show your reasoning. End with next steps.`,
+      content: '[SYSTEM ROUTER] This request can usually be handled without a subagent. Do not dispatch unless execution is actually required. If no tool, manage action, or subagent work is needed, emit <done/>. Never produce a user-facing answer.',
     })
   }
-
   // Stage 1a of the CEO Conversation Kernel migration (2026-09-18): this identity-reminder
   // classification used to run fresh on EVERY tool-loop iteration below, even though it depends
   // only on `userMessage` -- constant across iterations -- and never on the accumulating tool
@@ -1069,15 +1091,9 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
 
       lines.push('═══ END SYSTEM STATUS REPORT ═══')
       lines.push('')
-      lines.push('MANDATORY RESPONSE FORMAT for this strategic question:')
-      lines.push('1. Start with: "I checked my system. Here\'s what I found:"')
-      lines.push('2. Report 3-5 specific findings FROM THE DATA ABOVE (cite real numbers)')
-      lines.push('3. List 2-3 concrete actions ranked by impact (based on the data)')
-      lines.push('4. End with: "Want me to fix #1 right now?"')
-      lines.push('5. Do NOT write generic advice. Do NOT say "your system". Say "my system".')
-      lines.push('6. Do NOT recommend building tools you already have. The data shows what exists.')
-      lines.push('7. Do NOT use "Let\'s dive into" or "Leveraging our capabilities".')
-
+      lines.push('ACT HANDOFF: Treat the diagnostics above as internal system evidence only.')
+      lines.push('Use these diagnostics only to choose or verify execution actions when relevant.')
+      lines.push('Do not write a user-facing report. When execution is complete, emit <done/> so the CEO response layer can synthesize the answer.')
       systemStatusReport = lines.join('\n')
       console.log('[orchestrator] System Status Report generated:', systemStatusReport.length, 'chars')
     } catch (e: any) {
@@ -1254,7 +1270,7 @@ The system is working correctly — the keys just need to be refreshed.`
     if (parsed.manage) {
       const { action, attrs } = parsed.manage
       if (manageCount >= MAX_MANAGE_ACTIONS) {
-        const capMsg = `Reached max manage actions (${MAX_MANAGE_ACTIONS}). Please synthesize the answer from what you have.`
+        const capMsg = `Reached max manage actions (${MAX_MANAGE_ACTIONS}). Do not select another manage action; emit <done/> when execution is complete.`
         conversationMessages.push({ role: 'assistant', content })
         conversationMessages.push({ role: 'user', content: `[SYSTEM] ${capMsg}` })
         continue
@@ -1458,7 +1474,7 @@ The system is working correctly — the keys just need to be refreshed.`
         continue
       }
       if (dispatchCount >= MAX_DISPATCHES) {
-        const capMsg = `Reached max sub-agent dispatches (${MAX_DISPATCHES}). Please synthesize the answer from what you have.`
+        const capMsg = `Reached max sub-agent dispatches (${MAX_DISPATCHES}). Do not dispatch another agent; emit <done/> when execution is complete.`
         conversationMessages.push({ role: 'assistant', content })
         conversationMessages.push({ role: 'user', content: `[SYSTEM] ${capMsg}` })
         continue
@@ -1754,7 +1770,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       conversationMessages.push({ role: 'assistant', content })
       conversationMessages.push({
         role: 'user',
-        content: `[TOOL_RESULT] ${step.toolName}: ${toolResult.result}`,
+        content: `[TOOL_RESULT] ${step.toolName}: ${toolResult.result}${verification.verified ? ` [VERIFY: VERIFIED/${verification.artifactType}]` : ` [VERIFY: UNVERIFIED${verification.warning ? ` — ${verification.warning}` : ''}]`}`,
       })
 
       // Persist intermediate tool/thought rows for reload reconstruction

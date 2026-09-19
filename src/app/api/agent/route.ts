@@ -24,6 +24,7 @@ import { projectCeoPublicSsePayload, resolveCeoPublicSseEvent } from '@/lib/ceo-
 import { filterConversationalMemories } from '@/lib/ceo-memory-visibility'
 import { getAllPersistentMemory } from '@/lib/persistent-memory'
 import { computeWorldStateDelta } from '@/lib/ceo-world-state'
+import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 import { generateRecommendationCorrelationId, recordCeoRecommendation } from '@/lib/ceo-outcome-learning'
 import { buildCeoRuntimeMetrics, logCeoRuntimeMetrics } from '@/lib/ceo-runtime-metrics'
 import { createReleaseAttestation, getReleaseIdentity, newReleaseRequestId } from '@/lib/release-attestation'
@@ -45,6 +46,7 @@ import { persistCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMa
 import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
+import { classifyOperationalExecution } from '@/lib/ceo-execution-handoff'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,6 +54,15 @@ export const maxDuration = 240
 
 type DeploymentIdentity = { deploymentId: string | null; releaseCommit: string | null }
 function getDeploymentIdentity(): DeploymentIdentity { return { deploymentId: process.env.VERCEL_DEPLOYMENT_ID?.trim() || null, releaseCommit: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null } }
+
+async function persistPostResponseDecisionMemory(input: { conversationRows: readonly PersistedConversationRow[]; userMessage: string; assistantMessage: string }): Promise<void> {
+  const state = deriveCeoConversationState([
+    ...input.conversationRows,
+    { role: 'user', content: input.userMessage, createdAt: Date.now() },
+    { role: 'assistant', content: input.assistantMessage, createdAt: Date.now() },
+  ], input.userMessage)
+  await persistEpisodicDecisionMemory(state)
+}
 function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const publicEvent = resolveCeoPublicSseEvent(event); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${publicEvent}\ndata: ${JSON.stringify(payload)}\n\n` }
 async function loadConversationContext(conversationId: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
   let rows: PersistedConversationRow[] = []
@@ -280,6 +291,9 @@ export async function POST(req: NextRequest) {
           if (!responseSuperseded && !response.degraded) {
             try { const afterRows = [...safeContextRows, { role: 'user' as const, content: message, createdAt: Date.now() }, { role: 'assistant' as const, content: response.content, createdAt: Date.now() }]; const delta = computeWorldStateDelta(safeContextRows, afterRows, message); if (delta.newDecisions.length || delta.newGoals.length || delta.newCommitments.length || delta.newOpenLoops.length || delta.resolvedOpenLoops.length || delta.newCorrections.length || delta.newlySuperseded.length) console.log('[ceo-world-state-delta]', JSON.stringify({ requestId, newDecisions: delta.newDecisions.length, newGoals: delta.newGoals.length, newCommitments: delta.newCommitments.length, newOpenLoops: delta.newOpenLoops.length, resolvedOpenLoops: delta.resolvedOpenLoops.length, newCorrections: delta.newCorrections.length, newlySuperseded: delta.newlySuperseded.length })) } catch (deltaError) { console.warn('[api/agent] World-state delta computation failed (non-critical):', deltaError instanceof Error ? deltaError.message.slice(0, 150) : String(deltaError)) }
           }
+          if (!responseSuperseded && !response.degraded) {
+            await persistPostResponseDecisionMemory({ conversationRows: safeContextRows, userMessage: message, assistantMessage: response.content }).catch((memoryError) => console.warn('[api/agent] Post-response decision memory persistence failed:', memoryError instanceof Error ? memoryError.message.slice(0, 150) : String(memoryError)))
+          }
           // Executive causal spine (2026-09-12): ventureId is the one link genuinely resolvable at this
           // call site from the current turn's own text -- strategyId and accountableLeaderId stay
           // unset here since nothing at this point matches a decision to a specific BusinessStrategy
@@ -314,8 +328,8 @@ export async function POST(req: NextRequest) {
             requestAbortController.signal,
           ))
           const operationalEvidence = result.executionSummary
+          const operationalHandoff = classifyOperationalExecution(result)
           const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
-          const anyOperationalToolStepFailed = result.executionStatus === 'failed' || operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
           console.log('[api/agent] operational execution telemetry', JSON.stringify({
             requestId,
             completedSteps: result.steps.length,
@@ -362,9 +376,9 @@ export async function POST(req: NextRequest) {
               taskType: preRoute.taskClass,
               timeoutMs: Math.min(60000, requestBudgetMs),
               contextualEvidence: operationalEvidence,
-              evidenceScope: operationalToolSteps.length > 0 ? 'live_system' : 'internal_state',
-              evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300000 },
-              externalExecutionSucceeded: !anyOperationalToolStepFailed,
+              evidenceScope: operationalHandoff.evidenceScope,
+              evidenceFreshness: operationalHandoff.evidenceFreshness,
+              externalExecutionSucceeded: operationalHandoff.externalExecutionSucceeded,
               priorConversation: safeContextRows,
               relevantOlderConversation: safeContextRows,
               preRoute,
@@ -409,6 +423,9 @@ export async function POST(req: NextRequest) {
             throw new Error('CEO_RESPONSE_PERSISTENCE_PROVENANCE_MISSING')
           }
 
+          if (!responseSuperseded && !synthesis.degraded) {
+            await persistPostResponseDecisionMemory({ conversationRows: safeContextRows, userMessage: message, assistantMessage: synthesis.content }).catch((memoryError) => console.warn('[api/agent] Post-response decision memory persistence failed:', memoryError instanceof Error ? memoryError.message.slice(0, 150) : String(memoryError)))
+          }
           if (!responseSuperseded) notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps, executionStatus: result.executionStatus }).catch(() => {})
 
           streamOutcome = responseSuperseded ? 'degraded' : (synthesis.degraded ? 'degraded' : 'completed')

@@ -23,6 +23,20 @@ describe('orchestrator execution contract', () => {
     expect(summary.length).toBeLessThanOrEqual(18000)
   })
 
+  test('renders explicit VERIFY failure state into the CEO receipt', () => {
+    const summary = buildOrchestratorExecutionSummary({
+      executionStatus: 'completed',
+      completionReason: 'done',
+      toolSteps: [{
+        toolName: 'send_email',
+        toolResult: { ok: true, result: 'sent' },
+        verification: { verified: false, artifactType: 'none', warning: 'No message id found.' },
+      }],
+    })
+    expect(summary).toContain('verification=UNVERIFIED')
+    expect(summary).toContain('No message id found.')
+  })
+
   test('records failed execution distinctly from completion', () => {
     const summary = buildOrchestratorExecutionSummary({
       executionStatus: 'failed',
