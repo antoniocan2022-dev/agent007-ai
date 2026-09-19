@@ -627,53 +627,22 @@ function classifyQuery(message: string): 'direct' | 'dispatch' {
   return 'direct'
 }
 
-// Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issue 9 -- and
-// Phase 3 (2026-09-19), which took the first real slice out of it. History, then current state:
+// Phase 3b of the CEO Conversation Kernel migration — true ACT/RESPOND separation (2026-09-19).
 //
-// Phase 2 recorded (deliberately without fixing) that runOrchestrator owns two genuinely different
-// responsibilities: dispatching real tool calls against live external systems (the ACT stage), and,
-// for messages the classifiers above route to 'direct', generating the conversational answer itself
-// via its own LLM call inside the tool loop -- a second, independent answer-generation path alongside
-// ceo-cognitive-lifecycle.ts's, not a delegation to it. That LLM-loop entanglement is still real: there
-// is exactly one LLM call per loop iteration (see callLlmWithRetry below), and whether its output that
-// iteration is "what tool to call next" or "the user-facing final answer" is decided post-hoc by
-// whether the model's response happened to contain an action tag. Untangling that -- making the loop
-// stop at "no more actions to take" and handing ALL prose generation, including for 'direct'
-// conversational turns, to ceo-cognitive-lifecycle.ts -- is still not attempted here: it would change
-// who owns generating the words themselves, not just who owns deciding whether to trust them, and
-// remains its own separately-scoped, separately-reviewed change (Phase 3b).
+// The orchestrator is now an ACT-only engine. Its LLM loop can select and execute tools, dispatch
+// subagents, apply recovery controls, and terminate only with the explicit <done/> control signal.
+// It never generates a user-facing final answer, never streams answer tokens, never persists an
+// assistant final row, never owns conversation titles, and never decides mission notifications.
+// Its only conversational output is internal execution evidence returned as OrchestratorExecutionResult.
 //
-// What Phase 3 DID fix, because it was tractable and high-value on its own: runOrchestrator used to
-// also be a unilateral PERSISTENCE and NOTIFICATION authority for `finalAnswer` -- writing it straight
-// to the Message table as the assistant's final answer, and firing a "mission complete"/"mission
-// failed" operator email off that same raw, ungoverned text, both before route.ts's quality gate
-// (tryOperationalDirectResponse / runCeoCognitiveLifecycle) had even run on it. That's gone: this
-// function now only executes and reports (`return { finalAnswer, steps }`); every caller (route.ts,
-// the scheduled tick route) is responsible for deciding what to persist as the real final answer and
-// for calling notifyMissionOutcome (src/lib/mission-notifications.ts) once it has. `finalAnswer` above
-// is now honestly what it always structurally was for tool-heavy turns -- an execution transcript, not
-// a pre-approved final answer -- though for 'direct' conversational turns with zero tool calls it is
-// still 100% freeform LLM prose with nothing behind it (the unresolved part of Phase 3b above).
+// The CEO cognitive lifecycle is the sole RESPOND authority for orchestrated requests. Interactive
+// route.ts and the scheduled tick route both consume executionSummary and pass the execution outcome
+// into runCeoCognitiveLifecycle, whose governed result is the only assistant response that is persisted
+// and broadcast as final.
 //
-// Phase 3a+ (external re-audit of the PR shipping the above, same day) caught that persistence and
-// notification were only two of three ways this function's raw narrative reached the user before
-// governance ran -- the third was STREAMING: `emit('token', ...)` below still pushed live chunks of
-// `finalAnswer` straight to the browser as they were generated, and the frontend (chat-store.ts)
-// appends 'token' events to the visible message in real time, then wholesale-replaces that content
-// once route.ts's later 'answer' event carries the governed text. That was still exactly the
-// "orchestrator draft -> streamed to user -> CEO final response" pattern Option 3 exists to eliminate,
-// just at the UI layer instead of the DB layer. Fixed at the call site, not here: route.ts's
-// operational_orchestrator branch now wraps the `emit` it passes into this function so 'token' events
-// are withheld while every other event (tool_call, tool_result, subagent_dispatch, thought, heartbeat,
-// manage_action, ...) still streams live progress normally -- this function's own emit calls, loop,
-// prompt, and parsing are completely untouched by that fix.
-//
-// Two deterministic (non-LLM-narrative) early-return paths inside this file -- runFastPathManage
-// (the create_agent fast path) and the mission-pipeline summary return above -- are explicitly
-// accounted for here, not silently forgotten: both were folded into the SAME single persistence
-// authority as this function's own main-loop return (route.ts now creates the one real assistant
-// message for every OrchestratorRunResult, these two included, and runs the same quality-gate check
-// against their content too), rather than being left as separate, undocumented exceptions.
+// This is the completed Phase 3b boundary: ACT and RESPOND are now separate responsibilities while
+// the existing tool parser/dispatch/recovery machinery remains intact. A future refactor may further
+// simplify the internal ACT loop, but doing so is no longer required for the Option 3 architecture.
 export async function runOrchestrator(opts: OrchestratorRunOptions): Promise<OrchestratorRunResult> {
   const { conversationId, userMessage, attachments, language, emit } = opts
 
@@ -935,7 +904,6 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
     }
   }
 
-  let finalAnswer = ''
   let iter = 0
   let dispatchCount = 0
   let manageCount = 0
