@@ -1125,6 +1125,9 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   // If cognitive framework didn't produce context, fall back to minimal reminder
   const fallbackReminder = `You are Agent007. Think before you speak. Adapt your style to the question. Don't use templates.`
   const identityReminder = cognitiveContext || fallbackReminder
+  let executionStatus: OrchestratorExecutionStatus = 'partial'
+  let completionReason: OrchestratorCompletionReason = 'iteration_limit'
+  let terminalError: string | undefined
 
   while (iter < MAX_ITERATIONS) {
     iter++
@@ -1162,7 +1165,7 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       // conversation state that accumulate across iterations.
       const messagesWithReminder = [
         ...conversationMessages,
-        { role: 'user' as const, content: identityReminder },
+        { role: 'user' as const, content: `${identityReminder}\n\n${ORCHESTRATOR_EXECUTION_ONLY_REMINDER}` },
       ]
       completion = await callLlmWithRetry(messagesWithReminder)
     } catch (e: any) {
@@ -1202,7 +1205,9 @@ TO FIX:
 The system is working correctly — the keys just need to be refreshed.`
         const rateLimited = false
         await emit('error', { message: friendly, rateLimited })
-        finalAnswer = friendly
+        terminalError = friendly
+        executionStatus = 'failed'
+        completionReason = 'llm_error'
         break
       }
 
@@ -1215,12 +1220,16 @@ The system is working correctly — the keys just need to be refreshed.`
       // full failure breakdown.
       const rateLimited = (e as any)?._allRateLimited === true
       await emit('error', { message: friendly, rateLimited })
-      finalAnswer = friendly
+      terminalError = friendly
+      executionStatus = 'failed'
+      completionReason = 'llm_error'
       break
     }
     const content: string = completion?.choices?.[0]?.message?.content ?? ''
     if (!content.trim()) {
-      finalAnswer = '(The agent produced no output. Please try rephrasing.)'
+      terminalError = 'The orchestrator LLM produced no output.'
+      executionStatus = 'failed'
+      completionReason = 'invalid_llm_output'
       break
     }
 
@@ -1246,6 +1255,13 @@ The system is working correctly — the keys just need to be refreshed.`
     // Emit thought
     if (parsed.thought) {
       await emit('thought', { content: parsed.thought })
+    }
+
+    // Phase 3b terminal contract: the ACT engine may stop only on <done/>.
+    if (parsed.done && !parsed.tool && !parsed.dispatch && !parsed.manage) {
+      executionStatus = steps.some((step) => step.toolResult?.ok === false) ? 'partial' : 'completed'
+      completionReason = 'done'
+      break
     }
 
     // 0) Manage path — parse <manage .../> tags and execute server-side.
@@ -1768,220 +1784,28 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
       continue
     }
 
-    // 3) Final answer path — but FIRST check for "stuck" condition (FIX 2)
-    // If the agent produced ONLY a thought (no tool/dispatch/manage) and the
-    // thought contains "wait"-like language, it's stuck waiting for input
-    // that will never come. Auto-recover by prompting it to continue.
-    const isThoughtOnly = !parsed.tool && !parsed.dispatch && !parsed.manage && !!parsed.thought
-    const stuckPatterns = /(wait|waiting|haven't provided|yet to|will wait|need to wait|i'll wait|let me wait|as i wait)/i
-    const isStuck = isThoughtOnly && parsed.thought && stuckPatterns.test(parsed.thought)
-
-    if (isStuck && iter < MAX_ITERATIONS - 1) {
-      // Auto-recovery: feed back a "continue" prompt + re-enter the loop
-      await emit('thought', { content: `[AUTO-RECOVERY] Detected stuck condition. Auto-continuing...` })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] You appear to be waiting. Do NOT wait — continue executing the task now. Dispatch the next sub-agent or use a tool or give your final answer.',
-      })
-      continue
-    }
-
-    // ── FIX #41: "PROMISE WITHOUT ACTION" DETECTION ──────────────────
-    // If the agent's response is a final answer (no tool/dispatch/manage)
-    // but it contains "I will" / "let me" / "hold on" / "please wait" /
-    // "I'm going to" language, it's PROMISING to do something but NOT
-    // actually doing it. This is the #1 cause of "agent gets stuck and
-    // doesn't provide answers" — the agent says "I will run tests" as a
-    // final answer, the loop breaks, and the user never gets results.
-    // FIX: detect this pattern and auto-recover by forcing the agent to
-    // either emit a tool call NOW or give a real answer.
-    const isPromiseOnly = !parsed.tool && !parsed.dispatch && !parsed.manage
-    const promisePatterns = /(i will run|i will proceed|i will test|i will check|i will execute|let me run|let me test|let me check|let me proceed|hold on|please hold|please wait|give me a moment|i'm going to run|i'm going to test|i'm going to check|one moment|just a moment|bear with me)/i
-    const fullText = (parsed.thought ?? '') + ' ' + (content.replace(THOUGHT_RE, '').trim())
-    const hasPromise = promisePatterns.test(fullText)
-    const hasNoToolCallYet = steps.length === 0  // no tools called this entire turn
-
-    if (isPromiseOnly && hasPromise && hasNoToolCallYet && iter < MAX_ITERATIONS - 1) {
-      // Auto-recovery: force the agent to actually execute NOW
-      await emit('thought', { content: `[AUTO-RECOVERY] Detected "promise without action". Forcing execution now...` })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] CRITICAL: You said "I will run/proceed/test" but you did NOT emit a tool call. Do NOT promise — EXECUTE. Emit the tool call RIGHT NOW in this response. For example, if you said "I will run exhaustive tests", then emit <tool name="exhaustive_tool_test"></tool> immediately. Never respond with just a promise to do something — either DO it (emit tool tags) or report RESULTS.',
-      })
-      continue
-    }
-
-    // If it's thought-only but NOT stuck, check if the text after thought is meaningful
-    const textAfterThought = content.replace(THOUGHT_RE, '').trim()
-    if (isThoughtOnly && textAfterThought.length < 20 && iter < MAX_ITERATIONS - 1) {
-      // The agent produced only a thought with no substantial answer — likely stuck
-      await emit('thought', { content: `[AUTO-RECOVERY] Thought-only response with no answer. Prompting to continue...` })
-      conversationMessages.push({ role: 'assistant', content })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] You produced only a thought with no action or answer. Please either: (1) dispatch a sub-agent, (2) call a tool, or (3) give your final answer now.',
-      })
-      continue
-    }
-
-    // 3a) Final answer path — emit synthesis signal then stream tokens
-    // UPGRADE #86 + #95 — Strip ALL pseudo-XML / dispatch tags / reasoning traces from the final answer.
-    // Without this, raw `<dispatch_subagent ...>`, `<parallel_executor>`, and "REASONING TRACE:"
-    // blocks leak to the user as the "weird incomprehensible answer" the owner reported.
-    // UPGRADE #95: Use convertedContent (already auto-converted parallel_executor → <tool> format)
-    // so any tools that were called actually ran. Leftover pseudo-XML is stripped here as safety net.
-    finalAnswer = convertedContent
-      .replace(THOUGHT_RE, '')
-      .replace(DISPATCH_RE, '')
-      .replace(DISPATCH_SUBAGENT_RE, '')
-      .replace(PSEUDO_XML_RE, '')
-      .replace(REASONING_TRACE_BLOCK_RE, '')
-      .replace(/<dispatch_subagent[^>]*?(?:\/>|>[\s\S]*?<\/dispatch_subagent>)/gi, '') // safety net: catch any leftover
-      .replace(/<\/?(?:dispatch|dispatch_subagent|parallel_executor|reasoning_trace|reasoning|execution|plan|action|reflect|reflection|analyze)[^>]*?>/gi, '') // final sweep: strip any lone tags
-      .replace(/<tool\s+name=["'][^"']+["'][^>]*>[\s\S]*?<\/tool>/gi, '') // UPGRADE #95: strip any leftover <tool> tags that didn't execute
-      .trim() || content.trim()
-
-    // UPGRADE #86 — If finalAnswer is now empty (everything was a tag/thought), retry instead of showing blank
-    if (finalAnswer.length < 10 && iter < MAX_ITERATIONS - 1) {
-      conversationMessages.push({ role: 'assistant', content: convertedContent })
-      conversationMessages.push({
-        role: 'user',
-        content: '[SYSTEM] Your previous response contained only tags (dispatch / thought / pseudo-XML) with no actual answer text. The owner saw nothing comprehensible. Please respond NOW with a clear markdown answer (use ## headings, bullet points, etc.) — NO tags, NO thoughts, NO pseudo-XML. Just plain text the owner can read.',
-      })
-      continue
-    }
-
-    // UPGRADE #134: DELIVERY VERIFICATION — check tool RESULT, not just CALL
-    const deliveryKeywords = /(published|deployed|posted|sent|scheduled|uploaded|listed|created.*listing|live\s+now)/i
-    const deliveryTools = ['wordpress_publisher', 'stripe_payment_processor', 'etsy_integration',
-      'convertkit_email', 'send_email', 'telegram_notify', 'ntfy_notify', 'discord_notify',
-      'buffer_scheduler', 'resend_email', 'file_write']
-    const toolsCalled = steps.map((s: any) => s.toolName).filter(Boolean)
-    const claimsDelivery = deliveryKeywords.test(finalAnswer)
-
-    if (claimsDelivery) {
-      // Find delivery tool steps and check their ACTUAL RESULT
-      const deliverySteps = steps.filter((s: any) => deliveryTools.includes(s.toolName))
-      const successfulDeliveries = deliverySteps.filter((s: any) => {
-        // Check if the tool result indicates success
-        const result = s.toolResult
-        if (!result) return false
-        // toolResult is a ToolResult object with .ok field
-        if (typeof result === 'object' && result.ok === true) return true
-        // Or check if the result string contains success indicators
-        if (typeof result === 'object' && typeof result.result === 'string') {
-          return !/error|fail|unable|not configured|setup required/i.test(result.result)
-        }
-        return false
-      })
-      const failedDeliveries = deliverySteps.filter((s: any) => {
-        const result = s.toolResult
-        if (!result) return true  // no result = failed
-        if (typeof result === 'object' && result.ok === false) return true
-        if (typeof result === 'object' && typeof result.result === 'string') {
-          return /error|fail|unable|not configured|setup required/i.test(result.result)
-        }
-        return false
-      })
-
-      if (deliverySteps.length === 0) {
-        finalAnswer += `\n\n---\n⚠️ **DELIVERY VERIFICATION:** The answer claims delivery, but no delivery tool was called. The action did not occur.`
-      } else if (successfulDeliveries.length > 0 && failedDeliveries.length === 0) {
-        const toolName = successfulDeliveries[0].toolName
-        finalAnswer += `\n\n---\n✅ **DELIVERY VERIFIED:** ${toolName} was called and succeeded.`
-      } else if (successfulDeliveries.length > 0 && failedDeliveries.length > 0) {
-        finalAnswer += `\n\n---\n⚠️ **DELIVERY PARTIAL:** ${successfulDeliveries.length} succeeded, ${failedDeliveries.length} failed. Some deliveries may not have completed.`
-      } else {
-        finalAnswer += `\n\n---\n❌ **DELIVERY FAILED:** Delivery tool was called but returned an error. The action did not complete successfully.`
-      }
-    }
-
-    // UPGRADE #163: REMOVED the mandatory feedback loop that appended
-    // Stripe + GA4 data to EVERY response containing words like "revenue",
-    // "income", "strategy", "traffic", "profit" etc.
-    //
-    // PROBLEM: The regex /revenue|income|sales|published|traffic|conversion|
-    //   strategy|affiliate|monetiz|earn|profit|stripe|ga4/i matched almost
-    //   EVERY response (these words appear naturally in most AI agent answers).
-    //   This caused:
-    //   1. 4-10 seconds added to every response (Stripe API + GA4 API calls)
-    //   2. A wall of raw data appended to the end of every answer
-    //   3. User saw: "response... then 500 chars of Stripe/GA4 dump"
-    //   4. Made responses feel incomplete (the real answer was above the dump)
-    //
-    // FIX: The feedback loop is now ON-DEMAND only. The agent can still
-    // call it via <tool name="real_feedback_loop">{"action":"report"}</tool>
-    // when the user EXPLICITLY asks for revenue/traffic data. But it no
-    // longer auto-appends to every response.
-
-    // Emit a synthesis indicator so the UI shows "Synthesizing…" briefly
-    await emit('synthesis', { content: finalAnswer.slice(0, 80) })
-
-    const chunks = chunkText(finalAnswer, 80)
-    for (const c of chunks) {
-      await emit('token', { content: c })
-    }
-    break
+    // Phase 3b: free-form prose is never a terminal response. Reprompt the execution model
+    // until it emits another action or the explicit <done/> control signal.
+    conversationMessages.push({ role: 'assistant', content })
+    conversationMessages.push({
+      role: 'user',
+      content: '[SYSTEM] EXECUTION-ONLY VIOLATION: do not answer the owner. Emit a tool/dispatch/manage control tag for the next action, or emit <done/> when all execution is complete. No markdown, no narrative answer.',
+    })
+    continue
   }
 
-  if (!finalAnswer) {
-    // UPGRADE #86 — Auto-synthesize from what we have (BOTH tool results AND subagent results).
-    // The previous version only collected tool results, missing subagent dispatch results entirely.
-    // This is what caused the "I've reached my iteration limit" message after a long chain of dispatches.
-    const collectedResults: string[] = []
+  const executionSummary = buildOrchestratorExecutionSummary({
+    executionStatus,
+    completionReason,
+    toolSteps: steps,
+    notes: conversationMessages
+      .filter((message) => message.role === 'user' && typeof message.content === 'string' && message.content.startsWith('[SUBAGENT_RESULT]'))
+      .map((message) => String(message.content).replace(/^\[SUBAGENT_RESULT\]\s*/, '').slice(0, 1200)),
+    terminalError,
+  })
 
-    // (a) collect direct tool call results
-    for (const s of steps) {
-      if (s.toolName && s.toolResult?.result) {
-        const preview = s.toolResult.result.slice(0, 400)
-        collectedResults.push(`### 🔧 ${s.toolName}\n${preview}`)
-      }
-    }
+  return { executionSummary, executionStatus, completionReason, steps }
 
-    // (b) collect subagent dispatch results from conversationMessages
-    const subagentResults = conversationMessages
-      .filter((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('[SUBAGENT_RESULT]'))
-      .map((m) => {
-        const txt = (m.content as string).replace(/^\[SUBAGENT_RESULT\]\s*/, '')
-        const colonIdx = txt.indexOf(':')
-        const agentId = colonIdx > 0 ? txt.slice(0, colonIdx).trim() : 'subagent'
-        const body = colonIdx > 0 ? txt.slice(colonIdx + 1).trim() : txt
-        return `### 🤖 ${agentId}\n${body.slice(0, 600)}`
-      })
-    collectedResults.push(...subagentResults)
-
-    if (collectedResults.length > 0) {
-      finalAnswer = `## Summary\nI dispatched ${subagentResults.length} sub-agent(s) and ran ${steps.length} tool call(s) this turn. Here are the consolidated findings:\n\n${collectedResults.join('\n\n---\n\n')}\n\n---\n## Next Steps\nType **"continue"** and I'll pick up where I left off, or ask me to drill into any specific finding above.`
-    } else {
-      finalAnswer =
-        "I've reached my iteration limit for this turn without completing the task. Please type 'continue' and I'll retry."
-    }
-    await emit('token', { content: finalAnswer })
-  }
-
-  // Update conversation title if it's still default
-  try {
-    const conv = await db.conversation.findUnique({ where: { id: conversationId } })
-    if (conv && (conv.title === 'New Conversation' || !conv.title)) {
-      const title = userMessage.slice(0, 50).trim() || 'New Conversation'
-      await db.conversation.update({ where: { id: conversationId }, data: { title } })
-    }
-  } catch (dbErr: any) {
-    console.warn('[orchestrator] DB title update failed, continuing:', dbErr?.message?.slice(0, 80))
-  }
-
-  // Phase 3 of the CEO Conversation Kernel migration (making the orchestrator execution-only,
-  // 2026-09-19): this used to persist `finalAnswer` here, unconditionally, as the assistant's final
-  // Message row -- and fire a "mission complete"/"mission failed" notification off that same raw,
-  // ungoverned narrative -- making the orchestrator a second, unilateral "final answer" authority
-  // that acted before route.ts's quality-gated synthesis (tryOperationalDirectResponse /
-  // runCeoCognitiveLifecycle) had even run. Neither happens here anymore: every caller now owns
-  // persisting and notifying on whatever content it actually settles on as final. See
-  // src/lib/mission-notifications.ts for the relocated (and improved) notification logic, and
-  // route.ts / src/app/api/schedules/tick/route.ts for where persistence now happens.
-  return { finalAnswer, steps }
 }
 
 /* ------------------------------------------------------------------ *
