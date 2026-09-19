@@ -79,7 +79,9 @@ describe('Phase 3b — scheduled execution uses the same RESPOND authority', () 
   })
 
   test('scheduled execution persists only synthesized content and notifies after persistence', () => {
-    expect(source).toContain("role: 'assistant', content: synthesis.content")
+    expect(source).toContain("import { persistCeoAssistantMessage } from '@/lib/ceo-response-persistence'")
+    expect(source).toContain('content: synthesis.content')
+    expect(source).toContain('capturedTurnSequence')
     expect(source).toContain("notifyMissionOutcome({ conversationId, content: synthesis.content, steps: result.steps })")
     expect(source).toContain('async function executeScheduledRun(')
     expect(source).toContain("role: 'user', content: objective")
