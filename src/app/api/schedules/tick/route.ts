@@ -102,7 +102,6 @@ async function executeScheduledRun(conversationId: string, objective: string): P
     decisionContract,
   })
   const operationalHandoff = classifyOperationalExecution(result)
-  const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
 
   const finalModules = buildCeoContextModules({
     intent: preRoute.executionContract.intent,
