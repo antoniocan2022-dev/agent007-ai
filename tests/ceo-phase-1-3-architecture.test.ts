@@ -16,7 +16,12 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     expect((route.match(/interpretCeoSemantics\(/g) ?? []).length).toBe(1)
     expect((route.match(/preRouteCeoRequest\(/g) ?? []).length).toBe(1)
     expect(route).toContain('preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract)')
-    expect(route).toContain('preRoute, decisionContract')
+    // Phase 2 fix (external audit, 2026-09-19), issues 1 and 8: route.ts now threads
+    // decisionPlan: turnDecision.decisionPlan (the single, once-per-turn DecisionPlan built by
+    // buildCeoTurnDecision, ceo-turn-decision.ts) between preRoute and decisionContract, so the
+    // literal substring this used to assert no longer appears contiguously -- widened to a pattern
+    // that allows (but doesn't require) that field in between.
+    expect(route).toMatch(/preRoute,\s*(?:decisionPlan:\s*turnDecision\.decisionPlan,\s*)?decisionContract/)
     expect(lifecycle).toContain('request.preRoute ?? preRouteCeoRequest')
     expect(lifecycle).toContain('request.decisionContract?.responseAction')
   })

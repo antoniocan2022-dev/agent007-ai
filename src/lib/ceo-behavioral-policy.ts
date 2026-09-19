@@ -53,9 +53,55 @@ export function selectLeadingCeoBehavioralMode(modes: readonly CeoBehavioralMode
   return CEO_BEHAVIORAL_MODE_PRIORITY.find((mode) => modes.includes(mode)) ?? 'friend'
 }
 
+// Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issue 2:
+// selectLeadingCeoBehavioralMode above is pure static priority -- guardian always beats operator always
+// beats business_partner, regardless of how strongly (or weakly) each one actually matched this
+// specific message. The audit's fair criticism: that is not genuine capability selection, it is a fixed
+// ranking applied uniformly to whatever classifyCeoBehavioralModes' 8 independent regexes happened to
+// match, including a mode that only matched on one incidental keyword mention.
+//
+// classifyCeoBehavioralModeSignals tags each matched mode with whether the match came from an EXPLICIT
+// signal already present in the turn's own execution contract (intent/responseAction -- values the CEO
+// pipeline itself decided, not a regex guess) or only from an incidental keyword in the message text.
+// Deliberately reuses classifyCeoBehavioralModes for the underlying "which modes matched" computation
+// (never reimplements it) so the two functions can never disagree about which modes are active --
+// exactly the kind of duplicated-logic drift this migration exists to remove.
+const BUSINESS_PARTNER_HARD_INTENTS = new Set<CeoIntent>(['decision', 'mission_action'])
+function isHardModeSignal(mode: CeoBehavioralMode, input: { intent: CeoIntent; responseAction: ResponseAction }): boolean {
+  if (mode === 'business_partner') return BUSINESS_PARTNER_HARD_INTENTS.has(input.intent)
+  if (mode === 'operator') return input.responseAction === 'execute' || input.responseAction === 'verify'
+  if (mode === 'guardian') return input.intent === 'research' || input.responseAction === 'verify'
+  return false
+}
+
+export interface CeoBehavioralModeSignal { mode: CeoBehavioralMode; hard: boolean }
+
+export function classifyCeoBehavioralModeSignals(input: { context?: CanonicalConversationContext; intent: CeoIntent; responseAction: ResponseAction; currentMessage: string }): readonly CeoBehavioralModeSignal[] {
+  return classifyCeoBehavioralModes(input).map((mode) => ({ mode, hard: isHardModeSignal(mode, input) }))
+}
+
+// guardian is a deliberate, unconditional exception to hard/soft weighting: a safety/evidence/risk
+// concern should shape HOW every other active mode gets expressed even when it only matched on an
+// incidental keyword (see CEO_BEHAVIORAL_MODE_PRIORITY's own rationale comment above) -- weakening
+// guardian's precedence to "only when hard-matched" would regress the exact safety-first behavior
+// Stage 3's own arbitration test pins (a message that mentions "risk" in passing while also asking to
+// "execute" something must still lead with guardian, not operator). Among every OTHER mode, a hard
+// (explicit, contract-driven) signal now outranks a merely soft (keyword-only) one regardless of
+// CEO_BEHAVIORAL_MODE_PRIORITY's order; CEO_BEHAVIORAL_MODE_PRIORITY itself remains the tie-breaker
+// within whichever pool (hard or, if none, soft) actually has a match -- so a single-mode message still
+// resolves exactly as selectLeadingCeoBehavioralMode already would, and this only ever changes the
+// outcome when a genuinely explicit signal and a genuinely incidental one compete.
+export function selectLeadingCeoBehavioralModeFromSignals(signals: readonly CeoBehavioralModeSignal[]): CeoBehavioralMode {
+  if (signals.some((signal) => signal.mode === 'guardian')) return 'guardian'
+  const hardModes = signals.filter((signal) => signal.hard).map((signal) => signal.mode)
+  const pool = hardModes.length ? hardModes : signals.map((signal) => signal.mode)
+  return CEO_BEHAVIORAL_MODE_PRIORITY.find((mode) => pool.includes(mode)) ?? 'friend'
+}
+
 export function buildCeoBehavioralPolicy(input: { context?: CanonicalConversationContext; intent: CeoIntent; responseAction: ResponseAction; currentMessage: string }): CeoBehavioralPolicy {
-  const modes = classifyCeoBehavioralModes(input)
-  return { modes, leadingMode: selectLeadingCeoBehavioralMode(modes), requireCurrentObjectiveMatch: true, allowGenericRecovery: false, internalArtifactsUserVisible: false }
+  const signals = classifyCeoBehavioralModeSignals(input)
+  const modes = signals.map((signal) => signal.mode)
+  return { modes, leadingMode: selectLeadingCeoBehavioralModeFromSignals(signals), requireCurrentObjectiveMatch: true, allowGenericRecovery: false, internalArtifactsUserVisible: false }
 }
 
 export const CEO_INTERNAL_ARTIFACT_TOKENS = ['continuous_loop_trace','evidence_trace','quality_trace','routing_trace','ceo_recommendation','ceo_recommendation_action','ceo_observed_outcome','ceo_conversation_incident','ceo_incident_regression_candidate','architecture_business_outcome','mission_telemetry','runtime_telemetry','ceo_runtime_metrics','provider_telemetry','governed_evolution_cycle'] as const

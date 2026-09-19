@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { tryOperationalDirectResponse } from '@/lib/ceo-operational-direct-response'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
+import { buildCeoDecisionPlan } from '@/lib/ceo-cognitive-kernel'
 
 const user = (content: string) => [{ role: 'user' as const, content }]
 
@@ -141,6 +142,98 @@ describe('tryOperationalDirectResponse', () => {
     })
     expect(result).not.toBeNull()
     expect(result!.evidenceState).toBe('LIVE_EXECUTED')
+  })
+
+  // Phase 2 fix (external audit, 2026-09-19), issue 4: hasVerifiedActionEvidence used to be a bare
+  // `.some()` over toolSteps -- one confirmed action-tool call was enough to earn LIVE_VERIFIED for the
+  // whole turn, even when a SIBLING action-tool call in the same multi-step objective succeeded without
+  // ever being independently confirmed. Two action-tool steps below: the first genuinely verified, the
+  // second merely `ok: true` with no confirmed artifact -- the turn must still downgrade to
+  // LIVE_EXECUTED, because not every action this turn took was actually confirmed.
+  test('a multi-step objective with one verified action-tool call and one merely-successful one does not earn LIVE_VERIFIED (issue 4)', () => {
+    const answer = '## Done\n\nI published the WordPress post and sent the team notification email. The deployment fix, the DATABASE_URL variable, and the fresh deployment are all in place and serving traffic.'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: [
+        { toolName: 'wordpress_publisher', toolResult: { ok: true }, verification: { verified: true } },
+        { toolName: 'send_email', toolResult: { ok: true }, verification: { verified: false } },
+      ],
+    })
+    expect(result).not.toBeNull()
+    expect(result!.evidenceState).toBe('LIVE_EXECUTED')
+    expect(result!.evidenceState).not.toBe('LIVE_VERIFIED')
+  })
+
+  test('a multi-step objective where every action-tool call is verified DOES earn LIVE_VERIFIED (issue 4, positive case)', () => {
+    const answer = '## Done\n\nI published the WordPress post and sent the team notification email. The deployment fix, the DATABASE_URL variable, and the fresh deployment are all in place and serving traffic.'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: [
+        { toolName: 'wordpress_publisher', toolResult: { ok: true }, verification: { verified: true } },
+        { toolName: 'send_email', toolResult: { ok: true }, verification: { verified: true } },
+      ],
+    })
+    expect(result).not.toBeNull()
+    expect(result!.evidenceState).toBe('LIVE_VERIFIED')
+  })
+
+  // Phase 2 fix (external audit, 2026-09-19), issue 5: a read/research tool (web_search) is not an
+  // outcome-producing action -- even a "verified" web_search result must never unlock LIVE_VERIFIED on
+  // its own, since nothing in the world actually changed.
+  test('a verified web_search step alone does not earn LIVE_VERIFIED (issue 5: research tools are not action outcomes)', () => {
+    const answer = '## Deployment fixed\n\nThe last build failed because the DATABASE_URL environment variable was missing on the production environment. I took the following actions: added the missing variable in Vercel, then triggered a fresh deployment. The new deployment completed successfully and is now serving traffic. No further action is needed.'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: [{ toolName: 'web_search', toolResult: { ok: true }, verification: { verified: true } }],
+    })
+    expect(result).not.toBeNull()
+    expect(result!.evidenceState).toBe('LIVE_EXECUTED')
+  })
+
+  // Phase 2 fix (external audit, 2026-09-19), issues 1 and 8: route.ts now builds exactly one
+  // CeoTurnDecision per turn and threads its decisionPlan through here instead of letting this function
+  // build a second, independent copy -- verify the caller's decisionPlan is actually used (identity
+  // check), not silently discarded in favor of a freshly-built one.
+  test('a caller-supplied decisionPlan is reused verbatim instead of being rebuilt (issues 1 and 8: single DECIDE authority)', () => {
+    const suppliedDecisionPlan = buildCeoDecisionPlan({ messages: user(message), preRoute })
+    const answer = 'Hi! How can I help you today?'
+    const result = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      decisionPlan: suppliedDecisionPlan,
+      objective: message,
+      candidateContent: answer,
+      responseMsBeforeCheck: 900,
+      toolSteps: noToolSteps,
+    })
+    // This particular answer fails the gate (returns null, per the existing "does not address the
+    // actual request" test above) -- so assert identity via a PASSing call instead.
+    expect(result).toBeNull()
+    const passingAnswer = '## Deployment fixed\n\nThe last build failed because the DATABASE_URL environment variable was missing on the production environment. I took the following actions: added the missing variable in Vercel, then triggered a fresh deployment. The new deployment completed successfully and is now serving traffic. No further action is needed.'
+    const passingResult = tryOperationalDirectResponse({
+      messages: user(message),
+      preRoute,
+      decisionPlan: suppliedDecisionPlan,
+      objective: message,
+      candidateContent: passingAnswer,
+      responseMsBeforeCheck: 4300,
+      toolSteps: noToolSteps,
+    })
+    expect(passingResult).not.toBeNull()
+    expect(passingResult!.decisionPlan).toBe(suppliedDecisionPlan)
+    expect(passingResult!.decisionPlan.requestId).toBe(suppliedDecisionPlan.requestId)
   })
 
   test('an answer that does not address the actual request fails the gate and returns null (caller must fall back)', () => {

@@ -87,6 +87,16 @@ describe('CEO kernel migration -- Stage 0 baseline (pre-router classification)',
 // (different, and correctly so) design had shipped. Both are corrected below as part of Stage 5's own
 // "remove dead duplicate paths" mandate -- stale documentation describing a plan that was deliberately
 // not followed is its own kind of dead weight.
+//
+// Phase 2 (external audit, 2026-09-19), issue 7: this migration's regression discipline across every
+// stage was "hold the pre-existing failure baseline exactly constant, let the pass count grow as tests
+// are added" -- the full local suite has never been reported or treated as passing outright. Reported
+// as "full regression suite clean" in chat summaries, that reads as zero failures, which was never
+// true and was never the bar being enforced. The actual, held-constant baseline (unchanged since Stage
+// 0, sandbox-environment artifacts unrelated to this migration -- see this file's own module-resolution
+// notes elsewhere in the suite): 49 pre-existing failures, 13 pre-existing errors, 7 skipped. "Clean"
+// means these Phase 1/Phase 2 changes introduced no NEW failures against that fixed baseline, not that
+// the suite has none. State it that way going forward, here and in any report of this suite's health.
 describe('CEO kernel migration -- Stage 0 structural baseline (source-text, pre-migration)', () => {
   test('route.ts still has two runCeoCognitiveLifecycle call sites, but the second is now conditionally skipped (Stage 1 shipped)', () => {
     const route = readFileSync('src/app/api/agent/route.ts', 'utf8')

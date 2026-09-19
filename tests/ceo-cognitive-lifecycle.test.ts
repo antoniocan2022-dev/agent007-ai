@@ -1,5 +1,6 @@
 import { describe, expect, test, afterEach } from 'bun:test'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
+import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'
 import { buildCeoDecisionPlan } from '@/lib/ceo-cognitive-kernel'
 import { buildCeoExecutionPlan } from '@/lib/ceo-execution-plan'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
@@ -199,6 +200,61 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.quality.verificationStatus).toBe('INDEPENDENT_PASS')
     expect(result.evidenceState).toBe('LIVE_VERIFIED')
     expect(result.degraded).toBe(false)
+  })
+
+  // Phase 2 fix (external audit, 2026-09-19), issue 6: every evaluateCeoQuality call inside this
+  // function used to hardcode externalExecutionSucceeded: true regardless of the caller -- silently
+  // wrong for route.ts's operational_orchestrator fallback branch, which calls this function AFTER
+  // runOrchestrator() has already run real tool calls that may have failed. This end-to-end test proves
+  // the threading actually works, not just that the field exists: identical evidenceScope/freshness as
+  // the LIVE_VERIFIED test above, but with externalExecutionSucceeded explicitly false -- the real
+  // signal a failed operational tool call would carry -- must now correctly downgrade to UNAVAILABLE
+  // instead of claiming LIVE_VERIFIED for a turn where a real execution actually failed.
+  test('externalExecutionSucceeded: false downgrades evidenceState to UNAVAILABLE even with a live_system evidence scope (issue 6)', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST' && url.includes('api.groq.com')) return jsonResponse({ choices: [{ message: { content: '## Infrastructure Stability Analysis\n\nThe current system architecture is confirmed healthy across all monitored services, with no active incidents. Recommendation: continue the current operational cadence, no immediate remediation is needed. Risks: monitoring coverage should be reviewed on a quarterly basis to avoid blind spots. Next steps: schedule the next quarterly infrastructure review.' } }] })
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const message = 'Give me an analysis of whether our current system architecture is stable and confirmed healthy.'
+    const preRoute = preRouteCeoRequest([{ role: 'user', content: message }])
+    expect(preRoute.executionContract.intent).toBe('analysis')
+    const result = await runCeoCognitiveLifecycle({
+      messages: [{ role: 'user', content: message }],
+      preRoute,
+      timeoutMs: 30000,
+      contextualEvidence: 'One tool call in this turn failed.',
+      evidenceScope: 'live_system',
+      evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 60_000 },
+      externalExecutionSucceeded: false,
+    })
+    expect(result.quality.decision).toBe('PASS')
+    expect(result.evidenceState).toBe('UNAVAILABLE')
+    expect(result.evidenceState).not.toBe('LIVE_VERIFIED')
+    resetProviderHealthForTests()
+  })
+
+  // Phase 2 fix (external audit, 2026-09-19), issues 1 and 8: route.ts now builds exactly one
+  // CeoTurnDecision per turn (ceo-turn-decision.ts) and threads its decisionPlan through here instead
+  // of letting this function build a second, independent copy. Verify the caller-supplied decisionPlan
+  // is actually used (identity check), not silently discarded in favor of a freshly-built one.
+  test('a caller-supplied decisionPlan is reused verbatim instead of being rebuilt (issues 1 and 8: single DECIDE authority)', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST' && url.includes('api.groq.com')) return jsonResponse({ choices: [{ message: { content: 'My recommendation: prioritize retention work this quarter over new acquisition spend, since churn is the larger lever on revenue right now.' } }] })
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    const messages: { role: 'user'; content: string }[] = [{ role: 'user', content: 'Should we prioritize retention or acquisition this quarter?' }]
+    const preRoute = preRouteCeoRequest(messages)
+    const turnDecision = buildCeoTurnDecision({ messages, preRoute })
+    const result = await runCeoCognitiveLifecycle({ messages, preRoute, decisionPlan: turnDecision.decisionPlan, timeoutMs: 30000 })
+    expect(result.decisionPlan).toBe(turnDecision.decisionPlan)
+    expect(result.decisionPlan.requestId).toBe(turnDecision.decisionPlan.requestId)
+    resetProviderHealthForTests()
   })
 
   test('critical lifecycle falls back to the primary answer instead of crashing to a generic degraded response when the independent-review/synthesis stage throws', async () => {

@@ -3,7 +3,7 @@ import { buildCeoExecutionPlan } from './ceo-execution-plan'
 import { evaluateCeoQuality } from './ceo-response-quality-gate'
 import { composeCeoResponse, sanitizeCeoContentForQualityGate } from './ceo-response-composer'
 import { isKnownActionTool } from './tool-action-verification'
-import type { CognitiveLifecycleResult, PreRouteDecision, ResponseAction } from './ceo-cognitive-contract'
+import type { CognitiveLifecycleResult, DecisionPlan, PreRouteDecision, ResponseAction } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
 import type { PersistedConversationRow } from './ceo-context-composer'
 
@@ -33,6 +33,12 @@ export function tryOperationalDirectResponse(input: {
   preRoute: PreRouteDecision
   missionId?: string
   taskType?: TaskType
+  // Phase 2 fix (external audit, 2026-09-19), issues 1 and 8: optional so this function keeps building
+  // its own decisionPlan for any caller/test that doesn't have one yet, but route.ts now builds
+  // CeoTurnDecision exactly once per turn (ceo-turn-decision.ts) and passes its decisionPlan here --
+  // guaranteeing buildCeoDecisionPlan runs at most once per turn structurally, not just because Stage
+  // 1b's branching happens to make this function and runCeoCognitiveLifecycle mutually exclusive.
+  decisionPlan?: DecisionPlan
   objective: string
   candidateContent: string
   responseMsBeforeCheck: number
@@ -55,7 +61,7 @@ export function tryOperationalDirectResponse(input: {
 
   const anyToolStepFailed = input.toolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
 
-  const decisionPlan = buildCeoDecisionPlan({ messages: input.messages, preRoute: input.preRoute, missionId: input.missionId, taskType: input.taskType })
+  const decisionPlan = input.decisionPlan ?? buildCeoDecisionPlan({ messages: input.messages, preRoute: input.preRoute, missionId: input.missionId, taskType: input.taskType })
   const executionPlan = buildCeoExecutionPlan(decisionPlan)
 
   const sanitized = sanitizeCeoContentForQualityGate(candidate)
@@ -98,15 +104,24 @@ export function tryOperationalDirectResponse(input: {
   // every orchestrator tool call and checks the result for an actual artifact (a URL, transaction id,
   // message id, file path, or an explicit "REAL" marker), not just a bare `ok: true`; orchestrator.ts
   // now persists it onto each step (see OrchestratorRunResult.steps[].verification), but until this
-  // change nothing outside the SSE UI badge ever read it. hasVerifiedActionEvidence below is true only
-  // when at least one step called a tool this module can actually verify (isKnownActionTool --
-  // payment processors, publishers, senders, and similar) AND that call both succeeded AND produced a
-  // confirmed artifact. Only then does the downgrade get skipped and 'LIVE_VERIFIED' stand -- every
-  // other case (no action-tool calls at all, or one that succeeded without a confirmable artifact)
-  // still downgrades exactly as Stage 1b did, so this can only ever make the label MORE conservative
-  // to MORE accurate, never less: it adds a path to the honestly-stronger claim, it never weakens the
-  // gate itself (quality.decision/`passed` above are completely untouched).
-  const hasVerifiedActionEvidence = input.toolSteps.some((step) => step.toolName && isKnownActionTool(step.toolName) && step.toolResult?.ok === true && step.verification?.verified === true)
+  // change nothing outside the SSE UI badge ever read it.
+  //
+  // Phase 2 fix (external audit, 2026-09-19), issue 4: this used to be a bare `.some()` over all
+  // toolSteps -- true the moment ONE action-tool call was verified, regardless of how many OTHER
+  // action-tool calls the same turn made. For a multi-step execution objective ("post to WordPress and
+  // notify the team on Slack") that meant a single confirmed step could carry a LIVE_VERIFIED label for
+  // the whole turn even if a sibling action-tool call in the same turn never got confirmed. Real tool
+  // FAILURES were already caught upstream (anyToolStepFailed above forces evidenceState to UNAVAILABLE
+  // regardless of this flag -- see evaluateCeoQuality's own evidenceState derivation), but a step that
+  // merely succeeded (`ok: true`) without ever producing a confirmable artifact was not a failure, so it
+  // slipped past that check and was still silently ignored by `.some()`. actionSteps below is every step
+  // that called a tool isKnownActionTool recognizes as outcome-producing (payment processors,
+  // publishers, senders -- read/research tools like http_fetch/web_search never qualify, see issue 5's
+  // fix in tool-action-verification.ts); hasVerifiedActionEvidence now requires ALL of them to be both
+  // successful and independently verified, not just one. A turn with zero action-tool calls still
+  // correctly evaluates to false (there is nothing to have verified), same as before.
+  const actionSteps = input.toolSteps.filter((step) => step.toolName && isKnownActionTool(step.toolName))
+  const hasVerifiedActionEvidence = actionSteps.length > 0 && actionSteps.every((step) => step.toolResult?.ok === true && step.verification?.verified === true)
   if (quality.evidenceState === 'LIVE_VERIFIED' && !hasVerifiedActionEvidence) quality.evidenceState = 'LIVE_EXECUTED'
 
   const finalContent = composeCeoResponse({ content: sanitized, evidenceState: quality.evidenceState, quality, degraded: false, responseAction: input.responseAction })
