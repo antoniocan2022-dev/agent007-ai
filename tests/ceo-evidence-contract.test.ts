@@ -111,7 +111,7 @@ describe('CEO evidence contract integrity', () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain('const existingSources = request.evidenceBundle?.sources ?? []')
     expect(lifecycle).toContain('sources: [...existingSources, ...recovered.bundle.sources]')
-    expect(lifecycle).toContain('const recoveredEvidenceContext =') === false
+    expect(lifecycle).not.toContain('const recoveredEvidenceContext =')
     expect(lifecycle).toContain('recoveredExternalEvidence: Boolean(recoveredEvidenceContext)')
     const recoveryPlanIndex = lifecycle.indexOf('const evidencePlan = buildExternalEvidencePlan({')
     const providerRecoveryIndex = lifecycle.indexOf('const availabilityCandidates = (validatedAvailability.length || availabilityAttempted)')
