@@ -71,6 +71,19 @@ describe('ACT -> VERIFY -> RESPOND execution handoff', () => {
     expect(handoff.evidenceScope).toBe('live_system')
   })
 
+  test('an unverified action cannot be masked by a successful manage action', () => {
+    const handoff = classifyOperationalExecution({
+      executionStatus: 'completed',
+      steps: [
+        { toolName: 'manage_action', toolResult: { ok: true } },
+        { toolName: 'send_email', toolResult: { ok: true }, verification: { verified: false } },
+      ],
+    })
+    expect(handoff.externalExecutionSucceeded).toBe(false)
+    expect(handoff.evidenceScope).toBe('internal_state')
+    expect(handoff.verification.hasUnverifiedAction).toBe(true)
+  })
+
   test('never promotes a failed or partial execution', () => {
     const partial = classifyOperationalExecution({
       executionStatus: 'partial',
