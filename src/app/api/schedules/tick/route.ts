@@ -99,7 +99,7 @@ async function executeScheduledRun(conversationId: string, objective: string): P
     decisionContract,
   })
   const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
-  const anyOperationalToolStepFailed = operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
+  const anyOperationalToolStepFailed = result.executionStatus === 'failed' || operationalToolSteps.some((step) => step.toolResult && step.toolResult.ok === false)
 
   const finalModules = buildCeoContextModules({
     intent: preRoute.executionContract.intent,
