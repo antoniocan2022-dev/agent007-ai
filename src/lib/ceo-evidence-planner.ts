@@ -41,9 +41,9 @@ function equityQueries(tickers: string[]): EvidenceQuery[] {
 function capabilityContract(input: { evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile }): CeoExecutionContract { return { intent: 'research', evidenceClass: input.evidenceClass, domain: input.domain, operation: input.operation, temporalScope: input.temporalScope, evidenceProfile: input.evidenceProfile, evidenceRequirement: input.evidenceClass === 'external_web' ? 'external_web' : 'multi_source', executionRequirement: 'one_tool', orchestrationOwner: 'ceo_lifecycle', maxTurns: 4, maxRecoveries: 1, latencyBudgetMs: 30000, toolRequired: true, subagentsRequired: false, reason: 'Evidence acquisition capability selection' } }
 export function buildExternalEvidencePlan(input: { objective: string; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; resolvedIssuers?: readonly IssuerResolution[] }): ExternalEvidencePlan {
   // Domain is authoritative: callers cannot accidentally downgrade public_equity to generic research by passing a stale profile.
-  const effectiveEvidenceProfile = deriveEvidenceProfile(effectiveInput.domain)
+  const effectiveEvidenceProfile = deriveEvidenceProfile(input.domain)
   const effectiveInput = effectiveEvidenceProfile === 'none' ? input : { ...input, evidenceProfile: effectiveEvidenceProfile }
-  const selection = selectCeoTool(capabilityContract(input), { requiresFreshness: effectiveInput.temporalScope === 'current' })
+  const selection = selectCeoTool(capabilityContract(effectiveInput), { requiresFreshness: effectiveInput.temporalScope === 'current' })
   const selectionMeta = { capability: selection.capability, selectedTool: selection.selected?.id, toolSelectionScore: selection.selected ? selection.scores[selection.selected.id]?.total : undefined, executionStrategy: selection.executionStrategy, evidenceRequirements: selection.evidenceRequirements }
   if (effectiveInput.domain === 'public_equity' && effectiveInput.evidenceProfile === 'public_equity') {
     // Deep-audit fix (P0, 2026-09-13): extractEquityTickers alone requires a ticker-shaped token
