@@ -39,13 +39,34 @@ export function deriveEvidenceProfile(domain: EvidenceDomain): EvidenceProfile {
 export function normalizeCeoEvidenceContract(contract: CeoExecutionContract): CeoExecutionContract {
   const derivedProfile = deriveEvidenceProfile(contract.domain)
   const isExternalEvidenceDomain = contract.domain !== 'none' && !contract.domain.startsWith('internal_') && contract.domain !== 'unknown'
-  return isExternalEvidenceDomain ? { ...contract, evidenceProfile: derivedProfile } : contract
+  if (!isExternalEvidenceDomain) return contract
+  if (contract.domain === 'public_equity') {
+    return {
+      ...contract,
+      evidenceClass: 'external_web',
+      evidenceProfile: 'public_equity',
+      evidenceRequirement: 'multi_source',
+      executionRequirement: 'multi_source',
+      toolRequired: true,
+      orchestrationOwner: 'ceo_lifecycle',
+    }
+  }
+  return { ...contract, evidenceProfile: derivedProfile }
 }
 
-/** Fail closed if an impossible public-equity evidence contract crosses a trust boundary. */
+/** Fail closed if an impossible external/public-equity evidence contract crosses a trust boundary. */
 export function assertCeoEvidenceContractInvariant(contract: CeoExecutionContract): void {
-  if (contract.evidenceClass === 'external_web' && contract.domain === 'public_equity' && contract.evidenceProfile !== 'public_equity') {
-    throw new Error('CEO_EVIDENCE_CONTRACT_INVARIANT_VIOLATION: public_equity external_web requires evidenceProfile=public_equity')
+  if (contract.domain === 'public_equity') {
+    if (
+      contract.evidenceClass !== 'external_web' ||
+      contract.evidenceProfile !== 'public_equity' ||
+      contract.evidenceRequirement !== 'multi_source' ||
+      contract.executionRequirement !== 'multi_source' ||
+      contract.toolRequired !== true ||
+      contract.orchestrationOwner !== 'ceo_lifecycle'
+    ) {
+      throw new Error('CEO_EVIDENCE_CONTRACT_INVARIANT_VIOLATION: public_equity requires external_web + public_equity profile + multi_source/tool-required CEO research')
+    }
   }
 }
 export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }
