@@ -293,7 +293,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined
   const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined
-  const evidenceProfile = domain && shouldUseExternalEvidence ? inferEvidenceProfile(domain, temporalScope!) : undefined
+  const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined
   const executionContract = contractFor({ intent: semanticIntent, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active conversational objective with its governed execution policy.' : 'Canonical semantic routing decision.'), ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) })
   // Deep-audit fix (2026-09-13): this block used to run for every semanticIntent, unconditionally
   // overwriting evidenceClass/evidenceRequirement/toolRequired (and, when canonicalDecision.toolRequirement
