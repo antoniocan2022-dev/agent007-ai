@@ -41,6 +41,52 @@ describe('CEO Source Authority Phase 4: contract-consistency gate', () => {
     expect(result.violations).toEqual([])
   })
 
+  test('explicit self-assessment does not override an authoritative production command', () => {
+    const result = check({
+      candidateIntent: 'production_action',
+      authoritativeInstruction: 'Please do a self-assessment, and deploy the approved release.',
+      sourceMaterialPresent: true,
+      selfAssessmentRequested: true,
+      candidateSelfReflection: NONE_REFLECTION,
+      requestedOperation: 'self_assessment',
+    })
+    expect(result.effectiveIntent).toBe('production_action')
+    expect(result.violations).not.toContain('self_assessment_requires_authoritative_request')
+  })
+
+  test('canonical action operation preserves a legitimate passive production instruction', () => {
+    const result = check({
+      candidateIntent: 'production_action',
+      authoritativeInstruction: 'I need the approved release deployed to production.',
+      sourceMaterialPresent: true,
+      requestedOperation: 'action',
+    })
+    expect(result.effectiveIntent).toBe('production_action')
+    expect(result.violations).toEqual([])
+  })
+
+  test('source-tail research vocabulary cannot authorize external research', () => {
+    const result = check({
+      candidateIntent: 'research',
+      authoritativeInstruction: 'Please give me a deep comprehension of this report.',
+      sourceMaterialPresent: true,
+      requestedOperation: 'document_comprehension',
+    })
+    expect(result.effectiveIntent).toBe('analysis')
+    expect(result.violations).toContain('research_requires_authoritative_request')
+  })
+
+  test('an authoritative research request remains research on a source-bearing turn', () => {
+    const result = check({
+      candidateIntent: 'research',
+      authoritativeInstruction: 'Please research the latest public information about this company.',
+      sourceMaterialPresent: true,
+      requestedOperation: 'research',
+    })
+    expect(result.effectiveIntent).toBe('research')
+    expect(result.violations).toEqual([])
+  })
+
   test('source-tail self-assessment is rejected by the generalized rule', () => {
     const result = check({
       candidateIntent: 'self_assessment',
