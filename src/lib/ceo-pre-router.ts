@@ -311,7 +311,16 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const objectiveContinuationActive = Boolean(inheritedObjective)
   const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(classificationText))
   const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action' || deterministicExternalResearch
-  const semanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
+  const proposedSemanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
+  const semanticConsistency = enforceContractConsistency({
+    candidateIntent: proposedSemanticIntent,
+    candidateSelfReflection: selfReflection,
+    sourceMaterialPresent: envelope?.sourceMaterial?.present === true,
+    authoritativeInstruction: envelope?.instruction.authoritativeText ?? classificationText,
+    selfAssessmentRequested: envelope?.selfAssessmentRequested === true,
+    requestedOperation: envelope?.requestedOperation ?? 'conversation',
+  })
+  const semanticIntent = semanticConsistency.effectiveIntent
   const canonicalDecision = semanticContext ? (decisionContract ?? buildConversationDecisionContract(semanticContext)) : undefined
   const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
