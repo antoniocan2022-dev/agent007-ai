@@ -16,6 +16,7 @@ import type { SelfReflectionClassification } from './ceo-self-reflection'
 export type ContractConsistencyRuleId =
   | 'self_assessment_requires_authoritative_request'
   | 'production_action_requires_authoritative_command'
+  | 'mission_action_requires_authoritative_command'
   | 'tool_action_requires_authoritative_command'
 
 export interface ContractConsistencyContext {
@@ -84,6 +85,16 @@ const PRODUCTION_ACTION_RULE: ConsistencyRule = {
   }),
 }
 
+const MISSION_ACTION_RULE: ConsistencyRule = {
+  id: 'mission_action_requires_authoritative_command',
+  applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'mission_action',
+  requirement: (context) => hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'mission'),
+  fallback: (context) => ({
+    intent: documentFallbackIntent(context.requestedOperation),
+    selfReflection: context.candidateSelfReflection,
+  }),
+}
+
 const TOOL_ACTION_RULE: ConsistencyRule = {
   id: 'tool_action_requires_authoritative_command',
   applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'tool_action',
@@ -97,6 +108,7 @@ const TOOL_ACTION_RULE: ConsistencyRule = {
 const CONSISTENCY_RULES: readonly ConsistencyRule[] = [
   SELF_ASSESSMENT_RULE,
   PRODUCTION_ACTION_RULE,
+  MISSION_ACTION_RULE,
   TOOL_ACTION_RULE,
 ]
 
@@ -110,13 +122,15 @@ function documentFallbackIntent(operation: RequestedOperation): CeoIntent {
     : 'conversation'
 }
 
-function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production' | 'tool'): boolean {
+function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production' | 'mission' | 'tool'): boolean {
   const text = instruction.trim()
   if (!text) return false
 
   const verbs = kind === 'production'
     ? '(?:deploy|publish|ship|launch|release|promote|put\\s+(?:this\\s+)?(?:into|in)\\s+production)'
-    : '(?:create|delete|edit|update|change|schedule|send|run|execute|fix|hold\\s+(?:a|the)?\\s*(?:review\\s+)?meeting|buy|purchase|acquire|order)'
+    : kind === 'mission'
+      ? '(?:run|start|execute|manage|launch|create|fix|implement)'
+      : '(?:create|delete|edit|update|change|schedule|send|run|execute|fix|hold\\s+(?:a|the)?\\s*(?:review\\s+)?meeting|buy|purchase|acquire|order)'
 
   // Explicit agent-directed forms only. Merely discussing an action ("the report says deploy")
   // does not satisfy the rule; this intentionally requires a directive frame in the authoritative
