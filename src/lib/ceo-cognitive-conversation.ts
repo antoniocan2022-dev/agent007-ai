@@ -1,8 +1,8 @@
 import type { PersistedConversationRow, PersistedMemoryRow } from './ceo-context-composer'
 import type { CeoConversationState, ConversationReference } from './ceo-conversation-state'
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
-import type { SemanticUncertainty } from './ceo-cognitive-contract'
-import { extractInstructionWindow } from './ceo-cognitive-contract'
+import type { InstructionWindowExtractionMethod, SemanticUncertainty } from './ceo-cognitive-contract'
+import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
 
@@ -11,6 +11,14 @@ export type ReferenceScope = 'none' | 'same_turn' | 'cross_turn' | 'mixed'
 export type SemanticIntentHint = 'conversation' | 'self_assessment' | 'analysis' | 'decision' | 'research' | 'action' | 'unknown'
 export type SemanticSpeechAct = 'social' | 'question' | 'proposition' | 'continuation' | 'correction' | 'request' | 'unknown'
 export interface SemanticInterpretation { schemaVersion: 1; meaning: string; confidence: number; uncertainty: SemanticUncertainty[]; source: 'deterministic' | 'model_assisted' | 'hybrid'; suggestedIntent?: SemanticIntentHint; suggestedSpeechAct?: SemanticSpeechAct; suggestedCognitiveDepth?: CognitiveDepth }
+export type RequestedOperation = 'conversation' | 'document_comprehension' | 'document_summary' | 'document_critique' | 'document_compare' | 'document_extract' | 'analysis' | 'decision' | 'research' | 'action' | 'self_assessment'
+export interface CeoTurnEnvelope {
+  schemaVersion: 1
+  instruction: { text: string; extractionMethod: InstructionWindowExtractionMethod }
+  sourceMaterial: { present: boolean; length: number }
+  selfAssessmentRequested: boolean
+  requestedOperation: RequestedOperation
+}
 export interface ConversationalWorldModel { schemaVersion: 1; workingTopic: string; subtopics: string[]; userGoals: string[]; decisions: string[]; commitments: string[]; openLoops: string[]; activeThreads: string[]; importantEntities: string[]; recentCorrections: string[]; durableMemoryKeys: string[] }
 // Recommendation 1 (2026-09-20): `instruction`/`sourceLength` make the canonical, single per-turn
 // build (this function is the one reuse-guarded construction site -- see composeCeoContext's own
@@ -21,7 +29,7 @@ export interface ConversationalWorldModel { schemaVersion: 1; workingTopic: stri
 // disabling the lead-in-phrase branch that only ever needs a real newline to fire). Consumers with a
 // canonical context now read `.instruction` directly; anything without one (tests, offline tooling)
 // keeps calling extractInstructionWindow itself exactly as before -- this is additive, not a narrowing.
-export interface CanonicalConversationContext { schemaVersion: 1; currentMessage: string; instruction: string; sourceLength: number; meaning: string; semanticInterpretation: SemanticInterpretation; intentHint: SemanticIntentHint; speechAct: SemanticSpeechAct; cognitiveDepth: CognitiveDepth; referenceScope: ReferenceScope; references: readonly ConversationReference[]; worldModel: ConversationalWorldModel; state: CeoConversationState }
+export interface CanonicalConversationContext { schemaVersion: 1; currentMessage: string; instruction: string; sourceLength: number; turnEnvelope: CeoTurnEnvelope; meaning: string; semanticInterpretation: SemanticInterpretation; intentHint: SemanticIntentHint; speechAct: SemanticSpeechAct; cognitiveDepth: CognitiveDepth; referenceScope: ReferenceScope; references: readonly ConversationReference[]; worldModel: ConversationalWorldModel; state: CeoConversationState }
 // Long-document incident (2026-09-19): mirrors the identical fix in ceo-context-composer.ts's normalize()
 // -- previously collapsed all whitespace (including newlines) to a single space, flattening a pasted
 // document's headings/lists/paragraph breaks/code fences before deterministicMeaning/classifyCognitiveDepth
@@ -132,8 +140,71 @@ function buildWorldModel(state: CeoConversationState, memories: readonly Persist
 function sanitizeSuggestedIntent(value: unknown): SemanticIntentHint | undefined { return value === 'conversation' || value === 'self_assessment' || value === 'analysis' || value === 'decision' || value === 'research' || value === 'action' || value === 'unknown' ? value : undefined }
 function sanitizeSuggestedSpeechAct(value: unknown): SemanticSpeechAct | undefined { return value === 'social' || value === 'question' || value === 'proposition' || value === 'continuation' || value === 'correction' || value === 'request' || value === 'unknown' ? value : undefined }
 function sanitizeSuggestedDepth(value: unknown): CognitiveDepth | undefined { return value === 'direct' || value === 'contextual' || value === 'deep' || value === 'strategic' ? value : undefined }
+
+function requestedOperationFromIntent(intent: SemanticIntentHint): RequestedOperation {
+  if (intent === 'self_assessment') return 'self_assessment'
+  if (intent === 'analysis') return 'analysis'
+  if (intent === 'decision') return 'decision'
+  if (intent === 'research') return 'research'
+  if (intent === 'action') return 'action'
+  return 'conversation'
+}
+
+export function buildCeoTurnEnvelope(input: {
+  instruction: { text: string; extractionMethod: InstructionWindowExtractionMethod }
+  sourceMaterialPresent: boolean
+  sourceLength: number
+  intentHint: SemanticIntentHint
+}): CeoTurnEnvelope {
+  return {
+    schemaVersion: 1,
+    instruction: {
+      text: input.instruction.text,
+      extractionMethod: input.instruction.extractionMethod,
+    },
+    sourceMaterial: {
+      // Phase 1 deliberately preserves the existing sourceMaterialPresent/total
+      // message-length semantics. Exact source spans and provenance remain a later
+      // Source Authority concern; this field does not pretend that the mixed
+      // head/tail window is a precise source segmentation.
+      present: input.sourceMaterialPresent,
+      length: input.sourceLength,
+    },
+    selfAssessmentRequested: input.intentHint === 'self_assessment',
+    // Phase 1 is additive and intentionally does not infer document_comprehension
+    // yet. That richer operation signal is the explicit scope of Phase 3.
+    requestedOperation: requestedOperationFromIntent(input.intentHint),
+  }
+}
 export function buildCanonicalConversationContext(input: { currentMessage: string; rows: readonly PersistedConversationRow[]; state: CeoConversationState; references: readonly ConversationReference[]; memories?: readonly PersistedMemoryRow[]; semanticInterpretation?: Partial<SemanticInterpretation> }): CanonicalConversationContext {
-  const currentMessage = normalize(input.currentMessage); const instructionWindow = extractInstructionWindow(currentMessage); const deterministic = deterministicMeaning(currentMessage, input.state, input.references); const deterministicSpeechAct = speechAct(currentMessage); const sourceMaterialPresent = currentMessage.length > instructionWindow.length; const deterministicIntent = deterministicSpeechAct === 'correction' ? 'conversation' : userIntentHint(instructionWindow, sourceMaterialPresent); const suppliedConfidence = Number(input.semanticInterpretation?.confidence); const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0; const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72; const suggestedIntent = trustedModelSuggestions ? sanitizeSuggestedIntent(input.semanticInterpretation?.suggestedIntent) : undefined; const suggestedSpeechAct = trustedModelSuggestions ? sanitizeSuggestedSpeechAct(input.semanticInterpretation?.suggestedSpeechAct) : undefined; const suggestedDepth = trustedModelSuggestions ? sanitizeSuggestedDepth(input.semanticInterpretation?.suggestedCognitiveDepth) : undefined; const resolvedSpeechAct = deterministicSpeechAct === 'correction' ? 'correction' : (suggestedSpeechAct ?? deterministicSpeechAct); const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment'; const resolvedIntentHint = deterministicSpeechAct === 'correction' ? 'conversation' : deterministicIntentIsAuthoritative ? 'self_assessment' : (suggestedIntent ?? deterministicIntent); const trustedMeaning = trustedModelSuggestions ? normalize(input.semanticInterpretation?.meaning || '') : ''; const meaning = trustedMeaning || deterministic; const fallbackUncertainty: SemanticUncertainty[] = input.references.some((reference) => reference.ambiguous) ? [{ code: 'uncertain_reference', description: 'one or more conversational references remain uncertain', severity: 'medium' }] : []; const semanticInterpretation: SemanticInterpretation = { schemaVersion: 1, meaning, confidence: Number.isFinite(suppliedConfidence) ? effectiveConfidence : (input.references.some((reference) => reference.ambiguous) ? 0.52 : 0.78), uncertainty: input.semanticInterpretation?.uncertainty ?? fallbackUncertainty, source: input.semanticInterpretation?.source ?? 'deterministic', suggestedIntent, suggestedSpeechAct, suggestedCognitiveDepth: suggestedDepth }; const fallbackDepth = classifyCognitiveDepth(currentMessage, input.state, input.references.length); return { schemaVersion: 1, currentMessage, instruction: instructionWindow, sourceLength: currentMessage.length, meaning, semanticInterpretation, intentHint: resolvedIntentHint, speechAct: resolvedSpeechAct, cognitiveDepth: suggestedDepth ?? fallbackDepth, referenceScope: referenceScope(input.references, currentMessage), references: input.references, worldModel: buildWorldModel(input.state, input.memories ?? [], input.rows), state: input.state }
+  const currentMessage = normalize(input.currentMessage)
+  const instructionExtraction = extractInstructionWindowDetails(currentMessage)
+  const instructionWindow = instructionExtraction.text
+  const deterministic = deterministicMeaning(currentMessage, input.state, input.references)
+  const deterministicSpeechAct = speechAct(currentMessage)
+  const sourceMaterialPresent = currentMessage.length > instructionWindow.length
+  const deterministicIntent = deterministicSpeechAct === 'correction' ? 'conversation' : userIntentHint(instructionWindow, sourceMaterialPresent)
+  const suppliedConfidence = Number(input.semanticInterpretation?.confidence)
+  const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0
+  const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72
+  const suggestedIntent = trustedModelSuggestions ? sanitizeSuggestedIntent(input.semanticInterpretation?.suggestedIntent) : undefined
+  const suggestedSpeechAct = trustedModelSuggestions ? sanitizeSuggestedSpeechAct(input.semanticInterpretation?.suggestedSpeechAct) : undefined
+  const suggestedDepth = trustedModelSuggestions ? sanitizeSuggestedDepth(input.semanticInterpretation?.suggestedCognitiveDepth) : undefined
+  const resolvedSpeechAct = deterministicSpeechAct === 'correction' ? 'correction' : (suggestedSpeechAct ?? deterministicSpeechAct)
+  const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment'
+  const resolvedIntentHint = deterministicSpeechAct === 'correction' ? 'conversation' : deterministicIntentIsAuthoritative ? 'self_assessment' : (suggestedIntent ?? deterministicIntent)
+  const trustedMeaning = trustedModelSuggestions ? normalize(input.semanticInterpretation?.meaning || '') : ''
+  const meaning = trustedMeaning || deterministic
+  const fallbackUncertainty: SemanticUncertainty[] = input.references.some((reference) => reference.ambiguous) ? [{ code: 'uncertain_reference', description: 'one or more conversational references remain uncertain', severity: 'medium' }] : []
+  const semanticInterpretation: SemanticInterpretation = { schemaVersion: 1, meaning, confidence: Number.isFinite(suppliedConfidence) ? effectiveConfidence : (input.references.some((reference) => reference.ambiguous) ? 0.52 : 0.78), uncertainty: input.semanticInterpretation?.uncertainty ?? fallbackUncertainty, source: input.semanticInterpretation?.source ?? 'deterministic', suggestedIntent, suggestedSpeechAct, suggestedCognitiveDepth: suggestedDepth }
+  const fallbackDepth = classifyCognitiveDepth(currentMessage, input.state, input.references.length)
+  const turnEnvelope = buildCeoTurnEnvelope({
+    instruction: instructionExtraction,
+    sourceMaterialPresent,
+    sourceLength: currentMessage.length,
+    intentHint: resolvedIntentHint,
+  })
+  return { schemaVersion: 1, currentMessage, instruction: instructionWindow, sourceLength: currentMessage.length, turnEnvelope, meaning, semanticInterpretation, intentHint: resolvedIntentHint, speechAct: resolvedSpeechAct, cognitiveDepth: suggestedDepth ?? fallbackDepth, referenceScope: referenceScope(input.references, currentMessage), references: input.references, worldModel: buildWorldModel(input.state, input.memories ?? [], input.rows), state: input.state }
 }
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): buildConversationDecisionContract
 // used to be rebuilt from scratch here on every call, even though composeCeoContext's own call site
