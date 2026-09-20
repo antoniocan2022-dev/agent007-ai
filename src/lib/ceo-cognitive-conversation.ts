@@ -45,8 +45,8 @@ function detectSelfAssessmentRequest(instruction: InstructionWindowResult, sourc
   const authoritativeText = instruction.authoritativeText
   const text = authoritativeText.toLowerCase()
   if (hasExplicitSelfAssessmentPhrase(authoritativeText)) return true
-  if (!sourceMaterialPresent && /\\b(?:are\\s+(?:you|agent007|the\\s+system)\\s+ready|is\\s+(?:agent007|the\\s+system)\\s+ready|assess\\s+(?:yourself|agent007|the\\s+system)|evaluate\\s+(?:your|the\\s+system['’]?s)\\s+(?:capabilities|readiness|maturity)|what\\s+are\\s+you\\s+(?:capable|ready)\\s+of|how\\s+(?:are|is)\\s+(?:you|agent007|the\\s+system)\\s+(?:doing|performing))\\b/i.test(text)) return true
-  if (!sourceMaterialPresent && SELF_REFERENCE_RE.test(authoritativeText) && /\\b(?:readiness\\s+assessment|system\\s+readiness|capability\\s+assessment)\\b/i.test(text)) return true
+  if (!sourceMaterialPresent && /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing))\b/i.test(text)) return true
+  if (!sourceMaterialPresent && SELF_REFERENCE_RE.test(authoritativeText) && /\b(?:readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return true
   return false
 }
 
@@ -56,10 +56,10 @@ function userIntentHint(
 ): SemanticIntentHint {
   const text = instructionWindow.toLowerCase()
   if (turnEnvelope.selfAssessmentRequested) return 'self_assessment'
-  if (/\\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\\b/.test(text)) return 'action'
-  if (/\\b(?:research|look\\s+up|find\\s+out|verify|fact[- ]check)\\b/.test(text)) return 'research'
-  if (/\\b(?:choose|pick|decide|recommend|should(?:\\s+i|\\s+we)?\\b|priority|prioritize)\\b/.test(text)) return 'decision'
-  if (/\\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture)\\b/.test(text)) return 'analysis'
+  if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
+  if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
+  if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'
+  if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture)\b/.test(text)) return 'analysis'
   return 'conversation'
 }
 
