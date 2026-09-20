@@ -410,7 +410,7 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
       if (request.decisionContract?.responseAction === 'clarify') return { messages: [] }
       const sourceMaterial = request.canonicalContext?.currentMessage ?? objective
       const trace = buildDocumentComprehensionTrace(sourceMaterial)
-      const requestedOperation = request.canonicalContext?.turnEnvelope.requestedOperation
+      const requestedOperation = request.canonicalContext?.turnEnvelope?.requestedOperation
       if (!shouldExecuteHierarchicalComprehension(trace, requestedOperation)) return { messages: [] }
       const remainingMs = deadline - Date.now()
       const timeBudgetMs = Math.min(30_000, Math.max(0, Math.floor(remainingMs * 0.3)))
