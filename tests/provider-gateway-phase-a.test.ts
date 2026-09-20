@@ -154,6 +154,66 @@ describe('compactMessagesForRequestSize', () => {
     expect(compacted[0]!.content).toEqual(messages[0]!.content)
     expect(String(compacted[1]!.content).length).toBeLessThan(40000)
   })
+
+  // Deep-audit fix (2026-09-20): the current turn's own message (the last 'user'-role message -- the
+  // same "current turn" convention ceo-cognitive-lifecycle.ts/adaptive-execution.ts/ceo-pre-router.ts
+  // already use) used to have no protection from being the first thing compacted. Since a genuinely
+  // long pasted document usually IS the current turn's own message, and is very often also the single
+  // largest message in the whole array, the OLD sort order (size alone) made it the first candidate
+  // truncated -- silently working against the exact long-document comprehension work this incident
+  // produced. Ordinary conversation history/evidence should absorb the truncation first whenever it
+  // alone is enough to reach budget.
+  //
+  // The assertion below checks the document is left MATERIALLY intact (>=99% of its original length),
+  // not byte-for-byte untouched: the underlying truncation formula always aims to land exactly at the
+  // token budget, but the "...[truncated N chars]..." marker it inserts elsewhere adds a few extra
+  // tokens of its own, so the very last message touched in a compaction pass can still be nibbled by a
+  // handful of characters even when it wasn't the actual problem. That's a pre-existing, inherent
+  // convergence quirk of the formula, not something this fix (a PRIORITY reordering, not an exemption)
+  // is meant to eliminate -- what matters is that the old, much smaller history entry absorbs the real
+  // reduction while the current turn's 80,000-char document isn't the primary casualty.
+  test('protects the current turn (the last user message) from truncation when an older, non-current-turn message alone is large enough to reach budget', () => {
+    const oldHistoryDump = 'h'.repeat(20000) // a smaller, long-past evidence/history entry, not the current turn
+    const currentDocument = 'd'.repeat(80000) // the user's current, much larger pasted document
+    const messages = [
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'user', content: 'earlier question' },
+      { role: 'assistant', content: oldHistoryDump },
+      { role: 'user', content: currentDocument },
+    ]
+    const compacted = compactMessagesForRequestSize(messages, 21000)
+    expect(String(compacted[3]!.content).length).toBeGreaterThanOrEqual(currentDocument.length * 0.99) // current turn left materially intact
+    expect(String(compacted[2]!.content).length).toBeLessThan(oldHistoryDump.length * 0.25) // the smaller old history entry absorbed the real reduction instead
+  })
+
+  test('the OLD (pre-fix) sort order would have targeted the current turn first -- confirms this fixture actually exercises the fix, not a scenario the original code already handled by coincidence', () => {
+    const oldHistoryDump = 'h'.repeat(20000)
+    const currentDocument = 'd'.repeat(80000)
+    // Reproduces the ORIGINAL sort (isSystem asc, tokens desc only -- no current-turn tier) directly,
+    // to prove that without this fix, the current turn's document -- being the larger of the two -- was
+    // the very first thing selected for truncation.
+    const messages = [
+      { index: 0, tokens: estimateTokens('You are helpful.'), isSystem: true },
+      { index: 1, tokens: estimateTokens(oldHistoryDump), isSystem: false },
+      { index: 2, tokens: estimateTokens(currentDocument), isSystem: false },
+    ]
+    const legacyOrder = [...messages].sort((a, b) => (Number(a.isSystem) - Number(b.isSystem)) || (b.tokens - a.tokens))
+    expect(legacyOrder[0]!.index).toBe(2) // the current turn's document, not the history entry, was compacted first under the old logic
+  })
+
+  test('still compacts the current turn as a last resort when no other message can reach budget alone', () => {
+    // Only the current turn's message is large enough to matter here -- protecting it unconditionally
+    // would leave the request oversized and still failing at the provider, which the comment on
+    // compactMessagesForRequestSize explicitly says this function must never do.
+    const messages = [
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'assistant', content: 'ok' },
+      { role: 'user', content: 'x'.repeat(40000) },
+    ]
+    const compacted = compactMessagesForRequestSize(messages, 1000)
+    expect(String(compacted[2]!.content).length).toBeLessThan(40000)
+    expect(String(compacted[2]!.content)).toContain('truncated')
+  })
 })
 
 describe('getProviderAvailabilityStatus: a provider with zero observations is UNKNOWN, never DEGRADED', () => {

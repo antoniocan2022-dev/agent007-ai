@@ -137,14 +137,29 @@ export function estimateRequestTokens(messages: readonly Record<string, unknown>
 // role alternation, and silently dropping a message could change what the model believes happened).
 // Head+tail preserved with a clear truncation marker in between, so the model can see both the start and
 // end of what was cut rather than losing context asymmetrically.
+//
+// Deep-audit fix (2026-09-20): the comment above already claimed the current turn was protected, but
+// the original sort order (system last, everything else by size) didn't actually guarantee that -- a
+// genuinely long pasted document IS the current turn's own message, and it is very often also the
+// single largest message in the array, so it was the first thing compacted, exactly the case this
+// whole incident was about. currentTurnIndex (the same "last message with role 'user'" convention
+// already used by ceo-cognitive-lifecycle.ts/adaptive-execution.ts/ceo-pre-router.ts to find "the
+// turn") now sorts into its own middle tier: ordinary history/evidence messages are still compacted
+// first (largest first, as before), the current turn is only touched once those are exhausted, and the
+// system message remains the last resort. The current turn can still be compacted -- this is a
+// priority order, not an exemption -- so a request that's oversized even after every OTHER message is
+// fully trimmed still shrinks enough to actually fit, rather than being left to fail at the provider.
 export function compactMessagesForRequestSize(messages: readonly Record<string, unknown>[], targetTokens = DEFAULT_MAX_INPUT_TOKENS): Record<string, unknown>[] {
   const result = messages.map((message) => ({ ...message }))
-  const sizes = result.map((message, index) => ({ index, tokens: typeof message.content === 'string' ? estimateTokens(message.content) : 0, isSystem: message.role === 'system' }))
+  const currentTurnIndex = (() => { for (let index = result.length - 1; index >= 0; index -= 1) if (result[index]?.role === 'user') return index; return -1 })()
+  const sizes = result.map((message, index) => ({ index, tokens: typeof message.content === 'string' ? estimateTokens(message.content) : 0, isSystem: message.role === 'system', isCurrentTurn: index === currentTurnIndex }))
   let total = sizes.reduce((sum, entry) => sum + entry.tokens, 0)
   if (total <= targetTokens) return result
-  // Compact the largest non-system messages first (evidence/history is the usual bulk); only reach into
-  // the system message if trimming everything else still isn't enough.
-  const order = [...sizes].sort((a, b) => (Number(a.isSystem) - Number(b.isSystem)) || (b.tokens - a.tokens))
+  // Compact ordinary non-system, non-current-turn messages first (evidence/history is the usual bulk);
+  // the current turn's own message is only reached once those are exhausted, and the system message
+  // remains the true last resort.
+  const tier = (entry: { isSystem: boolean; isCurrentTurn: boolean }) => entry.isSystem ? 2 : entry.isCurrentTurn ? 1 : 0
+  const order = [...sizes].sort((a, b) => (tier(a) - tier(b)) || (b.tokens - a.tokens))
   for (const entry of order) {
     // entry.tokens === 0 means non-string content (an array-part message, e.g. multimodal) that this
     // function doesn't know how to safely truncate -- never touch it. Anything else stays a candidate:
