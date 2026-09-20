@@ -1,6 +1,6 @@
 # CEO Source Authority Roadmap
 
-Status: **Phases 0-3 implemented** on `main`; **Phase 4 implemented in this branch and pending PR/CI merge**. Phase 5 remains deferred and unscoped.
+Status: **Phases 0-4 implemented on `main`** through PR #193; this follow-up adds the dedicated `mission_action` regression proof. Phase 5 remains deferred and unscoped.
 
 ## 1. Background
 
@@ -230,6 +230,7 @@ already demoted it.
 **Rules shipped:**
 - `self_assessment` requires `turnEnvelope.selfAssessmentRequested` on source-bearing turns;
 - `production_action` requires an explicit production command in the authoritative instruction;
+- `mission_action` requires an explicit mission execution command in the authoritative instruction;
 - `tool_action` requires an explicit agent-directed tool command in the authoritative instruction.
 
 Source-only action candidates fall back to a document-analysis intent when the
