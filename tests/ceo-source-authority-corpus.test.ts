@@ -3,15 +3,13 @@ import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversat
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 
 /**
- * Source Authority Phase 0 (2026-09-20).
+ * Source Authority regression corpus (Phase 0 baseline, extended by Phases 1-3).
  *
- * This corpus freezes the current instruction/source-boundary behavior before the
- * CeoTurnEnvelope is introduced. Stable invariants are separated from two
- * explicitly deferred source-tail cases that the current head/tail window cannot
- * disambiguate because it has no provenance for the retained tail text.
- *
- * Phase 1 must remain behavior-neutral. A later phase may intentionally change a
- * DEFERRED case, but only by updating the expected outcome deliberately.
+ * This corpus freezes instruction/source-boundary invariants and explicitly documents
+ * where later Source Authority phases are allowed to strengthen authority. Source-tail
+ * self-assessment is now expected to be non-authoritative because the envelope carries
+ * an authoritative instruction segment; requestedOperation is separately covered below.
+
  */
 
 function contextFor(message: string) {
