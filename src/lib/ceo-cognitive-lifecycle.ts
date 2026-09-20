@@ -36,6 +36,8 @@ import { isCeoRequestAborted, throwIfCeoRequestAborted } from './ceo-cancellatio
 import { isGovernedSoftPassEligible } from './ceo-soft-pass-policy'
 import { safeConversationRows } from './ceo-conversation-state'
 import { isContinuationOrRestatementRequest } from './ceo-conversational-signals'
+import { buildDocumentComprehensionTrace, buildHierarchicalComprehensionPlan } from './ceo-document-comprehension'
+import { shouldExecuteHierarchicalComprehension, executeHierarchicalComprehension } from './ceo-document-comprehension-executor'
 
 export interface CeoCognitiveRequest {
   messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]
@@ -379,7 +381,36 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const operatorPlan = request.decisionContract?.responseAction === 'execute' ? buildCeoOperatorPlan({ contract: decisionPlan.executionContract, responseAction: request.decisionContract.responseAction, objective, world: worldModel ?? undefined, curiosity: request.canonicalContext && request.decisionContract ? assessCeoCuriosity(request.canonicalContext, request.decisionContract, worldModel ?? undefined) : undefined, approved: true, executionEvidence: evidenceProvided, verificationState: evidenceScope === 'live_system' && evidenceFreshness ? 'LIVE_VERIFIED' : undefined }) : null; const operatorConstraint = operatorPlan && !canClaimExecution(operatorPlan) ? ` No execution has actually occurred for this request (status: ${operatorPlan.status}). Do not say or imply that you performed, deployed, executed, or completed anything. Describe what you would do and what is still required (${operatorPlan.tasks[0]?.dependencies.join(', ') || 'approval and verification'}) instead.` : ''
   const verifyConstraint = buildVerifyOverclaimConstraint(request.decisionContract?.responseAction, evidenceProvided, evidenceScope)
   const guardianAssessment = request.decisionContract ? assessGuardianRisk({ objective, contract: request.decisionContract, world: worldModel ?? undefined }) : null; const guardianConstraint = guardianAssessment ? renderGuardianConstraint(guardianAssessment) : null; const guardianMessages = guardianConstraint ? [{ role: 'system' as const, content: `GUARDIAN RISK NOTICE:\n${guardianConstraint}` }] : []; const decisionMessages = [ ...(decisionContractMessage ? [{ role: 'system' as const, content: decisionContractMessage }] : []), ...(actionInstruction ? [{ role: 'system' as const, content: `CANONICAL RESPONSE POLICY:\n${actionInstruction}${operatorConstraint}${verifyConstraint}` }] : []) ]
-  const primaryMessages = [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...selfAssessmentGuidanceMessages({ intent: decisionPlan.executionContract.intent, objective, priorConversation: request.priorConversation }), ...decisionMessages, ...request.messages]
+  // Recommendation 2 (2026-09-20): for a genuinely large source document (see
+  // shouldExecuteHierarchicalComprehension's stricter necessity bar, well above the plan's own
+  // >1-section threshold), run the map-reduce executor as an ADDITIVE pre-pass and fold its
+  // synthesis in as extra grounding context -- the full original document still reaches the model
+  // unchanged via request.messages below, exactly as it always has. Every failure path here
+  // (insufficient time budget, every section failing, the reduce call itself failing) degrades to
+  // "no synthesis produced," handled identically to "hierarchical comprehension wasn't needed" --
+  // this can only add grounding, never block or degrade a turn relative to today's behavior. Uses
+  // request.canonicalContext's own instruction/currentMessage (Recommendation 1) as the
+  // instruction/source-material split, rather than re-deriving one locally.
+  const documentComprehensionMessages = await (async (): Promise<{ role: 'system'; content: string }[]> => {
+    try {
+      const sourceMaterial = request.canonicalContext?.currentMessage ?? objective
+      const trace = buildDocumentComprehensionTrace(sourceMaterial)
+      if (!shouldExecuteHierarchicalComprehension(trace)) return []
+      const remainingMs = deadline - Date.now()
+      const timeBudgetMs = Math.min(30_000, Math.max(0, Math.floor(remainingMs * 0.3)))
+      if (timeBudgetMs < 8_000) return []
+      const instruction = request.canonicalContext?.instruction ?? objective
+      const plan = buildHierarchicalComprehensionPlan(instruction, sourceMaterial)
+      const result = await executeHierarchicalComprehension(plan, { signal: getCeoCancellationSignal(), timeBudgetMs })
+      if (!result.executed || !result.synthesis) return []
+      console.log('[ceo-hierarchical-comprehension]', JSON.stringify({ sectionCount: trace.sectionCount, sectionsProcessed: result.sectionsProcessed, sectionsFailed: result.sectionsFailed, durationMs: result.durationMs }))
+      return [{ role: 'system' as const, content: `HIERARCHICAL DOCUMENT COMPREHENSION (INTERNAL SYNTHESIS; the full source document is still provided below in the conversation -- use this synthesis to help ground and organize your answer across its full length, it does not replace reading the source):\n${result.synthesis}${result.failureNotes.length ? `\n\nCoverage note (internal, do not quote to the user): ${result.failureNotes.join(' ')}` : ''}` }]
+    } catch (error) {
+      if (isCeoRequestAborted(error)) throw error
+      return []
+    }
+  })()
+  const primaryMessages = [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...documentComprehensionMessages, ...selfAssessmentGuidanceMessages({ intent: decisionPlan.executionContract.intent, objective, priorConversation: request.priorConversation }), ...decisionMessages, ...request.messages]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
   let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0; let primaryQuality: CognitiveLifecycleResult['quality'] | undefined; let finalStage: CeoGenerationDiagnostics['finalStage'] = 'primary'
   try {

@@ -859,4 +859,74 @@ describe('CEO cognitive lifecycle', () => {
     expect(agentRoute).toContain("runOrchestrator")
     expect(agentRoute).toContain("evidenceState: response.evidenceState")
   })
+
+  // Recommendation 2 (2026-09-20): proves the hierarchical-comprehension executor's synthesis
+  // actually threads through runCeoCognitiveLifecycle's real generation path -- not just that the
+  // executor module works correctly in isolation (see tests/ceo-document-comprehension-executor.test.ts
+  // for that). Distinguishes map/reduce/primary provider calls by the distinctive phrasing each prompt
+  // type carries (see renderMapStepPrompt/renderReduceStepPrompt in ceo-document-comprehension.ts).
+  describe('Recommendation 2: hierarchical document comprehension synthesis threads through to primary generation', () => {
+    function bigDocumentMessage(): string {
+      const paragraph = (i: number) => `Paragraph ${i}: this section of the quarterly operations report describes routine business activities, staffing updates, and administrative notes for the period under review, covering a distinct topic from every other paragraph in the document. `
+      const body = Array.from({ length: 260 }, (_, i) => paragraph(i)).join('\n\n')
+      return `Please summarize the key points of this report.\n\n${body}`
+    }
+
+    test('a genuinely large document causes the hierarchical synthesis to appear in the primary generation call', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postCalls: { kind: 'map' | 'reduce' | 'other'; content: string }[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          const kind = allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other'
+          postCalls.push({ kind, content: allContent })
+          if (kind === 'map') return jsonResponse({ choices: [{ message: { content: 'Extraction note for a section.' } }] })
+          if (kind === 'reduce') return jsonResponse({ choices: [{ message: { content: 'Synthesized overview covering every section of the report.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'Final answer summarizing the report for the reader.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: bigDocumentMessage() }], timeoutMs: 45000 })
+
+      expect(postCalls.some((call) => call.kind === 'map')).toBe(true)
+      expect(postCalls.some((call) => call.kind === 'reduce')).toBe(true)
+      const otherCalls = postCalls.filter((call) => call.kind === 'other')
+      expect(otherCalls.length).toBeGreaterThan(0)
+      expect(otherCalls.some((call) => call.content.includes('HIERARCHICAL DOCUMENT COMPREHENSION') && call.content.includes('Synthesized overview covering every section of the report'))).toBe(true)
+      // Whether the mocked short final answer itself clears the quality gate is incidental to this
+      // test -- the invariant under test is that the synthesis reached the primary generation call at
+      // all, which the assertion above already proves regardless of the eventual quality outcome.
+      expect(result.content.length).toBeGreaterThan(0)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('an ordinary short message never produces map/reduce calls or a hierarchical synthesis block', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postKinds: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          postKinds.push(allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other')
+          expect(allContent).not.toContain('HIERARCHICAL DOCUMENT COMPREHENSION')
+          return jsonResponse({ choices: [{ message: { content: 'A short, direct answer about the burn rate trend.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is our current burn rate trend?' }], timeoutMs: 15000 })
+      expect(postKinds.length).toBeGreaterThan(0)
+      expect(postKinds.every((kind) => kind === 'other')).toBe(true)
+      expect(result.degraded).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+  })
 })
