@@ -906,6 +906,47 @@ describe('CEO cognitive lifecycle', () => {
       resetProviderStandingForTests()
     })
 
+    test('an explicit document_comprehension request strengthens the real lifecycle gate for a medium multi-section document', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postCalls: { kind: 'map' | 'reduce' | 'other'; content: string }[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          const kind = allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other'
+          postCalls.push({ kind, content: allContent })
+          if (kind === 'map') return jsonResponse({ choices: [{ message: { content: 'Medium-document extraction note.' } }] })
+          if (kind === 'reduce') return jsonResponse({ choices: [{ message: { content: 'Medium-document synthesis across the requested sections.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'Final answer grounded in the medium report.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const paragraph = (i: number) => `Section ${i} of the operating report contains distinct facts, trends, risks, and management commentary that must be retained for cross-section comprehension. ${'Operational detail '.repeat(90)}`
+      const body = Array.from({ length: 3 }, (_, i) => paragraph(i)).join('\n\n')
+      const message = `Please give me a deep comprehension of this report.\n\n${body}`
+      const state = deriveCeoConversationState([], message)
+      const context = buildCanonicalConversationContext({ currentMessage: message, rows: [], state, references: [] })
+      const contract = buildConversationDecisionContract(context)
+
+      expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+      expect(context.turnEnvelope.sourceMaterial.present).toBe(true)
+
+      const result = await runCeoCognitiveLifecycle({
+        messages: [{ role: 'user', content: message }],
+        canonicalContext: context,
+        decisionContract: contract,
+        timeoutMs: 45000,
+      })
+
+      expect(postCalls.some((call) => call.kind === 'map')).toBe(true)
+      expect(postCalls.some((call) => call.kind === 'reduce')).toBe(true)
+      expect(result.content.length).toBeGreaterThan(0)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
     test('an ordinary short message never produces map/reduce calls or a hierarchical synthesis block', async () => {
       process.env.GROQ_API_KEY = 'test-groq'
       const postKinds: string[] = []
