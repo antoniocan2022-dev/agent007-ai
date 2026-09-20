@@ -10,7 +10,7 @@ const NONE_REFLECTION: SelfReflectionClassification = {
 }
 
 function check(input: {
-  candidateIntent: 'conversation' | 'analysis' | 'production_action' | 'tool_action' | 'self_assessment'
+  candidateIntent: 'conversation' | 'analysis' | 'production_action' | 'mission_action' | 'tool_action' | 'self_assessment'
   authoritativeInstruction: string
   sourceMaterialPresent: boolean
   selfAssessmentRequested?: boolean
@@ -71,6 +71,25 @@ describe('CEO Source Authority Phase 4: contract-consistency gate', () => {
       sourceMaterialPresent: true,
     })
     expect(allowed.effectiveIntent).toBe('production_action')
+    expect(allowed.violations).toEqual([])
+  })
+
+  test('mission action from source vocabulary is rejected unless the authoritative instruction commands it', () => {
+    const blocked = check({
+      candidateIntent: 'mission_action',
+      authoritativeInstruction: 'Please give me a deep comprehension of this report.',
+      sourceMaterialPresent: true,
+      requestedOperation: 'document_comprehension',
+    })
+    expect(blocked.effectiveIntent).toBe('analysis')
+    expect(blocked.violations).toContain('mission_action_requires_authoritative_command')
+
+    const allowed = check({
+      candidateIntent: 'mission_action',
+      authoritativeInstruction: 'Please execute the approved revenue recovery mission.',
+      sourceMaterialPresent: true,
+    })
+    expect(allowed.effectiveIntent).toBe('mission_action')
     expect(allowed.violations).toEqual([])
   })
 
