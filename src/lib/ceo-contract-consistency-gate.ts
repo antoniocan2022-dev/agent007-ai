@@ -19,6 +19,7 @@ export type ContractConsistencyRuleId =
   | 'mission_action_requires_authoritative_command'
   | 'tool_action_requires_authoritative_command'
   | 'research_requires_authoritative_request'
+  | 'document_operation_requires_analysis_minimum'
 
 export interface ContractConsistencyContext {
   candidateIntent: CeoIntent
