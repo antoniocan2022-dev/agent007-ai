@@ -4,7 +4,7 @@ import { buildConversationDecisionContract, renderConversationDecisionContract, 
 import type { SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindow } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
-import { hasExplicitSelfAssessmentPhrase } from './ceo-self-reflection'
+import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
 export type ReferenceScope = 'none' | 'same_turn' | 'cross_turn' | 'mixed'
@@ -54,13 +54,24 @@ function unique(items: readonly string[], max = 8): string[] { return [...new Se
 // assessment"/"capability assessment" (extremely common section headers in real business/strategy
 // documents) -- and self_assessment is the one intent this codebase treats as AUTHORITATIVE, unoverridable
 // even by a confident model-assisted suggestion (see deterministicIntentIsAuthoritative below), so once
-// this false-positived there was no recovery path downstream. Now windowed exactly like every other
-// branch here: a short, explicit self-assessment request (the common case) is fully captured either way
+// this false-positived there was no recovery path downstream. Windowed exactly like every other branch
+// here: a short, explicit self-assessment request (the common case) is fully captured either way
 // (extractInstructionWindow returns short messages unchanged), and a genuinely long self-assessment ask
 // still matches as long as the phrase sits in the message's own head or tail, not buried mid-document.
+// Follow-up fix (2026-09-20): windowing alone was not sufficient. "readiness assessment"/"system
+// readiness"/"capability assessment" were bare substring matches with no self-reference requirement at
+// all -- unlike every other alternative here (all embed "you"/"agent007"/"the system" literally) and
+// unlike ceo-self-reflection.ts's own READINESS_RE/CAPABILITY_RE (which require proximity to a
+// self-reference word). A report's own "Section 5: Technology Capability Assessment" heading sitting in
+// the message's own head or tail -- an extremely common place for such a section, e.g. a closing
+// "Recommendations & Readiness Assessment" section -- would still false-positive post-windowing. Now
+// requires genuine self-reference (you/your/agent007/ceo/the system/the agent/the assistant) to appear
+// somewhere in the same window before these three bare business terms can commit to self_assessment,
+// reusing ceo-self-reflection.ts's own canonical word list instead of a second, driftable copy.
 function userIntentHint(instructionWindow: string): SemanticIntentHint {
   const text = instructionWindow.toLowerCase()
-  if (hasExplicitSelfAssessmentPhrase(instructionWindow) || /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing)|readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return 'self_assessment'
+  if (hasExplicitSelfAssessmentPhrase(instructionWindow) || /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing))\b/i.test(text)) return 'self_assessment'
+  if (SELF_REFERENCE_RE.test(instructionWindow) && /\b(?:readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return 'self_assessment'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'
