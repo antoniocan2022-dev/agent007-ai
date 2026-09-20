@@ -1,6 +1,6 @@
 # CEO Source Authority Roadmap
 
-Status: **Phases 0-4 implemented on `main`** through PR #193; this follow-up adds the dedicated `mission_action` regression proof. Phase 5 remains deferred and unscoped.
+Status: **Phases 0-4 implemented on `main` and freshly deep-audited end-to-end**. The audit verified the interactive CEO production path and found two last-mile authority gaps: the Source Authority envelope was not explicitly rendered into the model-facing CEO context, and pre-routing task classification still scanned raw source text. Both are hardened in this follow-up. Phase 5 remains deferred and unscoped.
 
 ## 1. Background
 
@@ -62,8 +62,7 @@ phrase could conflict with a genuinely explicit operational command. Phase 4 now
 uses a reusable consistency gate before and after assisted intent resolution,
 and action authority also consumes the canonical `requestedOperation` signal so
 legitimate passive/first-person commands are not rejected merely because their
-syntax is not imperative. Broader provenance/source-material modeling remains
-intentionally outside the current narrow sequence.
+syntax is not imperative. Broader provenance/source-material modeling remains intentionally outside the current narrow sequence. The current authority boundary is now enforced both before generation (routing/execution) and inside the CEO generation context (model-facing authority contract).
 
 ## 3. The original gap exposed by the incident
 
@@ -86,6 +85,19 @@ discarding source material) with a narrow, targeted invariant. It did not unify
 these five decision points, and it did not give "the user is asking for document
 comprehension" first-class status anywhere — comprehension is currently inferred
 indirectly, from `comprehensionMode`/`sourceLength`, never asked for directly.
+
+## 3.1 Fresh Phase 0-4 wiring audit result
+
+The September 20, 2026 end-to-end audit verified the production interactive path as:
+
+`/api/agent` → `composeCeoContext` → canonical `CeoTurnEnvelope` → `preRouteCeoRequest` → `buildCeoTurnDecision` → `runCeoCognitiveLifecycle` → governed CEO provider generation.
+
+Two real connection gaps were corrected:
+
+1. **Model-facing Source Authority:** the canonical envelope is now rendered into the system context delivered to CEO generation, including the authoritative instruction, extraction method, source-material presence/length, requested operation, self-assessment authority, and the explicit DATA-NOT-CONTROL invariant.
+2. **Task-type shadow scan:** pre-routing task classification now uses the canonical bounded instruction window instead of the full raw user turn, preventing source vocabulary from silently selecting a provider task lane.
+
+The audit intentionally preserved one known safety trade-off: in a head/tail fallback turn, trailing text remains visible as non-authoritative context, while only the authoritative head can establish control. A future provenance phase can distinguish genuinely user-authored trailing instructions from source-tail content more precisely.
 
 ## 4. Goals / non-goals
 
