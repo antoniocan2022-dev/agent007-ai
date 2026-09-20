@@ -84,6 +84,31 @@ export type EvidenceRequirement = 'none' | 'internal_state' | 'memory' | 'live_s
 export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'multi_tool' | 'multi_source' | 'subagent' | 'mission' | 'production'
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
+
+// Long-document comprehension, Phase 2 (2026-09-20): a canonical classification of what kind of
+// comprehension job this turn is, computed once per request instead of being independently re-derived
+// (as a bare `objective.length >= threshold` check) inside the quality gate every time it runs. Kept
+// deliberately honest about what the available signals (responseAction, source length) can actually
+// tell apart today -- 'summarize'/'compare'/'extract' are reserved for when a richer classifier (Phase 3)
+// can genuinely distinguish them, not fabricated from signals that can't support them yet.
+export type CeoComprehensionMode = 'conversation' | 'summarize' | 'explain' | 'deep_analysis' | 'critique' | 'compare' | 'extract'
+// A message longer than this is treated as carrying a document to comprehend, not just a short
+// instruction/question -- mirrors ceo-response-quality-gate.ts's own LONG_OBJECTIVE_CHARS threshold
+// (kept as a separate constant rather than imported, since that file's constant governs a narrower,
+// gate-specific lexical-coverage decision and the two are free to diverge if either is retuned later).
+const LONG_SOURCE_CHARS = 4_000
+/**
+ * Infers the comprehension mode for a turn from signals already computed upstream
+ * (ceo-conversation-decision-contract.ts's responseAction, the canonical objective's length) rather than
+ * requiring every caller to independently guess. Callers that don't yet have a responseAction (e.g.
+ * direct/offline callers) still get a sound default from source length alone.
+ */
+export function inferComprehensionMode(input: { responseAction?: ResponseAction; sourceLength: number }): CeoComprehensionMode {
+  if (input.responseAction === 'challenge') return 'critique'
+  if (input.responseAction === 'explain') return 'explain'
+  if (input.sourceLength >= LONG_SOURCE_CHARS) return 'deep_analysis'
+  return 'conversation'
+}
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
 export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { composeCeoContext } from '@/lib/ceo-context-composer'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
-import { extractInstructionWindow, CEO_MESSAGE_CLAMP_CHARS } from '@/lib/ceo-cognitive-contract'
+import { extractInstructionWindow, CEO_MESSAGE_CLAMP_CHARS, inferComprehensionMode } from '@/lib/ceo-cognitive-contract'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
@@ -196,5 +196,51 @@ describe('Long-document incident: quality gate no longer confuses lexical covera
     const content = 'I like turtles.'
     const quality = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true })
     expect(quality.checks.objectiveCoverage).toBe(false)
+  })
+})
+
+// Phase 2 (2026-09-20): inferComprehensionMode is the canonical, single-computation replacement for the
+// bare `objective.length >= LONG_OBJECTIVE_CHARS` re-derivation objectiveCoverage() used to do internally
+// on every call. These tests lock in both halves: the classifier itself, and that passing its result
+// through evaluateCeoQuality's new comprehensionMode field produces the identical relaxed-coverage outcome
+// the length-based fallback already produced -- a pure wiring change, not a behavior change.
+describe('Phase 2: inferComprehensionMode canonical classification', () => {
+  test('a short message defaults to conversation', () => {
+    expect(inferComprehensionMode({ sourceLength: 40 })).toBe('conversation')
+  })
+
+  test('an explicit challenge responseAction always yields critique, regardless of length', () => {
+    expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 40 })).toBe('critique')
+    expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 10_000 })).toBe('critique')
+  })
+
+  test('an explicit explain responseAction always yields explain, regardless of length', () => {
+    expect(inferComprehensionMode({ responseAction: 'explain', sourceLength: 40 })).toBe('explain')
+  })
+
+  test('a long source with no more specific responseAction yields deep_analysis', () => {
+    expect(inferComprehensionMode({ responseAction: 'answer', sourceLength: 5_000 })).toBe('deep_analysis')
+    expect(inferComprehensionMode({ sourceLength: 5_000 })).toBe('deep_analysis')
+  })
+})
+
+describe('Phase 2: evaluateCeoQuality honors an explicit comprehensionMode the same way it honors the length fallback', () => {
+  const content = [
+    'Overall, the business grew steadily this quarter: revenue and retention both held up, and onboarding friction fell after the new setup wizard.',
+    'The main watch item is intensifying price competition, which leadership chose not to match directly given strong differentiation in support.',
+    'Going forward, the plan favors deepening mid-market integrations over chasing new enterprise deals, since the sales-cycle risk is smaller and the near-term return looks stronger.',
+    'None of the pending partnership discussions are contractually committed yet, so they remain pipeline rather than booked revenue for planning purposes.',
+  ].join(' ')
+
+  test('passing comprehensionMode: deep_analysis reproduces the same relaxed-coverage PASS the length-based fallback already gives for this exact input', () => {
+    const withoutMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true })
+    const withMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, comprehensionMode: 'deep_analysis' })
+    expect(withMode.checks.objectiveCoverage).toBe(true)
+    expect(withMode.checks.objectiveCoverage).toBe(withoutMode.checks.objectiveCoverage)
+  })
+
+  test('an explicit comprehensionMode: conversation on the same long objective does NOT get the long-document relaxation -- the signal, not the raw length, now governs', () => {
+    const withMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, comprehensionMode: 'conversation' })
+    expect(withMode.checks.objectiveCoverage).toBe(false)
   })
 })
