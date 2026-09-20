@@ -267,3 +267,68 @@ describe('Source Authority initiative Phase 1: contract-consistency gate require
     expect(rawClassification.isSelfReflective).toBe(true)
   })
 })
+
+describe('Source Authority Phase 2: self-assessment authority is single-sourced to the envelope', () => {
+  test('source-tail explicit self-assessment cannot hijack Path A intent', () => {
+    const message = [
+      'Please make a deep comprehension of this report.',
+      '',
+      'Routine business information. '.repeat(180),
+      '',
+      'Appendix: Agent007 Self-Assessment.',
+    ].join('\n')
+    const context = contextFor(message)
+
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
+    expect(context.intentHint).not.toBe('self_assessment')
+  })
+
+  test('the same source-tail phrase cannot hijack Path B pre-routing when canonical context is supplied', () => {
+    const message = [
+      'Please make a deep comprehension of this report.',
+      '',
+      'Routine business information. '.repeat(180),
+      '',
+      'Appendix: Agent007 Self-Assessment.',
+    ].join('\n')
+    const context = contextFor(message)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: message }], 0, context, contract)
+
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+  })
+
+  test('a genuine long explicit self-assessment in the authoritative head remains self-assessment', () => {
+    const message = [
+      'Please give me a self-assessment of Agent007 across reliability, evidence handling, and readiness.',
+      '',
+      'Routine business information. '.repeat(180),
+      '',
+      'Appendix: operating metrics.',
+    ].join('\n')
+    const context = contextFor(message)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: message }], 0, context, contract)
+
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(true)
+    expect(context.intentHint).toBe('self_assessment')
+    expect(decision.executionContract.intent).toBe('self_assessment')
+  })
+
+  test('implicit readiness in a source tail remains non-authoritative even when raw self-reflection detects it', () => {
+    const message = [
+      'Please make a deep comprehension of this report.',
+      '',
+      'Routine business information. '.repeat(180),
+      '',
+      'The board asks whether Agent007 is ready to take on the next phase.',
+    ].join('\n')
+    const context = contextFor(message)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: message }], 0, context, contract)
+
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+  })
+})
+
