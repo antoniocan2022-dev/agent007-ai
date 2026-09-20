@@ -54,12 +54,15 @@ The Phase 0 adversarial corpus and Phase 2/3 regressions cover the source-tail
 self-assessment class, operation taxonomy, lead-in detection, and live lifecycle
 wiring. The Phase 2/3 deep audit also re-verified the legacy/offline compatibility
 surface after the envelope became load-bearing: the missing-optional-envelope crash
-was fixed before PR #192 was merged. A second authority gap remained, however:
-the retained head/tail compatibility window could still let source-tail execution
-vocabulary produce a `production_action`/`tool_action` candidate, and a high-confidence
-model-assisted action suggestion could then replace the safer deterministic result.
-Phase 4 closes that gap with a reusable consistency gate applied before and after
-assisted intent resolution. Broader provenance/source-material modeling remains
+was fixed before PR #192 was merged. Phase 4 then closed three additional control-plane
+gaps: source-tail execution vocabulary could still produce a
+`production_action`/`mission_action`/`tool_action` candidate; source-tail research
+vocabulary could trigger external evidence routing; and an explicit self-assessment
+phrase could conflict with a genuinely explicit operational command. Phase 4 now
+uses a reusable consistency gate before and after assisted intent resolution,
+and action authority also consumes the canonical `requestedOperation` signal so
+legitimate passive/first-person commands are not rejected merely because their
+syntax is not imperative. Broader provenance/source-material modeling remains
 intentionally outside the current narrow sequence.
 
 ## 3. The original gap exposed by the incident
@@ -230,8 +233,9 @@ already demoted it.
 **Rules shipped:**
 - `self_assessment` requires `turnEnvelope.selfAssessmentRequested` on source-bearing turns;
 - `production_action` requires an explicit production command in the authoritative instruction;
-- `mission_action` requires an explicit mission execution command in the authoritative instruction;
-- `tool_action` requires an explicit agent-directed tool command in the authoritative instruction.
+- `mission_action` requires an explicit mission execution command or canonical action operation in the authoritative instruction;
+- `tool_action` requires an explicit agent-directed tool command or canonical action operation in the authoritative instruction;
+- `research` requires a canonical research operation or explicit research/evidence-request language in the authoritative instruction.
 
 Source-only action candidates fall back to a document-analysis intent when the
 canonical `requestedOperation` is a document operation; otherwise they fall back
@@ -250,9 +254,11 @@ silently turning an unsafe source-derived action candidate into an operational r
 execution-authority regression coverage without widening `CeoIntent`.
 
 **Exit criteria:** Existing self-assessment source-tail behavior is preserved,
-source-derived production/tool actions cannot obtain execution authority, explicit
-authoritative commands still route normally, and model-assisted intent cannot
-re-introduce a forbidden action after deterministic enforcement.
+source-derived production/mission/tool/research operations cannot obtain authority,
+an explicit self-assessment cannot suppress a simultaneous authoritative operational
+command, legitimate passive/first-person action phrasing remains executable, and
+model-assisted intent cannot re-introduce a forbidden action after deterministic
+enforcement.
 
 ### Phase 5 — `CeoIntent` taxonomy widening (deferred, re-scope before starting)
 
