@@ -104,6 +104,7 @@ function sanitizeSuggestedIntent(value: unknown): SemanticIntentHint | undefined
 function sanitizeSuggestedSpeechAct(value: unknown): SemanticSpeechAct | undefined { return value === 'social' || value === 'question' || value === 'proposition' || value === 'continuation' || value === 'correction' || value === 'request' || value === 'unknown' ? value : undefined }
 function sanitizeSuggestedDepth(value: unknown): CognitiveDepth | undefined { return value === 'direct' || value === 'contextual' || value === 'deep' || value === 'strategic' ? value : undefined }
 
+const DOCUMENT_TARGET_RE = /\b(?:this|that|these|those|the|my|our)\s+(?:report|document|text|article|analysis|transcript|proposal|plan|paper|file|material|content)s?\b/i
 const DOCUMENT_COMPREHENSION_RE = /\b(?:deep\s+(?:comprehension|understanding)|deeply\s+understand|comprehensive\s+(?:understanding|comprehension)|in[- ]depth\s+(?:understanding|comprehension)|make\s+sense\s+of|help\s+(?:me\s+)?understand|walk(?:\s+me)?\s+through|understand\s+(?:this|that|the\s+(?:report|document|text|article|transcript)))\b/i
 const DOCUMENT_SUMMARY_RE = /\b(?:summari[sz]e|give\s+(?:me\s+)?a\s+summary|executive\s+summary|key\s+(?:points|takeaways)|main\s+(?:points|takeaways))\b/i
 const DOCUMENT_CRITIQUE_RE = /\b(?:critique|criticize|criticise|stress[- ]test|critically\s+(?:review|evaluate)|challenge)\b/i
@@ -117,10 +118,11 @@ export function inferRequestedOperation(
   const text = authoritativeInstruction.trim()
   if (!text) return 'conversation'
   if (selfAssessmentRequested) return 'self_assessment'
-  if (DOCUMENT_SUMMARY_RE.test(text)) return 'document_summary'
-  if (DOCUMENT_COMPARE_RE.test(text)) return 'document_compare'
-  if (DOCUMENT_CRITIQUE_RE.test(text)) return 'document_critique'
-  if (DOCUMENT_EXTRACT_RE.test(text)) return 'document_extract'
+  const hasDocumentTarget = DOCUMENT_TARGET_RE.test(text)
+  if (hasDocumentTarget && DOCUMENT_SUMMARY_RE.test(text)) return 'document_summary'
+  if (hasDocumentTarget && DOCUMENT_COMPARE_RE.test(text)) return 'document_compare'
+  if (hasDocumentTarget && DOCUMENT_CRITIQUE_RE.test(text)) return 'document_critique'
+  if (hasDocumentTarget && DOCUMENT_EXTRACT_RE.test(text)) return 'document_extract'
   if (DOCUMENT_COMPREHENSION_RE.test(text)) return 'document_comprehension'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/i.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/i.test(text)) return 'research'
