@@ -78,7 +78,7 @@ these five decision points, and it did not give "the user is asking for document
 comprehension" first-class status anywhere — comprehension is currently inferred
 indirectly, from `comprehensionMode`/`sourceLength`, never asked for directly.
 
-## 3. Goals / non-goals
+## 4. Goals / non-goals
 
 **Goals:**
 - One canonical, single-sourced answer to "what is the instruction" and "is source
@@ -98,7 +98,7 @@ indirectly, from `comprehensionMode`/`sourceLength`, never asked for directly.
 - Any change to response *style* or prompt wording beyond what's needed to remove
   duplicated classification logic.
 
-## 4. Phased plan
+## 5. Phased plan
 
 Each phase is independently shippable: implemented, regression-tested against the
 existing 1948+ test suite plus its own new tests, both architecture audits run,
@@ -250,7 +250,7 @@ has deliberately deferred rather than rush.
 **Effort:** Large, multi-session.
 **Exit criteria:** N/A until scoped.
 
-## 5. Recommended sequencing
+## 6. Recommended sequencing
 
 Phases 0-4 are additive-first, narrow-second: each phase either adds an unconsumed
 signal (0, 1) or narrows/consolidates existing, already-shipped logic (2, 3, 4)
