@@ -86,7 +86,7 @@ const SELF_ASSESSMENT_RULE: ConsistencyRule = {
 const PRODUCTION_ACTION_RULE: ConsistencyRule = {
   id: 'production_action_requires_authoritative_command',
   applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'production_action',
-  requirement: (context) => hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'production'),
+  requirement: (context) => context.requestedOperation === 'action' || hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'production'),
   fallback: (context) => ({
     intent: documentFallbackIntent(context.requestedOperation),
     selfReflection: context.candidateSelfReflection,
@@ -96,7 +96,7 @@ const PRODUCTION_ACTION_RULE: ConsistencyRule = {
 const MISSION_ACTION_RULE: ConsistencyRule = {
   id: 'mission_action_requires_authoritative_command',
   applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'mission_action',
-  requirement: (context) => hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'mission'),
+  requirement: (context) => context.requestedOperation === 'action' || hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'mission'),
   fallback: (context) => ({
     intent: documentFallbackIntent(context.requestedOperation),
     selfReflection: context.candidateSelfReflection,
@@ -116,7 +116,7 @@ const RESEARCH_RULE: ConsistencyRule = {
 const TOOL_ACTION_RULE: ConsistencyRule = {
   id: 'tool_action_requires_authoritative_command',
   applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'tool_action',
-  requirement: (context) => hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'tool'),
+  requirement: (context) => context.requestedOperation === 'action' || hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'tool'),
   fallback: (context) => ({
     intent: documentFallbackIntent(context.requestedOperation),
     selfReflection: context.candidateSelfReflection,
