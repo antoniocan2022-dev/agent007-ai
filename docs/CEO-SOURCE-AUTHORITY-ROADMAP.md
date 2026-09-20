@@ -1,7 +1,6 @@
 # CEO Source Authority Roadmap
 
-Status: **Phase 1 shipped** (PR #186, merged as `c3b468f3`). Phases 2-5 below are
-proposed, unscoped-for-implementation until prioritized.
+Status: **Phases 0-3 implemented** on `main` through the Source Authority PR sequence. Phase 4 remains proposed; Phase 5 remains deferred and unscoped.
 
 ## 1. Background
 
@@ -33,7 +32,31 @@ the scheduled autonomous path (`src/app/api/schedules/tick/route.ts`). Full
 regression suite and both architecture audits (`audit:coherence`,
 `audit:ceo-lifecycle`) pass on current `main`.
 
-## 2. The gap that remains
+## 2. Current architecture state after Phases 0-3
+
+The Source Authority sequence now has a canonical per-turn envelope attached to
+`CanonicalConversationContext`. Its instruction metadata includes an authoritative
+instruction segment separate from the backward-compatible head/tail window; source
+material presence/length and self-assessment authority are computed once at the
+canonical construction site. Path A conversation intent and Path B pre-routing now
+consume the same envelope self-assessment decision, so raw self-reflection vocabulary
+from a retained source tail cannot silently become the authoritative operation.
+
+`requestedOperation` is now a parallel signal rather than a replacement for
+`CeoIntent`. It independently recognizes document operations such as comprehension,
+summary, critique, compare, and extract from the authoritative instruction segment.
+The hierarchical document-comprehension executor consumes only the
+`document_comprehension` operation as a strengthening signal: it can lower the
+generic multi-section execution threshold, but it still requires a real multi-section
+source. `CeoIntent`, evidence routing, and orchestration ownership remain unchanged.
+
+The Phase 0 adversarial corpus and Phase 2/3 regressions cover the source-tail
+self-assessment class, operation taxonomy, lead-in detection, and live lifecycle
+wiring. The remaining architectural gap is the reusable contract-consistency layer
+described in Phase 4 and the broader provenance/source-material model that is
+intentionally outside the current narrow sequence.
+
+## 3. The original gap exposed by the incident
 
 The incident and its fixes exposed a real architectural gap: **there is no single
 authoritative representation of "what is the user's instruction" vs. "what is
