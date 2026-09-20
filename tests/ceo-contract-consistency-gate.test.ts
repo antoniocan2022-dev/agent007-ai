@@ -76,6 +76,17 @@ describe('CEO Source Authority Phase 4: contract-consistency gate', () => {
     expect(result.violations).toContain('research_requires_authoritative_request')
   })
 
+  test('an authoritative latest-information question remains research on a source-bearing turn', () => {
+    const result = check({
+      candidateIntent: 'research',
+      authoritativeInstruction: "What's the latest on this company?",
+      sourceMaterialPresent: true,
+      requestedOperation: 'conversation',
+    })
+    expect(result.effectiveIntent).toBe('research')
+    expect(result.violations).toEqual([])
+  })
+
   test('an authoritative research request remains research on a source-bearing turn', () => {
     const result = check({
       candidateIntent: 'research',
