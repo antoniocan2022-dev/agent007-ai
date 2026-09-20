@@ -49,6 +49,11 @@ export type InstructionWindowExtractionMethod = 'short_message' | 'lead_in' | 'h
 
 export interface InstructionWindowResult {
   text: string
+  // Primary instruction text used for authoritative intent decisions. For long
+  // turns this is the leading user-framing segment; the retained tail remains
+  // in `text` for backward-compatible context/clarification behavior but is
+  // deliberately not treated as authoritative self-assessment instruction.
+  authoritativeText: string
   extractionMethod: InstructionWindowExtractionMethod
 }
 
@@ -61,7 +66,7 @@ export interface InstructionWindowResult {
 export function extractInstructionWindowDetails(message: string): InstructionWindowResult {
   const trimmed = message.trim()
   if (trimmed.length <= INSTRUCTION_WINDOW_THRESHOLD_CHARS) {
-    return { text: trimmed, extractionMethod: 'short_message' }
+    return { text: trimmed, authoritativeText: trimmed, extractionMethod: 'short_message' }
   }
   const tail = trimmed.slice(-INSTRUCTION_WINDOW_EDGE_CHARS)
   const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
@@ -71,10 +76,10 @@ export function extractInstructionWindowDetails(message: string): InstructionWin
     // legitimately occur INSIDE ordinary pasted material rather than in the user's own framing. Keeping
     // the tail preserves the common paste-then-ask pattern without changing the existing window contents.
     const text = head === tail || head.endsWith(tail) ? head : `${head}\n${tail}`
-    return { text, extractionMethod: 'lead_in' }
+    return { text, authoritativeText: head, extractionMethod: 'lead_in' }
   }
   const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
-  return { text: `${head}\n${tail}`, extractionMethod: 'head_tail_fallback' }
+  return { text: `${head}\n${tail}`, authoritativeText: head, extractionMethod: 'head_tail_fallback' }
 }
 
 /** Backward-compatible text-only facade used by existing callers. */

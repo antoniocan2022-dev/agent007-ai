@@ -1,7 +1,7 @@
 import type { PersistedConversationRow, PersistedMemoryRow } from './ceo-context-composer'
 import type { CeoConversationState, ConversationReference } from './ceo-conversation-state'
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
-import type { InstructionWindowExtractionMethod, SemanticUncertainty } from './ceo-cognitive-contract'
+import type { InstructionWindowExtractionMethod, InstructionWindowResult, SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
@@ -14,7 +14,7 @@ export interface SemanticInterpretation { schemaVersion: 1; meaning: string; con
 export type RequestedOperation = 'conversation' | 'document_comprehension' | 'document_summary' | 'document_critique' | 'document_compare' | 'document_extract' | 'analysis' | 'decision' | 'research' | 'action' | 'self_assessment'
 export interface CeoTurnEnvelope {
   schemaVersion: 1
-  instruction: { text: string; extractionMethod: InstructionWindowExtractionMethod }
+  instruction: { text: string; authoritativeText: string; extractionMethod: InstructionWindowExtractionMethod }
   sourceMaterial: { present: boolean; length: number }
   selfAssessmentRequested: boolean
   requestedOperation: RequestedOperation
@@ -36,69 +36,33 @@ export interface CanonicalConversationContext { schemaVersion: 1; currentMessage
 // ever reasoned over currentMessage. Now preserves line breaks and paragraph boundaries.
 function normalize(value: string): string { return value.replace(/[ \t]+/g, ' ').replace(/[ \t]*\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim() }
 function unique(items: readonly string[], max = 8): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
-// This function used to carry its own, independently-maintained regex for recognizing an explicit
-// self-assessment phrase, which had drifted out of sync with ceo-self-reflection.ts's canonical
-// EXPLICIT_SELF_ASSESSMENT_RE (this one recognized "is Agent007 ready"-style phrasing that the
-// canonical one didn't gate the same way, and the canonical one recognized "self-assessment"/
-// "self-evaluation"/etc that this one didn't) -- exactly the kind of duplicate-logic drift that let a
-// real self-assessment request go misclassified as 'analysis' in production (2026-09-12). This now
-// calls the shared, single-sourced hasExplicitSelfAssessmentPhrase() for that literal-phrase check
-// instead of re-implementing it. It deliberately does NOT call the fuller classifyCeoSelfReflection
-// (which also matches bare capability/readiness words like "weakness" or "ready") -- that broader net
-// is right for ceo-pre-router.ts's routing decision but too permissive here, where a bare capability
-// word inside an incomplete, unrelated sentence fragment should not by itself commit to self_assessment
-// intent (see tests/ceo-conversation-behavioral.test.ts's incomplete-message cases).
-// Long-document incident (2026-09-19): scans the bounded instruction window (see
-// extractInstructionWindow), not the raw message -- this function used to test the entire pasted message
-// including any long document, so a paste that used words like "deploy"/"verify"/"recommend"/"analyze"
-// anywhere in its body (extremely common in ordinary prose) could set the wrong intentHint before
-// actionFor() (ceo-conversation-decision-contract.ts) ever got a chance to classify the response action --
-// its own per-branch keyword scoping fix can't correct for having entered the wrong branch to begin with.
-// Production incident (2026-09-20): the self-assessment check used to be the one exception, deliberately
-// left scanning the full message on the reasoning that the phrasing was "rare... unlikely to appear
-// misleadingly inside pasted source material." A real user report falsified that: a genuine "give me a
-// deep comprehension of this document" request over a long business report was hijacked into a canned
-// self-assessment response, because the report's own body used ordinary phrases like "readiness
-// assessment"/"capability assessment" (extremely common section headers in real business/strategy
-// documents) -- and self_assessment is the one intent this codebase treats as AUTHORITATIVE, unoverridable
-// even by a confident model-assisted suggestion (see deterministicIntentIsAuthoritative below), so once
-// this false-positived there was no recovery path downstream. Windowed exactly like every other branch
-// here: a short, explicit self-assessment request (the common case) is fully captured either way
-// (extractInstructionWindow returns short messages unchanged), and a genuinely long self-assessment ask
-// still matches as long as the phrase sits in the message's own head or tail, not buried mid-document.
-// Follow-up fix (2026-09-20): windowing alone was not sufficient. "readiness assessment"/"system
-// readiness"/"capability assessment" were bare substring matches with no self-reference requirement at
-// all -- unlike every other alternative here (all embed "you"/"agent007"/"the system" literally) and
-// unlike ceo-self-reflection.ts's own READINESS_RE/CAPABILITY_RE (which require proximity to a
-// self-reference word). A report's own "Section 5: Technology Capability Assessment" heading sitting in
-// the message's own head or tail -- an extremely common place for such a section, e.g. a closing
-// "Recommendations & Readiness Assessment" section -- would still false-positive post-windowing. Now
-// requires genuine self-reference (you/your/agent007/ceo/the system/the agent/the assistant) to appear
-// somewhere in the same window before these three bare business terms can commit to self_assessment,
-// reusing ceo-self-reflection.ts's own canonical word list instead of a second, driftable copy.
-// Contract-consistency gate (2026-09-20, Source Authority initiative Phase 1): self_assessment is
-// AUTHORITATIVE -- once it wins, the turn takes the bounded, tool-free self-assessment fast lane and
-// Phase 3 hierarchical document comprehension never runs, silently discarding any pasted source material
-// the same message also carried. That's an acceptable trade when the user's own words unambiguously ask
-// for a self-assessment; it's not when `sourceMaterialPresent` (the message was long enough that
-// extractInstructionWindow actually trimmed it) and the signal is only an implicit one ("are you ready",
-// a proximity-gated "capability assessment", etc.) -- the safer default is to let the turn fall through
-// to analysis/conversation, which still SEES the source material, rather than silently drop it under an
-// inferred self-assessment reading. Only hasExplicitSelfAssessmentPhrase (an unambiguous "self-
-// assessment"/"self-evaluation"/etc. request) can win self_assessment once source material is present;
-// this does not change behavior for the common case (a short message IS the instruction --
-// sourceMaterialPresent is false whenever extractInstructionWindow returns it unchanged).
-function userIntentHint(instructionWindow: string, sourceMaterialPresent: boolean): SemanticIntentHint {
+// Source Authority Phase 2 (2026-09-20): self-assessment authority is computed once from the
+// authoritative instruction segment carried by the envelope. The retained tail is intentionally excluded
+// from this decision on long turns because the head/tail compatibility window cannot prove that its tail
+// belongs to the user rather than to pasted source material. This closes the residual source-tail
+// explicit-phrase hijack that PR #186's mixed-window gate could not distinguish.
+function detectSelfAssessmentRequest(instruction: InstructionWindowResult, sourceMaterialPresent: boolean): boolean {
+  const authoritativeText = instruction.authoritativeText
+  const text = authoritativeText.toLowerCase()
+  if (hasExplicitSelfAssessmentPhrase(authoritativeText)) return true
+  if (!sourceMaterialPresent && /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing))\b/i.test(text)) return true
+  if (!sourceMaterialPresent && SELF_REFERENCE_RE.test(authoritativeText) && /\b(?:readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return true
+  return false
+}
+
+function userIntentHint(
+  instructionWindow: string,
+  turnEnvelope: Pick<CeoTurnEnvelope, 'selfAssessmentRequested'>,
+): SemanticIntentHint {
   const text = instructionWindow.toLowerCase()
-  if (hasExplicitSelfAssessmentPhrase(instructionWindow)) return 'self_assessment'
-  if (!sourceMaterialPresent && /\b(?:are\s+(?:you|agent007|the\s+system)\s+ready|is\s+(?:agent007|the\s+system)\s+ready|assess\s+(?:yourself|agent007|the\s+system)|evaluate\s+(?:your|the\s+system['’]?s)\s+(?:capabilities|readiness|maturity)|what\s+are\s+you\s+(?:capable|ready)\s+of|how\s+(?:are|is)\s+(?:you|agent007|the\s+system)\s+(?:doing|performing))\b/i.test(text)) return 'self_assessment'
-  if (!sourceMaterialPresent && SELF_REFERENCE_RE.test(instructionWindow) && /\b(?:readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(text)) return 'self_assessment'
+  if (turnEnvelope.selfAssessmentRequested) return 'self_assessment'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'
   if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture)\b/.test(text)) return 'analysis'
   return 'conversation'
 }
+
 // Deep-audit fix (2026-09-13): this used to hand-roll its own narrow continue/go-back/return-to/
 // same-as-before check instead of also recognizing the canonical isContinuationOrRestatementRequest --
 // a 5th independently-drifting copy of the exact concept that function was consolidated to fix (see its
@@ -151,31 +115,27 @@ function requestedOperationFromIntent(intent: SemanticIntentHint): RequestedOper
 }
 
 export function buildCeoTurnEnvelope(input: {
-  instruction: { text: string; extractionMethod: InstructionWindowExtractionMethod }
+  instruction: InstructionWindowResult
   sourceMaterialPresent: boolean
   sourceLength: number
-  intentHint: SemanticIntentHint
+  requestedOperation: RequestedOperation
 }): CeoTurnEnvelope {
   return {
     schemaVersion: 1,
     instruction: {
       text: input.instruction.text,
+      authoritativeText: input.instruction.authoritativeText,
       extractionMethod: input.instruction.extractionMethod,
     },
     sourceMaterial: {
-      // Phase 1 deliberately preserves the existing sourceMaterialPresent/total
-      // message-length semantics. Exact source spans and provenance remain a later
-      // Source Authority concern; this field does not pretend that the mixed
-      // head/tail window is a precise source segmentation.
       present: input.sourceMaterialPresent,
       length: input.sourceLength,
     },
-    selfAssessmentRequested: input.intentHint === 'self_assessment',
-    // Phase 1 is additive and intentionally does not infer document_comprehension
-    // yet. That richer operation signal is the explicit scope of Phase 3.
-    requestedOperation: requestedOperationFromIntent(input.intentHint),
+    selfAssessmentRequested: detectSelfAssessmentRequest(input.instruction, input.sourceMaterialPresent),
+    requestedOperation: input.requestedOperation,
   }
 }
+
 export function buildCanonicalConversationContext(input: { currentMessage: string; rows: readonly PersistedConversationRow[]; state: CeoConversationState; references: readonly ConversationReference[]; memories?: readonly PersistedMemoryRow[]; semanticInterpretation?: Partial<SemanticInterpretation> }): CanonicalConversationContext {
   const currentMessage = normalize(input.currentMessage)
   const instructionExtraction = extractInstructionWindowDetails(currentMessage)
@@ -183,7 +143,15 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   const deterministic = deterministicMeaning(currentMessage, input.state, input.references)
   const deterministicSpeechAct = speechAct(currentMessage)
   const sourceMaterialPresent = currentMessage.length > instructionWindow.length
-  const deterministicIntent = deterministicSpeechAct === 'correction' ? 'conversation' : userIntentHint(instructionWindow, sourceMaterialPresent)
+  const authorityEnvelope = buildCeoTurnEnvelope({
+    instruction: instructionExtraction,
+    sourceMaterialPresent,
+    sourceLength: currentMessage.length,
+    requestedOperation: 'conversation',
+  })
+  const deterministicIntent = deterministicSpeechAct === 'correction'
+    ? 'conversation'
+    : userIntentHint(instructionWindow, authorityEnvelope)
   const suppliedConfidence = Number(input.semanticInterpretation?.confidence)
   const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0
   const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72
@@ -192,19 +160,49 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   const suggestedDepth = trustedModelSuggestions ? sanitizeSuggestedDepth(input.semanticInterpretation?.suggestedCognitiveDepth) : undefined
   const resolvedSpeechAct = deterministicSpeechAct === 'correction' ? 'correction' : (suggestedSpeechAct ?? deterministicSpeechAct)
   const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment'
-  const resolvedIntentHint = deterministicSpeechAct === 'correction' ? 'conversation' : deterministicIntentIsAuthoritative ? 'self_assessment' : (suggestedIntent ?? deterministicIntent)
+  const resolvedIntentHint = deterministicSpeechAct === 'correction'
+    ? 'conversation'
+    : deterministicIntentIsAuthoritative
+      ? 'self_assessment'
+      : (suggestedIntent ?? deterministicIntent)
   const trustedMeaning = trustedModelSuggestions ? normalize(input.semanticInterpretation?.meaning || '') : ''
   const meaning = trustedMeaning || deterministic
-  const fallbackUncertainty: SemanticUncertainty[] = input.references.some((reference) => reference.ambiguous) ? [{ code: 'uncertain_reference', description: 'one or more conversational references remain uncertain', severity: 'medium' }] : []
-  const semanticInterpretation: SemanticInterpretation = { schemaVersion: 1, meaning, confidence: Number.isFinite(suppliedConfidence) ? effectiveConfidence : (input.references.some((reference) => reference.ambiguous) ? 0.52 : 0.78), uncertainty: input.semanticInterpretation?.uncertainty ?? fallbackUncertainty, source: input.semanticInterpretation?.source ?? 'deterministic', suggestedIntent, suggestedSpeechAct, suggestedCognitiveDepth: suggestedDepth }
+  const fallbackUncertainty: SemanticUncertainty[] = input.references.some((reference) => reference.ambiguous)
+    ? [{ code: 'uncertain_reference', description: 'one or more conversational references remain uncertain', severity: 'medium' }]
+    : []
+  const semanticInterpretation: SemanticInterpretation = {
+    schemaVersion: 1,
+    meaning,
+    confidence: Number.isFinite(suppliedConfidence)
+      ? effectiveConfidence
+      : (input.references.some((reference) => reference.ambiguous) ? 0.52 : 0.78),
+    uncertainty: input.semanticInterpretation?.uncertainty ?? fallbackUncertainty,
+    source: input.semanticInterpretation?.source ?? 'deterministic',
+    suggestedIntent,
+    suggestedSpeechAct,
+    suggestedCognitiveDepth: suggestedDepth,
+  }
   const fallbackDepth = classifyCognitiveDepth(currentMessage, input.state, input.references.length)
-  const turnEnvelope = buildCeoTurnEnvelope({
-    instruction: instructionExtraction,
-    sourceMaterialPresent,
+  const turnEnvelope = {
+    ...authorityEnvelope,
+    requestedOperation: requestedOperationFromIntent(deterministicIntent),
+  }
+  return {
+    schemaVersion: 1,
+    currentMessage,
+    instruction: instructionWindow,
     sourceLength: currentMessage.length,
+    turnEnvelope,
+    meaning,
+    semanticInterpretation,
     intentHint: resolvedIntentHint,
-  })
-  return { schemaVersion: 1, currentMessage, instruction: instructionWindow, sourceLength: currentMessage.length, turnEnvelope, meaning, semanticInterpretation, intentHint: resolvedIntentHint, speechAct: resolvedSpeechAct, cognitiveDepth: suggestedDepth ?? fallbackDepth, referenceScope: referenceScope(input.references, currentMessage), references: input.references, worldModel: buildWorldModel(input.state, input.memories ?? [], input.rows), state: input.state }
+    speechAct: resolvedSpeechAct,
+    cognitiveDepth: suggestedDepth ?? fallbackDepth,
+    referenceScope: referenceScope(input.references, currentMessage),
+    references: input.references,
+    worldModel: buildWorldModel(input.state, input.memories ?? [], input.rows),
+    state: input.state,
+  }
 }
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): buildConversationDecisionContract
 // used to be rebuilt from scratch here on every call, even though composeCeoContext's own call site
