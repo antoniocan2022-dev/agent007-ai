@@ -1,6 +1,6 @@
 import { inferTaskType } from './canonical-llm-router'
 import { classifyExecution } from './adaptive-execution'
-import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
+import { classifyCeoSelfReflection, hasExplicitSelfAssessmentPhrase, type SelfReflectionClassification } from './ceo-self-reflection'
 import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
@@ -264,7 +264,22 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // from the newline-preserving canonical currentMessage, so it doesn't have that gap. Falls back to the
   // original local computation for any caller without a canonical context yet (tests, offline tooling).
   const classificationText = semanticContext?.instruction ?? extractInstructionWindow(text)
-  const selfReflection = classifyCeoSelfReflection(classificationText)
+  const rawSelfReflection = classifyCeoSelfReflection(classificationText)
+  // Contract-consistency gate (2026-09-20, Source Authority initiative Phase 1): mirrors the identical
+  // gate added to userIntentHint (ceo-cognitive-conversation.ts) for the same reason -- self_assessment
+  // is AUTHORITATIVE and routes onto the bounded, tool-free self-assessment fast lane, which never runs
+  // Phase 3 hierarchical document comprehension. classifyCeoSelfReflection's READINESS_RE/CAPABILITY_RE
+  // are already proximity-gated to a self-reference word (safer than the bug this mirrors), but a
+  // sufficiently unlucky long document could still combine, say, "the system"/"the assistant" with a
+  // nearby readiness/capability word somewhere in its own head or tail -- an implicit signal that should
+  // not be trusted enough to silently drop real pasted source material. When sourceMaterialPresent (the
+  // message was long enough that classificationText is a genuine window, not the whole thing), only an
+  // unambiguous hasExplicitSelfAssessmentPhrase can still win self_assessment; softer signals fall
+  // through to the normal analysis/conversation path instead, which still sees the source material.
+  const sourceMaterialPresent = (semanticContext ? semanticContext.sourceLength : text.length) > classificationText.length
+  const selfReflection: SelfReflectionClassification = rawSelfReflection.isSelfReflective && sourceMaterialPresent && !hasExplicitSelfAssessmentPhrase(classificationText)
+    ? { kind: 'none', isSelfReflective: false, reason: 'Source material present; only an explicit self-assessment phrase can override document comprehension.' }
+    : rawSelfReflection
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
   // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted

@@ -5,6 +5,7 @@ import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
 import { extractInstructionWindow, inferComprehensionMode } from '@/lib/ceo-cognitive-contract'
 import { interpretCeoSemantics, semanticAssistanceRequired } from '@/lib/ceo-semantic-interpreter'
+import { classifyCeoSelfReflection } from '@/lib/ceo-self-reflection'
 
 // Recommendation 1 (2026-09-20), following an external architecture review: "make source comprehension
 // unification real but narrow" -- CanonicalConversationContext.instruction/sourceLength and
@@ -211,5 +212,58 @@ describe('Follow-up fix: bare "readiness/capability assessment" near the head or
     const doc = buildTrailingReadinessDoc()
     const oldStyleBareMatch = /\b(?:readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(doc)
     expect(oldStyleBareMatch).toBe(true)
+  })
+})
+
+// Source Authority initiative Phase 1 (2026-09-20): a contract-consistency gate. self_assessment is
+// AUTHORITATIVE (it wins the whole turn and skips Phase 3 hierarchical document comprehension entirely),
+// so once real source material is present (the message was long enough that extractInstructionWindow
+// actually trimmed it), only an unambiguous hasExplicitSelfAssessmentPhrase can still win self_assessment
+// -- every softer, implicit signal ("is Agent007 ready", a proximity-gated "the system"+"ready" match in
+// ceo-self-reflection.ts's READINESS_RE) now falls through to the normal analysis/conversation path
+// instead, which still sees the source material, rather than risk silently discarding it under an
+// inferred reading. Applied in both ceo-cognitive-conversation.ts's userIntentHint (Path A) and
+// ceo-pre-router.ts's classifyCeoSelfReflection consumption (Path B), closing the class of gap the
+// windowing-only fixes above narrowed but did not fully eliminate.
+describe('Source Authority initiative Phase 1: contract-consistency gate requires an explicit phrase once source material is present', () => {
+  function buildDocWithImplicitReadinessQuestion(): string {
+    const early = 'Please give me a deep comprehension of this report and summarize the key points.'
+    const filler = 'Customer support satisfaction scores remained within the target band this quarter. '.repeat(150)
+    // An implicit readiness question -- matches userIntentHint's "is agent007 ready" alternative --
+    // sitting in the document's own tail, not an unambiguous self-assessment request.
+    const closing = 'Looking ahead, the open question the board keeps raising is Agent007 ready to take on the next phase of this rollout before next quarter?'
+    return `${early}\n\n${filler}\n\n${closing}`
+  }
+
+  test('the implicit readiness question lands inside the classification window', () => {
+    const doc = buildDocWithImplicitReadinessQuestion()
+    const context = contextFor(doc)
+    expect(context.instruction.toLowerCase()).toContain('is agent007 ready')
+  })
+
+  test('with source material present, an implicit readiness question no longer wins self_assessment', () => {
+    const doc = buildDocWithImplicitReadinessQuestion()
+    const context = contextFor(doc)
+    expect(context.intentHint).not.toBe('self_assessment')
+  })
+
+  test('preRouteCeoRequest agrees: does not route this into the self-assessment fast lane', () => {
+    const doc = buildDocWithImplicitReadinessQuestion()
+    const context = contextFor(doc)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: doc }], 0, context, contract)
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+  })
+
+  test('the same phrasing, as a short standalone message (no source material), still correctly classifies as self_assessment (no regression)', () => {
+    const context = contextFor('Is Agent007 ready to take on the next phase of this rollout?')
+    expect(context.intentHint).toBe('self_assessment')
+  })
+
+  test('classifyCeoSelfReflection itself still flags this phrasing as self-reflective -- confirms the pre-router gate, not classifyCeoSelfReflection, is what changed', () => {
+    const doc = buildDocWithImplicitReadinessQuestion()
+    const context = contextFor(doc)
+    const rawClassification = classifyCeoSelfReflection(context.instruction)
+    expect(rawClassification.isSelfReflective).toBe(true)
   })
 })
