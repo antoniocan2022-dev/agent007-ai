@@ -145,9 +145,9 @@ function hasExplicitAuthoritativeResearch(instruction: string): boolean {
   const text = instruction.trim()
   if (!text) return false
   const direct = /\b(?:research|search|look\s+(?:this|that|it)\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check)\b/i
-  const question = /^(?:what(?:'s|\s+is)\s+the\s+(?:latest|current)|what\s+(?:is|are)\s+the\s+(?:latest|current)\s+(?:news|information|updates?)\b)/i
+  const question = /^(?:what(?:'s|\s+is)\s+the\s+(?:latest|current)\s+(?:on|about)\b|what(?:'s|\s+is)\s+(?:the\s+)?(?:latest|current)\s+(?:news|information|updates?)\b|what\s+(?:is|are)\s+the\s+(?:latest|current)\s+(?:news|information|updates?)\s+(?:on|about)\b)/i
   const directive = /(?:^|[.!?]\s*|,\s*(?:then|and|also)\s+|\b(?:then|and)\s+)(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|i\s+(?:want|need)(?:\s+you)?\s+to\s+|let\x27s\s+)?(?:research|search|look\s+(?:this|that|it)\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check)\b/i
-  return question.test(text) || directive.test(text) || (direct.test(text) && /\b(?:research|search|verify|validate|fact[- ]check)\b/i.test(text) && /^\s*(?:please\s+)?(?:research|search|verify|validate|fact[- ]check)\b/i.test(text))
+  return question.test(text) || directive.test(text)
 }
 
 function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production' | 'mission' | 'tool'): boolean {
