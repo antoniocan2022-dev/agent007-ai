@@ -6,10 +6,10 @@ import {
   DEFAULT_SECTION_BUDGET_CHARS,
 } from '@/lib/ceo-document-comprehension'
 
-// Phase 3 (2026-09-20): this module is deliberately standalone -- it builds the map-reduce scaffold
-// for comprehending a document too large for one pass, but does not execute it and is not yet
-// imported from ceo-cognitive-lifecycle.ts or route.ts. These tests exercise the scaffold on its
-// own terms: chunking correctness, trace honesty, and plan shape -- not live generation behavior.
+// Document-comprehension plan tests (2026-09-20): this module remains deliberately pure -- it builds
+// the map-reduce plan, while ceo-document-comprehension-executor.ts owns provider execution and
+// ceo-cognitive-lifecycle.ts owns the live integration. These tests exercise chunking correctness,
+// trace honesty, and plan shape rather than provider execution.
 
 function paragraphs(count: number, wordsPerParagraph = 40): string[] {
   return Array.from({ length: count }, (_, index) => Array.from({ length: wordsPerParagraph }, (_, w) => `p${index}w${w}`).join(' '))

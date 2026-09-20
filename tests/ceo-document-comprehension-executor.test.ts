@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach } from 'bun:test'
 import { buildHierarchicalComprehensionPlan, buildDocumentComprehensionTrace } from '@/lib/ceo-document-comprehension'
-import { executeHierarchicalComprehension, shouldExecuteHierarchicalComprehension, EXECUTION_NECESSITY_SECTION_THRESHOLD } from '@/lib/ceo-document-comprehension-executor'
+import { executeHierarchicalComprehension, shouldExecuteHierarchicalComprehension, EXECUTION_NECESSITY_SECTION_THRESHOLD, DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD } from '@/lib/ceo-document-comprehension-executor'
 
 const originalFetch = globalThis.fetch
 afterEach(() => {
@@ -33,6 +33,16 @@ describe('shouldExecuteHierarchicalComprehension: necessity gate', () => {
     const trace = buildDocumentComprehensionTrace(doc, 300)
     expect(trace.requiresHierarchicalComprehension).toBe(true)
     expect(trace.sectionCount).toBeLessThan(EXECUTION_NECESSITY_SECTION_THRESHOLD)
+    expect(shouldExecuteHierarchicalComprehension(trace)).toBe(false)
+  })
+
+
+  test('an explicit document_comprehension operation strengthens the gate for a genuine multi-section source', () => {
+    const doc = paragraphs(DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD * 2, 20).join('\n\n')
+    const trace = buildDocumentComprehensionTrace(doc, 300)
+    expect(trace.sectionCount).toBeGreaterThanOrEqual(DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD)
+    expect(trace.sectionCount).toBeLessThan(EXECUTION_NECESSITY_SECTION_THRESHOLD)
+    expect(shouldExecuteHierarchicalComprehension(trace, 'document_comprehension')).toBe(true)
     expect(shouldExecuteHierarchicalComprehension(trace)).toBe(false)
   })
 

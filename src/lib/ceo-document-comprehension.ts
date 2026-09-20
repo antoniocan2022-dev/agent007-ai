@@ -1,27 +1,15 @@
 /**
- * Phase 3 of the long-document comprehension work (2026-09-20): hierarchical comprehension
- * infrastructure for a source document too large to reason about in a single pass.
+ * Long-document comprehension infrastructure (2026-09-20).
  *
- * Phase 1 (the production-incident fix, #182) and Phase 2 (the canonical CeoComprehensionMode
- * signal) both operate on the whole document in one shot -- they fixed the CLASSIFICATION of a
- * long-document turn and the QUALITY-GATE judgment of its answer, but the actual generation step
- * still hands the model the entire clamped document (up to CEO_MESSAGE_CLAMP_CHARS) in one prompt.
- * That is a sound, working design for anything that fits inside a governed provider's real context
- * window (see provider-control-plane.ts's DEFAULT_MAX_INPUT_TOKENS comment) -- which is the large
- * majority of real pasted documents. It stops being sound only once a document is long enough that
- * a single pass can no longer attend to all of it well, which single-pass generation has no way to
- * detect or compensate for on its own.
+ * This module owns the source-document map/reduce plan used by the live executor in
+ * ceo-document-comprehension-executor.ts. The primary generation path still receives the full
+ * source document unchanged; hierarchical synthesis is additive grounding, not a replacement.
  *
- * This module builds the map-reduce SCAFFOLD for that harder case: splitting a document into
- * paragraph-respecting sections sized for a focused per-section pass, and rendering the map-step
- * (per-section extraction) and reduce-step (cross-section synthesis) prompts a future execution
- * step would send through the model. It deliberately stops at the plan -- it does not call
- * runCanonicalLlm itself, and nothing in ceo-cognitive-lifecycle.ts or route.ts imports it yet.
- * Wiring actual per-section execution into the live generation path is a separate, larger change
- * (it touches latency budgets, provider selection, evidence composition and partial-failure
- * handling for N sub-calls instead of one) that deserves its own review rather than being folded
- * silently into this phase. Keeping the plan/execution boundary explicit here mirrors the existing
- * ceo-evidence-planner.ts / ceo-evidence-executor.ts split elsewhere in this codebase.
+ * The plan remains deliberately separate from execution: this file is pure document structure and
+ * prompt construction, while the executor owns provider calls, bounded concurrency, time budgets,
+ * cancellation, and partial-failure handling. Source Authority Phase 3 now supplies a parallel
+ * requestedOperation signal so explicit document-comprehension requests can strengthen the executor's
+ * necessity gate without changing the governed CeoIntent taxonomy.
  */
 
 export interface DocumentSection {

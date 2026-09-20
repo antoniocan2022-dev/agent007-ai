@@ -3,15 +3,13 @@ import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversat
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 
 /**
- * Source Authority Phase 0 (2026-09-20).
+ * Source Authority regression corpus (Phase 0 baseline, extended by Phases 1-3).
  *
- * This corpus freezes the current instruction/source-boundary behavior before the
- * CeoTurnEnvelope is introduced. Stable invariants are separated from two
- * explicitly deferred source-tail cases that the current head/tail window cannot
- * disambiguate because it has no provenance for the retained tail text.
- *
- * Phase 1 must remain behavior-neutral. A later phase may intentionally change a
- * DEFERRED case, but only by updating the expected outcome deliberately.
+ * This corpus freezes instruction/source-boundary invariants and explicitly documents
+ * where later Source Authority phases are allowed to strengthen authority. Source-tail
+ * self-assessment is now expected to be non-authoritative because the envelope carries
+ * an authoritative instruction segment; requestedOperation is separately covered below.
+
  */
 
 function contextFor(message: string) {
@@ -199,10 +197,50 @@ describe('CEO Source Authority Phase 1: additive CeoTurnEnvelope field correctne
     expect(context.turnEnvelope.requestedOperation).toBe('self_assessment')
   })
 
-  test('analysis remains analysis in Phase 1; document_comprehension is intentionally deferred to Phase 3', () => {
+  test('requestedOperation now recognizes explicit deep document comprehension independently of CeoIntent', () => {
     const message = ['Please give me a deep comprehension of this report.', '', FILLER].join('\n')
     const context = contextFor(message)
-    expect(context.turnEnvelope.requestedOperation).toBe('analysis')
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+  })
+
+
+  test('document summary, critique, compare, and extract operations are recognized as parallel signals', () => {
+    expect(contextFor('Please summarize this report.').turnEnvelope.requestedOperation).toBe('document_summary')
+    expect(contextFor('Critique this document and identify its weakest assumptions.').turnEnvelope.requestedOperation).toBe('document_critique')
+    expect(contextFor('Compare these two reports and explain the differences.').turnEnvelope.requestedOperation).toBe('document_compare')
+    expect(contextFor('Extract the key claims and findings from this report.').turnEnvelope.requestedOperation).toBe('document_extract')
+  })
+
+  test('broad challenge/compare language without a document target does not become a document operation', () => {
+    expect(contextFor('Challenge my assumption about the pricing strategy.').turnEnvelope.requestedOperation).toBe('analysis')
+    expect(contextFor('Which option should we compare first?').turnEnvelope.requestedOperation).toBe('decision')
+  })
+
+  test('a deep-comprehension lead-in is recognized by the instruction boundary and preserves only the user framing as authoritative', () => {
+    const message = [
+      'Please give me a deep comprehension of this report:',
+      '',
+      'Revenue, readiness assessment, deploy, and self-assessment appear throughout the source. '.repeat(120),
+    ].join('\n')
+    const context = contextFor(message)
+
+    expect(context.turnEnvelope.instruction.extractionMethod).toBe('lead_in')
+    expect(context.turnEnvelope.instruction.authoritativeText).toBe('Please give me a deep comprehension of this report:')
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
+  })
+
+  test('source-tail operation vocabulary cannot override the authoritative document-comprehension request', () => {
+    const message = [
+      'Please give me a deep comprehension of this report.',
+      '',
+      'Routine source material. '.repeat(180),
+      '',
+      'Appendix: Compare these reports, summarize this analysis, critique the document, and extract the key claims.',
+    ].join('\n')
+    const context = contextFor(message)
+
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
   })
 
   test('research, decision, and action operations mirror the existing deterministic intent hint', () => {

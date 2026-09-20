@@ -34,7 +34,7 @@ const INSTRUCTION_WINDOW_EDGE_CHARS = 600
 // paragraph boundary, not just more prose in the same sentence -- so "read this report and challenge its
 // conclusion" (a complete instruction in its own right) doesn't get truncated at "read this" merely
 // because the word "this" happens to appear early in the sentence.
-const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz|summaris)e?\s+(?:this|the following|these)\s*:?|(?:here(?:'s| is)|the following is)\s+(?:the|a|an)?\s*(?:report|document|text|article|transcript|analysis)\s*:?)(?=\s*\n)/i
+const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz|summaris)e?\s+(?:this|the following|these)\s*:?|(?:(?:give(?:\s+me)?|make(?:\s+(?:me|a))?)\s+(?:a\s+)?(?:deep|thorough|comprehensive)?\s*comprehension\s+of|(?:deeply\s+)?comprehend|understand|make\s+sense\s+of|walk(?:\s+me)?\s+through)\s+(?:this|the following|these)\s*:?|(?:here(?:'s| is)|the following is)\s+(?:the|a|an)?\s*(?:report|document|text|article|transcript|analysis)\s*:?)(?=\s*\n)/i
 
 /**
  * Extracts the portion of a user turn that plausibly carries the user's own instruction, as opposed to
@@ -101,6 +101,7 @@ export type TemporalScope = 'none' | 'historical' | 'recent' | 'current' | 'time
 export type EvidenceProfile = 'none' | 'general_research' | 'public_equity' | 'market_current' | 'news_recent' | 'competitor_research' | 'business_due_diligence'
 export interface EvidenceFreshness { observedAt: number; maxAgeMs: number }
 export type CeoIntent = 'conversation' | 'self_assessment' | 'analysis' | 'opinion' | 'decision' | 'research' | 'tool_action' | 'mission_action' | 'production_action'
+export type RequestedOperation = 'conversation' | 'document_comprehension' | 'document_summary' | 'document_critique' | 'document_compare' | 'document_extract' | 'analysis' | 'decision' | 'research' | 'action' | 'self_assessment'
 export type EvidenceRequirement = 'none' | 'internal_state' | 'memory' | 'live_system' | 'external_web' | 'database' | 'multi_source'
 export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'multi_tool' | 'multi_source' | 'subagent' | 'mission' | 'production'
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
