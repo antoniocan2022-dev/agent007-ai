@@ -111,12 +111,15 @@ describe('CEO Source Authority Phase 0 corpus: instruction/source boundaries', (
   test('source-tail explicit self-assessment language is not authoritative once the envelope owns the instruction boundary', () => {
     const message = longDocument('Please make a deep comprehension of this report.', FILLER, 'Appendix: Agent007 Self-Assessment.')
     const context = contextFor(message)
+    expect(context.turnEnvelope.instruction.authoritativeText.toLowerCase()).not.toContain('self-assessment')
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
     expect(context.intentHint).not.toBe('self_assessment')
   })
 
   test('quoted source-tail self-assessment language is not authoritative to the envelope', () => {
     const message = longDocument('Please analyze this report.', FILLER, 'Appendix quotation: "Give me a self-assessment of your capabilities."')
     const context = contextFor(message)
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
     expect(context.intentHint).not.toBe('self_assessment')
   })
 
@@ -160,6 +163,7 @@ describe('CEO Source Authority Phase 1: additive CeoTurnEnvelope field correctne
   test('short message records short_message extraction without changing the instruction', () => {
     const context = contextFor('Please explain our current operating priorities.')
     expect(context.turnEnvelope.instruction.text).toBe(context.instruction)
+    expect(context.turnEnvelope.instruction.authoritativeText).toBe(context.instruction)
     expect(context.turnEnvelope.instruction.extractionMethod).toBe('short_message')
     expect(context.turnEnvelope.sourceMaterial.present).toBe(false)
     expect(context.turnEnvelope.sourceMaterial.length).toBe(context.sourceLength)
@@ -175,6 +179,7 @@ describe('CEO Source Authority Phase 1: additive CeoTurnEnvelope field correctne
     )
     const context = contextFor(message)
     expect(context.turnEnvelope.instruction.text).toBe(context.instruction)
+    expect(context.turnEnvelope.instruction.authoritativeText).toBe('Analyze this:')
     expect(context.turnEnvelope.instruction.extractionMethod).toBe('lead_in')
     expect(context.turnEnvelope.sourceMaterial.present).toBe(true)
     expect(context.turnEnvelope.sourceMaterial.length).toBe(context.sourceLength)
@@ -206,10 +211,10 @@ describe('CEO Source Authority Phase 1: additive CeoTurnEnvelope field correctne
     expect(contextFor('Please deploy the approved change.').turnEnvelope.requestedOperation).toBe('action')
   })
 
-  test('DEFERRED source-tail self-assessment snapshot is faithfully represented, but the envelope is not yet consumed', () => {
+  test('source-tail self-assessment snapshot remains non-authoritative after Phase 2', () => {
     const message = longDocument('Please make a deep comprehension of this report.', FILLER, 'Appendix: Agent007 Self-Assessment.')
     const context = contextFor(message)
-    expect(context.turnEnvelope.selfAssessmentRequested).toBe(context.intentHint === 'self_assessment')
-    expect(context.turnEnvelope.requestedOperation).toBe('self_assessment')
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
+    expect(context.turnEnvelope.requestedOperation).toBe('conversation')
   })
 })
