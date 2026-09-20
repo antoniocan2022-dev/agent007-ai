@@ -10,6 +10,7 @@ import { runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityChe
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { resetProviderStandingForTests } from '@/lib/provider-standing'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import type { LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
 import { EMPTY_PARTNER_INTELLIGENCE, type PartnerIntelligenceSummary } from '@/lib/ceo-partner-intelligence'
@@ -858,5 +859,198 @@ describe('CEO cognitive lifecycle', () => {
     expect(agentRoute).toContain("withOrchestrationOwner")
     expect(agentRoute).toContain("runOrchestrator")
     expect(agentRoute).toContain("evidenceState: response.evidenceState")
+  })
+
+  // Recommendation 2 (2026-09-20): proves the hierarchical-comprehension executor's synthesis
+  // actually threads through runCeoCognitiveLifecycle's real generation path -- not just that the
+  // executor module works correctly in isolation (see tests/ceo-document-comprehension-executor.test.ts
+  // for that). Distinguishes map/reduce/primary provider calls by the distinctive phrasing each prompt
+  // type carries (see renderMapStepPrompt/renderReduceStepPrompt in ceo-document-comprehension.ts).
+  describe('Recommendation 2: hierarchical document comprehension synthesis threads through to primary generation', () => {
+    function bigDocumentMessage(): string {
+      const paragraph = (i: number) => `Paragraph ${i}: this section of the quarterly operations report describes routine business activities, staffing updates, and administrative notes for the period under review, covering a distinct topic from every other paragraph in the document. `
+      const body = Array.from({ length: 260 }, (_, i) => paragraph(i)).join('\n\n')
+      return `Please summarize the key points of this report.\n\n${body}`
+    }
+
+    test('a genuinely large document causes the hierarchical synthesis to appear in the primary generation call', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postCalls: { kind: 'map' | 'reduce' | 'other'; content: string }[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          const kind = allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other'
+          postCalls.push({ kind, content: allContent })
+          if (kind === 'map') return jsonResponse({ choices: [{ message: { content: 'Extraction note for a section.' } }] })
+          if (kind === 'reduce') return jsonResponse({ choices: [{ message: { content: 'Synthesized overview covering every section of the report.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'Final answer summarizing the report for the reader.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: bigDocumentMessage() }], timeoutMs: 45000 })
+
+      expect(postCalls.some((call) => call.kind === 'map')).toBe(true)
+      expect(postCalls.some((call) => call.kind === 'reduce')).toBe(true)
+      const otherCalls = postCalls.filter((call) => call.kind === 'other')
+      expect(otherCalls.length).toBeGreaterThan(0)
+      expect(otherCalls.some((call) => call.content.includes('HIERARCHICAL DOCUMENT COMPREHENSION') && call.content.includes('Synthesized overview covering every section of the report'))).toBe(true)
+      // Whether the mocked short final answer itself clears the quality gate is incidental to this
+      // test -- the invariant under test is that the synthesis reached the primary generation call at
+      // all, which the assertion above already proves regardless of the eventual quality outcome.
+      expect(result.content.length).toBeGreaterThan(0)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('an ordinary short message never produces map/reduce calls or a hierarchical synthesis block', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postKinds: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          postKinds.push(allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other')
+          expect(allContent).not.toContain('HIERARCHICAL DOCUMENT COMPREHENSION')
+          return jsonResponse({ choices: [{ message: { content: 'A short, direct answer about the burn rate trend.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is our current burn rate trend?' }], timeoutMs: 15000 })
+      expect(postKinds.length).toBeGreaterThan(0)
+      expect(postKinds.every((kind) => kind === 'other')).toBe(true)
+      expect(result.degraded).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    // Deep-audit fix (2026-09-20): the hierarchical-comprehension IIFE used to run unconditionally,
+    // before the `action === 'clarify'` branch decision even happens -- so a turn that resolves to
+    // 'clarify' (whose own messages array never includes documentComprehensionMessages) could still
+    // burn up to ~30s of real map/reduce provider calls for a synthesis that's immediately discarded.
+    test('a "clarify" response action skips hierarchical document comprehension entirely, even for a genuinely large document', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postKinds: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          postKinds.push(allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other')
+          return jsonResponse({ choices: [{ message: { content: 'What exactly would you like me to clarify about this report?' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      // A trailing bare "and" with no closing punctuation makes completionFor classify this as
+      // 'partial', which forces responseAction to 'clarify' regardless of the document's size.
+      const message = `${bigDocumentMessage()} and`
+      const state = deriveCeoConversationState([], message)
+      const context = buildCanonicalConversationContext({ currentMessage: message, rows: [], state, references: [] })
+      const contract = buildConversationDecisionContract(context)
+      expect(contract.responseAction).toBe('clarify')
+
+      await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: message }], canonicalContext: context, decisionContract: contract, timeoutMs: 45000 })
+      expect(postKinds.length).toBeGreaterThan(0)
+      // Whether the mocked clarification question itself clears the quality gate is incidental to this
+      // test -- the invariant under test is that no map/reduce call was ever made for this turn, proven
+      // by every captured provider call being 'other' (a normal generation/recovery call).
+      expect(postKinds.every((kind) => kind === 'other')).toBe(true)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    // Deep-audit fix (2026-09-20): the no-canonical-context fallback for `instruction` used to be the
+    // raw, unwindowed `objective` -- the entire source document -- instead of extractInstructionWindow's
+    // bounded window. That meant every map-step prompt (renderMapStepPrompt) embedded the ENTIRE
+    // document a second time as its "reader's request," on top of the section text it already carries.
+    test('without a canonical context, map-step prompts use a windowed instruction, not the entire raw document, as the reader\'s request', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      let mapPromptContent = ''
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          if (allContent.includes('reading section')) mapPromptContent = mapPromptContent || allContent
+          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesis.' } }] })
+          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'Final answer summarizing the report for the reader.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const doc = bigDocumentMessage() // no canonicalContext supplied -- exercises the fallback path
+      await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: doc }], timeoutMs: 45000 })
+
+      expect(mapPromptContent.length).toBeGreaterThan(0) // confirms a map call actually happened
+      // A single map-step prompt embeds one bounded section (<=6,000 chars by default) plus the
+      // instruction window -- if the instruction were the raw, unwindowed document instead, this one
+      // prompt alone would already approach or exceed the whole document's own length.
+      expect(mapPromptContent.length).toBeLessThan(doc.length / 2)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+  })
+
+  // Recommendation 3 (2026-09-20): proves the structuralSourceModel built from the hierarchical-
+  // comprehension executor's per-section extraction outputs actually reaches evaluateCeoQuality through
+  // runCeoCognitiveLifecycle's real generation path -- not just that ceo-structural-quality-gate.ts's own
+  // logic is correct in isolation (see tests/ceo-structural-quality-gate.test.ts for that).
+  describe('Recommendation 3: structural source model threads through to the quality gate', () => {
+    function bigDocumentMessage(): string {
+      const paragraph = (i: number) => `Paragraph ${i}: this section of the quarterly operations report describes routine business activities, staffing updates, and administrative notes for the period under review, covering a distinct topic from every other paragraph in the document. `
+      const body = Array.from({ length: 260 }, (_, i) => paragraph(i)).join('\n\n')
+      return `Please summarize the key points of this report.\n\n${body}`
+    }
+
+    test('a genuinely large document produces a quality result with an applicable structural assessment', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note describing routine quarterly operations activity for this section.' } }] })
+          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesized overview of routine quarterly operations activity across every section.' } }] })
+          // Includes a heading and decision-language keywords so structureOk passes, and deliberately
+          // avoids words like "current"/"today"/"confirmed" that would trip the (unrelated)
+          // live-evidence check -- the point of this test is the structural-source-model wiring, not
+          // re-litigating this file's own, separately covered structural/coverage/evidence checks.
+          return jsonResponse({ choices: [{ message: { content: '## Summary\n\nThis report covers routine quarterly operations activity, including business updates, staffing changes, and administrative notes across every section.\n\n## Recommendation\n\nNo material risks were identified; no further action is required for this reporting period.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: bigDocumentMessage() }], timeoutMs: 45000 })
+      expect(result.quality.structuralQuality?.applicable).toBe(true)
+      expect(result.quality.structuralQuality?.claimCoverage).toBeGreaterThan(0)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('an ordinary short message produces a quality result with structuralQuality.applicable false', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) return jsonResponse({ choices: [{ message: { content: 'A short, direct answer about the burn rate trend.' } }] })
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is our current burn rate trend?' }], timeoutMs: 15000 })
+      expect(result.quality.structuralQuality?.applicable).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
   })
 })

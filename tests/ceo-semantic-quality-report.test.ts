@@ -11,7 +11,7 @@ function cq(overrides: Partial<ConversationQualityScore> = {}): ConversationQual
   return { score: 90, continuity: 90, relevance: 88, naturalness: 92, toneAlignment: 90, coherence: 91, nonRepetition: 95, initiative: 80, referenceResolution: 90, personalityConsistency: 92, progression: 85, issues: [], ...overrides }
 }
 function contract(overrides: Partial<ConversationDecisionContract> = {}): ConversationDecisionContract {
-  return { schemaVersion: 3, meaning: 'what is the plan', intent: 'conversation', speechAct: 'question', completeness: 'complete', conversationRelation: 'new', cognitiveDepth: 'contextual', responseRegister: 'conversational', responseAction: 'answer', toolRequirement: 'none', evidenceRequirement: 'none', clarificationRequired: false, confidence: 0.9, uncertainty: [], rationale: [], ...overrides }
+  return { schemaVersion: 3, meaning: 'what is the plan', intent: 'conversation', speechAct: 'question', completeness: 'complete', conversationRelation: 'new', cognitiveDepth: 'contextual', responseRegister: 'conversational', responseAction: 'answer', comprehensionMode: 'conversation', toolRequirement: 'none', evidenceRequirement: 'none', clarificationRequired: false, confidence: 0.9, uncertainty: [], rationale: [], ...overrides }
 }
 
 describe('SemanticQualityReport and SemanticRepairPlan', () => {

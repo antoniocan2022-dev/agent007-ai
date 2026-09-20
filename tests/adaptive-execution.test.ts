@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { classifyExecution, shouldUseFastLane } from '@/lib/adaptive-execution'
 import { runCanonicalLlmParallel } from '@/lib/canonical-llm-router'
+import { extractInstructionWindow } from '@/lib/ceo-cognitive-contract'
 
 const user = (content: string) => [{ role: 'user', content }]
 
@@ -119,5 +120,31 @@ describe('Adaptive Execution Architecture', () => {
     expect(results).toHaveLength(1)
     expect(results[0]?.error).toBeInstanceOf(Error)
     expect((results[0]?.error as Error)?.message).toContain('fast lane request')
+  })
+
+  // Deep-audit fix (2026-09-20): classifyExecution used to window `normalized` (all whitespace,
+  // including newlines, collapsed to single spaces) instead of `text` (raw, newline-preserving) before
+  // calling extractInstructionWindow -- the identical newline-collapse bug Recommendation 1 fixed in
+  // ceo-pre-router.ts. extractInstructionWindow's lead-in-phrase branch (SOURCE_LEAD_IN_RE) requires a
+  // literal newline immediately after the phrase, so it could never fire through this file, and every
+  // long paste with no matched lead-in fell back to a flat head-600-chars slice of the WHOLE document --
+  // including any mission/deep-work vocabulary the document itself happened to use early on.
+  describe('newline-preservation fix: a lead-in phrase followed by a pasted document is windowed correctly', () => {
+    function buildDoc(): string {
+      const early = "Our team will likely need to deploy new tooling eventually, but that's a side note."
+      const filler = 'filler content padding out the document. '.repeat(200)
+      return `Analyze this:\n${early} ${filler}\n\nWhat do you think of this report overall?`
+    }
+
+    test('classifyExecution does not promote this to the mission lane just because "deploy" appears early in the pasted document', () => {
+      const plan = classifyExecution(user(buildDoc()))
+      expect(plan.executionClass).not.toBe('mission')
+    })
+
+    test('the old whitespace-collapsed windowing would have captured "deploy" in its head slice -- confirms the fixture actually exercises the fix, not a scenario already handled', () => {
+      const doc = buildDoc()
+      const oldStyleNormalized = doc.replace(/\s+/g, ' ').trim()
+      expect(extractInstructionWindow(oldStyleNormalized)).toContain('deploy')
+    })
   })
 })

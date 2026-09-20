@@ -256,7 +256,14 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // keyword scan below to the user's own plausible instruction; `text` itself is left untouched for
   // length/emptiness checks and structural reference-slicing, and is still what reaches generation
   // downstream (via canonicalSemanticContext.currentMessage, not this file).
-  const classificationText = extractInstructionWindow(text)
+  // Recommendation 1 (2026-09-20): prefers semanticContext.instruction (computed once in
+  // buildCanonicalConversationContext, the real production path -- see route.ts) over recomputing here.
+  // This is not just deduplication: `text` above whitespace-collapses newlines before windowing, which
+  // silently disabled extractInstructionWindow's lead-in-phrase branch (it requires a real newline after
+  // the phrase) for every call through this file specifically -- semanticContext.instruction is built
+  // from the newline-preserving canonical currentMessage, so it doesn't have that gap. Falls back to the
+  // original local computation for any caller without a canonical context yet (tests, offline tooling).
+  const classificationText = semanticContext?.instruction ?? extractInstructionWindow(text)
   const selfReflection = classifyCeoSelfReflection(classificationText)
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
