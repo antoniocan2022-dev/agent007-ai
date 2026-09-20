@@ -153,7 +153,18 @@ export function compactMessagesForRequestSize(messages: readonly Record<string, 
   const result = messages.map((message) => ({ ...message }))
   const currentTurnIndex = (() => { for (let index = result.length - 1; index >= 0; index -= 1) if (result[index]?.role === 'user') return index; return -1 })()
   const sizes = result.map((message, index) => ({ index, tokens: typeof message.content === 'string' ? estimateTokens(message.content) : 0, isSystem: message.role === 'system', isCurrentTurn: index === currentTurnIndex }))
-  let total = sizes.reduce((sum, entry) => sum + entry.tokens, 0)
+  // Deep-audit fix (2026-09-20): `total` used to start from sizes.reduce(...), which -- like each
+  // individual entry.tokens -- counts array-part (multimodal) message content as 0 tokens, since this
+  // function has no safe way to truncate it. But the caller (estimateRequestTokens, which decides
+  // whether to invoke this function at all) DOES count array-part text. That mismatch meant a request
+  // that's genuinely oversized once multimodal text is counted could still see `total <=
+  // targetTokens` here and return unmodified, understating how compacted the truncatable messages
+  // actually need to be to bring the WHOLE request back under budget. Seeding `total` from
+  // estimateRequestTokens keeps the truncation decision honest about the untouchable content's real
+  // weight, while the loop below still only ever adjusts `total` by entry.tokens deltas for the
+  // string-content messages it actually compacts (array-content entries stay tokens:0 and are still
+  // never touched).
+  let total = estimateRequestTokens(result)
   if (total <= targetTokens) return result
   // Compact ordinary non-system, non-current-turn messages first (evidence/history is the usual bulk);
   // the current turn's own message is only reached once those are exhausted, and the system message

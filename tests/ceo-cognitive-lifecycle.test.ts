@@ -10,6 +10,7 @@ import { runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityChe
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { resetProviderStandingForTests } from '@/lib/provider-standing'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import type { LeaderPerformanceRecord } from '@/lib/ceo-leadership-performance'
 import { EMPTY_PARTNER_INTELLIGENCE, type PartnerIntelligenceSummary } from '@/lib/ceo-partner-intelligence'
@@ -925,6 +926,76 @@ describe('CEO cognitive lifecycle', () => {
       expect(postKinds.length).toBeGreaterThan(0)
       expect(postKinds.every((kind) => kind === 'other')).toBe(true)
       expect(result.degraded).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    // Deep-audit fix (2026-09-20): the hierarchical-comprehension IIFE used to run unconditionally,
+    // before the `action === 'clarify'` branch decision even happens -- so a turn that resolves to
+    // 'clarify' (whose own messages array never includes documentComprehensionMessages) could still
+    // burn up to ~30s of real map/reduce provider calls for a synthesis that's immediately discarded.
+    test('a "clarify" response action skips hierarchical document comprehension entirely, even for a genuinely large document', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const postKinds: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          postKinds.push(allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other')
+          return jsonResponse({ choices: [{ message: { content: 'What exactly would you like me to clarify about this report?' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      // A trailing bare "and" with no closing punctuation makes completionFor classify this as
+      // 'partial', which forces responseAction to 'clarify' regardless of the document's size.
+      const message = `${bigDocumentMessage()} and`
+      const state = deriveCeoConversationState([], message)
+      const context = buildCanonicalConversationContext({ currentMessage: message, rows: [], state, references: [] })
+      const contract = buildConversationDecisionContract(context)
+      expect(contract.responseAction).toBe('clarify')
+
+      await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: message }], canonicalContext: context, decisionContract: contract, timeoutMs: 45000 })
+      expect(postKinds.length).toBeGreaterThan(0)
+      // Whether the mocked clarification question itself clears the quality gate is incidental to this
+      // test -- the invariant under test is that no map/reduce call was ever made for this turn, proven
+      // by every captured provider call being 'other' (a normal generation/recovery call).
+      expect(postKinds.every((kind) => kind === 'other')).toBe(true)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    // Deep-audit fix (2026-09-20): the no-canonical-context fallback for `instruction` used to be the
+    // raw, unwindowed `objective` -- the entire source document -- instead of extractInstructionWindow's
+    // bounded window. That meant every map-step prompt (renderMapStepPrompt) embedded the ENTIRE
+    // document a second time as its "reader's request," on top of the section text it already carries.
+    test('without a canonical context, map-step prompts use a windowed instruction, not the entire raw document, as the reader\'s request', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      let mapPromptContent = ''
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          if (allContent.includes('reading section')) mapPromptContent = mapPromptContent || allContent
+          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesis.' } }] })
+          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'Final answer summarizing the report for the reader.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const doc = bigDocumentMessage() // no canonicalContext supplied -- exercises the fallback path
+      await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: doc }], timeoutMs: 45000 })
+
+      expect(mapPromptContent.length).toBeGreaterThan(0) // confirms a map call actually happened
+      // A single map-step prompt embeds one bounded section (<=6,000 chars by default) plus the
+      // instruction window -- if the instruction were the raw, unwindowed document instead, this one
+      // prompt alone would already approach or exceed the whole document's own length.
+      expect(mapPromptContent.length).toBeLessThan(doc.length / 2)
       resetProviderHealthForTests()
       resetProviderStandingForTests()
     })

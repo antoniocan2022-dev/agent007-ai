@@ -75,7 +75,16 @@ export function classifyExecution(
   // classificationText bounds every one of those scans to the user's own plausible instruction; length-
   // based signals below (normalized.length) deliberately still read the real, unwindowed message, since
   // a genuinely long request warranting more budget is a correct signal regardless of vocabulary.
-  const classificationText = extractInstructionWindow(normalized)
+  //
+  // Deep-audit fix (2026-09-20): this used to window `normalized`, not `text` -- the same newline-
+  // collapse bug Recommendation 1 fixed in ceo-pre-router.ts (see that file's own comment). normalized
+  // strips every newline before extractInstructionWindow ever runs, so SOURCE_LEAD_IN_RE's lead-in-
+  // phrase branch (it requires a real newline immediately after the phrase) could never fire for any
+  // classification this file drives -- self-reflection detection, mission/deep-work promotion, and
+  // (via canonical-llm-router.ts's classifyExecution call) the parallelizable gate every canonical LLM
+  // request is checked against. `text` is the same raw, newline-preserving trim already used for the
+  // emptiness/greeting checks above; only the whitespace WITHIN it is left uncollapsed for windowing.
+  const classificationText = extractInstructionWindow(text)
   const selfReflection = precomputedSelfReflection ?? classifyCeoSelfReflection(classificationText)
   if (selfReflection.isSelfReflective) {
     return {

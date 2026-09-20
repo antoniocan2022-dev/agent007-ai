@@ -66,6 +66,26 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     expect(fetchCalled).toBe(false)
   })
 
+  // Deep-audit fix (2026-09-20): MIN_STEP_TIMEOUT_MS is a floor, not a proportional share -- at a batch
+  // count this plan actually has (2, at concurrency 4), flooring every call to at least 4000ms can push
+  // the real worst-case wall time (2 map batches + 1 reduce, each floored) above a timeBudgetMs that
+  // comfortably clears MIN_VIABLE_TIME_BUDGET_MS (8000ms) on its own. Before this fix, execution would
+  // have been attempted anyway and could overrun the caller's actual time budget -- eating into time the
+  // primary generation call needs afterward, exactly what this executor promises never to do.
+  test('a time budget that would overrun once this plan\'s own batch count is accounted for is skipped, not attempted', async () => {
+    let fetchCalled = false
+    globalThis.fetch = (async () => { fetchCalled = true; throw new Error('should not be called') }) as typeof fetch
+    const plan = bigPlan(5)
+    expect(plan.mapSteps.length).toBeGreaterThan(4) // guarantees 2 map batches at concurrency 4
+    expect(plan.mapSteps.length).toBeLessThanOrEqual(8)
+    // 9000ms clears MIN_VIABLE_TIME_BUDGET_MS on its own, but 2 map batches + 1 reduce, each floored to
+    // MIN_STEP_TIMEOUT_MS (4000ms), is a 12000ms worst case -- 3000ms over this budget.
+    const result = await executeHierarchicalComprehension(plan, { timeBudgetMs: 9000 })
+    expect(result.executed).toBe(false)
+    expect(fetchCalled).toBe(false)
+    expect(result.failureNotes.some((note) => note.includes('Insufficient time budget'))).toBe(true)
+  })
+
   test('every section succeeding produces a synthesis covering all sections', async () => {
     process.env.GROQ_API_KEY = 'test-groq'
     let mapCalls = 0

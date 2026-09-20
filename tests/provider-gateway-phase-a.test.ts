@@ -214,6 +214,35 @@ describe('compactMessagesForRequestSize', () => {
     expect(String(compacted[2]!.content).length).toBeLessThan(40000)
     expect(String(compacted[2]!.content)).toContain('truncated')
   })
+
+  // Deep-audit fix (2026-09-20): compactMessagesForRequestSize's own internal `total` used to be seeded
+  // from sizes.reduce(...), which -- like each individual entry.tokens -- counts array-part (multimodal)
+  // message content as 0 tokens (this function has no safe way to truncate it). But
+  // estimateRequestTokens, which the caller (runGovernedProviderChat in provider-runtime-v2.ts) uses to
+  // decide whether to invoke this function at all, DOES count array-part text. That mismatch meant a
+  // request that's genuinely oversized once a large multimodal text part is counted could still see
+  // `total <= targetTokens` inside this function and return every message completely unmodified --
+  // silently skipping compaction of the message(s) it actually CAN shrink, even though the request as a
+  // whole (correctly, per estimateRequestTokens) needed it.
+  test('a large array-content (multimodal) message forces real compaction of the touchable messages, instead of the function returning everything unmodified', () => {
+    const largeMultimodalText = 'm'.repeat(60000) // ~15,000 tokens by this file's estimator, well over target alone
+    const currentDocument = 'd'.repeat(5000)
+    const messages = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: [{ type: 'text', text: largeMultimodalText }] },
+      { role: 'assistant', content: 'ok' },
+      { role: 'user', content: currentDocument },
+    ]
+    const target = 8000
+    // Confirms the fixture actually exercises the fix: the OLD string-only total (ignoring the
+    // multimodal message entirely) sits comfortably under target, so the old code would have returned
+    // every message unmodified.
+    const oldStyleTotal = estimateTokens('sys') + estimateTokens('ok') + estimateTokens(currentDocument)
+    expect(oldStyleTotal).toBeLessThan(target)
+    const compacted = compactMessagesForRequestSize(messages, target)
+    expect(String(compacted[3]!.content).length).toBeLessThan(currentDocument.length) // the current turn -- the only touchable message -- was actually compacted
+    expect(compacted[1]!.content).toEqual(messages[1]!.content) // the untouchable multimodal message is left exactly as-is, never corrupted
+  })
 })
 
 describe('getProviderAvailabilityStatus: a provider with zero observations is UNKNOWN, never DEGRADED', () => {

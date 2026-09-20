@@ -18,7 +18,7 @@ import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, DecisionPlan, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision, CeoGenerationDiagnostics, CeoIntent } from './ceo-cognitive-contract'
-import { inferComprehensionMode } from './ceo-cognitive-contract'
+import { inferComprehensionMode, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { renderConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
@@ -393,13 +393,27 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   // instruction/source-material split, rather than re-deriving one locally.
   const documentComprehensionMessages = await (async (): Promise<{ role: 'system'; content: string }[]> => {
     try {
+      // Deep-audit fix (2026-09-20): a 'clarify' turn never includes documentComprehensionMessages in
+      // its own generation call (see the `action === 'clarify'` branch below, which builds its messages
+      // array without this constant) -- but before this check, the executor still RAN, unconditionally,
+      // for every turn regardless of the eventual action, up to its full time budget (up to 30s of real
+      // map/reduce provider calls) only to have the result discarded. Skipping up front for 'clarify'
+      // avoids paying that latency/cost for a synthesis that can never be used.
+      if (request.decisionContract?.responseAction === 'clarify') return []
       const sourceMaterial = request.canonicalContext?.currentMessage ?? objective
       const trace = buildDocumentComprehensionTrace(sourceMaterial)
       if (!shouldExecuteHierarchicalComprehension(trace)) return []
       const remainingMs = deadline - Date.now()
       const timeBudgetMs = Math.min(30_000, Math.max(0, Math.floor(remainingMs * 0.3)))
       if (timeBudgetMs < 8_000) return []
-      const instruction = request.canonicalContext?.instruction ?? objective
+      // Deep-audit fix (2026-09-20): the no-canonical-context fallback used to be the raw `objective`
+      // (the entire source document) rather than a windowed instruction -- every other Recommendation 1
+      // fallback in this codebase (ceo-pre-router.ts, ceo-cognitive-lifecycle.ts's own
+      // recoveryComprehensionMode above) reduces to extractInstructionWindow, not the full message.
+      // Left as `objective` verbatim, every map-step prompt (renderMapStepPrompt in
+      // ceo-document-comprehension.ts) would embed the ENTIRE document a second time as "reader's
+      // request," multiplying input tokens across every section call for no benefit.
+      const instruction = request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
       const plan = buildHierarchicalComprehensionPlan(instruction, sourceMaterial)
       const result = await executeHierarchicalComprehension(plan, { signal: getCeoCancellationSignal(), timeBudgetMs })
       if (!result.executed || !result.synthesis) return []

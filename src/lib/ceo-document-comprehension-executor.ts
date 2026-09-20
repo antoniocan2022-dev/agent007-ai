@@ -107,6 +107,19 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
   const reduceBudgetMs = timeBudgetMs - mapBudgetMs
   const mapBatches = Math.ceil(steps.length / 4)
   const perMapTimeoutMs = Math.max(MIN_STEP_TIMEOUT_MS, Math.floor(mapBudgetMs / Math.max(1, mapBatches)))
+  const reduceTimeoutMs = Math.max(MIN_STEP_TIMEOUT_MS, reduceBudgetMs)
+  // Deep-audit fix (2026-09-20): MIN_STEP_TIMEOUT_MS is a floor, not a proportional share of the
+  // budget -- when timeBudgetMs is small relative to this plan's batch count (mapBatches, sequential
+  // rounds of up to 4 concurrent map calls each), flooring every call up to at least
+  // MIN_STEP_TIMEOUT_MS can push this plan's actual worst-case wall time (mapBatches * perMapTimeoutMs
+  // + reduceTimeoutMs) above timeBudgetMs itself -- eating into time the caller (the primary generation
+  // call in ceo-cognitive-lifecycle.ts, which recomputes its own timeout from whatever deadline remains
+  // afterward) actually needs, exactly the outcome this executor's own module comment promises never to
+  // cause ("can only ever help, never block or degrade a turn"). Checked against THIS plan's own
+  // mapBatches rather than folded into a single MIN_VIABLE_TIME_BUDGET_MS constant, since
+  // MAX_SECTIONS_TO_EXECUTE bounds mapBatches to at most 2 today but that bound is free to change
+  // independently of this budget math.
+  if (mapBatches * perMapTimeoutMs + reduceTimeoutMs > timeBudgetMs) return skip(['Insufficient time budget remaining for hierarchical comprehension given this document\'s section count; proceeding with the source document alone.'], Date.now() - started)
 
   const mapResults = await runBounded(steps, 4, async (step, index) => {
     const result = await runCanonicalLlm({
@@ -144,7 +157,7 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
       executionClass: 'standard',
       temperature: 0.3,
       maxTokens: REDUCE_STEP_MAX_TOKENS,
-      timeoutMs: Math.max(MIN_STEP_TIMEOUT_MS, reduceBudgetMs),
+      timeoutMs: reduceTimeoutMs,
       maxProviderAttempts: 1,
       signal: options?.signal,
     })
