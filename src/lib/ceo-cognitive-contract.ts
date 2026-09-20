@@ -89,8 +89,9 @@ export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'r
 // comprehension job this turn is, computed once per request instead of being independently re-derived
 // (as a bare `objective.length >= threshold` check) inside the quality gate every time it runs. Kept
 // deliberately honest about what the available signals (responseAction, source length) can actually
-// tell apart today -- 'summarize'/'compare'/'extract' are reserved for when a richer classifier (Phase 3)
-// can genuinely distinguish them, not fabricated from signals that can't support them yet.
+// tell apart today -- 'summarize'/'compare'/'extract' are reserved for a future, richer intent
+// classifier that can genuinely distinguish them from plain analysis; nothing upstream produces that
+// signal yet, so fabricating them here would just be guessing.
 export type CeoComprehensionMode = 'conversation' | 'summarize' | 'explain' | 'deep_analysis' | 'critique' | 'compare' | 'extract'
 // A message longer than this is treated as carrying a document to comprehend, not just a short
 // instruction/question -- mirrors ceo-response-quality-gate.ts's own LONG_OBJECTIVE_CHARS threshold
@@ -102,11 +103,22 @@ const LONG_SOURCE_CHARS = 4_000
  * (ceo-conversation-decision-contract.ts's responseAction, the canonical objective's length) rather than
  * requiring every caller to independently guess. Callers that don't yet have a responseAction (e.g.
  * direct/offline callers) still get a sound default from source length alone.
+ *
+ * Deep-audit fix (2026-09-20): source length is checked for EVERY branch, not just the fallback --
+ * the only real consumer of this today (ceo-response-quality-gate.ts's objectiveCoverage relaxation)
+ * treats 'critique'/'deep_analysis' as "long document, relax lexical coverage." Returning 'critique' for
+ * *any* challenge responseAction regardless of length (the original version of this function) meant a
+ * short "please challenge my assumption" turn with no document attached at all got the same relaxed
+ * coverage requirement as a genuine long-document critique -- silently weakening quality enforcement for
+ * ordinary short adversarial replies. Symmetrically, a long "explain this report" turn mapped to
+ * 'explain' (not in the long-document set) and LOST the relaxation Phase 1 introduced specifically for
+ * this incident. Gating both branches on sourceLength fixes both directions at once.
  */
 export function inferComprehensionMode(input: { responseAction?: ResponseAction; sourceLength: number }): CeoComprehensionMode {
-  if (input.responseAction === 'challenge') return 'critique'
-  if (input.responseAction === 'explain') return 'explain'
-  if (input.sourceLength >= LONG_SOURCE_CHARS) return 'deep_analysis'
+  const longSource = input.sourceLength >= LONG_SOURCE_CHARS
+  if (input.responseAction === 'challenge') return longSource ? 'critique' : 'conversation'
+  if (input.responseAction === 'explain') return longSource ? 'deep_analysis' : 'explain'
+  if (longSource) return 'deep_analysis'
   return 'conversation'
 }
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }

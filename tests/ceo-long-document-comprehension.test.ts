@@ -209,13 +209,28 @@ describe('Phase 2: inferComprehensionMode canonical classification', () => {
     expect(inferComprehensionMode({ sourceLength: 40 })).toBe('conversation')
   })
 
-  test('an explicit challenge responseAction always yields critique, regardless of length', () => {
-    expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 40 })).toBe('critique')
+  // Deep-audit fix (2026-09-20): the original version of this function returned 'critique' for ANY
+  // challenge responseAction regardless of length -- since ceo-response-quality-gate.ts treats
+  // 'critique' as "long document, relax coverage," that silently weakened quality enforcement for a
+  // short "please challenge my assumption" turn with no document attached at all. A challenge only
+  // becomes 'critique' when the source is actually long; a short one is ordinary 'conversation'.
+  test('a challenge responseAction over a SHORT source (no document) is ordinary conversation, not critique', () => {
+    expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 40 })).toBe('conversation')
+  })
+
+  test('a challenge responseAction over a LONG source is critique', () => {
     expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 10_000 })).toBe('critique')
   })
 
-  test('an explicit explain responseAction always yields explain, regardless of length', () => {
+  // Symmetric fix: a long "explain this report" turn used to map to 'explain' (not in the
+  // long-document set), losing the exact relaxation Phase 1 introduced for this incident. A short
+  // explain request keeps its own label since it isn't a document-comprehension job at all.
+  test('an explain responseAction over a SHORT source stays explain', () => {
     expect(inferComprehensionMode({ responseAction: 'explain', sourceLength: 40 })).toBe('explain')
+  })
+
+  test('an explain responseAction over a LONG source is promoted to deep_analysis, not left as explain', () => {
+    expect(inferComprehensionMode({ responseAction: 'explain', sourceLength: 10_000 })).toBe('deep_analysis')
   })
 
   test('a long source with no more specific responseAction yields deep_analysis', () => {
@@ -242,5 +257,38 @@ describe('Phase 2: evaluateCeoQuality honors an explicit comprehensionMode the s
   test('an explicit comprehensionMode: conversation on the same long objective does NOT get the long-document relaxation -- the signal, not the raw length, now governs', () => {
     const withMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, comprehensionMode: 'conversation' })
     expect(withMode.checks.objectiveCoverage).toBe(false)
+  })
+})
+
+// Deep-audit fix (2026-09-20): locks in the actual production consequence of the inferComprehensionMode
+// fix above through the exact call shape ceo-cognitive-lifecycle.ts uses (responseAction AND its
+// derived comprehensionMode passed together). Without the fix, a short "challenge" turn with no
+// document at all got the long-document coverage relaxation it was never meant to have (weakening
+// enforcement), and a long "explain this document" turn lost the relaxation Phase 1 introduced this
+// incident specifically to add.
+describe('Deep-audit fix: inferComprehensionMode length-gating flows correctly through the real evaluateCeoQuality call shape', () => {
+  test('a SHORT challenge turn (no document) does not get the long-document coverage relaxation', () => {
+    const shortObjective = 'Please challenge my assumption that we should raise prices aggressively next quarter given weak demand signals.'
+    const mode = inferComprehensionMode({ responseAction: 'challenge', sourceLength: shortObjective.length })
+    expect(mode).toBe('conversation')
+    // Deliberately low-but-nonzero overlap: enough to fail the strict 25%/35% threshold this short,
+    // non-document turn should still be held to, but the kind of content that WOULD wrongly pass under
+    // the old bug's incorrectly-relaxed 8% threshold.
+    const weakContent = 'I disagree with that plan. Demand looks soft right now and raising prices could accelerate churn instead of protecting margin. A smaller, staged increase paired with better retention offers would probably serve better.'
+    const quality = evaluateCeoQuality({ objective: shortObjective, content: weakContent, path: 'full', intent: 'decision', reviewed: false, externalExecutionSucceeded: true, responseAction: 'challenge', comprehensionMode: mode })
+    expect(quality.checks.objectiveCoverage).toBe(false)
+  })
+
+  test('a LONG explain-this-document turn still gets the long-document coverage relaxation', () => {
+    const mode = inferComprehensionMode({ responseAction: 'explain', sourceLength: PLAIN_ANALYSIS_MESSAGE.length })
+    expect(mode).toBe('deep_analysis')
+    const content = [
+      'Overall, the business grew steadily this quarter: revenue and retention both held up, and onboarding friction fell after the new setup wizard.',
+      'The main watch item is intensifying price competition, which leadership chose not to match directly given strong differentiation in support.',
+      'Going forward, the plan favors deepening mid-market integrations over chasing new enterprise deals, since the sales-cycle risk is smaller and the near-term return looks stronger.',
+      'None of the pending partnership discussions are contractually committed yet, so they remain pipeline rather than booked revenue for planning purposes.',
+    ].join(' ')
+    const quality = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, responseAction: 'explain', comprehensionMode: mode })
+    expect(quality.checks.objectiveCoverage).toBe(true)
   })
 })

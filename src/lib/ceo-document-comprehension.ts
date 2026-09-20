@@ -62,11 +62,13 @@ export interface DocumentComprehensionPlan {
 // single section is meant to be comfortably, not maximally, within one focused pass.
 export const DEFAULT_SECTION_BUDGET_CHARS = 6_000
 
-// A document that fits in one section never needs the map-reduce path at all -- single-pass
-// generation over the whole (still fully-preserved, per Phase 1) document is strictly better than
-// splitting it for no reason, since it lets the model see cross-section relationships directly.
-function splitOversizedParagraph(paragraph: string, maxChars: number): string[] {
-  const parts: string[] = []
+// Deep-audit fix (2026-09-20): returns each part's offsets RELATIVE TO THE PARAGRAPH, not just its
+// text. A part that ends at a space boundary skips that one character when advancing to the next part
+// (so no part starts or ends with a stray space) -- chunkDocumentIntoSections needs those exact
+// relative offsets to compute each section's true position in the original document; naively summing
+// part.length across parts silently drifts out of sync by one character per skipped space.
+function splitOversizedParagraph(paragraph: string, maxChars: number): { text: string; start: number; end: number }[] {
+  const parts: { text: string; start: number; end: number }[] = []
   let cursor = 0
   while (cursor < paragraph.length) {
     const end = Math.min(paragraph.length, cursor + maxChars)
@@ -75,7 +77,7 @@ function splitOversizedParagraph(paragraph: string, maxChars: number): string[] 
       const lastSpace = paragraph.lastIndexOf(' ', end)
       if (lastSpace > cursor + maxChars * 0.5) boundary = lastSpace
     }
-    parts.push(paragraph.slice(cursor, boundary))
+    parts.push({ text: paragraph.slice(cursor, boundary), start: cursor, end: boundary })
     cursor = boundary === cursor ? end : (paragraph[boundary] === ' ' ? boundary + 1 : boundary)
   }
   return parts
@@ -112,10 +114,8 @@ export function chunkDocumentIntoSections(text: string, maxSectionChars: number 
   for (const paragraph of paragraphs) {
     if (paragraph.text.length > maxSectionChars) {
       flush()
-      let offset = paragraph.start
       for (const part of splitOversizedParagraph(paragraph.text, maxSectionChars)) {
-        sections.push({ index: sections.length, start: offset, end: offset + part.length, text: part, charLength: part.length })
-        offset += part.length
+        sections.push({ index: sections.length, start: paragraph.start + part.start, end: paragraph.start + part.end, text: part.text, charLength: part.text.length })
       }
       continue
     }
@@ -144,6 +144,11 @@ function renderMapStepPrompt(section: DocumentSection, sectionCount: number, obj
   return `You are reading section ${section.index + 1} of ${sectionCount} of a longer document. Extract only the facts, figures, and claims in THIS section that are relevant to the reader's request below. Do not summarize the whole document -- you cannot see the other sections. Do not answer the request yet; just extract what this section contributes to it. If this section has nothing relevant, say so briefly.\n\nReader's request:\n${objective}\n\nSection ${section.index + 1} of ${sectionCount}:\n${section.text}`
 }
 
+// This prompt is the reduce step's INSTRUCTION only -- it deliberately does not embed the map steps'
+// actual outputs, since this module never executes them (see the module-level comment). A future
+// executor supplies those as separate message content (e.g. one message per collected map output)
+// alongside this instruction; this function just needs to exist as its own step so the executor can
+// build that message sequence without re-deriving the wording itself.
 function renderReduceStepPrompt(objective: string, sectionCount: number): string {
   return `You were given extraction notes from all ${sectionCount} sections of a longer document (each produced independently, without seeing the other sections). Synthesize them into one coherent answer to the reader's original request. Resolve any apparent contradictions between sections by noting them explicitly rather than silently picking one. Do not claim a fact came from the document unless it actually appeared in the extraction notes.\n\nReader's request:\n${objective}`
 }

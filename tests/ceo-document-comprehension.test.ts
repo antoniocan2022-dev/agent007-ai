@@ -66,6 +66,25 @@ describe('chunkDocumentIntoSections: boundary and reconstruction correctness', (
     expect(sections.length).toBeGreaterThan(1)
     for (const section of sections) expect(section.charLength).toBeLessThanOrEqual(200)
   })
+
+  // Deep-audit fix (2026-09-20): hard-split sections' start/end offsets used to drift out of sync with
+  // the true original-text position, one character per space skipped at a split boundary (the space
+  // itself is deliberately dropped from each part's text but the offset math summed part.length as if
+  // it weren't). This test embeds the oversized paragraph inside a larger document (so paragraph.start
+  // > 0, the exact condition that exposed the drift) and checks each hard-split section's recorded
+  // text actually appears at its recorded start offset in the ORIGINAL document -- not just that the
+  // section boundaries look self-consistent.
+  test('hard-split sections carry start/end offsets that trace back to their true position in the original document, not a drifted approximation', () => {
+    const preamble = 'A short preamble paragraph that pushes the oversized paragraph away from offset zero.'
+    const hugeParagraph = Array.from({ length: 500 }, (_, w) => `word${w}`).join(' ')
+    const doc = `${preamble}\n\n${hugeParagraph}`
+    const sections = chunkDocumentIntoSections(doc, 200)
+    const hardSplitSections = sections.filter((section) => section.start >= doc.indexOf(hugeParagraph))
+    expect(hardSplitSections.length).toBeGreaterThan(1)
+    for (const section of hardSplitSections) {
+      expect(doc.slice(section.start, section.end)).toBe(section.text)
+    }
+  })
 })
 
 describe('buildDocumentComprehensionTrace: honest single-pass vs hierarchical classification', () => {
