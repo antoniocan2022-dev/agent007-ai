@@ -22,6 +22,7 @@
 import { runCanonicalLlm } from './canonical-llm-router'
 import { isCeoRequestAborted } from './ceo-cancellation'
 import type { DocumentComprehensionPlan, DocumentComprehensionTrace } from './ceo-document-comprehension'
+import type { RequestedOperation } from './ceo-cognitive-contract'
 
 // Deep-audit fix (2026-09-20): deliberately does NOT use canonical-llm-router.ts's own
 // runCanonicalLlmParallel. That helper gates every request through classifyExecution/explicitPlan's
@@ -55,8 +56,22 @@ async function runBounded<T>(items: readonly T[], concurrency: number, run: (ite
 // 6,000-char default budget is roughly a 30,000+ character document: a genuine multi-page report,
 // not an ordinary long paste.
 export const EXECUTION_NECESSITY_SECTION_THRESHOLD = 5
-export function shouldExecuteHierarchicalComprehension(trace: DocumentComprehensionTrace): boolean {
-  return trace.requiresHierarchicalComprehension && trace.sectionCount >= EXECUTION_NECESSITY_SECTION_THRESHOLD
+export const DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD = 2
+
+export function shouldExecuteHierarchicalComprehension(
+  trace: DocumentComprehensionTrace,
+  requestedOperation?: RequestedOperation,
+): boolean {
+  if (!trace.requiresHierarchicalComprehension) return false
+  // Explicit document comprehension is a stronger signal that the user wants
+  // cross-section synthesis. It lowers the execution bar from the generic
+  // 5-section heuristic to 2 sections, but still requires an actual multi-section
+  // source. The operation signal therefore strengthens the existing structural
+  // length/section trigger rather than replacing it.
+  const threshold = requestedOperation === 'document_comprehension'
+    ? DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD
+    : EXECUTION_NECESSITY_SECTION_THRESHOLD
+  return trace.sectionCount >= threshold
 }
 
 // Hard cap on how many sections get their own map call, independent of how many the document
