@@ -1,7 +1,7 @@
 import type { PersistedConversationRow, PersistedMemoryRow } from './ceo-context-composer'
 import type { CeoConversationState, ConversationReference } from './ceo-conversation-state'
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
-import type { InstructionWindowExtractionMethod, InstructionWindowResult, SemanticUncertainty } from './ceo-cognitive-contract'
+import type { InstructionWindowExtractionMethod, InstructionWindowResult, RequestedOperation, SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
@@ -11,7 +11,6 @@ export type ReferenceScope = 'none' | 'same_turn' | 'cross_turn' | 'mixed'
 export type SemanticIntentHint = 'conversation' | 'self_assessment' | 'analysis' | 'decision' | 'research' | 'action' | 'unknown'
 export type SemanticSpeechAct = 'social' | 'question' | 'proposition' | 'continuation' | 'correction' | 'request' | 'unknown'
 export interface SemanticInterpretation { schemaVersion: 1; meaning: string; confidence: number; uncertainty: SemanticUncertainty[]; source: 'deterministic' | 'model_assisted' | 'hybrid'; suggestedIntent?: SemanticIntentHint; suggestedSpeechAct?: SemanticSpeechAct; suggestedCognitiveDepth?: CognitiveDepth }
-export type RequestedOperation = 'conversation' | 'document_comprehension' | 'document_summary' | 'document_critique' | 'document_compare' | 'document_extract' | 'analysis' | 'decision' | 'research' | 'action' | 'self_assessment'
 export interface CeoTurnEnvelope {
   schemaVersion: 1
   instruction: { text: string; authoritativeText: string; extractionMethod: InstructionWindowExtractionMethod }
@@ -105,14 +104,31 @@ function sanitizeSuggestedIntent(value: unknown): SemanticIntentHint | undefined
 function sanitizeSuggestedSpeechAct(value: unknown): SemanticSpeechAct | undefined { return value === 'social' || value === 'question' || value === 'proposition' || value === 'continuation' || value === 'correction' || value === 'request' || value === 'unknown' ? value : undefined }
 function sanitizeSuggestedDepth(value: unknown): CognitiveDepth | undefined { return value === 'direct' || value === 'contextual' || value === 'deep' || value === 'strategic' ? value : undefined }
 
-function requestedOperationFromIntent(intent: SemanticIntentHint): RequestedOperation {
-  if (intent === 'self_assessment') return 'self_assessment'
-  if (intent === 'analysis') return 'analysis'
-  if (intent === 'decision') return 'decision'
-  if (intent === 'research') return 'research'
-  if (intent === 'action') return 'action'
+const DOCUMENT_COMPREHENSION_RE = /\b(?:deep\s+(?:comprehension|understanding)|deeply\s+understand|comprehensive\s+(?:understanding|comprehension)|in[- ]depth\s+(?:understanding|comprehension)|make\s+sense\s+of|help\s+(?:me\s+)?understand|walk(?:\s+me)?\s+through|understand\s+(?:this|that|the\s+(?:report|document|text|article|transcript)))\b/i
+const DOCUMENT_SUMMARY_RE = /\b(?:summari[sz]e|give\s+(?:me\s+)?a\s+summary|executive\s+summary|key\s+(?:points|takeaways)|main\s+(?:points|takeaways))\b/i
+const DOCUMENT_CRITIQUE_RE = /\b(?:critique|criticize|criticise|stress[- ]test|critically\s+(?:review|evaluate)|challenge)\b/i
+const DOCUMENT_COMPARE_RE = /\b(?:compare|contrast|versus|vs\.?)\b/i
+const DOCUMENT_EXTRACT_RE = /\b(?:extract|pull\s+out|list|identify)\b.*\b(?:claims?|findings?|facts?|figures?|data|key\s+points?|takeaways?|risks?|issues?)\b/i
+
+export function inferRequestedOperation(
+  authoritativeInstruction: string,
+  selfAssessmentRequested: boolean,
+): RequestedOperation {
+  const text = authoritativeInstruction.trim()
+  if (!text) return 'conversation'
+  if (selfAssessmentRequested) return 'self_assessment'
+  if (DOCUMENT_SUMMARY_RE.test(text)) return 'document_summary'
+  if (DOCUMENT_COMPARE_RE.test(text)) return 'document_compare'
+  if (DOCUMENT_CRITIQUE_RE.test(text)) return 'document_critique'
+  if (DOCUMENT_EXTRACT_RE.test(text)) return 'document_extract'
+  if (DOCUMENT_COMPREHENSION_RE.test(text)) return 'document_comprehension'
+  if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/i.test(text)) return 'action'
+  if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/i.test(text)) return 'research'
+  if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/i.test(text)) return 'decision'
+  if (/\b(?:analy[sz]e|analysis|assess|evaluate|diagnose|strategy|strategic|architecture)\b/i.test(text)) return 'analysis'
   return 'conversation'
 }
+
 
 export function buildCeoTurnEnvelope(input: {
   instruction: InstructionWindowResult
@@ -185,7 +201,10 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   const fallbackDepth = classifyCognitiveDepth(currentMessage, input.state, input.references.length)
   const turnEnvelope = {
     ...authorityEnvelope,
-    requestedOperation: requestedOperationFromIntent(deterministicIntent),
+    requestedOperation: inferRequestedOperation(
+      instructionExtraction.authoritativeText,
+      authorityEnvelope.selfAssessmentRequested,
+    ),
   }
   return {
     schemaVersion: 1,
