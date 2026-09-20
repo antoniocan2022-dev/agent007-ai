@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { composeCeoContext } from '@/lib/ceo-context-composer'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
-import { extractInstructionWindow, CEO_MESSAGE_CLAMP_CHARS } from '@/lib/ceo-cognitive-contract'
+import { extractInstructionWindow, CEO_MESSAGE_CLAMP_CHARS, inferComprehensionMode } from '@/lib/ceo-cognitive-contract'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
+import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
 
 // Production incident (2026-09-19): "make a deep analysis of this text and tell me in your own words what
 // you think" over a long pasted document degraded on every attempt to a canned "I couldn't complete the
@@ -132,6 +133,53 @@ describe('Long-document incident: end-to-end through composeCeoContext (clamping
   })
 })
 
+describe('Audit fix: extractInstructionWindow keeps a trailing instruction even when a lead-in phrase occurs mid-document', () => {
+  test('a document containing its own "Please read the following:" boilerplate does not swallow a real trailing question', () => {
+    const doc = `Executive summary of the vendor contract.\n\nPlease read the following:\n${'Terms and conditions apply. '.repeat(500)}\n\nGiven all this, should we challenge the termination clause?`
+    const window = extractInstructionWindow(doc)
+    expect(window).toContain('should we challenge the termination clause')
+  })
+
+  test('a genuine short lead-in instruction ("analyze this:\\n<doc>") is unaffected by the tail-preservation fix', () => {
+    const doc = `Analyze this:\n${REPORT}`
+    const window = extractInstructionWindow(doc)
+    expect(window.startsWith('Analyze this:')).toBe(true)
+  })
+})
+
+// Audit follow-up (2026-09-19): auditing PR #182 found the SAME keyword-contamination bug class one
+// layer upstream, in the pre-routing stage that runs BEFORE any of the ceo-cognitive-conversation.ts /
+// ceo-conversation-decision-contract.ts fixes above ever get a chance to run. ceo-pre-router.ts's
+// inferSemanticIntent/isExternalEquityResearch/inferExternalDomain and adaptive-execution.ts's
+// classifyExecution (MISSION_ACTION_RE/MISSION_CONTEXT_RE/DEEP_RE) all used to scan the FULL raw
+// message too -- so a long document that happened to use ordinary words like "run"/"launch"/"create"
+// anywhere in its body (the REPORT fixture above does, in "...every win/loss interview we have run this
+// quarter") could flip the entire turn to executionClass 'mission' and missionRelevant:true, routing a
+// plain document-analysis request through the operational orchestrator instead of the normal CEO
+// cognitive lifecycle -- a more severe misroute than the 'challenge' misclassification this suite
+// already covers, since it changes orchestrationOwner itself, not just responseAction.
+describe('Audit fix: pre-routing classifiers no longer scan the whole document either', () => {
+  test('preRouteCeoRequest does not misroute a plain "deep analysis" request into mission_action/production_action just because the document uses words like "run"/"launch" naturally', () => {
+    const decision = preRouteCeoRequest([{ role: 'user', content: PLAIN_ANALYSIS_MESSAGE }])
+    expect(decision.executionContract.intent).not.toBe('mission_action')
+    expect(decision.executionContract.intent).not.toBe('production_action')
+    expect(decision.missionRelevant).toBe(false)
+  })
+
+  // adaptive-execution.ts's own classifyExecution deliberately keeps a looser, tolerated-ambiguous
+  // 'deep' vs 'mission' distinction (its own test suite accepts either for a message combining ordinary
+  // business vocabulary with deep-work language, since both classes return identical budgets from that
+  // function alone) -- not touched here. What actually matters is that this looser signal can no longer,
+  // by itself, flip missionRelevant/orchestrationOwner in preRouteCeoRequest, which the test above locks
+  // in directly.
+  test('a genuine mission/production instruction is still correctly governed even with the same document attached', () => {
+    const message = `Please launch this venture and start running the campaign described below.\n\n${REPORT}`
+    const decision = preRouteCeoRequest([{ role: 'user', content: message }])
+    const isGoverned = decision.executionContract.intent === 'mission_action' || decision.executionContract.intent === 'production_action' || decision.missionRelevant
+    expect(isGoverned).toBe(true)
+  })
+})
+
 describe('Long-document incident: quality gate no longer confuses lexical coverage with comprehension', () => {
   test('a concise, accurate synthesis of the long report is not rejected for failing to repeat the source vocabulary', () => {
     const content = [
@@ -148,5 +196,99 @@ describe('Long-document incident: quality gate no longer confuses lexical covera
     const content = 'I like turtles.'
     const quality = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true })
     expect(quality.checks.objectiveCoverage).toBe(false)
+  })
+})
+
+// Phase 2 (2026-09-20): inferComprehensionMode is the canonical, single-computation replacement for the
+// bare `objective.length >= LONG_OBJECTIVE_CHARS` re-derivation objectiveCoverage() used to do internally
+// on every call. These tests lock in both halves: the classifier itself, and that passing its result
+// through evaluateCeoQuality's new comprehensionMode field produces the identical relaxed-coverage outcome
+// the length-based fallback already produced -- a pure wiring change, not a behavior change.
+describe('Phase 2: inferComprehensionMode canonical classification', () => {
+  test('a short message defaults to conversation', () => {
+    expect(inferComprehensionMode({ sourceLength: 40 })).toBe('conversation')
+  })
+
+  // Deep-audit fix (2026-09-20): the original version of this function returned 'critique' for ANY
+  // challenge responseAction regardless of length -- since ceo-response-quality-gate.ts treats
+  // 'critique' as "long document, relax coverage," that silently weakened quality enforcement for a
+  // short "please challenge my assumption" turn with no document attached at all. A challenge only
+  // becomes 'critique' when the source is actually long; a short one is ordinary 'conversation'.
+  test('a challenge responseAction over a SHORT source (no document) is ordinary conversation, not critique', () => {
+    expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 40 })).toBe('conversation')
+  })
+
+  test('a challenge responseAction over a LONG source is critique', () => {
+    expect(inferComprehensionMode({ responseAction: 'challenge', sourceLength: 10_000 })).toBe('critique')
+  })
+
+  // Symmetric fix: a long "explain this report" turn used to map to 'explain' (not in the
+  // long-document set), losing the exact relaxation Phase 1 introduced for this incident. A short
+  // explain request keeps its own label since it isn't a document-comprehension job at all.
+  test('an explain responseAction over a SHORT source stays explain', () => {
+    expect(inferComprehensionMode({ responseAction: 'explain', sourceLength: 40 })).toBe('explain')
+  })
+
+  test('an explain responseAction over a LONG source is promoted to deep_analysis, not left as explain', () => {
+    expect(inferComprehensionMode({ responseAction: 'explain', sourceLength: 10_000 })).toBe('deep_analysis')
+  })
+
+  test('a long source with no more specific responseAction yields deep_analysis', () => {
+    expect(inferComprehensionMode({ responseAction: 'answer', sourceLength: 5_000 })).toBe('deep_analysis')
+    expect(inferComprehensionMode({ sourceLength: 5_000 })).toBe('deep_analysis')
+  })
+})
+
+describe('Phase 2: evaluateCeoQuality honors an explicit comprehensionMode the same way it honors the length fallback', () => {
+  const content = [
+    'Overall, the business grew steadily this quarter: revenue and retention both held up, and onboarding friction fell after the new setup wizard.',
+    'The main watch item is intensifying price competition, which leadership chose not to match directly given strong differentiation in support.',
+    'Going forward, the plan favors deepening mid-market integrations over chasing new enterprise deals, since the sales-cycle risk is smaller and the near-term return looks stronger.',
+    'None of the pending partnership discussions are contractually committed yet, so they remain pipeline rather than booked revenue for planning purposes.',
+  ].join(' ')
+
+  test('passing comprehensionMode: deep_analysis reproduces the same relaxed-coverage PASS the length-based fallback already gives for this exact input', () => {
+    const withoutMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true })
+    const withMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, comprehensionMode: 'deep_analysis' })
+    expect(withMode.checks.objectiveCoverage).toBe(true)
+    expect(withMode.checks.objectiveCoverage).toBe(withoutMode.checks.objectiveCoverage)
+  })
+
+  test('an explicit comprehensionMode: conversation on the same long objective does NOT get the long-document relaxation -- the signal, not the raw length, now governs', () => {
+    const withMode = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, comprehensionMode: 'conversation' })
+    expect(withMode.checks.objectiveCoverage).toBe(false)
+  })
+})
+
+// Deep-audit fix (2026-09-20): locks in the actual production consequence of the inferComprehensionMode
+// fix above through the exact call shape ceo-cognitive-lifecycle.ts uses (responseAction AND its
+// derived comprehensionMode passed together). Without the fix, a short "challenge" turn with no
+// document at all got the long-document coverage relaxation it was never meant to have (weakening
+// enforcement), and a long "explain this document" turn lost the relaxation Phase 1 introduced this
+// incident specifically to add.
+describe('Deep-audit fix: inferComprehensionMode length-gating flows correctly through the real evaluateCeoQuality call shape', () => {
+  test('a SHORT challenge turn (no document) does not get the long-document coverage relaxation', () => {
+    const shortObjective = 'Please challenge my assumption that we should raise prices aggressively next quarter given weak demand signals.'
+    const mode = inferComprehensionMode({ responseAction: 'challenge', sourceLength: shortObjective.length })
+    expect(mode).toBe('conversation')
+    // Deliberately low-but-nonzero overlap: enough to fail the strict 25%/35% threshold this short,
+    // non-document turn should still be held to, but the kind of content that WOULD wrongly pass under
+    // the old bug's incorrectly-relaxed 8% threshold.
+    const weakContent = 'I disagree with that plan. Demand looks soft right now and raising prices could accelerate churn instead of protecting margin. A smaller, staged increase paired with better retention offers would probably serve better.'
+    const quality = evaluateCeoQuality({ objective: shortObjective, content: weakContent, path: 'full', intent: 'decision', reviewed: false, externalExecutionSucceeded: true, responseAction: 'challenge', comprehensionMode: mode })
+    expect(quality.checks.objectiveCoverage).toBe(false)
+  })
+
+  test('a LONG explain-this-document turn still gets the long-document coverage relaxation', () => {
+    const mode = inferComprehensionMode({ responseAction: 'explain', sourceLength: PLAIN_ANALYSIS_MESSAGE.length })
+    expect(mode).toBe('deep_analysis')
+    const content = [
+      'Overall, the business grew steadily this quarter: revenue and retention both held up, and onboarding friction fell after the new setup wizard.',
+      'The main watch item is intensifying price competition, which leadership chose not to match directly given strong differentiation in support.',
+      'Going forward, the plan favors deepening mid-market integrations over chasing new enterprise deals, since the sales-cycle risk is smaller and the near-term return looks stronger.',
+      'None of the pending partnership discussions are contractually committed yet, so they remain pipeline rather than booked revenue for planning purposes.',
+    ].join(' ')
+    const quality = evaluateCeoQuality({ objective: PLAIN_ANALYSIS_MESSAGE, content, path: 'full', intent: 'analysis', reviewed: false, externalExecutionSucceeded: true, responseAction: 'explain', comprehensionMode: mode })
+    expect(quality.checks.objectiveCoverage).toBe(true)
   })
 })

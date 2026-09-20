@@ -4,7 +4,7 @@ import { classifyCeoSelfReflection, type SelfReflectionClassification } from './
 import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { assessCeoCuriosity } from './ceo-curiosity'
 import type { TaskType } from './subagent-governance'
-import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract } from './ceo-cognitive-contract'
+import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
@@ -247,7 +247,17 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
 // (tests, offline tooling) that only has semanticContext to hand.
 export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext, decisionContract?: ConversationDecisionContract): PreRouteDecision {
   const text = latestUserText(messages).replace(/\s+/g, ' ').trim()
-  const selfReflection = classifyCeoSelfReflection(text)
+  // Long-document audit fix (2026-09-19): every keyword classifier this function drives (self-
+  // reflection, semantic intent, external-equity/domain detection, evidence operation/temporal-scope
+  // inference) used to test the full raw message, including any pasted document -- so a long paste that
+  // happened to use ordinary words like "deploy"/"mission"/"analyze"/"verify" anywhere in its body could
+  // misroute the entire request, up to and including flipping missionRelevant/orchestrationOwner to the
+  // operational orchestrator for a plain document-analysis turn. classificationText bounds every
+  // keyword scan below to the user's own plausible instruction; `text` itself is left untouched for
+  // length/emptiness checks and structural reference-slicing, and is still what reaches generation
+  // downstream (via canonicalSemanticContext.currentMessage, not this file).
+  const classificationText = extractInstructionWindow(text)
+  const selfReflection = classifyCeoSelfReflection(classificationText)
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
   // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted
@@ -255,7 +265,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // The inherited objective is only used for routing/grounding; the user's actual text remains the
   // response surface and is never replaced or rewritten.
   const inheritedObjective = latestContinuableObjective(semanticContext)
-  const routingText = inheritedObjective ? `${inheritedObjective}\n${text}` : text
+  const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
   const deterministicIntent = inferSemanticIntent(routingText, selfReflection)
   const assistedIntent = semanticIntentToCeoIntent(semanticContext)
   // Deep-audit fix (2026-09-13): only 'self_assessment' was protected from being overridden by the
@@ -270,14 +280,14 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // production_action/mission_action are included here too for defense in depth even though the
   // interpreter-level guard already covers most of their triggering keywords.
   const objectiveContinuationActive = Boolean(inheritedObjective)
-  const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(text))
+  const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(classificationText))
   const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action' || deterministicExternalResearch
   const semanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
   const canonicalDecision = semanticContext ? (decisionContract ?? buildConversationDecisionContract(semanticContext)) : undefined
   const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
-  const currentExternalSubjectDomain = inferExternalDomain(text)
+  const currentExternalSubjectDomain = inferExternalDomain(classificationText)
   const externalSubjectDomain = objectiveContinuationActive && routingExternalSubjectDomain === 'public_equity' ? 'public_equity' : currentExternalSubjectDomain
   const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && routingExternalSubjectDomain === 'public_equity'
   const legacyExternalEvidence = isExternalDomain(routingExternalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
@@ -287,7 +297,20 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const domain: EvidenceDomain | undefined = semanticIntent === 'research' || shouldUseExternalEvidence || externalSubjectDomain.startsWith('internal_') ? externalSubjectDomain : undefined
   const effectiveExecutionClass = (externalSubjectDomain === 'public_equity' || inheritedExternalResearch) ? 'deep' : adaptive.executionClass
   if (!text) { const reason = 'No substantive request detected.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
-  const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational)
+  // Audit fix (2026-09-19): adaptive.executionClass 'mission' is a genuinely loose, tolerated-ambiguous
+  // signal -- adaptive-execution.ts's own test suite accepts EITHER 'deep' or 'mission' for a message
+  // that merely combines ordinary business vocabulary (revenue/customer/production) with deep-work
+  // language ("analyze"/"strategic"/"deep"), since its own return values are identical for both classes.
+  // A real long-document analysis request commonly does both (any business report's opening paragraph
+  // routinely mentions revenue), so using this signal alone to flip missionRelevant -- and therefore
+  // orchestrationOwner to operational_orchestrator via contractFor -- misrouted a plain "give me a deep
+  // analysis of this report" request purely because the document discussed revenue. deterministicIntent
+  // already ran its own, stricter mission_action check on this exact message (context word AND an actual
+  // execution verb -- run/start/execute/manage/launch/create/fix/implement) and correctly declined to
+  // classify it as mission-related; that more specific classification should not be overridden by the
+  // looser adaptive-execution signal when they disagree.
+  const deterministicIntentIsNonMission = deterministicIntent === 'analysis' || deterministicIntent === 'opinion' || deterministicIntent === 'decision' || deterministicIntent === 'conversation' || deterministicIntent === 'self_assessment'
+  const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational && !deterministicIntentIsNonMission)
   const complexitySignals = [effectiveExecutionClass === 'deep' || effectiveExecutionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
   if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
   if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }

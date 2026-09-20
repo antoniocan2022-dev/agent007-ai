@@ -48,10 +48,21 @@ const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz
 export function extractInstructionWindow(message: string): string {
   const trimmed = message.trim()
   if (trimmed.length <= INSTRUCTION_WINDOW_THRESHOLD_CHARS) return trimmed
-  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
-  if (leadIn && typeof leadIn.index === 'number') return trimmed.slice(0, leadIn.index + leadIn[0].length)
-  const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
   const tail = trimmed.slice(-INSTRUCTION_WINDOW_EDGE_CHARS)
+  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
+  if (leadIn && typeof leadIn.index === 'number') {
+    const head = trimmed.slice(0, leadIn.index + leadIn[0].length)
+    // Audit fix (2026-09-19): always also keep the tail, even on a lead-in match. A lead-in phrase can
+    // legitimately occur INSIDE ordinary pasted material (e.g. a report containing its own "Please read
+    // the following:\n<list>" boilerplate) rather than in the user's own framing -- if the real ask sits
+    // after the pasted material (a very common paste-then-ask pattern: "<document>\n\nWhat do you
+    // think?"), taking only the head silently discarded it entirely. Including the tail too costs
+    // nothing when the lead-in genuinely was the user's own instruction (the tail is then just more
+    // context from later in the document, already the accepted trade-off the no-lead-in branch below
+    // makes) and recovers the trailing question when it wasn't.
+    return head === tail || head.endsWith(tail) ? head : `${head}\n${tail}`
+  }
+  const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
   return `${head}\n${tail}`
 }
 
@@ -73,6 +84,43 @@ export type EvidenceRequirement = 'none' | 'internal_state' | 'memory' | 'live_s
 export type ExecutionRequirement = 'no_action' | 'llm_only' | 'one_tool' | 'multi_tool' | 'multi_source' | 'subagent' | 'mission' | 'production'
 export type OrchestrationOwner = 'ceo_lifecycle' | 'operational_orchestrator'
 export type ResponseAction = 'answer' | 'clarify' | 'explain' | 'challenge' | 'recommend' | 'decide' | 'execute' | 'verify'
+
+// Long-document comprehension, Phase 2 (2026-09-20): a canonical classification of what kind of
+// comprehension job this turn is, computed once per request instead of being independently re-derived
+// (as a bare `objective.length >= threshold` check) inside the quality gate every time it runs. Kept
+// deliberately honest about what the available signals (responseAction, source length) can actually
+// tell apart today -- 'summarize'/'compare'/'extract' are reserved for a future, richer intent
+// classifier that can genuinely distinguish them from plain analysis; nothing upstream produces that
+// signal yet, so fabricating them here would just be guessing.
+export type CeoComprehensionMode = 'conversation' | 'summarize' | 'explain' | 'deep_analysis' | 'critique' | 'compare' | 'extract'
+// A message longer than this is treated as carrying a document to comprehend, not just a short
+// instruction/question -- mirrors ceo-response-quality-gate.ts's own LONG_OBJECTIVE_CHARS threshold
+// (kept as a separate constant rather than imported, since that file's constant governs a narrower,
+// gate-specific lexical-coverage decision and the two are free to diverge if either is retuned later).
+const LONG_SOURCE_CHARS = 4_000
+/**
+ * Infers the comprehension mode for a turn from signals already computed upstream
+ * (ceo-conversation-decision-contract.ts's responseAction, the canonical objective's length) rather than
+ * requiring every caller to independently guess. Callers that don't yet have a responseAction (e.g.
+ * direct/offline callers) still get a sound default from source length alone.
+ *
+ * Deep-audit fix (2026-09-20): source length is checked for EVERY branch, not just the fallback --
+ * the only real consumer of this today (ceo-response-quality-gate.ts's objectiveCoverage relaxation)
+ * treats 'critique'/'deep_analysis' as "long document, relax lexical coverage." Returning 'critique' for
+ * *any* challenge responseAction regardless of length (the original version of this function) meant a
+ * short "please challenge my assumption" turn with no document attached at all got the same relaxed
+ * coverage requirement as a genuine long-document critique -- silently weakening quality enforcement for
+ * ordinary short adversarial replies. Symmetrically, a long "explain this report" turn mapped to
+ * 'explain' (not in the long-document set) and LOST the relaxation Phase 1 introduced specifically for
+ * this incident. Gating both branches on sourceLength fixes both directions at once.
+ */
+export function inferComprehensionMode(input: { responseAction?: ResponseAction; sourceLength: number }): CeoComprehensionMode {
+  const longSource = input.sourceLength >= LONG_SOURCE_CHARS
+  if (input.responseAction === 'challenge') return longSource ? 'critique' : 'conversation'
+  if (input.responseAction === 'explain') return longSource ? 'deep_analysis' : 'explain'
+  if (longSource) return 'deep_analysis'
+  return 'conversation'
+}
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
 export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }
 
