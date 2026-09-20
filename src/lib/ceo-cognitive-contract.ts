@@ -45,25 +45,41 @@ const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz
  * message, so that vocabulary inside a pasted document (e.g. a business report that happens to use the
  * word "challenge") can never masquerade as a command to Agent007.
  */
-export function extractInstructionWindow(message: string): string {
+export type InstructionWindowExtractionMethod = 'short_message' | 'lead_in' | 'head_tail_fallback'
+
+export interface InstructionWindowResult {
+  text: string
+  extractionMethod: InstructionWindowExtractionMethod
+}
+
+/**
+ * Returns both the bounded instruction text and how the boundary was established.
+ *
+ * The metadata is intentionally additive: the existing extractInstructionWindow()
+ * API still returns only the text, so current callers keep identical behavior.
+ */
+export function extractInstructionWindowDetails(message: string): InstructionWindowResult {
   const trimmed = message.trim()
-  if (trimmed.length <= INSTRUCTION_WINDOW_THRESHOLD_CHARS) return trimmed
+  if (trimmed.length <= INSTRUCTION_WINDOW_THRESHOLD_CHARS) {
+    return { text: trimmed, extractionMethod: 'short_message' }
+  }
   const tail = trimmed.slice(-INSTRUCTION_WINDOW_EDGE_CHARS)
   const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
   if (leadIn && typeof leadIn.index === 'number') {
     const head = trimmed.slice(0, leadIn.index + leadIn[0].length)
     // Audit fix (2026-09-19): always also keep the tail, even on a lead-in match. A lead-in phrase can
-    // legitimately occur INSIDE ordinary pasted material (e.g. a report containing its own "Please read
-    // the following:\n<list>" boilerplate) rather than in the user's own framing -- if the real ask sits
-    // after the pasted material (a very common paste-then-ask pattern: "<document>\n\nWhat do you
-    // think?"), taking only the head silently discarded it entirely. Including the tail too costs
-    // nothing when the lead-in genuinely was the user's own instruction (the tail is then just more
-    // context from later in the document, already the accepted trade-off the no-lead-in branch below
-    // makes) and recovers the trailing question when it wasn't.
-    return head === tail || head.endsWith(tail) ? head : `${head}\n${tail}`
+    // legitimately occur INSIDE ordinary pasted material rather than in the user's own framing. Keeping
+    // the tail preserves the common paste-then-ask pattern without changing the existing window contents.
+    const text = head === tail || head.endsWith(tail) ? head : `${head}\n${tail}`
+    return { text, extractionMethod: 'lead_in' }
   }
   const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
-  return `${head}\n${tail}`
+  return { text: `${head}\n${tail}`, extractionMethod: 'head_tail_fallback' }
+}
+
+/** Backward-compatible text-only facade used by existing callers. */
+export function extractInstructionWindow(message: string): string {
+  return extractInstructionWindowDetails(message).text
 }
 
 export type PreRoute = 'fast' | 'full' | 'ambiguous'
