@@ -43,7 +43,11 @@ export interface ExecutiveReadinessSynthesis {
   observedAt?: number
 }
 
-const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo|the\s+(?:agent|system|assistant))\b/i
+// Exported (2026-09-20) so other lighter-weight intent classifiers can gate a bare, non-self-referential
+// business term (e.g. "capability assessment") on genuine self-reference elsewhere in the same window,
+// instead of hand-rolling a second copy of this word list -- see ceo-cognitive-conversation.ts's
+// userIntentHint for the motivating incident.
+export const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo|the\s+(?:agent|system|assistant))\b/i
 // A request for "a self-assessment" (or self-evaluation/-review/-audit/-reflection) is unambiguously
 // about the entity being asked, with no second-person pronoun required -- unlike SELF_REFERENCE_RE,
 // which only recognizes self-reference via an explicit "you/your/CEO/agent007/the system" word. A live

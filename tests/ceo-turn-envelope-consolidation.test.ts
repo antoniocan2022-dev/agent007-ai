@@ -111,3 +111,105 @@ describe('Deep-audit fix: ceo-pre-router.ts using the canonical instruction (not
     expect(decision.executionContract.intent).toBe('production_action')
   })
 })
+
+// Production incident (2026-09-20): a real user asked for "a deep comprehension of long text" over a
+// pasted business report and got back a canned self-assessment status report instead ("Partners: No
+// partnerships tracked yet... Executive decisions: 37 recorded..."), never engaging with the document at
+// all. Root cause: userIntentHint (ceo-cognitive-conversation.ts) was the one intent branch still scanning
+// the FULL raw message for self-assessment/readiness/capability-assessment phrasing -- deliberately left
+// unwindowed on the reasoning that such phrasing was "rare... unlikely to appear misleadingly inside
+// pasted source material." Real business/strategy reports routinely use "readiness assessment" or
+// "capability assessment" as ordinary section language, and self_assessment is the one intent this
+// codebase treats as AUTHORITATIVE (unoverridable even by a confident model-assisted suggestion -- see
+// deterministicIntentIsAuthoritative in buildCanonicalConversationContext), so a single such phrase
+// anywhere in a long document could hijack the entire turn.
+describe('Production-incident fix: a business document merely mentioning "readiness/capability assessment" no longer hijacks the whole turn into self-assessment', () => {
+  function buildReadinessDoc(): string {
+    const early = 'Q3 Strategic Review: Market Position and Platform Roadmap. Our platform grew subscription revenue by 14% quarter over quarter.'
+    // "Readiness Assessment" and "Capability Assessment" as ordinary section headers -- exactly the
+    // phrasing a real business/strategy report legitimately uses, unrelated to the user's own ask.
+    const middle = 'Section 4: Organizational Readiness Assessment. This section reviews our operational readiness across staffing, tooling, and process maturity. Section 5: Technology Capability Assessment. This section reviews our current technology stack against near-term product requirements.'
+    const filler = 'Customer support satisfaction scores remained within the target band this quarter. '.repeat(150)
+    return `Please give me a deep comprehension of this report and summarize the key points.\n\n${early}\n\n${filler}\n\n${middle}\n\n${filler}\n\nWhat should we prioritize next quarter?`
+  }
+
+  test('a "readiness assessment"/"capability assessment" section deep in the document does not leak into the classification window', () => {
+    const doc = buildReadinessDoc()
+    const context = contextFor(doc)
+    expect(context.instruction.toLowerCase()).not.toContain('readiness assessment')
+    expect(context.instruction.toLowerCase()).not.toContain('capability assessment')
+  })
+
+  test('the canonical context does not classify this as self_assessment -- it is a document-comprehension request', () => {
+    const doc = buildReadinessDoc()
+    const context = contextFor(doc)
+    expect(context.intentHint).not.toBe('self_assessment')
+  })
+
+  test('preRouteCeoRequest does not route this into the self-assessment fast lane, which would skip Phase 3 hierarchical comprehension entirely', () => {
+    const doc = buildReadinessDoc()
+    const context = contextFor(doc)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: doc }], 0, context, contract)
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+  })
+
+  test('without windowing (reproducing the old bug directly), the same phrasing DOES match the self-assessment regex -- confirms the fixture actually exercises the fix', () => {
+    const doc = buildReadinessDoc()
+    const oldStyleFullTextMatch = /\b(?:readiness\s+assessment|capability\s+assessment)\b/i.test(doc)
+    expect(oldStyleFullTextMatch).toBe(true)
+  })
+
+  test('a genuinely short, explicit self-assessment request is still recognized correctly (no regression)', () => {
+    const context = contextFor('Can you do a self-assessment of your current capabilities?')
+    expect(context.intentHint).toBe('self_assessment')
+  })
+})
+
+// Follow-up fix (2026-09-20): windowing alone was not sufficient -- a "readiness assessment"/"capability
+// assessment" section sitting in the message's own HEAD or TAIL (not buried mid-document) still
+// false-positived post-windowing, because the three bare business-term alternatives in userIntentHint had
+// no self-reference requirement at all, unlike every other alternative in that regex. A closing
+// "Recommendations & Readiness Assessment" section is an extremely common place for this exact phrasing
+// to land in a real report's tail.
+describe('Follow-up fix: bare "readiness/capability assessment" near the head or tail still requires genuine self-reference', () => {
+  function buildTrailingReadinessDoc(): string {
+    const early = 'Please give me a deep comprehension of this report and summarize the key points.'
+    const filler = 'Customer support satisfaction scores remained within the target band this quarter. '.repeat(150)
+    // The section header sits in the document's own TAIL, exactly where extractInstructionWindow's
+    // fallback window keeps it, with no self-referential language anywhere nearby.
+    const closing = 'Section 9: Recommendations and Capability Assessment. This section reviews our go-to-market readiness assessment for next quarter, covering staffing, tooling, and process maturity.'
+    return `${early}\n\n${filler}\n\n${closing}`
+  }
+
+  test('the phrase lands inside the classification window (confirms the fixture exercises the tail, not the buried-mid-document case)', () => {
+    const doc = buildTrailingReadinessDoc()
+    const context = contextFor(doc)
+    expect(context.instruction.toLowerCase()).toContain('capability assessment')
+  })
+
+  test('with no self-reference anywhere in the window, it is still not classified as self_assessment', () => {
+    const doc = buildTrailingReadinessDoc()
+    const context = contextFor(doc)
+    expect(context.intentHint).not.toBe('self_assessment')
+  })
+
+  test('preRouteCeoRequest does not route this into the self-assessment fast lane either', () => {
+    const doc = buildTrailingReadinessDoc()
+    const context = contextFor(doc)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: doc }], 0, context, contract)
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+  })
+
+  test('a genuine self-assessment request using the same bare "capability assessment" phrasing, but WITH self-reference nearby, still classifies correctly (no regression)', () => {
+    const context = contextFor('Can you give me a capability assessment of Agent007?')
+    expect(context.intentHint).toBe('self_assessment')
+  })
+
+  test('without the self-reference gate (reproducing the follow-up bug directly), the tail phrasing alone DOES match -- confirms the fixture actually exercises this fix', () => {
+    const doc = buildTrailingReadinessDoc()
+    const oldStyleBareMatch = /\b(?:readiness\s+assessment|system\s+readiness|capability\s+assessment)\b/i.test(doc)
+    expect(oldStyleBareMatch).toBe(true)
+  })
+})
