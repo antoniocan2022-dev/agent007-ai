@@ -48,10 +48,21 @@ const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz
 export function extractInstructionWindow(message: string): string {
   const trimmed = message.trim()
   if (trimmed.length <= INSTRUCTION_WINDOW_THRESHOLD_CHARS) return trimmed
-  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
-  if (leadIn && typeof leadIn.index === 'number') return trimmed.slice(0, leadIn.index + leadIn[0].length)
-  const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
   const tail = trimmed.slice(-INSTRUCTION_WINDOW_EDGE_CHARS)
+  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
+  if (leadIn && typeof leadIn.index === 'number') {
+    const head = trimmed.slice(0, leadIn.index + leadIn[0].length)
+    // Audit fix (2026-09-19): always also keep the tail, even on a lead-in match. A lead-in phrase can
+    // legitimately occur INSIDE ordinary pasted material (e.g. a report containing its own "Please read
+    // the following:\n<list>" boilerplate) rather than in the user's own framing -- if the real ask sits
+    // after the pasted material (a very common paste-then-ask pattern: "<document>\n\nWhat do you
+    // think?"), taking only the head silently discarded it entirely. Including the tail too costs
+    // nothing when the lead-in genuinely was the user's own instruction (the tail is then just more
+    // context from later in the document, already the accepted trade-off the no-lead-in branch below
+    // makes) and recovers the trailing question when it wasn't.
+    return head === tail || head.endsWith(tail) ? head : `${head}\n${tail}`
+  }
+  const head = trimmed.slice(0, INSTRUCTION_WINDOW_EDGE_CHARS)
   return `${head}\n${tail}`
 }
 

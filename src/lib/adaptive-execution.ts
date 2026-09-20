@@ -9,6 +9,7 @@
 
 import { classifyCeoSelfReflection, type SelfReflectionClassification } from './ceo-self-reflection'
 import { containsContextualReference } from './ceo-conversational-signals'
+import { extractInstructionWindow } from './ceo-cognitive-contract'
 
 export type ExecutionClass = 'fast' | 'standard' | 'deep' | 'mission'
 
@@ -65,7 +66,17 @@ export function classifyExecution(
   if (!normalized) return { executionClass: 'fast', reason: 'No substantive user request detected.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
   if (GREETING_RE.test(normalized)) return { executionClass: 'fast', reason: 'Greeting or acknowledgement requires no deep orchestration.', maxProviderAttempts: 1, maxTokens: 400, timeoutMs: 8000, parallelizable: false }
 
-  const selfReflection = precomputedSelfReflection ?? classifyCeoSelfReflection(normalized)
+  // Long-document audit fix (2026-09-19): every keyword classifier below (self-reflection, mission,
+  // deep-work, contextual-reference, enumeration) used to test the full raw message, including any
+  // pasted document -- so a long paste that happened to use ordinary words like "deploy"/"launch"/
+  // "invest"/"analyze" anywhere in its body could promote the whole turn to executionClass 'mission'
+  // (the heaviest, most consequential class -- it also flips missionRelevant and orchestrationOwner in
+  // ceo-pre-router.ts) or 'deep' purely from source vocabulary, never what the user actually asked.
+  // classificationText bounds every one of those scans to the user's own plausible instruction; length-
+  // based signals below (normalized.length) deliberately still read the real, unwindowed message, since
+  // a genuinely long request warranting more budget is a correct signal regardless of vocabulary.
+  const classificationText = extractInstructionWindow(normalized)
+  const selfReflection = precomputedSelfReflection ?? classifyCeoSelfReflection(classificationText)
   if (selfReflection.isSelfReflective) {
     return {
       executionClass: 'fast',
@@ -77,21 +88,21 @@ export function classifyExecution(
     }
   }
 
-  const missionContext = MISSION_CONTEXT_RE.test(normalized)
-  const missionAction = MISSION_ACTION_RE.test(normalized)
-  if (missionAction || (missionContext && DEEP_RE.test(normalized))) {
+  const missionContext = MISSION_CONTEXT_RE.test(classificationText)
+  const missionAction = MISSION_ACTION_RE.test(classificationText)
+  if (missionAction || (missionContext && DEEP_RE.test(classificationText))) {
     return { executionClass: 'mission', reason: 'Governed external, business, production, or mission execution request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
   }
 
-  if (normalized.length > 800 || DEEP_RE.test(normalized)) {
+  if (normalized.length > 800 || DEEP_RE.test(classificationText)) {
     return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
   }
 
-  if (containsContextualReference(normalized)) {
+  if (containsContextualReference(classificationText)) {
     return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
   }
 
-  if (ENUMERATION_RE.test(normalized)) {
+  if (ENUMERATION_RE.test(classificationText)) {
     return { executionClass: 'standard', reason: 'Request asks for multiple structured items; a short question does not imply a short answer.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
   }
 

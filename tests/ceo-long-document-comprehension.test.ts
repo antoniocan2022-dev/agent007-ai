@@ -5,6 +5,7 @@ import { extractInstructionWindow, CEO_MESSAGE_CLAMP_CHARS } from '@/lib/ceo-cog
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
+import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
 
 // Production incident (2026-09-19): "make a deep analysis of this text and tell me in your own words what
 // you think" over a long pasted document degraded on every attempt to a canned "I couldn't complete the
@@ -129,6 +130,53 @@ describe('Long-document incident: end-to-end through composeCeoContext (clamping
       memories: [],
     })
     expect(composed.canonicalSemanticContext.currentMessage).toContain('\n\n')
+  })
+})
+
+describe('Audit fix: extractInstructionWindow keeps a trailing instruction even when a lead-in phrase occurs mid-document', () => {
+  test('a document containing its own "Please read the following:" boilerplate does not swallow a real trailing question', () => {
+    const doc = `Executive summary of the vendor contract.\n\nPlease read the following:\n${'Terms and conditions apply. '.repeat(500)}\n\nGiven all this, should we challenge the termination clause?`
+    const window = extractInstructionWindow(doc)
+    expect(window).toContain('should we challenge the termination clause')
+  })
+
+  test('a genuine short lead-in instruction ("analyze this:\\n<doc>") is unaffected by the tail-preservation fix', () => {
+    const doc = `Analyze this:\n${REPORT}`
+    const window = extractInstructionWindow(doc)
+    expect(window.startsWith('Analyze this:')).toBe(true)
+  })
+})
+
+// Audit follow-up (2026-09-19): auditing PR #182 found the SAME keyword-contamination bug class one
+// layer upstream, in the pre-routing stage that runs BEFORE any of the ceo-cognitive-conversation.ts /
+// ceo-conversation-decision-contract.ts fixes above ever get a chance to run. ceo-pre-router.ts's
+// inferSemanticIntent/isExternalEquityResearch/inferExternalDomain and adaptive-execution.ts's
+// classifyExecution (MISSION_ACTION_RE/MISSION_CONTEXT_RE/DEEP_RE) all used to scan the FULL raw
+// message too -- so a long document that happened to use ordinary words like "run"/"launch"/"create"
+// anywhere in its body (the REPORT fixture above does, in "...every win/loss interview we have run this
+// quarter") could flip the entire turn to executionClass 'mission' and missionRelevant:true, routing a
+// plain document-analysis request through the operational orchestrator instead of the normal CEO
+// cognitive lifecycle -- a more severe misroute than the 'challenge' misclassification this suite
+// already covers, since it changes orchestrationOwner itself, not just responseAction.
+describe('Audit fix: pre-routing classifiers no longer scan the whole document either', () => {
+  test('preRouteCeoRequest does not misroute a plain "deep analysis" request into mission_action/production_action just because the document uses words like "run"/"launch" naturally', () => {
+    const decision = preRouteCeoRequest([{ role: 'user', content: PLAIN_ANALYSIS_MESSAGE }])
+    expect(decision.executionContract.intent).not.toBe('mission_action')
+    expect(decision.executionContract.intent).not.toBe('production_action')
+    expect(decision.missionRelevant).toBe(false)
+  })
+
+  // adaptive-execution.ts's own classifyExecution deliberately keeps a looser, tolerated-ambiguous
+  // 'deep' vs 'mission' distinction (its own test suite accepts either for a message combining ordinary
+  // business vocabulary with deep-work language, since both classes return identical budgets from that
+  // function alone) -- not touched here. What actually matters is that this looser signal can no longer,
+  // by itself, flip missionRelevant/orchestrationOwner in preRouteCeoRequest, which the test above locks
+  // in directly.
+  test('a genuine mission/production instruction is still correctly governed even with the same document attached', () => {
+    const message = `Please launch this venture and start running the campaign described below.\n\n${REPORT}`
+    const decision = preRouteCeoRequest([{ role: 'user', content: message }])
+    const isGoverned = decision.executionContract.intent === 'mission_action' || decision.executionContract.intent === 'production_action' || decision.missionRelevant
+    expect(isGoverned).toBe(true)
   })
 })
 
