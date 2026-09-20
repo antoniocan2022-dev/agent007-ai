@@ -79,6 +79,12 @@ export interface HierarchicalComprehensionResult {
   sectionsFailed: number
   failureNotes: string[]
   durationMs: number
+  // Recommendation 3 (2026-09-20): each successfully-extracted section's own text, exposed so a
+  // downstream structural quality check (ceo-structural-quality-gate.ts) can verify the final answer
+  // actually draws on the source's distinct sections -- not just that SOME synthesis was produced.
+  // Only populated on the success path (executed:true); every failure/skip path has nothing structural
+  // to offer beyond what failureNotes already says.
+  sectionExtracts?: { sectionIndex: number; text: string }[]
 }
 
 function skip(failureNotes: string[], durationMs: number): HierarchicalComprehensionResult {
@@ -163,7 +169,7 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
     })
     const synthesis = reduceResult.content.trim()
     if (!synthesis) return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, 'The synthesis step returned no content.'], durationMs: Date.now() - started }
-    return { executed: true, synthesis, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes, durationMs: Date.now() - started }
+    return { executed: true, synthesis, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes, durationMs: Date.now() - started, sectionExtracts: mapOutputs }
   } catch (error) {
     if (isCeoRequestAborted(error)) throw error
     return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, `Synthesis step failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`], durationMs: Date.now() - started }

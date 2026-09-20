@@ -1000,4 +1000,57 @@ describe('CEO cognitive lifecycle', () => {
       resetProviderStandingForTests()
     })
   })
+
+  // Recommendation 3 (2026-09-20): proves the structuralSourceModel built from the hierarchical-
+  // comprehension executor's per-section extraction outputs actually reaches evaluateCeoQuality through
+  // runCeoCognitiveLifecycle's real generation path -- not just that ceo-structural-quality-gate.ts's own
+  // logic is correct in isolation (see tests/ceo-structural-quality-gate.test.ts for that).
+  describe('Recommendation 3: structural source model threads through to the quality gate', () => {
+    function bigDocumentMessage(): string {
+      const paragraph = (i: number) => `Paragraph ${i}: this section of the quarterly operations report describes routine business activities, staffing updates, and administrative notes for the period under review, covering a distinct topic from every other paragraph in the document. `
+      const body = Array.from({ length: 260 }, (_, i) => paragraph(i)).join('\n\n')
+      return `Please summarize the key points of this report.\n\n${body}`
+    }
+
+    test('a genuinely large document produces a quality result with an applicable structural assessment', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
+          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note describing routine quarterly operations activity for this section.' } }] })
+          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesized overview of routine quarterly operations activity across every section.' } }] })
+          // Includes a heading and decision-language keywords so structureOk passes, and deliberately
+          // avoids words like "current"/"today"/"confirmed" that would trip the (unrelated)
+          // live-evidence check -- the point of this test is the structural-source-model wiring, not
+          // re-litigating this file's own, separately covered structural/coverage/evidence checks.
+          return jsonResponse({ choices: [{ message: { content: '## Summary\n\nThis report covers routine quarterly operations activity, including business updates, staffing changes, and administrative notes across every section.\n\n## Recommendation\n\nNo material risks were identified; no further action is required for this reporting period.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: bigDocumentMessage() }], timeoutMs: 45000 })
+      expect(result.quality.structuralQuality?.applicable).toBe(true)
+      expect(result.quality.structuralQuality?.claimCoverage).toBeGreaterThan(0)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('an ordinary short message produces a quality result with structuralQuality.applicable false', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) return jsonResponse({ choices: [{ message: { content: 'A short, direct answer about the burn rate trend.' } }] })
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'What is our current burn rate trend?' }], timeoutMs: 15000 })
+      expect(result.quality.structuralQuality?.applicable).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+  })
 })
