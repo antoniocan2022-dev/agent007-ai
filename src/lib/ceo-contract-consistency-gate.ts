@@ -18,6 +18,7 @@ export type ContractConsistencyRuleId =
   | 'production_action_requires_authoritative_command'
   | 'mission_action_requires_authoritative_command'
   | 'tool_action_requires_authoritative_command'
+  | 'research_requires_authoritative_request'
 
 export interface ContractConsistencyContext {
   candidateIntent: CeoIntent
@@ -52,7 +53,14 @@ const SELF_ASSESSMENT_RULE: ConsistencyRule = {
     || context.candidateSelfReflection.isSelfReflective
     || context.selfAssessmentRequested
   ),
-  requirement: (context) => context.candidateIntent === (context.selfAssessmentRequested ? 'self_assessment' : 'conversation'),
+  requirement: (context) => {
+    if (!context.selfAssessmentRequested) return context.candidateIntent === 'conversation'
+    if (context.candidateIntent === 'self_assessment') return true
+    if (context.candidateIntent === 'production_action') return hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'production') || context.requestedOperation === 'action'
+    if (context.candidateIntent === 'mission_action') return hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'mission') || context.requestedOperation === 'action'
+    if (context.candidateIntent === 'tool_action') return hasExplicitAuthoritativeCommand(context.authoritativeInstruction, 'tool') || context.requestedOperation === 'action'
+    return context.candidateIntent === 'conversation' && !context.candidateSelfReflection.isSelfReflective
+  },
   fallback: (context) => {
     if (context.selfAssessmentRequested) {
       return {
@@ -95,6 +103,16 @@ const MISSION_ACTION_RULE: ConsistencyRule = {
   }),
 }
 
+const RESEARCH_RULE: ConsistencyRule = {
+  id: 'research_requires_authoritative_request',
+  applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'research',
+  requirement: (context) => context.requestedOperation === 'research' || hasExplicitAuthoritativeResearch(context.authoritativeInstruction),
+  fallback: (context) => ({
+    intent: documentFallbackIntent(context.requestedOperation),
+    selfReflection: context.candidateSelfReflection,
+  }),
+}
+
 const TOOL_ACTION_RULE: ConsistencyRule = {
   id: 'tool_action_requires_authoritative_command',
   applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'tool_action',
@@ -110,6 +128,7 @@ const CONSISTENCY_RULES: readonly ConsistencyRule[] = [
   PRODUCTION_ACTION_RULE,
   MISSION_ACTION_RULE,
   TOOL_ACTION_RULE,
+  RESEARCH_RULE,
 ]
 
 function documentFallbackIntent(operation: RequestedOperation): CeoIntent {
@@ -120,6 +139,15 @@ function documentFallbackIntent(operation: RequestedOperation): CeoIntent {
     || operation === 'document_extract'
     ? 'analysis'
     : 'conversation'
+}
+
+function hasExplicitAuthoritativeResearch(instruction: string): boolean {
+  const text = instruction.trim()
+  if (!text) return false
+  const direct = /\b(?:research|search|look\s+(?:this|that|it)\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check)\b/i
+  const question = /^(?:what(?:'s|\s+is)\s+the\s+(?:latest|current)|what\s+(?:is|are)\s+the\s+(?:latest|current)\s+(?:news|information|updates?)\b)/i
+  const directive = /(?:^|[.!?]\s*|,\s*(?:then|and|also)\s+|\b(?:then|and)\s+)(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|i\s+(?:want|need)(?:\s+you)?\s+to\s+|let\x27s\s+)?(?:research|search|look\s+(?:this|that|it)\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check)\b/i
+  return question.test(text) || directive.test(text) || (direct.test(text) && /\b(?:research|search|verify|validate|fact[- ]check)\b/i.test(text) && /^\s*(?:please\s+)?(?:research|search|verify|validate|fact[- ]check)\b/i.test(text))
 }
 
 function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production' | 'mission' | 'tool'): boolean {
@@ -134,9 +162,11 @@ function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production'
 
   // Explicit agent-directed forms only. Merely discussing an action ("the report says deploy")
   // does not satisfy the rule; this intentionally requires a directive frame in the authoritative
-  // instruction itself.
+  // instruction itself. The canonical `requestedOperation === 'action'` signal is also accepted by
+  // action rules because it is already derived from the authoritative instruction, which preserves
+  // legitimate passive/first-person commands such as "I need the approved release deployed.".
   const directiveFrame = new RegExp(
-    '(?:^|[.!?]\\s*|,\\s*)(?:please\\s+|can\\s+you\\s+|could\\s+you\\s+|would\\s+you\\s+|go\\s+ahead\\s+and\\s+|i\\s+(?:want|need)\\s+you\\s+to\\s+|let\\x27s\\s+)' +
+    '(?:^|[.!?]\\s*|,\\s*(?:then|and|also)\\s+|\\b(?:then|and|also)\\s+)(?:please\\s+|can\\s+you\\s+|could\\s+you\\s+|would\\s+you\\s+|go\\s+ahead\\s+and\\s+|i\\s+(?:want|need)(?:\\s+you)?\\s+to\\s+|let\\x27s\\s+)' +
     '(?:' + verbs + ')\\b',
     'i',
   )
@@ -144,6 +174,7 @@ function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production'
   return directiveFrame.test(text) || bareImperative.test(text)
 }
 
+/** Research is treated as a control-plane operation too: source text can otherwise contain words like "verify" or "research" that would silently authorize external evidence acquisition. */
 export function enforceContractConsistency(context: ContractConsistencyContext): ContractConsistencyResult {
   let effectiveIntent = context.candidateIntent
   let effectiveSelfReflection = context.candidateSelfReflection
