@@ -270,17 +270,16 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // detailed selfReflectionKind, but it can no longer override the envelope on a long source-bearing turn.
   // This closes the residual source-tail problem: an explicit-looking phrase retained from the source tail
   // is visible to rawSelfReflection, but is not present in the envelope's authoritative instruction text.
-  const canonicalSourceMaterialPresent = Boolean(
-    semanticContext && semanticContext.turnEnvelope.sourceMaterial.present,
-  )
+  const envelope = semanticContext?.turnEnvelope
+  const canonicalSourceMaterialPresent = envelope?.sourceMaterial?.present === true
   let selfReflection: SelfReflectionClassification = rawSelfReflection
-  if (semanticContext && canonicalSourceMaterialPresent && !semanticContext.turnEnvelope.selfAssessmentRequested && rawSelfReflection.isSelfReflective) {
+  if (envelope && canonicalSourceMaterialPresent && !envelope.selfAssessmentRequested && rawSelfReflection.isSelfReflective) {
     selfReflection = {
       kind: 'none',
       isSelfReflective: false,
       reason: 'Canonical CeoTurnEnvelope does not request self-assessment for this source-bearing turn.',
     }
-  } else if (semanticContext && canonicalSourceMaterialPresent && semanticContext.turnEnvelope.selfAssessmentRequested && !rawSelfReflection.isSelfReflective) {
+  } else if (envelope && canonicalSourceMaterialPresent && envelope.selfAssessmentRequested && !rawSelfReflection.isSelfReflective) {
     selfReflection = {
       kind: 'capability_assessment',
       isSelfReflective: true,
