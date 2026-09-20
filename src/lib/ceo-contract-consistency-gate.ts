@@ -19,6 +19,7 @@ export type ContractConsistencyRuleId =
   | 'mission_action_requires_authoritative_command'
   | 'tool_action_requires_authoritative_command'
   | 'research_requires_authoritative_request'
+  | 'document_operation_requires_analysis_minimum'
 
 export interface ContractConsistencyContext {
   candidateIntent: CeoIntent
@@ -123,22 +124,61 @@ const TOOL_ACTION_RULE: ConsistencyRule = {
   }),
 }
 
+// Deep-audit fix (2026-09-20): the other rules above only ever DOWNGRADE a risky candidateIntent
+// (self_assessment/production_action/mission_action/tool_action/research) that lacks authoritative
+// support. None of them covered the opposite gap: inferSemanticIntent's own deterministic keyword
+// list has no "comprehension"/"comprehend" alternative at all, so a source-bearing turn whose only
+// real signal is a document operation (e.g. "Please make a deep comprehension of this report.", with
+// no other analyze/research/deploy/decision keyword anywhere in the windowed text) fell all the way
+// through to the bare 'conversation' default -- with requestedOperation correctly recognizing it as
+// document_comprehension, but nothing ever consulting that signal to strengthen the classification.
+// This rule closes that gap the same way Phase 3's own design intended requestedOperation to be used:
+// as a strengthening signal, not a replacement for CeoIntent.
+const DOCUMENT_OPERATION_MINIMUM_RULE: ConsistencyRule = {
+  id: 'document_operation_requires_analysis_minimum',
+  applies: (context) => context.sourceMaterialPresent && context.candidateIntent === 'conversation' && isDocumentOperation(context.requestedOperation),
+  requirement: () => false,
+  fallback: (context) => ({
+    intent: 'analysis',
+    selfReflection: context.candidateSelfReflection,
+  }),
+}
+
 const CONSISTENCY_RULES: readonly ConsistencyRule[] = [
   SELF_ASSESSMENT_RULE,
   PRODUCTION_ACTION_RULE,
   MISSION_ACTION_RULE,
   TOOL_ACTION_RULE,
   RESEARCH_RULE,
+  DOCUMENT_OPERATION_MINIMUM_RULE,
 ]
 
-function documentFallbackIntent(operation: RequestedOperation): CeoIntent {
+function isDocumentOperation(operation: RequestedOperation): boolean {
   return operation === 'document_comprehension'
     || operation === 'document_summary'
     || operation === 'document_critique'
     || operation === 'document_compare'
     || operation === 'document_extract'
-    ? 'analysis'
-    : 'conversation'
+}
+
+// Deep-audit fix (2026-09-20): this only ever mapped the five document_* operations to 'analysis',
+// treating every other requestedOperation -- including 'analysis'/'decision' themselves, which
+// inferRequestedOperation (ceo-cognitive-conversation.ts) can independently assign directly from the
+// authoritative instruction -- as if requestedOperation carried no information at all, falling all
+// the way to the generic 'conversation' default. A source-tail "production"/"deploy" mention (e.g.
+// inside "update the production configuration") could still flip inferSemanticIntent's OWN separate
+// keyword scan to 'production_action', get correctly rejected by PRODUCTION_ACTION_RULE for lacking
+// an authoritative command, and then land on 'conversation' instead of the 'analysis' the
+// authoritative instruction ("Please analyze this report.") actually asked for. 'analysis' and
+// 'decision' are both non-mission, tool-free, LLM-only intents (see deterministicIntentIsNonMission
+// in ceo-pre-router.ts) -- safe to use directly as a fallback destination, unlike 'research' (real
+// external evidence acquisition) or 'action'/'self_assessment' (elevated authority), which stay
+// mapped to 'conversation' here precisely because a rejected rule's fallback must never grant the
+// same class of authority the rule just declined to authorize.
+function documentFallbackIntent(operation: RequestedOperation): CeoIntent {
+  if (isDocumentOperation(operation)) return 'analysis'
+  if (operation === 'analysis' || operation === 'decision') return operation
+  return 'conversation'
 }
 
 function hasExplicitAuthoritativeResearch(instruction: string): boolean {
@@ -165,8 +205,15 @@ function hasExplicitAuthoritativeCommand(instruction: string, kind: 'production'
   // instruction itself. The canonical `requestedOperation === 'action'` signal is also accepted by
   // action rules because it is already derived from the authoritative instruction, which preserves
   // legitimate passive/first-person commands such as "I need the approved release deployed.".
+  // Deep-audit fix (2026-09-20): the prefix-phrase group below used to be mandatory -- unlike the
+  // parallel hasExplicitAuthoritativeResearch's own directive regex, which already makes it optional
+  // -- so a second clause joined by a bare comma-conjunction ("Please do X, and deploy Y.") never
+  // matched unless "deploy" was itself immediately preceded by "please"/"can you"/etc. a second time.
+  // That silently defeated the "explicit self-assessment plus authoritative production command
+  // preserves production authority" case this gate exists to protect. Making it optional (a trailing
+  // `?`) mirrors the already-correct sibling function exactly.
   const directiveFrame = new RegExp(
-    '(?:^|[.!?]\\s*|,\\s*(?:then|and|also)\\s+|\\b(?:then|and|also)\\s+)(?:please\\s+|can\\s+you\\s+|could\\s+you\\s+|would\\s+you\\s+|go\\s+ahead\\s+and\\s+|i\\s+(?:want|need)(?:\\s+you)?\\s+to\\s+|let\\x27s\\s+)' +
+    '(?:^|[.!?]\\s*|,\\s*(?:then|and|also)\\s+|\\b(?:then|and|also)\\s+)(?:please\\s+|can\\s+you\\s+|could\\s+you\\s+|would\\s+you\\s+|go\\s+ahead\\s+and\\s+|i\\s+(?:want|need)(?:\\s+you)?\\s+to\\s+|let\\x27s\\s+)?' +
     '(?:' + verbs + ')\\b',
     'i',
   )

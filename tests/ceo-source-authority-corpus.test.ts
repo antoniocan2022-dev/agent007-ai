@@ -37,9 +37,17 @@ describe('CEO Source Authority Phase 0 corpus: instruction/source boundaries', (
   })
 
   test('explicit lead-in keeps user framing ahead of a large pasted source', () => {
+    // Deep-audit fix (2026-09-20): the original fixture used the "deploy, recommend, verify, and
+    // challenge language" sentence as the SOLE filler, repeated end to end -- so however long the
+    // repeat, that exact phrase necessarily also fell inside extractInstructionWindow's tail (the
+    // window deliberately always keeps the last 600 chars too, even after a lead-in match, precisely
+    // to preserve a genuine trailing paste-then-ask question -- see that function's own comment).
+    // The phrase now appears once, sandwiched inside real FILLER on both sides, so it lands solidly
+    // in the middle and away from both the head and the tail window -- the same pattern the sibling
+    // "ordinary source vocabulary in the middle" test below already uses correctly.
     const message = longDocument(
       'Analyze this:',
-      'The source itself contains deploy, recommend, verify, and challenge language. '.repeat(20),
+      [FILLER, 'The source itself contains deploy, recommend, verify, and challenge language.', FILLER].join('\n\n'),
       'What are the most important findings?',
     )
     const context = contextFor(message)
@@ -253,6 +261,12 @@ describe('CEO Source Authority Phase 1: additive CeoTurnEnvelope field correctne
     const message = longDocument('Please make a deep comprehension of this report.', FILLER, 'Appendix: Agent007 Self-Assessment.')
     const context = contextFor(message)
     expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
-    expect(context.turnEnvelope.requestedOperation).toBe('conversation')
+    // Deep-audit fix (2026-09-20): this expectation was stale -- the authoritative instruction itself
+    // ("Please make a deep comprehension of this report.") is exactly the phrasing the sibling test
+    // above ("requestedOperation now recognizes explicit deep document comprehension...") confirms
+    // correctly resolves to 'document_comprehension', not 'conversation'. The point of this test is
+    // that the source-tail self-assessment mention does NOT change that -- not that comprehension
+    // itself goes unrecognized.
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
   })
 })

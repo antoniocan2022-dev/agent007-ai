@@ -104,7 +104,12 @@ function sanitizeSuggestedIntent(value: unknown): SemanticIntentHint | undefined
 function sanitizeSuggestedSpeechAct(value: unknown): SemanticSpeechAct | undefined { return value === 'social' || value === 'question' || value === 'proposition' || value === 'continuation' || value === 'correction' || value === 'request' || value === 'unknown' ? value : undefined }
 function sanitizeSuggestedDepth(value: unknown): CognitiveDepth | undefined { return value === 'direct' || value === 'contextual' || value === 'deep' || value === 'strategic' ? value : undefined }
 
-const DOCUMENT_TARGET_RE = /\b(?:this|that|these|those|the|my|our)\s+(?:report|document|text|article|analysis|transcript|proposal|plan|paper|file|material|content)s?\b/i
+// Deep-audit fix (2026-09-20): tolerates an optional short quantifier between the determiner and the
+// noun ("these TWO reports", "these THREE files") -- a bare "\s+" between determiner and noun missed
+// this extremely natural phrasing for a compare/extract request over multiple documents, so "Compare
+// these two reports and explain the differences" fell through to the generic 'conversation' fallback
+// instead of 'document_compare'.
+const DOCUMENT_TARGET_RE = /\b(?:this|that|these|those|the|my|our)\s+(?:\d+|two|three|four|five|few|both|several|couple\s+of)?\s*(?:report|document|text|article|analysis|transcript|proposal|plan|paper|file|material|content)s?\b/i
 const DOCUMENT_COMPREHENSION_RE = /\b(?:deep\s+(?:comprehension|understanding)|deeply\s+understand|comprehensive\s+(?:understanding|comprehension)|in[- ]depth\s+(?:understanding|comprehension)|make\s+sense\s+of|help\s+(?:me\s+)?understand|walk(?:\s+me)?\s+through|understand\s+(?:this|that|the\s+(?:report|document|text|article|transcript)))\b/i
 const DOCUMENT_SUMMARY_RE = /\b(?:summari[sz]e|give\s+(?:me\s+)?a\s+summary|executive\s+summary|key\s+(?:points|takeaways)|main\s+(?:points|takeaways))\b/i
 const DOCUMENT_CRITIQUE_RE = /\b(?:critique|criticize|criticise|stress[- ]test|critically\s+(?:review|evaluate)|challenge)\b/i

@@ -34,7 +34,19 @@ const INSTRUCTION_WINDOW_EDGE_CHARS = 600
 // paragraph boundary, not just more prose in the same sentence -- so "read this report and challenge its
 // conclusion" (a complete instruction in its own right) doesn't get truncated at "read this" merely
 // because the word "this" happens to appear early in the sentence.
-const SOURCE_LEAD_IN_RE = /\b(?:(?:analyz|analys|review|read|comprehend|summariz|summaris)e?\s+(?:this|the following|these)\s*:?|(?:(?:give(?:\s+me)?|make(?:\s+(?:me|a))?)\s+(?:a\s+)?(?:deep|thorough|comprehensive)?\s*comprehension\s+of|(?:deeply\s+)?comprehend|understand|make\s+sense\s+of|walk(?:\s+me)?\s+through)\s+(?:this|the following|these)\s*:?|(?:here(?:'s| is)|the following is)\s+(?:the|a|an)?\s*(?:report|document|text|article|transcript|analysis)\s*:?)(?=\s*\n)/i
+// Deep-audit fix (2026-09-20): REFERENCE_TARGET_RE tolerates an optional document noun between the
+// reference word and the trailing colon/newline ("of this report:\n", not just "of this:\n") -- the
+// exact phrasing from the real production incident ("give me a deep comprehension of this document")
+// never matched without it, since bare "this"/"the following"/"these" immediately before the colon is
+// much rarer in natural phrasing than "this report:"/"this document:".
+const REFERENCE_TARGET_RE_SOURCE = '(?:this|the following|these)(?:\\s+(?:report|document|text|article|transcript|analysis))?\\s*:?'
+const SOURCE_LEAD_IN_RE = new RegExp(
+  `\\b(?:(?:analyz|analys|review|read|comprehend|summariz|summaris)e?\\s+${REFERENCE_TARGET_RE_SOURCE}` +
+  `|(?:(?:give(?:\\s+me)?|make(?:\\s+(?:me|a))?)\\s+(?:a\\s+)?(?:deep|thorough|comprehensive)?\\s*comprehension\\s+of|(?:deeply\\s+)?comprehend|understand|make\\s+sense\\s+of|walk(?:\\s+me)?\\s+through)\\s+${REFERENCE_TARGET_RE_SOURCE}` +
+  `|(?:here(?:'s| is)|the following is)\\s+(?:the|a|an)?\\s*(?:report|document|text|article|transcript|analysis)\\s*:?` +
+  `)(?=\\s*\\n)`,
+  'i',
+)
 
 /**
  * Extracts the portion of a user turn that plausibly carries the user's own instruction, as opposed to
