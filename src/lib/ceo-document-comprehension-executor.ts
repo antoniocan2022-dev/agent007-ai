@@ -48,13 +48,12 @@ async function runBounded<T>(items: readonly T[], concurrency: number, run: (ite
   return results
 }
 
-// Execution is gated on a stricter bar than the plan's own requiresHierarchicalComprehension
+// Execution is gated on a stricter generic bar than the plan's own requiresHierarchicalComprehension
 // (which fires at >1 section, i.e. any document past DEFAULT_SECTION_BUDGET_CHARS = 6,000 chars).
-// Spending N extra LLM calls is only worth it for a document large enough that single-pass
-// attention genuinely risks shortchanging later sections -- a document that's merely a little over
-// one section's budget is exactly the case single-pass already handles well. 5 sections at the
-// 6,000-char default budget is roughly a 30,000+ character document: a genuine multi-page report,
-// not an ordinary long paste.
+// Generic turns require 5 sections because additional LLM calls are only worth it once single-pass
+// attention genuinely risks shortchanging later sections. An explicit document_comprehension operation
+// is a stronger user-level signal, so Phase 3 lowers that bar to 2 real source sections while still
+// requiring a multi-section document.
 export const EXECUTION_NECESSITY_SECTION_THRESHOLD = 5
 export const DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD = 2
 
