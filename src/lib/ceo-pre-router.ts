@@ -280,7 +280,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const selfReflection = initialConsistency.effectiveSelfReflection
   const adaptive = classifyExecution(messages, selfReflection)
   // Source Authority hardening: task classification is a provider-lane hint, but it must not scan arbitrary pasted source vocabulary. The production path supplies the canonical bounded instruction window above.
-  const taskClass = inferTaskType([{ role: 'user', content: classificationText }])
+  const taskClass = inferTaskType([{ role: 'user', content: semanticContext?.turnEnvelope.instruction.authoritativeText ?? classificationText }])
   // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted
   // semantic layer gets a chance to collapse a short reference like "yes, go ahead" into conversation.
   // The inherited objective is only used for routing/grounding; the user's actual text remains the
