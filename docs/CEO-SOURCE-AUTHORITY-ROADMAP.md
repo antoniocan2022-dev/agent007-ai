@@ -1,6 +1,6 @@
 # CEO Source Authority Roadmap
 
-Status: **Phases 0-3 implemented** on `main` through the Source Authority PR sequence. Phase 4 remains proposed; Phase 5 remains deferred and unscoped.
+Status: **Phases 0-3 implemented** on `main`; **Phase 4 implemented in this branch and pending PR/CI merge**. Phase 5 remains deferred and unscoped.
 
 ## 1. Background
 
@@ -52,8 +52,14 @@ source. `CeoIntent`, evidence routing, and orchestration ownership remain unchan
 
 The Phase 0 adversarial corpus and Phase 2/3 regressions cover the source-tail
 self-assessment class, operation taxonomy, lead-in detection, and live lifecycle
-wiring. The remaining architectural gap is the reusable contract-consistency layer
-described in Phase 4 and the broader provenance/source-material model that is
+wiring. The Phase 2/3 deep audit also re-verified the legacy/offline compatibility
+surface after the envelope became load-bearing: the missing-optional-envelope crash
+was fixed before PR #192 was merged. A second authority gap remained, however:
+the retained head/tail compatibility window could still let source-tail execution
+vocabulary produce a `production_action`/`tool_action` candidate, and a high-confidence
+model-assisted action suggestion could then replace the safer deterministic result.
+Phase 4 closes that gap with a reusable consistency gate applied before and after
+assisted intent resolution. Broader provenance/source-material modeling remains
 intentionally outside the current narrow sequence.
 
 ## 3. The original gap exposed by the incident
@@ -210,24 +216,42 @@ unchanged.
 
 **Scope:** PR #186 built one instance of an "impossible state" invariant
 (`self_assessment` requires an explicit phrase once source material is present).
-Generalize the pattern into a small, reusable checker — a short table of
-`(condition, requirement, fallback)` triples — that other intent/operation pairs
-can register against without hand-rolling a new ad hoc gate each time. Candidate
-second invariant to seed it: `production_action`/`tool_action` inferred purely from
-source-material vocabulary (not the instruction window) should require the same
-kind of explicit-instruction confirmation `self_assessment` now does.
+Phase 4 turns that pattern into a reusable, declarative checker with explicit
+`condition -> requirement -> fallback` rules. The checker is intentionally
+separate from classification: classifiers propose intent, while the gate decides
+whether that proposal is consistent with the authoritative turn envelope.
 
-**Deliverables:** A new, small module (e.g. `ceo-contract-consistency-gate.ts`),
-one call site (likely inside `preRouteCeoRequest` or `ceo-response-quality-gate.ts`),
-migrating PR #186's inline gate to use it, plus the second invariant as proof the
-abstraction generalizes.
+The Phase 2/3 audit added an important integration requirement beyond the original
+roadmap wording: the gate must protect the **final assisted intent**, not only the
+first deterministic candidate. Otherwise a high-confidence model suggestion could
+re-introduce an action intent after deterministic source-authority protection had
+already demoted it.
 
-**Risk:** Low-medium — refactor of already-shipped, well-tested logic plus one new
-invariant.
-**Effort:** Medium.
-**Exit criteria:** PR #186's existing tests pass unmodified through the new
-abstraction; the second invariant has its own regression fixture proving it closes
-a real (even if lower-severity) gap.
+**Rules shipped:**
+- `self_assessment` requires `turnEnvelope.selfAssessmentRequested` on source-bearing turns;
+- `production_action` requires an explicit production command in the authoritative instruction;
+- `tool_action` requires an explicit agent-directed tool command in the authoritative instruction.
+
+Source-only action candidates fall back to a document-analysis intent when the
+canonical `requestedOperation` is a document operation; otherwise they fall back
+to ordinary conversation. This preserves comprehension/review work instead of
+silently turning an unsafe source-derived action candidate into an operational route.
+
+**Deliverables implemented in this branch:**
+- new `src/lib/ceo-contract-consistency-gate.ts`;
+- Phase 2/3 self-assessment gate migrated out of `ceo-pre-router.ts` into the reusable checker;
+- deterministic intent passes through the checker;
+- final deterministic/model-assisted intent passes through the checker again;
+- dedicated gate unit tests plus live pre-router integration regressions;
+- existing source-authority corpus remains the regression baseline.
+
+**Risk:** Low-medium — refactors already-shipped consistency handling and adds
+execution-authority regression coverage without widening `CeoIntent`.
+
+**Exit criteria:** Existing self-assessment source-tail behavior is preserved,
+source-derived production/tool actions cannot obtain execution authority, explicit
+authoritative commands still route normally, and model-assisted intent cannot
+re-introduce a forbidden action after deterministic enforcement.
 
 ### Phase 5 — `CeoIntent` taxonomy widening (deferred, re-scope before starting)
 

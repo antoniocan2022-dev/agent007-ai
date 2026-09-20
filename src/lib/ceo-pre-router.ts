@@ -8,6 +8,7 @@ import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeo
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 // Item 2 of the "make Agent007 feel like Claude" plan: research|search|look up|find out|verify|validate
@@ -265,27 +266,18 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // original local computation for any caller without a canonical context yet (tests, offline tooling).
   const classificationText = semanticContext?.instruction ?? extractInstructionWindow(text)
   const rawSelfReflection = classifyCeoSelfReflection(classificationText)
-  // Source Authority Phase 2: on the real canonical path, the envelope is the authority for whether a
-  // self-assessment is actually requested. The raw self-reflection classifier remains useful for the
-  // detailed selfReflectionKind, but it can no longer override the envelope on a long source-bearing turn.
-  // This closes the residual source-tail problem: an explicit-looking phrase retained from the source tail
-  // is visible to rawSelfReflection, but is not present in the envelope's authoritative instruction text.
+  // Source Authority Phase 4: all impossible-state handling is centralized in the reusable gate.
+  // The envelope remains the source of truth; the raw classifier supplies only detail.
   const envelope = semanticContext?.turnEnvelope
-  const canonicalSourceMaterialPresent = envelope?.sourceMaterial?.present === true
-  let selfReflection: SelfReflectionClassification = rawSelfReflection
-  if (envelope && canonicalSourceMaterialPresent && !envelope.selfAssessmentRequested && rawSelfReflection.isSelfReflective) {
-    selfReflection = {
-      kind: 'none',
-      isSelfReflective: false,
-      reason: 'Canonical CeoTurnEnvelope does not request self-assessment for this source-bearing turn.',
-    }
-  } else if (envelope && canonicalSourceMaterialPresent && envelope.selfAssessmentRequested && !rawSelfReflection.isSelfReflective) {
-    selfReflection = {
-      kind: 'capability_assessment',
-      isSelfReflective: true,
-      reason: 'Canonical CeoTurnEnvelope explicitly requested self-assessment.',
-    }
-  }
+  const initialConsistency = enforceContractConsistency({
+    candidateIntent: rawSelfReflection.isSelfReflective ? 'self_assessment' : 'conversation',
+    candidateSelfReflection: rawSelfReflection,
+    sourceMaterialPresent: envelope?.sourceMaterial?.present === true,
+    authoritativeInstruction: envelope?.instruction.authoritativeText ?? classificationText,
+    selfAssessmentRequested: envelope?.selfAssessmentRequested === true,
+    requestedOperation: envelope?.requestedOperation ?? 'conversation',
+  })
+  const selfReflection = initialConsistency.effectiveSelfReflection
   const adaptive = classifyExecution(messages, selfReflection)
   const taskClass = inferTaskType(messages)
   // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted
@@ -294,7 +286,16 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // response surface and is never replaced or rewritten.
   const inheritedObjective = latestContinuableObjective(semanticContext)
   const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
-  const deterministicIntent = inferSemanticIntent(routingText, selfReflection)
+  const proposedDeterministicIntent = inferSemanticIntent(routingText, selfReflection)
+  const consistency = enforceContractConsistency({
+    candidateIntent: proposedDeterministicIntent,
+    candidateSelfReflection: selfReflection,
+    sourceMaterialPresent: envelope?.sourceMaterial?.present === true,
+    authoritativeInstruction: envelope?.instruction.authoritativeText ?? classificationText,
+    selfAssessmentRequested: envelope?.selfAssessmentRequested === true,
+    requestedOperation: envelope?.requestedOperation ?? 'conversation',
+  })
+  const deterministicIntent = consistency.effectiveIntent
   const assistedIntent = semanticIntentToCeoIntent(semanticContext)
   // Deep-audit fix (2026-09-13): only 'self_assessment' was protected from being overridden by the
   // LLM-assisted intent. ceo-semantic-interpreter.ts's HIGH_RISK_EXECUTION_RE/MISSION_EXECUTION_RE
@@ -310,7 +311,16 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const objectiveContinuationActive = Boolean(inheritedObjective)
   const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(classificationText))
   const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action' || deterministicExternalResearch
-  const semanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
+  const proposedSemanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
+  const semanticConsistency = enforceContractConsistency({
+    candidateIntent: proposedSemanticIntent,
+    candidateSelfReflection: selfReflection,
+    sourceMaterialPresent: envelope?.sourceMaterial?.present === true,
+    authoritativeInstruction: envelope?.instruction.authoritativeText ?? classificationText,
+    selfAssessmentRequested: envelope?.selfAssessmentRequested === true,
+    requestedOperation: envelope?.requestedOperation ?? 'conversation',
+  })
+  const semanticIntent = semanticConsistency.effectiveIntent
   const canonicalDecision = semanticContext ? (decisionContract ?? buildConversationDecisionContract(semanticContext)) : undefined
   const curiosity = semanticContext && canonicalDecision ? assessCeoCuriosity(semanticContext, canonicalDecision) : null
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
