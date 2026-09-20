@@ -30,10 +30,31 @@ function externalInvestigationSignal(text: string): boolean {
   return true
 }
 
+// Deep-audit fix (2026-09-20, Source Authority Phase 4 follow-up): this used to scan
+// context.currentMessage -- the ENTIRE raw message, including any pasted source document -- so a
+// long document that merely mentioned "research"/"search"/"news"/"market"/"competitor" anywhere in
+// its own body could trigger real external web evidence acquisition regardless of what the user
+// actually asked, bypassing the whole instruction/source separation the rest of this initiative
+// exists to enforce (this module was never touched by PRs #185/#186/#188-195). Now prefers the
+// canonical authoritative instruction segment (turnEnvelope.instruction.authoritativeText), falling
+// back to currentMessage only for callers/tests without a populated turnEnvelope.
+// context.meaning is deliberately NOT concatenated here anymore: deterministicMeaning
+// (ceo-cognitive-conversation.ts) falls back to normalize(currentMessage) -- the entire raw message
+// again -- whenever there's no resolved reference and no conversation topic, which silently
+// reintroduced the exact same unbounded-source leak this fix removes from currentMessage directly.
 function externalRequirementSignal(context: CanonicalConversationContext): boolean {
-  const text = `${context.currentMessage} ${context.meaning}`.trim()
+  const text = (context.turnEnvelope?.instruction?.authoritativeText ?? context.currentMessage).trim()
   if (INTERNAL_ONLY_RE.test(text) && !externalInvestigationSignal(text)) return false
-  if (context.intentHint === 'research' || context.semanticInterpretation.suggestedIntent === 'research') return true
+  // Deep-audit fix (2026-09-20): context.intentHint comes from userIntentHint's plain research
+  // check, which (unlike its self-assessment branch) was never gated on sourceMaterialPresent -- it
+  // still scans the full windowed instruction, head AND tail. A source-tail "research the latest
+  // public information... search for recent news" appendix could set intentHint to 'research' even
+  // though the authoritative instruction asked for something else entirely, and this check trusted
+  // that unconditionally. turnEnvelope.requestedOperation is computed from the authoritative
+  // instruction segment alone, so it isn't exposed to that tail contamination.
+  // context.semanticInterpretation.suggestedIntent is left as-is: it's the model-assisted layer's own
+  // judgment, not a raw keyword match over source-contaminated text.
+  if (context.turnEnvelope?.requestedOperation === 'research' || context.semanticInterpretation.suggestedIntent === 'research') return true
   return externalInvestigationSignal(text)
 }
 

@@ -1,6 +1,8 @@
 # CEO Source Authority Roadmap
 
-Status: **Phases 0-4 implemented on `main`** through PR #193; this follow-up adds the dedicated `mission_action` regression proof. Phase 5 remains deferred and unscoped.
+Status: **Phases 0-4 implemented and independently deep-audited on `main`** (PRs #188-#195, plus a
+2026-09-20 fresh-audit pass that found and fixed 9 real gaps the implementation PRs' own CI missed --
+see §7). Phase 5 remains deferred and unscoped.
 
 ## 1. Background
 
@@ -294,3 +296,75 @@ until Phases 0-4 produce the evidence needed to scope it safely.
 Each phase should ship as its own PR, following the established rhythm: implement,
 add regression tests (extending the Phase 0 corpus), run the full suite, run
 `audit:coherence` and `audit:ceo-lifecycle`, open a PR, drive CI to green, merge.
+
+## 7. 2026-09-20 fresh-audit findings
+
+A deep audit of the merged Phases 0-4 (PRs #188-#195), run independently of the sessions that
+implemented them, found 9 real gaps -- all fixed on `main`, verified against a byte-for-byte diff of
+the full regression suite's failing-test set before and after (zero new failures, zero previously-
+passing tests broken). None were caught by the implementation PRs' own CI, because each one was a
+narrow, correct-looking unit that only failed to compose with a sibling module -- exactly the kind of
+gap a fresh, independent pass exists to catch.
+
+**Real code bugs (not test-fixture bugs):**
+
+1. **`ceo-contract-consistency-gate.ts`** -- `hasExplicitAuthoritativeCommand`'s directive-frame regex
+   had a mandatory politeness-prefix group where its sibling `hasExplicitAuthoritativeResearch` had it
+   correctly optional, so a second clause joined by a bare comma-conjunction ("Please do X, and deploy
+   Y.") never matched unless "deploy" was itself preceded by "please" a second time -- silently
+   defeating the "explicit self-assessment plus authoritative production command preserves production
+   authority" case the gate exists to protect.
+2. **`ceo-cognitive-contract.ts`** -- `SOURCE_LEAD_IN_RE` didn't tolerate a document noun ("report"/
+   "document"/etc.) or a terminal period between the reference word and the paragraph break, so the
+   single most natural real-world phrasing -- "Please give me a deep comprehension of this report.\n\n
+   &lt;document&gt;" (a complete sentence ending in a period, exactly the original incident's own wording)
+   -- never matched the lead-in detector at all, silently falling back to the less precise head/tail
+   window every time.
+3. **`ceo-cognitive-conversation.ts`** -- `DOCUMENT_TARGET_RE` didn't tolerate a quantifier ("two",
+   "three") between the determiner and the noun, so "Compare these TWO reports..." wasn't recognized
+   as having a document target and fell through requestedOperation entirely to the generic
+   'conversation' fallback.
+4. **`ceo-contract-consistency-gate.ts`** -- no rule existed for the case where `inferSemanticIntent`'s
+   own deterministic keyword list (which has no "comprehension"/"comprehend" alternative at all) found
+   no other signal and returned bare 'conversation', even though `requestedOperation` correctly said
+   `document_comprehension`. Added `DOCUMENT_OPERATION_MINIMUM_RULE` to close this the same way Phase
+   3's own design intended `requestedOperation` to be used: a strengthening signal, not a
+   write-once-ignored one.
+5. **`ceo-contract-consistency-gate.ts`** -- `documentFallbackIntent` only ever mapped the five
+   document_* operations to `'analysis'`, treating a `requestedOperation` of plain `'analysis'`/
+   `'decision'` (which `inferRequestedOperation` assigns directly and correctly) as if it carried no
+   information, falling all the way to `'conversation'` -- a rejected `production_action`/`tool_action`
+   candidate could lose an otherwise-correct `'analysis'` classification for no reason.
+6. **`ceo-curiosity.ts`** -- **the most significant finding.** This module (never touched by any of
+   PRs #185/#186/#188-195) independently decides whether to trigger real external web evidence
+   acquisition, and it read `context.currentMessage` -- the entire raw message, pasted document
+   included -- directly. A long document that merely mentioned "research"/"search"/"news"/"market"/
+   "competitor" anywhere in its own body could trigger a real external-evidence turn regardless of what
+   the user actually asked, completely bypassing the instruction/source separation the rest of this
+   initiative exists to enforce. Two more layers of the same class of bug were found and fixed in the
+   same module: an unconditional `context.intentHint === 'research'` bypass (intentHint's own research
+   check was never gated on `sourceMaterialPresent` the way its self-assessment check was, so
+   source-tail vocabulary could still set it), and `context.meaning`'s own deterministic fallback being
+   `normalize(currentMessage)` -- the full raw message again -- reintroducing the same leak through a
+   second field even after the first was fixed.
+
+**Test-fixture bugs (the code was already correct; the fixture didn't exercise it correctly):**
+
+7. `tests/ceo-source-authority-phase4.integration.test.ts` joined every fixture's lines with the
+   literal two-character string `'\\n'` instead of a real newline (`'\n'`), silently flattening every
+   multi-paragraph fixture in the file into one line and defeating paragraph-boundary-dependent
+   detection throughout.
+8. `tests/ceo-source-authority-corpus.test.ts`'s "explicit lead-in keeps user framing ahead of a large
+   pasted source" test used its own trigger phrase as the *sole* repeated filler content, so however
+   many times it was repeated, that same phrase necessarily also fell inside the always-retained
+   600-char tail window (a deliberate design choice -- see that function's own comment -- to preserve a
+   genuine trailing paste-then-ask question). Fixed by sandwiching the phrase once inside real filler,
+   matching the pattern every sibling test in the same file already used correctly.
+9. `tests/ceo-source-authority-corpus.test.ts`'s "source-tail self-assessment snapshot remains
+   non-authoritative after Phase 2" test asserted `requestedOperation` should be `'conversation'` for
+   an instruction a sibling test in the same file already confirms correctly resolves to
+   `'document_comprehension'` -- a stale expectation, not a behavior change.
+
+All nine are covered by the existing test suite (fixed in place, not deleted or weakened) plus the
+full regression suite and both architecture audits (`audit:coherence`, `audit:ceo-lifecycle`), which
+all pass on the current `main`.
