@@ -1,7 +1,6 @@
 import { runCanonicalLlm } from './canonical-llm-router'
 import type { CanonicalConversationContext, CognitiveDepth, SemanticIntentHint, SemanticInterpretation, SemanticSpeechAct } from './ceo-cognitive-conversation'
 import { isCeoRequestAborted } from './ceo-cancellation'
-import { extractInstructionWindow } from './ceo-cognitive-contract'
 
 const TYPO_HINT_RE = /\b(?:wht|whay|taht|teh|contnue|plese|pleas|realy|becase|dontt|cantt|isntt|explainn|agian|recieve|seperate|improt|prioritze|prority)\b/i
 const TARGETED_REFERENCE_HINT_RE = /^(?:what|how)\s+about\s+(?:it|that|this|those|these)\b|^(?:can|could|would)\s+you\s+(?:please\s+)?explain\s+(?:it|that|this)\b|^(?:please\s+)?continue(?:\s+(?:with|from)\b|\s*$)|^the\s+(?:first|second|third|last|other)\b|^(?:what\s+did\s+we\s+(?:say|do|decide)|go\s+back\s+to|return\s+to)\b/i
@@ -16,14 +15,17 @@ const ALLOWED_DEPTHS = new Set<CognitiveDepth>(['direct', 'contextual', 'deep', 
 // words like "deploy"/"mission"/typo-shaped tokens anywhere in its body must not drive whether this
 // optional LLM-assisted interpretation call fires, nor be misread as a high-risk-execution/mission
 // signal that suppresses it.
-function shouldAssist(context: CanonicalConversationContext): boolean { const window = extractInstructionWindow(context.currentMessage); return context.references.some((reference) => reference.ambiguous || reference.confidence < 0.7) || TYPO_HINT_RE.test(window) || TARGETED_REFERENCE_HINT_RE.test(window) || SELF_ASSESSMENT_HINT_RE.test(window) }
+// Recommendation 1 (2026-09-20): reads the canonical, single-computed context.instruction instead of
+// calling extractInstructionWindow itself -- this function and interpretCeoSemantics below used to each
+// independently recompute the identical window from the identical context.currentMessage on every call.
+function shouldAssist(context: CanonicalConversationContext): boolean { const window = context.instruction; return context.references.some((reference) => reference.ambiguous || reference.confidence < 0.7) || TYPO_HINT_RE.test(window) || TARGETED_REFERENCE_HINT_RE.test(window) || SELF_ASSESSMENT_HINT_RE.test(window) }
 function parseJsonObject(content: string): Record<string, unknown> | null { const candidates = [content.trim(), content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()]; for (const candidate of candidates) { try { const parsed = JSON.parse(candidate); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown> } catch {} } return null }
 function boundedMeaning(value: unknown): string | undefined { if (typeof value !== 'string') return undefined; const text = value.replace(/\s+/g, ' ').trim().slice(0, 1200); return text || undefined }
 function boundedConfidence(value: unknown): number | undefined { const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN; return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : undefined }
 function parseUncertainty(value: unknown): SemanticInterpretation['uncertainty'] { if (!Array.isArray(value)) return []; return value.slice(0, 6).flatMap((item) => { if (!item || typeof item !== 'object') return []; const record = item as Record<string, unknown>; const code = typeof record.code === 'string' ? record.code.replace(/[^a-z0-9_:-]/gi, '').slice(0, 64) : ''; const description = typeof record.description === 'string' ? record.description.replace(/\s+/g, ' ').trim().slice(0, 240) : ''; const severity = record.severity === 'low' || record.severity === 'medium' || record.severity === 'high' ? record.severity : 'medium'; return code && description ? [{ code, description, severity }] : [] }) }
 export async function interpretCeoSemantics(context: CanonicalConversationContext, signal?: AbortSignal): Promise<Partial<SemanticInterpretation>> {
   if (!shouldAssist(context)) return { source: 'deterministic' }
-  const instructionWindow = extractInstructionWindow(context.currentMessage)
+  const instructionWindow = context.instruction
   if (HIGH_RISK_EXECUTION_RE.test(instructionWindow) || MISSION_EXECUTION_RE.test(instructionWindow) || context.semanticInterpretation?.source === 'model_assisted') return { source: 'deterministic' }
   try {
     // Long-document incident (2026-09-19): CURRENT MESSAGE now sends the bounded instruction window

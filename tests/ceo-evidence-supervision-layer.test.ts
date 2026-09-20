@@ -12,6 +12,8 @@ function fakeContext(overrides: Partial<CanonicalConversationContext> = {}): Can
   return {
     schemaVersion: 1,
     currentMessage: overrides.currentMessage ?? 'Tell me about the plan.',
+    instruction: overrides.currentMessage ?? 'Tell me about the plan.',
+    sourceLength: (overrides.currentMessage ?? 'Tell me about the plan.').length,
     meaning: 'Tell me about the plan.',
     semanticInterpretation: { schemaVersion: 1, meaning: 'Tell me about the plan.', confidence: 0.8, uncertainty: [], source: 'deterministic' },
     intentHint: overrides.intentHint ?? 'conversation',
@@ -36,6 +38,7 @@ function fakeContract(overrides: Partial<ConversationDecisionContract> = {}): Co
     cognitiveDepth: 'direct',
     responseRegister: 'conversational',
     responseAction: 'answer',
+    comprehensionMode: 'conversation',
     toolRequirement: 'none',
     evidenceRequirement: 'none',
     clarificationRequired: false,

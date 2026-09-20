@@ -191,6 +191,7 @@ describe('CEO P0-P5 runtime integrity', () => {
       cognitiveDepth: 'strategic',
       responseRegister: 'strategic',
       responseAction: 'challenge',
+      comprehensionMode: 'conversation',
       toolRequirement: 'none',
       evidenceRequirement: 'possible',
       clarificationRequired: false,

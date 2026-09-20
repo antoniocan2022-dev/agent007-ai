@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { interpretCeoSemantics, semanticAssistanceRequired } from '@/lib/ceo-semantic-interpreter'
 import type { CanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { extractInstructionWindow } from '@/lib/ceo-cognitive-contract'
 
 // Conflict benchmark 1 of 4 ("make Agent007 feel like Claude" arbitration audit): found by reading
 // ceo-semantic-interpreter.ts directly rather than trusting a summary of it. interpretCeoSemantics has
@@ -30,6 +31,8 @@ function context(currentMessage: string, referenceOverrides?: Partial<CanonicalC
   return {
     schemaVersion: 1,
     currentMessage,
+    instruction: extractInstructionWindow(currentMessage),
+    sourceLength: currentMessage.length,
     meaning: currentMessage,
     semanticInterpretation: { schemaVersion: 1, meaning: '', confidence: 0, uncertainty: [], source: 'deterministic' },
     intentHint: 'action',
