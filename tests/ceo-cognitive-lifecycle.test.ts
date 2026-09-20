@@ -924,7 +924,7 @@ describe('CEO cognitive lifecycle', () => {
         throw new Error(`unexpected fetch: ${url}`)
       }) as typeof fetch
 
-      const paragraph = (i: number) => `Section ${i} of the operating report contains distinct facts, trends, risks, and management commentary that must be retained for cross-section comprehension. ${'Operational detail '.repeat(90)}`
+      const paragraph = (i: number) => `Section ${i} of the operating report contains distinct facts, trends, risks, and management commentary that must be retained for cross-section comprehension. ${'Operational detail '.repeat(280)}`
       const body = Array.from({ length: 3 }, (_, i) => paragraph(i)).join('\n\n')
       const message = `Please give me a deep comprehension of this report.\n\n${body}`
       const state = deriveCeoConversationState([], message)
