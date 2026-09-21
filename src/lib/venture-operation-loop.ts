@@ -84,7 +84,13 @@ export function autonomyModeForLevel(level: AutonomyDecision['level']): Autonomy
 async function ensureVenture001BootstrappedForCycle(ventureId: string, findings: string[]): Promise<void> {
   if (ventureId !== VENTURE_001_REFERENCE.ventureKey) return
   try {
-    const { ensureSeedUser, SEED_EMAIL } = await import('./auth')
+    // Deliberately imports from seed-user.ts, not auth.ts: auth.ts's module-level authOptions
+    // constant calls getNextAuthSecret() eagerly at import time, so importing anything from it
+    // (even just ensureSeedUser) previously forced NEXTAUTH_SECRET to be configured -- a secret
+    // this internal, non-HTTP bootstrap path has no real reason to depend on. Confirmed live: the
+    // 24x7 heartbeat's own GitHub Actions job (which has no NEXTAUTH_SECRET) failed with exactly
+    // "NEXTAUTH_SECRET is required at runtime" the moment this bootstrap first tried to run.
+    const { ensureSeedUser, SEED_EMAIL } = await import('./seed-user')
     await ensureSeedUser()
     const owner = await db.user.findUnique({ where: { email: SEED_EMAIL } })
     if (!owner) { findings.push('Venture 001 bootstrap skipped: no seed owner account exists yet.'); return }

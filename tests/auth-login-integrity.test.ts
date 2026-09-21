@@ -7,6 +7,7 @@ const loginSource = read('../src/app/login/page.tsx')
 const challengeSource = read('../src/app/api/2fa/challenge/route.ts')
 const verifySource = read('../src/app/api/2fa/verify-login/route.ts')
 const authSource = read('../src/lib/auth.ts')
+const seedUserSource = read('../src/lib/seed-user.ts')
 const ownerConfigSource = read('../src/lib/owner-config.ts')
 const agentRouteSource = read('../src/app/api/agent/route.ts')
 const conversationsRouteSource = read('../src/app/api/conversations/route.ts')
@@ -64,8 +65,16 @@ describe('authentication hardening', () => {
     expect(authSource).toContain('twofaProofExpiresAt')
     expect(authSource).toContain('timingSafeEqual')
     expect(authSource).not.toContain('hashPassword(SEED_EMAIL)')
-    expect(authSource).toContain('getOwnerBootstrapPassword')
+    // Fresh audit fix (2026-09-21): ensureSeedUser/getOwnerBootstrapPassword usage moved to
+    // seed-user.ts so importing it never forces NEXTAUTH_SECRET to be configured (auth.ts's
+    // module-level authOptions constant calls getNextAuthSecret() eagerly at import time).
+    // auth.ts re-exports ensureSeedUser/SEED_EMAIL but no longer references the bootstrap
+    // password accessor directly -- centralization now means "only seed-user.ts touches it,
+    // never a raw env var anywhere."
+    expect(authSource).not.toContain('getOwnerBootstrapPassword')
     expect(authSource).not.toContain('process.env.OWNER_BOOTSTRAP_PASSWORD')
+    expect(seedUserSource).toContain('getOwnerBootstrapPassword')
+    expect(seedUserSource).not.toContain('process.env.OWNER_BOOTSTRAP_PASSWORD')
     expect(ownerConfigSource).toContain('getOwnerBootstrapPassword')
     expect(ownerConfigSource).toContain('OWNER_BOOTSTRAP_PASSWORD')
   })
