@@ -1,6 +1,6 @@
 import { recallPersistentMemory } from './persistent-memory'
 import { synthesizeExecutiveReadiness, type SelfReflectionKind } from './ceo-self-reflection'
-import type { CeoIntent, EvidenceState, ResponseAction } from './ceo-cognitive-contract'
+import { extractInstructionWindowDetails, type CeoIntent, type EvidenceState, type ResponseAction } from './ceo-cognitive-contract'
 import type { CeoFailureReason } from './ceo-failure-reason'
 import { emitConversationIncident } from './ceo-conversation-incident'
 import { emitIncidentRegressionCandidate } from './ceo-incident-regression-candidate'
@@ -112,7 +112,17 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   const objective = input.objective.trim(); if (!objective) return null
   const action = input.action ?? 'answer'; const intent = input.intent ?? 'conversation'
   const priorUsers = safeConversationRows(input.priorConversation ?? []).filter((row) => row.role === 'user').map((row) => row.content.trim()).filter(Boolean)
-  const lower = objective.toLowerCase(); const grounding = (input.recoveredContext ?? '').trim()
+  // Production incident (2026-09-21): a long pasted document containing the word "competitor" deep in
+  // its own body (an unrelated architecture discussion, nowhere near the user's own instruction) hijacked
+  // this whole response with a canned "I wouldn't make copying a competitor our safest strategy..." reply
+  // -- completely unrelated to what the user actually asked. `lower` used to be derived from the entire
+  // raw `objective` (objectiveFrom() in ceo-cognitive-lifecycle.ts returns the full, unbounded last user
+  // message), so every keyword regex below it (copy/competitor, priorit*/compliance/revenue) scanned the
+  // whole pasted document, not just the user's own framing -- the exact same class of bug the self-
+  // assessment hijack fix (Source Authority initiative) already closed elsewhere in the CEO cognitive
+  // layer, just never applied to this function. Windowed to the same authoritativeText every other
+  // canonical classifier in this codebase already uses.
+  const lower = extractInstructionWindowDetails(objective).authoritativeText.toLowerCase(); const grounding = (input.recoveredContext ?? '').trim()
   const conversationState = input.conversationState ?? (input.priorConversation?.length ? deriveCeoConversationState(input.priorConversation, objective) : undefined)
   const continuableThread = conversationState?.threads.filter((thread) => thread.status === 'active' || thread.status === 'paused').sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]
   if (intent === 'mission_action' && grounding) return `I couldn't complete the normal mission reasoning path, but I recovered relevant internal mission evidence. I won't present it as fresh external verification.\n\n${grounding.slice(0, 12000)}`
