@@ -123,6 +123,12 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           VENTURE_ID: venture_001
           VENTURE_OWNER: agent007-24x7
+          # OWNER_EMAIL must match the same secret configured on Vercel: SEED_EMAIL
+          # (src/lib/owner-config.ts) falls back to a literal 'operator@example.com'
+          # default when unset, so without this the cycle's self-bootstrap looks up
+          # and would create an owner account under the wrong address here -- never
+          # the one the real owner actually logs into on the live site.
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
         run: |
           set -euo pipefail
           bun scripts/run-venture-operation-cycle.ts
