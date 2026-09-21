@@ -3,7 +3,7 @@ import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversat
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState } from '@/lib/ceo-conversation-state'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
-import { extractInstructionWindow, inferComprehensionMode } from '@/lib/ceo-cognitive-contract'
+import { extractInstructionWindow, extractInstructionWindowDetails, inferComprehensionMode } from '@/lib/ceo-cognitive-contract'
 import { interpretCeoSemantics, semanticAssistanceRequired } from '@/lib/ceo-semantic-interpreter'
 import { classifyCeoSelfReflection } from '@/lib/ceo-self-reflection'
 import { renderCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
@@ -333,6 +333,54 @@ describe('Source Authority Phase 2: self-assessment authority is single-sourced 
   })
 })
 
+
+// Production incident (2026-09-21): "Make a deep comprehension: "<pasted text beginning with
+// 'Here's my honest self-assessment: ...'>"" -- the exact live-production failing turn -- returned the
+// canned self-assessment template and never engaged with the pasted document at all. Root cause:
+// SOURCE_LEAD_IN_RE (ceo-cognitive-contract.ts) required the lead-in phrase to be immediately followed
+// by a line break, and its comprehension branch additionally required an explicit "of this/the
+// following/these [document noun]" reference phrase -- neither holds for "comprehension: "<quote>"" on
+// one line with no "of X" phrase. Extraction fell back to the fixed head+tail window, which swallowed
+// the opening of the quoted source material (itself beginning with the words "self-assessment") into
+// authoritativeText, and detectSelfAssessmentRequest treated that swallowed source-material phrase as
+// the user's own authoritative self-assessment request -- a "source-head" hijack, the mirror image of
+// the source-tail hijack Source Authority Phase 2 (above) already closed.
+describe('Source-head hijack: a colon-then-quote lead-in with no "of this/the following" phrase', () => {
+  function buildColonQuoteMessage(): string {
+    const quoted = [
+      "Here's my honest self-assessment: architecturally, I'm built to manage business operations through a governed CEO layer, organization model, provider failover, execution contracts, quality gates, memory, and operational tooling.",
+      'Routine business information padding this out. '.repeat(120),
+    ].join('\n\n')
+    return `Make a deep comprehension: "${quoted}"`
+  }
+
+  test('extractInstructionWindowDetails splits at the colon, so authoritativeText never contains the quoted self-assessment phrase', () => {
+    const message = buildColonQuoteMessage()
+    const result = extractInstructionWindowDetails(message)
+    expect(result.extractionMethod).toBe('lead_in')
+    expect(result.authoritativeText.toLowerCase()).not.toContain('self-assessment')
+  })
+
+  test('the canonical turn envelope does not treat this as a self-assessment request', () => {
+    const context = contextFor(buildColonQuoteMessage())
+    expect(context.turnEnvelope.selfAssessmentRequested).toBe(false)
+    expect(context.intentHint).not.toBe('self_assessment')
+  })
+
+  test('preRouteCeoRequest agrees: does not route this into the self-assessment fast lane', () => {
+    const message = buildColonQuoteMessage()
+    const context = contextFor(message)
+    const contract = buildConversationDecisionContract(context)
+    const decision = preRouteCeoRequest([{ role: 'user', content: message }], 0, context, contract)
+    expect(decision.executionContract.intent).not.toBe('self_assessment')
+  })
+
+  test('a genuine explicit self-assessment request using the same colon-quote shape still classifies correctly (no regression)', () => {
+    const message = 'Give me a self-assessment: "of your reliability and evidence handling over the last quarter."'
+    const context = contextFor(message)
+    expect(context.intentHint).toBe('self_assessment')
+  })
+})
 
 describe('Source Authority reaches the actual CEO generation context', () => {
   test('canonical CEO context explicitly carries the authoritative instruction and source/data boundary', () => {
