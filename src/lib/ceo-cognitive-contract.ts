@@ -47,6 +47,26 @@ const SOURCE_LEAD_IN_RE = new RegExp(
   `)(?=\\s*\\n)`,
   'i',
 )
+// Audit fix (2026-09-21): SOURCE_LEAD_IN_RE requires the lead-in phrase to be immediately followed by a
+// line break, and its comprehension branch additionally requires an explicit "of this/the following/
+// these [document noun]" reference phrase. A real production incident showed neither holds for the
+// extremely common "Make a deep comprehension: "<pasted text>"" phrasing -- a bare colon immediately
+// followed by an opening quote mark, on the SAME line, with no "of X" reference phrase at all. Without
+// recognizing this as a lead-in, extraction fell back to the fixed head+tail window, which happened to
+// swallow the opening of the quoted source material (itself beginning with the words "self-assessment")
+// into `authoritativeText` -- and detectSelfAssessmentRequest (ceo-cognitive-conversation.ts) treated
+// that swallowed source-material phrase as the user's own authoritative self-assessment request. An
+// opening quote mark immediately after a colon is itself an unambiguous quote boundary; no trailing
+// reference-target phrase is needed to establish it. Deliberately a separate regex tried only when
+// SOURCE_LEAD_IN_RE doesn't match, rather than folding into it, so existing newline-terminated matches
+// are completely unchanged.
+const SOURCE_LEAD_IN_QUOTE_RE = new RegExp(
+  `\\b(?:(?:analyz|analys|review|read|comprehend|summariz|summaris)e?` +
+  `|(?:give(?:\\s+me)?|make(?:\\s+(?:me|a))?)\\s+(?:a\\s+)?(?:deep|thorough|comprehensive)?\\s*comprehension` +
+  `|(?:deeply\\s+)?comprehend|understand|make\\s+sense\\s+of|walk(?:\\s+me)?\\s+through` +
+  `)\\s*:\\s*(?=["'“‘])`,
+  'i',
+)
 
 /**
  * Extracts the portion of a user turn that plausibly carries the user's own instruction, as opposed to
@@ -81,7 +101,7 @@ export function extractInstructionWindowDetails(message: string): InstructionWin
     return { text: trimmed, authoritativeText: trimmed, extractionMethod: 'short_message' }
   }
   const tail = trimmed.slice(-INSTRUCTION_WINDOW_EDGE_CHARS)
-  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE)
+  const leadIn = trimmed.match(SOURCE_LEAD_IN_RE) ?? trimmed.match(SOURCE_LEAD_IN_QUOTE_RE)
   if (leadIn && typeof leadIn.index === 'number') {
     const head = trimmed.slice(0, leadIn.index + leadIn[0].length)
     // Audit fix (2026-09-19): always also keep the tail, even on a lead-in match. A lead-in phrase can
