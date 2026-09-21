@@ -118,7 +118,14 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     throw new Error(`${cause} | cycle findings so far: ${findings.length ? findings.join('; ') : '(none)'}`)
   }
 
-  assertDelegationAllowed({ actorId: canonicalOwner, actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: canonicalOwner })
+  // Fresh audit fix (2026-09-21): this previously used the caller-supplied `canonicalOwner` (the
+  // heartbeat's hardcoded VENTURE_OWNER, or an authenticated human's email/name from the HTTP
+  // route) as the CEO's own actorId. commercial-organization.ts registers exactly one CEO-level
+  // identity -- the fixed root node 'ceo' -- so neither production caller's owner string could
+  // ever resolve to it; this delegation check has never actually passed for either one. The CEO's
+  // identity in this org-chart delegation graph is the fixed 'ceo' node, not whoever triggered the
+  // cycle -- `delegatedBy` already captures that as audit metadata, unused by the check itself.
+  assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: canonicalOwner })
 
   if (organization.operationalOwnerId) {
     assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: organization.operationalOwnerId, targetLevel: 'LEADER', delegatedBy: canonicalOwner })

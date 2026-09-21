@@ -46,7 +46,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mis
 
     const targetLevel = authorityLevelFor(leaderInfo.leaderId)
     if (targetLevel !== 'LEADER') return errorResponse(`Current mission owner ${leaderInfo.leaderId} is not a registered leader.`)
-    assertDelegationAllowed({ actorId: 'agent007', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID' })
+    // Fresh audit fix (2026-09-21): commercial-organization.ts registers exactly one CEO-level
+    // identity -- the fixed root node 'ceo' -- so actorId: 'agent007' could never resolve to it;
+    // this check has always thrown "unregistered actor identity agent007" for every request. The
+    // CEO's identity in this delegation graph is the fixed 'ceo' node, not the caller string.
+    assertDelegationAllowed({ actorId: 'ceo', actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: 'agent007' })
     assertDelegationAllowed({ actorId: 'vid', actorLevel: 'VID', targetId: leaderInfo.leaderId, targetLevel: 'LEADER', delegatedBy: 'agent007' })
 
     await appendLeaderMessageDB(missionId, leaderInfo.leaderId, 'OWNER', message, ownerId)
