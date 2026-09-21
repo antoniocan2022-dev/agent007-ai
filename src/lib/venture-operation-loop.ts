@@ -15,6 +15,7 @@ import { resolveVentureOrganizationScope, type VentureOrganizationScope } from '
 import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } from './portfolio-learning-heartbeat'
 import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
 import { assessSustainedBusinessOutcome } from './ceo-sustained-outcome'
+import { ensureVenture001, VENTURE_001_REFERENCE } from './venture-001'
 
 // Deep-audit fix: ceo-self-repair-engine.ts's runGovernedSelfRepairCycle() and
 // ceo-continuous-loop.ts's runGovernedEvolutionCycle() are both real, complete, deterministic
@@ -69,9 +70,33 @@ export function autonomyModeForLevel(level: AutonomyDecision['level']): Autonomy
   return level === 'AUTONOMOUS' ? 'AUTONOMOUS' : 'SUPERVISED'
 }
 
+// Production incident (2026-09-21): the 24x7 scheduled heartbeat is the ONLY caller of this
+// function in production (see scripts/run-venture-operation-cycle.ts, an unattended GitHub Actions
+// job with no HTTP session at all) -- but resolveVentureOrganizationScope() below requires
+// venture_001's relational Venture/BusinessUnit identity to already exist, and the only code path
+// that ever created it was the owner-authenticated POST /api/ventures/001 endpoint. With nobody
+// required to ever log in and hit that endpoint, the scheduled heartbeat could never succeed even
+// once, regardless of DATABASE_URL or the commercial org chart being wired correctly. Bootstraps
+// Venture 001's identity here, idempotently, using the same seed/owner account ensureSeedUser()
+// already provisions for the one-operator system (no HTTP session required, just a DB lookup) --
+// self-healing on every cycle rather than depending on a one-time manual step.
+async function ensureVenture001BootstrappedForCycle(ventureId: string, findings: string[]): Promise<void> {
+  if (ventureId !== VENTURE_001_REFERENCE.ventureKey) return
+  try {
+    const { ensureSeedUser, SEED_EMAIL } = await import('./auth')
+    await ensureSeedUser()
+    const owner = await db.user.findUnique({ where: { email: SEED_EMAIL } })
+    if (!owner) { findings.push('Venture 001 bootstrap skipped: no seed owner account exists yet.'); return }
+    await ensureVenture001(owner.id)
+  } catch (error) {
+    findings.push(`Venture 001 bootstrap failed safely: ${error instanceof Error ? error.message.slice(0, 240) : String(error)}`)
+  }
+}
+
 export async function runVentureOperationCycle(ventureId = 'venture_001', owner = 'agent007'): Promise<VentureOperationCycle> {
   const findings: string[] = []
   const canonicalOwner = owner.trim().toLowerCase()
+  await ensureVenture001BootstrappedForCycle(ventureId, findings)
   const organization = await resolveVentureOrganizationScope(ventureId)
 
   assertDelegationAllowed({ actorId: canonicalOwner, actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: canonicalOwner })
