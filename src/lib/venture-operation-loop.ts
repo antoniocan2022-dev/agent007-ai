@@ -98,7 +98,19 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   const findings: string[] = []
   const canonicalOwner = owner.trim().toLowerCase()
   await ensureVenture001BootstrappedForCycle(ventureId, findings)
-  const organization = await resolveVentureOrganizationScope(ventureId)
+  // Observability fix: any exception here previously propagated raw, discarding every finding
+  // collected so far (including exactly why the bootstrap above could not proceed) with zero
+  // trace in the caller's logs -- scripts/run-venture-operation-cycle.ts has no catch of its own,
+  // so the process crashed on the bare downstream error alone. Findings are diagnostic evidence;
+  // losing them on the one code path most likely to need them (a cold-start failure) defeats their
+  // purpose.
+  let organization: Awaited<ReturnType<typeof resolveVentureOrganizationScope>>
+  try {
+    organization = await resolveVentureOrganizationScope(ventureId)
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error)
+    throw new Error(`${cause} | cycle findings so far: ${findings.length ? findings.join('; ') : '(none)'}`)
+  }
 
   assertDelegationAllowed({ actorId: canonicalOwner, actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: canonicalOwner })
 
