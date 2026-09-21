@@ -47,3 +47,27 @@ describe('Venture operation cycle self-bootstraps Venture 001 (no manual login r
     expect(managerCalls).toBe(1)
   })
 })
+
+// Production incident (2026-09-21): this cycle always computed `mode` from the real,
+// evidence-driven autonomy-graduation decision, but only ever wrote it into this cycle's own
+// checkpoint record (venture-os:operation:${ventureId}) -- never into the separate
+// venture-os:v2:autonomy-lease:${ventureId} record operational-kpi-engine.ts actually reads for
+// the CEO self-assessment's "autonomy"/"leaseHealthy" fields. Confirmed by grep: nothing in the
+// automated path ever called acquireAutonomyLease/heartbeatAutonomyLease, so the self-assessment
+// showed "autonomy PAUSED (lease unhealthy)" permanently regardless of the real graduation state.
+describe('Venture operation cycle syncs the real autonomy decision into the lease record the self-assessment reads', () => {
+  test('runVentureOperationCycle re-acquires the autonomy lease with the graduation-derived mode after computing it', () => {
+    const source = read('src/lib/venture-operation-loop.ts')
+    expect(source).toContain("import { acquireAutonomyLease } from './venture-autonomy-control'")
+    const modeIndex = source.indexOf('const mode = autonomyModeForLevel(autonomy.level)')
+    const syncIndex = source.indexOf('await acquireAutonomyLease(ventureId, mode,')
+    expect(modeIndex).toBeGreaterThan(-1)
+    expect(syncIndex).toBeGreaterThan(-1)
+    expect(modeIndex).toBeLessThan(syncIndex)
+    // The sync must fail open (never crash the whole cycle) and never use the raw caller-supplied
+    // `owner` param, which differs across callers (the heartbeat's env var vs. a dashboard user's
+    // authenticated email) and would otherwise make the lease's ownership check fight itself.
+    expect(source).toMatch(/try\s*\{\s*await acquireAutonomyLease\(ventureId, mode,/)
+    expect(source).not.toMatch(/acquireAutonomyLease\(ventureId, mode, owner[,)]/)
+  })
+})

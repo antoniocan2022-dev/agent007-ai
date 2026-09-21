@@ -16,6 +16,7 @@ import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } 
 import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
 import { assessSustainedBusinessOutcome } from './ceo-sustained-outcome'
 import { ensureVenture001, VENTURE_001_REFERENCE } from './venture-001'
+import { acquireAutonomyLease } from './venture-autonomy-control'
 
 // Deep-audit fix: ceo-self-repair-engine.ts's runGovernedSelfRepairCycle() and
 // ceo-continuous-loop.ts's runGovernedEvolutionCycle() are both real, complete, deterministic
@@ -162,6 +163,27 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   })
   const autonomy = await evaluateAndPersistAutonomy('LOW_RISK')
   const mode = autonomyModeForLevel(autonomy.level)
+
+  // Production incident (2026-09-21): this cycle has always computed `mode` from the real,
+  // evidence-driven autonomy-graduation decision above, but only ever wrote it into this cycle's
+  // own checkpoint record (venture-os:operation:${ventureId}) -- never into the separate
+  // venture-os:v2:autonomy-lease:${ventureId} record that operational-kpi-engine.ts actually reads
+  // for the "autonomy"/"leaseHealthy" fields the CEO's self-assessment reports. Nothing anywhere in
+  // the automated path ever called acquireAutonomyLease/heartbeatAutonomyLease (confirmed by
+  // grep -- only a manual, owner-authenticated POST /api/venture-os with action:'acquire-lease'
+  // ever did), so the lease record could never exist and the self-assessment showed "autonomy
+  // PAUSED (lease unhealthy)" permanently, regardless of how healthy the real graduation state was.
+  // Re-acquiring under a fixed, cycle-owned identity on every run keeps it honestly in sync with
+  // the real decision above (including going unhealthy again if the heartbeat itself stops
+  // running) without colliding with a human's own manual lease actions from the dashboard, which
+  // use their own authenticated identity as the lease owner.
+  const LEASE_SYNC_OWNER = 'agent007-heartbeat-cycle'
+  try {
+    await acquireAutonomyLease(ventureId, mode, LEASE_SYNC_OWNER, 3600)
+  } catch (error) {
+    findings.push(`Autonomy lease sync failed safely: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`)
+  }
+
   if (autonomy.decision === 'BLOCKED') findings.push(`Autonomy graduation blocked: ${autonomy.reason}`)
   if (autonomy.decision === 'DOWNGRADED') findings.push(`Autonomy downgraded: ${autonomy.reason}`)
   if (autonomyEvidence.safetyViolations) findings.push('Low-risk autonomy evidence recorded a safety violation.')
