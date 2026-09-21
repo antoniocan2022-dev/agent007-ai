@@ -18,6 +18,20 @@ export function extractVentureId(objective: string): string | null {
   return match ? `venture_${match[1]}` : null
 }
 
+// Production incident (2026-09-21): route.ts's grounding-fetch call site defaulted an unmatched
+// extractVentureId() to 'venture_001', but its recordCeoRecommendation() write call site left it
+// null -- so every recommend/decide turn that didn't literally spell out "venture_001" in the
+// user's own text got written with ventureId: null, while the read side always scoped its
+// decision-ledger summary to 'venture_001'. The two numbers never matched: a self-assessment could
+// report "Executive decisions: none recorded" in one section and "37 recorded" in another for the
+// exact same underlying ledger, because one query filtered on 'venture_001' and the other (which
+// has no ventureId filter at all) didn't. One shared resolver for every call site that needs "the
+// venture this turn concerns, defaulting to the canonical reference venture" removes the class of
+// bug, not just this instance of it.
+export function resolveVentureId(objective: string): string {
+  return extractVentureId(objective) ?? 'venture_001'
+}
+
 function parseCheckpoint(value: string | null): Record<string, unknown> | null {
   if (!value) return null
   try { const parsed = JSON.parse(value) as unknown; return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null } catch { return null }

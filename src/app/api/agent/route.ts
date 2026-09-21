@@ -39,7 +39,7 @@ import { assessCeoSelfInspection, gatherCeoSelfInspectionEvidence, renderCeoSelf
 import { searchKnowledgeBase, formatKbContext } from '@/lib/knowledge-base'
 import { renderCeoCapabilityBriefing } from '@/lib/ceo-capability-briefing'
 import { listActiveMissionsDB } from '@/lib/active-missions-db'
-import { extractVentureId } from '@/lib/ceo-venture-state'
+import { resolveVentureId } from '@/lib/ceo-venture-state'
 import { buildCeoSystemPrompt } from '@/lib/ceo-system-prompt'
 import { sanitizeCeoErrorForUser } from '@/lib/ceo-response-composer'
 import { persistCeoAssistantMessage, recordSupersededCeoResponse, closeCeoTurnMarker, CeoResponseSupersededError } from '@/lib/ceo-response-persistence'
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
   // turn gets no self-inspection system message at all, not an honest-but-noisy "not evaluated" one.
   let selfInspectionContext: string | undefined
   if (groundingWarranted) {
-    const ventureId = extractVentureId(message) ?? 'venture_001'
+    const ventureId = resolveVentureId(message)
     const sharedMissions = await listActiveMissionsDB(sessionUserId).catch(() => undefined)
     const [groundingState, groundingLeadership, groundingHorizon, selfInspectionEvidence, groundingPartnerIntelligence] = await Promise.all([
       getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined),
@@ -298,7 +298,14 @@ export async function POST(req: NextRequest) {
           // call site from the current turn's own text -- strategyId and accountableLeaderId stay
           // unset here since nothing at this point matches a decision to a specific BusinessStrategy
           // item or leader; fabricating either would be worse than leaving them null.
-          if (!responseSuperseded && (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide')) { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; '), ventureId: extractVentureId(message) }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
+          // Fixed 2026-09-21: this used extractVentureId(message) directly (null unless the user's raw
+          // text literally spelled out "venture_001"), while every read of this same ledger
+          // (getExecutiveBusinessState above, and calculateOperationalKpis/evaluateVentureReadiness
+          // throughout venture-autonomy-control.ts) defaults an unmatched extraction to 'venture_001'.
+          // Every real recommend/decide turn was silently written as ventureId: null and therefore
+          // invisible to every venture-scoped read -- resolveVentureId() applies the identical default
+          // used everywhere else, so the write side can no longer drift from the read side.
+          if (!responseSuperseded && (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide')) { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; '), ventureId: resolveVentureId(message) }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
           streamOutcome = responseSuperseded ? 'degraded' : (response.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model, superseded: responseSuperseded }))
           if (responseSuperseded) {
