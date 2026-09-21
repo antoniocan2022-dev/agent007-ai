@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { extractVentureId, formatCeoVentureEvidence } from '../src/lib/ceo-venture-state'
+import { extractVentureId, resolveVentureId, formatCeoVentureEvidence } from '../src/lib/ceo-venture-state'
 import { validateTransactionEvidence } from '../src/lib/transaction-evidence-integrity'
 
 const root = join(import.meta.dir, '..')
@@ -17,6 +17,33 @@ describe('system continuity and commercial evidence integrity', () => {
     expect(source).toContain("getCeoVentureEvidenceForObjective(objective)")
     expect(source).toContain('LIVE VENTURE STATE (READ ONLY)')
     expect(source).toContain('Do not invent missing values')
+  })
+
+  // Production incident (2026-09-21): route.ts's grounding-fetch (getExecutiveBusinessState) read
+  // path defaulted an unmatched extractVentureId() to 'venture_001', but its recordCeoRecommendation
+  // write call site left the extraction unfallback'd -- so a real recommend/decide turn that never
+  // literally spelled out "venture_001" wrote ventureId: null and became permanently invisible to
+  // every venture-scoped read of the same ledger, while an unscoped read (strategic horizon) still
+  // saw it. The same self-assessment turn showed "Executive decisions: none recorded" in one
+  // section and "N recorded" in another for the identical underlying data. resolveVentureId() is
+  // now the one place both read and write call sites resolve "the venture this turn concerns," so
+  // the two can no longer drift apart.
+  test('resolveVentureId defaults an unmatched turn to the canonical reference venture, matching extractVentureId when one is present', () => {
+    expect(resolveVentureId('How is the portfolio doing?')).toBe('venture_001')
+    expect(resolveVentureId('Approve the marketing budget for this quarter.')).toBe('venture_001')
+    expect(resolveVentureId('How is Venture 002 doing?')).toBe('venture_002')
+    expect(resolveVentureId('venture-003 requires attention')).toBe('venture_003')
+    for (const message of ['How is the portfolio doing?', 'How is Venture 002 doing?', 'Review venture_005 performance.']) {
+      expect(resolveVentureId(message)).toBe(extractVentureId(message) ?? 'venture_001')
+    }
+  })
+
+  test('route.ts resolves ventureId identically at its recommendation read and write call sites', () => {
+    const source = read('src/app/api/agent/route.ts')
+    expect(source).not.toMatch(/import\s*\{[^}]*\bextractVentureId\b[^}]*\}\s*from\s*['"]@\/lib\/ceo-venture-state['"]/)
+    expect(source).toMatch(/import\s*\{[^}]*\bresolveVentureId\b[^}]*\}\s*from\s*['"]@\/lib\/ceo-venture-state['"]/)
+    const ventureIdCalls = [...source.matchAll(/resolveVentureId\(message\)/g)]
+    expect(ventureIdCalls.length).toBeGreaterThanOrEqual(2)
   })
 
   test('CEO evidence formatter labels provenance and refuses implied readiness', () => {
