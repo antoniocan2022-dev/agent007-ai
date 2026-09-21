@@ -15,6 +15,8 @@ import { resolveVentureOrganizationScope, type VentureOrganizationScope } from '
 import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } from './portfolio-learning-heartbeat'
 import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
 import { assessSustainedBusinessOutcome } from './ceo-sustained-outcome'
+import { ensureVenture001, VENTURE_001_REFERENCE } from './venture-001'
+import { acquireAutonomyLease } from './venture-autonomy-control'
 
 // Deep-audit fix: ceo-self-repair-engine.ts's runGovernedSelfRepairCycle() and
 // ceo-continuous-loop.ts's runGovernedEvolutionCycle() are both real, complete, deterministic
@@ -69,9 +71,33 @@ export function autonomyModeForLevel(level: AutonomyDecision['level']): Autonomy
   return level === 'AUTONOMOUS' ? 'AUTONOMOUS' : 'SUPERVISED'
 }
 
+// Production incident (2026-09-21): the 24x7 scheduled heartbeat is the ONLY caller of this
+// function in production (see scripts/run-venture-operation-cycle.ts, an unattended GitHub Actions
+// job with no HTTP session at all) -- but resolveVentureOrganizationScope() below requires
+// venture_001's relational Venture/BusinessUnit identity to already exist, and the only code path
+// that ever created it was the owner-authenticated POST /api/ventures/001 endpoint. With nobody
+// required to ever log in and hit that endpoint, the scheduled heartbeat could never succeed even
+// once, regardless of DATABASE_URL or the commercial org chart being wired correctly. Bootstraps
+// Venture 001's identity here, idempotently, using the same seed/owner account ensureSeedUser()
+// already provisions for the one-operator system (no HTTP session required, just a DB lookup) --
+// self-healing on every cycle rather than depending on a one-time manual step.
+async function ensureVenture001BootstrappedForCycle(ventureId: string, findings: string[]): Promise<void> {
+  if (ventureId !== VENTURE_001_REFERENCE.ventureKey) return
+  try {
+    const { ensureSeedUser, SEED_EMAIL } = await import('./auth')
+    await ensureSeedUser()
+    const owner = await db.user.findUnique({ where: { email: SEED_EMAIL } })
+    if (!owner) { findings.push('Venture 001 bootstrap skipped: no seed owner account exists yet.'); return }
+    await ensureVenture001(owner.id)
+  } catch (error) {
+    findings.push(`Venture 001 bootstrap failed safely: ${error instanceof Error ? error.message.slice(0, 240) : String(error)}`)
+  }
+}
+
 export async function runVentureOperationCycle(ventureId = 'venture_001', owner = 'agent007'): Promise<VentureOperationCycle> {
   const findings: string[] = []
   const canonicalOwner = owner.trim().toLowerCase()
+  await ensureVenture001BootstrappedForCycle(ventureId, findings)
   const organization = await resolveVentureOrganizationScope(ventureId)
 
   assertDelegationAllowed({ actorId: canonicalOwner, actorLevel: 'CEO', targetId: 'vid', targetLevel: 'VID', delegatedBy: canonicalOwner })
@@ -137,6 +163,27 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   })
   const autonomy = await evaluateAndPersistAutonomy('LOW_RISK')
   const mode = autonomyModeForLevel(autonomy.level)
+
+  // Production incident (2026-09-21): this cycle has always computed `mode` from the real,
+  // evidence-driven autonomy-graduation decision above, but only ever wrote it into this cycle's
+  // own checkpoint record (venture-os:operation:${ventureId}) -- never into the separate
+  // venture-os:v2:autonomy-lease:${ventureId} record that operational-kpi-engine.ts actually reads
+  // for the "autonomy"/"leaseHealthy" fields the CEO's self-assessment reports. Nothing anywhere in
+  // the automated path ever called acquireAutonomyLease/heartbeatAutonomyLease (confirmed by
+  // grep -- only a manual, owner-authenticated POST /api/venture-os with action:'acquire-lease'
+  // ever did), so the lease record could never exist and the self-assessment showed "autonomy
+  // PAUSED (lease unhealthy)" permanently, regardless of how healthy the real graduation state was.
+  // Re-acquiring under a fixed, cycle-owned identity on every run keeps it honestly in sync with
+  // the real decision above (including going unhealthy again if the heartbeat itself stops
+  // running) without colliding with a human's own manual lease actions from the dashboard, which
+  // use their own authenticated identity as the lease owner.
+  const LEASE_SYNC_OWNER = 'agent007-heartbeat-cycle'
+  try {
+    await acquireAutonomyLease(ventureId, mode, LEASE_SYNC_OWNER, 3600)
+  } catch (error) {
+    findings.push(`Autonomy lease sync failed safely: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`)
+  }
+
   if (autonomy.decision === 'BLOCKED') findings.push(`Autonomy graduation blocked: ${autonomy.reason}`)
   if (autonomy.decision === 'DOWNGRADED') findings.push(`Autonomy downgraded: ${autonomy.reason}`)
   if (autonomyEvidence.safetyViolations) findings.push('Low-risk autonomy evidence recorded a safety violation.')
