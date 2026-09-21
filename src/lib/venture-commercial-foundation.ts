@@ -5,6 +5,11 @@ export const INITIAL_BUSINESS_UNITS = [
   { businessKey: 'revenue-recovery', name: 'AI Revenue Recovery', description: 'Recover and create measurable revenue for local businesses.' },
   { businessKey: 'operations-kit', name: 'Small Business Operations Kit', description: 'Productized AI-powered operations and workflow automation for small businesses.' },
   { businessKey: 'career-command', name: 'Career Command Center', description: 'B2C career intelligence, applications, interview preparation, and progression.' },
+  // Added 2026-09-21 at the owner's direction: Venture 001's reference business (VENTURE_001_REFERENCE
+  // in venture-001.ts) had never been assigned a BusinessUnit, so its relational Venture row could never
+  // resolve a commercial organization scope -- runVentureOperationCycle (the 24x7 heartbeat) failed every
+  // run with "Venture venture_001 has no canonical BusinessUnit scope" once DATABASE_URL was configured.
+  { businessKey: 'ai-book-business', name: 'AI Book Business', description: 'Productized AI-assisted book creation business serving authors, coaches, consultants, and subject-matter experts.' },
 ] as const
 
 export type BusinessUnitKey = typeof INITIAL_BUSINESS_UNITS[number]['businessKey']
