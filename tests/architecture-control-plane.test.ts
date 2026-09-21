@@ -72,7 +72,10 @@ describe('Architecture Control Plane — canonical organization and commercial i
     expect(businessIds).toEqual([...businessIds].sort())
 
     expect(businessScopeFor('revenue_recovery_leader')).toEqual(['revenue-recovery'])
-    expect(leaderBusinesses('scout')).toEqual(['revenue-recovery', 'operations-kit', 'career-command'])
+    // scout is a shared, cross-portfolio leader -- scoped to every canonical business (not a fixed
+    // 3), so this assertion scales the same way commercialBusinessIds() does above. Compared as
+    // sorted sets since leaderBusinesses() returns declaration order, not the sorted canonical order.
+    expect([...leaderBusinesses('scout')].sort()).toEqual(businessIds)
 
     expect(businessLeaders('revenue-recovery').map((leader) => leader.id)).toContain('revenue_recovery_leader')
     expect(leadersForBusiness('career-command').map((leader) => leader.id)).toContain('scout')
@@ -82,6 +85,10 @@ describe('Architecture Control Plane — canonical organization and commercial i
     expect(ventureSpecificLeaders('revenue-recovery').map((leader) => leader.id)).toEqual(['revenue_recovery_leader'])
     expect(ventureSpecificLeaders('operations-kit').map((leader) => leader.id)).toEqual(['operations_kit_leader'])
     expect(ventureSpecificLeaders('career-command').map((leader) => leader.id)).toEqual(['career_command_leader'])
+    // Added 2026-09-21 at the owner's direction: Venture 001's reference business is now a real,
+    // dedicated fourth business unit, not a shared/cross-cutting scope.
+    expect(ventureSpecificLeaders('ai-book-business').map((leader) => leader.id)).toEqual(['book_business_leader'])
+    expect(specialistsForBusiness('ai-book-business').map((specialist) => specialist.id)).toContain('book_drafting_specialist')
     expect(leadersForBusiness('unknown-business')).toEqual([])
   })
 

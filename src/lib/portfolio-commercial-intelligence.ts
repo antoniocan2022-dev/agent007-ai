@@ -1,13 +1,19 @@
 import { db } from './db'
 import { CEO_VENTURE_MANDATE } from './venture-mandate'
 import { normalizeMetric } from './portfolio-intelligence-rules'
-import type { PortfolioBusiness } from './portfolio-intelligence-contract'
+import { PORTFOLIO_BUSINESSES, type PortfolioBusiness } from './portfolio-intelligence-contract'
 import type { PortfolioMetric } from './portfolio-intelligence-types'
-import type { BusinessUnitKey } from './venture-commercial-foundation'
+// Deep-audit fix (2026-09-21): this used to type BUSINESS_KEYS/queryBusinessMetrics/
+// toPortfolioBusiness against BusinessUnitKey (venture-commercial-foundation.ts's full canonical
+// BusinessUnit set) purely because the two types happened to hold the same three literal values --
+// there was never a real dependency on the full set, only on PortfolioBusiness's own three
+// portfolio-tracked businesses. Adding a fourth BusinessUnit ('ai-book-business') broke that
+// coincidence: toPortfolioBusiness(value: BusinessUnitKey) could no longer assign to the narrower
+// PortfolioBusiness return type. Typed directly against PORTFOLIO_BUSINESSES instead, which is what
+// this file actually iterates and was always the correct, load-bearing type here.
+const BUSINESS_KEYS: readonly PortfolioBusiness[] = [...PORTFOLIO_BUSINESSES]
 
-const BUSINESS_KEYS: readonly BusinessUnitKey[] = ['revenue-recovery', 'operations-kit', 'career-command']
-
-const toPortfolioBusiness = (value: BusinessUnitKey): PortfolioBusiness => value
+const toPortfolioBusiness = (value: PortfolioBusiness): PortfolioBusiness => value
 
 function parseJson(value: string): Record<string, unknown> | null {
   try { return JSON.parse(value) as Record<string, unknown> } catch { return null }
@@ -59,7 +65,7 @@ interface RelationalBusinessMetrics {
   conversions: number
 }
 
-async function queryBusinessMetrics(business: BusinessUnitKey): Promise<RelationalBusinessMetrics> {
+async function queryBusinessMetrics(business: PortfolioBusiness): Promise<RelationalBusinessMetrics> {
   const [ventureRows, revenueRows, spendRows, customerRows, leadRows, conversionRows] = await Promise.all([
     db.$queryRaw<Array<{ count: bigint }>>`
       SELECT COUNT(*)::bigint AS count FROM "Venture" v INNER JOIN "BusinessUnit" bu ON bu."id"=v."businessUnitId" WHERE bu."businessKey"=${business}

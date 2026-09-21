@@ -11,11 +11,14 @@ function readRepoFile(path: string): string {
 }
 
 describe('commercial venture foundation', () => {
-  test('defines exactly three initial business units without duplicate keys', () => {
-    expect(INITIAL_BUSINESS_UNITS).toHaveLength(3)
+  // Updated 2026-09-21 at the owner's direction: added 'ai-book-business' as a fourth canonical
+  // business unit (Venture 001's reference business, previously unassigned to any BusinessUnit,
+  // which blocked runVentureOperationCycle from ever resolving its commercial organization scope).
+  test('defines exactly four initial business units without duplicate keys', () => {
+    expect(INITIAL_BUSINESS_UNITS).toHaveLength(4)
     const keys = INITIAL_BUSINESS_UNITS.map((unit) => unit.businessKey)
-    expect(new Set(keys).size).toBe(3)
-    expect(keys).toEqual(['revenue-recovery', 'operations-kit', 'career-command'])
+    expect(new Set(keys).size).toBe(4)
+    expect(keys).toEqual(['revenue-recovery', 'operations-kit', 'career-command', 'ai-book-business'])
   })
 
   test('factory accepts owner and business-unit scoping without inventing launch readiness', () => {

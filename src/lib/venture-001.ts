@@ -11,7 +11,7 @@ import { createVenture, type VentureCreationResult } from './venture-os'
 import { getPortfolio, type Business } from './business-portfolio'
 import { VENTURE_SCORE_THRESHOLD } from './vid-data'
 import { assertVentureActionAllowed, ensureVentureControlContract } from './architecture-control-plane'
-import { createOrGetVenture } from './venture-commercial-foundation'
+import { createOrGetVenture, ensureInitialBusinessUnits, getBusinessUnitByKey } from './venture-commercial-foundation'
 
 export const VENTURE_001_REFERENCE = {
   ventureKey: 'venture_001',
@@ -36,13 +36,29 @@ async function persistReferenceIdentity(business: Business): Promise<void> { con
 
 export async function getVenture001State(): Promise<Venture001State> { const businesses=await findReferenceBusinesses(); const identityBusiness=await getIdentityBusiness(); const business=identityBusiness??businesses[0]??null; const duplicateCount=Math.max(0,businesses.length-1); const integrityIssues=validateVenture001Definition(); if(businesses.length>1) integrityIssues.push(`Duplicate Venture 001 portfolio records detected: ${businesses.length}. Canonical state is not safe to mutate until reconciled.`); if(identityBusiness&&!businesses.some((candidate)=>candidate.businessId===identityBusiness.businessId)) integrityIssues.push('Venture 001 identity points to a portfolio record that does not match the canonical Venture 001 name.'); return { reference:VENTURE_001_REFERENCE, initialized:Boolean(business), business, evidenceCount:business?await countEvidence(business.businessId):0, duplicateCount, integrityIssues } }
 
+// Deep-audit fix (2026-09-21, at the owner's direction): Venture 001 was never assigned a
+// BusinessUnit, so its relational Venture row's businessUnitId was hardcoded null here in every
+// branch -- commercial-organization-scope.ts's businessKeyForVenture() requires a real INNER JOIN
+// match, so runVentureOperationCycle (the 24x7 heartbeat) failed every run with "Venture venture_001
+// has no canonical BusinessUnit scope" even after DATABASE_URL and the owner-id bootstrap gap were
+// both fixed. 'ai-book-business' is now a canonical BusinessUnit (venture-commercial-foundation.ts)
+// with its own dedicated leader and specialists (commercial-organization.ts) -- resolved here once,
+// idempotently, only when an ownerUserId is actually supplied (matching the existing gating).
+async function resolveAiBookBusinessUnitId(ownerUserId: string): Promise<string> {
+  await ensureInitialBusinessUnits(ownerUserId)
+  const unit = await getBusinessUnitByKey(ownerUserId, 'ai-book-business')
+  if (!unit) throw new Error('AI Book Business unit was not persisted.')
+  return unit.id
+}
+
 /** Initialize exactly one canonical portfolio record and, when ownerUserId is provided, its relational Venture identity. */
 export async function ensureVenture001(ownerUserId?: string): Promise<{ created: boolean; repaired: boolean; business: Business }> {
   const issues=validateVenture001Definition(); if(issues.length) throw new Error(`Venture 001 definition invalid: ${issues.join(' | ')}`)
   await ensureVentureControlContract(VENTURE_001_REFERENCE.ventureKey); await assertVentureActionAllowed(VENTURE_001_REFERENCE.ventureKey,'create_artifact')
   const existing=await findReferenceBusinesses(); if(existing.length>1) throw new Error(`Venture 001 integrity failure: ${existing.length} portfolio records share the canonical name. Reconcile duplicates before mutation.`)
+  const businessUnitId = ownerUserId ? await resolveAiBookBusinessUnitId(ownerUserId) : null
   const identityBusiness=await getIdentityBusiness()
-  if(identityBusiness){ if(ownerUserId) await createOrGetVenture({ ventureKey: VENTURE_001_REFERENCE.ventureKey, businessUnitId: null, ownerUserId, name: VENTURE_001_REFERENCE.name, type: VENTURE_001_REFERENCE.type, description: VENTURE_001_REFERENCE.description, targetMarket: VENTURE_001_REFERENCE.targetMarket, pricingModel: VENTURE_001_REFERENCE.pricingModel, status: 'REFERENCE', productionState: 'STRUCTURAL_ONLY' }); await persistReferenceIdentity(identityBusiness); return { created:false, repaired:false, business:identityBusiness } }
-  if(existing[0]){ if(ownerUserId) await createOrGetVenture({ ventureKey: VENTURE_001_REFERENCE.ventureKey, businessUnitId:null, ownerUserId, name:VENTURE_001_REFERENCE.name, type:VENTURE_001_REFERENCE.type, description:VENTURE_001_REFERENCE.description, targetMarket:VENTURE_001_REFERENCE.targetMarket, pricingModel:VENTURE_001_REFERENCE.pricingModel, status:'REFERENCE', productionState:'STRUCTURAL_ONLY' }); await persistReferenceIdentity(existing[0]); return { created:false, repaired:true, business:existing[0] } }
-  const created:VentureCreationResult=await createVenture({name:VENTURE_001_REFERENCE.name,type:VENTURE_001_REFERENCE.type,description:VENTURE_001_REFERENCE.description,targetMarket:VENTURE_001_REFERENCE.targetMarket,pricingModel:VENTURE_001_REFERENCE.pricingModel}); if(!created.business) throw new Error(created.reason??'Unable to create Venture 001.'); if(ownerUserId) await createOrGetVenture({ ventureKey:VENTURE_001_REFERENCE.ventureKey, businessUnitId:null, ownerUserId, name:VENTURE_001_REFERENCE.name, type:VENTURE_001_REFERENCE.type, description:VENTURE_001_REFERENCE.description, targetMarket:VENTURE_001_REFERENCE.targetMarket, pricingModel:VENTURE_001_REFERENCE.pricingModel, status:'REFERENCE', productionState:'STRUCTURAL_ONLY' }); await persistReferenceIdentity(created.business); return { created:created.created, repaired:false, business:created.business }
+  if(identityBusiness){ if(ownerUserId) await createOrGetVenture({ ventureKey: VENTURE_001_REFERENCE.ventureKey, businessUnitId, ownerUserId, name: VENTURE_001_REFERENCE.name, type: VENTURE_001_REFERENCE.type, description: VENTURE_001_REFERENCE.description, targetMarket: VENTURE_001_REFERENCE.targetMarket, pricingModel: VENTURE_001_REFERENCE.pricingModel, status: 'REFERENCE', productionState: 'STRUCTURAL_ONLY' }); await persistReferenceIdentity(identityBusiness); return { created:false, repaired:false, business:identityBusiness } }
+  if(existing[0]){ if(ownerUserId) await createOrGetVenture({ ventureKey: VENTURE_001_REFERENCE.ventureKey, businessUnitId, ownerUserId, name:VENTURE_001_REFERENCE.name, type:VENTURE_001_REFERENCE.type, description:VENTURE_001_REFERENCE.description, targetMarket:VENTURE_001_REFERENCE.targetMarket, pricingModel:VENTURE_001_REFERENCE.pricingModel, status:'REFERENCE', productionState:'STRUCTURAL_ONLY' }); await persistReferenceIdentity(existing[0]); return { created:false, repaired:true, business:existing[0] } }
+  const created:VentureCreationResult=await createVenture({name:VENTURE_001_REFERENCE.name,type:VENTURE_001_REFERENCE.type,description:VENTURE_001_REFERENCE.description,targetMarket:VENTURE_001_REFERENCE.targetMarket,pricingModel:VENTURE_001_REFERENCE.pricingModel}); if(!created.business) throw new Error(created.reason??'Unable to create Venture 001.'); if(ownerUserId) await createOrGetVenture({ ventureKey:VENTURE_001_REFERENCE.ventureKey, businessUnitId, ownerUserId, name:VENTURE_001_REFERENCE.name, type:VENTURE_001_REFERENCE.type, description:VENTURE_001_REFERENCE.description, targetMarket:VENTURE_001_REFERENCE.targetMarket, pricingModel:VENTURE_001_REFERENCE.pricingModel, status:'REFERENCE', productionState:'STRUCTURAL_ONLY' }); await persistReferenceIdentity(created.business); return { created:created.created, repaired:false, business:created.business }
 }
