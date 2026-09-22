@@ -137,3 +137,18 @@ describe('buildHierarchicalComprehensionPlan: plan shape, not execution', () => 
     expect(plan.reduceStep!.prompt).not.toContain(plan.trace.sections[0].text)
   })
 })
+
+
+describe('operation-specific document comprehension prompts', () => {
+  test('requested operation changes map/reduce guidance', () => {
+    const doc = paragraphs(20, 20).join('\n\n')
+    const summary = buildHierarchicalComprehensionPlan('Summarize the report.', doc, 300, 'document_summary')
+    const critique = buildHierarchicalComprehensionPlan('Critique the report.', doc, 300, 'document_critique')
+    expect(summary.mapSteps[0]?.prompt).toContain('document_summary')
+    expect(summary.mapSteps[0]?.prompt).toContain('key points')
+    expect(critique.mapSteps[0]?.prompt).toContain('document_critique')
+    expect(critique.mapSteps[0]?.prompt).toContain('unsupported claims')
+    expect(summary.reduceStep?.prompt).toContain('document_summary')
+    expect(critique.reduceStep?.prompt).toContain('document_critique')
+  })
+})
