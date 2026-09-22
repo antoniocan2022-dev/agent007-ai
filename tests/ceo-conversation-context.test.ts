@@ -5,6 +5,7 @@ import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
 import { evaluateClaimConsistency, scoreContextContinuity } from '@/lib/ceo-context-intelligence'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 
 function row(role: 'user' | 'assistant', content: string, createdAt: number) {
   return { role, content, createdAt }
@@ -164,5 +165,23 @@ describe('CEO conversation continuity', () => {
     expect(quality.checks.objectiveCoverage).toBe(true)
     expect(quality.checks.evidenceDiscipline).toBe(true)
     expect(quality.evidenceState).toBe('NOT_APPLICABLE')
+  })
+})
+
+
+describe('document operation clarification authority', () => {
+  test('document operation does not force clarification from source ambiguity', () => {
+    const current = `Make a deep comprehension:\n"${'The supplied report contains an unresolved reference and research vocabulary. '.repeat(120)}"`
+    const state = deriveCeoConversationState([], current)
+    const context = buildCanonicalConversationContext({
+      currentMessage: current,
+      rows: [],
+      state,
+      references: [{ phrase: 'that', resolvedText: null, confidence: 0.2, ambiguous: true } as any],
+    })
+    const contract = buildConversationDecisionContract(context)
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+    expect(contract.clarificationRequired).toBe(false)
+    expect(contract.responseAction).not.toBe('clarify')
   })
 })
