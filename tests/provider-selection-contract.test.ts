@@ -43,6 +43,7 @@ describe('canonical provider selection', () => {
     expect(summary).not.toContain('z.ai')
     expect(summary).not.toContain('zai')
     expect(summary).not.toContain('gemini')
-    expect(summary).not.toContain('openai')
+    // A valid Groq model identifier may contain the `openai/` namespace; the invariant is that OpenAI is not a runtime provider entry.
+    expect(summary).not.toMatch(/(?:^|\n)- openai(?:\s|:)/i)
   })
 })
