@@ -18,10 +18,10 @@ import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, DecisionPlan, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision, CeoGenerationDiagnostics, CeoIntent } from './ceo-cognitive-contract'
-import { inferComprehensionMode, extractInstructionWindow } from './ceo-cognitive-contract'
+import { inferComprehensionMode, extractInstructionWindow, extractInstructionWindowDetails } from './ceo-cognitive-contract'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { isDocumentOperation, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
-import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
+import { inferRequestedOperation, type CanonicalConversationContext } from './ceo-cognitive-conversation'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import { buildCeoWorldModel } from './ceo-world-model'
 import { renderPartnerIntelligenceContext, type PartnerIntelligenceSummary } from './ceo-partner-intelligence'
@@ -113,6 +113,16 @@ export function buildVerifyOverclaimConstraint(responseAction: string | undefine
 }
 function objectiveFrom(messages: CeoCognitiveRequest['messages']): string {
   return [...messages].reverse().find((message) => message.role === 'user')?.content?.trim() ?? ''
+}
+function replaceCurrentUserMessage(messages: CeoCognitiveRequest['messages'], content: string): CeoCognitiveRequest['messages'] {
+  const next = messages.map((message) => ({ ...message }))
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    if (next[index]?.role === 'user') {
+      next[index] = { ...next[index], content }
+      return next
+    }
+  }
+  return [...next, { role: 'user', content }]
 }
 function mergeAttempts(...results: Array<CanonicalLlmResult | undefined>): string[] { return [...new Set(results.flatMap((result) => result?.attempts ?? []))] }
 function buildRefinementPrompt(objective: string, draft: string): { role: 'user'; content: string } { return { role: 'user', content: `Produce a revised final answer for the original objective. Preserve correct information from the draft, repair omissions and unsupported claims, improve precision and completeness, and do not invent facts. Return the revised answer only.\n\nORIGINAL OBJECTIVE:\n${objective}\n\nDRAFT:\n${draft.slice(0, 30000)}` } }
@@ -287,7 +297,7 @@ async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempt
   const started = Date.now()
   const originalObjective = objectiveFrom(request.messages)
   const recoveryObjective = request.documentComprehensionSynthesis ? (request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(originalObjective)) : originalObjective
-  const recoverySourceMessages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[] = request.documentComprehensionSynthesis ? [{ role: 'user', content: recoveryObjective }] : request.messages
+  const recoverySourceMessages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[] = request.documentComprehensionSynthesis ? replaceCurrentUserMessage(request.messages, recoveryObjective) : request.messages
   const { taskType: recoveryTaskType, verification: recoveryVerification } = recoveryTaskContext(request, decisionPlan)
   let recoveredEvidenceBundle = request.evidenceBundle
   let recoveredEvidenceContext: string | undefined
