@@ -196,7 +196,7 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   for (const provider of candidates.slice(0, maxAttempts)) {
     throwIfCeoRequestAborted(signal)
     attempts.push(provider)
-    const providerInputBudget = getProviderInputTokenBudget(provider)
+    const providerInputBudget = getProviderInputTokenBudget(provider, taskType, request.verification, request.model)
     const preflightMessages = estimateRequestTokens(request.messages) > providerInputBudget ? compactMessagesForRequestSize(request.messages, providerInputBudget) : request.messages
     const requestWithBudget: ProviderRuntimeRequest = preflightMessages === request.messages ? request : { ...request, messages: preflightMessages }
     try { return { ...(await callProvider(provider, { ...requestWithBudget, signal })), attempts } }
