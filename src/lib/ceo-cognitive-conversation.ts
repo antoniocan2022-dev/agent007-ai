@@ -172,9 +172,27 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
     sourceLength: currentMessage.length,
     requestedOperation: 'conversation',
   })
+  // Production incident (2026-09-22): userIntentHint used to scan `instructionWindow`
+  // (instructionExtraction.text) instead of instructionExtraction.authoritativeText -- but `.text`
+  // deliberately RETAINS a tail slice of the message for backward-compatible context/clarification
+  // behavior (see InstructionWindowResult's own doc comment: "the retained tail remains in `text` ...
+  // but is deliberately not treated as authoritative"). For a long pasted document, that retained tail
+  // (or, on a lead_in match, the still-swallowed head content) routinely contains ordinary prose
+  // vocabulary like "research"/"verify"/"deploy" nowhere near the user's own framing -- so a plain
+  // "Make a deep comprehension: <document>" request got misclassified as intentHint 'research' purely
+  // because the pasted document's OWN body mentioned "research review" or similar. That intentHint
+  // becomes ConversationDecisionContract.intent, which ceo-cognitive-lifecycle.ts's soft-pass gate reads
+  // directly as `authoritativeIntent` -- 'research' is not in the soft-pass-eligible intent set, so a
+  // genuinely good comprehension answer that couldn't produce fresh external evidence (the document was
+  // already fully supplied; there is nothing to look up) was denied soft-pass and fell all the way to
+  // degraded mode's generic "I wasn't able to verify..." fallback. Confirmed directly: evaluateCeoQuality
+  // and isGovernedSoftPassEligible both flip to accepting the same answer once fed the correctly-windowed
+  // intent. This is the same class of bug already fixed for other classifiers in this file (PR #182/#183/
+  // #205/#206) -- inferRequestedOperation two lines below already scans authoritativeText correctly; this
+  // was the one remaining classifier still scanning the wider retained window.
   const deterministicIntent = deterministicSpeechAct === 'correction'
     ? 'conversation'
-    : userIntentHint(instructionWindow, authorityEnvelope)
+    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope)
   const suppliedConfidence = Number(input.semanticInterpretation?.confidence)
   const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0
   const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72
