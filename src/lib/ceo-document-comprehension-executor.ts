@@ -5,18 +5,12 @@
  * (mirroring the existing ceo-evidence-planner.ts / ceo-evidence-executor.ts split elsewhere in
  * this codebase).
  *
- * Deliberately conservative: this is an ADDITIVE augmentation, not a replacement for single-pass
- * generation. Single-pass generation (Phase 1's fix) is already correct and unchanged for the
- * large majority of real documents -- everything up to CEO_MESSAGE_CLAMP_CHARS fits comfortably
- * under the provider-control-plane's real preflight budget (see DEFAULT_MAX_INPUT_TOKENS's own
- * comment). This executor exists for the genuinely large remainder, where a single pass CAN
- * technically still fit but a focused per-section pass produces measurably better comprehension --
- * and even then, its only job is to produce an extra grounding synthesis alongside the untouched
- * original document, never to replace or gate the existing quality-gated generation path. Every
- * failure mode here (a section's map call failing, the whole pass running out of time, the reduce
- * call itself failing) degrades to "no synthesis produced," which the caller treats identically to
- * "hierarchical comprehension wasn't needed" -- this can only ever help, never block or degrade a
- * turn relative to today's behavior.
+ * Deliberate execution boundary: for explicit document operations, this executor produces the bounded
+ * source-grounded synthesis that becomes the authoritative input to final CEO generation. The raw
+ * document is intentionally not retransmitted after this stage. Ordinary conversational turns that
+ * do not meet the hierarchical gate remain single-pass. Failure is conservative: when no usable
+ * synthesis is produced, the caller can fall back or disclose the limitation rather than treating an
+ * incomplete source model as authoritative.
  */
 
 import { runCanonicalLlm } from './canonical-llm-router'
@@ -67,7 +61,8 @@ export function shouldExecuteHierarchicalComprehension(
   // 5-section heuristic to 2 sections, but still requires an actual multi-section
   // source. The operation signal therefore strengthens the existing structural
   // length/section trigger rather than replacing it.
-  const threshold = requestedOperation === 'document_comprehension'
+  const explicitDocumentOperation = requestedOperation === 'document_comprehension' || requestedOperation === 'document_summary' || requestedOperation === 'document_critique' || requestedOperation === 'document_compare' || requestedOperation === 'document_extract'
+  const threshold = explicitDocumentOperation
     ? DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD
     : EXECUTION_NECESSITY_SECTION_THRESHOLD
   return trace.sectionCount >= threshold
@@ -77,7 +72,7 @@ export function shouldExecuteHierarchicalComprehension(
 // actually has -- bounds worst-case cost/latency for an extreme document rather than fanning out
 // unboundedly. Sections beyond this cap are simply not covered by the synthesis; the caller is told
 // via failureNotes so it can be honest about the gap rather than silently under-covering the source.
-const MAX_SECTIONS_TO_EXECUTE = 8
+const MAX_SECTIONS_TO_EXECUTE = 16
 const DEFAULT_TIME_BUDGET_MS = 30_000
 // Below this, there isn't enough time to run even one round-trip safely -- skip rather than attempt
 // a doomed pass that would just add latency without producing a usable synthesis.

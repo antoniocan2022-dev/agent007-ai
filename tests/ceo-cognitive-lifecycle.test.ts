@@ -1095,3 +1095,15 @@ describe('CEO cognitive lifecycle', () => {
     })
   })
 })
+
+
+test('authoritative document execution routes a supplied long source through the document operation contract', () => {
+  const source = `Make a deep comprehension:\n"${'Document research content and architecture detail. '.repeat(7000)}"`
+  const state = deriveCeoConversationState([], source)
+  const references = resolveConversationReferences(source, [], state)
+  const context = buildCanonicalConversationContext({ currentMessage: source, rows: [], state, references })
+  const contract = buildConversationDecisionContract(context)
+  expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+  expect(contract.clarificationRequired).toBe(false)
+  expect(contract.responseAction).not.toBe('clarify')
+})

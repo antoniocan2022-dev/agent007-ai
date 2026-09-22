@@ -1,6 +1,6 @@
 import { getProviderTaskPolicy, rankAvailableProviders, type ProviderTaskPolicy } from './provider-intelligence-policy'
 import { isCircuitOpen, recordFailure, recordSuccess, pickHalfOpenCandidate } from './provider-intelligence'
-import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, getProviderFailurePolicy, estimateRequestTokens, compactMessagesForRequestSize, DEFAULT_MAX_INPUT_TOKENS, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId, type ProviderErrorKind } from './provider-control-plane'
+import { PROVIDER_RUNTIME_CONFIG, ProviderControlPlaneError, classifyProviderError, getConfiguredProviders, getGovernedCandidates, getProviderFailurePolicy, estimateRequestTokens, compactMessagesForRequestSize, getProviderInputTokenBudget, PROVIDER_ORDER, resolveLiveCatalog, resolveGovernedModel, type ActiveProviderId, type ProviderErrorKind } from './provider-control-plane'
 import { getProviderStandings, recordProviderStanding } from './provider-standing'
 import { getModelForProvider } from './model-intelligence'
 import { recordModelPerformance } from './performance-intelligence'
@@ -157,12 +157,6 @@ export async function probeAllConfiguredProviders(taskType: TaskType = 'reasonin
 export async function runGovernedProviderChat(request: ProviderRuntimeRequest): Promise<ProviderRuntimeResult> {
   const signal = effectiveSignal(request)
   throwIfCeoRequestAborted(signal)
-  // Provider Gateway Phase A (2026-09-19): compact up front when the request is already well past the
-  // shared conservative budget, so the FIRST attempt on any candidate isn't spent on a call likely to
-  // come back REQUEST_TOO_LARGE. Best-effort only -- see DEFAULT_MAX_INPUT_TOKENS's own comment; the
-  // reactive per-provider retry below is what actually guarantees correctness.
-  const preflightMessages = estimateRequestTokens(request.messages) > DEFAULT_MAX_INPUT_TOKENS ? compactMessagesForRequestSize(request.messages) : request.messages
-  const requestWithBudget: ProviderRuntimeRequest = preflightMessages === request.messages ? request : { ...request, messages: preflightMessages }
   const taskType = request.taskType ?? 'general'; const policy: ProviderTaskPolicy = getProviderTaskPolicy(taskType, request.verification); const excluded = new Set(request.excludeProviders ?? []); const configured = getConfiguredProviders().filter((provider) => !excluded.has(provider))
   // Deep-audit finding, root-caused against a real production trace: a provider whose governed model
   // catalog has zero entries for this taskType (e.g. groq/cloudflare/cerebras all lack 'creative') will
@@ -202,6 +196,9 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   for (const provider of candidates.slice(0, maxAttempts)) {
     throwIfCeoRequestAborted(signal)
     attempts.push(provider)
+    const providerInputBudget = getProviderInputTokenBudget(provider)
+    const preflightMessages = estimateRequestTokens(request.messages) > providerInputBudget ? compactMessagesForRequestSize(request.messages, providerInputBudget) : request.messages
+    const requestWithBudget: ProviderRuntimeRequest = preflightMessages === request.messages ? request : { ...request, messages: preflightMessages }
     try { return { ...(await callProvider(provider, { ...requestWithBudget, signal })), attempts } }
     catch (error) {
       if (signal?.aborted || error instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? error)
@@ -211,7 +208,7 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
       // the limited maxProviderAttempts moving to the next (differently-governed, possibly lower-quality)
       // candidate over a problem that had nothing to do with that provider's health.
       if (error instanceof ProviderControlPlaneError && error.kind === 'REQUEST_TOO_LARGE') {
-        try { return { ...(await callProvider(provider, { ...requestWithBudget, messages: compactMessagesForRequestSize(requestWithBudget.messages, Math.floor(DEFAULT_MAX_INPUT_TOKENS / 2)), signal })), attempts } }
+        try { return { ...(await callProvider(provider, { ...requestWithBudget, messages: compactMessagesForRequestSize(requestWithBudget.messages, Math.floor(providerInputBudget / 2)), signal })), attempts } }
         catch (retryError) {
           if (signal?.aborted || retryError instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? retryError)
           failures.push(retryError instanceof ProviderControlPlaneError ? `${retryError.provider}:${retryError.kind}${retryError.status ? `:${retryError.status}` : ''} (after compaction)` : `${provider}:UNKNOWN (after compaction)`)
