@@ -404,45 +404,37 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   // as `undefined` (not just an empty array) whenever hierarchical comprehension didn't run or produced
   // no synthesis -- assessStructuralQuality treats that as `applicable: false`, a pure no-op for every
   // quality-gate call this turn, identical to today's behavior.
-  const documentComprehension = await (async (): Promise<{ messages: { role: 'system'; content: string }[]; sourceModel?: StructuralSourceModel }> => {
+  const documentComprehension = await (async (): Promise<{ messages: { role: 'system'; content: string }[]; sourceModel?: StructuralSourceModel; authoritative: boolean; synthesis?: string; coverage?: string }> => {
     try {
-      // Deep-audit fix (2026-09-20): a 'clarify' turn never includes documentComprehensionMessages in
-      // its own generation call (see the `action === 'clarify'` branch below, which builds its messages
-      // array without this constant) -- but before this check, the executor still RAN, unconditionally,
-      // for every turn regardless of the eventual action, up to its full time budget (up to 30s of real
-      // map/reduce provider calls) only to have the result discarded. Skipping up front for 'clarify'
-      // avoids paying that latency/cost for a synthesis that can never be used.
-      if (request.decisionContract?.responseAction === 'clarify') return { messages: [] }
       const sourceMaterial = request.canonicalContext?.currentMessage ?? objective
-      const trace = buildDocumentComprehensionTrace(sourceMaterial)
       const requestedOperation = request.canonicalContext?.turnEnvelope?.requestedOperation
-      if (!shouldExecuteHierarchicalComprehension(trace, requestedOperation)) return { messages: [] }
+      const sourceMaterialPresent = request.canonicalContext?.turnEnvelope?.sourceMaterial.present ?? false
+      const trace = buildDocumentComprehensionTrace(sourceMaterial)
+      if (!sourceMaterialPresent || !isDocumentOperation(requestedOperation) || !shouldExecuteHierarchicalComprehension(trace, requestedOperation)) return { messages: [], authoritative: false }
       const remainingMs = deadline - Date.now()
-      const timeBudgetMs = Math.min(30_000, Math.max(0, Math.floor(remainingMs * 0.3)))
-      if (timeBudgetMs < 8_000) return { messages: [] }
-      // Deep-audit fix (2026-09-20): the no-canonical-context fallback used to be the raw `objective`
-      // (the entire source document) rather than a windowed instruction -- every other Recommendation 1
-      // fallback in this codebase (ceo-pre-router.ts, ceo-cognitive-lifecycle.ts's own
-      // recoveryComprehensionMode above) reduces to extractInstructionWindow, not the full message.
-      // Left as `objective` verbatim, every map-step prompt (renderMapStepPrompt in
-      // ceo-document-comprehension.ts) would embed the ENTIRE document a second time as "reader's
-      // request," multiplying input tokens across every section call for no benefit.
-      const instruction = request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
-      const plan = buildHierarchicalComprehensionPlan(instruction, sourceMaterial)
+      const timeBudgetMs = Math.min(30_000, Math.max(0, Math.floor(remainingMs * 0.4)))
+      if (timeBudgetMs < 8_000) return { messages: [], authoritative: false }
+      const authoritativeInstruction = request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
+      const plan = buildHierarchicalComprehensionPlan(authoritativeInstruction, sourceMaterial, undefined, requestedOperation)
       const result = await executeHierarchicalComprehension(plan, { signal: getCeoCancellationSignal(), timeBudgetMs })
-      if (!result.executed || !result.synthesis) return { messages: [] }
-      console.log('[ceo-hierarchical-comprehension]', JSON.stringify({ sectionCount: trace.sectionCount, sectionsProcessed: result.sectionsProcessed, sectionsFailed: result.sectionsFailed, durationMs: result.durationMs }))
-      const messages = [{ role: 'system' as const, content: `HIERARCHICAL DOCUMENT COMPREHENSION (INTERNAL SYNTHESIS; the full source document is still provided below in the conversation -- use this synthesis to help ground and organize your answer across its full length, it does not replace reading the source):\n${result.synthesis}${result.failureNotes.length ? `\n\nCoverage note (internal, do not quote to the user): ${result.failureNotes.join(' ')}` : ''}` }]
+      if (!result.executed || !result.synthesis) return { messages: [], authoritative: false }
+      const coverage = result.failureNotes.length ? 'Section coverage note: ' + result.failureNotes.join(' ') : 'Complete section coverage: ' + result.sectionsProcessed + '/' + trace.sectionCount + ' sections processed.'
+      console.log('[ceo-hierarchical-comprehension]', JSON.stringify({ requestedOperation, sectionCount: trace.sectionCount, sectionsProcessed: result.sectionsProcessed, sectionsFailed: result.sectionsFailed, durationMs: result.durationMs, authoritative: true }))
+      const messages = [{ role: 'system' as const, content: 'AUTHORITATIVE HIERARCHICAL DOCUMENT COMPREHENSION (INTERNAL SOURCE MODEL):\nThe supplied source has been processed through bounded section analysis and reduction for ' + requestedOperation + '. The final answer path must use this bounded synthesis plus the authoritative user instruction; it must not retransmit or depend on the raw source document. Do not invent claims unsupported by the synthesis.\n\n' + result.synthesis + (result.failureNotes.length ? '\n\nCoverage note (internal): ' + coverage : '') }]
       const sourceModel: StructuralSourceModel | undefined = result.sectionExtracts?.length ? { sectionCount: trace.sectionCount, sectionExtracts: result.sectionExtracts, synthesis: result.synthesis } : undefined
-      return { messages, sourceModel }
+      return { messages, sourceModel, authoritative: true, synthesis: result.synthesis, coverage }
     } catch (error) {
       if (isCeoRequestAborted(error)) throw error
-      return { messages: [] }
+      return { messages: [], authoritative: false }
     }
   })()
   const documentComprehensionMessages = documentComprehension.messages
   const structuralSourceModel = documentComprehension.sourceModel
-  const primaryMessages = [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...documentComprehensionMessages, ...selfAssessmentGuidanceMessages({ intent: decisionPlan.executionContract.intent, objective, priorConversation: request.priorConversation }), ...decisionMessages, ...request.messages]
+  const authoritativeDocumentInstruction = request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
+  const degradedRequest: CeoCognitiveRequest = documentComprehension.synthesis ? { ...request, documentComprehensionSynthesis: documentComprehension.synthesis, documentComprehensionCoverage: documentComprehension.coverage } : request
+  const generationObjective = documentComprehension.authoritative ? authoritativeDocumentInstruction : objective
+  const sourceForGeneration: readonly { role: 'system' | 'user' | 'assistant'; content: string }[] = documentComprehension.authoritative ? [{ role: 'user', content: authoritativeDocumentInstruction }] : request.messages
+  const primaryMessages = [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...documentComprehensionMessages, ...selfAssessmentGuidanceMessages({ intent: decisionPlan.executionContract.intent, objective: generationObjective, priorConversation: request.priorConversation }), ...decisionMessages, ...sourceForGeneration]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
   let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0; let primaryQuality: CognitiveLifecycleResult['quality'] | undefined; let finalStage: CeoGenerationDiagnostics['finalStage'] = 'primary'
   try {
