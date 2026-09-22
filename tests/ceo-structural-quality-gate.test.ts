@@ -20,6 +20,7 @@ describe('assessStructuralQuality: applicability', () => {
     expect(result.claimCoverageOk).toBe(true)
     expect(result.contradictionPreserved).toBe(true)
     expect(result.sourceAttributionPresent).toBe(true)
+    expect(result.sourceCoverageComplete).toBe(true)
   })
 
   test('is a pure no-op when the source model has no section extracts', () => {
@@ -30,6 +31,20 @@ describe('assessStructuralQuality: applicability', () => {
 })
 
 describe('assessStructuralQuality: claim coverage', () => {
+  test('partial source coverage is exposed and does not masquerade as complete', () => {
+    const sourceModel: StructuralSourceModel = {
+      sectionCount: 4,
+      sectionExtracts: [section(0, 'Revenue grew steadily'), section(1, 'Engineering shipped on time')],
+      synthesis: 'Partial synthesis from the processed sections.',
+      coverageComplete: false,
+    }
+    const result = assessStructuralQuality({ sourceModel, content: 'Revenue grew steadily and engineering shipped on time.' })
+    expect(result.applicable).toBe(true)
+    expect(result.sourceCoverageComplete).toBe(false)
+    expect(result.claimCoverageOk).toBe(true)
+  })
+
+
   function fiveSectionModel(): StructuralSourceModel {
     return {
       sectionCount: 5,
