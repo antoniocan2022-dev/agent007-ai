@@ -110,6 +110,10 @@ export function assessStructuralQuality(input: { sourceModel?: StructuralSourceM
     return { applicable: false, claimCoverage: 1, claimCoverageOk: true, representedSectionCount: 0, contradictionFlaggedUpstream: false, contradictionPreserved: true, sourceAttributionPresent: true, sourceCoverageComplete: true }
   }
   const answerTokens = tokenSet(input.content)
+  const expectedSectionCount = Math.max(0, input.sourceModel.sectionCount)
+  const sourceCoverageComplete = input.sourceModel.coverageComplete ?? (
+    expectedSectionCount > 0 && input.sourceModel.sectionExtracts.length === expectedSectionCount
+  )
   let represented = 0
   for (const section of input.sourceModel.sectionExtracts) {
     const sectionTokens = tokenSet(section.text)
@@ -118,10 +122,9 @@ export function assessStructuralQuality(input: { sourceModel?: StructuralSourceM
     for (const token of sectionTokens) if (answerTokens.has(token)) shared += 1
     if (shared / sectionTokens.size >= SECTION_OVERLAP_THRESHOLD) represented += 1
   }
-  const claimCoverage = represented / input.sourceModel.sectionExtracts.length
+  const claimCoverage = expectedSectionCount > 0 ? represented / expectedSectionCount : 0
   const contradictionFlaggedUpstream = contradictionFlagged(input.sourceModel.synthesis)
   const contradictionPreserved = !contradictionFlaggedUpstream || contradictionFlagged(input.content)
   const sourceAttributionPresent = SOURCE_VS_INFERENCE_RE.test(input.content)
-  const sourceCoverageComplete = input.sourceModel.coverageComplete !== false
-  return { applicable: true, claimCoverage, claimCoverageOk: claimCoverage >= CLAIM_COVERAGE_MINIMUM, representedSectionCount: represented, contradictionFlaggedUpstream, contradictionPreserved, sourceAttributionPresent, sourceCoverageComplete }
+  return { applicable: true, claimCoverage, claimCoverageOk: sourceCoverageComplete && claimCoverage >= CLAIM_COVERAGE_MINIMUM, representedSectionCount: represented, contradictionFlaggedUpstream, contradictionPreserved, sourceAttributionPresent, sourceCoverageComplete }
 }

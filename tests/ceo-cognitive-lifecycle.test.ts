@@ -1025,6 +1025,8 @@ describe('CEO cognitive lifecycle', () => {
       const lifecycleSource = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
       expect(lifecycleSource).toContain('replaceCurrentUserMessage(request.messages, authoritativeDocumentInstruction)')
       expect(lifecycleSource).toContain('const sourceForGeneration')
+      expect(lifecycleSource).toContain('documentStructuralSourceModel: structuralSourceModel')
+      expect(lifecycleSource).toContain('structuralSourceModel: request.documentStructuralSourceModel')
     })
 
 

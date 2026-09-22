@@ -1,6 +1,8 @@
 import { describe, expect, test, afterEach } from 'bun:test'
 import { buildHierarchicalComprehensionPlan, buildDocumentComprehensionTrace } from '@/lib/ceo-document-comprehension'
 import { executeHierarchicalComprehension, shouldExecuteHierarchicalComprehension, EXECUTION_NECESSITY_SECTION_THRESHOLD, DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD } from '@/lib/ceo-document-comprehension-executor'
+import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
+import { resetProviderStandingForTests } from '@/lib/provider-standing'
 
 const originalFetch = globalThis.fetch
 afterEach(() => {
