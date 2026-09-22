@@ -159,7 +159,7 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
     if (text) mapOutputs.push({ sectionIndex: step.sectionIndex, text })
     else failureNotes.push(`Section ${step.sectionIndex + 1} of ${plan.trace.sectionCount} could not be processed and is not covered by this synthesis.`)
   }
-  if (!mapOutputs.length) return { executed: false, sectionsProcessed: 0, sectionsFailed: steps.length, failureNotes: [...failureNotes, 'Every section extraction failed; no hierarchical synthesis was produced.'], durationMs: Date.now() - started }
+  if (!mapOutputs.length) return { executed: false, sectionsProcessed: 0, sectionsFailed: steps.length, failureNotes: [...failureNotes, 'Every section extraction failed; no hierarchical synthesis was produced.'], durationMs: Date.now() - started, complete: false }
 
   const reduceMessages = [
     { role: 'user' as const, content: plan.reduceStep.prompt },
