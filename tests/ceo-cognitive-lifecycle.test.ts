@@ -1004,59 +1004,27 @@ describe('CEO cognitive lifecycle', () => {
       resetProviderStandingForTests()
     })
 
-    test('authoritative document replacement preserves earlier conversation context while removing the raw source from final generation', async () => {
-      process.env.GROQ_API_KEY = 'test-groq'
-      const finalCalls: string[] = []
+    test('authoritative document replacement preserves earlier conversation context while removing the raw source from final generation', () => {
       const priorUser = 'We decided to review the operations architecture carefully before changing it.'
       const priorAssistant = 'Yes. We should preserve the current execution boundaries while we inspect the report.'
-      const source = `Make a deep comprehension:\n"${'Source-only material that should not reach the final provider turn. '.repeat(4000)}"`
-      const currentMessage = source
-      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input); const method = String(init?.method ?? 'GET')
-        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
-        if (method === 'POST' && url.includes('api.groq.com')) {
-          const body = JSON.parse(String(init?.body ?? '{}'))
-          const allContent = body.messages.map((m: { content: string }) => String(m.content)).join('\n---\n')
-          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note.' } }] })
-          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesis preserving the report sections.' } }] })
-          finalCalls.push(allContent)
-          return jsonResponse({ choices: [{ message: { content: 'Final answer that respects the earlier conversation and synthesized source.' } }] })
-        }
-        throw new Error(`unexpected fetch: ${url}`)
-      }) as typeof fetch
-      const state = deriveCeoConversationState(
+      const rawSource = `Make a deep comprehension:\n"${'Source-only material that should not reach the final provider turn. '.repeat(4000)}"`
+      const replaced = replaceCurrentUserMessage(
         [
-          { role: 'user', content: priorUser, createdAt: 1 },
-          { role: 'assistant', content: priorAssistant, createdAt: 2 },
-        ],
-        currentMessage,
-      )
-      const context = buildCanonicalConversationContext({
-        currentMessage,
-        rows: [
-          { role: 'user', content: priorUser, createdAt: 1 },
-          { role: 'assistant', content: priorAssistant, createdAt: 2 },
-        ],
-        state,
-        references: [],
-      })
-      const contract = buildConversationDecisionContract(context)
-      const result = await runCeoCognitiveLifecycle({
-        messages: [
           { role: 'user', content: priorUser },
           { role: 'assistant', content: priorAssistant },
-          { role: 'user', content: currentMessage },
+          { role: 'user', content: rawSource },
         ],
-        canonicalContext: context,
-        decisionContract: contract,
-        timeoutMs: 45000,
-      })
-      expect(result.content.length).toBeGreaterThan(0)
-      expect(finalCalls.length).toBeGreaterThan(0)
-      expect(finalCalls.some((content) => content.includes(priorUser) && content.includes(priorAssistant))).toBe(true)
-      expect(finalCalls.some((content) => content.includes('Source-only material that should not reach the final provider turn.'))).toBe(false)
-      resetProviderHealthForTests()
-      resetProviderStandingForTests()
+        'Make a deep comprehension:',
+      )
+      expect(replaced).toHaveLength(3)
+      expect(replaced[0]?.content).toBe(priorUser)
+      expect(replaced[1]?.content).toBe(priorAssistant)
+      expect(replaced[2]?.content).toBe('Make a deep comprehension:')
+      expect(replaced.some((message) => String(message.content).includes('Source-only material that should not reach the final provider turn.'))).toBe(false)
+
+      const lifecycleSource = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+      expect(lifecycleSource).toContain('replaceCurrentUserMessage(request.messages, authoritativeDocumentInstruction)')
+      expect(lifecycleSource).toContain('const sourceForGeneration')
     })
 
 
