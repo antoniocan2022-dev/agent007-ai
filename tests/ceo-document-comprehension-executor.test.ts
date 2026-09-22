@@ -28,6 +28,16 @@ describe('shouldExecuteHierarchicalComprehension: necessity gate', () => {
     expect(shouldExecuteHierarchicalComprehension(trace)).toBe(false)
   })
 
+  test('all explicit document operations use the strengthened two-section threshold', () => {
+    const doc = paragraphs(4, 20).join('\n\n')
+    const trace = buildDocumentComprehensionTrace(doc, 300)
+    expect(trace.sectionCount).toBeGreaterThanOrEqual(DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD)
+    expect(shouldExecuteHierarchicalComprehension(trace, 'document_summary')).toBe(true)
+    expect(shouldExecuteHierarchicalComprehension(trace, 'document_critique')).toBe(true)
+    expect(shouldExecuteHierarchicalComprehension(trace, 'document_compare')).toBe(true)
+    expect(shouldExecuteHierarchicalComprehension(trace, 'document_extract')).toBe(true)
+  })
+
   test('a document with more than one but fewer than the necessity threshold sections still does not qualify', () => {
     const doc = paragraphs(6, 20).join('\n\n')
     const trace = buildDocumentComprehensionTrace(doc, 300)
