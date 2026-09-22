@@ -404,36 +404,46 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   // to its existing recovery/degraded paths instead of pretending the source was fully understood.
   // The per-section extraction outputs also feed Phase 3's structural source model so the quality gate
   // can check claim coverage and contradiction preservation against the document's real structure.
-  const documentComprehension = await (async (): Promise<{ messages: { role: 'system'; content: string }[]; sourceModel?: StructuralSourceModel; authoritative: boolean; synthesis?: string; coverage?: string }> => {
+  const documentComprehension = await (async (): Promise<{ messages: { role: 'system'; content: string }[]; sourceModel?: StructuralSourceModel; synthesisAvailable: boolean; complete: boolean; synthesis?: string; coverage?: string }> => {
     try {
       const sourceMaterial = request.canonicalContext?.currentMessage ?? objective
-      const requestedOperation = request.canonicalContext?.turnEnvelope?.requestedOperation
-      const sourceMaterialPresent = request.canonicalContext?.turnEnvelope?.sourceMaterial.present ?? false
+      const fallbackInstruction = extractInstructionWindowDetails(sourceMaterial)
+      const authoritativeInstruction = request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? fallbackInstruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
+      const sourceMaterialPresent = request.canonicalContext?.turnEnvelope?.sourceMaterial.present ?? sourceMaterial.length > authoritativeInstruction.length
+      const requestedOperation = request.canonicalContext?.turnEnvelope?.requestedOperation ?? inferRequestedOperation(authoritativeInstruction, false, sourceMaterialPresent)
       const trace = buildDocumentComprehensionTrace(sourceMaterial)
-      if (!sourceMaterialPresent || !isDocumentOperation(requestedOperation) || !shouldExecuteHierarchicalComprehension(trace, requestedOperation)) return { messages: [], authoritative: false }
+      if (!sourceMaterialPresent || !isDocumentOperation(requestedOperation) || !shouldExecuteHierarchicalComprehension(trace, requestedOperation)) return { messages: [], synthesisAvailable: false, complete: false }
       const remainingMs = deadline - Date.now()
       const timeBudgetMs = Math.min(30_000, Math.max(0, Math.floor(remainingMs * 0.4)))
-      if (timeBudgetMs < 8_000) return { messages: [], authoritative: false }
-      const authoritativeInstruction = request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
+      if (timeBudgetMs < 8_000) return { messages: [], synthesisAvailable: false, complete: false }
       const plan = buildHierarchicalComprehensionPlan(authoritativeInstruction, sourceMaterial, undefined, requestedOperation)
       const result = await executeHierarchicalComprehension(plan, { signal: getCeoCancellationSignal(), timeBudgetMs })
-      if (!result.executed || !result.synthesis) return { messages: [], authoritative: false }
-      const coverage = result.failureNotes.length ? 'Section coverage note: ' + result.failureNotes.join(' ') : 'Complete section coverage: ' + result.sectionsProcessed + '/' + trace.sectionCount + ' sections processed.'
-      console.log('[ceo-hierarchical-comprehension]', JSON.stringify({ requestedOperation, sectionCount: trace.sectionCount, sectionsProcessed: result.sectionsProcessed, sectionsFailed: result.sectionsFailed, durationMs: result.durationMs, authoritative: true }))
-      const messages = [{ role: 'system' as const, content: 'AUTHORITATIVE HIERARCHICAL DOCUMENT COMPREHENSION (INTERNAL SOURCE MODEL):\nThe supplied source has been processed through bounded section analysis and reduction for ' + requestedOperation + '. The final answer path must use this bounded synthesis plus the authoritative user instruction; it must not retransmit or depend on the raw source document. Do not invent claims unsupported by the synthesis.\n\n' + result.synthesis + (result.failureNotes.length ? '\n\nCoverage note (internal): ' + coverage : '') }]
-      const sourceModel: StructuralSourceModel | undefined = result.sectionExtracts?.length ? { sectionCount: trace.sectionCount, sectionExtracts: result.sectionExtracts, synthesis: result.synthesis } : undefined
-      return { messages, sourceModel, authoritative: true, synthesis: result.synthesis, coverage }
+      if (!result.executed || !result.synthesis) return { messages: [], synthesisAvailable: false, complete: false }
+      const coverageComplete = result.complete
+      const coverage = coverageComplete
+        ? `Complete source coverage: ${result.sectionsProcessed}/${trace.sectionCount} sections processed.`
+        : `PARTIAL source coverage: ${result.sectionsProcessed}/${trace.sectionCount} sections processed; ${result.sectionsFailed} section(s) failed or were not processed. Do not claim the entire source was comprehended.${result.failureNotes.length ? ' ' + result.failureNotes.join(' ') : ''}`
+      console.log('[ceo-hierarchical-comprehension]', JSON.stringify({ requestedOperation, sectionCount: trace.sectionCount, sectionsProcessed: result.sectionsProcessed, sectionsFailed: result.sectionsFailed, durationMs: result.durationMs, synthesisAvailable: true, coverageComplete }))
+      const label = coverageComplete ? 'AUTHORITATIVE HIERARCHICAL DOCUMENT COMPREHENSION' : 'PARTIAL HIERARCHICAL DOCUMENT COMPREHENSION'
+      const messages = [{ role: 'system' as const, content: label + ' (INTERNAL SOURCE MODEL):\nThe supplied source has been processed through bounded section analysis and reduction for ' + requestedOperation + '. The final answer path must use this bounded synthesis plus the authoritative user instruction; it must not retransmit or depend on the raw source document. Do not invent claims unsupported by the synthesis. If coverage is partial, explicitly preserve that limitation and do not state or imply that the entire source was reviewed.\n\n' + result.synthesis + '\n\nCoverage status: ' + coverage }]
+      const sourceModel: StructuralSourceModel | undefined = result.sectionExtracts?.length ? { sectionCount: trace.sectionCount, sectionExtracts: result.sectionExtracts, synthesis: result.synthesis, coverageComplete } : undefined
+      return { messages, sourceModel, synthesisAvailable: true, complete: coverageComplete, synthesis: result.synthesis, coverage }
     } catch (error) {
       if (isCeoRequestAborted(error)) throw error
-      return { messages: [], authoritative: false }
+      return { messages: [], synthesisAvailable: false, complete: false }
     }
   })()
   const documentComprehensionMessages = documentComprehension.messages
   const structuralSourceModel = documentComprehension.sourceModel
-  const authoritativeDocumentInstruction = request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
-  const degradedRequest: CeoCognitiveRequest = documentComprehension.synthesis ? { ...request, documentComprehensionSynthesis: documentComprehension.synthesis, documentComprehensionCoverage: documentComprehension.coverage } : request
-  const generationObjective = documentComprehension.authoritative ? authoritativeDocumentInstruction : objective
-  const sourceForGeneration: readonly { role: 'system' | 'user' | 'assistant'; content: string }[] = documentComprehension.authoritative ? [{ role: 'user', content: authoritativeDocumentInstruction }] : request.messages
+  const fallbackInstruction = extractInstructionWindowDetails(request.canonicalContext?.currentMessage ?? objective)
+  const authoritativeDocumentInstruction = request.canonicalContext?.turnEnvelope?.instruction.authoritativeText ?? fallbackInstruction.authoritativeText ?? request.canonicalContext?.instruction ?? extractInstructionWindow(objective)
+  const degradedRequest: CeoCognitiveRequest = documentComprehension.synthesis
+    ? { ...request, documentComprehensionSynthesis: documentComprehension.synthesis, documentComprehensionCoverage: documentComprehension.coverage }
+    : request
+  const generationObjective = documentComprehension.synthesisAvailable ? authoritativeDocumentInstruction : objective
+  const sourceForGeneration: readonly { role: 'system' | 'user' | 'assistant'; content: string }[] = documentComprehension.synthesisAvailable
+    ? replaceCurrentUserMessage(request.messages, authoritativeDocumentInstruction)
+    : request.messages
   const primaryMessages = [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...documentComprehensionMessages, ...selfAssessmentGuidanceMessages({ intent: decisionPlan.executionContract.intent, objective: generationObjective, priorConversation: request.priorConversation }), ...decisionMessages, ...sourceForGeneration]
   const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
   let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0; let primaryQuality: CognitiveLifecycleResult['quality'] | undefined; let finalStage: CeoGenerationDiagnostics['finalStage'] = 'primary'
