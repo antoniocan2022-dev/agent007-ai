@@ -119,15 +119,17 @@ const DOCUMENT_EXTRACT_RE = /\b(?:extract|pull\s+out|list|identify)\b.*\b(?:clai
 export function inferRequestedOperation(
   authoritativeInstruction: string,
   selfAssessmentRequested: boolean,
+  sourceMaterialPresent = false,
 ): RequestedOperation {
   const text = authoritativeInstruction.trim()
   if (!text) return 'conversation'
   if (selfAssessmentRequested) return 'self_assessment'
   const hasDocumentTarget = DOCUMENT_TARGET_RE.test(text)
-  if (hasDocumentTarget && DOCUMENT_SUMMARY_RE.test(text)) return 'document_summary'
-  if (hasDocumentTarget && DOCUMENT_COMPARE_RE.test(text)) return 'document_compare'
-  if (hasDocumentTarget && DOCUMENT_CRITIQUE_RE.test(text)) return 'document_critique'
-  if (hasDocumentTarget && DOCUMENT_EXTRACT_RE.test(text)) return 'document_extract'
+  const documentOperationFrame = sourceMaterialPresent || hasDocumentTarget
+  if (documentOperationFrame && DOCUMENT_SUMMARY_RE.test(text)) return 'document_summary'
+  if (documentOperationFrame && DOCUMENT_COMPARE_RE.test(text)) return 'document_compare'
+  if (documentOperationFrame && DOCUMENT_CRITIQUE_RE.test(text)) return 'document_critique'
+  if (documentOperationFrame && DOCUMENT_EXTRACT_RE.test(text)) return 'document_extract'
   if (DOCUMENT_COMPREHENSION_RE.test(text)) return 'document_comprehension'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/i.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/i.test(text)) return 'research'
@@ -229,6 +231,7 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
     requestedOperation: inferRequestedOperation(
       instructionExtraction.authoritativeText,
       authorityEnvelope.selfAssessmentRequested,
+      sourceMaterialPresent,
     ),
   }
   return {
