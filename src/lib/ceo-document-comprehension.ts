@@ -142,7 +142,7 @@ function renderMapStepPrompt(section: DocumentSection, sectionCount: number, obj
 // alongside this instruction; this function just needs to exist as its own step so the executor can
 // build that message sequence without re-deriving the wording itself.
 function renderReduceStepPrompt(objective: string, sectionCount: number, requestedOperation: RequestedOperation = 'document_comprehension'): string {
-  return `You were given extraction notes from all ${sectionCount} sections of a longer document. Requested operation: ${requestedOperation}. ${operationGuidance(requestedOperation)} Synthesize the notes into one coherent, bounded source-grounded result for the user's instruction. Resolve apparent contradictions by noting them explicitly rather than silently picking one. Do not claim a fact came from the document unless it appeared in the extraction notes.\n\nAuthoritative user instruction:\n${objective}`
+  return `You were given extraction notes from all ${sectionCount} sections of a longer document when every section is available; some executions may provide notes for only a subset. Requested operation: ${requestedOperation}. ${operationGuidance(requestedOperation)} Synthesize only from the extraction notes actually supplied at execution time. Never infer or invent content for a missing section, and preserve any reported coverage limitation rather than treating unavailable sections as reviewed. Resolve apparent contradictions by noting them explicitly rather than silently picking one. Do not claim a fact came from the document unless it appeared in the extraction notes.\n\nAuthoritative user instruction:\n${objective}`
 }
 
 /**
