@@ -971,11 +971,7 @@ describe('CEO cognitive lifecycle', () => {
       resetProviderStandingForTests()
     })
 
-    // Deep-audit fix (2026-09-20): the hierarchical-comprehension IIFE used to run unconditionally,
-    // before the `action === 'clarify'` branch decision even happens -- so a turn that resolves to
-    // 'clarify' (whose own messages array never includes documentComprehensionMessages) could still
-    // burn up to ~30s of real map/reduce provider calls for a synthesis that's immediately discarded.
-    test('a "clarify" response action skips hierarchical document comprehension entirely, even for a genuinely large document', async () => {
+    test('raw source tail punctuation cannot force clarification for an explicit document operation', async () => {
       process.env.GROQ_API_KEY = 'test-groq'
       const postKinds: string[] = []
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -985,28 +981,84 @@ describe('CEO cognitive lifecycle', () => {
           const body = JSON.parse(String(init?.body ?? '{}'))
           const allContent = body.messages.map((m: { content: string }) => m.content).join('\n---\n')
           postKinds.push(allContent.includes('reading section') ? 'map' : allContent.includes('extraction notes from all') ? 'reduce' : 'other')
-          return jsonResponse({ choices: [{ message: { content: 'What exactly would you like me to clarify about this report?' } }] })
+          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note.' } }] })
+          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesis covering the supplied document.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'A direct answer grounded in the synthesized document.' } }] })
         }
         throw new Error(`unexpected fetch: ${url}`)
       }) as typeof fetch
 
-      // A trailing bare "and" with no closing punctuation makes completionFor classify this as
-      // 'partial', which forces responseAction to 'clarify' regardless of the document's size.
-      const message = `${bigDocumentMessage()} and`
+      const message = `Make a deep comprehension:\n"${'Section body content. '.repeat(4000)}" and`
       const state = deriveCeoConversationState([], message)
       const context = buildCanonicalConversationContext({ currentMessage: message, rows: [], state, references: [] })
       const contract = buildConversationDecisionContract(context)
-      expect(contract.responseAction).toBe('clarify')
 
-      await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: message }], canonicalContext: context, decisionContract: contract, timeoutMs: 45000 })
-      expect(postKinds.length).toBeGreaterThan(0)
-      // Whether the mocked clarification question itself clears the quality gate is incidental to this
-      // test -- the invariant under test is that no map/reduce call was ever made for this turn, proven
-      // by every captured provider call being 'other' (a normal generation/recovery call).
-      expect(postKinds.every((kind) => kind === 'other')).toBe(true)
+      expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+      expect(contract.responseAction).not.toBe('clarify')
+
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: message }], canonicalContext: context, decisionContract: contract, timeoutMs: 45000 })
+      expect(postKinds.some((kind) => kind === 'map')).toBe(true)
+      expect(postKinds.some((kind) => kind === 'reduce')).toBe(true)
+      expect(result.content.length).toBeGreaterThan(0)
       resetProviderHealthForTests()
       resetProviderStandingForTests()
     })
+
+    test('authoritative document replacement preserves earlier conversation context while removing the raw source from final generation', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const finalCalls: string[] = []
+      const priorUser = 'We decided to review the operations architecture carefully before changing it.'
+      const priorAssistant = 'Yes. We should preserve the current execution boundaries while we inspect the report.'
+      const source = `Make a deep comprehension:\n"${'Source-only material that should not reach the final provider turn. '.repeat(4000)}"`
+      const currentMessage = source
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method === 'POST' && url.includes('api.groq.com')) {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const allContent = body.messages.map((m: { content: string }) => String(m.content)).join('\n---\n')
+          if (allContent.includes('reading section')) return jsonResponse({ choices: [{ message: { content: 'Extraction note.' } }] })
+          if (allContent.includes('extraction notes from all')) return jsonResponse({ choices: [{ message: { content: 'Synthesis preserving the report sections.' } }] })
+          finalCalls.push(allContent)
+          return jsonResponse({ choices: [{ message: { content: 'Final answer that respects the earlier conversation and synthesized source.' } }] })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      }) as typeof fetch
+      const state = deriveCeoConversationState(
+        [
+          { role: 'user', content: priorUser, createdAt: 1 },
+          { role: 'assistant', content: priorAssistant, createdAt: 2 },
+        ],
+        currentMessage,
+      )
+      const context = buildCanonicalConversationContext({
+        currentMessage,
+        rows: [
+          { role: 'user', content: priorUser, createdAt: 1 },
+          { role: 'assistant', content: priorAssistant, createdAt: 2 },
+        ],
+        state,
+        references: [],
+      })
+      const contract = buildConversationDecisionContract(context)
+      const result = await runCeoCognitiveLifecycle({
+        messages: [
+          { role: 'user', content: priorUser },
+          { role: 'assistant', content: priorAssistant },
+          { role: 'user', content: currentMessage },
+        ],
+        canonicalContext: context,
+        decisionContract: contract,
+        timeoutMs: 45000,
+      })
+      expect(result.content.length).toBeGreaterThan(0)
+      expect(finalCalls.length).toBeGreaterThan(0)
+      expect(finalCalls.some((content) => content.includes(priorUser) && content.includes(priorAssistant))).toBe(true)
+      expect(finalCalls.some((content) => content.includes('Source-only material that should not reach the final provider turn.'))).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
 
     // Deep-audit fix (2026-09-20): the no-canonical-context fallback for `instruction` used to be the
     // raw, unwindowed `objective` -- the entire source document -- instead of extractInstructionWindow's
@@ -1075,6 +1127,7 @@ describe('CEO cognitive lifecycle', () => {
       const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: bigDocumentMessage() }], timeoutMs: 45000 })
       expect(result.quality.structuralQuality?.applicable).toBe(true)
       expect(result.quality.structuralQuality?.claimCoverage).toBeGreaterThan(0)
+      expect(result.quality.structuralQuality?.sourceCoverageComplete).toBe(true)
       resetProviderHealthForTests()
       resetProviderStandingForTests()
     })
