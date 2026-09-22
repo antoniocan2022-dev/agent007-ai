@@ -1004,7 +1004,7 @@ describe('CEO cognitive lifecycle', () => {
       resetProviderStandingForTests()
     })
 
-    test('authoritative document replacement preserves earlier conversation context while removing the raw source from final generation', () => {
+    test('authoritative document replacement preserves earlier conversation context while removing the raw source from final generation', async () => {
       const priorUser = 'We decided to review the operations architecture carefully before changing it.'
       const priorAssistant = 'Yes. We should preserve the current execution boundaries while we inspect the report.'
       const rawSource = `Make a deep comprehension:\n"${'Source-only material that should not reach the final provider turn. '.repeat(4000)}"`
