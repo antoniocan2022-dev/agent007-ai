@@ -68,7 +68,7 @@ export class ProviderControlPlaneError extends Error {
 }
 
 export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed' | 'vision' | 'conversational'
-export interface GovernedModelProfile { provider: ActiveProviderId; model: string; capabilities: readonly ModelCapability[]; quality: number; speed: number; costTier: 1 | 2 | 3; maxOutputTokens: number }
+export interface GovernedModelProfile { provider: ActiveProviderId; model: string; capabilities: readonly ModelCapability[]; quality: number; speed: number; costTier: 1 | 2 | 3; maxOutputTokens: number; contextWindowTokens: number; inputSafetyMarginTokens: number }
 export interface ProviderRuntimeConfig { id: ActiveProviderId; label: string; baseUrl: string; apiKeyEnv: string; modelEnv: string; defaultModel: string; modelsUrl?: string; accountIdEnv?: string; preferredModels: readonly string[]; catalogMode: 'live-api' | 'execution-validated'; emergency?: boolean; contextWindowTokens: number; inputSafetyMarginTokens: number }
 
 export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, ProviderRuntimeConfig>> = {
@@ -80,21 +80,21 @@ export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, Provider
 }
 
 export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
-  { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'groq', model: 'openai/gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 92, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['reasoning', 'analysis', 'tool-use', 'coding', 'research', 'long-context', 'vision', 'conversational'], quality: 94, speed: 90, costTier: 1, maxOutputTokens: 12000 },
-  { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000 },
-  { provider: 'mistral', model: 'mistral-medium-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 88, speed: 84, costTier: 2, maxOutputTokens: 12000 },
-  { provider: 'mistral', model: 'mistral-small-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 84, speed: 92, costTier: 1, maxOutputTokens: 8000 },
-  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000 },
-  { provider: 'cerebras', model: 'llama-3.3-70b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 99, costTier: 1, maxOutputTokens: 12000 },
+  { provider: 'groq', model: 'llama-3.3-70b-versatile', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 96, costTier: 1, maxOutputTokens: 8000, contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
+  { provider: 'groq', model: 'openai/gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 92, costTier: 1, maxOutputTokens: 8000, contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
+  { provider: 'cloudflare', model: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['reasoning', 'analysis', 'tool-use', 'coding', 'research', 'long-context', 'vision', 'conversational'], quality: 94, speed: 90, costTier: 1, maxOutputTokens: 12000, contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
+  { provider: 'mistral', model: 'mistral-large-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 91, speed: 80, costTier: 2, maxOutputTokens: 12000, contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
+  { provider: 'mistral', model: 'mistral-medium-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 88, speed: 84, costTier: 2, maxOutputTokens: 12000, contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
+  { provider: 'mistral', model: 'mistral-small-latest', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'speed'], quality: 84, speed: 92, costTier: 1, maxOutputTokens: 8000, contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
+  { provider: 'cerebras', model: 'gpt-oss-120b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed', 'conversational'], quality: 89, speed: 99, costTier: 1, maxOutputTokens: 16000, contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
+  { provider: 'cerebras', model: 'llama-3.3-70b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'speed'], quality: 86, speed: 99, costTier: 1, maxOutputTokens: 12000, contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
   // OpenRouter passes requests straight through to the upstream provider in the same OpenAI-compatible
   // chat/completions shape every other governed provider already uses here, so routing OpenRouter's
   // governed default at Claude Sonnet 5 needed no request/response adapter -- only this profile plus the
   // runtime-config default above. quality/costTier are set clearly above every other governed profile so
   // this wins governed-candidate sorting for any task whose capability requirements it satisfies.
-  { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 98, speed: 75, costTier: 3, maxOutputTokens: 16000 },
-  { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 75, speed: 70, costTier: 1, maxOutputTokens: 8000 },
+  { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 98, speed: 75, costTier: 3, maxOutputTokens: 16000, contextWindowTokens: 1_000_000, inputSafetyMarginTokens: 24_000 },
+  { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 75, speed: 70, costTier: 1, maxOutputTokens: 8000, contextWindowTokens: 200_000, inputSafetyMarginTokens: 24_000 },
 ]
 
 export const TASK_CAPABILITIES: Readonly<Record<TaskType, readonly ModelCapability[]>> = {
@@ -104,7 +104,13 @@ export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'cloudflare'
 
 // Stage 4: provider-aware context preflight. Model context windows are separated from account-level TPM/request ceilings,
 // so REQUEST_TOO_LARGE remains the reactive correctness path when a provider imposes a smaller operational quota.
-export function getProviderInputTokenBudget(provider: ActiveProviderId): number {
+export function getProviderInputTokenBudget(provider: ActiveProviderId, taskType: TaskType = 'general', verification?: VerificationTier, requestedModel?: string): number {
+  const governedModels = requestedModel
+    ? GOVERNED_MODEL_PROFILES.filter((profile) => profile.provider === provider && profile.model === requestedModel)
+    : GOVERNED_MODEL_PROFILES.filter((profile) => profile.provider === provider && getGovernedCandidates(provider, taskType, verification).includes(profile.model))
+  if (governedModels.length) {
+    return Math.max(8_000, Math.min(...governedModels.map((profile) => profile.contextWindowTokens - profile.inputSafetyMarginTokens)))
+  }
   const config = PROVIDER_RUNTIME_CONFIG[provider]
   return Math.max(8_000, config.contextWindowTokens - config.inputSafetyMarginTokens)
 }
