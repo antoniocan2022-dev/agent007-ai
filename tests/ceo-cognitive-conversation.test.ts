@@ -108,4 +108,34 @@ describe('canonical cognitive conversation architecture', () => {
     expect(contract.fingerprint).toMatch(/^conv-/)
     expect(contract.shouldNever.length).toBeGreaterThanOrEqual(3)
   })
+
+  // Production incident (2026-09-22): buildCanonicalConversationContext's deterministicIntent used to
+  // be computed from `instructionWindow` (instructionExtraction.text), which -- per InstructionWindowResult's
+  // own doc comment -- deliberately RETAINS a tail slice of the raw message for backward-compatible
+  // context/clarification behavior and is NOT meant to be authoritative. A long pasted document whose own
+  // body happened to use ordinary prose vocabulary like "research review" (nowhere near the user's actual
+  // framing) got intentHint misclassified as 'research' purely from that retained tail -- which then
+  // propagated into ConversationDecisionContract.intent, read directly as `authoritativeIntent` by
+  // ceo-cognitive-lifecycle.ts's soft-pass gate. 'research' is not in the soft-pass-eligible intent set, so
+  // a genuinely good "make a deep comprehension of this document" answer -- which cannot produce fresh
+  // external evidence because the document was already fully supplied, not something to look up -- was
+  // denied soft-pass and fell through to degraded mode's generic fallback. Fixed by reading
+  // instructionExtraction.authoritativeText instead, matching inferRequestedOperation's existing (correct)
+  // use of the same field two lines below.
+  test('a long document-comprehension request is not misclassified as "research" just because the pasted document uses research-adjacent vocabulary in its own body', () => {
+    const filler = 'Additional background padding this section of the pasted document out to a realistic length. '.repeat(120)
+    const document = [
+      'This report walks through the recommended evidence architecture and canonical routing design.',
+      filler,
+      'It draws on the broader market research review, weighing SEC filings, company investor relations, news flow, and competitor context as parallel acquisition sources.',
+      filler,
+      'That concludes the recommended design for the canonical evidence and routing architecture.',
+    ].join('\n\n')
+    const current = `Make a deep comprehension:\n"${document}"`
+    expect(current.length).toBeGreaterThan(2_000)
+    const state = deriveCeoConversationState([], current)
+    const context = buildCanonicalConversationContext({ currentMessage: current, rows: [], state, references: [] })
+    expect(context.intentHint).not.toBe('research')
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+  })
 })
