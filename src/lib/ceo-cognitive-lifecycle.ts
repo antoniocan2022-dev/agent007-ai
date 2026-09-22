@@ -387,23 +387,13 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   const operatorPlan = request.decisionContract?.responseAction === 'execute' ? buildCeoOperatorPlan({ contract: decisionPlan.executionContract, responseAction: request.decisionContract.responseAction, objective, world: worldModel ?? undefined, curiosity: request.canonicalContext && request.decisionContract ? assessCeoCuriosity(request.canonicalContext, request.decisionContract, worldModel ?? undefined) : undefined, approved: true, executionEvidence: evidenceProvided, verificationState: evidenceScope === 'live_system' && evidenceFreshness ? 'LIVE_VERIFIED' : undefined }) : null; const operatorConstraint = operatorPlan && !canClaimExecution(operatorPlan) ? ` No execution has actually occurred for this request (status: ${operatorPlan.status}). Do not say or imply that you performed, deployed, executed, or completed anything. Describe what you would do and what is still required (${operatorPlan.tasks[0]?.dependencies.join(', ') || 'approval and verification'}) instead.` : ''
   const verifyConstraint = buildVerifyOverclaimConstraint(request.decisionContract?.responseAction, evidenceProvided, evidenceScope)
   const guardianAssessment = request.decisionContract ? assessGuardianRisk({ objective, contract: request.decisionContract, world: worldModel ?? undefined }) : null; const guardianConstraint = guardianAssessment ? renderGuardianConstraint(guardianAssessment) : null; const guardianMessages = guardianConstraint ? [{ role: 'system' as const, content: `GUARDIAN RISK NOTICE:\n${guardianConstraint}` }] : []; const decisionMessages = [ ...(decisionContractMessage ? [{ role: 'system' as const, content: decisionContractMessage }] : []), ...(actionInstruction ? [{ role: 'system' as const, content: `CANONICAL RESPONSE POLICY:\n${actionInstruction}${operatorConstraint}${verifyConstraint}` }] : []) ]
-  // Recommendation 2 (2026-09-20): for a genuinely large source document (see
-  // shouldExecuteHierarchicalComprehension's stricter necessity bar, well above the plan's own
-  // >1-section threshold), run the map-reduce executor as an ADDITIVE pre-pass and fold its
-  // synthesis in as extra grounding context -- the full original document still reaches the model
-  // unchanged via request.messages below, exactly as it always has. Every failure path here
-  // (insufficient time budget, every section failing, the reduce call itself failing) degrades to
-  // "no synthesis produced," handled identically to "hierarchical comprehension wasn't needed" --
-  // this can only add grounding, never block or degrade a turn relative to today's behavior. Uses
-  // request.canonicalContext's own instruction/currentMessage (Recommendation 1) as the
-  // instruction/source-material split, rather than re-deriving one locally.
-  // Recommendation 3 (2026-09-20): when hierarchical comprehension actually runs, its per-section
-  // extraction outputs double as Phase 3's structured source model -- passed to evaluateCeoQuality below
-  // (see structuralSourceModel) so the quality gate can check claim coverage/contradiction preservation
-  // against the document's real structure instead of only lexical overlap with the objective. Returned
-  // as `undefined` (not just an empty array) whenever hierarchical comprehension didn't run or produced
-  // no synthesis -- assessStructuralQuality treats that as `applicable: false`, a pure no-op for every
-  // quality-gate call this turn, identical to today's behavior.
+  // Staged long-document architecture (2026-09-22): explicit document operations use the
+  // map-reduce executor as an authoritative source-understanding stage. When it succeeds, the final
+  // provider generation receives the bounded hierarchical synthesis plus the authoritative instruction,
+  // not the raw source document. When it cannot produce a usable synthesis, the lifecycle fails closed
+  // to its existing recovery/degraded paths instead of pretending the source was fully understood.
+  // The per-section extraction outputs also feed Phase 3's structural source model so the quality gate
+  // can check claim coverage and contradiction preservation against the document's real structure.
   const documentComprehension = await (async (): Promise<{ messages: { role: 'system'; content: string }[]; sourceModel?: StructuralSourceModel; authoritative: boolean; synthesis?: string; coverage?: string }> => {
     try {
       const sourceMaterial = request.canonicalContext?.currentMessage ?? objective
