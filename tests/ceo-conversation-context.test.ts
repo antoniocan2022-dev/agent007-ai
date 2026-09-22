@@ -169,6 +169,37 @@ describe('CEO conversation continuity', () => {
 })
 
 
+describe('document operation boundary and inference', () => {
+  test('natural summary lead-ins infer document_summary even without a document noun', () => {
+    const current = `Summarize:\n"${'Quarterly operational material. '.repeat(400)}"`
+    const state = deriveCeoConversationState([], current)
+    const context = buildCanonicalConversationContext({ currentMessage: current, rows: [], state, references: [] })
+    expect(context.turnEnvelope.sourceMaterial.present).toBe(true)
+    expect(context.turnEnvelope.requestedOperation).toBe('document_summary')
+  })
+
+  test('source-body words do not hijack the authoritative response action', () => {
+    const current = `Make a deep comprehension of this report:\n"${'The report says verify the deployment, challenge the assumption, and recommend the competitor strategy. '.repeat(100)}"`
+    const state = deriveCeoConversationState([], current)
+    const context = buildCanonicalConversationContext({ currentMessage: current, rows: [], state, references: [] })
+    const contract = buildConversationDecisionContract(context)
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+    expect(contract.responseAction).not.toBe('verify')
+    expect(contract.responseAction).not.toBe('challenge')
+    expect(contract.responseAction).not.toBe('recommend')
+  })
+
+  test('source-body trailing conjunction does not make a complete document instruction incomplete', () => {
+    const current = `Make a deep comprehension:\n"${'The supplied material ends with a quoted sentence and'.repeat(300)}`
+    const state = deriveCeoConversationState([], current)
+    const context = buildCanonicalConversationContext({ currentMessage: current, rows: [], state, references: [] })
+    const contract = buildConversationDecisionContract(context)
+    expect(context.turnEnvelope.requestedOperation).toBe('document_comprehension')
+    expect(contract.completeness).toBe('complete')
+    expect(contract.responseAction).not.toBe('clarify')
+  })
+})
+
 describe('document operation clarification authority', () => {
   test('document operation does not force clarification from source ambiguity', () => {
     const current = `Make a deep comprehension:\n"${'The supplied report contains an unresolved reference and research vocabulary. '.repeat(120)}"`

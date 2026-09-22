@@ -143,27 +143,25 @@ function buildNaturalRecoveryResponse(input: { objective: string; action?: Respo
   if (action === 'recommend' || action === 'decide') { if (!grounding || !input.isSuppliedByCaller) return `I couldn't produce a reliable recommendation for this specific request, so I won't substitute a generic priority or repeat an earlier decision.`; return `I couldn't complete the recommendation path reliably. I can preserve the supplied evidence, but I won't turn it into a stronger recommendation than the failed path supports.` }
   if (action === 'verify') return `I couldn't complete the verification path for this specific request, so I won't claim that the requested fact or state was verified.`
   if (action === 'execute') return `I couldn't complete the execution path for this specific request, so I won't claim that the action occurred.`
-  // Deliberately restricted to answer/explain: those are the exact response actions the live-transcript
-  // bug affected, and both are pure conversational recall with no completion/verification claim at
-  // stake. Placed after every higher-stakes action branch above (verify/execute/challenge/recommend/
-  // decide) so a matching reference can never bypass their deliberately conservative, action-specific
-  // denial language -- an earlier version of this branch fired unconditionally before those checks,
-  // which would have let a resolved reference silently skip e.g. execute's explicit "I won't claim the
-  // action occurred" guarantee.
+  // Answer/explain recovery is kept in one control-flow branch so TypeScript can reason about the ResponseAction union
+  // and so document-comprehension recovery cannot accidentally bypass the higher-stakes action denials above.
   if (action === 'answer' || action === 'explain') {
     const resolvedReference = highConfidenceReferenceForObjective(objective, input.resolvedReferences)
     if (resolvedReference?.resolvedText) {
       const safeResolvedText = sanitizeRecalledText(resolvedReference.resolvedText)
       if (safeResolvedText) return `I couldn't complete a fresh, verified answer through the normal reasoning path, but I know exactly what you're referring to:\n\n${safeResolvedText.slice(0, 2000)}\n\nI don't want to expand on it without the verified reasoning path succeeding, so go ahead and ask again in a moment.`
     }
+    if (action === 'explain') return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
+    if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(grounding) || /compliance/i.test(priorUsers.join(' '))) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd put compliance first, then build the operations foundation around it, and add new integrations after that.`; if (/revenue/i.test(lower)) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd treat revenue as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure it.` }
+    if (input.documentComprehensionSynthesis) {
+      const coverage = input.documentComprehensionCoverage ? '\\n\\n' + input.documentComprehensionCoverage : ''
+      return 'The normal final reasoning path failed after bounded hierarchical comprehension of the supplied material. I will not present that synthesis as fresh external verification. Coverage boundaries are included below.\\n\\n' + input.documentComprehensionSynthesis.slice(0, 16000) + coverage
+    }
+    if (input.recoveredExternalEvidence && intent === 'research' && grounding) {
+      return `I recovered fresh external evidence for this request, but I couldn't complete the final synthesis reliably. I won't turn the raw evidence into an unsupported conclusion.\n\n${grounding.slice(0, 8000)}`
+    }
+    if (!isContinuityRecoveryRequest(objective)) return `I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`
   }
-  if (action === 'explain') return `I couldn't reliably complete the explanation you asked for, so I won't replace it with a generic explanation that may answer a different question.`
-  if (/priorit|what should we (?:do|focus)|what comes first|before adding/i.test(lower)) { if (/compliance/i.test(lower) || /compliance/i.test(grounding) || /compliance/i.test(priorUsers.join(' '))) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd put compliance first, then build the operations foundation around it, and add new integrations after that.`; if (/revenue/i.test(lower)) return `I couldn't complete the normal reasoning path for this, but as general guidance: I'd treat revenue as the business outcome to optimize, but I would first make sure the operational foundation is strong enough to execute and measure it.` }
-  if (input.documentComprehensionSynthesis && (action === 'answer' || action === 'explain')) { const coverage = input.documentComprehensionCoverage ? '\n\n' + input.documentComprehensionCoverage : ''; return 'The normal final reasoning path failed after a bounded hierarchical comprehension of the supplied material. I will not present that intermediate synthesis as fresh external verification, but I can preserve what it established from the source:\n\n' + input.documentComprehensionSynthesis.slice(0, 16000) + coverage }
-  if (input.recoveredExternalEvidence && intent === 'research' && action === 'answer' && grounding) {
-    return `I recovered fresh external evidence for this request, but I couldn't complete the final synthesis reliably. I won't turn the raw evidence into an unsupported conclusion.\n\n${grounding.slice(0, 8000)}`
-  }
-  if (action === 'answer' && !isContinuityRecoveryRequest(objective)) return `I couldn't reliably complete that specific request, so I don't want to give you a generic answer that could miss what you're actually asking.`
   if (grounding && input.isSuppliedByCaller) return `I couldn't complete the normal reasoning path, but I can safely preserve the supplied context without presenting it as a verified conclusion.\n\n${grounding.slice(0, 4000)}`
   if (isContinuityRecoveryRequest(objective)) {
     const latestCorrection = conversationState?.recentCorrections.at(-1)

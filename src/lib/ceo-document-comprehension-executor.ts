@@ -72,12 +72,12 @@ export function shouldExecuteHierarchicalComprehension(
 // actually has -- bounds worst-case cost/latency for an extreme document rather than fanning out
 // unboundedly. Sections beyond this cap are simply not covered by the synthesis; the caller is told
 // via failureNotes so it can be honest about the gap rather than silently under-covering the source.
-const MAX_SECTIONS_TO_EXECUTE = 16
+const MAX_SECTIONS_TO_EXECUTE = 40
 const DEFAULT_TIME_BUDGET_MS = 30_000
 // Below this, there isn't enough time to run even one round-trip safely -- skip rather than attempt
 // a doomed pass that would just add latency without producing a usable synthesis.
 const MIN_VIABLE_TIME_BUDGET_MS = 8_000
-const MIN_STEP_TIMEOUT_MS = 4_000
+const MIN_STEP_TIMEOUT_MS = 2_500
 const MAP_STEP_MAX_TOKENS = 500
 const REDUCE_STEP_MAX_TOKENS = 2_000
 
@@ -94,10 +94,11 @@ export interface HierarchicalComprehensionResult {
   // Only populated on the success path (executed:true); every failure/skip path has nothing structural
   // to offer beyond what failureNotes already says.
   sectionExtracts?: { sectionIndex: number; text: string }[]
+  complete: boolean
 }
 
 function skip(failureNotes: string[], durationMs: number): HierarchicalComprehensionResult {
-  return { executed: false, sectionsProcessed: 0, sectionsFailed: 0, failureNotes, durationMs }
+  return { executed: false, sectionsProcessed: 0, sectionsFailed: 0, failureNotes, durationMs, complete: false }
 }
 
 /**
@@ -120,7 +121,8 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
 
   const mapBudgetMs = Math.floor(timeBudgetMs * 0.6)
   const reduceBudgetMs = timeBudgetMs - mapBudgetMs
-  const mapBatches = Math.ceil(steps.length / 4)
+  const mapConcurrency = steps.length >= 24 ? 6 : 4
+  const mapBatches = Math.ceil(steps.length / mapConcurrency)
   const perMapTimeoutMs = Math.max(MIN_STEP_TIMEOUT_MS, Math.floor(mapBudgetMs / Math.max(1, mapBatches)))
   const reduceTimeoutMs = Math.max(MIN_STEP_TIMEOUT_MS, reduceBudgetMs)
   // Deep-audit fix (2026-09-20): MIN_STEP_TIMEOUT_MS is a floor, not a proportional share of the
@@ -136,7 +138,7 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
   // independently of this budget math.
   if (mapBatches * perMapTimeoutMs + reduceTimeoutMs > timeBudgetMs) return skip(['Insufficient time budget remaining for hierarchical comprehension given this document\'s section count; proceeding with the source document alone.'], Date.now() - started)
 
-  const mapResults = await runBounded(steps, 4, async (step, index) => {
+  const mapResults = await runBounded(steps, mapConcurrency, async (step, index) => {
     const result = await runCanonicalLlm({
       messages: [{ role: 'user' as const, content: step.prompt }],
       taskType: 'analysis',
@@ -157,7 +159,7 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
     if (text) mapOutputs.push({ sectionIndex: step.sectionIndex, text })
     else failureNotes.push(`Section ${step.sectionIndex + 1} of ${plan.trace.sectionCount} could not be processed and is not covered by this synthesis.`)
   }
-  if (!mapOutputs.length) return { executed: false, sectionsProcessed: 0, sectionsFailed: steps.length, failureNotes: [...failureNotes, 'Every section extraction failed; no hierarchical synthesis was produced.'], durationMs: Date.now() - started }
+  if (!mapOutputs.length) return { executed: false, sectionsProcessed: 0, sectionsFailed: steps.length, failureNotes: [...failureNotes, 'Every section extraction failed; no hierarchical synthesis was produced.'], durationMs: Date.now() - started, complete: false }
 
   const reduceMessages = [
     { role: 'user' as const, content: plan.reduceStep.prompt },
@@ -177,10 +179,11 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
       signal: options?.signal,
     })
     const synthesis = reduceResult.content.trim()
-    if (!synthesis) return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, 'The synthesis step returned no content.'], durationMs: Date.now() - started }
-    return { executed: true, synthesis, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes, durationMs: Date.now() - started, sectionExtracts: mapOutputs }
+    if (!synthesis) return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, 'The synthesis step returned no content.'], durationMs: Date.now() - started, complete: false }
+    const complete = truncatedSectionCount === 0 && mapOutputs.length === plan.trace.sectionCount && (steps.length === plan.trace.sectionCount) && (steps.length - mapOutputs.length) === 0
+    return { executed: true, synthesis, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes, durationMs: Date.now() - started, sectionExtracts: mapOutputs, complete }
   } catch (error) {
     if (isCeoRequestAborted(error)) throw error
-    return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, `Synthesis step failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`], durationMs: Date.now() - started }
+    return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, `Synthesis step failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`], durationMs: Date.now() - started, complete: false }
   }
 }

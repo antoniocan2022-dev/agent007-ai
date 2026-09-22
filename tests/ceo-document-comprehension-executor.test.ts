@@ -77,6 +77,30 @@ describe('executeHierarchicalComprehension: single_pass plans are a pure no-op',
 })
 
 describe('executeHierarchicalComprehension: map_reduce execution', () => {
+
+  test('complete flag distinguishes partial from complete coverage', async () => {
+    process.env.GROQ_API_KEY = 'test-groq'
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (url.includes('groq.com') && method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (url.includes('groq.com') && init?.method === 'POST') {
+        const body = JSON.parse(String(init?.body ?? '{}'))
+        const isReduce = body.messages.some((m: { content: string }) => m.content.includes('extraction notes'))
+        const firstPrompt = String(body.messages[0]?.content ?? '')
+        if (!isReduce && firstPrompt.includes('section 1 of')) return jsonResponse({ error: { message: 'upstream unavailable' } }, 503)
+        return jsonResponse({ choices: [{ message: { content: isReduce ? 'Partial synthesis.' : 'Extraction note.' } }] })
+      }
+      throw new Error(`unexpected call: ${url}`)
+    }) as typeof fetch
+    const plan = bigPlan(6)
+    const partial = await executeHierarchicalComprehension(plan, { timeBudgetMs: 30_000 })
+    expect(partial.executed).toBe(true)
+    expect(partial.complete).toBe(false)
+    resetProviderHealthForTests()
+    resetProviderStandingForTests()
+  })
+
+
   test('an insufficient time budget skips execution without calling the provider layer', async () => {
     let fetchCalled = false
     globalThis.fetch = (async () => { fetchCalled = true; throw new Error('should not be called') }) as typeof fetch
@@ -98,8 +122,8 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     const plan = bigPlan(5)
     expect(plan.mapSteps.length).toBeGreaterThan(4) // guarantees 2 map batches at concurrency 4
     expect(plan.mapSteps.length).toBeLessThanOrEqual(8)
-    // 9000ms clears MIN_VIABLE_TIME_BUDGET_MS on its own, but 2 map batches + 1 reduce, each floored to
-    // MIN_STEP_TIMEOUT_MS (4000ms), is a 12000ms worst case -- 3000ms over this budget.
+    // 9000ms clears MIN_VIABLE_TIME_BUDGET_MS on its own, but this plan still cannot fit its
+    // sequential map/reduce timeout allocation without exceeding that budget.
     const result = await executeHierarchicalComprehension(plan, { timeBudgetMs: 9000 })
     expect(result.executed).toBe(false)
     expect(fetchCalled).toBe(false)
@@ -127,6 +151,7 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     expect(result.synthesis).toContain('Final synthesis')
     expect(result.sectionsFailed).toBe(0)
     expect(result.sectionsProcessed).toBe(plan.mapSteps.length)
+    expect(result.complete).toBe(true)
     expect(mapCalls).toBe(plan.mapSteps.length)
   })
 
@@ -152,6 +177,7 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     expect(result.sectionsFailed).toBeGreaterThan(0)
     expect(result.sectionsProcessed).toBeGreaterThan(0)
     expect(result.failureNotes.some((note) => note.includes('could not be processed'))).toBe(true)
+    expect(result.complete).toBe(false)
   })
 
   test('every section failing produces no synthesis (fail-open, not a thrown error)', async () => {
@@ -168,6 +194,7 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     expect(result.executed).toBe(false)
     expect(result.sectionsFailed).toBe(plan.mapSteps.length)
     expect(result.synthesis).toBeUndefined()
+    expect(result.complete).toBe(false)
   })
 
   test('a reduce-step failure after successful maps still fails open rather than throwing', async () => {
@@ -188,9 +215,10 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     expect(result.executed).toBe(false)
     expect(result.sectionsProcessed).toBeGreaterThan(0)
     expect(result.failureNotes.some((note) => note.includes('Synthesis step failed'))).toBe(true)
+    expect(result.complete).toBe(false)
   })
 
-  test('a document beyond MAX_SECTIONS_TO_EXECUTE reports the uncovered sections honestly', async () => {
+  test('a 20-section document remains fully executable within the bounded comprehension budget', async () => {
     process.env.GROQ_API_KEY = 'test-groq'
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = String(init?.method ?? 'GET')
@@ -198,13 +226,16 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
       if (url.includes('groq.com') && method === 'POST') {
         const body = JSON.parse(String(init?.body ?? '{}'))
         const isReduce = body.messages.some((m: { content: string }) => m.content.includes('extraction notes'))
-        return jsonResponse({ choices: [{ message: { content: isReduce ? 'Synthesis.' : 'Extraction note.' } }] })
+        return jsonResponse({ choices: [{ message: { content: isReduce ? 'Synthesis covering all processed sections.' : 'Extraction note.' } }] })
       }
       throw new Error(`unexpected call: ${url}`)
     }) as typeof fetch
-    const plan = bigPlan(20) // well beyond the executor's internal MAX_SECTIONS_TO_EXECUTE cap
+    const plan = bigPlan(20)
     const result = await executeHierarchicalComprehension(plan, { timeBudgetMs: 30_000 })
     expect(result.executed).toBe(true)
-    expect(result.failureNotes.some((note) => note.includes('bounded execution limit'))).toBe(true)
+    expect(result.sectionsProcessed).toBe(plan.mapSteps.length)
+    expect(result.sectionsFailed).toBe(0)
+    expect(result.complete).toBe(true)
+    expect(result.failureNotes.some((note) => note.includes('bounded execution limit'))).toBe(false)
   })
 })

@@ -369,4 +369,14 @@ describe('provider-aware context budgets', () => {
     expect(PROVIDER_RUNTIME_CONFIG.groq.defaultModel).toBe('openai/gpt-oss-120b')
     expect(PROVIDER_RUNTIME_CONFIG.groq.preferredModels).not.toContain('llama-3.3-70b-versatile')
   })
+
+  test('model-aware budgeting protects dynamic OpenRouter free routing from inheriting the 1M Claude budget', async () => {
+    const { getProviderInputTokenBudget, PROVIDER_RUNTIME_CONFIG } = await import('../src/lib/provider-control-plane')
+    expect(getProviderInputTokenBudget('openrouter', 'general', undefined, 'anthropic/claude-sonnet-5')).toBe(976_000)
+    expect(getProviderInputTokenBudget('openrouter', 'general', undefined, 'openrouter/free')).toBe(176_000)
+    expect(getProviderInputTokenBudget('openrouter', 'general', undefined, 'openrouter/free')).toBeLessThan(
+      getProviderInputTokenBudget('openrouter', 'general', undefined, 'anthropic/claude-sonnet-5')
+    )
+    expect(PROVIDER_RUNTIME_CONFIG.openrouter.contextWindowTokens).toBe(1_000_000)
+  })
 })

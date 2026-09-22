@@ -56,6 +56,7 @@ export interface StructuralSourceModel {
   sectionCount: number
   sectionExtracts: readonly { sectionIndex: number; text: string }[]
   synthesis: string
+  coverageComplete?: boolean
 }
 
 export interface StructuralQualityAssessment {
@@ -76,6 +77,7 @@ export interface StructuralQualityAssessment {
   // recommendation describes; a future round can decide, once real production signal exists, how much
   // weight it should carry.
   sourceAttributionPresent: boolean
+  sourceCoverageComplete: boolean
 }
 
 // Deliberately loose: an accurate synthesis paraphrases a section, it does not quote it, so requiring
@@ -105,7 +107,7 @@ const SOURCE_VS_INFERENCE_RE = /\b(?:the\s+(?:document|report|source|material|te
  */
 export function assessStructuralQuality(input: { sourceModel?: StructuralSourceModel; content: string }): StructuralQualityAssessment {
   if (!input.sourceModel || !input.sourceModel.sectionExtracts.length) {
-    return { applicable: false, claimCoverage: 1, claimCoverageOk: true, representedSectionCount: 0, contradictionFlaggedUpstream: false, contradictionPreserved: true, sourceAttributionPresent: true }
+    return { applicable: false, claimCoverage: 1, claimCoverageOk: true, representedSectionCount: 0, contradictionFlaggedUpstream: false, contradictionPreserved: true, sourceAttributionPresent: true, sourceCoverageComplete: true }
   }
   const answerTokens = tokenSet(input.content)
   let represented = 0
@@ -120,5 +122,6 @@ export function assessStructuralQuality(input: { sourceModel?: StructuralSourceM
   const contradictionFlaggedUpstream = contradictionFlagged(input.sourceModel.synthesis)
   const contradictionPreserved = !contradictionFlaggedUpstream || contradictionFlagged(input.content)
   const sourceAttributionPresent = SOURCE_VS_INFERENCE_RE.test(input.content)
-  return { applicable: true, claimCoverage, claimCoverageOk: claimCoverage >= CLAIM_COVERAGE_MINIMUM, representedSectionCount: represented, contradictionFlaggedUpstream, contradictionPreserved, sourceAttributionPresent }
+  const sourceCoverageComplete = input.sourceModel.coverageComplete !== false
+  return { applicable: true, claimCoverage, claimCoverageOk: claimCoverage >= CLAIM_COVERAGE_MINIMUM, representedSectionCount: represented, contradictionFlaggedUpstream, contradictionPreserved, sourceAttributionPresent, sourceCoverageComplete }
 }
