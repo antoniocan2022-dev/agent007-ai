@@ -20,7 +20,7 @@ import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, DecisionPlan, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision, CeoGenerationDiagnostics, CeoIntent } from './ceo-cognitive-contract'
 import { inferComprehensionMode, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
-import { renderConversationDecisionContract } from './ceo-conversation-decision-contract'
+import { isDocumentOperation, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
 import { buildCeoWorldModel } from './ceo-world-model'
@@ -79,6 +79,8 @@ export interface CeoCognitiveRequest {
   executiveState?: ExecutiveBusinessState
   leadershipLedger?: readonly LeaderPerformanceRecord[]
   strategicHorizon?: StrategicHorizonView
+  documentComprehensionSynthesis?: string
+  documentComprehensionCoverage?: string
 }
 
 type ValidatedCandidate = { provider: ActiveProviderId; model: string; responseMs: number }
