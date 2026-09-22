@@ -47,10 +47,9 @@ export interface DocumentComprehensionPlan {
   reduceStep?: ComprehensionReduceStep
 }
 
-// Sized well under any governed provider's real context window (see provider-control-plane.ts's
-// DEFAULT_MAX_INPUT_TOKENS comment -- the smallest is ~128K tokens) with generous room left in the
-// same request for the map-step instruction, the objective, and the model's own response -- a
-// single section is meant to be comfortably, not maximally, within one focused pass.
+// Sized well under the configured provider-aware preflight budgets with generous room left in the
+// same request for the map-step instruction and model response -- a single section is meant to be
+// comfortably, not maximally, within one focused pass.
 export const DEFAULT_SECTION_BUDGET_CHARS = 6_000
 
 // Deep-audit fix (2026-09-20): returns each part's offsets RELATIVE TO THE PARAGRAPH, not just its
