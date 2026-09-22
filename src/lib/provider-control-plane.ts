@@ -69,14 +69,14 @@ export class ProviderControlPlaneError extends Error {
 
 export type ModelCapability = 'reasoning' | 'coding' | 'research' | 'analysis' | 'creative' | 'tool-use' | 'long-context' | 'speed' | 'vision' | 'conversational'
 export interface GovernedModelProfile { provider: ActiveProviderId; model: string; capabilities: readonly ModelCapability[]; quality: number; speed: number; costTier: 1 | 2 | 3; maxOutputTokens: number }
-export interface ProviderRuntimeConfig { id: ActiveProviderId; label: string; baseUrl: string; apiKeyEnv: string; modelEnv: string; defaultModel: string; modelsUrl?: string; accountIdEnv?: string; preferredModels: readonly string[]; catalogMode: 'live-api' | 'execution-validated'; emergency?: boolean }
+export interface ProviderRuntimeConfig { id: ActiveProviderId; label: string; baseUrl: string; apiKeyEnv: string; modelEnv: string; defaultModel: string; modelsUrl?: string; accountIdEnv?: string; preferredModels: readonly string[]; catalogMode: 'live-api' | 'execution-validated'; emergency?: boolean; contextWindowTokens: number; inputSafetyMarginTokens: number }
 
 export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, ProviderRuntimeConfig>> = {
-  groq: { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions', apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'GROQ_MODEL', defaultModel: 'llama-3.3-70b-versatile', modelsUrl: 'https://api.groq.com/openai/v1/models', preferredModels: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'llama-3.1-8b-instant'], catalogMode: 'live-api' },
-  cloudflare: { id: 'cloudflare', label: 'Cloudflare Workers AI', baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1/chat/completions', apiKeyEnv: 'CLOUDFLARE_API_KEY', modelEnv: 'CLOUDFLARE_MODEL', defaultModel: '@cf/google/gemma-4-26b-a4b-it', modelsUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/models/search', accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID', preferredModels: ['@cf/google/gemma-4-26b-a4b-it'], catalogMode: 'live-api' },
-  mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest', modelsUrl: 'https://api.mistral.ai/v1/models', preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'], catalogMode: 'live-api' },
-  cerebras: { id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b', modelsUrl: 'https://api.cerebras.ai/v1/models', preferredModels: ['gpt-oss-120b', 'llama-3.3-70b'], catalogMode: 'live-api' },
-  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'anthropic/claude-sonnet-5', preferredModels: ['anthropic/claude-sonnet-5', 'openrouter/free'], catalogMode: 'execution-validated' },
+  groq: { id: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1/chat/completions', apiKeyEnv: 'GROQ_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'openai/gpt-oss-120b', modelsUrl: 'https://api.groq.com/openai/v1/models', preferredModels: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'], catalogMode: 'live-api', contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
+  cloudflare: { id: 'cloudflare', label: 'Cloudflare Workers AI', baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1/chat/completions', apiKeyEnv: 'CLOUDFLARE_API_KEY', modelEnv: 'CLOUDFLARE_MODEL', defaultModel: '@cf/google/gemma-4-26b-a4b-it', modelsUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/models/search', accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID', preferredModels: ['@cf/google/gemma-4-26b-a4b-it'], catalogMode: 'live-api', contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
+  mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest', modelsUrl: 'https://api.mistral.ai/v1/models', preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'], catalogMode: 'live-api', contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
+  cerebras: { id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b', modelsUrl: 'https://api.cerebras.ai/v1/models', preferredModels: ['gpt-oss-120b', 'llama-3.3-70b'], catalogMode: 'live-api', contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
+  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'anthropic/claude-sonnet-5', preferredModels: ['anthropic/claude-sonnet-5', 'openrouter/free'], catalogMode: 'execution-validated', contextWindowTokens: 1_000_000, inputSafetyMarginTokens: 24_000 },
 }
 
 export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
@@ -102,27 +102,13 @@ export const TASK_CAPABILITIES: Readonly<Record<TaskType, readonly ModelCapabili
 }
 export const PROVIDER_ORDER: readonly ActiveProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter']
 
-// Provider Gateway Phase A (2026-09-19): a conservative, shared preflight budget, not a verified
-// per-vendor limit -- this codebase doesn't have confirmed exact per-provider/per-tier token ceilings,
-// and inventing precise-looking numbers per provider would be presenting a guess as fact. This exists
-// only to make an oversized request compact BEFORE spending a round-trip on a call likely to come back
-// REQUEST_TOO_LARGE; the reactive compact-and-retry-same-provider-once path in provider-runtime-v2.ts
-// (triggered by the real classified error) is the authoritative correctness mechanism regardless of
-// whether this preflight guess was right.
-//
-// Long-document incident (2026-09-19), Phase 1: raised from 6,000. The previous value was far below what
-// this codebase's actual governed models support -- PROVIDER_RUNTIME_CONFIG's real default models (Groq
-// llama-3.3-70b-versatile, Mistral mistral-large-latest, Cerebras gpt-oss-120b/llama-3.3-70b) are all
-// well-documented ~128K-token-context model families, not the handful-of-thousand-token ceiling this
-// budget previously assumed. 100,000 leaves real headroom under that ~128K ceiling for the largest
-// governed maxOutputTokens (16,000, on the openrouter/anthropic profile) plus this preflight estimate's
-// own chars/4 imprecision. This is still a conservative, shared guess, not a per-vendor verified limit --
-// Cloudflare Workers AI's specific governed model in particular has no confirmed context window here --
-// so the reactive compact-and-retry-on-REQUEST_TOO_LARGE path above remains the real safety net for any
-// provider where this guess is still too high, exactly as it already is when this guess is too low.
-export const DEFAULT_MAX_INPUT_TOKENS = 100_000
-// Rough, standard chars-per-token heuristic (~4 chars/token for English prose) -- good enough to decide
-// "is this request plausibly oversized," not a real tokenizer.
+// Stage 4: provider-aware context preflight. Model context windows are separated from account-level TPM/request ceilings,
+// so REQUEST_TOO_LARGE remains the reactive correctness path when a provider imposes a smaller operational quota.
+export function getProviderInputTokenBudget(provider: ActiveProviderId): number {
+  const config = PROVIDER_RUNTIME_CONFIG[provider]
+  return Math.max(8_000, config.contextWindowTokens - config.inputSafetyMarginTokens)
+}
+export const DEFAULT_MAX_INPUT_TOKENS = Math.min(...PROVIDER_ORDER.map((provider) => getProviderInputTokenBudget(provider)))
 export function estimateTokens(text: string): number { return Math.ceil(text.length / 4) }
 export function estimateRequestTokens(messages: readonly Record<string, unknown>[]): number {
   let total = 0
