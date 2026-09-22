@@ -41,7 +41,7 @@ describe('assessStructuralQuality: claim coverage', () => {
     const result = assessStructuralQuality({ sourceModel, content: 'Revenue grew steadily and engineering shipped on time.' })
     expect(result.applicable).toBe(true)
     expect(result.sourceCoverageComplete).toBe(false)
-    expect(result.claimCoverageOk).toBe(true)
+    expect(result.claimCoverageOk).toBe(false)
   })
 
 
@@ -67,6 +67,20 @@ describe('assessStructuralQuality: claim coverage', () => {
     expect(result.representedSectionCount).toBe(1)
     expect(result.claimCoverage).toBeCloseTo(0.2, 5)
     expect(result.claimCoverageOk).toBe(false)
+  })
+
+  test('partial source coverage cannot pass merely because every processed section is represented', () => {
+    const sourceModel: StructuralSourceModel = {
+      sectionCount: 4,
+      sectionExtracts: [section(0, 'Revenue grew fourteen percent quarter over quarter'), section(1, 'Engineering shipped the dashboard ahead of schedule')],
+      synthesis: 'Partial synthesis from two of four sections.',
+      coverageComplete: false,
+    }
+    const result = assessStructuralQuality({ sourceModel, content: 'Revenue grew fourteen percent quarter over quarter, and engineering shipped the dashboard ahead of schedule.' })
+    expect(result.representedSectionCount).toBe(2)
+    expect(result.claimCoverage).toBe(0.5)
+    expect(result.claimCoverageOk).toBe(false)
+    expect(result.sourceCoverageComplete).toBe(false)
   })
 
   test('an answer drawing on a meaningful spread of sections clears the coverage minimum', () => {
