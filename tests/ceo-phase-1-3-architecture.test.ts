@@ -154,7 +154,7 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   // than the failure it exists to rescue.
   test('the lifecycle gives the continuity judge relevantOlderConversation, not just recent turns', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
-    expect(lifecycle).toContain('semanticContinuityCheck(objective, request.priorConversation ?? [], result.content, request.relevantOlderConversation ?? [])')
+    expect(lifecycle).toContain('semanticContinuityCheck(generationObjective, request.priorConversation ?? [], result.content, request.relevantOlderConversation ?? [])')
   })
 
   // Sibling-call-site audit: tryDegraded's recovery branch is the LAST chance to save a request, so
