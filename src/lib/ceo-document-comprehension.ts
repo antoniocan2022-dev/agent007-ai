@@ -12,6 +12,8 @@
  * necessity gate without changing the governed CeoIntent taxonomy.
  */
 
+import type { RequestedOperation } from './ceo-cognitive-contract'
+
 export interface DocumentSection {
   index: number
   start: number
@@ -128,8 +130,10 @@ export function buildDocumentComprehensionTrace(text: string, sectionBudgetChars
   }
 }
 
-function renderMapStepPrompt(section: DocumentSection, sectionCount: number, objective: string): string {
-  return `You are reading section ${section.index + 1} of ${sectionCount} of a longer document. Extract only the facts, figures, and claims in THIS section that are relevant to the reader's request below. Do not summarize the whole document -- you cannot see the other sections. Do not answer the request yet; just extract what this section contributes to it. If this section has nothing relevant, say so briefly.\n\nReader's request:\n${objective}\n\nSection ${section.index + 1} of ${sectionCount}:\n${section.text}`
+function operationGuidance(operation: RequestedOperation): string { switch (operation) { case 'document_summary': return 'Focus on key points, decisions, outcomes, metrics, and conclusions.'; case 'document_critique': return 'Focus on assumptions, weaknesses, unsupported claims, risks, contradictions, and reasoning gaps.'; case 'document_compare': return 'Focus on comparable claims, differences, similarities, trade-offs, and evidence.'; case 'document_extract': return 'Focus on explicit claims, facts, figures, names, dates, risks, findings, and other extractable items.'; default: return 'Focus on facts, arguments, dependencies, evidence, risks, contradictions, and conclusions for deep comprehension.' } }
+
+function renderMapStepPrompt(section: DocumentSection, sectionCount: number, objective: string, requestedOperation: RequestedOperation = 'document_comprehension'): string {
+  return `You are reading section ${section.index + 1} of ${sectionCount} of a longer document. Requested operation: ${requestedOperation}. ${operationGuidance(requestedOperation)} Do not summarize the whole document; you cannot see the other sections. Do not answer the final user request yet; extract only what this section contributes. If this section has nothing relevant, say so briefly.\n\nAuthoritative user instruction:\n${objective}\n\nSection ${section.index + 1} of ${sectionCount}:\n${section.text}`
 }
 
 // This prompt is the reduce step's INSTRUCTION only -- it deliberately does not embed the map steps'
@@ -137,8 +141,8 @@ function renderMapStepPrompt(section: DocumentSection, sectionCount: number, obj
 // executor supplies those as separate message content (e.g. one message per collected map output)
 // alongside this instruction; this function just needs to exist as its own step so the executor can
 // build that message sequence without re-deriving the wording itself.
-function renderReduceStepPrompt(objective: string, sectionCount: number): string {
-  return `You were given extraction notes from all ${sectionCount} sections of a longer document (each produced independently, without seeing the other sections). Synthesize them into one coherent answer to the reader's original request. Resolve any apparent contradictions between sections by noting them explicitly rather than silently picking one. Do not claim a fact came from the document unless it actually appeared in the extraction notes.\n\nReader's request:\n${objective}`
+function renderReduceStepPrompt(objective: string, sectionCount: number, requestedOperation: RequestedOperation = 'document_comprehension'): string {
+  return `You were given extraction notes from all ${sectionCount} sections of a longer document. Requested operation: ${requestedOperation}. ${operationGuidance(requestedOperation)} Synthesize the notes into one coherent, bounded source-grounded result for the user's instruction. Resolve apparent contradictions by noting them explicitly rather than silently picking one. Do not claim a fact came from the document unless it appeared in the extraction notes.\n\nAuthoritative user instruction:\n${objective}`
 }
 
 /**
@@ -149,9 +153,9 @@ function renderReduceStepPrompt(objective: string, sectionCount: number): string
  * renderReduceStepPrompt) that a future execution step would run after collecting all the map
  * outputs. mapSteps/reduceStep are prompts only -- this function makes no model calls.
  */
-export function buildHierarchicalComprehensionPlan(objective: string, document: string, sectionBudgetChars: number = DEFAULT_SECTION_BUDGET_CHARS): DocumentComprehensionPlan {
+export function buildHierarchicalComprehensionPlan(objective: string, document: string, sectionBudgetChars: number = DEFAULT_SECTION_BUDGET_CHARS, requestedOperation: RequestedOperation = 'document_comprehension'): DocumentComprehensionPlan {
   const trace = buildDocumentComprehensionTrace(document, sectionBudgetChars)
   if (!trace.requiresHierarchicalComprehension) return { strategy: 'single_pass', trace, mapSteps: [] }
-  const mapSteps = trace.sections.map((section) => ({ sectionIndex: section.index, prompt: renderMapStepPrompt(section, trace.sectionCount, objective) }))
-  return { strategy: 'map_reduce', trace, mapSteps, reduceStep: { prompt: renderReduceStepPrompt(objective, trace.sectionCount) } }
+  const mapSteps = trace.sections.map((section) => ({ sectionIndex: section.index, prompt: renderMapStepPrompt(section, trace.sectionCount, objective, requestedOperation) }))
+  return { strategy: 'map_reduce', trace, mapSteps, reduceStep: { prompt: renderReduceStepPrompt(objective, trace.sectionCount, requestedOperation) } }
 }
