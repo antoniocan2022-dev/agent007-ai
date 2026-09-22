@@ -1,15 +1,16 @@
 /**
- * Long-document comprehension infrastructure (2026-09-20).
+ * Long-document comprehension infrastructure (2026-09-20; authoritative document-operation mode).
  *
  * This module owns the source-document map/reduce plan used by the live executor in
- * ceo-document-comprehension-executor.ts. The primary generation path still receives the full
- * source document unchanged; hierarchical synthesis is additive grounding, not a replacement.
+ * ceo-document-comprehension-executor.ts. For explicit document operations, the resulting bounded
+ * synthesis is the authoritative source model for final answer generation; the raw source is not
+ * retransmitted to the final synthesis call. Ordinary short/medium conversational turns can still
+ * remain on the normal single-pass path.
  *
  * The plan remains deliberately separate from execution: this file is pure document structure and
  * prompt construction, while the executor owns provider calls, bounded concurrency, time budgets,
- * cancellation, and partial-failure handling. Source Authority Phase 3 now supplies a parallel
- * requestedOperation signal so explicit document-comprehension requests can strengthen the executor's
- * necessity gate without changing the governed CeoIntent taxonomy.
+ * cancellation, and partial-failure handling. Source Authority supplies the requestedOperation signal
+ * so document operations have their own execution contract without widening the governed CeoIntent taxonomy.
  */
 
 import type { RequestedOperation } from './ceo-cognitive-contract'
