@@ -150,7 +150,7 @@ function renderReduceStepPrompt(objective: string, sectionCount: number, request
  * document that fits in one section gets strategy 'single_pass' (no map/reduce steps -- the
  * existing single-pass generation path is already correct for it). A document that doesn't gets
  * 'map_reduce': one map step per section (see renderMapStepPrompt) plus one reduce step (see
- * renderReduceStepPrompt) that a future execution step would run after collecting all the map
+ * renderReduceStepPrompt) that a live execution step would run after collecting all the map
  * outputs. mapSteps/reduceStep are prompts only -- this function makes no model calls.
  */
 export function buildHierarchicalComprehensionPlan(objective: string, document: string, sectionBudgetChars: number = DEFAULT_SECTION_BUDGET_CHARS, requestedOperation: RequestedOperation = 'document_comprehension'): DocumentComprehensionPlan {
