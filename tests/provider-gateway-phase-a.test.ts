@@ -359,3 +359,14 @@ describe('runGovernedProviderChat: REQUEST_TOO_LARGE retries the same provider a
     expect(isCircuitOpen('groq')).toBe(false)
   })
 })
+
+
+describe('provider-aware context budgets', () => {
+  test('uses provider-specific context budgets and the current Groq default', async () => {
+    const { getProviderInputTokenBudget, PROVIDER_RUNTIME_CONFIG } = await import('../src/lib/provider-control-plane')
+    expect(getProviderInputTokenBudget('groq')).toBe(PROVIDER_RUNTIME_CONFIG.groq.contextWindowTokens - PROVIDER_RUNTIME_CONFIG.groq.inputSafetyMarginTokens)
+    expect(getProviderInputTokenBudget('openrouter')).toBeGreaterThan(getProviderInputTokenBudget('groq'))
+    expect(PROVIDER_RUNTIME_CONFIG.groq.defaultModel).toBe('openai/gpt-oss-120b')
+    expect(PROVIDER_RUNTIME_CONFIG.groq.preferredModels).not.toContain('llama-3.3-70b-versatile')
+  })
+})
