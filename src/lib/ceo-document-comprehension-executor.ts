@@ -67,7 +67,8 @@ export function shouldExecuteHierarchicalComprehension(
   // 5-section heuristic to 2 sections, but still requires an actual multi-section
   // source. The operation signal therefore strengthens the existing structural
   // length/section trigger rather than replacing it.
-  const threshold = requestedOperation === 'document_comprehension'
+  const explicitDocumentOperation = requestedOperation === 'document_comprehension' || requestedOperation === 'document_summary' || requestedOperation === 'document_critique' || requestedOperation === 'document_compare' || requestedOperation === 'document_extract'
+  const threshold = explicitDocumentOperation
     ? DOCUMENT_COMPREHENSION_EXECUTION_SECTION_THRESHOLD
     : EXECUTION_NECESSITY_SECTION_THRESHOLD
   return trace.sectionCount >= threshold
@@ -77,7 +78,7 @@ export function shouldExecuteHierarchicalComprehension(
 // actually has -- bounds worst-case cost/latency for an extreme document rather than fanning out
 // unboundedly. Sections beyond this cap are simply not covered by the synthesis; the caller is told
 // via failureNotes so it can be honest about the gap rather than silently under-covering the source.
-const MAX_SECTIONS_TO_EXECUTE = 8
+const MAX_SECTIONS_TO_EXECUTE = 16
 const DEFAULT_TIME_BUDGET_MS = 30_000
 // Below this, there isn't enough time to run even one round-trip safely -- skip rather than attempt
 // a doomed pass that would just add latency without producing a usable synthesis.
