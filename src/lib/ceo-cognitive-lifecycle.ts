@@ -114,7 +114,7 @@ export function buildVerifyOverclaimConstraint(responseAction: string | undefine
 function objectiveFrom(messages: CeoCognitiveRequest['messages']): string {
   return [...messages].reverse().find((message) => message.role === 'user')?.content?.trim() ?? ''
 }
-function replaceCurrentUserMessage(messages: CeoCognitiveRequest['messages'], content: string): CeoCognitiveRequest['messages'] {
+export function replaceCurrentUserMessage(messages: CeoCognitiveRequest['messages'], content: string): CeoCognitiveRequest['messages'] {
   const next = messages.map((message) => ({ ...message }))
   for (let index = next.length - 1; index >= 0; index -= 1) {
     if (next[index]?.role === 'user') {
