@@ -221,7 +221,7 @@ function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoI
   if (context.intentHint === 'action') return 'tool_action'
   return undefined
 }
-function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision {
+function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; routingObjective?: string }): PreRouteDecision {
   const executionContract = normalizeCeoEvidenceContract(input.executionContract)
   assertCeoEvidenceContractInvariant(executionContract)
   return { ...input, executionContract }
@@ -338,10 +338,12 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const inheritedObjective = inheritedThread ? (() => {
     const title = inheritedThread.title.trim()
     const currentObjective = inheritedThread.currentObjective.trim()
-    if (!title) return currentObjective || undefined
-    if (!currentObjective || currentObjective === title) return title
+    const currentTurn = semanticContext?.currentMessage.trim() ?? ''
+    if (!title) return currentObjective && currentObjective !== currentTurn ? currentObjective : undefined
+    if (!currentObjective || currentObjective === title || currentObjective === currentTurn) return title
     return title + '\n' + currentObjective
   })() : undefined
+  const finalizeDecision = (input: Parameters<typeof buildDecision>[0]): PreRouteDecision => buildDecision({ ...input, ...(inheritedObjective ? { routingObjective: inheritedObjective } : {}) })
   const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
   const proposedDeterministicIntent = inferSemanticIntent(routingText, selfReflection)
   const consistency = enforceContractConsistency({
@@ -396,7 +398,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const evidenceClass: EvidenceClass | undefined = shouldUseExternalEvidence ? 'external_web' : undefined
   const domain: EvidenceDomain | undefined = semanticIntent === 'research' || shouldUseExternalEvidence || externalSubjectDomain.startsWith('internal_') ? externalSubjectDomain : undefined
   const effectiveExecutionClass = (externalSubjectDomain === 'public_equity' || inheritedExternalResearch) ? 'deep' : adaptive.executionClass
-  if (!text) { const reason = 'No substantive request detected.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
+  if (!text) { const reason = 'No substantive request detected.'; return finalizeDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   // Audit fix (2026-09-19): adaptive.executionClass 'mission' is a genuinely loose, tolerated-ambiguous
   // signal -- adaptive-execution.ts's own test suite accepts EITHER 'deep' or 'mission' for a message
   // that merely combines ordinary business vocabulary (revenue/customer/production) with deep-work
@@ -412,8 +414,8 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const deterministicIntentIsNonMission = deterministicIntent === 'analysis' || deterministicIntent === 'opinion' || deterministicIntent === 'decision' || deterministicIntent === 'conversation' || deterministicIntent === 'self_assessment'
   const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational && !deterministicIntentIsNonMission)
   const complexitySignals = [effectiveExecutionClass === 'deep' || effectiveExecutionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
-  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
-  if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
+  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined; return finalizeDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
+  if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return finalizeDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined
   const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined
   const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined
@@ -443,19 +445,19 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
     executionContract.toolRequired = canonicalToolRequired || externallyRequired
     if (!executionContract.toolRequired && canonicalDecision.toolRequirement === 'none') executionContract.executionRequirement = 'llm_only'
   }
-  if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active external-research objective.' : 'External evidence requires governed execution.'), missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
-  if (semanticIntent === 'mission_action' || missionRelevant) return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
-  if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'research' || evidenceClass === 'external_web') return finalizeDecision({ route: 'full', reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active external-research objective.' : 'External evidence requires governed execution.'), missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'mission_action' || missionRelevant) return finalizeDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return finalizeDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   // A bare confirmation/continuation cue ("continue", "yes, go ahead") with no continuable thread to
   // attach to has already had its one real routing question answered -- there is nothing to continue --
   // so it should resolve as a plain conversational acknowledgement rather than fall into CONTEXT_RE's
   // generic "this needs richer conversational analysis" ambiguity, which assumes an unresolved
   // antecedent might still be found downstream.
-  if (semanticIntent === 'conversation' && !inheritedObjective && semanticContext && isObjectiveConfirmationSignal(text)) { const reason = 'No active objective to continue; treating as a bare conversational acknowledgement.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
+  if (semanticIntent === 'conversation' && !inheritedObjective && semanticContext && isObjectiveConfirmationSignal(text)) { const reason = 'No active objective to continue; treating as a bare conversational acknowledgement.'; return finalizeDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const contextMatch = text.match(CONTEXT_RE)
   const hasSelfContainedAntecedent = Boolean(contextMatch && contextMatch.index !== undefined && contextMatch.index >= 30 && /,| and /i.test(text.slice(0, contextMatch.index)))
-  if (contextMatch && !SIMPLE_RE.test(text) && !hasSelfContainedAntecedent) { const reason = 'Context-dependent request requires richer conversational analysis.'; return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) }) }
+  if (contextMatch && !SIMPLE_RE.test(text) && !hasSelfContainedAntecedent) { const reason = 'Context-dependent request requires richer conversational analysis.'; return finalizeDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) }) }
   const useFast = effectiveExecutionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS)
-  return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : effectiveExecutionClass, executionContract })
+  return finalizeDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : effectiveExecutionClass, executionContract })
 }
 export function resolvePreRoute(decision: PreRouteDecision): 'fast' | 'full' { return decision.route === 'fast' && !decision.executionContract.toolRequired ? 'fast' : 'full' }
