@@ -11,6 +11,13 @@ const user = (content: string) => [{ role: 'user' as const, content }]
 // the message from the bare-pronoun block, while the specific internal-operations/finance nouns still
 // unconditionally block it.
 describe('pre-router: equity research about a named competitor survives an "our/we" pronoun', () => {
+  test('excludes common role and platform acronyms from concise ticker research', () => {
+    for (const text of ['Research CEO', 'Research CFO', 'Research API', 'Research AWS', 'Analyze ML']) {
+      const decision = preRouteCeoRequest(user(text))
+      expect(decision.executionContract.domain).not.toBe('public_equity')
+    }
+  })
+
   test.each([
     'Should we buy shares of our competitor?',
     'Should we invest in our biggest rival\'s stock?',
