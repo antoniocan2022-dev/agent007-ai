@@ -275,10 +275,11 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
       return entityTokens.length > 0 && entityTokens.every((token) => currentTokens.has(token))
     })
     const lexicalAnchor = hasSignificantThreadOverlap(current, thread)
+    const tickerAnchor = hasThreadTickerAnchor(current, thread)
     const referenceAnchor = context.references.some((reference) =>
       Boolean(reference.resolvedText && !reference.ambiguous && reference.confidence >= 0.55),
     )
-    if (!entityAnchor && !referenceAnchor && !lexicalAnchor) return undefined
+    if (!entityAnchor && !referenceAnchor && !lexicalAnchor && !tickerAnchor) return undefined
   }
 
   // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
