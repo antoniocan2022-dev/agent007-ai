@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
+import { isCorrectionRequest, isBareContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -147,7 +147,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     )
     const contextualContinuation = Boolean(
       currentActive && (
-        isContinuationOrRestatementRequest(content)
+        isBareContinuationOrRestatementRequest(content)
         || isObjectiveAgreementContinuationRequest(content)
         || isDemonstrativeContinuationRequest(content)
         || isObjectiveProgressionRequest(content)
