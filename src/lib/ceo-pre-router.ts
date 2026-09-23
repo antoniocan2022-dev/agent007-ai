@@ -389,7 +389,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
     ? activeThreadDomain
     : (objectiveContinuationActive && routingExternalSubjectDomain !== 'general_web' ? routingExternalSubjectDomain : currentExternalSubjectDomain)
-  const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && routingExternalSubjectDomain === 'public_equity'
+  const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && activeThreadDomain === 'public_equity'
   const legacyExternalEvidence = isExternalDomain(routingExternalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
   const canonicalExternalEvidence = Boolean(canonicalDecision && curiosity?.investigate)
   const shouldUseExternalEvidence = inheritedExternalResearch || (semanticContext ? canonicalExternalEvidence : legacyExternalEvidence)
