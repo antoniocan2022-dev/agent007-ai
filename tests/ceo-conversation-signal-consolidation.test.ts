@@ -211,11 +211,13 @@ describe('CEO routing: canonical objective confirmation signal', () => {
     }
   })
 
-  test('strict bare confirmation does not accept an ordinary sentence that merely ends with yes', () => {
+  test('strict thread confirmation accepts only a bare confirmation or a bounded agreement-plus-command phrase', () => {
     expect(isBareObjectiveConfirmation('I think we should launch the campaign, yes.')).toBe(false)
-    expect(isBareObjectiveConfirmation('yes, go ahead')).toBe(false)
+    expect(isBareObjectiveConfirmation('yes, go ahead')).toBe(true)
+    expect(isBareObjectiveConfirmation('sure, proceed')).toBe(true)
     expect(isBareObjectiveConfirmation('yes')).toBe(true)
     expect(isBareObjectiveConfirmation('go ahead')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes, go ahead and tell me about the weather')).toBe(false)
   })
 
   test('does not treat a mid-sentence continuation verb as a bare confirmation', () => {
