@@ -126,7 +126,9 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // and incorrectly inherit the current active thread. Only prior safe rows are eligible as anchors.
     const priorSafeRows = safeRows.filter((candidate) => candidate !== row)
     const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.title) : null
-    const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.7)
+    // resolveGeneralReference() guarantees a resolved, non-ambiguous prior-row anchor at >=0.55; use
+    // that same floor here. The current row is already excluded above, so this cannot become a self-match.
+    const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.55)
     const contextualContinuation = Boolean(
       currentActive && (
         isContinuationOrRestatementRequest(content)
