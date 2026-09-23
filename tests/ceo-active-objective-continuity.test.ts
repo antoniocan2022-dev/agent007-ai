@@ -286,6 +286,35 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('does not inherit an active objective from a non-bare final-clause confirmation without a thread anchor', () => {
+    const followUp = 'I want weather updates for Montreal, go ahead.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+    ]
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).not.toBe('research')
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+
+  it('permits an entity-anchored non-bare continuation after the active research thread is known', () => {
+    const followUp = 'I want the same GEOS research, go ahead.'
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
   it('does not inherit a public-equity objective for an agreement-led but unrelated new task', () => {
     const followUp = 'Yes, exactly. Tell me about the weather in Montreal.'
     const decision = preRouteCeoRequest(
