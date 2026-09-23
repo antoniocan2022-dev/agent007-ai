@@ -135,15 +135,14 @@ export function isContinuationOrRestatementRequest(text: string): boolean {
 // phrases such as "continue with ..." and "summarize ..." because response-quality and recovery logic
 // need to recognize the user's conversational intent. Those phrases are NOT, by themselves, proof that
 // the current task belongs to the active objective. Objective inheritance/thread mutation therefore uses
-// this stricter contract: only a complete standalone continuation/restatement phrase can attach without
-// another thread anchor. Non-bare variants must be anchored by the active thread in their caller.
-const BARE_CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|same thread|same topic|continue from there|where we left off|from where we left off|what did we decide|what did we discuss|what was the reasoning|what have we ruled out|what about the (?:first|second|third|last|other) option|based on what we established|remind me|recap|summarize|what did you say|tell me (?:that\s+)?in your (?:own\s+)?words|in your (?:own\s+)?words|put (?:it|that) (?:in your (?:own\s+)?words|your way)|say it your way|how would you (?:say|phrase) (?:it|that)|paraphrase (?:it|that))\s*[.!?]*$/i
-
+// a strict full-message match of the same canonical continuation vocabulary, so the phrase list cannot
+// drift into a second copy.
 export function isBareContinuationOrRestatementRequest(text: string): boolean {
-  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
-  return BARE_CONTINUATION_OR_RESTATEMENT_RE.test(stripped)
+  const stripped = text.trim().replace(/[.!?]+$/, '').trim().replace(LEADING_FILLER_RE, '').trim()
+  if (!stripped) return false
+  const match = stripped.match(CONTINUATION_OR_RESTATEMENT_RE)
+  return Boolean(match && match[0]?.trim() === stripped)
 }
-
 export function isCorrectionRequest(text: string): boolean {
   return DIRECT_CORRECTION_RE.test(text) || NEGATED_CORRECTION_RE.test(text)
 }
