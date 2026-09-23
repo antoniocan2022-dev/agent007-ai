@@ -49,6 +49,20 @@ describe('pre-router: equity research about a named competitor survives an "our/
 // 'none'/'none'/false -- no evidence-gathering tool (including the real market-data dispatch path fixed
 // in the immediately preceding round) was ever reachable, regardless of how well it worked, because the
 // request never got routed there in the first place.
+describe('pre-router: external equity finance language is not falsely classified as internal context', () => {
+  test.each([
+    'Tell me about GEOS earnings.',
+    'Give me the latest earnings update for GEOS.',
+    'Review GEOS cash flow forecast.',
+    'Explain the financials for GEOS.',
+  ])('keeps external company finance wording eligible for public-equity research: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
+})
+
 describe('pre-router: concise uppercase-ticker research remains public-equity research', () => {
   test.each([
     'Research GEOS',
