@@ -53,13 +53,17 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
 
 const GENERIC_SUMMARY_REQUEST_RE = /^(?:summar(?:i|y)ze|recap)\\b/i
 const REFERENTIAL_RESTATEMENT_RE = /^(?:summar(?:i|y)ze|recap)\\s+(?:this|that|it|these|those|our|the\\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))\\b/i
+const GENERIC_REMINDER_REQUEST_RE = /^remind\\s+me\\b/i
+const REFERENTIAL_REMINDER_RE = /^remind\\s+me\\s+(?:what\\s+(?:we|you)\\s+(?:said|did|decided)|about\\s+(?:this|that|the\\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))|of\\s+(?:this|that|the\\s+(?:discussion|conversation|thread|decision|plan|analysis|findings)))\\b/i
 
 /** Canonical routing continuity signal. Kept separate from the broader quality-gate restatement signal. */
 export function isObjectiveContinuationSignal(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped) return false
   if (isObjectiveConfirmationSignal(stripped) || isObjectiveAgreementContinuationRequest(stripped)) return true
-  return isContinuationOrRestatementRequest(stripped) && (!GENERIC_SUMMARY_REQUEST_RE.test(stripped) || REFERENTIAL_RESTATEMENT_RE.test(stripped))
+  if (GENERIC_SUMMARY_REQUEST_RE.test(stripped) && !REFERENTIAL_RESTATEMENT_RE.test(stripped)) return false
+  if (GENERIC_REMINDER_REQUEST_RE.test(stripped) && !REFERENTIAL_REMINDER_RE.test(stripped)) return false
+  return isContinuationOrRestatementRequest(stripped)
 }
 
 /** Strong public-equity objective signal used only when a continuation needs intent inheritance. */
