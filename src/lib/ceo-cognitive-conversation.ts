@@ -64,6 +64,7 @@ function userIntentHint(
   if (continuationObjective.trim() && isObjectiveContinuationSignal(instructionWindow)) {
     const objective = continuationObjective.trim()
     if (!isRetrospectiveConversationRequest(objective)) {
+      if (hasExplicitSelfAssessmentPhrase(objective) || /\b(?:self[- ]assessment|capability assessment|strengths? and weaknesses?)\b/i.test(objective)) return 'self_assessment'
       if (isLikelyPublicEquityResearchObjective(objective)) return 'research'
       const objectiveText = objective.toLowerCase()
       if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check)\b/.test(objectiveText)) return 'research'
