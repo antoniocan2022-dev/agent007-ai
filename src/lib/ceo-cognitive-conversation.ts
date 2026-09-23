@@ -3,7 +3,7 @@ import type { CeoConversationState, ConversationReference } from './ceo-conversa
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { InstructionWindowExtractionMethod, InstructionWindowResult, RequestedOperation, SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
-import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveContinuationSignal, inferInheritedObjectiveIntent } from './ceo-conversational-signals'
+import { isCommitmentStatement, isCorrectionRequest, isObjectiveContinuationSignal, inferInheritedObjectiveIntent } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
