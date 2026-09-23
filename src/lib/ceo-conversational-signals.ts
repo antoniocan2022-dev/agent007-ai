@@ -52,7 +52,7 @@ export function isObjectiveProgressionRequest(text: string): boolean {
 }
 
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
-const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:these|those|it|them|the\s+same|same|each|both)\b|\b(?:this|that)(?=\s*(?:[.!?,;:]|$)|\s+(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b)/i
+const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:these|those|it|them|the\s+same|same)\b|\b(?:this|that)(?=\s*(?:[.!?,;:]|$)|\s+(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b)/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
 const AGREEMENT_CORE_RE = /\b(?:exactly|right|correct|that(?:'s|’s)\s+(?:right|correct)|thats\s+(?:right|correct)|that\s+is\s+(?:right|correct|it))\b/i
 
