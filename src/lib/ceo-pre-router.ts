@@ -66,6 +66,11 @@ const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 // class of bug this file's own header comment warns about. Capitalizing only the alternation (not
 // adding a blanket /i flag) is deliberate: [A-Z]{1,5} must stay upper-case-only, since matching a
 // lower-case run there would turn this into an unrelated "verb + any short word" detector.
+// Concise equity-research form: a user may provide only the research verb plus an uppercase ticker
+// (for example, "Research GEOS"). This must be separate from SHORT_TICKER_ACTION_RE because research
+// verbs do not imply a trading action. The uppercase-token guard keeps ordinary prose from matching;
+// known common acronyms are excluded by the same allowlist used by the trading-action path.
+const CONCISE_TICKER_RESEARCH_RE = /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\s+([A-Z]{2,5})\b/;
 const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\s+)?([A-Z]{1,5})\b/
 // A bare imperative purchase command ("Buy API credits.", "Purchase more storage.") at the start of
 // the message is a direct action to execute, not a stock-ticker research signal (that's
@@ -97,7 +102,10 @@ const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|
 function isExternalEquityResearch(text: string): boolean {
   const tickerAction = text.match(SHORT_TICKER_ACTION_RE)
   if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !isInternalEquityContext(text)
-  if (!MARKET_SECURITY_RE.test(text) || (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text))) return false
+  const conciseResearch = text.match(CONCISE_TICKER_RESEARCH_RE)
+  if (conciseResearch && !COMMON_ACRONYM_RE.test(conciseResearch[1])) return !isInternalEquityContext(text)
+  if (!MARKET_SECURITY_RE.test(text) && !conciseResearch) return false
+  if (!conciseResearch && !MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
   if (isInternalEquityContext(text)) return false
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
