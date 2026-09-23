@@ -100,9 +100,16 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
  * and pre-routing. Keep this separate from isContinuationOrRestatementRequest because the latter also
  * drives response-quality/staleness semantics and must remain broader.
  */
+const GENERIC_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\b/i
+const REFERENTIAL_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\s+(?:this|that|it|these|those|our|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))\b/i
+const GENERIC_REMINDER_ROUTING_RE = /^remind\s+me\b/i
+const REFERENTIAL_REMINDER_ROUTING_RE = /^remind\s+me\s+(?:what\s+(?:we|you)\s+(?:said|did|decided)|about\s+(?:this|that|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))|of\s+(?:this|that|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings)))\b/i
+
 export function isObjectiveContinuationSignal(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped || isRetrospectiveConversationRequest(stripped)) return false
+  if (GENERIC_SUMMARY_ROUTING_RE.test(stripped) && !REFERENTIAL_SUMMARY_ROUTING_RE.test(stripped)) return false
+  if (GENERIC_REMINDER_ROUTING_RE.test(stripped) && !REFERENTIAL_REMINDER_ROUTING_RE.test(stripped)) return false
   return isObjectiveConfirmationSignal(stripped)
     || isBareObjectiveConfirmation(stripped)
     || isContinuationOrRestatementRequest(stripped)
