@@ -83,7 +83,7 @@ function deriveSupersedableSignals(rows: readonly PersistedConversationRow[], pr
   return signals
 }
 function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
-const TRIVIAL_THREAD_MESSAGE_RE = /^(?:hi|hello|hey|yo|thanks?|thank\s+you|ok(?:ay)?|yes|yeah|yep|yup|sure|great|perfect|continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on|bye|good\s+(?:morning|afternoon|evening))[.!?\s]*$/i
+const TRIVIAL_THREAD_MESSAGE_RE = /^(?:hi|hello|hey|yo|thanks?|thank\s+you|ok(?:ay)?|yes|yeah|yep|yup|sure|great|perfect|continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on|bye|good\s+(?:morning|afternoon|evening))[.!?,;:\s]*$/i
 function isThreadBearingUserMessage(content: string): boolean {
   const value = content.trim()
   return value.length >= 4 && !TRIVIAL_THREAD_MESSAGE_RE.test(value)
@@ -129,7 +129,10 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // resolveGeneralReference() guarantees a resolved, non-ambiguous prior-row anchor at >=0.55; use
     // that same floor here. The current row is already excluded above, so this cannot become a self-match.
     const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.55)
-    const contextualContinuation = Boolean(
+    const correctionSharesThreadEntity = Boolean(
+      currentActive
+      && currentActive.entities.some((entity) => {
+        const escaped = entity.replace(/[.*+?^\${}()|[\]\\]/g, '\\  const contextualContinuation = Boolean(
       currentActive && (
         isContinuationOrRestatementRequest(content)
         || isObjectiveAgreementContinuationRequest(content)
@@ -137,6 +140,29 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
         || isObjectiveProgressionRequest(content)
         || isBareObjectiveConfirmation(content)
         || isCorrectionRequest(content)
+        || usableReference
+      ),
+    )')
+        return new RegExp(`\\b${escaped}\\b`, 'i').test(content)
+      }),
+    )
+    const correctionContinuation = Boolean(
+      currentActive
+      && isCorrectionRequest(content)
+      && (
+        usableReference
+        || correctionSharesThreadEntity
+        || overlap(content, `${currentActive.title} ${currentActive.currentObjective}`) >= 0.1
+      ),
+    )
+    const contextualContinuation = Boolean(
+      currentActive && (
+        isContinuationOrRestatementRequest(content)
+        || isObjectiveAgreementContinuationRequest(content)
+        || isDemonstrativeContinuationRequest(content)
+        || isObjectiveProgressionRequest(content)
+        || isBareObjectiveConfirmation(content)
+        || correctionContinuation
         || usableReference
       ),
     )
