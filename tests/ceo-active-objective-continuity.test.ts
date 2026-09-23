@@ -81,6 +81,30 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('preserves pronoun-led objective continuations through the real state/context/pre-router chain', () => {
+    for (const followUp of [
+      'That principle should guide the next upgrade.',
+      'That is more important than minimizing latency.',
+    ]) {
+      const rows = [
+        { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+        { role: 'assistant' as const, content: 'The research should focus on the current facts.', createdAt: now + 1 },
+      ]
+      const state = deriveCeoConversationState(rows, followUp)
+      const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+      const decision = preRouteCeoRequest(
+        [...rows, { role: 'user' as const, content: followUp }],
+        0,
+        context,
+      )
+      expect(state.threads).toHaveLength(1)
+      expect(context.speechAct).toBe('continuation')
+      expect(decision.executionContract.intent).toBe('research')
+      expect(decision.executionContract.domain).toBe('public_equity')
+      expect(decision.executionContract.evidenceClass).toBe('external_web')
+    }
+  })
+
   it('verifies the live-shaped follow-up through the real conversation-state and canonical-context builders', () => {
     const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
     const rows = [
