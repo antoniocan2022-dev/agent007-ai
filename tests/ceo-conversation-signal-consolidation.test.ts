@@ -251,6 +251,11 @@ describe('CEO routing: canonical objective confirmation signal', () => {
 })
 
 describe('CEO routing: broad vs safe continuation contracts', () => {
+  test('the safe continuation contract remains distinct from broad continuation semantics', () => {
+    expect(isContinuationOrRestatementRequest('continue with the weather updates')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('continue with the weather updates')).toBe(false)
+  })
+
   test('recognizes non-bare continuation cues in a final clause for anchored routing only', () => {
     expect(isObjectiveContinuationCue('MIND Technology, continue with the research.')).toBe(true)
     expect(isObjectiveContinuationCue('Weather update, go ahead.')).toBe(true)
