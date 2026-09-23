@@ -231,10 +231,10 @@ function hasSignificantThreadOverlap(message: string, thread: CanonicalConversat
   const stopwords = new Set(['about', 'after', 'again', 'because', 'before', 'being', 'between', 'could', 'from', 'have', 'into', 'more', 'most', 'other', 'should', 'that', 'their', 'there', 'these', 'they', 'this', 'those', 'through', 'under', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your', 'please', 'then', 'than', 'just', 'like', 'really', 'very', 'doing', 'does', 'dont', 'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'were', 'will', 'been', 'them', 'same', 'go', 'ahead', 'continue'])
   const tokens = (value: string) => [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !stopwords.has(token)))]
   const current = new Set(tokens(message))
-  // Only the durable thread title is an eligible lexical anchor here. currentObjective may already
-  // contain the current turn when conversation state is derived for that same request, which would
-  // make any message appear self-relevant and defeat the fail-closed confirmation gate.
-  const prior = tokens(thread.title)
+  // The durable objectiveAnchor is the preferred continuity basis. It is immutable after thread creation,
+  // unlike currentObjective, which may already contain the current turn. The display title remains a
+  // deliberately short presentation field and must not be used as the sole objective anchor.
+  const prior = tokens(thread.objectiveAnchor ?? thread.title)
   const shared = prior.filter((token) => current.has(token))
   return shared.length >= 2 || shared.some((token) => token.length >= 8)
 }
@@ -242,7 +242,7 @@ function hasSignificantThreadOverlap(message: string, thread: CanonicalConversat
 function hasThreadTickerAnchor(message: string, thread: CanonicalConversationContext['state']['threads'][number]): boolean {
   const extract = (value: string) => [...new Set(value.match(/\b[A-Z]{2,5}\b/g) ?? [])].filter((token) => !COMMON_ACRONYM_RE.test(token))
   const currentTickers = new Set(extract(message))
-  return extract(thread.title).some((ticker) => currentTickers.has(ticker))
+  return extract(thread.objectiveAnchor ?? thread.title).some((ticker) => currentTickers.has(ticker))
 }
 function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
   if (!context) return undefined
@@ -336,12 +336,12 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // authoritative object for both objective text and domain inheritance, preventing split-brain routing.
   const inheritedThread = latestContinuableThread(semanticContext)
   const inheritedObjective = inheritedThread ? (() => {
-    const title = inheritedThread.title.trim()
+    const anchor = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
     const currentObjective = inheritedThread.currentObjective.trim()
     const currentTurn = semanticContext?.currentMessage.trim() ?? ''
-    if (!title) return currentObjective && currentObjective !== currentTurn ? currentObjective : undefined
-    if (!currentObjective || currentObjective === title || currentObjective === currentTurn) return title
-    return title + '\n' + currentObjective
+    if (!anchor) return currentObjective && currentObjective !== currentTurn ? currentObjective : undefined
+    if (!currentObjective || currentObjective === anchor || currentObjective === currentTurn) return anchor
+    return anchor + '\n' + currentObjective
   })() : undefined
   const finalizeDecision = (input: Parameters<typeof buildDecision>[0]): PreRouteDecision => buildDecision({ ...input, ...(inheritedObjective ? { routingObjective: inheritedObjective } : {}) })
   const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
@@ -386,7 +386,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
   const activeThreadDomain = objectiveContinuationActive
-    ? inferExternalDomain(inheritedThread?.title ?? '')
+    ? inferExternalDomain(inheritedThread?.objectiveAnchor ?? inheritedThread?.title ?? '')
     : 'general_web'
   const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
     ? activeThreadDomain
