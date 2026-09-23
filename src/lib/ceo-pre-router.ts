@@ -78,7 +78,7 @@ const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\
 // hedged decision/analysis question ("Should we buy...", "Analyze whether we should buy..." --
 // neither starts with the verb, so this anchored-to-start pattern never touches them).
 const IMPERATIVE_ACQUIRE_RE = /^(?:buy|purchase|acquire|order)\b/i
-const COMMON_ACRONYM_RE = /^(?:API|AWS|CPU|CRM|ERP|GPU|HTML|HTTP|HTTPS|RAM|SaaS|SDK|SQL|UI|URL|VPN|XML)$/
+const COMMON_ACRONYM_RE = /^(?:AI|API|AWS|CEO|CFO|CIO|CMO|COO|CPA|CFA|CPU|CRM|CTO|CSO|ERP|GPU|HR|HTML|HTTP|HTTPS|ML|RAM|R&D|SaaS|SEC|SDK|SQL|UI|URL|VPN|XML)$/
 const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
 const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 // Deep-audit fix (2026-09-13): split into a weak, generic-pronoun signal and a strong, unambiguous
