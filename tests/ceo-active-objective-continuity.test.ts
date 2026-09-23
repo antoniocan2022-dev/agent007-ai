@@ -96,6 +96,7 @@ describe('CEO active objective continuity', () => {
     )
     expect(state.threads).toHaveLength(1)
     expect(state.threads[0]?.title).toContain('GEOS')
+    expect(context.speechAct).toBe('continuation')
     expect(decision.executionContract.intent).toBe('research')
     expect(decision.executionContract.domain).toBe('public_equity')
     expect(decision.executionContract.evidenceClass).toBe('external_web')
