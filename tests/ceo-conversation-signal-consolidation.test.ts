@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -190,12 +190,12 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
 describe('CEO routing: canonical objective confirmation signal', () => {
   test('recognizes the established final-clause confirmation forms', () => {
     for (const phrase of ['yes, go ahead', 'proceed', 'continue', 'yeah, go on']) {
-      expect(require('@/lib/ceo-conversational-signals').isObjectiveConfirmationSignal(phrase)).toBe(true)
+      expect(isObjectiveConfirmationSignal(phrase)).toBe(true)
     }
   })
 
   test('does not treat a mid-sentence continuation verb as a bare confirmation', () => {
-    expect(require('@/lib/ceo-conversational-signals').isObjectiveConfirmationSignal('Yes, continue monitoring the campaign, but review the budget.')).toBe(false)
+    expect(isObjectiveConfirmationSignal('Yes, continue monitoring the campaign, but review the budget.')).toBe(false)
   })
 })
 
