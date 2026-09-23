@@ -195,11 +195,12 @@ describe('CEO routing: sequenced objective progression signal', () => {
   test('recognizes numbered or additional priority progression wording', () => {
     expect(isObjectiveProgressionRequest('The second priority is measurement.')).toBe(true)
     expect(isObjectiveProgressionRequest('Another objective is customer retention.')).toBe(true)
-    expect(isObjectiveProgressionRequest('In addition, cover the risk section.')).toBe(true)
+    expect(isObjectiveProgressionRequest('The next step is to cover the risk section.')).toBe(true)
   })
 
   test('does not treat an arbitrary new topic as progression', () => {
     expect(isObjectiveProgressionRequest('Tell me about the weather in Montreal.')).toBe(false)
+    expect(isObjectiveProgressionRequest('Also, tell me about the weather in Montreal.')).toBe(false)
     expect(isObjectiveProgressionRequest('The company is launching a new product.')).toBe(false)
   })
 })
