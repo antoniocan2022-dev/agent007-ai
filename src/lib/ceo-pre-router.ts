@@ -8,7 +8,7 @@ import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeo
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { resolveActiveThread } from './ceo-reference-resolution'
-import { isRetrospectiveConversationRequest, isObjectiveConfirmationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isObjectiveConfirmationSignal, isObjectiveContinuationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -208,7 +208,7 @@ function buildDecision(input: { route: PreRouteDecision['route']; reason: string
 
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
-  const resolution = resolveActiveThread(context.currentMessage, context.state.threads)
+  const resolution = isObjectiveContinuationSignal(context.currentMessage) ? resolveActiveThread(context.currentMessage, context.state.threads) : null
   if (!resolution || resolution.ambiguous) return undefined
   return resolution.resolvedText?.trim() || undefined
 }
