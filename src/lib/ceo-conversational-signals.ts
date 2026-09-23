@@ -103,7 +103,7 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
 const COMPOUND_REFERENCE_CONTINUATION_RE = /^(?=.*\b(?:i(?:'|’)?m\s+(?:talking|referring)|i\s+am\s+(?:talking|referring)|correction|i\s+mean|referring\s+to|about\s+this|about\s+that|about\s+these|about\s+those|same\s+(?:topic|thread|thing|issue))\b).*,\s*(?:continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on)\s*[.!?]*$/i
 
 const GENERIC_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\b/i
-const REFERENTIAL_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\s+(?:this|that|it|these|those|our|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))\b/i
+const REFERENTIAL_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\s+(?:this|that|it|these|those|our|what\s+(?:we|you)\s+(?:discussed|said|decided|covered)|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))\b/i
 const GENERIC_REMINDER_ROUTING_RE = /^remind\s+me\b/i
 const REFERENTIAL_REMINDER_ROUTING_RE = /^remind\s+me\s+(?:what\s+(?:we|you)\s+(?:said|did|decided)|about\s+(?:this|that|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))|of\s+(?:this|that|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings)))\b/i
 
