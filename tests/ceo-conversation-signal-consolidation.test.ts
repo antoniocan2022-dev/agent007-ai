@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -245,6 +245,21 @@ describe('CEO routing: canonical objective confirmation signal', () => {
 
   test('does not treat a mid-sentence continuation verb as a bare confirmation', () => {
     expect(isObjectiveConfirmationSignal('Yes, continue monitoring the campaign, but review the budget.')).toBe(false)
+  })
+})
+
+describe('CEO routing: broad vs safe continuation contracts', () => {
+  test('keeps the broad quality signal for non-bare continuation language', () => {
+    expect(isContinuationOrRestatementRequest('continue with the weather updates')).toBe(true)
+    expect(isContinuationOrRestatementRequest('summarize the weather report')).toBe(true)
+  })
+
+  test('only standalone continuation/restatement phrasing is safe without a thread anchor', () => {
+    expect(isBareContinuationOrRestatementRequest('continue')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('summarize')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('tell me in your own words')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('continue with the weather updates')).toBe(false)
+    expect(isBareContinuationOrRestatementRequest('summarize the weather report')).toBe(false)
   })
 })
 
