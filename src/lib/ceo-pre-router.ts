@@ -107,6 +107,7 @@ function isExternalEquityResearch(text: string): boolean {
   if (!MARKET_SECURITY_RE.test(text) && !conciseResearch) return false
   if (!conciseResearch && !MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
   if (isInternalEquityContext(text)) return false
+  if (conciseResearch) return true
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
 function isExternalDomain(domain: EvidenceDomain): boolean { return domain !== 'none' && domain !== 'unknown' && domain !== 'general_web' && !domain.startsWith('internal_') }
