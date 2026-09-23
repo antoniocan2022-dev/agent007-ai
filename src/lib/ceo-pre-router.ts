@@ -285,18 +285,7 @@ function latestContinuableThread(context?: CanonicalConversationContext): Canoni
   return thread
 }
 
-function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
-  const thread = latestContinuableThread(context)
-  if (!thread) return undefined
-  // `title` is the durable objective anchor. `currentObjective` can equal the current turn, so it is
-  // never used by itself to prove continuity; it is retained only as the most recent objective surface
-  // after continuity has already been established.
-  const title = thread.title.trim()
-  const currentObjective = thread.currentObjective.trim()
-  if (!title) return currentObjective || undefined
-  if (!currentObjective || currentObjective === title) return title
-  return `${title}\n${currentObjective}`
-}
+
 
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): decisionContract lets a caller that
 // already built the authoritative ConversationDecisionContract for this exact semanticContext (route.ts,
@@ -343,8 +332,16 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted
   // semantic layer gets a chance to collapse a short reference like "yes, go ahead" into conversation.
   // The inherited objective is only used for routing/grounding; the user's actual text remains the
-  // response surface and is never replaced or rewritten.
-  const inheritedObjective = latestContinuableObjective(semanticContext)
+  // response surface and is never replaced or rewritten. Select the thread once and reuse that same
+  // authoritative object for both objective text and domain inheritance, preventing split-brain routing.
+  const inheritedThread = latestContinuableThread(semanticContext)
+  const inheritedObjective = inheritedThread ? (() => {
+    const title = inheritedThread.title.trim()
+    const currentObjective = inheritedThread.currentObjective.trim()
+    if (!title) return currentObjective || undefined
+    if (!currentObjective || currentObjective === title) return title
+    return title + '\n' + currentObjective
+  })() : undefined
   const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
   const proposedDeterministicIntent = inferSemanticIntent(routingText, selfReflection)
   const consistency = enforceContractConsistency({
@@ -387,7 +384,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
   const activeThreadDomain = objectiveContinuationActive
-    ? inferExternalDomain(latestContinuableThread(semanticContext)?.title ?? '')
+    ? inferExternalDomain(inheritedThread?.title ?? '')
     : 'general_web'
   const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
     ? activeThreadDomain
