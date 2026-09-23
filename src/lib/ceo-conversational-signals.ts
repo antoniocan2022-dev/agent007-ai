@@ -40,16 +40,12 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
   return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
 }
 
-/**
- * Detect an agreement-led refinement of an existing objective without changing the global
- * continuation/restatement semantics used by quality/staleness checks.
- */
+/** Detect an agreement-led refinement of an existing objective without widening quality-gate semantics. */
 export function isObjectiveAgreementContinuationRequest(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped || !AGREEMENT_PREFIX_RE.test(stripped)) return false
   // A continuation cue is sufficient only when it is terminal or explicitly refers to the existing
-  // objective. This prevents unrelated tasks such as "Yes, go ahead. Tell me about the weather" from
-  // inheriting an unrelated active thread.
+  // objective. This prevents "Yes, go ahead. Tell me about the weather" from inheriting an unrelated thread.
   const terminalCue = new RegExp(
     `(?:${EXPLICIT_CONTINUATION_CUE_RE.source})(?:\\s+(?:with|on|from)\\s+(?:this|that|it|these|those|the same|the thread|the topic|the plan|the request))?\\s*[.!?]*$`,
     'i',
@@ -65,30 +61,6 @@ export function isLikelyPublicEquityResearchObjective(text: string): boolean {
   const security = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker(?:s)?|publicly\s+traded)\b/i.test(value)
   const research = /\b(?:research|check|look\s+(?:this|that|it)\s+up|find\s+(?:out|information)|news|headline|press\s+release|earnings|analyst|updates?|information|sec\s+filing|10-[kq])\b/i.test(value)
   return security && research
-}
-// Objective-continuation routing signal (2026-09-23): natural follow-ups often begin with agreement or
-// confirmation and then refine the already-active task (for example, "Yes, exactly those. Go with a brief..."),
-// without using a bare "continue" phrase. This is intentionally DISTINCT from
-// isContinuationOrRestatementRequest: that broader signal is also consumed by quality/staleness logic, so
-// widening it here would change response-quality semantics for new tasks. This routing-only classifier is
-// deliberately narrow: an agreement-led turn must contain either an explicit continuation command or a
-// strong cross-turn/anaphoric reference before it can inherit an active objective.
-const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
-const EXPLICIT_CONTINUATION_CUE_RE = /\b(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'|’)?s\s+do\s+it|from\s+there)\b/i
-const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
-const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through)\b/i
-
-/**
- * Detect an agreement-led refinement of the active objective without broadening the global continuation
- * signal used by response-quality/staleness logic. Examples: "Yes, exactly those. Go with..." or
- * "That's right. Proceed with it." Unrelated new tasks such as "Yes. Tell me about the weather" do not
- * qualify because they lack both an explicit continuation command and a strong cross-turn reference.
- */
-export function isObjectiveAgreementContinuationRequest(text: string): boolean {
-  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
-  if (!stripped || !AGREEMENT_PREFIX_RE.test(stripped)) return false
-  if (EXPLICIT_CONTINUATION_CUE_RE.test(stripped)) return true
-  return STRONG_ANAPHORIC_REFERENCE_RE.test(stripped) && REFINEMENT_ACTION_RE.test(stripped)
 }
 // Tier 4 hygiene fix (2026-09-13): another canonical-consolidation drift, of the same kind this file
 // already fixed once for continuation/restatement detection. Three near-identical word lists for
