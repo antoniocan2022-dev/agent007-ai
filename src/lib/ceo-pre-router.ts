@@ -101,13 +101,14 @@ const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|
 
 function isExternalEquityResearch(text: string): boolean {
   const tickerAction = text.match(SHORT_TICKER_ACTION_RE)
-  if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !isInternalEquityContext(text)
+  if (tickerAction) return !COMMON_ACRONYM_RE.test(tickerAction[1]) && !isInternalEquityContext(text)
+
   const conciseResearch = text.match(CONCISE_TICKER_RESEARCH_RE)
-  if (conciseResearch && !COMMON_ACRONYM_RE.test(conciseResearch[1])) return !isInternalEquityContext(text)
-  if (!MARKET_SECURITY_RE.test(text) && !conciseResearch) return false
-  if (!conciseResearch && !MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
+  if (conciseResearch) return !COMMON_ACRONYM_RE.test(conciseResearch[1]) && !isInternalEquityContext(text)
+
+  if (!MARKET_SECURITY_RE.test(text)) return false
+  if (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
   if (isInternalEquityContext(text)) return false
-  if (conciseResearch) return true
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
 function isExternalDomain(domain: EvidenceDomain): boolean { return domain !== 'none' && domain !== 'unknown' && domain !== 'general_web' && !domain.startsWith('internal_') }
