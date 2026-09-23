@@ -251,29 +251,10 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
   // Bare confirmations remain valid on their own because they carry no competing new task content.
   if (!directContinuation && !bareConfirmation) {
     const lower = current.toLowerCase()
+    const currentTokens = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean))
     const entityAnchor = thread.entities.some((entity) => {
-      const normalized = entity.trim().toLowerCase()
-      if (normalized.length < 2) return false
-      const escaped = normalized.replace(/[.*+?^\${}()|[\]\\]/g, '\\function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
-  if (!context) return undefined
-  const current = context.currentMessage.trim()
-  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current) || isObjectiveAgreementContinuationRequest(current) || isDemonstrativeContinuationRequest(current) || isObjectiveProgressionRequest(current)
-  if (!isContinuation) return undefined
-  const candidates = context.state.threads
-    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
-    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
-  const thread = candidates[0]
-  if (!thread) return undefined
-  // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
-  // the original thread title remains the durable objective anchor. This prevents "yes, go ahead" or
-  // an entity correction ending the underlying research/action objective itself.
-  const title = thread.title.trim()
-  const currentObjective = thread.currentObjective.trim()
-  if (!title) return currentObjective || undefined
-  if (!currentObjective || currentObjective === title) return title
-  return `${title}\n${currentObjective}`
-}')
-      return new RegExp(`\\b${escaped}\\b`, 'i').test(lower)
+      const entityTokens = entity.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+      return entityTokens.length > 0 && entityTokens.every((token) => currentTokens.has(token))
     })
     const referenceAnchor = context.references.some((reference) =>
       Boolean(reference.resolvedText && !reference.ambiguous && reference.confidence >= 0.55),
