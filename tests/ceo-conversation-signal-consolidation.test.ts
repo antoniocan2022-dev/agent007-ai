@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -192,6 +192,13 @@ describe('CEO routing: canonical objective confirmation signal', () => {
     for (const phrase of ['yes, go ahead', 'proceed', 'continue', 'yeah, go on']) {
       expect(isObjectiveConfirmationSignal(phrase)).toBe(true)
     }
+  })
+
+  test('strict bare confirmation does not accept an ordinary sentence that merely ends with yes', () => {
+    expect(isBareObjectiveConfirmation('I think we should launch the campaign, yes.')).toBe(false)
+    expect(isBareObjectiveConfirmation('yes, go ahead')).toBe(false)
+    expect(isBareObjectiveConfirmation('yes')).toBe(true)
+    expect(isBareObjectiveConfirmation('go ahead')).toBe(true)
   })
 
   test('does not treat a mid-sentence continuation verb as a bare confirmation', () => {
