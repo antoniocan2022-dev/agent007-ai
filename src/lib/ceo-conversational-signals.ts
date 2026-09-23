@@ -95,6 +95,48 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
   const lastClause = clauses[clauses.length - 1]?.trim()
   return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
 }
+/**
+ * Canonical routing continuity signal shared by thread state, reference resolution, canonical context,
+ * and pre-routing. Keep this separate from isContinuationOrRestatementRequest because the latter also
+ * drives response-quality/staleness semantics and must remain broader.
+ */
+export function isObjectiveContinuationSignal(text: string): boolean {
+  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
+  if (!stripped || isRetrospectiveConversationRequest(stripped)) return false
+  return isObjectiveConfirmationSignal(stripped)
+    || isBareObjectiveConfirmation(stripped)
+    || isContinuationOrRestatementRequest(stripped)
+    || isObjectiveAgreementContinuationRequest(stripped)
+    || isDemonstrativeContinuationRequest(stripped)
+    || isObjectiveProgressionRequest(stripped)
+}
+
+/**
+ * Minimal deterministic intent recovery for an inherited objective. This is intentionally narrower than
+ * the full pre-router classifier: it exists only to keep a short continuation from becoming a generic
+ * conversation turn when the durable objective already identifies the work.
+ */
+export function inferInheritedObjectiveIntent(objective: string): 'conversation' | 'self_assessment' | 'analysis' | 'decision' | 'research' | 'action' {
+  const text = objective.trim()
+  if (!text || isRetrospectiveConversationRequest(text)) return 'conversation'
+  if (hasExplicitSelfAssessmentObjective(text)) return 'self_assessment'
+  if (isPublicEquityResearchObjective(text) || /(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check|check\s+(?:online|the\s+web|the\s+internet)|latest\s+(?:news|update)|news|headlines?|press\s+releases?|earnings|analyst\s+coverage|updates?|information)\b/i.test(text)) return 'research'
+  if (/\b(?:deploy|publish|production|ship|launch|execute|send|create|delete|update|schedule)\b/i.test(text)) return 'action'
+  if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture|root\s+cause)\b/i.test(text)) return 'analysis'
+  if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/i.test(text)) return 'decision'
+  return 'conversation'
+}
+
+function hasExplicitSelfAssessmentObjective(text: string): boolean {
+  return /\b(?:self[- ]assessment|capability\s+assessment|strengths?\s+and\s+weaknesses?|readiness\s+assessment)\b/i.test(text)
+}
+
+function isPublicEquityResearchObjective(text: string): boolean {
+  const security = /\b(?:stock(?:s)?|share(?:s)?|equity|ticker(?:s)?|publicly\s+traded)\b/i.test(text)
+  const research = /\b(?:research|check|look\s+(?:this|that|it)\s+up|find\s+(?:out|information)|news|headline|press\s+release|earnings|analyst|updates?|information|sec\s+filing|10-[kq])\b/i.test(text)
+  return security && research
+}
+
 export function isBareObjectiveConfirmation(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
