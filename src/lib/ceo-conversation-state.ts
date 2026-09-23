@@ -129,9 +129,8 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
     else if (!supersedes && currentActive && contextualContinuation) mergeInto(currentActive, content, topicTokens, row)
     else {
-      // Reaching this branch with supersedes===false requires currentActive to already be falsy
-      // (that's the only way the "else if" above didn't take it), so the guard below only ever
-      // fires for an explicit topic switch -- always 'superseded', never 'paused'.
+      // A non-lexical, non-contextual user message starts a new topic. The prior active/paused thread
+      // is superseded so it cannot later become the target of a bare continuation confirmation.
       if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
