@@ -76,6 +76,7 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
 // "yes, go ahead" and for compound corrections that end with "continue" without matching a generic
 // mid-sentence use of "continue".
 const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
+const AGREEMENT_ONLY_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)$/i
 export function isObjectiveConfirmationSignal(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
@@ -85,7 +86,12 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
 }
 export function isBareObjectiveConfirmation(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
-  return Boolean(cleaned && OBJECTIVE_CONFIRMATION_WORD_RE.test(cleaned))
+  if (!cleaned) return false
+  if (OBJECTIVE_CONFIRMATION_WORD_RE.test(cleaned)) return true
+  const clauses = cleaned.split(/\s*,\s*/)
+  return clauses.length === 2
+    && AGREEMENT_ONLY_RE.test(clauses[0]!.trim())
+    && OBJECTIVE_CONFIRMATION_WORD_RE.test(clauses[1]!.trim())
 }
 // Tier 4 hygiene fix (2026-09-13): another canonical-consolidation drift, of the same kind this file
 // already fixed once for continuation/restatement detection. Three near-identical word lists for
