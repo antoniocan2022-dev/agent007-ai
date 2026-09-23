@@ -93,6 +93,7 @@ describe('CEO active objective continuity', () => {
     expect(references[0]?.kind).toBe('continuation')
     expect(references[0]?.ambiguous).toBe(false)
     expect(references[0]?.resolvedText).toContain(INITIAL_RESEARCH.slice(0, 40))
+    expect(references[0]?.resolvedObjective).toBe(INITIAL_RESEARCH)
 
     const canonical = buildCanonicalConversationContext({
       currentMessage: followUp,
@@ -173,6 +174,24 @@ describe('CEO active objective continuity', () => {
     const references = resolveConversationReferences(followUp, priorRows, state)
     expect(references[0]?.kind).toBe('continuation')
     expect(references[0]?.ambiguous).toBe(false)
+  })
+
+  it('keeps a normal conversational continuation conversational when the prior assistant reply contains decision words', () => {
+    const followUp = 'Continue.'
+    const priorRows = [
+      { role: 'user' as const, content: 'We are building Agent007 into a strong executive partner.', createdAt: 1 },
+      { role: 'assistant' as const, content: 'The next priority is stronger conversation quality.', createdAt: 2 },
+    ]
+    const state = deriveCeoConversationState(priorRows, followUp)
+    const references = resolveConversationReferences(followUp, priorRows, state)
+    const canonical = buildCanonicalConversationContext({ currentMessage: followUp, rows: priorRows, state, references })
+    const contract = buildConversationDecisionContract(canonical)
+    expect(references[0]?.resolvedText?.toLowerCase()).toContain('next priority')
+    expect(references[0]?.resolvedObjective).toContain('strong executive partner')
+    expect(canonical.intentHint).toBe('conversation')
+    expect(contract.intent).toBe('conversation')
+    expect(contract.responseRegister).toBe('conversational')
+    expect(contract.conversationRelation).toBe('reference')
   })
 
   it('keeps canonical contract, pre-router, and evidence route aligned end-to-end under model-assisted disagreement', () => {
