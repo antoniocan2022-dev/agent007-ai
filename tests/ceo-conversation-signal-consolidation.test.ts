@@ -177,6 +177,10 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
     expect(isObjectiveAgreementContinuationRequest('Yeah, go ahead with it.')).toBe(true)
   })
 
+  test('does not treat a continuation command plus a new subject as inherited-objective continuation', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Go ahead and tell me about the weather in Montreal.')).toBe(false)
+  })
+
   test('does not treat a generic continuation cue followed by a new subject as inherited-objective continuation', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, go ahead and tell me about the weather in Montreal.')).toBe(false)
   })
