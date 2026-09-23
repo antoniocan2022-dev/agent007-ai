@@ -89,7 +89,7 @@ const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:ita
 // research. The specific internal-operations/finance nouns (spare parts, warehouse, founder, budget,
 // etc.) remain an unconditional block -- those are genuinely internal topics regardless of phrasing.
 const INTERNAL_PRONOUN_RE = /\b(?:our|we|us|my)\b/i
-const INTERNAL_SPECIFIC_TOPIC_RE = /\b(?:internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
+const INTERNAL_SPECIFIC_TOPIC_RE = /\b(?:internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|budget|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
 const EXTERNAL_ENTITY_RE = /\b(?:competitor(?:s)?|rival(?:s)?)\b/i
 function isInternalEquityContext(text: string): boolean {
   if (INTERNAL_SPECIFIC_TOPIC_RE.test(text)) return true
