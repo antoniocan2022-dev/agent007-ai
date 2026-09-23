@@ -60,6 +60,10 @@ const REFERENTIAL_REMINDER_RE = /^remind\\s+me\\s+(?:what\\s+(?:we|you)\\s+(?:sa
 export function isObjectiveContinuationSignal(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped) return false
+  // Retrospective questions require their dedicated historical/decision resolver, not active-objective
+  // inheritance. Without this guard, "What did we decide before?" can be mistaken for a continuation
+  // because the broad restatement classifier also recognizes the opening phrase "what did we decide".
+  if (isRetrospectiveConversationRequest(stripped)) return false
   if (isObjectiveConfirmationSignal(stripped) || isObjectiveAgreementContinuationRequest(stripped)) return true
   if (GENERIC_SUMMARY_REQUEST_RE.test(stripped) && !REFERENTIAL_RESTATEMENT_RE.test(stripped)) return false
   if (GENERIC_REMINDER_REQUEST_RE.test(stripped) && !REFERENTIAL_REMINDER_RE.test(stripped)) return false
