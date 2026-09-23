@@ -133,6 +133,19 @@ describe('CEO active objective continuity', () => {
     expect(state.threads[0]?.status).toBe('active')
   })
 
+  it('does not merge a low-confidence pronoun reference into the active research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'This morning I had a meeting about the weather in Montreal.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('This morning')
+  })
+
   it('does not keep an unrelated sentence that merely ends in yes inside the active research thread', () => {
     const rows = [
       { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
