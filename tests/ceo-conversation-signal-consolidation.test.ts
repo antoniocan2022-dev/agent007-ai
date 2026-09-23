@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -188,6 +188,18 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
   test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Tell me about the weather in Montreal.')).toBe(false)
     expect(isObjectiveAgreementContinuationRequest('Yes. Tell me about NVDA stock.')).toBe(false)
+  })
+})
+
+describe('CEO routing: demonstrative continuation signal', () => {
+  test('recognizes the existing pronoun-led continuation cases', () => {
+    expect(isDemonstrativeContinuationRequest('That principle should guide the next upgrade.')).toBe(true)
+    expect(isDemonstrativeContinuationRequest('That is more important than minimizing latency.')).toBe(true)
+  })
+
+  test('does not classify noun-determiner openings as continuity', () => {
+    expect(isDemonstrativeContinuationRequest('This morning I had a meeting.')).toBe(false)
+    expect(isDemonstrativeContinuationRequest('That company announced a new product.')).toBe(false)
   })
 })
 
