@@ -32,12 +32,34 @@ const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|s
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
 const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
+const CONTINUATION_NATIVE_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
+const AGREEMENT_CORE_RE = /\b(?:exactly|right|correct|that(?:'s|’s)\s+(?:right|correct)|thats\s+(?:right|correct)|that\s+is\s+(?:right|correct|it))\b/i
 
-/** Recognize an agreement-led refinement only when it contains a strong cross-turn reference. */
+/**
+ * Recognize an agreement-led refinement only when the agreement/refinement relationship is explicit
+ * in the nearby clause structure. This deliberately avoids treating an arbitrary pronoun in one clause
+ * plus a new task in another as a continuation of the active objective.
+ */
 export function isObjectiveAgreementContinuationRequest(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped || !AGREEMENT_PREFIX_RE.test(stripped)) return false
-  return STRONG_ANAPHORIC_REFERENCE_RE.test(stripped) && REFINEMENT_ACTION_RE.test(stripped)
+
+  const clauses = stripped.split(/(?:[.!?]+|,\s+)/).map((clause) => clause.trim()).filter(Boolean)
+  const hasSameClauseReferenceAndAction = clauses.some(
+    (clause) => STRONG_ANAPHORIC_REFERENCE_RE.test(clause) && REFINEMENT_ACTION_RE.test(clause),
+  )
+  if (hasSameClauseReferenceAndAction) return true
+
+  const confirmationReferenceLead = clauses.slice(0, 2).some(
+    (clause) => AGREEMENT_CORE_RE.test(clause) && STRONG_ANAPHORIC_REFERENCE_RE.test(clause),
+  )
+  const laterRefinement = clauses.slice(1).some((clause) => REFINEMENT_ACTION_RE.test(clause))
+  if (confirmationReferenceLead && laterRefinement) return true
+
+  // A continuation-native command such as "Yes, exactly. Go with..." can be self-sufficient even when
+  // the referent is implicit, but only after an explicit confirmation core. Generic information verbs
+  // such as "tell/give/share" do not receive this exception because they can introduce a new subject.
+  return AGREEMENT_CORE_RE.test(stripped) && CONTINUATION_NATIVE_ACTION_RE.test(stripped)
 }
 
 // Canonical objective confirmation signal shared by pre-routing and conversation-thread derivation.
