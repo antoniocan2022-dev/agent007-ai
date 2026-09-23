@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -167,22 +167,6 @@ describe('CEO conversation state: a question is never misclassified as a decisio
 // degraded mode's fully generic "I couldn't reliably complete that specific request..." bail-out -- verified
 // live in production (request 99a00917, executedCommitSha a61a070d). Consolidated to one canonical
 // isContinuationOrRestatementRequest, reused by all three sites.
-describe('CEO routing: agreement-led active-objective continuation classifier', () => {
-  test('recognizes the exact natural follow-up shape from the live research incident', () => {
-    expect(isObjectiveAgreementContinuationRequest('Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.')).toBe(true)
-  })
-
-  test('recognizes explicit continuation commands after agreement', () => {
-    expect(isObjectiveAgreementContinuationRequest("That's right. Proceed with it.")).toBe(true)
-    expect(isObjectiveAgreementContinuationRequest('Yeah, go ahead.')).toBe(true)
-  })
-
-  test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
-    expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Tell me about the weather in Montreal.')).toBe(false)
-    expect(isObjectiveAgreementContinuationRequest('Yes. Tell me about NVDA stock.')).toBe(false)
-  })
-})
-
 describe('CEO conversation state: one canonical continuation/restatement classifier used everywhere', () => {
   test('isContinuationOrRestatementRequest recognizes restatement phrasing, including with a natural leading filler', () => {
     expect(isContinuationOrRestatementRequest('mmm but tell me in your words.')).toBe(true)
