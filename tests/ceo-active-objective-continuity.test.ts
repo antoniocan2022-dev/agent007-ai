@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
+import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
+import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
+import { isObjectiveAgreementContinuationRequest } from '@/lib/ceo-conversational-signals'
 
 const INITIAL_RESEARCH = 'mmmm can you check all news and relevant information abour 2 stocks: a. GEOS and b. MIND Tecnologies'
 
@@ -74,6 +78,39 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
     expect(decision.executionContract.executionRequirement).toBe('multi_source')
     expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
+  it('propagates the same active research objective into canonical reference resolution and the single decision contract', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const priorRows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: 2 },
+    ]
+    const state = deriveCeoConversationState(priorRows, followUp)
+    const references = resolveConversationReferences(followUp, priorRows, state)
+    expect(references).toHaveLength(1)
+    expect(references[0]?.kind).toBe('continuation')
+    expect(references[0]?.ambiguous).toBe(false)
+    expect(references[0]?.resolvedText).toContain(INITIAL_RESEARCH.slice(0, 40))
+
+    const canonical = buildCanonicalConversationContext({
+      currentMessage: followUp,
+      rows: priorRows,
+      state,
+      references,
+    })
+    const contract = buildConversationDecisionContract(canonical)
+    expect(canonical.speechAct).toBe('continuation')
+    expect(canonical.intentHint).toBe('research')
+    expect(contract.intent).toBe('research')
+    expect(contract.toolRequirement).toBe('required')
+    expect(contract.evidenceRequirement).toBe('required')
+    expect(contract.responseAction).toBe('answer')
+  })
+
+  it('does not classify an agreement-led unrelated task as an objective continuation', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, go ahead. Tell me about the weather in Montreal.')).toBe(false)
+    expect(isObjectiveAgreementContinuationRequest("That's right. Proceed with the unrelated budget report.")).toBe(false)
   })
 
   it('inherits the active research objective through an agreement-led task refinement from the live failure shape', () => {
