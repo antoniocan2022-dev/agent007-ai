@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
+import { isCorrectionRequest, isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation, isObjectiveContinuationSignal } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -41,6 +41,8 @@ export interface ConversationReference {
   phrase: string
   kind: ConversationReferenceKind
   resolvedText: string | null
+  /** Durable thread objective used for routing/intent; distinct from richer resolvedText context. */
+  resolvedObjective?: string | null
   confidence: number
   sourceRole?: 'user' | 'assistant'
   ambiguous: boolean
@@ -129,17 +131,15 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // resolveGeneralReference() guarantees a resolved, non-ambiguous prior-row anchor at >=0.55; use
     // that same floor here. The current row is already excluded above, so this cannot become a self-match.
     const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.55)
+    const retrospectiveRequest = isRetrospectiveConversationRequest(content)
     const contextualContinuation = Boolean(
-      currentActive && (
-        isContinuationOrRestatementRequest(content)
-        || isObjectiveAgreementContinuationRequest(content)
-        || isDemonstrativeContinuationRequest(content)
-        || isObjectiveProgressionRequest(content)
-        || isBareObjectiveConfirmation(content)
+      currentActive && !retrospectiveRequest && (
+        isObjectiveContinuationSignal(content)
         || isCorrectionRequest(content)
         || usableReference
       ),
     )
+    if (!supersedes && retrospectiveRequest) continue
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
     else if (!supersedes && currentActive && contextualContinuation) mergeInto(currentActive, content, topicTokens, row)
     else {
