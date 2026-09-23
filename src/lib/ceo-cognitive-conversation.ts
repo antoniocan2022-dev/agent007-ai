@@ -3,7 +3,7 @@ import type { CeoConversationState, ConversationReference } from './ceo-conversa
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { InstructionWindowExtractionMethod, InstructionWindowResult, RequestedOperation, SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
-import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal, isLikelyPublicEquityResearchObjective, isRetrospectiveConversationRequest } from './ceo-conversational-signals'
+import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveContinuationSignal, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal, isLikelyPublicEquityResearchObjective, isRetrospectiveConversationRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
@@ -60,7 +60,7 @@ function userIntentHint(
   // When the current turn is an accepted continuation, the active objective is a routing authority.
   // Reuse the same deterministic intent vocabulary against that objective rather than letting the short
   // continuation text collapse the authoritative ConversationDecisionContract to "conversation".
-  if (continuationObjective.trim() && (isObjectiveAgreementContinuationRequest(instructionWindow) || isObjectiveConfirmationSignal(instructionWindow) || isContinuationOrRestatementRequest(instructionWindow))) {
+  if (continuationObjective.trim() && isObjectiveContinuationSignal(instructionWindow)) {
     const objective = continuationObjective.trim()
     if (!isRetrospectiveConversationRequest(objective)) {
       if (isLikelyPublicEquityResearchObjective(objective)) return 'research'
