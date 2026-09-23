@@ -71,6 +71,11 @@ const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 // verbs do not imply a trading action. The uppercase-token guard keeps ordinary prose from matching;
 // known common acronyms are excluded by the same allowlist used by the trading-action path.
 const CONCISE_TICKER_RESEARCH_RE = /\b(?:[Rr]esearch|[Aa]naly[sz]e|[Rr]eview|[Ss]tudy|[Ii]nvestigate|[Ll]ook\s+into)\s+([A-Z]{2,5})\b/
+// Contextual ticker-finance form: ordinary requests such as "Tell me about GEOS earnings" or
+// "Explain the financials for GEOS" carry an uppercase ticker and unmistakable market-finance language
+// but do not use an explicit research verb. Keep this narrow by requiring the ticker to be adjacent to
+// a finance term (or "for/of" the ticker) and retain the normal action/information-request gate below.
+const CONTEXTUAL_TICKER_FINANCE_RE = /\b(?:([A-Z]{2,5})\s+(?:stock|shares?|earnings|financials?|valuation|price|dividend|eps|filings?|cash\s+flow(?:\s+forecast)?|forecast)|(?:stock|shares?|earnings|financials?|valuation|price|dividend|eps|filings?|cash\s+flow(?:\s+forecast)?)\s+(?:for|of)\s+([A-Z]{2,5}))\b/i
 const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\s+)?([A-Z]{1,5})\b/
 // A bare imperative purchase command ("Buy API credits.", "Purchase more storage.") at the start of
 // the message is a direct action to execute, not a stock-ticker research signal (that's
@@ -105,6 +110,13 @@ function isExternalEquityResearch(text: string): boolean {
 
   const conciseResearch = text.match(CONCISE_TICKER_RESEARCH_RE)
   if (conciseResearch) return !COMMON_ACRONYM_RE.test(conciseResearch[1]) && !isInternalEquityContext(text)
+
+  const contextualTickerFinance = text.match(CONTEXTUAL_TICKER_FINANCE_RE)
+  if (contextualTickerFinance) {
+    const ticker = contextualTickerFinance[1] ?? contextualTickerFinance[2]
+    const requestAction = MARKET_ACTION_RE.test(text) || MARKET_RESEARCH_LOOKUP_RE.test(text) || INFO_REQUEST_ACTION_RE.test(text)
+    if (ticker && requestAction && !COMMON_ACRONYM_RE.test(ticker) && !isInternalEquityContext(text)) return true
+  }
 
   if (!MARKET_SECURITY_RE.test(text)) return false
   if (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
