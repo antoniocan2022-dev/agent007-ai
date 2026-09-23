@@ -52,6 +52,10 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
   const lastClause = clauses[clauses.length - 1]?.trim()
   return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
 }
+export function isBareObjectiveConfirmation(text: string): boolean {
+  const cleaned = text.trim().replace(/[!.?]+$/, '')
+  return Boolean(cleaned && OBJECTIVE_CONFIRMATION_WORD_RE.test(cleaned))
+}
 // Tier 4 hygiene fix (2026-09-13): another canonical-consolidation drift, of the same kind this file
 // already fixed once for continuation/restatement detection. Three near-identical word lists for
 // "this message contains a pronoun/anaphoric reference to prior context" had drifted apart: CONTEXT_RE
