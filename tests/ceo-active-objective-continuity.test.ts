@@ -286,6 +286,33 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('does not mutate the active thread for a non-bare continuation phrase with a new subject', () => {
+    const followUp = 'Continue with the weather updates in Montreal.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: followUp, createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('Continue with the weather')
+  })
+
+  it('still inherits when a non-bare continuation explicitly anchors to the research subject', () => {
+    const followUp = 'Continue with the GEOS research and recent news.'
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
   it('does not inherit an active objective from a non-bare final-clause confirmation without a thread anchor', () => {
     const followUp = 'I want weather updates for Montreal, go ahead.'
     const rows = [
