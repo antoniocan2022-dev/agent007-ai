@@ -3,7 +3,7 @@ import type { CeoConversationState, ConversationReference } from './ceo-conversa
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { InstructionWindowExtractionMethod, InstructionWindowResult, RequestedOperation, SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
-import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
+import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveConfirmationSignal, isObjectiveAgreementContinuationRequest, isObjectiveProgressionRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
@@ -72,7 +72,7 @@ function userIntentHint(
 // still-passing test case -- "continue" appearing after a leading "No," that isn't a recognized filler)
 // would lose its 'continuation' classification if the original unanchored bare-keyword check were
 // removed. Keeping both closes the canonical-recognition gap purely additively, with no narrowing.
-function speechAct(message: string): SemanticSpeechAct { const text = message.trim(); if (isCorrectionRequest(text)) return 'correction'; if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'; if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text) || isContinuationOrRestatementRequest(text)) return 'continuation'; if (text.endsWith('?')) return 'question'; if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'; if (text.length >= 12) return 'proposition'; return 'unknown' }
+function speechAct(message: string): SemanticSpeechAct { const text = message.trim(); if (isCorrectionRequest(text)) return 'correction'; if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'; if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text) || isContinuationOrRestatementRequest(text) || isObjectiveConfirmationSignal(text) || isObjectiveAgreementContinuationRequest(text) || isObjectiveProgressionRequest(text)) return 'continuation'; if (text.endsWith('?')) return 'question'; if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'; if (text.length >= 12) return 'proposition'; return 'unknown' }
 function hasExplicitDepthSignal(message: string): boolean { return /\b(?:deep|deeply|comprehensive|comprehensively|thorough|thoroughly|in[- ]depth|stress[- ]test|root\s+cause|architecture|trade[- ]offs?|strategy|strategic|long[- ]term)\b/i.test(message) }
 // Found investigating a real production truncation: "Which should we prioritize first: revenue
 // recovery or improving the operations foundation?" classified as 'contextual' depth (not 'strategic')
