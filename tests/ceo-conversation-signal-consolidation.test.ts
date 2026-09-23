@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -251,6 +251,20 @@ describe('CEO routing: canonical objective confirmation signal', () => {
 })
 
 describe('CEO routing: broad vs safe continuation contracts', () => {
+  test('recognizes non-bare continuation cues in a final clause for anchored routing only', () => {
+    expect(isObjectiveContinuationCue('MIND Technology, continue with the research.')).toBe(true)
+    expect(isObjectiveContinuationCue('Weather update, go ahead.')).toBe(true)
+    expect(isObjectiveContinuationCue('Continue')).toBe(true)
+    expect(isObjectiveContinuationCue('Continue with the weather.')).toBe(true)
+  })
+
+  test('confirmation punctuation uses the same clause grammar across semicolon and colon forms', () => {
+    expect(isObjectiveConfirmationSignal('yes; go ahead')).toBe(true)
+    expect(isObjectiveConfirmationSignal('yes: proceed')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes; go ahead')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes: proceed')).toBe(true)
+  })
+
   test('keeps the broad quality signal for non-bare continuation language', () => {
     expect(isContinuationOrRestatementRequest('continue with the weather updates')).toBe(true)
     expect(isContinuationOrRestatementRequest('summarize the weather report')).toBe(true)
