@@ -101,6 +101,31 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
   })
 
+  it('keeps a bare confirmation attached to the existing research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to proceed.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'yes, go ahead', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, 'yes, go ahead')
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title).toContain('GEOS')
+    expect(state.threads[0]?.status).toBe('active')
+  })
+
+  it('does not keep an unrelated sentence that merely ends in yes inside the active research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'I think we should discuss the weather in Montreal, yes.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('weather in Montreal')
+  })
+
   it('splits an unrelated topic instead of poisoning the prior active objective', () => {
     const rows = [
       { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
