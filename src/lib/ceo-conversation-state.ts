@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
-import { isCorrectionRequest } from './ceo-conversational-signals'
+import { isCorrectionRequest, isObjectiveContinuationSignal, isRetrospectiveConversationRequest } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -88,7 +88,11 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
   const users = safeRows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
   const threads: ConversationThreadRecord[] = []
   const mergeInto = (thread: ConversationThreadRecord, content: string, topicTokens: string[], row: PersistedConversationRow) => {
-    thread.currentObjective = content
+    // Questions that recall prior decisions/context, and explicit continuations, are turn-level discourse
+    // operations, not replacements for the durable thread objective. Keeping them out of currentObjective
+    // prevents a follow-up like "What did we decide yesterday?" from poisoning the next "Continue" target.
+    const preservesObjective = isRetrospectiveConversationRequest(content) || isObjectiveContinuationSignal(content)
+    if (!preservesObjective) thread.currentObjective = content
     thread.topic = [...new Set([...tokens(thread.topic), ...topicTokens])].slice(0, 6).join(', ')
     thread.entities = [...new Set([...thread.entities, ...(content.match(ENTITY_RE) ?? [])])].slice(-12)
     if (QUESTION_RE.test(content)) thread.unresolvedQuestions = uniqueRecent([...thread.unresolvedQuestions, content], 4)
