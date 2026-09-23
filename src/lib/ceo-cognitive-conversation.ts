@@ -3,7 +3,7 @@ import type { CeoConversationState, ConversationReference } from './ceo-conversa
 import { buildConversationDecisionContract, renderConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import type { InstructionWindowExtractionMethod, InstructionWindowResult, RequestedOperation, SemanticUncertainty } from './ceo-cognitive-contract'
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
-import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest } from './ceo-conversational-signals'
+import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal, isLikelyPublicEquityResearchObjective, isRetrospectiveConversationRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
@@ -52,9 +52,26 @@ function detectSelfAssessmentRequest(instruction: InstructionWindowResult, sourc
 function userIntentHint(
   instructionWindow: string,
   turnEnvelope: Pick<CeoTurnEnvelope, 'selfAssessmentRequested'>,
+  continuationObjective = '',
 ): SemanticIntentHint {
   const text = instructionWindow.toLowerCase()
   if (turnEnvelope.selfAssessmentRequested) return 'self_assessment'
+
+  // When the current turn is an accepted continuation, the active objective is a routing authority.
+  // Reuse the same deterministic intent vocabulary against that objective rather than letting the short
+  // continuation text collapse the authoritative ConversationDecisionContract to "conversation".
+  if (continuationObjective.trim() && (isObjectiveAgreementContinuationRequest(instructionWindow) || isObjectiveConfirmationSignal(instructionWindow) || isContinuationOrRestatementRequest(instructionWindow))) {
+    const objective = continuationObjective.trim()
+    if (!isRetrospectiveConversationRequest(objective)) {
+      if (isLikelyPublicEquityResearchObjective(objective)) return 'research'
+      const objectiveText = objective.toLowerCase()
+      if (/\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check)\b/.test(objectiveText)) return 'research'
+      if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture)\b/.test(objectiveText)) return 'analysis'
+      if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(objectiveText)) return 'decision'
+      if (/^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|would\s+you\s+|i\s+(?:want|need)(?:\s+you)?\s+to\s+)?(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/i.test(objectiveText)) return 'action'
+    }
+  }
+
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'
@@ -72,7 +89,7 @@ function userIntentHint(
 // still-passing test case -- "continue" appearing after a leading "No," that isn't a recognized filler)
 // would lose its 'continuation' classification if the original unanchored bare-keyword check were
 // removed. Keeping both closes the canonical-recognition gap purely additively, with no narrowing.
-function speechAct(message: string): SemanticSpeechAct { const text = message.trim(); if (isCorrectionRequest(text)) return 'correction'; if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'; if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text) || isContinuationOrRestatementRequest(text)) return 'continuation'; if (text.endsWith('?')) return 'question'; if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'; if (text.length >= 12) return 'proposition'; return 'unknown' }
+function speechAct(message: string): SemanticSpeechAct { const text = message.trim(); if (isCorrectionRequest(text)) return 'correction'; if (/^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s!.?]*$/i.test(text)) return 'social'; if (/\b(?:continue|go\s+back|return\s+to|same\s+as\s+before)\b/i.test(text) || /\bthe\s+(?:first|second|third|last|other)\b/i.test(text) || isContinuationOrRestatementRequest(text) || isObjectiveAgreementContinuationRequest(text) || isObjectiveConfirmationSignal(text)) return 'continuation'; if (text.endsWith('?')) return 'question'; if (/\b(?:please|let's|lets|i want|i need|can you|could you|would you)\b/i.test(text)) return 'request'; if (text.length >= 12) return 'proposition'; return 'unknown' }
 function hasExplicitDepthSignal(message: string): boolean { return /\b(?:deep|deeply|comprehensive|comprehensively|thorough|thoroughly|in[- ]depth|stress[- ]test|root\s+cause|architecture|trade[- ]offs?|strategy|strategic|long[- ]term)\b/i.test(message) }
 // Found investigating a real production truncation: "Which should we prioritize first: revenue
 // recovery or improving the operations foundation?" classified as 'contextual' depth (not 'strategic')
@@ -192,9 +209,10 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   // intent. This is the same class of bug already fixed for other classifiers in this file (PR #182/#183/
   // #205/#206) -- inferRequestedOperation two lines below already scans authoritativeText correctly; this
   // was the one remaining classifier still scanning the wider retained window.
+  const continuationReference = input.references.find((reference) => reference.kind === 'continuation' && !reference.ambiguous && reference.resolvedText)
   const deterministicIntent = deterministicSpeechAct === 'correction'
     ? 'conversation'
-    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope)
+    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope, continuationReference?.resolvedText ?? '')
   const suppliedConfidence = Number(input.semanticInterpretation?.confidence)
   const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0
   const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72
