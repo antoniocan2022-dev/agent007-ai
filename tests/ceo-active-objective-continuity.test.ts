@@ -98,6 +98,11 @@ describe('CEO active objective continuity', () => {
       rows: priorRows,
       state,
       references,
+      semanticInterpretation: {
+        source: 'model_assisted',
+        confidence: 0.95,
+        suggestedIntent: 'conversation',
+      },
     })
     const contract = buildConversationDecisionContract(canonical)
     expect(canonical.speechAct).toBe('continuation')
@@ -106,6 +111,29 @@ describe('CEO active objective continuity', () => {
     expect(contract.toolRequirement).toBe('required')
     expect(contract.evidenceRequirement).toBe('required')
     expect(contract.responseAction).toBe('answer')
+  })
+
+  it('does not inherit an active objective for a standalone generic summarization request', () => {
+    const followUp = 'Summarize the report for me.'
+    const priorRows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: 2 },
+    ]
+    const state = deriveCeoConversationState(priorRows, followUp)
+    const references = resolveConversationReferences(followUp, priorRows, state)
+    expect(references).toEqual([])
+  })
+
+  it('does inherit the active objective for a referential summarization request', () => {
+    const followUp = 'Summarize this for me.'
+    const priorRows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: 2 },
+    ]
+    const state = deriveCeoConversationState(priorRows, followUp)
+    const references = resolveConversationReferences(followUp, priorRows, state)
+    expect(references[0]?.kind).toBe('continuation')
+    expect(references[0]?.ambiguous).toBe(false)
   })
 
   it('does not classify an agreement-led unrelated task as an objective continuation', () => {
