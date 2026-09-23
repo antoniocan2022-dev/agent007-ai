@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
 import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
@@ -103,6 +105,29 @@ describe('CEO active objective continuity', () => {
       expect(decision.executionContract.domain).toBe('public_equity')
       expect(decision.executionContract.evidenceClass).toBe('external_web')
     }
+  })
+
+  it('propagates the inherited objective as the canonical evidence-planning objective', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.routingObjective).toContain('GEOS')
+    expect(decision.routingObjective).toContain('MIND')
+    expect(decision.routingObjective).not.toContain('press releases')
+  })
+
+  it('keeps the API evidence planner wired to the canonical inherited objective instead of current-turn meaning alone', () => {
+    const source = readFileSync(join(import.meta.dir, '../src/app/api/agent/route.ts'), 'utf-8')
+    expect(source).toContain('preRoute.routingObjective || contextSeed.canonicalSemanticContext.meaning || message')
   })
 
   it('verifies the live-shaped follow-up through the real conversation-state and canonical-context builders', () => {
