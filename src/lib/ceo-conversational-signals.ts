@@ -25,25 +25,15 @@ const LEADING_FILLER_RE = /^\s*(?:(?:mmm+|hmm+|uh+|um+|well|so|ok(?:ay)?|now|act
 const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|same thread|same topic|continue from there|where we left off|from where we left off|what did we decide|what did we discuss|what was the reasoning|what have we ruled out|what about the (?:first|second|third|last|other) option|based on what we established|remind me|recap|summarize|repeat (?:that|this|it)?\b|what did you say|tell me (?:that\s+)?in your (?:own\s+)?words|in your (?:own\s+)?words|put (?:it|that) (?:in your (?:own\s+)?words|your way)|say it your way|how would you (?:say|phrase) (?:it|that)|paraphrase (?:it|that))\b/i
 // Objective-continuation routing signal (2026-09-23): natural follow-ups often begin with agreement or
 // confirmation and then refine the already-active task (for example, "Yes, exactly those. Go with a brief..."),
-// without using a bare "continue" phrase. This is intentionally DISTINCT from
-// isContinuationOrRestatementRequest: that broader signal is also consumed by quality/staleness logic, so
-// widening it here would change response-quality semantics for new tasks. This routing-only classifier is
-// deliberately narrow: an agreement-led turn must contain either an explicit continuation command or a
-// strong cross-turn/anaphoric reference before it can inherit an active objective.
-// Objective-continuation routing signal (2026-09-23): natural follow-ups often begin with agreement or
-// confirmation and then refine the already-active task (for example, "Yes, exactly those. Go with a brief..."),
-// without using a bare "continue" phrase. This is intentionally DISTINCT from
-// isContinuationOrRestatementRequest: that broader signal is also consumed by quality/staleness logic, so
-// widening it here would change response-quality semantics for new tasks.
+// without using a bare "continue" phrase. This is intentionally distinct from
+// isContinuationOrRestatementRequest, which is also consumed by response-quality/staleness logic.
+// Agreement-led continuation requires a strong cross-turn/anaphoric reference plus an action/refinement cue;
+// standalone confirmation/continuation phrases use isObjectiveConfirmationSignal below.
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
 const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
 
-/** Recognize an agreement-led refinement only when it contains a strong cross-turn reference.
- * Standalone confirmation/continuation phrases are handled by the canonical confirmation helper below.
- * This prevents an unrelated new task such as "Yes, go ahead and tell me about the weather" from
- * inheriting an unrelated active objective.
- */
+/** Recognize an agreement-led refinement only when it contains a strong cross-turn reference. */
 export function isObjectiveAgreementContinuationRequest(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped || !AGREEMENT_PREFIX_RE.test(stripped)) return false
