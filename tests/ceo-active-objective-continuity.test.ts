@@ -101,6 +101,25 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
   })
 
+  it('routes a bare confirmation through the real state/context/pre-router chain', () => {
+    const followUp = 'yes, go ahead'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to proceed.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(state.threads).toHaveLength(1)
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
   it('keeps a bare confirmation attached to the existing research thread', () => {
     const rows = [
       { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
