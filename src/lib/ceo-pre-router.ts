@@ -7,7 +7,7 @@ import type { TaskType } from './subagent-governance'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -238,8 +238,9 @@ function hasSignificantThreadOverlap(message: string, thread: CanonicalConversat
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
+  const broadContinuation = isContinuationOrRestatementRequest(current)
   const directContinuation =
-    isContinuationOrRestatementRequest(current)
+    isBareContinuationOrRestatementRequest(current)
     || isObjectiveAgreementContinuationRequest(current)
     || isDemonstrativeContinuationRequest(current)
     || isObjectiveProgressionRequest(current)
@@ -257,7 +258,7 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
   // an objective when the current text is anchored to that thread. This prevents a new unrelated
   // request ending with "go ahead"/"continue" from inheriting the previous research/action objective.
   // Bare confirmations remain valid on their own because they carry no competing new task content.
-  if (!directContinuation && !bareConfirmation) {
+  if (broadContinuation && !directContinuation) {
     const lower = current.toLowerCase()
     const currentTokens = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean))
     const entityAnchor = thread.entities.some((entity) => {
