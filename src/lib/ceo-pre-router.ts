@@ -7,7 +7,7 @@ import type { TaskType } from './subagent-governance'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -247,7 +247,7 @@ function hasThreadTickerAnchor(message: string, thread: CanonicalConversationCon
 function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
-  const broadContinuation = isContinuationOrRestatementRequest(current)
+  const broadContinuation = isContinuationOrRestatementRequest(current) || isObjectiveContinuationCue(current)
   const directContinuation =
     isBareContinuationOrRestatementRequest(current)
     || isObjectiveAgreementContinuationRequest(current)
