@@ -191,6 +191,44 @@ describe('CEO active objective continuity', () => {
     expect(state.threads[1]?.title).toContain('This morning')
   })
 
+  it('does not absorb an unrelated correction into the active research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'No, I meant the weather in Montreal.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('weather in Montreal')
+  })
+
+  it('preserves a genuinely related correction by shared entity identity', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
+      { role: 'user' as const, content: 'No, I meant NasdaqCM - MIND Technology, Inc. (MIND).', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.status).toBe('active')
+    expect(state.threads[0]?.title).toContain('GEOS')
+    expect(state.threads[0]?.currentObjective).toContain('MIND Technology')
+  })
+
+  it('treats comma-punctuated confirmation as non-thread-bearing during state derivation', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'yes,', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.status).toBe('active')
+    expect(state.threads[0]?.title).toContain('GEOS')
+  })
+
   it('does not keep an unrelated sentence that merely ends in yes inside the active research thread', () => {
     const rows = [
       { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
