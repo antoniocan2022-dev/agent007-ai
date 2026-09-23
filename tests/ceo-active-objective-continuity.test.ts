@@ -128,6 +128,20 @@ describe('CEO active objective continuity', () => {
     expect(contract.responseAction).toBe('answer')
   })
 
+  it('keeps the durable objective after a retrospective question and preserves the latest assistant reply for later continuation', () => {
+    const priorRows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
+      { role: 'assistant' as const, content: 'Today we should verify the production SHA.', createdAt: 2 },
+      { role: 'user' as const, content: 'What did we decide yesterday?', createdAt: 3 },
+    ]
+    const state = deriveCeoConversationState(priorRows, 'What did we decide yesterday?')
+    expect(state.threads[0]?.currentObjective).toBe(INITIAL_RESEARCH)
+    const continuation = resolveConversationReferences('Continue.', priorRows, state)[0]
+    expect(continuation?.kind).toBe('continuation')
+    expect(continuation?.resolvedText?.toLowerCase()).toContain('verify the production sha')
+    expect(continuation?.resolvedText?.toLowerCase()).not.toContain('what did we decide yesterday')
+  })
+
   it('does not inherit an active objective for a standalone reminder request', () => {
     const followUp = 'Remind me to call the accountant tomorrow.'
     const priorRows = [
