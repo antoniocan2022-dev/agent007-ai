@@ -127,7 +127,7 @@ export function inferInheritedObjectiveIntent(objective: string): 'conversation'
   const text = objective.trim()
   if (!text || isRetrospectiveConversationRequest(text)) return 'conversation'
   if (hasExplicitSelfAssessmentObjective(text)) return 'self_assessment'
-  if (isPublicEquityResearchObjective(text) || /(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check|check\s+(?:online|the\s+web|the\s+internet)|latest\s+(?:news|update)|news|headlines?|press\s+releases?|earnings|analyst\s+coverage|updates?|information)\b/i.test(text)) return 'research'
+  if (isPublicEquityResearchObjective(text) || /\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check|check\s+(?:online|the\s+web|the\s+internet)|latest\s+(?:news|update)|news|headlines?|press\s+releases?|earnings|analyst\s+coverage|updates?|information)\b/i.test(text)) return 'research'
   if (/\b(?:deploy|publish|production|ship|launch|execute|send|create|delete|update|schedule)\b/i.test(text)) return 'action'
   if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/i.test(text)) return 'decision'
