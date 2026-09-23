@@ -121,7 +121,11 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     const currentActive = [...threads]
       .filter((thread) => thread.status === 'active' || thread.status === 'paused')
       .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]
-    const reference = currentActive ? resolveGeneralReference(content, safeRows, currentActive.title) : null
+    // Reference resolution must not score the message currently being processed against itself.
+    // Otherwise any new sentence beginning with "this/that/it" can become a high-confidence self-match
+    // and incorrectly inherit the current active thread. Only prior safe rows are eligible as anchors.
+    const priorSafeRows = safeRows.filter((candidate) => candidate !== row)
+    const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.title) : null
     const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.7)
     const contextualContinuation = Boolean(
       currentActive && (
