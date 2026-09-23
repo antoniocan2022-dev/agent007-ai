@@ -83,6 +83,25 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('preserves the research objective through a non-bare ticker-anchored continuation', () => {
+    const followUp = 'I mean MIND Technology, continue with the research.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to continue.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+    expect(decision.routingObjective).toContain('MIND')
+  })
+
   it('preserves pronoun-led objective continuations through the real state/context/pre-router chain', () => {
     for (const followUp of [
       'That principle should guide the next upgrade.',
