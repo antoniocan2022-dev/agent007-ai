@@ -263,11 +263,11 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
   const thread = candidates[0]
   if (!thread) return undefined
 
-  // A non-bare final-clause confirmation (for example, "..., continue") is only allowed to revive
-  // an objective when the current text is anchored to that thread. This prevents a new unrelated
-  // request ending with "go ahead"/"continue" from inheriting the previous research/action objective.
-  // Bare confirmations remain valid on their own because they carry no competing new task content.
-  if (broadContinuation && !directContinuation) {
+  // Any non-bare broad continuation/confirmation contains a current task surface. It may inherit the
+  // active objective only when that task is demonstrably anchored to the same thread. This applies
+  // equally to "Continue ..." and to "..., go ahead"; bare confirmations do not need an anchor.
+  const needsThreadAnchor = !directContinuation && !bareConfirmation && (broadContinuation || broadConfirmation)
+  if (needsThreadAnchor) {
     const lower = current.toLowerCase()
     const currentTokens = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean))
     const entityAnchor = thread.entities.some((entity) => {
@@ -282,9 +282,9 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
     if (!entityAnchor && !referenceAnchor && !lexicalAnchor && !tickerAnchor) return undefined
   }
 
-  // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
-  // the original thread title remains the durable objective anchor. This prevents a confirmation or
-  // bounded correction from ending the underlying research/action objective itself.
+  // `title` is the durable objective anchor. `currentObjective` can equal the current turn, so it is
+  // never used by itself to prove continuity; it is retained only as the most recent objective surface
+  // after continuity has already been established.
   const title = thread.title.trim()
   const currentObjective = thread.currentObjective.trim()
   if (!title) return currentObjective || undefined
@@ -380,7 +380,14 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
-  const externalSubjectDomain = objectiveContinuationActive && routingExternalSubjectDomain === 'public_equity' ? 'public_equity' : currentExternalSubjectDomain
+  const activeThreadDomain = objectiveContinuationActive && semanticContext
+    ? inferExternalDomain(semanticContext.state.threads
+        .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+        .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]?.title ?? '')
+    : 'general_web'
+  const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
+    ? activeThreadDomain
+    : (objectiveContinuationActive && routingExternalSubjectDomain !== 'general_web' ? routingExternalSubjectDomain : currentExternalSubjectDomain)
   const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && routingExternalSubjectDomain === 'public_equity'
   const legacyExternalEvidence = isExternalDomain(routingExternalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
   const canonicalExternalEvidence = Boolean(canonicalDecision && curiosity?.investigate)
