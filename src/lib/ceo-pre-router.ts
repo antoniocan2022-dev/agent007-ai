@@ -244,7 +244,7 @@ function hasThreadTickerAnchor(message: string, thread: CanonicalConversationCon
   const currentTickers = new Set(extract(message))
   return extract(thread.title).some((ticker) => currentTickers.has(ticker))
 }
-function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
+function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
   const broadContinuation = isContinuationOrRestatementRequest(current)
@@ -282,6 +282,12 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
     if (!entityAnchor && !referenceAnchor && !lexicalAnchor && !tickerAnchor) return undefined
   }
 
+  return thread
+}
+
+function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
+  const thread = latestContinuableThread(context)
+  if (!thread) return undefined
   // `title` is the durable objective anchor. `currentObjective` can equal the current turn, so it is
   // never used by itself to prove continuity; it is retained only as the most recent objective surface
   // after continuity has already been established.
@@ -380,10 +386,8 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
-  const activeThreadDomain = objectiveContinuationActive && semanticContext
-    ? inferExternalDomain(semanticContext.state.threads
-        .filter((thread) => thread.status === 'active' || thread.status === 'paused')
-        .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]?.title ?? '')
+  const activeThreadDomain = objectiveContinuationActive
+    ? inferExternalDomain(latestContinuableThread(semanticContext)?.title ?? '')
     : 'general_web'
   const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
     ? activeThreadDomain
