@@ -165,8 +165,10 @@ describe('CEO conversation state: a question is never misclassified as a decisio
 // sharing almost no words with the meta-objective itself. That failureReason (continuity_failure) is on
 // ceo-soft-pass-policy.ts's forbidden list, so it went straight to escalation, which also failed, landing on
 // degraded mode's fully generic "I couldn't reliably complete that specific request..." bail-out -- verified
-// live in production (request 99a00917, executedCommitSha a61a070d). Consolidated to one canonical
-// isContinuationOrRestatementRequest, reused by all three sites.
+// live in production (request 99a00917, executedCommitSha a61a070d). Consolidated the broad
+// isContinuationOrRestatementRequest signal for quality/recovery consumers; objective inheritance and
+// thread mutation additionally use the strict full-message variant so new task content cannot silently
+// attach to an old objective.
 describe('CEO routing: agreement-led active-objective continuation classifier', () => {
   test('recognizes the exact natural follow-up shape from the live research incident', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.')).toBe(true)
@@ -263,7 +265,7 @@ describe('CEO routing: broad vs safe continuation contracts', () => {
   })
 })
 
-describe('CEO conversation state: one canonical continuation/restatement classifier used everywhere', () => {
+describe('CEO conversation state: canonical continuation signal and safe objective-inheritance variant', () => {
   test('isContinuationOrRestatementRequest recognizes restatement phrasing, including with a natural leading filler', () => {
     expect(isContinuationOrRestatementRequest('mmm but tell me in your words.')).toBe(true)
     expect(isContinuationOrRestatementRequest('tell me in your words')).toBe(true)
