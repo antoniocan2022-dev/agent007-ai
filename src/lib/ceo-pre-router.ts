@@ -70,7 +70,7 @@ const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 // (for example, "Research GEOS"). This must be separate from SHORT_TICKER_ACTION_RE because research
 // verbs do not imply a trading action. The uppercase-token guard keeps ordinary prose from matching;
 // known common acronyms are excluded by the same allowlist used by the trading-action path.
-const CONCISE_TICKER_RESEARCH_RE = /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\s+([A-Z]{2,5})\b/;
+const CONCISE_TICKER_RESEARCH_RE = /\b(?:[Rr]esearch|[Aa]naly[sz]e|[Rr]eview|[Ss]tudy|[Ii]nvestigate|[Ll]ook\s+into)\s+([A-Z]{2,5})\b/
 const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\s+)?([A-Z]{1,5})\b/
 // A bare imperative purchase command ("Buy API credits.", "Purchase more storage.") at the start of
 // the message is a direct action to execute, not a stock-ticker research signal (that's
