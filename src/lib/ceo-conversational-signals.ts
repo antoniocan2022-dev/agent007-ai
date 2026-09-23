@@ -28,6 +28,7 @@ const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|s
 const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
 const EXPLICIT_CONTINUATION_CUE_RE = /\b(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'|’)?s\s+do\s+it|from\s+there)\b/i
+const TERMINAL_CONTINUATION_CUE_RE = /(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'|’)?s\s+do\s+it|from\s+there)(?:\s+(?:with|on|from)\s+(?:this|that|it|these|those|the same|the thread|the topic|the plan|the request))?\s*[.!?]*$/i
 const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through)\b/i
 
@@ -46,11 +47,7 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
   if (!stripped || !AGREEMENT_PREFIX_RE.test(stripped)) return false
   // A continuation cue is sufficient only when it is terminal or explicitly refers to the existing
   // objective. This prevents "Yes, go ahead. Tell me about the weather" from inheriting an unrelated thread.
-  const terminalCue = new RegExp(
-    `(?:${EXPLICIT_CONTINUATION_CUE_RE.source})(?:\\s+(?:with|on|from)\\s+(?:this|that|it|these|those|the same|the thread|the topic|the plan|the request))?\\s*[.!?]*$`,
-    'i',
-  )
-  if (terminalCue.test(stripped)) return true
+  if (TERMINAL_CONTINUATION_CUE_RE.test(stripped)) return true
   return STRONG_ANAPHORIC_REFERENCE_RE.test(stripped) && REFINEMENT_ACTION_RE.test(stripped)
 }
 
