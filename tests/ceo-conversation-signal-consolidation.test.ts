@@ -174,12 +174,28 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
 
   test('recognizes explicit continuation commands after agreement', () => {
     expect(isObjectiveAgreementContinuationRequest("That's right. Proceed with it.")).toBe(true)
-    expect(isObjectiveAgreementContinuationRequest('Yeah, go ahead.')).toBe(true)
+    expect(isObjectiveAgreementContinuationRequest('Yeah, go ahead with it.')).toBe(true)
+  })
+
+  test('does not treat a generic continuation cue followed by a new subject as inherited-objective continuation', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, go ahead and tell me about the weather in Montreal.')).toBe(false)
   })
 
   test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Tell me about the weather in Montreal.')).toBe(false)
     expect(isObjectiveAgreementContinuationRequest('Yes. Tell me about NVDA stock.')).toBe(false)
+  })
+})
+
+describe('CEO routing: canonical objective confirmation signal', () => {
+  test('recognizes the established final-clause confirmation forms', () => {
+    for (const phrase of ['yes, go ahead', 'proceed', 'continue', 'yeah, go on']) {
+      expect(require('@/lib/ceo-conversational-signals').isObjectiveConfirmationSignal(phrase)).toBe(true)
+    }
+  })
+
+  test('does not treat a mid-sentence continuation verb as a bare confirmation', () => {
+    expect(require('@/lib/ceo-conversational-signals').isObjectiveConfirmationSignal('Yes, continue monitoring the campaign, but review the budget.')).toBe(false)
   })
 })
 
