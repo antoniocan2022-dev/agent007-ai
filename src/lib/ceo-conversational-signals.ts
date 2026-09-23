@@ -29,6 +29,17 @@ const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|s
 // isContinuationOrRestatementRequest, which is also consumed by response-quality/staleness logic.
 // Agreement-led continuation requires a strong cross-turn/anaphoric reference plus an action/refinement cue;
 // standalone confirmation/continuation phrases use isObjectiveConfirmationSignal below.
+// Demonstrative continuation signal: standalone "this/that/these/those" constructions that make a
+// direct claim about an already-discussed object are common continuations even without an explicit
+// "continue" verb. Deliberately excludes noun-determiner openings such as "This morning" or "That
+// company" unless the construction is an explicit copular/modal continuation.
+const DEMONSTRATIVE_CONTINUATION_RE = /^(?:this|that|these|those)\s+(?:(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b|(?:principles?|ideas?|approaches?|plans?|issues?|problems?|points?|options?|priorities?|goals?|objectives?|changes?|results?|decisions?|reasons?|paths?|concepts?|strategies?|policies?|rules?|statements?|answers?|parts?|steps?|ones?|same|stocks?|shares?|companies?|documents?|files?|numbers?|figures?|data)\b)/i
+
+export function isDemonstrativeContinuationRequest(text: string): boolean {
+  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
+  return Boolean(stripped && DEMONSTRATIVE_CONTINUATION_RE.test(stripped))
+}
+
 // Sequenced-objective progression signal: phrases such as "the second priority is..." or "another
 // objective..." are often a continuation of the active thread even when they have little literal token
 // overlap with the opening turn. Kept separate from generic context/reference detection so an arbitrary
@@ -41,7 +52,7 @@ export function isObjectiveProgressionRequest(text: string): boolean {
 }
 
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
-const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
+const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:these|those|it|them|the\s+same|same|each|both)\b|\b(?:this|that)(?=\s*(?:[.!?,;:]|$)|\s+(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b)/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
 const AGREEMENT_CORE_RE = /\b(?:exactly|right|correct|that(?:'s|’s)\s+(?:right|correct)|thats\s+(?:right|correct)|that\s+is\s+(?:right|correct|it))\b/i
 
