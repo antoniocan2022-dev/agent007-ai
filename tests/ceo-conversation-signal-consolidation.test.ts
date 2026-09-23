@@ -185,6 +185,10 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
     expect(isObjectiveAgreementContinuationRequest('Yes, go ahead and tell me about the weather in Montreal.')).toBe(false)
   })
 
+  test('quantifier-only language does not act as a strong cross-turn anchor', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Give me a brief summary for each new product in the weather report.')).toBe(false)
+  })
+
   test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Tell me about the weather in Montreal.')).toBe(false)
     expect(isObjectiveAgreementContinuationRequest('Yes. Tell me about NVDA stock.')).toBe(false)
