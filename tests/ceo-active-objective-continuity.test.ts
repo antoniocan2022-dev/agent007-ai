@@ -3,6 +3,8 @@ import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
 import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
 
+const now = Date.now()
+
 const INITIAL_RESEARCH = 'mmmm can you check all news and relevant information abour 2 stocks: a. GEOS and b. MIND Tecnologies'
 
 function contextFor(currentMessage: string, threadTitle = INITIAL_RESEARCH, status: 'active' | 'paused' | 'resolved' = 'active') {
@@ -81,8 +83,8 @@ describe('CEO active objective continuity', () => {
   it('verifies the live-shaped follow-up through the real conversation-state and canonical-context builders', () => {
     const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
     const rows = [
-      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
-      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: 2 },
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
     ]
     const state = deriveCeoConversationState(rows, followUp)
     const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
@@ -101,9 +103,9 @@ describe('CEO active objective continuity', () => {
 
   it('splits an unrelated topic instead of poisoning the prior active objective', () => {
     const rows = [
-      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
-      { role: 'assistant' as const, content: 'Ready.', createdAt: 2 },
-      { role: 'user' as const, content: 'Tell me about the weather in Montreal tomorrow.', createdAt: 3 },
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'Tell me about the weather in Montreal tomorrow.', createdAt: now + 2 },
     ]
     const state = deriveCeoConversationState(rows, rows[2].content)
     expect(state.threads).toHaveLength(2)
