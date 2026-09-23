@@ -5,7 +5,7 @@ import { buildCanonicalConversationContext, buildCeoEvidenceObjective } from '..
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
 import { isObjectiveContinuationSignal } from '@/lib/ceo-conversational-signals'
-import { isObjectiveProgressionRequest } from '../src/lib/ceo-conversational-signals'
+import { isObjectiveProgressionRequest, isObjectiveContinuationSignal } from '../src/lib/ceo-conversational-signals'
 
 const now = Date.now()
 
@@ -200,6 +200,28 @@ describe('CEO active objective continuity', () => {
     const state = deriveCeoConversationState(rows, 'What did we decide yesterday?')
     expect(state.threads).toHaveLength(1)
     expect(state.threads[0]?.currentObjective).toBe(INITIAL_RESEARCH)
+  })
+
+  it('does not treat generic summarization or reminder requests as active-objective continuation', () => {
+    expect(isObjectiveContinuationSignal('Summarize the report for me.')).toBe(false)
+    expect(isObjectiveContinuationSignal('Remind me to call the accountant tomorrow.')).toBe(false)
+    expect(isObjectiveContinuationSignal('Summarize this for me.')).toBe(true)
+    expect(isObjectiveContinuationSignal('Remind me what we decided.')).toBe(true)
+  })
+
+  it('does not let a retrospective question replace the durable objective or poison the next continuation', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'We should verify the production SHA.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'What did we decide yesterday?', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.currentObjective).toBe(INITIAL_RESEARCH)
+    const references = resolveConversationReferences('Continue.', rows, state)
+    expect(references[0]?.kind).toBe('continuation')
+    expect(references[0]?.resolvedObjective).toBe(INITIAL_RESEARCH)
+    expect(references[0]?.resolvedText).toContain('verify the production SHA')
   })
 
   it('retains a concise but substantive research objective instead of dropping it by character count', () => {
