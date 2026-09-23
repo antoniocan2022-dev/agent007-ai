@@ -125,7 +125,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // Otherwise any new sentence beginning with "this/that/it" can become a high-confidence self-match
     // and incorrectly inherit the current active thread. Only prior safe rows are eligible as anchors.
     const priorSafeRows = safeRows.filter((candidate) => candidate !== row)
-    const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.title) : null
+    const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.objectiveAnchor ?? currentActive.title) : null
     // resolveGeneralReference() guarantees a resolved, non-ambiguous prior-row anchor at >=0.55; use
     // that same floor here. The current row is already excluded above, so this cannot become a self-match.
     const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.55)
@@ -150,7 +150,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
       && isObjectiveContinuationCue(content)
       && (
         usableReference
-        || overlap(content, currentActive.title) >= 0.1
+        || overlap(content, currentActive.objectiveAnchor ?? currentActive.title) >= 0.1
         || currentActive.entities.some((entity) => content.toLowerCase().includes(entity.toLowerCase()))
       ),
     )
@@ -174,7 +174,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
       if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
-      threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
+      threads.push({ id, title: content.slice(0, 80), objectiveAnchor: content.slice(0, 2000), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
     }
   }
   const assistantRows = safeRows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
