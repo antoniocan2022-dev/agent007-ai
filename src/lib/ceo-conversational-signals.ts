@@ -100,6 +100,8 @@ export function isObjectiveConfirmationSignal(text: string): boolean {
  * and pre-routing. Keep this separate from isContinuationOrRestatementRequest because the latter also
  * drives response-quality/staleness semantics and must remain broader.
  */
+const COMPOUND_REFERENCE_CONTINUATION_RE = /^(?=.*\b(?:i(?:'|’)?m\s+(?:talking|referring)|i\s+am\s+(?:talking|referring)|correction|i\s+mean|referring\s+to|about\s+this|about\s+that|about\s+these|about\s+those|same\s+(?:topic|thread|thing|issue))\b).*,\s*(?:continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on)\s*[.!?]*$/i
+
 const GENERIC_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\b/i
 const REFERENTIAL_SUMMARY_ROUTING_RE = /^(?:summar(?:i|y)ze|recap)\s+(?:this|that|it|these|those|our|the\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))\b/i
 const GENERIC_REMINDER_ROUTING_RE = /^remind\s+me\b/i
@@ -110,12 +112,12 @@ export function isObjectiveContinuationSignal(text: string): boolean {
   if (!stripped || isRetrospectiveConversationRequest(stripped)) return false
   if (GENERIC_SUMMARY_ROUTING_RE.test(stripped) && !REFERENTIAL_SUMMARY_ROUTING_RE.test(stripped)) return false
   if (GENERIC_REMINDER_ROUTING_RE.test(stripped) && !REFERENTIAL_REMINDER_ROUTING_RE.test(stripped)) return false
-  return isObjectiveConfirmationSignal(stripped)
-    || isBareObjectiveConfirmation(stripped)
+  return isBareObjectiveConfirmation(stripped)
     || isContinuationOrRestatementRequest(stripped)
     || isObjectiveAgreementContinuationRequest(stripped)
     || isDemonstrativeContinuationRequest(stripped)
     || isObjectiveProgressionRequest(stripped)
+    || COMPOUND_REFERENCE_CONTINUATION_RE.test(stripped)
 }
 
 /**
@@ -127,8 +129,8 @@ export function inferInheritedObjectiveIntent(objective: string): 'conversation'
   const text = objective.trim()
   if (!text || isRetrospectiveConversationRequest(text)) return 'conversation'
   if (hasExplicitSelfAssessmentObjective(text)) return 'self_assessment'
-  if (isPublicEquityResearchObjective(text) || /\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check|check\s+(?:online|the\s+web|the\s+internet)|latest\s+(?:news|update)|news|headlines?|press\s+releases?|earnings|analyst\s+coverage|updates?|information)\b/i.test(text)) return 'research'
   if (/\b(?:deploy|publish|production|ship|launch|execute|send|create|delete|update|schedule)\b/i.test(text)) return 'action'
+  if (isPublicEquityResearchObjective(text) || /\b(?:research|search|look\s+up|find\s+(?:out|information)|verify|validate|fact[- ]check|check\s+(?:online|the\s+web|the\s+internet)|latest\s+(?:news|update)|news|headlines?|press\s+releases?|earnings|analyst\s+coverage|updates?|information)\b/i.test(text)) return 'research'
   if (/\b(?:analy[sz]e|analysis|compare|assess|evaluate|diagnose|strategy|strategic|architecture|root\s+cause)\b/i.test(text)) return 'analysis'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/i.test(text)) return 'decision'
   return 'conversation'
