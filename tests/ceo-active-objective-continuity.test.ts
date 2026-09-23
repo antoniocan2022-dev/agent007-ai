@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
-import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
-import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
+import { deriveCeoConversationState, resolveConversationReferences } from '../src/lib/ceo-conversation-state'
+import { buildCanonicalConversationContext, buildCeoEvidenceObjective } from '../src/lib/ceo-cognitive-conversation'
+import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
+import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
+import { isObjectiveContinuationSignal } from '@/lib/ceo-conversational-signals'
 import { isObjectiveProgressionRequest } from '../src/lib/ceo-conversational-signals'
 
 const now = Date.now()
@@ -125,6 +128,78 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.domain).toBe('public_equity')
     expect(decision.executionContract.evidenceClass).toBe('external_web')
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+  })
+
+  it('propagates the live research follow-up through canonical references and the single decision contract', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const references = resolveConversationReferences(followUp, rows, state)
+    expect(isObjectiveContinuationSignal(followUp)).toBe(true)
+    expect(references[0]?.kind).toBe('continuation')
+    expect(references[0]?.ambiguous).toBe(false)
+    expect(references[0]?.resolvedObjective).toBe(INITIAL_RESEARCH)
+
+    const context = buildCanonicalConversationContext({
+      currentMessage: followUp,
+      rows,
+      state,
+      references,
+      semanticInterpretation: { source: 'model_assisted', confidence: 0.95, suggestedIntent: 'conversation' },
+    })
+    const contract = buildConversationDecisionContract(context)
+    expect(context.speechAct).toBe('continuation')
+    expect(context.intentHint).toBe('research')
+    expect(contract.intent).toBe('research')
+    expect(contract.responseAction).toBe('answer')
+    expect(contract.toolRequirement).toBe('required')
+    expect(contract.evidenceRequirement).toBe('required')
+
+    const evidenceObjective = buildCeoEvidenceObjective(context)
+    expect(evidenceObjective).toContain('GEOS')
+    expect(evidenceObjective).toContain('MIND')
+    expect(evidenceObjective).toContain('press releases')
+    const plan = buildExternalEvidencePlan({
+      objective: evidenceObjective,
+      evidenceClass: 'external_web',
+      domain: 'public_equity',
+      operation: 'research',
+      temporalScope: 'recent',
+      evidenceProfile: 'public_equity',
+    })
+    expect(plan.queries.some((query) => query.ticker === 'GEOS')).toBe(true)
+    expect(plan.queries.some((query) => query.ticker === 'MIND')).toBe(true)
+  })
+
+  it('keeps ordinary Continue conversational even when the assistant reply contains decision vocabulary', () => {
+    const followUp = 'Continue.'
+    const rows = [
+      { role: 'user' as const, content: 'We are building Agent007 into a strong executive partner.', createdAt: now },
+      { role: 'assistant' as const, content: 'The next priority is stronger conversation quality.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const references = resolveConversationReferences(followUp, rows, state)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references })
+    const contract = buildConversationDecisionContract(context)
+    expect(references[0]?.resolvedText).toContain('next priority')
+    expect(references[0]?.resolvedObjective).toContain('strong executive partner')
+    expect(context.intentHint).toBe('conversation')
+    expect(contract.intent).toBe('conversation')
+    expect(contract.responseRegister).toBe('conversational')
+  })
+
+  it('does not let a retrospective question replace the durable active objective', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Today we should verify the production SHA.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'What did we decide yesterday?', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, 'What did we decide yesterday?')
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.currentObjective).toBe(INITIAL_RESEARCH)
   })
 
   it('retains a concise but substantive research objective instead of dropping it by character count', () => {
