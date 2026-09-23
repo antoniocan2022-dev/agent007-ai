@@ -87,7 +87,7 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
 // "yes, go ahead" and for compound corrections that end with "continue" without matching a generic
 // mid-sentence use of "continue".
 const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
-const AGREEMENT_ONLY_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)$/i
+const AGREEMENT_ONLY_RE = new RegExp(AGREEMENT_PREFIX_RE.source)
 export function isObjectiveConfirmationSignal(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
