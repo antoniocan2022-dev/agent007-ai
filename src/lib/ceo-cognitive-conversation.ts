@@ -229,7 +229,7 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   const resolvedIntentHint = deterministicSpeechAct === 'correction'
     ? 'conversation'
     : deterministicIntentIsAuthoritative
-      ? 'self_assessment'
+      ? deterministicIntent
       : (suggestedIntent ?? deterministicIntent)
   const trustedMeaning = trustedModelSuggestions ? normalize(input.semanticInterpretation?.meaning || '') : ''
   const meaning = trustedMeaning || deterministic
