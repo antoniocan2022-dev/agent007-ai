@@ -227,6 +227,14 @@ function buildDecision(input: { route: PreRouteDecision['route']; reason: string
   return { ...input, executionContract }
 }
 
+function hasSignificantThreadOverlap(message: string, thread: CanonicalConversationContext['state']['threads'][number]): boolean {
+  const stopwords = new Set(['about', 'after', 'again', 'because', 'before', 'being', 'between', 'could', 'from', 'have', 'into', 'more', 'most', 'other', 'should', 'that', 'their', 'there', 'these', 'they', 'this', 'those', 'through', 'under', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your', 'please', 'then', 'than', 'just', 'like', 'really', 'very', 'doing', 'does', 'dont', 'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'were', 'will', 'been', 'them', 'same', 'go', 'ahead', 'continue'])
+  const tokens = (value: string) => [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !stopwords.has(token)))]
+  const current = new Set(tokens(message))
+  const prior = tokens(`${thread.title} ${thread.currentObjective}`)
+  const shared = prior.filter((token) => current.has(token))
+  return shared.length >= 2 || shared.some((token) => token.length >= 8)
+}
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
@@ -256,10 +264,11 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
       const entityTokens = entity.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
       return entityTokens.length > 0 && entityTokens.every((token) => currentTokens.has(token))
     })
+    const lexicalAnchor = hasSignificantThreadOverlap(current, thread)
     const referenceAnchor = context.references.some((reference) =>
       Boolean(reference.resolvedText && !reference.ambiguous && reference.confidence >= 0.55),
     )
-    if (!entityAnchor && !referenceAnchor) return undefined
+    if (!entityAnchor && !referenceAnchor && !lexicalAnchor) return undefined
   }
 
   // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
