@@ -30,7 +30,7 @@ const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|s
 // widening it here would change response-quality semantics for new tasks. This routing-only classifier is
 // deliberately narrow: an agreement-led turn must contain either an explicit continuation command or a
 // strong cross-turn/anaphoric reference before it can inherit an active objective.
-const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that's\s+right|thats\s+right|that's\s+correct|thats\s+correct)\b/i
+const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'|’s)?\s+right|that(?:'|’)s\s+correct|thats\s+right|thats\s+correct)\b/i
 const EXPLICIT_CONTINUATION_CUE_RE = /\b(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'|’)?s\s+do\s+it|from\s+there)\b/i
 const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through)\b/i
