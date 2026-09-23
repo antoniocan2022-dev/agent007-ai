@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -188,6 +188,19 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
   test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Tell me about the weather in Montreal.')).toBe(false)
     expect(isObjectiveAgreementContinuationRequest('Yes. Tell me about NVDA stock.')).toBe(false)
+  })
+})
+
+describe('CEO routing: sequenced objective progression signal', () => {
+  test('recognizes numbered or additional priority progression wording', () => {
+    expect(isObjectiveProgressionRequest('The second priority is measurement.')).toBe(true)
+    expect(isObjectiveProgressionRequest('Another objective is customer retention.')).toBe(true)
+    expect(isObjectiveProgressionRequest('In addition, cover the risk section.')).toBe(true)
+  })
+
+  test('does not treat an arbitrary new topic as progression', () => {
+    expect(isObjectiveProgressionRequest('Tell me about the weather in Montreal.')).toBe(false)
+    expect(isObjectiveProgressionRequest('The company is launching a new product.')).toBe(false)
   })
 })
 
