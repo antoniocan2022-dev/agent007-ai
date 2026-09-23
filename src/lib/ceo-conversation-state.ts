@@ -117,6 +117,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
       .filter((thread) => thread.status === 'active' || thread.status === 'paused')
       .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]
     const reference = currentActive ? resolveGeneralReference(content, safeRows, currentActive.title) : null
+    const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.7)
     const contextualContinuation = Boolean(
       currentActive && (
         isContinuationOrRestatementRequest(content)
@@ -124,7 +125,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
         || isObjectiveProgressionRequest(content)
         || isBareObjectiveConfirmation(content)
         || isCorrectionRequest(content)
-        || reference
+        || usableReference
       ),
     )
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
