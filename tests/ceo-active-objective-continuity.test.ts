@@ -422,6 +422,20 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceClass).toBe('external_web')
   })
 
+  it('allows a ticker-anchored non-bare continuation even when the thread entity list is empty', () => {
+    const followUp = 'I mean MIND Technology, continue with the research.'
+    const context = contextFor(followUp)
+    context.state.threads[0].entities = []
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
   it('preserves the objective through an entity correction plus continue', () => {
     const correction = 'Im talking about NasdaqCM - MIND Technology, Inc. (MIND), continue'
     const decision = preRouteCeoRequest(
