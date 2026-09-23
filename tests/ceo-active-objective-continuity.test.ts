@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
-import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
+import { buildCanonicalConversationContext, buildCeoEvidenceObjective } from '@/lib/ceo-cognitive-conversation'
+import { buildExternalEvidencePlan } from '@/lib/ceo-evidence-planner'
 import { buildConversationDecisionContract } from '@/lib/ceo-conversation-decision-contract'
 import { deriveCeoConversationState, resolveConversationReferences } from '@/lib/ceo-conversation-state'
 import { isObjectiveAgreementContinuationRequest } from '@/lib/ceo-conversational-signals'
@@ -105,6 +106,20 @@ describe('CEO active objective continuity', () => {
       },
     })
     const contract = buildConversationDecisionContract(canonical)
+    const evidenceObjective = buildCeoEvidenceObjective(canonical)
+    const evidencePlan = buildExternalEvidencePlan({
+      objective: evidenceObjective,
+      evidenceClass: 'external_web',
+      domain: 'public_equity',
+      operation: 'research',
+      temporalScope: 'recent',
+      evidenceProfile: 'public_equity',
+    })
+    expect(evidenceObjective).toContain('GEOS')
+    expect(evidenceObjective).toContain('MIND')
+    expect(evidenceObjective).toContain('press releases')
+    expect(evidencePlan.queries.some((query) => query.ticker === 'GEOS')).toBe(true)
+    expect(evidencePlan.queries.some((query) => query.ticker === 'MIND')).toBe(true)
     expect(canonical.speechAct).toBe('continuation')
     expect(canonical.intentHint).toBe('research')
     expect(contract.intent).toBe('research')
