@@ -212,7 +212,7 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   // #205/#206) -- inferRequestedOperation two lines below already scans authoritativeText correctly; this
   // was the one remaining classifier still scanning the wider retained window.
   const continuationReference = input.references.find((reference) => reference.kind === 'continuation' && !reference.ambiguous && reference.resolvedText)
-  const inheritedObjective = continuationReference?.resolvedText ?? ''
+  const inheritedObjective = continuationReference?.resolvedObjective ?? continuationReference?.resolvedText ?? ''
   const deterministicIntent = deterministicSpeechAct === 'correction'
     ? 'conversation'
     : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope, inheritedObjective)
@@ -290,9 +290,9 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
  * planner without the entities that identify what should be researched.
  */
 export function buildCeoEvidenceObjective(context: CanonicalConversationContext, fallback = ''): string {
-  const continuationReference = context.references.find((reference) => reference.kind === 'continuation' && !reference.ambiguous && reference.resolvedText?.trim())
+  const continuationReference = context.references.find((reference) => reference.kind === 'continuation' && !reference.ambiguous && (reference.resolvedObjective?.trim() || reference.resolvedText?.trim()))
   const currentInstruction = context.turnEnvelope.instruction.authoritativeText.trim() || context.meaning.trim() || context.currentMessage.trim() || fallback.trim()
-  const inherited = continuationReference?.resolvedText?.trim()
+  const inherited = continuationReference?.resolvedObjective?.trim() || continuationReference?.resolvedText?.trim()
   if (inherited) return [inherited, currentInstruction ? `Current follow-up instruction: ${currentInstruction}` : ''].filter(Boolean).join('\n\n').slice(0, CEO_EVIDENCE_OBJECTIVE_MAX_CHARS)
   return (currentInstruction || fallback.trim()).slice(0, CEO_EVIDENCE_OBJECTIVE_MAX_CHARS)
 }
