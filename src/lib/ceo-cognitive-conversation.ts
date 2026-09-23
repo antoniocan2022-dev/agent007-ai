@@ -210,9 +210,11 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   // #205/#206) -- inferRequestedOperation two lines below already scans authoritativeText correctly; this
   // was the one remaining classifier still scanning the wider retained window.
   const continuationReference = input.references.find((reference) => reference.kind === 'continuation' && !reference.ambiguous && reference.resolvedText)
+  const inheritedObjective = continuationReference?.resolvedText ?? ''
   const deterministicIntent = deterministicSpeechAct === 'correction'
     ? 'conversation'
-    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope, continuationReference?.resolvedText ?? '')
+    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope, inheritedObjective)
+
   const suppliedConfidence = Number(input.semanticInterpretation?.confidence)
   const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0
   const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72
@@ -220,7 +222,10 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   const suggestedSpeechAct = trustedModelSuggestions ? sanitizeSuggestedSpeechAct(input.semanticInterpretation?.suggestedSpeechAct) : undefined
   const suggestedDepth = trustedModelSuggestions ? sanitizeSuggestedDepth(input.semanticInterpretation?.suggestedCognitiveDepth) : undefined
   const resolvedSpeechAct = deterministicSpeechAct === 'correction' ? 'correction' : (suggestedSpeechAct ?? deterministicSpeechAct)
-  const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment'
+  // An accepted continuation inherits the active objective before model-assisted intent arbitration.
+  // This protects the single canonical ConversationDecisionContract from recreating the live failure where
+  // a high-confidence assistant suggestion of "conversation" erased an inherited public-equity research route.
+  const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment' || Boolean(inheritedObjective && deterministicIntent !== 'conversation')
   const resolvedIntentHint = deterministicSpeechAct === 'correction'
     ? 'conversation'
     : deterministicIntentIsAuthoritative
