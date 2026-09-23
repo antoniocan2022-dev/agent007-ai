@@ -29,6 +29,17 @@ const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|s
 // isContinuationOrRestatementRequest, which is also consumed by response-quality/staleness logic.
 // Agreement-led continuation requires a strong cross-turn/anaphoric reference plus an action/refinement cue;
 // standalone confirmation/continuation phrases use isObjectiveConfirmationSignal below.
+// Sequenced-objective progression signal: phrases such as "the second priority is..." or "another
+// objective..." are often a continuation of the active thread even when they have little literal token
+// overlap with the opening turn. Kept separate from generic context/reference detection so an arbitrary
+// new sentence is not automatically attached to an existing thread.
+const OBJECTIVE_PROGRESSION_RE = /^(?:the\s+(?:second|third|next|other|last)\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b|another\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b|(?:also|additionally|in\s+addition|on\s+top\s+of\s+that)\b)/i
+
+export function isObjectiveProgressionRequest(text: string): boolean {
+  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
+  return Boolean(stripped && OBJECTIVE_PROGRESSION_RE.test(stripped))
+}
+
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
 const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
