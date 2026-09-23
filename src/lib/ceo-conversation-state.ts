@@ -41,6 +41,8 @@ export interface ConversationReference {
   phrase: string
   kind: ConversationReferenceKind
   resolvedText: string | null
+  /** Durable thread objective used for routing/intent; distinct from resolvedText's richer answer context. */
+  resolvedObjective?: string | null
   confidence: number
   sourceRole?: 'user' | 'assistant'
   ambiguous: boolean
