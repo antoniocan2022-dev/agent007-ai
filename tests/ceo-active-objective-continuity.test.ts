@@ -4,6 +4,7 @@ import { join } from 'path'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
 import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
+import { buildExternalEvidencePlan } from '../src/lib/ceo-evidence-planner'
 import { isObjectiveProgressionRequest } from '../src/lib/ceo-conversational-signals'
 
 const now = Date.now()
@@ -124,6 +125,39 @@ describe('CEO active objective continuity', () => {
       expect(decision.executionContract.domain).toBe('public_equity')
       expect(decision.executionContract.evidenceClass).toBe('external_web')
     }
+  })
+
+  it('keeps both the durable research subject and the current follow-up scope in routingObjective', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.routingObjective).toContain('GEOS')
+    expect(decision.routingObjective).toContain('MIND')
+    expect(decision.routingObjective).toContain('past two weeks')
+    expect(decision.routingObjective).toContain('analyst coverage')
+  })
+
+  it('passes the inherited objective into the public-equity evidence planner so both tickers remain searchable', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      contextFor(followUp),
+    )
+    const plan = buildExternalEvidencePlan({
+      objective: decision.routingObjective ?? followUp,
+      evidenceClass: 'external_web',
+      domain: 'public_equity',
+      operation: 'research',
+      temporalScope: 'recent',
+      evidenceProfile: 'public_equity',
+    })
+    expect(plan.queries.some((query) => query.ticker === 'GEOS')).toBe(true)
+    expect(plan.queries.some((query) => query.ticker === 'MIND')).toBe(true)
   })
 
   it('propagates the inherited objective as the canonical evidence-planning objective', () => {
