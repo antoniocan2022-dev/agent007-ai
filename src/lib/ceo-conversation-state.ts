@@ -148,7 +148,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
       if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
-      threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
+      threads.push({ id, title: content.slice(0, 80), durableObjective: content, topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
     }
   }
   const assistantRows = safeRows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)
