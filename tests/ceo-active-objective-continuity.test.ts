@@ -76,6 +76,53 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('inherits the active research objective through an agreement-led task refinement from the live failure shape', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Which MIND company do you mean?' }, { role: 'user', content: followUp }],
+      0,
+      contextFor(followUp),
+    )
+    expect(decision.route).toBe('full')
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+    expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+    expect(decision.executionContract.executionRequirement).toBe('multi_source')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
+  it('does not inherit a public-equity objective for an agreement-led but unrelated new task', () => {
+    const followUp = 'Yes, exactly. Tell me about the weather in Montreal.'
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      contextFor(followUp),
+    )
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+    expect(decision.executionContract.evidenceRequirement).not.toBe('multi_source')
+  })
+
+  it('keeps the inherited research route authoritative even when the semantic assistant suggests conversation', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const context = contextFor(followUp)
+    context.semanticInterpretation = {
+      ...context.semanticInterpretation,
+      source: 'model_assisted',
+      confidence: 0.95,
+      suggestedIntent: 'conversation',
+    }
+    context.intentHint = 'conversation'
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Which MIND company do you mean?' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
   it('inherits the active research objective through a bare confirmation', () => {
     const decision = preRouteCeoRequest(
       [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready to proceed.' }, { role: 'user', content: 'yes, go ahead' }],
