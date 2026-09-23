@@ -7,7 +7,8 @@ import type { TaskType } from './subagent-governance'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { resolveActiveThread } from './ceo-reference-resolution'
+import { isRetrospectiveConversationRequest, isObjectiveConfirmationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -205,38 +206,11 @@ function buildDecision(input: { route: PreRouteDecision['route']; reason: string
   return { ...input, executionContract }
 }
 
-const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
-// Re-audited (2026-09-13): the original whole-message-anchored OBJECTIVE_CONFIRMATION_RE required the
-// ENTIRE message to be nothing but one listed phrase, so it never matched its own motivating case --
-// "yes, go ahead" fails outright because the comma isn't in its trailing `[\s!.?]*` allowance -- and
-// isContinuationOrRestatementRequest doesn't cover it either (none of its phrases start with "yes"). A
-// bare confirmation/continuation cue is almost always the LAST comma-separated clause of the message,
-// not necessarily the whole thing -- also true of a real production case combining an entity correction
-// with a trailing "continue" ("...MIND Technology, Inc. (MIND), continue"). Checking only the final
-// clause keeps this narrow: an unrelated sentence that happens to use "continue" as an ordinary verb
-// mid-clause ("we should continue monitoring the campaign, though I'm still unsure about budget.") does
-// not qualify, since its final clause isn't a bare confirmation word on its own.
-function isObjectiveConfirmationSignal(text: string): boolean {
-  const cleaned = text.trim().replace(/[!.?]+$/, '')
-  if (!cleaned) return false
-  const clauses = cleaned.split(/\s*,\s*/)
-  const lastClause = clauses[clauses.length - 1]?.trim()
-  return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
-}
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
-  const current = context.currentMessage.trim()
-  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current) || isObjectiveAgreementContinuationRequest(current)
-  if (!isContinuation) return undefined
-  const candidates = context.state.threads
-    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
-    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
-  const thread = candidates[0]
-  if (!thread) return undefined
-  // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
-  // the original thread title remains the durable objective anchor. This prevents "yes, go ahead" or
-  // an entity correction ending the underlying research/action objective itself.
-  return thread.title.trim() || thread.currentObjective.trim() || undefined
+  const resolution = resolveActiveThread(context.currentMessage, context.state.threads)
+  if (!resolution || resolution.ambiguous) return undefined
+  return resolution.resolvedText?.trim() || undefined
 }
 
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): decisionContract lets a caller that
