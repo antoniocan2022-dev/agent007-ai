@@ -231,9 +231,18 @@ function hasSignificantThreadOverlap(message: string, thread: CanonicalConversat
   const stopwords = new Set(['about', 'after', 'again', 'because', 'before', 'being', 'between', 'could', 'from', 'have', 'into', 'more', 'most', 'other', 'should', 'that', 'their', 'there', 'these', 'they', 'this', 'those', 'through', 'under', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your', 'please', 'then', 'than', 'just', 'like', 'really', 'very', 'doing', 'does', 'dont', 'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'were', 'will', 'been', 'them', 'same', 'go', 'ahead', 'continue'])
   const tokens = (value: string) => [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !stopwords.has(token)))]
   const current = new Set(tokens(message))
-  const prior = tokens(`${thread.title} ${thread.currentObjective}`)
+  // Only the durable thread title is an eligible lexical anchor here. currentObjective may already
+  // contain the current turn when conversation state is derived for that same request, which would
+  // make any message appear self-relevant and defeat the fail-closed confirmation gate.
+  const prior = tokens(thread.title)
   const shared = prior.filter((token) => current.has(token))
   return shared.length >= 2 || shared.some((token) => token.length >= 8)
+}
+
+function hasThreadTickerAnchor(message: string, thread: CanonicalConversationContext['state']['threads'][number]): boolean {
+  const extract = (value: string) => [...new Set(value.match(/\b[A-Z]{2,5}\b/g) ?? [])].filter((token) => !COMMON_ACRONYM_RE.test(token))
+  const currentTickers = new Set(extract(message))
+  return extract(thread.title).some((ticker) => currentTickers.has(ticker))
 }
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
