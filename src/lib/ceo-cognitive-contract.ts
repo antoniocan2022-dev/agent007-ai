@@ -223,7 +223,7 @@ export function assertCeoEvidenceContractInvariant(contract: CeoExecutionContrac
     }
   }
 }
-export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }
+export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; /** Objective inherited from an active conversation thread for routing/evidence grounding only. */ routingObjective?: string }
 export interface DecisionPlan { requestId: string; preRoute: PreRoute; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract }
 export interface ExecutionStage { name: 'primary' | 'refinement' | 'independent_review' | 'synthesis'; purpose: string }
 export type CeoGenerationStage = 'none' | 'primary' | 'refinement' | 'semantic_repair' | 'independent_review' | 'synthesis' | 'escalation'
