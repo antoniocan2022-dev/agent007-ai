@@ -331,6 +331,41 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('does not revive the prior research objective for an unrelated message that merely ends with a continuation cue', () => {
+    const followUp = 'I want weather updates for Montreal, go ahead.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+    expect(decision.executionContract.intent).not.toBe('research')
+  })
+
+  it('allows a non-bare continuation cue when the active research entity is explicitly present', () => {
+    const followUp = 'I want the same GEOS research, go ahead.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
   it('preserves the objective through an entity correction plus continue', () => {
     const correction = 'Im talking about NasdaqCM - MIND Technology, Inc. (MIND), continue'
     const decision = preRouteCeoRequest(
