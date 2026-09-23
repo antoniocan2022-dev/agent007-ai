@@ -83,9 +83,14 @@ function deriveSupersedableSignals(rows: readonly PersistedConversationRow[], pr
   return signals
 }
 function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
+const TRIVIAL_THREAD_MESSAGE_RE = /^(?:hi|hello|hey|yo|thanks?|thank\s+you|ok(?:ay)?|yes|yeah|yep|yup|sure|great|perfect|continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on|bye|good\s+(?:morning|afternoon|evening))[.!?\s]*$/i
+function isThreadBearingUserMessage(content: string): boolean {
+  const value = content.trim()
+  return value.length >= 4 && !TRIVIAL_THREAD_MESSAGE_RE.test(value)
+}
 function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now()): ConversationThreadRecord[] {
   const safeRows = safeConversationRows(rows)
-  const users = safeRows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
+  const users = safeRows.filter((row) => row.role === 'user' && isThreadBearingUserMessage(row.content))
   const threads: ConversationThreadRecord[] = []
   const mergeInto = (thread: ConversationThreadRecord, content: string, topicTokens: string[], row: PersistedConversationRow) => {
     thread.currentObjective = content
