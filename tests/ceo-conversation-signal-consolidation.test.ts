@@ -197,6 +197,12 @@ describe('CEO routing: demonstrative continuation signal', () => {
     expect(isDemonstrativeContinuationRequest('That is more important than minimizing latency.')).toBe(true)
   })
 
+  test('canonical demonstrative continuation handles fillers without matching determiner phrases', () => {
+    expect(isDemonstrativeContinuationRequest('Well, that is more important than minimizing latency.')).toBe(true)
+    expect(isDemonstrativeContinuationRequest('Actually, this principle should guide the upgrade.')).toBe(true)
+    expect(isDemonstrativeContinuationRequest('This morning I had a meeting.')).toBe(false)
+  })
+
   test('does not classify noun-determiner openings as continuity', () => {
     expect(isDemonstrativeContinuationRequest('This morning I had a meeting.')).toBe(false)
     expect(isDemonstrativeContinuationRequest('That company announced a new product.')).toBe(false)
