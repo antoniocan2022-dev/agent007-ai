@@ -171,6 +171,30 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
   })
 
+  it('preserves the full research objective in a durable anchor even when the display title is truncated', () => {
+    const rows = [{ role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now }]
+    const state = deriveCeoConversationState(rows, 'continue')
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title.length).toBeLessThanOrEqual(80)
+    expect(state.threads[0]?.objectiveAnchor).toContain('MIND')
+    expect(state.threads[0]?.objectiveAnchor).toContain('GEOS')
+    expect(state.threads[0]?.objectiveAnchor).toBe(INITIAL_RESEARCH)
+  })
+
+  it('uses the durable objective anchor to keep a non-bare continuation attached to the original thread', () => {
+    const followUp = 'I mean MIND Technology, continue with the research.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: followUp, createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.objectiveAnchor).toContain('GEOS')
+    expect(state.threads[0]?.objectiveAnchor).toContain('MIND')
+    expect(state.threads[0]?.currentObjective).toContain('MIND Technology')
+  })
+
   it('retains a concise but substantive research objective instead of dropping it by character count', () => {
     const shortObjective = 'Research GEOS'
     const rows = [
