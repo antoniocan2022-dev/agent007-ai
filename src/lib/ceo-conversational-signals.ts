@@ -87,11 +87,24 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
 // "yes, go ahead" and for compound corrections that end with "continue" without matching a generic
 // mid-sentence use of "continue".
 const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
+const OBJECTIVE_CLAUSE_SPLIT_RE = /[.!?;:]+|\s*,\s*/
+const OBJECTIVE_CONTINUATION_CUE_RE = /^(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'s|’s)\s+do\s+it|from\s+there)\b/i
+
+// Non-bare continuation cue: used only by routing/state callers that still require a separate thread
+// anchor. This handles natural forms such as "MIND Technology, continue with the research" without
+// weakening the strict bare-continuation classifier used to prove objective inheritance on its own.
+export function isObjectiveContinuationCue(text: string): boolean {
+  const cleaned = text.trim().replace(/[.!?]+$/, '')
+  if (!cleaned) return false
+  const clauses = cleaned.split(OBJECTIVE_CLAUSE_SPLIT_RE).map((clause) => clause.trim()).filter(Boolean)
+  const lastClause = clauses[clauses.length - 1]
+  return Boolean(lastClause && OBJECTIVE_CONTINUATION_CUE_RE.test(lastClause))
+}
 const AGREEMENT_ONLY_RE = new RegExp(AGREEMENT_PREFIX_RE.source)
 export function isObjectiveConfirmationSignal(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
-  const clauses = cleaned.split(/\s*,\s*/)
+  const clauses = cleaned.split(OBJECTIVE_CLAUSE_SPLIT_RE)
   const lastClause = clauses[clauses.length - 1]?.trim()
   return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
 }
@@ -99,7 +112,7 @@ export function isBareObjectiveConfirmation(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
   if (OBJECTIVE_CONFIRMATION_WORD_RE.test(cleaned)) return true
-  const clauses = cleaned.split(/\s*,\s*/)
+  const clauses = cleaned.split(OBJECTIVE_CLAUSE_SPLIT_RE)
   return clauses.length === 2
     && AGREEMENT_ONLY_RE.test(clauses[0]!.trim())
     && OBJECTIVE_CONFIRMATION_WORD_RE.test(clauses[1]!.trim())
