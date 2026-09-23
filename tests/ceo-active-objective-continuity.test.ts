@@ -53,6 +53,7 @@ function contextFor(currentMessage: string, threadTitle = INITIAL_RESEARCH, stat
         topic: 'stocks, geos, mind',
         entities: ['GEOS', 'MIND'],
         currentObjective: currentMessage,
+        durableObjective: threadTitle,
         unresolvedQuestions: [],
         decisions: [],
         lastTouchedAt: Date.now(),
