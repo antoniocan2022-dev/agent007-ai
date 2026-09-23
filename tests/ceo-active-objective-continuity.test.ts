@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
 import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
+import { isObjectiveProgressionRequest } from '../src/lib/ceo-conversational-signals'
 
 const now = Date.now()
 
@@ -143,6 +144,21 @@ describe('CEO active objective continuity', () => {
     expect(state.threads[0]?.status).toBe('superseded')
     expect(state.threads[1]?.status).toBe('active')
     expect(state.threads[1]?.title).toContain('weather in Montreal')
+  })
+
+  it('preserves a sequenced objective statement such as a second priority', () => {
+    const rows = [
+      { role: 'user' as const, content: 'We want Agent007 to generate real business outcomes.', createdAt: now },
+      { role: 'assistant' as const, content: 'The first priority is repeatable customer value.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'The second priority is measurement.', createdAt: now + 2 },
+      { role: 'assistant' as const, content: 'That gives us a business loop rather than a demo.', createdAt: now + 3 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(isObjectiveProgressionRequest(rows[2].content)).toBe(true)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title).toContain('Agent007')
+    const resolution = state.threads[0]?.lastAssistantReply
+    expect(resolution).toContain('business loop')
   })
 
   it('splits an unrelated topic instead of poisoning the prior active objective', () => {
