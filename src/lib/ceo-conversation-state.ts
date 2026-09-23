@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
-import { isCorrectionRequest } from './ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isObjectiveConfirmationSignal } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -107,9 +107,27 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // whether this same processing pass is still mid-conversation on it. Without this, replaying or
     // deriving state for a conversation whose messages happen to straddle that age boundary silently
     // fragments one continuous topic into a new, disconnected thread per message.
-    const currentActive = threads.find((thread) => thread.status === 'active' || thread.status === 'paused')
+    // Deep-audit fix (2026-09-23): do not silently absorb every unrelated user message into whichever
+    // thread happens to be active. The old fallback made an unrelated topic inherit the prior thread's
+    // durable title, so a later bare confirmation could revive the wrong objective. A non-lexical turn
+    // may merge into the newest active/paused thread only when it has an explicit continuation signal,
+    // an agreement-led refinement, a recognized correction, or a resolvable conversational reference.
+    // This keeps thread lifecycle state aligned with the same continuity semantics used by pre-routing.
+    const currentActive = [...threads]
+      .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+      .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]
+    const reference = currentActive ? resolveGeneralReference(content, safeRows, currentActive.title) : null
+    const contextualContinuation = Boolean(
+      currentActive && (
+        isContinuationOrRestatementRequest(content)
+        || isObjectiveAgreementContinuationRequest(content)
+        || isObjectiveConfirmationSignal(content)
+        || isCorrectionRequest(content)
+        || reference
+      ),
+    )
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
-    else if (!supersedes && currentActive) mergeInto(currentActive, content, topicTokens, row)
+    else if (!supersedes && currentActive && contextualContinuation) mergeInto(currentActive, content, topicTokens, row)
     else {
       // Reaching this branch with supersedes===false requires currentActive to already be falsy
       // (that's the only way the "else if" above didn't take it), so the guard below only ever
