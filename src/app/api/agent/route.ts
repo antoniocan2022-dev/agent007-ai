@@ -18,6 +18,7 @@ import { renderEvidenceBundleForPrompt, type EvidenceBundle } from '@/lib/ceo-ev
 import { verifyClaimEvidence } from '@/lib/ceo-claim-evidence-gate'
 import { addEvidenceTraceEvent, completeEvidenceTrace, startEvidenceTrace, type EvidenceTrace } from '@/lib/ceo-evidence-trace'
 import { buildCeoContextModules, composeCeoContext, type PersistedConversationRow, type PersistedMemoryRow, type CeoContextComposition } from '@/lib/ceo-context-composer'
+import { buildCeoEvidenceObjective } from '@/lib/ceo-cognitive-conversation'
 import { persistEpisodicDecisionMemory } from '@/lib/ceo-episodic-memory-writer'
 import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
 import { projectCeoPublicSsePayload, resolveCeoPublicSseEvent } from '@/lib/ceo-public-transport'
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
           let evidenceTrace: EvidenceTrace | undefined
           if (decisionContract.responseAction !== 'clarify' && (executionContract.evidenceClass === 'external_web' || executionContract.evidenceClass === 'mixed')) {
             evidenceTrace = startEvidenceTrace({ objective: message, profile: executionContract.evidenceProfile })
-            const evidenceObjective = contextSeed.canonicalSemanticContext.meaning || message
+            const evidenceObjective = buildCeoEvidenceObjective(contextSeed.canonicalSemanticContext, message)
             // Deep-audit fix (P0, 2026-09-13): resolves company names (not just already-ticker-shaped
             // tokens) against SEC's real registry before planning -- see ceo-issuer-resolution.ts's own
             // comment for the full rationale. Best-effort: buildExternalEvidencePlan already treats
