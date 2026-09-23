@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
-import { isCorrectionRequest } from './ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -83,9 +83,14 @@ function deriveSupersedableSignals(rows: readonly PersistedConversationRow[], pr
   return signals
 }
 function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
+const TRIVIAL_THREAD_MESSAGE_RE = /^(?:hi|hello|hey|yo|thanks?|thank\s+you|ok(?:ay)?|yes|yeah|yep|yup|sure|great|perfect|continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on|bye|good\s+(?:morning|afternoon|evening))[.!?\s]*$/i
+function isThreadBearingUserMessage(content: string): boolean {
+  const value = content.trim()
+  return value.length >= 4 && !TRIVIAL_THREAD_MESSAGE_RE.test(value)
+}
 function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now()): ConversationThreadRecord[] {
   const safeRows = safeConversationRows(rows)
-  const users = safeRows.filter((row) => row.role === 'user' && row.content.trim().length > 15)
+  const users = safeRows.filter((row) => row.role === 'user' && isThreadBearingUserMessage(row.content))
   const threads: ConversationThreadRecord[] = []
   const mergeInto = (thread: ConversationThreadRecord, content: string, topicTokens: string[], row: PersistedConversationRow) => {
     thread.currentObjective = content
@@ -107,13 +112,39 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // whether this same processing pass is still mid-conversation on it. Without this, replaying or
     // deriving state for a conversation whose messages happen to straddle that age boundary silently
     // fragments one continuous topic into a new, disconnected thread per message.
-    const currentActive = threads.find((thread) => thread.status === 'active' || thread.status === 'paused')
+    // Deep-audit fix (2026-09-23): do not silently absorb every unrelated user message into whichever
+    // thread happens to be active. The old fallback made an unrelated topic inherit the prior thread's
+    // durable title, so a later bare confirmation could revive the wrong objective. A non-lexical turn
+    // may merge into the newest active/paused thread only when it has an explicit continuation signal,
+    // an agreement-led refinement, a recognized correction, or a resolvable conversational reference.
+    // This keeps thread lifecycle state aligned with the same continuity semantics used by pre-routing.
+    const currentActive = [...threads]
+      .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+      .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)[0]
+    // Reference resolution must not score the message currently being processed against itself.
+    // Otherwise any new sentence beginning with "this/that/it" can become a high-confidence self-match
+    // and incorrectly inherit the current active thread. Only prior safe rows are eligible as anchors.
+    const priorSafeRows = safeRows.filter((candidate) => candidate !== row)
+    const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.title) : null
+    // resolveGeneralReference() guarantees a resolved, non-ambiguous prior-row anchor at >=0.55; use
+    // that same floor here. The current row is already excluded above, so this cannot become a self-match.
+    const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.55)
+    const contextualContinuation = Boolean(
+      currentActive && (
+        isContinuationOrRestatementRequest(content)
+        || isObjectiveAgreementContinuationRequest(content)
+        || isDemonstrativeContinuationRequest(content)
+        || isObjectiveProgressionRequest(content)
+        || isBareObjectiveConfirmation(content)
+        || isCorrectionRequest(content)
+        || usableReference
+      ),
+    )
     if (!supersedes && lexicalMatch) mergeInto(lexicalMatch, content, topicTokens, row)
-    else if (!supersedes && currentActive) mergeInto(currentActive, content, topicTokens, row)
+    else if (!supersedes && currentActive && contextualContinuation) mergeInto(currentActive, content, topicTokens, row)
     else {
-      // Reaching this branch with supersedes===false requires currentActive to already be falsy
-      // (that's the only way the "else if" above didn't take it), so the guard below only ever
-      // fires for an explicit topic switch -- always 'superseded', never 'paused'.
+      // A non-lexical, non-contextual user message starts a new topic. The prior active/paused thread
+      // is superseded so it cannot later become the target of a bare continuation confirmation.
       if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)

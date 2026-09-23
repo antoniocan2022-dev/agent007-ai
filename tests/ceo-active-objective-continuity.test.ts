@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
+import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
+import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
+import { isObjectiveProgressionRequest } from '../src/lib/ceo-conversational-signals'
+
+const now = Date.now()
 
 const INITIAL_RESEARCH = 'mmmm can you check all news and relevant information abour 2 stocks: a. GEOS and b. MIND Tecnologies'
 
@@ -74,6 +79,157 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
     expect(decision.executionContract.executionRequirement).toBe('multi_source')
     expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
+  it('preserves pronoun-led objective continuations through the real state/context/pre-router chain', () => {
+    for (const followUp of [
+      'That principle should guide the next upgrade.',
+      'That is more important than minimizing latency.',
+    ]) {
+      const rows = [
+        { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+        { role: 'assistant' as const, content: 'The research should focus on the current facts.', createdAt: now + 1 },
+      ]
+      const state = deriveCeoConversationState(rows, followUp)
+      const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+      const decision = preRouteCeoRequest(
+        [...rows, { role: 'user' as const, content: followUp }],
+        0,
+        context,
+      )
+      expect(state.threads).toHaveLength(1)
+      expect(context.speechAct).toBe('continuation')
+      expect(decision.executionContract.intent).toBe('research')
+      expect(decision.executionContract.domain).toBe('public_equity')
+      expect(decision.executionContract.evidenceClass).toBe('external_web')
+    }
+  })
+
+  it('verifies the live-shaped follow-up through the real conversation-state and canonical-context builders', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title).toContain('GEOS')
+    expect(context.speechAct).toBe('continuation')
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+    expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+  })
+
+  it('retains a concise but substantive research objective instead of dropping it by character count', () => {
+    const shortObjective = 'Research GEOS'
+    const rows = [
+      { role: 'user' as const, content: shortObjective, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to research it.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, 'continue')
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title).toBe(shortObjective)
+    const context = buildCanonicalConversationContext({ currentMessage: 'continue', rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: 'continue' }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
+  it('routes a bare confirmation through the real state/context/pre-router chain', () => {
+    const followUp = 'yes, go ahead'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to proceed.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(state.threads).toHaveLength(1)
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
+  it('keeps a bare confirmation attached to the existing research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to proceed.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'yes, go ahead', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, 'yes, go ahead')
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title).toContain('GEOS')
+    expect(state.threads[0]?.status).toBe('active')
+  })
+
+  it('does not merge a low-confidence pronoun reference into the active research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'This morning I had a meeting about the weather in Montreal.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('This morning')
+  })
+
+  it('does not keep an unrelated sentence that merely ends in yes inside the active research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'I think we should discuss the weather in Montreal, yes.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('weather in Montreal')
+  })
+
+  it('preserves a sequenced objective statement such as a second priority', () => {
+    const rows = [
+      { role: 'user' as const, content: 'We want Agent007 to generate real business outcomes.', createdAt: now },
+      { role: 'assistant' as const, content: 'The first priority is repeatable customer value.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'The second priority is measurement.', createdAt: now + 2 },
+      { role: 'assistant' as const, content: 'That gives us a business loop rather than a demo.', createdAt: now + 3 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(isObjectiveProgressionRequest(rows[2].content)).toBe(true)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title).toContain('Agent007')
+    const resolution = state.threads[0]?.lastAssistantReply
+    expect(resolution).toContain('business loop')
+  })
+
+  it('splits an unrelated topic instead of poisoning the prior active objective', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'Tell me about the weather in Montreal tomorrow.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('weather in Montreal')
   })
 
   it('inherits the active research objective through an agreement-led task refinement from the live failure shape', () => {

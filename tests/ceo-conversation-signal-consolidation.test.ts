@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -174,12 +174,73 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
 
   test('recognizes explicit continuation commands after agreement', () => {
     expect(isObjectiveAgreementContinuationRequest("That's right. Proceed with it.")).toBe(true)
-    expect(isObjectiveAgreementContinuationRequest('Yeah, go ahead.')).toBe(true)
+    expect(isObjectiveAgreementContinuationRequest('Yeah, go ahead with it.')).toBe(true)
+  })
+
+  test('does not treat a continuation command plus a new subject as inherited-objective continuation', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Go ahead and tell me about the weather in Montreal.')).toBe(false)
+  })
+
+  test('does not treat a generic continuation cue followed by a new subject as inherited-objective continuation', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, go ahead and tell me about the weather in Montreal.')).toBe(false)
   })
 
   test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Tell me about the weather in Montreal.')).toBe(false)
     expect(isObjectiveAgreementContinuationRequest('Yes. Tell me about NVDA stock.')).toBe(false)
+  })
+})
+
+describe('CEO routing: demonstrative continuation signal', () => {
+  test('recognizes the existing pronoun-led continuation cases', () => {
+    expect(isDemonstrativeContinuationRequest('That principle should guide the next upgrade.')).toBe(true)
+    expect(isDemonstrativeContinuationRequest('That is more important than minimizing latency.')).toBe(true)
+  })
+
+  test('canonical demonstrative continuation handles fillers without matching determiner phrases', () => {
+    expect(isDemonstrativeContinuationRequest('Well, that is more important than minimizing latency.')).toBe(true)
+    expect(isDemonstrativeContinuationRequest('Actually, this principle should guide the upgrade.')).toBe(true)
+    expect(isDemonstrativeContinuationRequest('This morning I had a meeting.')).toBe(false)
+  })
+
+  test('does not classify noun-determiner openings as continuity', () => {
+    expect(isDemonstrativeContinuationRequest('This morning I had a meeting.')).toBe(false)
+    expect(isDemonstrativeContinuationRequest('That company announced a new product.')).toBe(false)
+  })
+})
+
+describe('CEO routing: sequenced objective progression signal', () => {
+  test('recognizes numbered or additional priority progression wording', () => {
+    expect(isObjectiveProgressionRequest('The second priority is measurement.')).toBe(true)
+    expect(isObjectiveProgressionRequest('Another objective is customer retention.')).toBe(true)
+    expect(isObjectiveProgressionRequest('The next step is to cover the risk section.')).toBe(true)
+  })
+
+  test('does not treat an arbitrary new topic as progression', () => {
+    expect(isObjectiveProgressionRequest('Tell me about the weather in Montreal.')).toBe(false)
+    expect(isObjectiveProgressionRequest('Also, tell me about the weather in Montreal.')).toBe(false)
+    expect(isObjectiveProgressionRequest('The company is launching a new product.')).toBe(false)
+  })
+})
+
+describe('CEO routing: canonical objective confirmation signal', () => {
+  test('recognizes the established final-clause confirmation forms', () => {
+    for (const phrase of ['yes, go ahead', 'proceed', 'continue', 'yeah, go on']) {
+      expect(isObjectiveConfirmationSignal(phrase)).toBe(true)
+    }
+  })
+
+  test('strict thread confirmation accepts only a bare confirmation or a bounded agreement-plus-command phrase', () => {
+    expect(isBareObjectiveConfirmation('I think we should launch the campaign, yes.')).toBe(false)
+    expect(isBareObjectiveConfirmation('yes, go ahead')).toBe(true)
+    expect(isBareObjectiveConfirmation('sure, proceed')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes')).toBe(true)
+    expect(isBareObjectiveConfirmation('go ahead')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes, go ahead and tell me about the weather')).toBe(false)
+  })
+
+  test('does not treat a mid-sentence continuation verb as a bare confirmation', () => {
+    expect(isObjectiveConfirmationSignal('Yes, continue monitoring the campaign, but review the budget.')).toBe(false)
   })
 })
 

@@ -25,27 +25,84 @@ const LEADING_FILLER_RE = /^\s*(?:(?:mmm+|hmm+|uh+|um+|well|so|ok(?:ay)?|now|act
 const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|same thread|same topic|continue from there|where we left off|from where we left off|what did we decide|what did we discuss|what was the reasoning|what have we ruled out|what about the (?:first|second|third|last|other) option|based on what we established|remind me|recap|summarize|repeat (?:that|this|it)?\b|what did you say|tell me (?:that\s+)?in your (?:own\s+)?words|in your (?:own\s+)?words|put (?:it|that) (?:in your (?:own\s+)?words|your way)|say it your way|how would you (?:say|phrase) (?:it|that)|paraphrase (?:it|that))\b/i
 // Objective-continuation routing signal (2026-09-23): natural follow-ups often begin with agreement or
 // confirmation and then refine the already-active task (for example, "Yes, exactly those. Go with a brief..."),
-// without using a bare "continue" phrase. This is intentionally DISTINCT from
-// isContinuationOrRestatementRequest: that broader signal is also consumed by quality/staleness logic, so
-// widening it here would change response-quality semantics for new tasks. This routing-only classifier is
-// deliberately narrow: an agreement-led turn must contain either an explicit continuation command or a
-// strong cross-turn/anaphoric reference before it can inherit an active objective.
+// without using a bare "continue" phrase. This is intentionally distinct from
+// isContinuationOrRestatementRequest, which is also consumed by response-quality/staleness logic.
+// Agreement-led continuation requires a strong cross-turn/anaphoric reference plus an action/refinement cue;
+// standalone confirmation/continuation phrases use isObjectiveConfirmationSignal below.
+// Demonstrative continuation signal: standalone "this/that/these/those" constructions that make a
+// direct claim about an already-discussed object are common continuations even without an explicit
+// "continue" verb. Deliberately excludes noun-determiner openings such as "This morning" or "That
+// company" unless the construction is an explicit copular/modal continuation.
+const DEMONSTRATIVE_CONTINUATION_RE = /^(?:this|that|these|those)\s+(?:(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b|(?:principles?|ideas?|approaches?|plans?|issues?|problems?|points?|options?|priorities?|goals?|objectives?|changes?|results?|decisions?|reasons?|paths?|concepts?|strategies?|policies?|rules?|statements?|answers?|parts?|steps?|ones?|same|stocks?|shares?|companies?|documents?|files?|numbers?|figures?|data)\b)/i
+
+export function isDemonstrativeContinuationRequest(text: string): boolean {
+  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
+  return Boolean(stripped && DEMONSTRATIVE_CONTINUATION_RE.test(stripped))
+}
+
+// Sequenced-objective progression signal: phrases such as "the second priority is..." or "another
+// objective..." are often a continuation of the active thread even when they have little literal token
+// overlap with the opening turn. Kept separate from generic context/reference detection so an arbitrary
+// new sentence is not automatically attached to an existing thread.
+const OBJECTIVE_PROGRESSION_RE = /^(?:the\s+(?:second|third|next|other|last)\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b|another\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b)/i
+
+export function isObjectiveProgressionRequest(text: string): boolean {
+  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
+  return Boolean(stripped && OBJECTIVE_PROGRESSION_RE.test(stripped))
+}
+
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
-const EXPLICIT_CONTINUATION_CUE_RE = /\b(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'|’)?s\s+do\s+it|from\s+there)\b/i
-const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:this|that|these|those|it|them|the\s+same|same|each|both)\b/i
-const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through)\b/i
+const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:these|those|it|them|the\s+same|same|each|both)\b|\b(?:this|that)(?=\s*(?:[.!?,;:]|$)|\s+(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b)/i
+const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
+const AGREEMENT_CORE_RE = /\b(?:exactly|right|correct|that(?:'s|’s)\s+(?:right|correct)|thats\s+(?:right|correct)|that\s+is\s+(?:right|correct|it))\b/i
 
 /**
- * Detect an agreement-led refinement of the active objective without broadening the global continuation
- * signal used by response-quality/staleness logic. Examples: "Yes, exactly those. Go with..." or
- * "That's right. Proceed with it." Unrelated new tasks such as "Yes. Tell me about the weather" do not
- * qualify because they lack both an explicit continuation command and a strong cross-turn reference.
+ * Recognize an agreement-led refinement only when the agreement/refinement relationship is explicit
+ * in the nearby clause structure. This deliberately avoids treating an arbitrary pronoun in one clause
+ * plus a new task in another as a continuation of the active objective.
  */
 export function isObjectiveAgreementContinuationRequest(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
   if (!stripped || !AGREEMENT_PREFIX_RE.test(stripped)) return false
-  if (EXPLICIT_CONTINUATION_CUE_RE.test(stripped)) return true
-  return STRONG_ANAPHORIC_REFERENCE_RE.test(stripped) && REFINEMENT_ACTION_RE.test(stripped)
+
+  const clauses = stripped.split(/(?:[.!?]+|,\s+)/).map((clause) => clause.trim()).filter(Boolean)
+  const hasSameClauseReferenceAndAction = clauses.some(
+    (clause) => STRONG_ANAPHORIC_REFERENCE_RE.test(clause) && REFINEMENT_ACTION_RE.test(clause),
+  )
+  if (hasSameClauseReferenceAndAction) return true
+
+  const confirmationReferenceLead = clauses.slice(0, 2).some(
+    (clause) => AGREEMENT_CORE_RE.test(clause) && STRONG_ANAPHORIC_REFERENCE_RE.test(clause),
+  )
+  const laterRefinement = clauses.slice(1).some((clause) => REFINEMENT_ACTION_RE.test(clause))
+  if (confirmationReferenceLead && laterRefinement) return true
+
+  // No command-only exception is allowed here. "Go ahead" or "proceed" may introduce a new subject,
+  // so an inherited objective requires an explicit nearby cross-turn reference as well.
+  return false
+}
+
+// Canonical objective confirmation signal shared by pre-routing and conversation-thread derivation.
+// It intentionally checks the final comma-separated clause, preserving the existing semantics for
+// "yes, go ahead" and for compound corrections that end with "continue" without matching a generic
+// mid-sentence use of "continue".
+const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
+const AGREEMENT_ONLY_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)$/i
+export function isObjectiveConfirmationSignal(text: string): boolean {
+  const cleaned = text.trim().replace(/[!.?]+$/, '')
+  if (!cleaned) return false
+  const clauses = cleaned.split(/\s*,\s*/)
+  const lastClause = clauses[clauses.length - 1]?.trim()
+  return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
+}
+export function isBareObjectiveConfirmation(text: string): boolean {
+  const cleaned = text.trim().replace(/[!.?]+$/, '')
+  if (!cleaned) return false
+  if (OBJECTIVE_CONFIRMATION_WORD_RE.test(cleaned)) return true
+  const clauses = cleaned.split(/\s*,\s*/)
+  return clauses.length === 2
+    && AGREEMENT_ONLY_RE.test(clauses[0]!.trim())
+    && OBJECTIVE_CONFIRMATION_WORD_RE.test(clauses[1]!.trim())
 }
 // Tier 4 hygiene fix (2026-09-13): another canonical-consolidation drift, of the same kind this file
 // already fixed once for continuation/restatement detection. Three near-identical word lists for

@@ -7,7 +7,7 @@ import type { TaskType } from './subagent-governance'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -66,6 +66,11 @@ const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 // class of bug this file's own header comment warns about. Capitalizing only the alternation (not
 // adding a blanket /i flag) is deliberate: [A-Z]{1,5} must stay upper-case-only, since matching a
 // lower-case run there would turn this into an unrelated "verb + any short word" detector.
+// Concise equity-research form: a user may provide only the research verb plus an uppercase ticker
+// (for example, "Research GEOS"). This must be separate from SHORT_TICKER_ACTION_RE because research
+// verbs do not imply a trading action. The uppercase-token guard keeps ordinary prose from matching;
+// known common acronyms are excluded by the same allowlist used by the trading-action path.
+const CONCISE_TICKER_RESEARCH_RE = /\b(?:[Rr]esearch|[Aa]naly[sz]e|[Rr]eview|[Ss]tudy|[Ii]nvestigate|[Ll]ook\s+into)\s+([A-Z]{2,5})\b/
 const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\s+)?([A-Z]{1,5})\b/
 // A bare imperative purchase command ("Buy API credits.", "Purchase more storage.") at the start of
 // the message is a direct action to execute, not a stock-ticker research signal (that's
@@ -73,7 +78,7 @@ const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\
 // hedged decision/analysis question ("Should we buy...", "Analyze whether we should buy..." --
 // neither starts with the verb, so this anchored-to-start pattern never touches them).
 const IMPERATIVE_ACQUIRE_RE = /^(?:buy|purchase|acquire|order)\b/i
-const COMMON_ACRONYM_RE = /^(?:API|AWS|CPU|CRM|ERP|GPU|HTML|HTTP|HTTPS|RAM|SaaS|SDK|SQL|UI|URL|VPN|XML)$/
+const COMMON_ACRONYM_RE = /^(?:AI|API|AWS|CEO|CFO|CIO|CMO|COO|CPA|CFA|CPU|CRM|CTO|CSO|ERP|GPU|HR|HTML|HTTP|HTTPS|ML|RAM|R&D|SaaS|SEC|SDK|SQL|UI|URL|VPN|XML)$/
 const COMPANY_ENTITY_RE = /\b(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited)\b/i
 const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:italization)?|p\/e|pe\s+ratio|eps|price\s+target|sec\s+filing|invest(?:ing|ment)?|portfolio)\b/i
 // Deep-audit fix (2026-09-13): split into a weak, generic-pronoun signal and a strong, unambiguous
@@ -96,8 +101,13 @@ const TOOL_ACTION_RE = /\b(?:create|delete|edit|update|change|schedule|send|run|
 
 function isExternalEquityResearch(text: string): boolean {
   const tickerAction = text.match(SHORT_TICKER_ACTION_RE)
-  if (tickerAction && !COMMON_ACRONYM_RE.test(tickerAction[1])) return !isInternalEquityContext(text)
-  if (!MARKET_SECURITY_RE.test(text) || (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text))) return false
+  if (tickerAction) return !COMMON_ACRONYM_RE.test(tickerAction[1]) && !isInternalEquityContext(text)
+
+  const conciseResearch = text.match(CONCISE_TICKER_RESEARCH_RE)
+  if (conciseResearch) return !COMMON_ACRONYM_RE.test(conciseResearch[1]) && !isInternalEquityContext(text)
+
+  if (!MARKET_SECURITY_RE.test(text)) return false
+  if (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
   if (isInternalEquityContext(text)) return false
   return EXPLICIT_TICKER_RE.test(text) || COMPANY_ENTITY_RE.test(text) || MARKET_PHRASE_RE.test(text)
 }
@@ -205,28 +215,10 @@ function buildDecision(input: { route: PreRouteDecision['route']; reason: string
   return { ...input, executionContract }
 }
 
-const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
-// Re-audited (2026-09-13): the original whole-message-anchored OBJECTIVE_CONFIRMATION_RE required the
-// ENTIRE message to be nothing but one listed phrase, so it never matched its own motivating case --
-// "yes, go ahead" fails outright because the comma isn't in its trailing `[\s!.?]*` allowance -- and
-// isContinuationOrRestatementRequest doesn't cover it either (none of its phrases start with "yes"). A
-// bare confirmation/continuation cue is almost always the LAST comma-separated clause of the message,
-// not necessarily the whole thing -- also true of a real production case combining an entity correction
-// with a trailing "continue" ("...MIND Technology, Inc. (MIND), continue"). Checking only the final
-// clause keeps this narrow: an unrelated sentence that happens to use "continue" as an ordinary verb
-// mid-clause ("we should continue monitoring the campaign, though I'm still unsure about budget.") does
-// not qualify, since its final clause isn't a bare confirmation word on its own.
-function isObjectiveConfirmationSignal(text: string): boolean {
-  const cleaned = text.trim().replace(/[!.?]+$/, '')
-  if (!cleaned) return false
-  const clauses = cleaned.split(/\s*,\s*/)
-  const lastClause = clauses[clauses.length - 1]?.trim()
-  return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
-}
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
-  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current) || isObjectiveAgreementContinuationRequest(current)
+  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current) || isObjectiveAgreementContinuationRequest(current) || isDemonstrativeContinuationRequest(current) || isObjectiveProgressionRequest(current)
   if (!isContinuation) return undefined
   const candidates = context.state.threads
     .filter((thread) => thread.status === 'active' || thread.status === 'paused')
@@ -236,7 +228,11 @@ function latestContinuableObjective(context?: CanonicalConversationContext): str
   // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
   // the original thread title remains the durable objective anchor. This prevents "yes, go ahead" or
   // an entity correction ending the underlying research/action objective itself.
-  return thread.title.trim() || thread.currentObjective.trim() || undefined
+  const title = thread.title.trim()
+  const currentObjective = thread.currentObjective.trim()
+  if (!title) return currentObjective || undefined
+  if (!currentObjective || currentObjective === title) return title
+  return `${title}\n${currentObjective}`
 }
 
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): decisionContract lets a caller that

@@ -11,6 +11,13 @@ const user = (content: string) => [{ role: 'user' as const, content }]
 // the message from the bare-pronoun block, while the specific internal-operations/finance nouns still
 // unconditionally block it.
 describe('pre-router: equity research about a named competitor survives an "our/we" pronoun', () => {
+  test('excludes common role and platform acronyms from concise ticker research', () => {
+    for (const text of ['Research CEO', 'Research CFO', 'Research API', 'Research AWS', 'Analyze ML']) {
+      const decision = preRouteCeoRequest(user(text))
+      expect(decision.executionContract.domain).not.toBe('public_equity')
+    }
+  })
+
   test.each([
     'Should we buy shares of our competitor?',
     'Should we invest in our biggest rival\'s stock?',
@@ -42,6 +49,29 @@ describe('pre-router: equity research about a named competitor survives an "our/
 // 'none'/'none'/false -- no evidence-gathering tool (including the real market-data dispatch path fixed
 // in the immediately preceding round) was ever reachable, regardless of how well it worked, because the
 // request never got routed there in the first place.
+describe('pre-router: concise uppercase-ticker research remains public-equity research', () => {
+  test.each([
+    'Research GEOS',
+    'research AAPL',
+    'Review NVDA',
+  ])('classifies a concise uppercase-ticker research request as public equity: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
+  test.each([
+    'Research API',
+    'Analyze CPU',
+    'Review CEO compensation',
+  ])('does not promote common acronyms or role terms to public-equity research: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+})
+
 describe('pre-router: a natural information-request ("give me updates on X", "tell me about X") about a named stock is real research, not conversation', () => {
   test.each([
     'can you give me updates about 2 stocks, GEOS and MIND tecnology, in your own words.',
