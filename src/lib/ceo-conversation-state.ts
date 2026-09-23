@@ -132,17 +132,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     const correctionSharesThreadEntity = Boolean(
       currentActive
       && currentActive.entities.some((entity) => {
-        const escaped = entity.replace(/[.*+?^\${}()|[\]\\]/g, '\\  const contextualContinuation = Boolean(
-      currentActive && (
-        isContinuationOrRestatementRequest(content)
-        || isObjectiveAgreementContinuationRequest(content)
-        || isDemonstrativeContinuationRequest(content)
-        || isObjectiveProgressionRequest(content)
-        || isBareObjectiveConfirmation(content)
-        || isCorrectionRequest(content)
-        || usableReference
-      ),
-    )')
+        const escaped = entity.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')
         return new RegExp(`\\b${escaped}\\b`, 'i').test(content)
       }),
     )
