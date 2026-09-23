@@ -51,6 +51,23 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
   return STRONG_ANAPHORIC_REFERENCE_RE.test(stripped) && REFINEMENT_ACTION_RE.test(stripped)
 }
 
+const BARE_OBJECTIVE_CONTINUATION_RE = /^(?:continue|go on|keep going|carry on|same thread|same topic|continue from there|where we left off|from where we left off|what did we decide|what did we discuss|what have we ruled out|what about the (?:first|second|third|last|other) option|based on what we established|what did you say|tell me (?:that\\s+)?in your (?:own\\s+)?words|in your (?:own\\s+)?words|put (?:it|that) (?:in your (?:own\\s+)?words|your way)|say it your way|how would you (?:say|phrase) (?:it|that)|paraphrase (?:it|that)|remind me)\\b/i
+const REFERENTIAL_RESTATEMENT_RE = /^(?:summar(?:i|y)ze|recap)\\s+(?:this|that|it|these|those|our|the\\s+(?:discussion|conversation|thread|decision|plan|analysis|findings))\\b/i
+
+/** Canonical routing continuity signal. Kept separate from the broader quality-gate restatement signal. */
+export function isObjectiveContinuationSignal(text: string): boolean {
+  const stripped = text.trim().replace(LEADING_FILLER_RE, '')
+  return Boolean(
+    stripped
+    && (
+      isObjectiveConfirmationSignal(stripped)
+      || isObjectiveAgreementContinuationRequest(stripped)
+      || BARE_OBJECTIVE_CONTINUATION_RE.test(stripped)
+      || REFERENTIAL_RESTATEMENT_RE.test(stripped)
+    ),
+  )
+}
+
 /** Strong public-equity objective signal used only when a continuation needs intent inheritance. */
 export function isLikelyPublicEquityResearchObjective(text: string): boolean {
   const value = text.trim()
