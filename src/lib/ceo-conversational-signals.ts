@@ -33,7 +33,7 @@ const CONTINUATION_OR_RESTATEMENT_RE = /^(?:continue|go on|keep going|carry on|s
 // objective..." are often a continuation of the active thread even when they have little literal token
 // overlap with the opening turn. Kept separate from generic context/reference detection so an arbitrary
 // new sentence is not automatically attached to an existing thread.
-const OBJECTIVE_PROGRESSION_RE = /^(?:the\s+(?:second|third|next|other|last)\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b|another\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b|(?:also|additionally|in\s+addition|on\s+top\s+of\s+that)\b)/i
+const OBJECTIVE_PROGRESSION_RE = /^(?:the\s+(?:second|third|next|other|last)\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b|another\s+(?:priority|point|step|item|part|phase|option|issue|area|goal|objective)\b)/i
 
 export function isObjectiveProgressionRequest(text: string): boolean {
   const stripped = text.trim().replace(LEADING_FILLER_RE, '')
