@@ -338,9 +338,12 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const inheritedObjective = inheritedThread ? (() => {
     const anchor = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
     const currentObjective = inheritedThread.currentObjective.trim()
-    const currentTurn = semanticContext?.currentMessage.trim() ?? ''
-    if (!anchor) return currentObjective && currentObjective !== currentTurn ? currentObjective : undefined
-    if (!currentObjective || currentObjective === anchor || currentObjective === currentTurn) return anchor
+    if (!anchor) return currentObjective || undefined
+    // Continuity was already proven by latestContinuableThread before this text is built. The current
+    // objective is therefore legitimate task refinement, not evidence that can self-authorize inheritance.
+    // Retain it so the downstream evidence planner receives both the durable subject and the current
+    // scope (e.g. "past two weeks", "press releases", "analyst coverage").
+    if (!currentObjective || currentObjective === anchor) return anchor
     return anchor + '\n' + currentObjective
   })() : undefined
   const finalizeDecision = (input: Parameters<typeof buildDecision>[0]): PreRouteDecision => buildDecision({ ...input, ...(inheritedObjective ? { routingObjective: inheritedObjective } : {}) })
