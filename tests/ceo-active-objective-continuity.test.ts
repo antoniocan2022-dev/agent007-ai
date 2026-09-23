@@ -113,6 +113,16 @@ describe('CEO active objective continuity', () => {
     expect(contract.responseAction).toBe('answer')
   })
 
+  it('does not inherit an active objective for a standalone reminder request', () => {
+    const followUp = 'Remind me to call the accountant tomorrow.'
+    const priorRows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: 2 },
+    ]
+    const state = deriveCeoConversationState(priorRows, followUp)
+    expect(resolveConversationReferences(followUp, priorRows, state)).toEqual([])
+  })
+
   it('does not inherit an active objective for a standalone generic summarization request', () => {
     const followUp = 'Summarize the report for me.'
     const priorRows = [
@@ -134,6 +144,38 @@ describe('CEO active objective continuity', () => {
     const references = resolveConversationReferences(followUp, priorRows, state)
     expect(references[0]?.kind).toBe('continuation')
     expect(references[0]?.ambiguous).toBe(false)
+  })
+
+  it('keeps canonical contract, pre-router, and evidence route aligned end-to-end under model-assisted disagreement', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const priorRows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: 1 },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: 2 },
+    ]
+    const state = deriveCeoConversationState(priorRows, followUp)
+    const references = resolveConversationReferences(followUp, priorRows, state)
+    const canonical = buildCanonicalConversationContext({
+      currentMessage: followUp,
+      rows: priorRows,
+      state,
+      references,
+      semanticInterpretation: { source: 'model_assisted', confidence: 0.95, suggestedIntent: 'conversation' },
+    })
+    const decisionContract = buildConversationDecisionContract(canonical)
+    const preRoute = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Which MIND company do you mean?' }, { role: 'user', content: followUp }],
+      0,
+      canonical,
+      decisionContract,
+    )
+    expect(decisionContract.intent).toBe('research')
+    expect(decisionContract.evidenceRequirement).toBe('required')
+    expect(preRoute.executionContract.intent).toBe(decisionContract.intent)
+    expect(preRoute.executionContract.evidenceClass).toBe('external_web')
+    expect(preRoute.executionContract.evidenceRequirement).toBe('multi_source')
+    expect(preRoute.executionContract.executionRequirement).toBe('multi_source')
+    expect(preRoute.executionContract.toolRequired).toBe(true)
+    expect(preRoute.route).toBe('full')
   })
 
   it('does not classify an agreement-led unrelated task as an objective continuation', () => {
