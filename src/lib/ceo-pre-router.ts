@@ -7,7 +7,8 @@ import type { TaskType } from './subagent-governance'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { resolveActiveThread } from './ceo-reference-resolution'
+import { isRetrospectiveConversationRequest, isObjectiveContinuationSignal, isObjectiveConfirmationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -216,23 +217,10 @@ function buildDecision(input: { route: PreRouteDecision['route']; reason: string
 }
 
 function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
-  if (!context) return undefined
-  const current = context.currentMessage.trim()
-  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current) || isObjectiveAgreementContinuationRequest(current) || isDemonstrativeContinuationRequest(current) || isObjectiveProgressionRequest(current)
-  if (!isContinuation) return undefined
-  const candidates = context.state.threads
-    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
-    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
-  const thread = candidates[0]
-  if (!thread) return undefined
-  // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
-  // the original thread title remains the durable objective anchor. This prevents "yes, go ahead" or
-  // an entity correction ending the underlying research/action objective itself.
-  const title = thread.title.trim()
-  const currentObjective = thread.currentObjective.trim()
-  if (!title) return currentObjective || undefined
-  if (!currentObjective || currentObjective === title) return title
-  return `${title}\n${currentObjective}`
+  if (!context || !isObjectiveContinuationSignal(context.currentMessage)) return undefined
+  const resolution = resolveActiveThread(context.currentMessage, context.state.threads)
+  if (!resolution || resolution.ambiguous) return undefined
+  return resolution.resolvedObjective?.trim() || resolution.resolvedText?.trim() || undefined
 }
 
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): decisionContract lets a caller that
