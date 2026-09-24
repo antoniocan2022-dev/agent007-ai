@@ -178,7 +178,7 @@ const RESTORE_ORDER: BackupTable[] = [
   'ServicePackage', 'SystemHealth', 'Transaction', 'TwoFactorSecret', 'Experiment',
   'PlatformConnection', 'MissionTracker', 'SentimentLog', 'Schedule', 'CustomSubagent',
   'Conversation', 'Message', 'NotificationLog', 'RecommendationMissionLink', 'RecommendationReview',
-  'EvidenceEntityNode', 'EvidenceEntityEdge', 'EvidenceWatch', 'EvidenceWatchHit',
+  'EvidenceEntityNode', 'EvidenceEntityEdge', 'EvidenceWatch', 'EvidenceWatchHit', 'CeoResearchObjective', 'CeoResearchObjectiveEvent',
 ]
 
 export async function restoreBackupV2(input: any, dryRun = true, targetClient: PrismaClient = db) {
