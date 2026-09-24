@@ -158,19 +158,25 @@ export async function ensureResearchObjective(input: {
         const nextVersion = shouldVersion ? active.version + 1 : active.version
         const updated = await tx.ceoResearchObjective.update({
           where: { id: active.id },
-          data: {
-            version: nextVersion,
-            lifecycleState: input.lifecycleState,
-            domain: 'public_equity',
-            evidenceProfile: 'public_equity',
-            operation: input.candidate.operation,
-            temporalScope: input.candidate.temporalScope,
-            currentObjective: shouldVersion ? normalize(input.candidate.currentObjective).slice(0, 8000) || active.currentObjective : active.currentObjective,
-            tickersJson: JSON.stringify(candidateTickers.length ? candidateTickers : safeJsonArray(active.tickersJson)),
-            issuersJson: JSON.stringify(unique([ ...safeJsonArray(active.issuersJson), ...(input.candidate.issuers ?? []) ], 16)),
-            lastTurnSequence: input.turnSequence,
-            updatedAt: now,
-          },
+          data: shouldVersion
+            ? {
+                version: nextVersion,
+                lifecycleState: input.lifecycleState,
+                domain: 'public_equity',
+                evidenceProfile: 'public_equity',
+                operation: input.candidate.operation,
+                temporalScope: input.candidate.temporalScope,
+                currentObjective: normalize(input.candidate.currentObjective).slice(0, 8000) || active.currentObjective,
+                tickersJson: JSON.stringify(candidateTickers.length ? candidateTickers : safeJsonArray(active.tickersJson)),
+                issuersJson: JSON.stringify(unique([ ...safeJsonArray(active.issuersJson), ...(input.candidate.issuers ?? []) ], 16)),
+                lastTurnSequence: input.turnSequence,
+                updatedAt: now,
+              }
+            : {
+                lifecycleState: input.lifecycleState,
+                lastTurnSequence: input.turnSequence,
+                updatedAt: now,
+              },
         })
         await tx.ceoResearchObjectiveEvent.create({
           data: {
