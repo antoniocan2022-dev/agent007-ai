@@ -239,7 +239,7 @@ export interface CeoResponseIntegritySummary { currentObjectiveMatch: boolean; r
 // file. `applicable: false` (the default for any turn that never produced Phase 3's structured source
 // model) means every other field is a fixed, meaningless default; callers should check `applicable`
 // before reading the rest.
-export interface StructuralQualitySummary { applicable: boolean; claimCoverage: number; claimCoverageOk: boolean; representedSectionCount: number; contradictionFlaggedUpstream: boolean; contradictionPreserved: boolean; sourceAttributionPresent: boolean }
+export interface StructuralQualitySummary { applicable: boolean; claimCoverage: number; claimCoverageOk: boolean; representedSectionCount: number; contradictionFlaggedUpstream: boolean; contradictionPreserved: boolean; sourceAttributionPresent: boolean; sourceCoverageComplete: boolean }
 export interface CeoControlPlaneSummary { schemaVersion: 1; requestId?: string; responseAction?: ResponseAction; evidenceState: EvidenceState; qualityDecision: QualityDecision; executionCompleted: boolean; verified: boolean; degraded: boolean }
 export interface CeoResponseCandidate { candidateId: string; requestId?: string; content: string; contentHash: string; createdAt: number }
 export interface CeoQualityDecision { decisionId: string; candidateId: string; candidateHash: string; decision: QualityDecision; reasons: readonly string[]; decidedAt: number }

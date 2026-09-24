@@ -6,7 +6,8 @@ import { buildCeoExecutionPlan } from '@/lib/ceo-execution-plan'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 import { buildCeoDegradedResponse } from '@/lib/ceo-degraded-mode'
 import { runGovernedProviderChat } from '@/lib/provider-runtime-v2'
-import { replaceCurrentUserMessage, runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityCheck } from '@/lib/ceo-cognitive-lifecycle'
+import { replaceCurrentUserMessage, runCeoCognitiveLifecycle, semanticSubstanceCheck, semanticContinuityCheck, isFutileStructuralCoverageEscalation } from '@/lib/ceo-cognitive-lifecycle'
+import type { QualityResult } from '@/lib/ceo-cognitive-contract'
 import { resetProviderHealthForTests } from '@/lib/provider-intelligence'
 import { resetProviderStandingForTests } from '@/lib/provider-standing'
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
@@ -899,6 +900,52 @@ describe('CEO cognitive lifecycle', () => {
     expect(recoveryBody).toContain('HIERARCHICAL DOCUMENT COMPREHENSION')
     resetProviderHealthForTests()
     resetProviderStandingForTests()
+  })
+
+  // Efficiency fix (2026-09-24): the escalation loop retries with the SAME source messages the primary
+  // call already had, so it can genuinely repair phrasing/consistency/continuity misses but can never add
+  // document sections Phase 3 never processed. isFutileStructuralCoverageEscalation identifies the one
+  // case where escalating is guaranteed to fail the same check again -- incomplete structural coverage as
+  // the SOLE blocker -- so that attempt is skipped and the turn goes straight to tryDegraded's already
+  // coverage-aware recovery response instead of wasting a round-trip.
+  describe('isFutileStructuralCoverageEscalation', () => {
+    const passingChecks = { nonEmpty: true, contractValid: true, objectiveCoverage: false, internalConsistency: true, evidenceDiscipline: true, actionableStructure: true }
+    const incompleteStructural = { applicable: true as const, claimCoverage: 0.2, claimCoverageOk: false, representedSectionCount: 1, contradictionFlaggedUpstream: false, contradictionPreserved: true, sourceAttributionPresent: false, sourceCoverageComplete: false }
+    function baseQuality(overrides: Partial<QualityResult> = {}): QualityResult {
+      return { decision: 'ESCALATE', evidenceState: 'NOT_APPLICABLE', verificationStatus: 'NOT_REQUIRED', checks: passingChecks, reasons: ['The response does not adequately cover the requested objective.'], structuralQuality: incompleteStructural, ...overrides }
+    }
+
+    test('true when incomplete structural coverage is the sole blocker', () => {
+      expect(isFutileStructuralCoverageEscalation(baseQuality())).toBe(true)
+    })
+
+    test('false when the decision already passed -- nothing to skip', () => {
+      expect(isFutileStructuralCoverageEscalation(baseQuality({ decision: 'PASS' }))).toBe(false)
+    })
+
+    test('false when no structural source model was ever supplied (applicable:false)', () => {
+      expect(isFutileStructuralCoverageEscalation(baseQuality({ structuralQuality: { ...incompleteStructural, applicable: false } }))).toBe(false)
+    })
+
+    test('false when coverage is merely narrow but Phase 3 actually finished processing every section -- an escalation could genuinely broaden the answer', () => {
+      expect(isFutileStructuralCoverageEscalation(baseQuality({ structuralQuality: { ...incompleteStructural, sourceCoverageComplete: true } }))).toBe(false)
+    })
+
+    test('false when an unresolved contradiction is also failing -- an escalation can genuinely add acknowledgment language', () => {
+      const quality = baseQuality({
+        checks: { ...passingChecks, internalConsistency: false },
+        structuralQuality: { ...incompleteStructural, contradictionFlaggedUpstream: true, contradictionPreserved: false },
+      })
+      expect(isFutileStructuralCoverageEscalation(quality)).toBe(false)
+    })
+
+    test('false when a genuinely fixable check also fails alongside incomplete coverage (e.g. actionable structure)', () => {
+      expect(isFutileStructuralCoverageEscalation(baseQuality({ checks: { ...passingChecks, actionableStructure: false } }))).toBe(false)
+    })
+
+    test('false when the response is empty -- not a structural-coverage-only failure', () => {
+      expect(isFutileStructuralCoverageEscalation(baseQuality({ checks: { ...passingChecks, nonEmpty: false } }))).toBe(false)
+    })
   })
 
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
