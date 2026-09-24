@@ -154,7 +154,10 @@ export async function POST(req: NextRequest) {
   // Establish/continue the durable objective before the single turn decision is built. This is the
   // boundary that converts a transiently inferred equity task into an authoritative identity that all
   // downstream stages can carry, while preserving the exact current utterance as the response surface.
-  const objectiveCandidate = researchObjectiveFromPreRoute(preRoute, message)
+  const rawObjectiveCandidate = researchObjectiveFromPreRoute(preRoute, message)
+  const objectiveCandidate = rawObjectiveCandidate && contextSeed.canonicalSemanticContext.speechAct === 'correction'
+    ? { ...rawObjectiveCandidate, currentObjective: message }
+    : rawObjectiveCandidate
   if (objectiveCandidate) {
     const continuing = Boolean(activeResearchObjective && shouldContinueResearchObjective(message, activeResearchObjective))
     const lifecycleState = continuing
