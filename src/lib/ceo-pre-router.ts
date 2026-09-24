@@ -244,6 +244,26 @@ function hasThreadTickerAnchor(message: string, thread: CanonicalConversationCon
   const currentTickers = new Set(extract(message))
   return extract(thread.objectiveAnchor ?? thread.title).some((ticker) => currentTickers.has(ticker))
 }
+
+function inferContinuableThreadDomain(thread: CanonicalConversationContext['state']['threads'][number]): EvidenceDomain {
+  const objective = (thread.objectiveAnchor ?? thread.title).trim()
+  if (!objective) return 'general_web'
+
+  // A continuable thread already has durable subject identity. For public-equity threads,
+  // preserve that domain from the original objective instead of letting a current-turn word
+  // such as "news" or "updates" replace the stronger equity scope.
+  if (isExternalEquityResearch(objective)) return 'public_equity'
+
+  const threadTickers = [...new Set(objective.match(/\b[A-Z]{2,5}\b/g) ?? [])]
+    .filter((token) => !COMMON_ACRONYM_RE.test(token))
+  if (
+    threadTickers.length > 0
+    && MARKET_SECURITY_RE.test(objective)
+    && !isInternalEquityContext(objective)
+  ) return 'public_equity'
+
+  return inferExternalDomain(objective)
+}
 function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
@@ -388,8 +408,8 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
-  const activeThreadDomain = objectiveContinuationActive
-    ? inferExternalDomain(inheritedThread?.objectiveAnchor ?? inheritedThread?.title ?? '')
+  const activeThreadDomain = objectiveContinuationActive && inheritedThread
+    ? inferContinuableThreadDomain(inheritedThread)
     : 'general_web'
   const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
     ? activeThreadDomain
