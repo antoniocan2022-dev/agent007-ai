@@ -1,6 +1,7 @@
 import { buildCeoDecisionPlan } from './ceo-cognitive-kernel'
 import type { DecisionPlan, PreRouteDecision, CeoIntent, ResponseAction, OrchestrationOwner, CognitivePath } from './ceo-cognitive-contract'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
+import type { ResearchObjectiveIdentity } from './ceo-research-objective'
 import type { TaskType } from './subagent-governance'
 
 /**
@@ -37,6 +38,7 @@ export interface CeoTurnDecision {
   responseAction?: ResponseAction
   orchestrationOwner: OrchestrationOwner
   path: CognitivePath
+  researchObjective?: ResearchObjectiveIdentity
 }
 
 export function buildCeoTurnDecision(input: {
@@ -55,5 +57,6 @@ export function buildCeoTurnDecision(input: {
     responseAction: input.decisionContract?.responseAction,
     orchestrationOwner: decisionPlan.executionContract.orchestrationOwner,
     path: decisionPlan.path,
+    researchObjective: decisionPlan.researchObjective ?? input.preRoute.researchObjective ?? decisionPlan.executionContract.researchObjective,
   }
 }
