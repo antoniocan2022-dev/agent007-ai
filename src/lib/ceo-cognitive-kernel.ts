@@ -17,6 +17,9 @@ export function buildCeoDecisionPlan(input: {
   taskType?: TaskType
 }): DecisionPlan {
   const latest = [...input.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
+  // The current user utterance is not necessarily the research objective. During a natural continuation,
+  // the durable objective may be the only complete description of what the CEO is actually doing.
+  const authoritativeObjective = input.preRoute.researchObjective?.currentObjective || input.preRoute.routingObjective || latest
   const taskClass = input.taskType ?? input.preRoute.taskClass ?? 'reasoning'
   const adaptiveClass = input.preRoute.adaptiveExecutionClass ?? 'standard'
   const missionRelevant = input.preRoute.missionRelevant || Boolean(input.missionId)
@@ -51,5 +54,5 @@ export function buildCeoDecisionPlan(input: {
   // judges against (objectiveFrom() in ceo-cognitive-lifecycle.ts), so the same turn had three
   // independently-sized views of itself. Nothing currently reads DecisionPlan.objective downstream, but
   // giving it the same canonical clamp as every other representation keeps that true if something starts.
-  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: latest.trim().slice(0, CEO_MESSAGE_CLAMP_CHARS), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract }
+  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: authoritativeObjective.trim().slice(0, CEO_MESSAGE_CLAMP_CHARS), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract, ...(input.preRoute.researchObjective ? { researchObjective: input.preRoute.researchObjective } : {}) }
 }
