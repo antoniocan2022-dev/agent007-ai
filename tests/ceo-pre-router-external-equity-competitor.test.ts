@@ -49,6 +49,41 @@ describe('pre-router: equity research about a named competitor survives an "our/
 // 'none'/'none'/false -- no evidence-gathering tool (including the real market-data dispatch path fixed
 // in the immediately preceding round) was ever reachable, regardless of how well it worked, because the
 // request never got routed there in the first place.
+describe('pre-router: external equity finance language is not falsely classified as internal context', () => {
+  test.each([
+    'Tell me about GEOS earnings.',
+    'Give me the latest earnings update for GEOS.',
+    'Review GEOS cash flow forecast.',
+    'Explain the financials for GEOS.',
+  ])('keeps external company finance wording eligible for public-equity research: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+    expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
+  test.each([
+    'Tell me about our earnings report.',
+    'Explain our financials.',
+    'Review our budget forecast.',
+  ])('keeps clearly internal finance wording out of public-equity research: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+})
+
+describe('pre-router: contextual ticker safety remains case-sensitive and acronym-aware', () => {
+  test('does not promote lowercase short words to ticker research', () => {
+    const decision = preRouteCeoRequest(user('Tell me about geos earnings.'))
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+
+  test.each(['Tell me about API earnings.', 'Explain CEO compensation.', 'Review SEC filings.'])('does not promote common acronyms to ticker research: %s', (text) => {
+    const decision = preRouteCeoRequest(user(text))
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+})
+
 describe('pre-router: concise uppercase-ticker research remains public-equity research', () => {
   test.each([
     'Research GEOS',

@@ -1,7 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
 import { containsInternalArtifactToken } from './ceo-behavioral-policy'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
+import { isCorrectionRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
 export type ConversationTone = 'neutral' | 'friendly' | 'technical' | 'serious' | 'frustrated' | 'celebratory'
@@ -83,7 +83,7 @@ function deriveSupersedableSignals(rows: readonly PersistedConversationRow[], pr
   return signals
 }
 function threadStatus(text: string, now: number, lastTouchedAt: number, hasNewerTopic: boolean): ConversationThreadRecord['status'] { if (RESOLUTION_RE.test(text)) return 'resolved'; if (SUPERSESSION_RE.test(text) || hasNewerTopic) return 'superseded'; if (now - lastTouchedAt > 1000 * 60 * 60 * 24 * 7) return 'paused'; return 'active' }
-const TRIVIAL_THREAD_MESSAGE_RE = /^(?:hi|hello|hey|yo|thanks?|thank\s+you|ok(?:ay)?|yes|yeah|yep|yup|sure|great|perfect|continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on|bye|good\s+(?:morning|afternoon|evening))[.!?\s]*$/i
+const TRIVIAL_THREAD_MESSAGE_RE = /^(?:hi|hello|hey|yo|thanks?|thank\s+you|ok(?:ay)?|yes|yeah|yep|yup|sure|great|perfect|continue|go\s+ahead|proceed|do\s+it|keep\s+going|carry\s+on|go\s+on|bye|good\s+(?:morning|afternoon|evening))[.!?,;:\s]*$/i
 function isThreadBearingUserMessage(content: string): boolean {
   const value = content.trim()
   return value.length >= 4 && !TRIVIAL_THREAD_MESSAGE_RE.test(value)
@@ -125,18 +125,44 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
     // Otherwise any new sentence beginning with "this/that/it" can become a high-confidence self-match
     // and incorrectly inherit the current active thread. Only prior safe rows are eligible as anchors.
     const priorSafeRows = safeRows.filter((candidate) => candidate !== row)
-    const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.title) : null
+    const reference = currentActive ? resolveGeneralReference(content, priorSafeRows, currentActive.objectiveAnchor ?? currentActive.title) : null
     // resolveGeneralReference() guarantees a resolved, non-ambiguous prior-row anchor at >=0.55; use
     // that same floor here. The current row is already excluded above, so this cannot become a self-match.
     const usableReference = Boolean(reference?.resolvedText && !reference.ambiguous && reference.confidence >= 0.55)
+    const correctionSharesThreadEntity = Boolean(
+      currentActive
+      && currentActive.entities.some((entity) => {
+        const escaped = entity.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')
+        return new RegExp(`\\b${escaped}\\b`, 'i').test(content)
+      }),
+    )
+    const correctionContinuation = Boolean(
+      currentActive
+      && isCorrectionRequest(content)
+      && (
+        usableReference
+        || correctionSharesThreadEntity
+        || overlap(content, `${currentActive.title} ${currentActive.currentObjective}`) >= 0.1
+      ),
+    )
+    const anchoredNonBareContinuation = Boolean(
+      currentActive
+      && isObjectiveContinuationCue(content)
+      && (
+        usableReference
+        || overlap(content, currentActive.objectiveAnchor ?? currentActive.title) >= 0.1
+        || currentActive.entities.some((entity) => content.toLowerCase().includes(entity.toLowerCase()))
+      ),
+    )
     const contextualContinuation = Boolean(
       currentActive && (
-        isContinuationOrRestatementRequest(content)
+        isBareContinuationOrRestatementRequest(content)
+        || anchoredNonBareContinuation
         || isObjectiveAgreementContinuationRequest(content)
         || isDemonstrativeContinuationRequest(content)
         || isObjectiveProgressionRequest(content)
         || isBareObjectiveConfirmation(content)
-        || isCorrectionRequest(content)
+        || correctionContinuation
         || usableReference
       ),
     )
@@ -148,7 +174,7 @@ function buildThreads(rows: readonly PersistedConversationRow[], now = Date.now(
       if (currentActive) currentActive.status = 'superseded'
       const id = `conversation-thread-${threads.length + 1}`
       const freshStatus = supersedes ? 'active' : threadStatus(content, now, timestamp(row.createdAt), false)
-      threads.push({ id, title: content.slice(0, 80), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
+      threads.push({ id, title: content.slice(0, 80), objectiveAnchor: content.slice(0, 2000), topic: topicTokens.slice(0, 4).join(', ') || content.slice(0, 80), entities: [...new Set(content.match(ENTITY_RE) ?? [])], currentObjective: content, unresolvedQuestions: QUESTION_RE.test(content) ? [content] : [], decisions: DECISION_RE.test(content) ? [content] : [], lastTouchedAt: timestamp(row.createdAt), status: freshStatus })
     }
   }
   const assistantRows = safeRows.filter((row) => row.role === 'assistant').map((row) => ({ content: normalize(row.content), at: timestamp(row.createdAt) })).sort((a, b) => a.at - b.at)

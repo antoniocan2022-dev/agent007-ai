@@ -7,7 +7,7 @@ import type { TaskType } from './subagent-governance'
 import { assertCeoEvidenceContractInvariant, deriveEvidenceProfile, normalizeCeoEvidenceContract, extractInstructionWindow } from './ceo-cognitive-contract'
 import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, EvidenceOperation, EvidenceProfile, EvidenceRequirement, ExecutionRequirement, OrchestrationOwner, PreRouteDecision, TemporalScope } from './ceo-cognitive-contract'
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
-import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
+import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
@@ -71,6 +71,11 @@ const EXPLICIT_TICKER_RE = /\([A-Z]{1,5}\)/
 // verbs do not imply a trading action. The uppercase-token guard keeps ordinary prose from matching;
 // known common acronyms are excluded by the same allowlist used by the trading-action path.
 const CONCISE_TICKER_RESEARCH_RE = /\b(?:[Rr]esearch|[Aa]naly[sz]e|[Rr]eview|[Ss]tudy|[Ii]nvestigate|[Ll]ook\s+into)\s+([A-Z]{2,5})\b/
+// Contextual ticker-finance form: ordinary requests such as "Tell me about GEOS earnings" or
+// "Explain the financials for GEOS" carry an uppercase ticker and unmistakable market-finance language
+// but do not use an explicit research verb. Keep this narrow by requiring the ticker to be adjacent to
+// a finance term (or "for/of" the ticker) and retain the normal action/information-request gate below.
+const CONTEXTUAL_TICKER_FINANCE_RE = /\b(?:([A-Z]{2,5})\s+(?:stock|shares?|earnings|financials?|valuation|price|dividend|eps|filings?|cash\s+flow(?:\s+forecast)?|forecast)|(?:stock|shares?|earnings|financials?|valuation|price|dividend|eps|filings?|cash\s+flow(?:\s+forecast)?)[^.!?]{0,32}\b(?:for|of)\s+([A-Z]{2,5}))\b/
 const SHORT_TICKER_ACTION_RE = /\b(?:[Bb]uy|[Ss]ell|[Ii]nvest|[Tt]rade)\s+(?:in\s+)?([A-Z]{1,5})\b/
 // A bare imperative purchase command ("Buy API credits.", "Purchase more storage.") at the start of
 // the message is a direct action to execute, not a stock-ticker research signal (that's
@@ -89,7 +94,7 @@ const MARKET_PHRASE_RE = /\b(?:stock(?:s)?|share(?:s)?|ticker|market\s+cap(?:ita
 // research. The specific internal-operations/finance nouns (spare parts, warehouse, founder, budget,
 // etc.) remain an unconditional block -- those are genuinely internal topics regardless of phrasing.
 const INTERNAL_PRONOUN_RE = /\b(?:our|we|us|my)\b/i
-const INTERNAL_SPECIFIC_TOPIC_RE = /\b(?:internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|cash\s+flow\s+forecast|earnings\s+report|financial\s+forecast|budget|forecast|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
+const INTERNAL_SPECIFIC_TOPIC_RE = /\b(?:internal|spare\s+parts?|inventory|stockroom|warehouse|server|servers|equipment|founder(?:s)?|co-?founder(?:s)?|ownership\s+split|budget|procurement|purchase\s+order|meeting|review\s+meeting|operational|parts?)\b/i
 const EXTERNAL_ENTITY_RE = /\b(?:competitor(?:s)?|rival(?:s)?)\b/i
 function isInternalEquityContext(text: string): boolean {
   if (INTERNAL_SPECIFIC_TOPIC_RE.test(text)) return true
@@ -105,6 +110,13 @@ function isExternalEquityResearch(text: string): boolean {
 
   const conciseResearch = text.match(CONCISE_TICKER_RESEARCH_RE)
   if (conciseResearch) return !COMMON_ACRONYM_RE.test(conciseResearch[1]) && !isInternalEquityContext(text)
+
+  const contextualTickerFinance = text.match(CONTEXTUAL_TICKER_FINANCE_RE)
+  if (contextualTickerFinance) {
+    const ticker = contextualTickerFinance[1] ?? contextualTickerFinance[2]
+    const requestAction = MARKET_ACTION_RE.test(text) || MARKET_RESEARCH_LOOKUP_RE.test(text) || INFO_REQUEST_ACTION_RE.test(text)
+    if (ticker && requestAction && !COMMON_ACRONYM_RE.test(ticker) && !isInternalEquityContext(text)) return true
+  }
 
   if (!MARKET_SECURITY_RE.test(text)) return false
   if (!MARKET_ACTION_RE.test(text) && !MARKET_RESEARCH_LOOKUP_RE.test(text) && !INFO_REQUEST_ACTION_RE.test(text)) return false
@@ -209,31 +221,127 @@ function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoI
   if (context.intentHint === 'action') return 'tool_action'
   return undefined
 }
-function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract }): PreRouteDecision {
+function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; routingObjective?: string }): PreRouteDecision {
   const executionContract = normalizeCeoEvidenceContract(input.executionContract)
   assertCeoEvidenceContractInvariant(executionContract)
   return { ...input, executionContract }
 }
 
-function latestContinuableObjective(context?: CanonicalConversationContext): string | undefined {
+function hasSignificantThreadOverlap(message: string, thread: CanonicalConversationContext['state']['threads'][number]): boolean {
+  const stopwords = new Set(['about', 'after', 'again', 'because', 'before', 'being', 'between', 'could', 'from', 'have', 'into', 'more', 'most', 'other', 'should', 'that', 'their', 'there', 'these', 'they', 'this', 'those', 'through', 'under', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your', 'please', 'then', 'than', 'just', 'like', 'really', 'very', 'doing', 'does', 'dont', 'you', 'are', 'how', 'why', 'can', 'tell', 'give', 'make', 'want', 'were', 'will', 'been', 'them', 'same', 'go', 'ahead', 'continue'])
+  const tokens = (value: string) => [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !stopwords.has(token)))]
+  const current = new Set(tokens(message))
+  // The durable objectiveAnchor is the preferred continuity basis. It is immutable after thread creation,
+  // unlike currentObjective, which may already contain the current turn. The display title remains a
+  // deliberately short presentation field and must not be used as the sole objective anchor.
+  const prior = tokens(thread.objectiveAnchor ?? thread.title)
+  const shared = prior.filter((token) => current.has(token))
+  return shared.length >= 2 || shared.some((token) => token.length >= 8)
+}
+
+function hasThreadTickerAnchor(message: string, thread: CanonicalConversationContext['state']['threads'][number]): boolean {
+  const extract = (value: string) => [...new Set(value.match(/\b[A-Z]{2,5}\b/g) ?? [])].filter((token) => !COMMON_ACRONYM_RE.test(token))
+  const currentTickers = new Set(extract(message))
+  return extract(thread.objectiveAnchor ?? thread.title).some((ticker) => currentTickers.has(ticker))
+}
+
+function inferContinuableThreadDomain(thread: CanonicalConversationContext['state']['threads'][number]): EvidenceDomain {
+  const objective = (thread.objectiveAnchor ?? thread.title).trim()
+  if (!objective) return 'general_web'
+
+  // Prefer the original thread's explicit entity registry when it exists. Continuation routing must
+  // not let a current-turn surface word such as "news" replace a previously established equity domain.
+  const entityTickers = thread.entities
+    .filter((entity) => /^[A-Z]{2,5}$/.test(entity))
+    .filter((entity) => !COMMON_ACRONYM_RE.test(entity))
+
+  const objectiveTickers = [...new Set(objective.match(/\b[A-Z]{2,5}\b/g) ?? [])]
+    .filter((token) => !COMMON_ACRONYM_RE.test(token))
+
+  const hasEquityMarketSignal = MARKET_SECURITY_RE.test(objective)
+    || /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\b/i.test(objective)
+
+  if (
+    !isInternalEquityContext(objective)
+    && hasEquityMarketSignal
+    && (entityTickers.length > 0 || objectiveTickers.length > 0)
+  ) return 'public_equity'
+
+  if (isExternalEquityResearch(objective)) return 'public_equity'
+  return inferExternalDomain(objective)
+}
+function findTickerAnchoredEquityThread(context: CanonicalConversationContext, current: string): CanonicalConversationContext['state']['threads'][number] | undefined {
+  const hasContinuationSignal =
+    isObjectiveContinuationCue(current)
+    || isBareContinuationOrRestatementRequest(current)
+    || isObjectiveAgreementContinuationRequest(current)
+    || isDemonstrativeContinuationRequest(current)
+    || isObjectiveProgressionRequest(current)
+    || isObjectiveConfirmationSignal(current)
+  if (!hasContinuationSignal) return undefined
+
+  const currentTickers = new Set(current.match(/\b[A-Z]{2,5}\b/g) ?? [])
+  if (!currentTickers.size) return undefined
+
+  const candidates = context.state.threads
+    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
+
+  for (const thread of candidates) {
+    const domain = inferContinuableThreadDomain(thread)
+    if (domain !== 'public_equity') continue
+    const threadText = [thread.objectiveAnchor ?? thread.title, thread.currentObjective, ...thread.entities].join(' ')
+    const threadTickers = new Set(threadText.match(/\b[A-Z]{2,5}\b/g) ?? [])
+    if ([...currentTickers].some((ticker) => threadTickers.has(ticker) && !COMMON_ACRONYM_RE.test(ticker))) return thread
+  }
+
+  return undefined
+}
+
+function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
-  const isContinuation = isContinuationOrRestatementRequest(current) || isObjectiveConfirmationSignal(current) || isObjectiveAgreementContinuationRequest(current) || isDemonstrativeContinuationRequest(current) || isObjectiveProgressionRequest(current)
-  if (!isContinuation) return undefined
+  const tickerAnchoredEquityThread = findTickerAnchoredEquityThread(context, current)
+  if (tickerAnchoredEquityThread) return tickerAnchoredEquityThread
+  const broadContinuation = isContinuationOrRestatementRequest(current) || isObjectiveContinuationCue(current)
+  const directContinuation =
+    isBareContinuationOrRestatementRequest(current)
+    || isObjectiveAgreementContinuationRequest(current)
+    || isDemonstrativeContinuationRequest(current)
+    || isObjectiveProgressionRequest(current)
+  const bareConfirmation = isBareObjectiveConfirmation(current)
+  const broadConfirmation = isObjectiveConfirmationSignal(current)
+  if (!directContinuation && !bareConfirmation && !broadConfirmation) return undefined
+
   const candidates = context.state.threads
     .filter((thread) => thread.status === 'active' || thread.status === 'paused')
     .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
   const thread = candidates[0]
   if (!thread) return undefined
-  // `title` is intentionally stable: buildThreads updates currentObjective as each turn arrives, but
-  // the original thread title remains the durable objective anchor. This prevents "yes, go ahead" or
-  // an entity correction ending the underlying research/action objective itself.
-  const title = thread.title.trim()
-  const currentObjective = thread.currentObjective.trim()
-  if (!title) return currentObjective || undefined
-  if (!currentObjective || currentObjective === title) return title
-  return `${title}\n${currentObjective}`
+
+  // Any non-bare broad continuation/confirmation contains a current task surface. It may inherit the
+  // active objective only when that task is demonstrably anchored to the same thread. This applies
+  // equally to "Continue ..." and to "..., go ahead"; bare confirmations do not need an anchor.
+  const needsThreadAnchor = !directContinuation && !bareConfirmation && (broadContinuation || broadConfirmation)
+  if (needsThreadAnchor) {
+    const lower = current.toLowerCase()
+    const currentTokens = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean))
+    const entityAnchor = thread.entities.some((entity) => {
+      const entityTokens = entity.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+      return entityTokens.length > 0 && entityTokens.every((token) => currentTokens.has(token))
+    })
+    const lexicalAnchor = hasSignificantThreadOverlap(current, thread)
+    const tickerAnchor = hasThreadTickerAnchor(current, thread)
+    const referenceAnchor = context.references.some((reference) =>
+      Boolean(reference.resolvedText && !reference.ambiguous && reference.confidence >= 0.55),
+    )
+    if (!entityAnchor && !referenceAnchor && !lexicalAnchor && !tickerAnchor) return undefined
+  }
+
+  return thread
 }
+
+
 
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): decisionContract lets a caller that
 // already built the authoritative ConversationDecisionContract for this exact semanticContext (route.ts,
@@ -280,8 +388,21 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // Continuations/confirmations must inherit the active objective before the per-turn LLM-assisted
   // semantic layer gets a chance to collapse a short reference like "yes, go ahead" into conversation.
   // The inherited objective is only used for routing/grounding; the user's actual text remains the
-  // response surface and is never replaced or rewritten.
-  const inheritedObjective = latestContinuableObjective(semanticContext)
+  // response surface and is never replaced or rewritten. Select the thread once and reuse that same
+  // authoritative object for both objective text and domain inheritance, preventing split-brain routing.
+  const inheritedThread = latestContinuableThread(semanticContext)
+  const inheritedObjective = inheritedThread ? (() => {
+    const anchor = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
+    const currentObjective = inheritedThread.currentObjective.trim()
+    if (!anchor) return currentObjective || undefined
+    // Continuity was already proven by latestContinuableThread before this text is built. The current
+    // objective is therefore legitimate task refinement, not evidence that can self-authorize inheritance.
+    // Retain it so the downstream evidence planner receives both the durable subject and the current
+    // scope (e.g. "past two weeks", "press releases", "analyst coverage").
+    if (!currentObjective || currentObjective === anchor) return anchor
+    return anchor + '\n' + currentObjective
+  })() : undefined
+  const finalizeDecision = (input: Parameters<typeof buildDecision>[0]): PreRouteDecision => buildDecision({ ...input, ...(inheritedObjective ? { routingObjective: inheritedObjective } : {}) })
   const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
   const proposedDeterministicIntent = inferSemanticIntent(routingText, selfReflection)
   const consistency = enforceContractConsistency({
@@ -323,15 +444,45 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
-  const externalSubjectDomain = objectiveContinuationActive && routingExternalSubjectDomain === 'public_equity' ? 'public_equity' : currentExternalSubjectDomain
-  const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && routingExternalSubjectDomain === 'public_equity'
+  const inheritedThreadEquityAnchor = objectiveContinuationActive && inheritedThread
+    ? (() => {
+        const objective = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
+        const tickerCandidates = [
+          ...inheritedThread.entities.filter((entity) => /^[A-Z]{2,5}$/.test(entity)),
+          ...(objective.match(/\b[A-Z]{2,5}\b/g) ?? []),
+        ]
+        const hasUsableTicker = tickerCandidates.some((ticker) => !COMMON_ACRONYM_RE.test(ticker))
+        const hasEquityContext = MARKET_SECURITY_RE.test(objective)
+          || /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\b/i.test(objective)
+        return hasUsableTicker && hasEquityContext && !isInternalEquityContext(objective)
+      })()
+    : false
+  const inheritedObjectiveEquityAnchor = objectiveContinuationActive && inheritedObjective
+    ? (() => {
+        const objective = inheritedObjective.trim()
+        const tickers = objective.match(/\b[A-Z]{2,5}\b/g) ?? []
+        const hasUsableTicker = tickers.some((ticker) => !COMMON_ACRONYM_RE.test(ticker))
+        const hasEquityContext = MARKET_SECURITY_RE.test(objective)
+          || /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\b/i.test(objective)
+        return hasUsableTicker && hasEquityContext && !isInternalEquityContext(objective)
+      })()
+    : false
+  const activeThreadDomain = inheritedObjectiveEquityAnchor || inheritedThreadEquityAnchor
+    ? 'public_equity'
+    : (objectiveContinuationActive && inheritedThread
+      ? inferContinuableThreadDomain(inheritedThread)
+      : 'general_web')
+  const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
+    ? activeThreadDomain
+    : (objectiveContinuationActive && routingExternalSubjectDomain !== 'general_web' ? routingExternalSubjectDomain : currentExternalSubjectDomain)
+  const inheritedExternalResearch = objectiveContinuationActive && deterministicIntent === 'research' && activeThreadDomain === 'public_equity'
   const legacyExternalEvidence = isExternalDomain(routingExternalSubjectDomain) && (semanticIntent === 'research' || semanticIntent === 'analysis' || semanticIntent === 'decision' || semanticIntent === 'opinion')
   const canonicalExternalEvidence = Boolean(canonicalDecision && curiosity?.investigate)
   const shouldUseExternalEvidence = inheritedExternalResearch || (semanticContext ? canonicalExternalEvidence : legacyExternalEvidence)
   const evidenceClass: EvidenceClass | undefined = shouldUseExternalEvidence ? 'external_web' : undefined
   const domain: EvidenceDomain | undefined = semanticIntent === 'research' || shouldUseExternalEvidence || externalSubjectDomain.startsWith('internal_') ? externalSubjectDomain : undefined
   const effectiveExecutionClass = (externalSubjectDomain === 'public_equity' || inheritedExternalResearch) ? 'deep' : adaptive.executionClass
-  if (!text) { const reason = 'No substantive request detected.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
+  if (!text) { const reason = 'No substantive request detected.'; return finalizeDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals: 0, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   // Audit fix (2026-09-19): adaptive.executionClass 'mission' is a genuinely loose, tolerated-ambiguous
   // signal -- adaptive-execution.ts's own test suite accepts EITHER 'deep' or 'mission' for a message
   // that merely combines ordinary business vocabulary (revenue/customer/production) with deep-work
@@ -347,8 +498,8 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const deterministicIntentIsNonMission = deterministicIntent === 'analysis' || deterministicIntent === 'opinion' || deterministicIntent === 'decision' || deterministicIntent === 'conversation' || deterministicIntent === 'self_assessment'
   const missionRelevant = semanticIntent === 'mission_action' || (adaptive.executionClass === 'mission' && !explicitOperational && !deterministicIntentIsNonMission)
   const complexitySignals = [effectiveExecutionClass === 'deep' || effectiveExecutionClass === 'mission', text.length > DIRECT_CEO_MAX_CHARS, /\b(and|then|because|including|with|plus)\b/i.test(text)].filter(Boolean).length
-  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined; return buildDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
-  if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
+  if (attachmentsCount > 0) { const reason = 'Attachments require contextual inspection and cannot use the direct CEO conversational lane.'; const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined; const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined; const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined; return finalizeDecision({ route: 'full', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract: contractFor({ intent: semanticIntent, selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: effectiveExecutionClass, missionRelevant, reason, ...(evidenceClass ? { evidenceClass } : {}), ...(domain ? { domain } : {}), ...(operation ? { operation } : {}), ...(temporalScope ? { temporalScope } : {}), ...(evidenceProfile ? { evidenceProfile } : {}) }) }) }
+  if (semanticIntent === 'self_assessment') { const reason = 'Self-assessment stays CEO-owned and bounded; no operational tools are required.'; return finalizeDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'self_assessment', selfReflectionKind: selfReflection.kind, adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const temporalScope = domain && shouldUseExternalEvidence ? inferTemporalScope(routingText) : undefined
   const operation = domain && shouldUseExternalEvidence ? inferEvidenceOperation(routingText) : undefined
   const evidenceProfile = domain && shouldUseExternalEvidence ? deriveEvidenceProfile(domain) : undefined
@@ -378,19 +529,19 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
     executionContract.toolRequired = canonicalToolRequired || externallyRequired
     if (!executionContract.toolRequired && canonicalDecision.toolRequirement === 'none') executionContract.executionRequirement = 'llm_only'
   }
-  if (semanticIntent === 'research' || evidenceClass === 'external_web') return buildDecision({ route: 'full', reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active external-research objective.' : 'External evidence requires governed execution.'), missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
-  if (semanticIntent === 'mission_action' || missionRelevant) return buildDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
-  if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return buildDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'research' || evidenceClass === 'external_web') return finalizeDecision({ route: 'full', reason: curiosity?.reason ?? (inheritedObjective ? 'Continuing the active external-research objective.' : 'External evidence requires governed execution.'), missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'mission_action' || missionRelevant) return finalizeDecision({ route: 'full', reason: 'Mission-relevant work requires governed orchestration.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
+  if (semanticIntent === 'tool_action' || semanticIntent === 'production_action') return finalizeDecision({ route: 'full', reason: 'Operational actions require governed tools.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: effectiveExecutionClass, executionContract })
   // A bare confirmation/continuation cue ("continue", "yes, go ahead") with no continuable thread to
   // attach to has already had its one real routing question answered -- there is nothing to continue --
   // so it should resolve as a plain conversational acknowledgement rather than fall into CONTEXT_RE's
   // generic "this needs richer conversational analysis" ambiguity, which assumes an unresolved
   // antecedent might still be found downstream.
-  if (semanticIntent === 'conversation' && !inheritedObjective && semanticContext && isObjectiveConfirmationSignal(text)) { const reason = 'No active objective to continue; treating as a bare conversational acknowledgement.'; return buildDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
+  if (semanticIntent === 'conversation' && !inheritedObjective && semanticContext && isObjectiveConfirmationSignal(text)) { const reason = 'No active objective to continue; treating as a bare conversational acknowledgement.'; return finalizeDecision({ route: 'fast', reason, missionRelevant: false, complexitySignals, taskClass, adaptiveExecutionClass: 'fast', executionContract: contractFor({ intent: 'conversation', adaptiveExecutionClass: 'fast', missionRelevant: false, reason }) }) }
   const contextMatch = text.match(CONTEXT_RE)
   const hasSelfContainedAntecedent = Boolean(contextMatch && contextMatch.index !== undefined && contextMatch.index >= 30 && /,| and /i.test(text.slice(0, contextMatch.index)))
-  if (contextMatch && !SIMPLE_RE.test(text) && !hasSelfContainedAntecedent) { const reason = 'Context-dependent request requires richer conversational analysis.'; return buildDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) }) }
+  if (contextMatch && !SIMPLE_RE.test(text) && !hasSelfContainedAntecedent) { const reason = 'Context-dependent request requires richer conversational analysis.'; return finalizeDecision({ route: 'ambiguous', reason, missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: 'standard', executionContract: contractFor({ intent: semanticIntent, adaptiveExecutionClass: 'standard', missionRelevant: false, reason }) }) }
   const useFast = effectiveExecutionClass === 'fast' && (SIMPLE_RE.test(text) || text.length <= DIRECT_CEO_MAX_CHARS)
-  return buildDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : effectiveExecutionClass, executionContract })
+  return finalizeDecision({ route: useFast ? 'fast' : 'full', reason: useFast ? 'Bounded direct CEO response.' : 'Complexity/context requires full CEO lifecycle.', missionRelevant, complexitySignals, taskClass, adaptiveExecutionClass: useFast ? 'fast' : effectiveExecutionClass, executionContract })
 }
 export function resolvePreRoute(decision: PreRouteDecision): 'fast' | 'full' { return decision.route === 'fast' && !decision.executionContract.toolRequired ? 'fast' : 'full' }

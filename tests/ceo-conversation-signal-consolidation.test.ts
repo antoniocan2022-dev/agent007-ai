@@ -3,7 +3,7 @@ import { deriveCeoConversationState, buildConversationStatePrompt } from '@/lib/
 import { buildCanonicalConversationContext } from '@/lib/ceo-cognitive-conversation'
 import { buildWorldStateSnapshot } from '@/lib/ceo-world-state'
 import { buildCeoWorldModel } from '@/lib/ceo-world-model'
-import { isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
+import { isCorrectionRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation } from '@/lib/ceo-conversational-signals'
 import { evaluateCeoQuality } from '@/lib/ceo-response-quality-gate'
 
 // Step 2 of the conversational re-architecture: consolidate the previously scattered
@@ -165,8 +165,10 @@ describe('CEO conversation state: a question is never misclassified as a decisio
 // sharing almost no words with the meta-objective itself. That failureReason (continuity_failure) is on
 // ceo-soft-pass-policy.ts's forbidden list, so it went straight to escalation, which also failed, landing on
 // degraded mode's fully generic "I couldn't reliably complete that specific request..." bail-out -- verified
-// live in production (request 99a00917, executedCommitSha a61a070d). Consolidated to one canonical
-// isContinuationOrRestatementRequest, reused by all three sites.
+// live in production (request 99a00917, executedCommitSha a61a070d). Consolidated the broad
+// isContinuationOrRestatementRequest signal for quality/recovery consumers; objective inheritance and
+// thread mutation additionally use the strict full-message variant so new task content cannot silently
+// attach to an old objective.
 describe('CEO routing: agreement-led active-objective continuation classifier', () => {
   test('recognizes the exact natural follow-up shape from the live research incident', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.')).toBe(true)
@@ -183,6 +185,10 @@ describe('CEO routing: agreement-led active-objective continuation classifier', 
 
   test('does not treat a generic continuation cue followed by a new subject as inherited-objective continuation', () => {
     expect(isObjectiveAgreementContinuationRequest('Yes, go ahead and tell me about the weather in Montreal.')).toBe(false)
+  })
+
+  test('quantifier-only language does not act as a strong cross-turn anchor', () => {
+    expect(isObjectiveAgreementContinuationRequest('Yes, exactly. Give me a brief summary for each new product in the weather report.')).toBe(false)
   })
 
   test('does not treat an agreement-led unrelated task as continuation of the active objective', () => {
@@ -244,7 +250,41 @@ describe('CEO routing: canonical objective confirmation signal', () => {
   })
 })
 
-describe('CEO conversation state: one canonical continuation/restatement classifier used everywhere', () => {
+describe('CEO routing: broad vs safe continuation contracts', () => {
+  test('the safe continuation contract remains distinct from broad continuation semantics', () => {
+    expect(isContinuationOrRestatementRequest('continue with the weather updates')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('continue with the weather updates')).toBe(false)
+  })
+
+  test('recognizes non-bare continuation cues in a final clause for anchored routing only', () => {
+    expect(isObjectiveContinuationCue('MIND Technology, continue with the research.')).toBe(true)
+    expect(isObjectiveContinuationCue('Weather update, go ahead.')).toBe(true)
+    expect(isObjectiveContinuationCue('Continue')).toBe(true)
+    expect(isObjectiveContinuationCue('Continue with the weather.')).toBe(true)
+  })
+
+  test('confirmation punctuation uses the same clause grammar across semicolon and colon forms', () => {
+    expect(isObjectiveConfirmationSignal('yes; go ahead')).toBe(true)
+    expect(isObjectiveConfirmationSignal('yes: proceed')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes; go ahead')).toBe(true)
+    expect(isBareObjectiveConfirmation('yes: proceed')).toBe(true)
+  })
+
+  test('keeps the broad quality signal for non-bare continuation language', () => {
+    expect(isContinuationOrRestatementRequest('continue with the weather updates')).toBe(true)
+    expect(isContinuationOrRestatementRequest('summarize the weather report')).toBe(true)
+  })
+
+  test('only standalone continuation/restatement phrasing is safe without a thread anchor', () => {
+    expect(isBareContinuationOrRestatementRequest('continue')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('summarize')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('tell me in your own words')).toBe(true)
+    expect(isBareContinuationOrRestatementRequest('continue with the weather updates')).toBe(false)
+    expect(isBareContinuationOrRestatementRequest('summarize the weather report')).toBe(false)
+  })
+})
+
+describe('CEO conversation state: canonical continuation signal and safe objective-inheritance variant', () => {
   test('isContinuationOrRestatementRequest recognizes restatement phrasing, including with a natural leading filler', () => {
     expect(isContinuationOrRestatementRequest('mmm but tell me in your words.')).toBe(true)
     expect(isContinuationOrRestatementRequest('tell me in your words')).toBe(true)

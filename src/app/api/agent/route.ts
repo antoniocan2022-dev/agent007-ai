@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
           let evidenceTrace: EvidenceTrace | undefined
           if (decisionContract.responseAction !== 'clarify' && (executionContract.evidenceClass === 'external_web' || executionContract.evidenceClass === 'mixed')) {
             evidenceTrace = startEvidenceTrace({ objective: message, profile: executionContract.evidenceProfile })
-            const evidenceObjective = contextSeed.canonicalSemanticContext.meaning || message
+            const evidenceObjective = preRoute.routingObjective || contextSeed.canonicalSemanticContext.meaning || message
             // Deep-audit fix (P0, 2026-09-13): resolves company names (not just already-ticker-shaped
             // tokens) against SEC's real registry before planning -- see ceo-issuer-resolution.ts's own
             // comment for the full rationale. Best-effort: buildExternalEvidencePlan already treats

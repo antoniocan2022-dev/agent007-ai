@@ -52,7 +52,7 @@ export function isObjectiveProgressionRequest(text: string): boolean {
 }
 
 const AGREEMENT_PREFIX_RE = /^\s*(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)\b/i
-const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:these|those|it|them|the\s+same|same|each|both)\b|\b(?:this|that)(?=\s*(?:[.!?,;:]|$)|\s+(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b)/i
+const STRONG_ANAPHORIC_REFERENCE_RE = /\b(?:these|those|it|them|the\s+same|same)\b|\b(?:this|that)(?=\s*(?:[.!?,;:]|$)|\s+(?:is|are|was|were|means?|should|could|would|can|will|has|have)\b)/i
 const REFINEMENT_ACTION_RE = /\b(?:go\s+with|continue\s+with|build\s+on|give|tell|share|provide|show|send|pull|check|search|research|find|get|summar(?:i|y)ze|brief|explain|cover|compare|review|focus|include|walk\s+(?:me\s+)?through|proceed|move\s+forward|do\s+it|go\s+ahead)\b/i
 const AGREEMENT_CORE_RE = /\b(?:exactly|right|correct|that(?:'s|’s)\s+(?:right|correct)|thats\s+(?:right|correct)|that\s+is\s+(?:right|correct|it))\b/i
 
@@ -87,11 +87,24 @@ export function isObjectiveAgreementContinuationRequest(text: string): boolean {
 // "yes, go ahead" and for compound corrections that end with "continue" without matching a generic
 // mid-sentence use of "continue".
 const OBJECTIVE_CONFIRMATION_WORD_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|go\s+ahead|proceed|do\s+it|continue|keep\s+going|carry\s+on|go\s+on)$/i
-const AGREEMENT_ONLY_RE = /^(?:yes|yeah|yep|yup|sure|okay|ok|right|correct|exactly|that(?:'s|’s)\s+right|that(?:'s|’s)\s+correct|thats\s+right|thats\s+correct)$/i
+const OBJECTIVE_CLAUSE_SPLIT_RE = /[.!?;:]+|\s*,\s*/
+const OBJECTIVE_CONTINUATION_CUE_RE = /^(?:go\s+ahead|proceed|continue|keep\s+going|carry\s+on|go\s+on|move\s+forward|do\s+it|let(?:'s|’s)\s+do\s+it|from\s+there)\b/i
+
+// Non-bare continuation cue: used only by routing/state callers that still require a separate thread
+// anchor. This handles natural forms such as "MIND Technology, continue with the research" without
+// weakening the strict bare-continuation classifier used to prove objective inheritance on its own.
+export function isObjectiveContinuationCue(text: string): boolean {
+  const cleaned = text.trim().replace(/[.!?]+$/, '')
+  if (!cleaned) return false
+  const clauses = cleaned.split(OBJECTIVE_CLAUSE_SPLIT_RE).map((clause) => clause.trim()).filter(Boolean)
+  const lastClause = clauses[clauses.length - 1]
+  return Boolean(lastClause && OBJECTIVE_CONTINUATION_CUE_RE.test(lastClause))
+}
+const AGREEMENT_ONLY_RE = new RegExp(AGREEMENT_PREFIX_RE.source)
 export function isObjectiveConfirmationSignal(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
-  const clauses = cleaned.split(/\s*,\s*/)
+  const clauses = cleaned.split(OBJECTIVE_CLAUSE_SPLIT_RE)
   const lastClause = clauses[clauses.length - 1]?.trim()
   return Boolean(lastClause && OBJECTIVE_CONFIRMATION_WORD_RE.test(lastClause))
 }
@@ -99,7 +112,7 @@ export function isBareObjectiveConfirmation(text: string): boolean {
   const cleaned = text.trim().replace(/[!.?]+$/, '')
   if (!cleaned) return false
   if (OBJECTIVE_CONFIRMATION_WORD_RE.test(cleaned)) return true
-  const clauses = cleaned.split(/\s*,\s*/)
+  const clauses = cleaned.split(OBJECTIVE_CLAUSE_SPLIT_RE)
   return clauses.length === 2
     && AGREEMENT_ONLY_RE.test(clauses[0]!.trim())
     && OBJECTIVE_CONFIRMATION_WORD_RE.test(clauses[1]!.trim())
@@ -131,6 +144,18 @@ export function isContinuationOrRestatementRequest(text: string): boolean {
   return CONTINUATION_OR_RESTATEMENT_RE.test(stripped)
 }
 
+// Routing/state hardening (2026-09-23): the broad continuation classifier intentionally accepts prefix
+// phrases such as "continue with ..." and "summarize ..." because response-quality and recovery logic
+// need to recognize the user's conversational intent. Those phrases are NOT, by themselves, proof that
+// the current task belongs to the active objective. Objective inheritance/thread mutation therefore uses
+// a strict full-message match of the same canonical continuation vocabulary, so the phrase list cannot
+// drift into a second copy.
+export function isBareContinuationOrRestatementRequest(text: string): boolean {
+  const stripped = text.trim().replace(/[.!?]+$/, '').trim().replace(LEADING_FILLER_RE, '').trim()
+  if (!stripped) return false
+  const match = stripped.match(CONTINUATION_OR_RESTATEMENT_RE)
+  return Boolean(match && match[0]?.trim() === stripped)
+}
 export function isCorrectionRequest(text: string): boolean {
   return DIRECT_CORRECTION_RE.test(text) || NEGATED_CORRECTION_RE.test(text)
 }

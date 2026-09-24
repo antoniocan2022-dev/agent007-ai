@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { preRouteCeoRequest } from '../src/lib/ceo-pre-router'
 import { deriveCeoConversationState } from '../src/lib/ceo-conversation-state'
 import { buildCanonicalConversationContext } from '../src/lib/ceo-cognitive-conversation'
+import { buildExternalEvidencePlan } from '../src/lib/ceo-evidence-planner'
 import { isObjectiveProgressionRequest } from '../src/lib/ceo-conversational-signals'
 
 const now = Date.now()
@@ -81,6 +84,25 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('preserves the research objective through a non-bare ticker-anchored continuation', () => {
+    const followUp = 'I mean MIND Technology, continue with the research.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready to continue.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+    expect(decision.routingObjective).toContain('MIND')
+  })
+
   it('preserves pronoun-led objective continuations through the real state/context/pre-router chain', () => {
     for (const followUp of [
       'That principle should guide the next upgrade.',
@@ -105,6 +127,62 @@ describe('CEO active objective continuity', () => {
     }
   })
 
+  it('keeps both the durable research subject and the current follow-up scope in routingObjective', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.routingObjective).toContain('GEOS')
+    expect(decision.routingObjective).toContain('MIND')
+    expect(decision.routingObjective).toContain('past two weeks')
+    expect(decision.routingObjective).toContain('analyst coverage')
+  })
+
+  it('passes the inherited objective into the public-equity evidence planner so both tickers remain searchable', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      contextFor(followUp),
+    )
+    const plan = buildExternalEvidencePlan({
+      objective: decision.routingObjective ?? followUp,
+      evidenceClass: 'external_web',
+      domain: 'public_equity',
+      operation: 'research',
+      temporalScope: 'recent',
+      evidenceProfile: 'public_equity',
+    })
+    expect(plan.queries.some((query) => query.ticker === 'GEOS')).toBe(true)
+    expect(plan.queries.some((query) => query.ticker === 'MIND')).toBe(true)
+  })
+
+  it('propagates the inherited objective as the canonical evidence-planning objective', () => {
+    const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.routingObjective).toContain('GEOS')
+    expect(decision.routingObjective).toContain('MIND')
+    expect(decision.routingObjective).not.toContain('press releases')
+  })
+
+  it('keeps the API evidence planner wired to the canonical inherited objective instead of current-turn meaning alone', () => {
+    const source = readFileSync(join(import.meta.dir, '../src/app/api/agent/route.ts'), 'utf-8')
+    expect(source).toContain('preRoute.routingObjective || contextSeed.canonicalSemanticContext.meaning || message')
+  })
+
   it('verifies the live-shaped follow-up through the real conversation-state and canonical-context builders', () => {
     const followUp = 'Yes is exactly those. Go with a brief and plain-english of any press releases, earnings updates, analyst coverage, or other notable news from the past two weeks for each.'
     const rows = [
@@ -125,6 +203,30 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.domain).toBe('public_equity')
     expect(decision.executionContract.evidenceClass).toBe('external_web')
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
+  })
+
+  it('preserves the full research objective in a durable anchor even when the display title is truncated', () => {
+    const rows = [{ role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now }]
+    const state = deriveCeoConversationState(rows, 'continue')
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.title.length).toBeLessThanOrEqual(80)
+    expect(state.threads[0]?.objectiveAnchor).toContain('MIND')
+    expect(state.threads[0]?.objectiveAnchor).toContain('GEOS')
+    expect(state.threads[0]?.objectiveAnchor).toBe(INITIAL_RESEARCH)
+  })
+
+  it('uses the durable objective anchor to keep a non-bare continuation attached to the original thread', () => {
+    const followUp = 'I mean MIND Technology, continue with the research.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: followUp, createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.objectiveAnchor).toContain('GEOS')
+    expect(state.threads[0]?.objectiveAnchor).toContain('MIND')
+    expect(state.threads[0]?.currentObjective).toContain('MIND Technology')
   })
 
   it('retains a concise but substantive research objective instead of dropping it by character count', () => {
@@ -191,6 +293,44 @@ describe('CEO active objective continuity', () => {
     expect(state.threads[1]?.title).toContain('This morning')
   })
 
+  it('does not absorb an unrelated correction into the active research thread', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'No, I meant the weather in Montreal.', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('weather in Montreal')
+  })
+
+  it('preserves a genuinely related correction by shared entity identity', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Which MIND company do you mean?', createdAt: now + 1 },
+      { role: 'user' as const, content: 'No, I meant NasdaqCM - MIND Technology, Inc. (MIND).', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.status).toBe('active')
+    expect(state.threads[0]?.title).toContain('GEOS')
+    expect(state.threads[0]?.currentObjective).toContain('MIND Technology')
+  })
+
+  it('treats comma-punctuated confirmation as non-thread-bearing during state derivation', () => {
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: 'yes,', createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, rows[2].content)
+    expect(state.threads).toHaveLength(1)
+    expect(state.threads[0]?.status).toBe('active')
+    expect(state.threads[0]?.title).toContain('GEOS')
+  })
+
   it('does not keep an unrelated sentence that merely ends in yes inside the active research thread', () => {
     const rows = [
       { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
@@ -248,6 +388,62 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.toolRequired).toBe(true)
   })
 
+  it('does not mutate the active thread for a non-bare continuation phrase with a new subject', () => {
+    const followUp = 'Continue with the weather updates in Montreal.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+      { role: 'user' as const, content: followUp, createdAt: now + 2 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    expect(state.threads).toHaveLength(2)
+    expect(state.threads[0]?.status).toBe('superseded')
+    expect(state.threads[1]?.status).toBe('active')
+    expect(state.threads[1]?.title).toContain('Continue with the weather')
+  })
+
+  it('still inherits when a non-bare continuation explicitly anchors to the research subject', () => {
+    const followUp = 'Continue with the GEOS research and recent news.'
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
+  it('does not inherit an active objective from a non-bare final-clause confirmation without a thread anchor', () => {
+    const followUp = 'I want weather updates for Montreal, go ahead.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+    ]
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).not.toBe('research')
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+  })
+
+  it('permits an entity-anchored non-bare continuation after the active research thread is known', () => {
+    const followUp = 'I want the same GEOS research, go ahead.'
+    const context = contextFor(followUp)
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
   it('does not inherit a public-equity objective for an agreement-led but unrelated new task', () => {
     const followUp = 'Yes, exactly. Tell me about the weather in Montreal.'
     const decision = preRouteCeoRequest(
@@ -291,6 +487,55 @@ describe('CEO active objective continuity', () => {
     expect(decision.executionContract.evidenceRequirement).toBe('multi_source')
     expect(decision.executionContract.executionRequirement).toBe('multi_source')
     expect(decision.executionContract.toolRequired).toBe(true)
+  })
+
+  it('does not revive the prior research objective for an unrelated message that merely ends with a continuation cue', () => {
+    const followUp = 'I want weather updates for Montreal, go ahead.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.domain).not.toBe('public_equity')
+    expect(decision.executionContract.intent).not.toBe('research')
+  })
+
+  it('allows a non-bare continuation cue when the active research entity is explicitly present', () => {
+    const followUp = 'I want the same GEOS research, go ahead.'
+    const rows = [
+      { role: 'user' as const, content: INITIAL_RESEARCH, createdAt: now },
+      { role: 'assistant' as const, content: 'Ready.', createdAt: now + 1 },
+    ]
+    const state = deriveCeoConversationState(rows, followUp)
+    const context = buildCanonicalConversationContext({ currentMessage: followUp, rows, state, references: [] })
+    const decision = preRouteCeoRequest(
+      [...rows, { role: 'user' as const, content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
+  })
+
+  it('allows a ticker-anchored non-bare continuation even when the thread entity list is empty', () => {
+    const followUp = 'I mean MIND Technology, continue with the research.'
+    const context = contextFor(followUp)
+    context.state.threads[0].entities = []
+    const decision = preRouteCeoRequest(
+      [{ role: 'user', content: INITIAL_RESEARCH }, { role: 'assistant', content: 'Ready.' }, { role: 'user', content: followUp }],
+      0,
+      context,
+    )
+    expect(decision.executionContract.intent).toBe('research')
+    expect(decision.executionContract.domain).toBe('public_equity')
+    expect(decision.executionContract.evidenceClass).toBe('external_web')
   })
 
   it('preserves the objective through an entity correction plus continue', () => {
