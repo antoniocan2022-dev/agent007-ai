@@ -41,6 +41,18 @@ describe('CEO self-reflection canonical classifier', () => {
     ['tell me what can I do to give you access to live information where you can pull and anything else?', 'capability_assessment'],
     ['How can I give you access to more data?', 'capability_assessment'],
     ['How do I connect you to a new data source?', 'capability_assessment'],
+    // Live production incident (2026-09-24): the user's real chat transcript shows the CEO falsely
+    // claiming "I'm not currently connected to the outside internet" to the first message below, then
+    // a canned degraded-mode non-answer to the second -- neither phrase matched any existing
+    // CAPABILITY_RE alternative (none mention internet/external-world access), so
+    // renderCeoCapabilityBriefing() never ran and the model had no grounded facts about its own live
+    // web-search/SEC tooling to answer from. "conexion" (not "connection") is the exact live incident's
+    // spelling, matching this owner's own recurring typing habit -- the fix tolerates it directly
+    // rather than only its dictionary-correct spelling.
+    ['Can you check your conexion with the external world.', 'capability_assessment'],
+    ['Can you check your access to the internet?', 'capability_assessment'],
+    ['Do you have internet access?', 'capability_assessment'],
+    ['Are you connected to the internet?', 'capability_assessment'],
   ] as const)('classifies %j as %s', (text, expected) => {
     const result = classifyCeoSelfReflection(text)
     expect(result.kind).toBe(expected)
@@ -105,6 +117,8 @@ describe('CEO self-reflection canonical classifier', () => {
     'What are the limitations of our current CRM, in your opinion?',
     'Do you think Sarah is ready to manage a business unit?',
     'How is the new hire performing on the sales team, in your view?',
+    'Can you check the connection between revenue and churn?',
+    'Is the customer connection stable, in your view?',
   ])('does not misclassify a business question with a distant self-reference pronoun as self-reflective: %s', (text) => {
     expect(classifyCeoSelfReflection(text).isSelfReflective).toBe(false)
   })

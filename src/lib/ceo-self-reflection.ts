@@ -138,8 +138,24 @@ const PERFORMANCE_RE = new RegExp(
 // two shapes the motivating cases use -- so a bare "give/provide/connect you X" with an unrelated object
 // no longer matches.
 const GRANT_ACCESS_RE = /\b(?:what|how)\s+(?:can|do|could|would)\s+i\s+(?:do\s+to\s+)?(?:give|grant|enable|provide)\s+you\s+(?:access|permission|credentials?|an?\s+api\s+key)\b|\b(?:what|how)\s+(?:can|do|could|would)\s+i\s+(?:do\s+to\s+)?(?:hook\s+up|connect)\s+you\s+(?:to|with)\s+(?:[a-z]+\s+){0,3}(?:data|apis?|tools?|systems?|sources?|feeds?)\b/i
+// Live production incident (2026-09-24): "Can you check your conexion with the external world."
+// and "Can you check your access to the internet?" both fell through to kind:'none' -- neither
+// matches any existing alternative below (none of them mention internet/external-world access), so
+// renderCeoCapabilityBriefing() never ran and the model had no grounded facts about its own live
+// web-search/evidence tooling. It answered from its own generic training-time assumption instead,
+// falsely claiming "I'm not currently connected to the outside internet" -- the opposite of the
+// truth (web search and SEC lookups are live on every research/decision turn, see
+// ceo-capability-briefing.ts). The second turn ("access to the internet?") then hit degraded mode's
+// canned non-answer for the same underlying reason: no grounded briefing context to draw from.
+// EXTERNAL_ACCESS_RE_SOURCE tolerates "conexion" (the exact live incident's spelling, and this
+// owner's own recurring typing habit) alongside "connection"/"connect", so the fix covers the
+// phrasing that actually recurs, not just its dictionary-correct spelling.
+const EXTERNAL_ACCESS_RE_SOURCE = '(?:access|conexion|connect(?:ed|ion)?)\\s+(?:to|with)?\\s*(?:the\\s+)?(?:internet|external\\s+world|outside\\s+world|outside)'
+// Covers the noun-phrase shape ("internet access", "external world access") that
+// EXTERNAL_ACCESS_RE_SOURCE's verb-first shape misses ("do you have internet access?").
+const EXTERNAL_ACCESS_NOUN_RE_SOURCE = '(?:internet|external\\s+world|outside\\s+world)\\s+access'
 const CAPABILITY_RE = new RegExp(
-  [nearSelfReference('strengths?'), nearSelfReference('weakness(?:es)?'), nearSelfReference('capabilit(?:y|ies)'), nearSelfReference('capable'), nearSelfReference('skills?'), nearSelfReference('limitations?'), '\\bwhat\\s+can\\s+you\\s+do\\b', '\\bwhat\\s+are\\s+you\\s+good\\s+at\\b', nearSelfReference('architecture'), nearSelfReference('proven'), nearSelfReference('unproven'), nearSelfReference('(?:not\\s+yet\\s+|un)?verified'), nearSelfReference('upgrades?'), nearSelfReference('new\\s+features?'), nearSelfReference('recently\\s+added'), GRANT_ACCESS_RE.source].join('|'),
+  [nearSelfReference('strengths?'), nearSelfReference('weakness(?:es)?'), nearSelfReference('capabilit(?:y|ies)'), nearSelfReference('capable'), nearSelfReference('skills?'), nearSelfReference('limitations?'), '\\bwhat\\s+can\\s+you\\s+do\\b', '\\bwhat\\s+are\\s+you\\s+good\\s+at\\b', nearSelfReference('architecture'), nearSelfReference('proven'), nearSelfReference('unproven'), nearSelfReference('(?:not\\s+yet\\s+|un)?verified'), nearSelfReference('upgrades?'), nearSelfReference('new\\s+features?'), nearSelfReference('recently\\s+added'), nearSelfReference(EXTERNAL_ACCESS_RE_SOURCE), nearSelfReference(EXTERNAL_ACCESS_NOUN_RE_SOURCE), GRANT_ACCESS_RE.source].join('|'),
   'i',
 )
 // Deep-audit fix (2026-09-13): same proximity fix -- "Do you think Sarah is ready to manage a business
