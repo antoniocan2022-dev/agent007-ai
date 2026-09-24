@@ -2,6 +2,7 @@ import type { TaskType } from './subagent-governance'
 import type { SelfReflectionKind } from './ceo-self-reflection'
 import type { CeoFailure, CeoFailureReason } from './ceo-failure-reason'
 import type { OperatorPlan } from './ceo-operator-intelligence'
+import type { ResearchObjectiveIdentity } from './ceo-research-objective'
 
 // Long-document comprehension incident (2026-09-19), Phase 1: a pasted long document ("make a deep
 // analysis of this text") was previously fragmented across three independent, hardcoded slice points
@@ -176,7 +177,7 @@ export function inferComprehensionMode(input: { responseAction?: ResponseAction;
   return 'conversation'
 }
 export interface SemanticUncertainty { code: string; description: string; severity: 'low' | 'medium' | 'high' }
-export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string }
+export interface CeoExecutionContract { intent: CeoIntent; selfReflectionKind?: SelfReflectionKind; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; evidenceRequirement: EvidenceRequirement; executionRequirement: ExecutionRequirement; orchestrationOwner: OrchestrationOwner; maxTurns: number; maxRecoveries: number; latencyBudgetMs: number; toolRequired: boolean; subagentsRequired: boolean; reason: string; /** Authoritative durable research objective for this turn, when one exists. */ researchObjective?: ResearchObjectiveIdentity }
 
 /** Canonical evidence profile derived from the governed evidence domain. */
 export function deriveEvidenceProfile(domain: EvidenceDomain): EvidenceProfile {
@@ -223,8 +224,8 @@ export function assertCeoEvidenceContractInvariant(contract: CeoExecutionContrac
     }
   }
 }
-export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; /** Objective inherited from an active conversation thread for routing/evidence grounding only. */ routingObjective?: string }
-export interface DecisionPlan { requestId: string; preRoute: PreRoute; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract }
+export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; /** Objective inherited from an active conversation thread for routing/evidence grounding only. */ routingObjective?: string; /** Canonical durable objective identity bound to this turn. */ researchObjective?: ResearchObjectiveIdentity }
+export interface DecisionPlan { requestId: string; preRoute: PreRoute; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract; researchObjective?: ResearchObjectiveIdentity }
 export interface ExecutionStage { name: 'primary' | 'refinement' | 'independent_review' | 'synthesis'; purpose: string }
 export type CeoGenerationStage = 'none' | 'primary' | 'refinement' | 'semantic_repair' | 'independent_review' | 'synthesis' | 'escalation'
 export interface CeoGenerationDiagnostics { primaryOutputProduced: boolean; primaryQualityDecision: QualityDecision | 'NOT_RUN'; finalOutputProduced: boolean; finalStage: CeoGenerationStage; escalationCount: number }
