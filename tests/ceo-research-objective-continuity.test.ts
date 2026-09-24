@@ -27,6 +27,9 @@ describe('durable public-equity objective continuity', () => {
   test('recognizes natural short follow-up and rejects unrelated topic', () => {
     expect(shouldContinueResearchObjective('ok, go ahead with general context on those company', objective)).toBe(true)
     expect(shouldContinueResearchObjective('let\'s check the deployment in Vercel', objective)).toBe(false)
+    expect(shouldContinueResearchObjective('ok, go ahead', objective)).toBe(false)
+    expect(shouldContinueResearchObjective('let\'s continue with our deployment', objective)).toBe(false)
+    expect(shouldContinueResearchObjective('go ahead with more financial analysis', objective)).toBe(true)
   })
 
   test('forces public-equity research routing from the durable objective', () => {
