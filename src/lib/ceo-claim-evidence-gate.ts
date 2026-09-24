@@ -51,8 +51,8 @@ function markerIds(sentence: string): string[] { return [...sentence.matchAll(/\
 function claimEntities(sentence: string, bundle: EvidenceBundle, candidateMatches: EvidenceClaimCandidate[]): string[] {
   const required = bundle.requiredEntities ?? []
   if (!required.length) return []
-  const direct = required.filter((entity) => new RegExp(`\\b${entity.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\function markerIds(sentence: string): string[] { return [...sentence.matchAll(/\[(S\d+-[0-9a-f]+|SEC-[A-Z0-9]+|PAGE-\d+)\]/gi)].map((match) => match[1]) }
-')}\\b`, 'i').test(sentence))
+  const sentenceTickers = new Set((sentence.toUpperCase().match(/\b[A-Z]{1,5}\b/g) ?? []))
+  const direct = required.filter((entity) => sentenceTickers.has(entity))
   if (direct.length) return direct
   const candidateEntities = candidateMatches.flatMap((candidate) => candidate.relatedEntities ?? []).map((entity) => entity.toUpperCase())
   const knownCandidateEntities = required.filter((entity) => candidateEntities.includes(entity))
