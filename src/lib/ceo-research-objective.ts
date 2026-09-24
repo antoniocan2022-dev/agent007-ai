@@ -32,6 +32,9 @@ export interface ResearchObjectiveCandidate {
 }
 
 function normalize(value: string): string { return value.replace(/[ \t]+/g, ' ').replace(/[ \t]*\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim() }
+const RESEARCH_CONTEXT_CUES = /\b(?:stock|shares?|equity|ticker|earnings|financials?|valuation|price|dividend|eps|filing|invest|research|analysis|market|background|overview|news|risks?)\b/i
+const CONTINUATION_CUES = /\b(?:continue|go\s+ahead|proceed|carry\s+on|keep\s+going)\b/i
+const EXPLICIT_THREAD_REFERENCES = /\b(?:same\s+(?:thing|issue|topic|companies?|stocks?|thread)|those\s+compan(?:y|ies)|these\s+compan(?:y|ies)|the\s+(?:same|current)\s+(?:companies?|stocks?|thread|topic))\b/i
 function unique(values: readonly string[], max = 8): string[] { return [...new Set(values.map((value) => normalize(value).toUpperCase()).filter(Boolean))].slice(0, max) }
 function safeJsonArray(value: string | null | undefined): string[] {
   try {
@@ -88,7 +91,7 @@ export function shouldContinueResearchObjective(message: string, objective?: Res
   if (!text) return false
   if (/\b(?:new\s+topic|different\s+topic|move\s+on\s+to|forget\s+(?:that|this)|switch\s+to)\b/i.test(text)) return false
   if (/\b(?:github|vercel|deployment|deploy|code|database|invoice|meeting|weather|recipe|vacation)\b/i.test(text) && !/\b(?:stock|shares?|equity|ticker|earnings|financials?|valuation|price|dividend|eps|filing|invest)\b/i.test(text)) return false
-  if (/\b(?:continue|go\s+ahead|proceed|carry\s+on|keep\s+going|same\s+(?:thing|issue|topic|companies?)|those\s+compan(?:y|ies)|these\s+compan(?:y|ies)|the\s+(?:same|current)\s+(?:companies?|stocks?|thread|topic))\b/i.test(text)) return true
+  if (EXPLICIT_THREAD_REFERENCES.test(text) || (CONTINUATION_CUES.test(text) && RESEARCH_CONTEXT_CUES.test(text))) return true
   if (/\b(?:it|they|them|this|that|these|those)\b/i.test(text) && /\b(?:general\s+context|context|background|overview|information|details?|update|updates|news|research|analysis|earnings|financials?|valuation|price|risks?)\b/i.test(text)) return true
   const currentTickers = new Set(extractResearchObjectiveTickers(text))
   if ([...currentTickers].some((ticker) => objective.tickers.includes(ticker))) return true
