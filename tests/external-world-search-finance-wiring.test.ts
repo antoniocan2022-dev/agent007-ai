@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test, afterEach } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { toolExaSearch, toolFinnhubQuote, toolSerpAPI, toolTavilySearch, toolYahooFinance } from '@/lib/ai-providers-integration'
 import { CEO_CAPABILITY_ARCHITECTURE, findCapability, findCapabilityForDomain } from '@/lib/ceo-capability-architecture'
@@ -1375,5 +1375,133 @@ describe('Architecture fix: equity-research evidence acquisition can reach real 
       expect(result.ok).toBe(true)
       expect(result.result).toContain('TIINGO DAILY OHLCV')
     } finally { globalThis.fetch = originalFetch; delete process.env.TIINGO_API_KEY }
+  })
+})
+
+// Production audit fix (2026-09-24): "deep comprehension" audit of every external tool's
+// process.env credential read, diffed directly against the live Vercel production project's
+// actual configured env var names. Found 5 tools whose live production credential is configured
+// under a slightly different name than this codebase's own convention (and .env.example) reads --
+// each one silently returned "needs key" (or fell through to a degraded/delegated fallback) in
+// production despite the credential being genuinely present, because whoever configured Vercel
+// used the product's own natural name (AlphaVantage, ROIC.ai, You.com, Spider.cloud, NewsAPI)
+// rather than this codebase's underscored convention. Plus one unrelated but same-symptom gap:
+// the Amazon affiliate-link tool only ever read a caller-supplied argument, never the configured
+// AMAZON_ASSOCIATES_TAG env var, which the CEO (the only caller) has no way to supply itself.
+describe('production audit: external tools whose live-configured credential name did not match what the code read', () => {
+  const originalFetch = globalThis.fetch
+  afterEach(() => { globalThis.fetch = originalFetch })
+
+  describe('Alpha Vantage: ALPHAVANTAGE_API_KEY (no underscore, the actual Vercel name) now works', () => {
+    test('toolAlphaVantage accepts the production key name', async () => {
+      delete process.env.ALPHA_VANTAGE_API_KEY
+      process.env.ALPHAVANTAGE_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({ 'Global Quote': { '05. price': '123.45' } }), { status: 200 })) as typeof fetch
+      try {
+        const { toolAlphaVantage } = await import('@/lib/ai-providers-integration')
+        const result = await toolAlphaVantage({ symbol: 'AAPL' })
+        expect(result.ok).toBe(true)
+      } finally { delete process.env.ALPHAVANTAGE_API_KEY }
+    })
+
+    test('toolAlphaVantageNews accepts the production key name', async () => {
+      delete process.env.ALPHA_VANTAGE_API_KEY
+      process.env.ALPHAVANTAGE_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({ feed: [] }), { status: 200 })) as typeof fetch
+      try {
+        const { toolAlphaVantageNews } = await import('@/lib/ai-providers-integration')
+        const result = await toolAlphaVantageNews({ tickers: 'AAPL' })
+        expect(result.ok).toBe(true)
+      } finally { delete process.env.ALPHAVANTAGE_API_KEY }
+    })
+  })
+
+  describe('NewsAPI: NEWSAPI_API_KEY (the actual Vercel name) now works', () => {
+    test('toolNewsAPI accepts the production key name', async () => {
+      delete process.env.NEWSAPI_KEY
+      delete process.env.NEWS_API_KEY
+      process.env.NEWSAPI_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({ articles: [] }), { status: 200 })) as typeof fetch
+      try {
+        const { toolNewsAPI } = await import('@/lib/ai-providers-integration')
+        const result = await toolNewsAPI({ query: 'GEOS' })
+        expect(result.ok).toBe(true)
+      } finally { delete process.env.NEWSAPI_API_KEY }
+    })
+  })
+
+  describe('ROIC.ai: ROICAI_API_KEY (the actual Vercel name) now works', () => {
+    test('toolRoicStockPrices accepts the production key name', async () => {
+      delete process.env.ROIC_API_KEY
+      process.env.ROICAI_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify([{ date: '2026-09-15', close: 12.3 }]), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolRoicStockPrices({ ticker: 'AAPL' })
+        expect(result.ok).toBe(true)
+      } finally { delete process.env.ROICAI_API_KEY }
+    })
+
+    test('toolRoicFinancials accepts the production key name', async () => {
+      delete process.env.ROIC_API_KEY
+      process.env.ROICAI_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({ data: [] }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolRoicFinancials({ ticker: 'AAPL' })
+        expect(result.ok).toBe(true)
+      } finally { delete process.env.ROICAI_API_KEY }
+    })
+  })
+
+  describe('Spider.cloud: SPIDERCLOUD_API_KEY (the actual Vercel name) now works', () => {
+    test('toolSpiderScrape accepts the production key name', async () => {
+      delete process.env.SPIDER_API_KEY
+      process.env.SPIDERCLOUD_API_KEY = 'test-key'
+      globalThis.fetch = (async () => new Response(JSON.stringify({ content: 'page text' }), { status: 200 })) as typeof fetch
+      try {
+        const result = await toolSpiderScrape({ url: 'https://example.com' }, { attachments: [], language: 'en', conversationId: 'test' } as any)
+        expect(result.ok).toBe(true)
+      } finally { delete process.env.SPIDERCLOUD_API_KEY }
+    })
+  })
+
+  describe('You.com search: YOUCOM_API_KEY (the actual Vercel name) now works', () => {
+    // ai-search-engines.ts transitively pulls in auth.ts (via ./tools), which this sandbox cannot
+    // resolve (next-auth absent) -- same pre-existing limitation as the file's other
+    // ai-search-engines.ts coverage above (source-text assertions instead of a live import/call).
+    const src = readFileSync(new URL('../src/lib/ai-search-engines.ts', import.meta.url), 'utf8')
+    test('toolYouComSearch reads both the documented and the actual production key names', () => {
+      expect(src).toContain('process.env.YDC_API_KEY || process.env.YOUCOM_API_KEY')
+    })
+  })
+
+  describe('Amazon affiliate links: AMAZON_ASSOCIATES_TAG is now used automatically', () => {
+    test('toolAffiliateLinkGenerator falls back to the configured associate tag when the caller supplies none', async () => {
+      process.env.AMAZON_ASSOCIATES_TAG = 'my-tag-20'
+      try {
+        const { toolAffiliateLinkGenerator } = await import('@/lib/affiliate-link-generator')
+        const result = await toolAffiliateLinkGenerator({ network: 'amazon', productId: 'B0EXAMPLE' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('tag=my-tag-20')
+      } finally { delete process.env.AMAZON_ASSOCIATES_TAG }
+    })
+
+    test('an explicit caller-supplied affiliateId still overrides the env default', async () => {
+      process.env.AMAZON_ASSOCIATES_TAG = 'env-tag-20'
+      try {
+        const { toolAffiliateLinkGenerator } = await import('@/lib/affiliate-link-generator')
+        const result = await toolAffiliateLinkGenerator({ network: 'amazon', productId: 'B0EXAMPLE', affiliateId: 'explicit-tag-20' })
+        expect(result.ok).toBe(true)
+        expect(result.result).toContain('tag=explicit-tag-20')
+        expect(result.result).not.toContain('env-tag-20')
+      } finally { delete process.env.AMAZON_ASSOCIATES_TAG }
+    })
+
+    test('still fails honestly for Amazon when neither the caller nor the env var supplies a tag', async () => {
+      delete process.env.AMAZON_ASSOCIATES_TAG
+      const { toolAffiliateLinkGenerator } = await import('@/lib/affiliate-link-generator')
+      const result = await toolAffiliateLinkGenerator({ network: 'amazon', productId: 'B0EXAMPLE' })
+      expect(result.ok).toBe(false)
+      expect(result.result).toContain('affiliateId')
+    })
   })
 })

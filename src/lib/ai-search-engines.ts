@@ -172,7 +172,13 @@ export async function toolYouComSearch(args: any, _ctx: ToolContext): Promise<To
   const query = (args?.query ?? '').toString().trim()
   if (!query) return badResult('you_com_search requires "query" argument')
 
-  const key = process.env.YDC_API_KEY
+  // Production audit fix (2026-09-24): the live Vercel production env has this key set as
+  // YOUCOM_API_KEY (matching the product's own "You.com" name), not YDC_API_KEY as this codebase's
+  // convention documents -- confirmed by directly diffing the live Vercel project env list against
+  // this file's process.env reads. Without this fallback the tool always fell through to the
+  // delegated search instead of the real You.com API, despite the key being genuinely configured
+  // (same drift class as the NewsAPI/Alpha Vantage/ROIC.ai/Spider.cloud fixes elsewhere).
+  const key = process.env.YDC_API_KEY || process.env.YOUCOM_API_KEY
   if (!key) {
     const delegated = await delegateToRealSearch(query)
     return delegatedReport('You.com Search', query, 'YDC_API_KEY is not set.', delegated)
