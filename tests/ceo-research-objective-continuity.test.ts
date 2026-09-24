@@ -6,7 +6,7 @@ import { buildEvidenceBundle, createEvidenceSource } from '../src/lib/ceo-eviden
 import { verifyClaimEvidence } from '../src/lib/ceo-claim-evidence-gate'
 import { certifyCeoEvidenceRun } from '../src/lib/ceo-evidence-certification'
 import type { ResearchObjectiveIdentity } from '../src/lib/ceo-research-objective'
-import { shouldContinueResearchObjective } from '../src/lib/ceo-research-objective'
+import { shouldContinueResearchObjective, mergedResearchObjectiveEntities, extractResearchObjectiveTickers } from '../src/lib/ceo-research-objective'
 
 const objective: ResearchObjectiveIdentity = {
   id: 'obj_test_geos_mind',
@@ -117,5 +117,67 @@ describe('objective-bound evidence planning and certification', () => {
     })
     expect(report.certified).toBe(false)
     expect(report.metrics.missingEntities).toContain('MIND')
+  })
+})
+
+// Production audit fix (2026-09-24): ensureResearchObjective (ceo-research-objective.ts) used to
+// persist the tracked ticker/issuer set ONLY on a version-bumping write (CORRECTED/REFINED) -- an
+// ordinary continuation wrote {lifecycleState, lastTurnSequence, updatedAt} only, silently discarding
+// any newly-contributed ticker. "Continue the research, and also check MIND" on an active GEOS
+// objective resolves to lifecycleState 'CONTINUED' (not a version bump), so MIND was never written --
+// the durable objective stayed frozen at ['GEOS'], and ceo-evidence-certification.ts's
+// entityCoverageSatisfied check (which iterates exactly objective.tickers) then never required any
+// evidence coverage for MIND at all. mergedResearchObjectiveEntities is the extracted pure function
+// that now backs every continuation write, version-bumping or not -- these tests exercise it directly
+// since this codebase has no precedent for mocking the Prisma transaction it runs inside.
+describe('mergedResearchObjectiveEntities: the tracked entity set never silently drops an entity', () => {
+  test('a newly-mentioned ticker is unioned into the existing set, not discarded', () => {
+    const active = { tickersJson: JSON.stringify(['GEOS']), issuersJson: JSON.stringify([]) }
+    const candidate = { tickers: ['GEOS', 'MIND'], issuers: [] }
+    const merged = mergedResearchObjectiveEntities(active, candidate)
+    expect(merged.tickers).toEqual(expect.arrayContaining(['GEOS', 'MIND']))
+  })
+
+  test('a candidate reporting only the new ticker (not re-including the existing one) still preserves the existing ticker', () => {
+    const active = { tickersJson: JSON.stringify(['GEOS']), issuersJson: JSON.stringify([]) }
+    const candidate = { tickers: ['MIND'], issuers: [] }
+    const merged = mergedResearchObjectiveEntities(active, candidate)
+    expect(merged.tickers).toEqual(expect.arrayContaining(['GEOS', 'MIND']))
+  })
+
+  test('issuers merge the same way and stay deduplicated', () => {
+    const active = { tickersJson: JSON.stringify(['GEOS']), issuersJson: JSON.stringify(['GEOS Inc']) }
+    const candidate = { tickers: ['GEOS'], issuers: ['GEOS Inc', 'MIND Technology'] }
+    const merged = mergedResearchObjectiveEntities(active, candidate)
+    // unique() normalizes/uppercases every entry (existing behavior, unchanged by this fix).
+    expect(merged.issuers).toEqual(expect.arrayContaining(['GEOS INC', 'MIND TECHNOLOGY']))
+    expect(merged.issuers.filter((issuer) => issuer === 'GEOS INC')).toHaveLength(1)
+  })
+
+  test('an empty active set (first continuation after establishment) is not required for the merge to work', () => {
+    const active = { tickersJson: JSON.stringify([]), issuersJson: JSON.stringify([]) }
+    const candidate = { tickers: ['GEOS'], issuers: [] }
+    expect(mergedResearchObjectiveEntities(active, candidate).tickers).toEqual(['GEOS'])
+  })
+})
+
+// Production audit fix (2026-09-24): the acronym exclusion list only covered a handful of the
+// all-caps 2-5 letter tokens that show up in ordinary equity-research prose -- ESG, IPO, GDP, CPI,
+// ROI, YOY, COGS, USA and similar were all missing, so a sentence merely discussing e.g. "the
+// company's ESG risk profile" could get misread as a real stock ticker and pollute the durable
+// objective's tracked entity list.
+describe('extractResearchObjectiveTickers: common business acronyms are not misread as tickers', () => {
+  test.each(['ESG', 'IPO', 'GDP', 'CPI', 'ROI', 'ROE', 'YOY', 'COGS', 'USA', 'GAAP', 'FDA', 'CAGR', 'ARR', 'MRR', 'GDPR'])(
+    '%s is excluded even when it appears as a standalone all-caps token',
+    (acronym) => {
+      expect(extractResearchObjectiveTickers(`We reviewed the company's ${acronym} figures for this quarter.`)).not.toContain(acronym)
+    },
+  )
+
+  test('a real ticker alongside excluded acronyms is still extracted', () => {
+    const tickers = extractResearchObjectiveTickers('GEOS reported strong ESG scores and an improving ROI this quarter.')
+    expect(tickers).toContain('GEOS')
+    expect(tickers).not.toContain('ESG')
+    expect(tickers).not.toContain('ROI')
   })
 })
