@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:conversation": "bun test tests/ceo-conversation-semantics.test.ts tests/ceo-conversation-golden.test.ts tests/ceo-conversation-behavioral.test.ts tests/release-attestation.test.ts tests/ceo-long-conversation-certification.test.ts tests/ceo-runtime-metrics-cancellation.test.ts",
+    "test:research-objective": "bun test tests/ceo-research-objective-continuity.test.ts",
     "audit:deep": "bun scripts/deep-integrity-audit.ts",
     "audit:coherence": "bun scripts/repository-coherence-audit.ts",
     "audit:ceo-lifecycle": "bun scripts/ceo-cognitive-lifecycle-audit.ts && bun scripts/ceo-phase-0-10-audit.ts",
