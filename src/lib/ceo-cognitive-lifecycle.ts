@@ -17,7 +17,7 @@ import { isCircuitOpen, pickHalfOpenCandidate } from './provider-intelligence'
 import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
-import type { CognitiveLifecycleResult, DecisionPlan, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision, CeoGenerationDiagnostics, CeoIntent } from './ceo-cognitive-contract'
+import type { CognitiveLifecycleResult, DecisionPlan, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision, CeoGenerationDiagnostics, CeoIntent, QualityResult } from './ceo-cognitive-contract'
 import { inferComprehensionMode, extractInstructionWindow, extractInstructionWindowDetails } from './ceo-cognitive-contract'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { isDocumentOperation, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
@@ -293,6 +293,33 @@ export function shouldRecoverEvidenceBeforeProvider(
     contract.toolRequired
   )
 }
+/**
+ * Efficiency fix (2026-09-24, following the structural quality gate audit): the escalation loop below
+ * asks the model to repair a rejected answer using the SAME source messages it already had. That works
+ * for phrasing/consistency/continuity misses -- the model genuinely can do better on a second pass. It
+ * cannot work when the ONLY reason the answer was rejected is that Phase 3's hierarchical comprehension
+ * hit its time budget before processing the whole document (structuralQuality.sourceCoverageComplete ===
+ * false): no escalation attempt adds newly-processed sections, so retrying spends a full LLM round-trip
+ * (and its own timeout budget) on an attempt that is structurally guaranteed to fail the same check
+ * again, before falling through to tryDegraded's already-correct, coverage-aware recovery response.
+ * Deliberately narrow: only true when structural incomplete coverage is the SOLE blocker -- every other
+ * check (including contradiction preservation, which an escalation CAN genuinely repair by adding
+ * acknowledgment language) must already be passing, so a turn with a real, fixable defect alongside
+ * incomplete coverage still gets its escalation attempt.
+ */
+export function isFutileStructuralCoverageEscalation(quality: QualityResult): boolean {
+  return (
+    quality.decision === 'ESCALATE' &&
+    quality.structuralQuality?.applicable === true &&
+    quality.structuralQuality.sourceCoverageComplete === false &&
+    !quality.checks.objectiveCoverage &&
+    quality.checks.nonEmpty &&
+    quality.checks.contractValid &&
+    quality.checks.internalConsistency &&
+    quality.checks.evidenceDiscipline &&
+    quality.checks.actionableStructure
+  )
+}
 async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempts: string[], responseMsBeforeDegraded: number, decisionPlan: ReturnType<typeof buildCeoDecisionPlan>, executionPlan: ReturnType<typeof buildCeoExecutionPlan>, availabilityAttempted = false, validatedAvailability: ValidatedAvailability = [], failureReason?: CeoFailureReason, generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness): Promise<CognitiveLifecycleResult> {
   throwIfCeoRequestAborted(getCeoCancellationSignal())
   const started = Date.now()
@@ -477,7 +504,11 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     // escalation/deadline bounds decide whether another attempt is tried -- quality/output/final are left
     // exactly as they were before the failed attempt, so a subsequent iteration (or the fall-through to
     // tryDegraded after the loop exits) sees consistent state either way.
-    while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline) { escalation += 1; const lastProvider = final?.provider ?? review?.provider ?? primary?.provider; try { const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${generationObjective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) }); final = escalated; output = escalated; finalStage = 'escalation'; quality = evaluateCeoQuality({ objective: generationObjective, content: sanitizeCeoContentForQualityGate(escalated.content), path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded, evidenceProvided, evidenceScope, evidenceFreshness, evidenceBundle: request.evidenceBundle, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation, resolvedReferences: request.canonicalContext?.references, responseAction: request.decisionContract?.responseAction, externalAgencyAvailable, comprehensionMode, structuralSourceModel }); if (quality.decision === 'PASS') break } catch (error) { if (isCeoRequestAborted(error)) throw error } }
+    // Efficiency fix (2026-09-24): isFutileStructuralCoverageEscalation stops the loop immediately (rather
+    // than spending an attempt) when incomplete Phase 3 document coverage is the SOLE reason for ESCALATE
+    // -- see that function's own comment. quality is re-evaluated each iteration below, so this condition
+    // is re-checked every pass, not just on entry.
+    while (quality.decision === 'ESCALATE' && escalation < decisionPlan.maxEscalations && Date.now() < deadline && !isFutileStructuralCoverageEscalation(quality)) { escalation += 1; const lastProvider = final?.provider ?? review?.provider ?? primary?.provider; try { const escalated = await runCanonicalLlm({ ...stageOptions({ maxProviderAttempts: 2 }), messages: [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...decisionMessages, { role: 'system', content: 'You are an escalation reviewer. Repair the response only where the quality gate found material issues. Do not invent evidence.' }, { role: 'user', content: `Objective:\n${generationObjective}\n\nCandidate:\n${output.content}\n\nQuality findings:\n${quality.reasons.join(' | ')}` }], excludeProviders: stageExclusions(lastProvider) }); final = escalated; output = escalated; finalStage = 'escalation'; quality = evaluateCeoQuality({ objective: generationObjective, content: sanitizeCeoContentForQualityGate(escalated.content), path: decisionPlan.path, intent: decisionPlan.executionContract.intent, reviewed: true, externalExecutionSucceeded, evidenceProvided, evidenceScope, evidenceFreshness, evidenceBundle: request.evidenceBundle, priorTurns: request.priorConversation, relevantOlderMessages: request.relevantOlderConversation, resolvedReferences: request.canonicalContext?.references, responseAction: request.decisionContract?.responseAction, externalAgencyAvailable, comprehensionMode, structuralSourceModel }); if (quality.decision === 'PASS') break } catch (error) { if (isCeoRequestAborted(error)) throw error } }
     const result0 = final ?? primary
     if (!result0) return tryDegraded(degradedRequest, 'Provider execution exhausted before a final answer was available.', mergeAttempts(primary, review, final), Date.now() - startedAt, decisionPlan, executionPlan, false, [], 'provider_unavailable', { primaryOutputProduced: Boolean(primary?.content.trim()), primaryQualityDecision: primaryQuality?.decision ?? 'NOT_RUN', finalOutputProduced: false, finalStage: 'none', escalationCount: escalation }, ventureEvidence, ventureEvidenceFreshness)
     let result = result0; let semanticRepairApplied = false
