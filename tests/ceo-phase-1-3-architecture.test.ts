@@ -240,6 +240,17 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain("const recoveryLiveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):")
     expect(lifecycle).toContain('const recoveryEvidenceMessages = recoveredEvidenceContext ?')
-    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...recoveryEvidenceMessages, ...recoverySelfAssessmentFactsMessages, ...selfAssessmentGuidanceMessages(')
+    expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...recoveryEvidenceMessages, ...recoverySelfAssessmentFactsMessages, ...recoveryDocumentComprehensionMessages, ...selfAssessmentGuidanceMessages(')
+  })
+
+  // Production audit fix (2026-09-24): mirrors the venture-evidence test above -- the recovery
+  // generation call must also carry the bounded hierarchical document-comprehension synthesis
+  // forward, the same way primaryMessages includes documentComprehensionMessages. Without this,
+  // recoverySourceMessages (which strips the raw source document) left the recovery attempt with no
+  // source content at all for a document-comprehension turn.
+  test('the recovery generation call is given the hierarchical document-comprehension synthesis in its own messages', async () => {
+    const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
+    expect(lifecycle).toContain('const recoveryDocumentComprehensionMessages: readonly { role: \'system\'; content: string }[] = request.documentComprehensionSynthesis')
+    expect(lifecycle).toContain('...recoveryDocumentComprehensionMessages, ...selfAssessmentGuidanceMessages(')
   })
 })
