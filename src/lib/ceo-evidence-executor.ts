@@ -95,7 +95,7 @@ function urlsFromSearchResult(result: ToolResult): string[] { return [...result.
 function titleFromSearchResult(result: ToolResult, url: string): string { const line = result.result.split('\n').find((candidate) => candidate.includes(url)); return line ? line.replace(/^[0-9]+\.\s*/, '').replace(/\*\*/g, '').trim() || url : url }
 export function deriveSearchSourceType(url: string, query: EvidenceQuery): EvidenceSourceType { if (query.sourcePreference === 'market') return sourceTierForUrl(url) <= 2 ? 'market_data' : 'web'; return 'web' }
 async function executeSearch(query: EvidenceQuery, toolName: string, signal?: AbortSignal): Promise<{ result: ToolResult; sources: EvidenceSource[] }> { throwIfCeoRequestAborted(signal); const result = await dispatch(toolName, cacheBypassArgs({ query: query.query, num: 6, recency_days: query.recencyDays }), signal); if (!result.ok) return { result, sources: [] }; const retrievedAt = Date.now(), urls = urlsFromSearchResult(result).slice(0, 6), relatedEntities = query.ticker ? [query.ticker] : []; return { result, sources: urls.map((url, index) => createEvidenceSource({ url, title: titleFromSearchResult(result, url), sourceType: deriveSearchSourceType(url, query), sourceTier: sourceTierForUrl(url), retrievedAt, text: result.result.slice(0, 6000), id: `${query.id}-${index + 1}`, relatedEntities })) } }
-async function readPages(urls: string[], signal?: AbortSignal): Promise<EvidenceSource[]> { const outputs = await Promise.all(urls.map(async (url, index) => { throwIfCeoRequestAborted(signal); const result = await dispatch('page_reader', cacheBypassArgs({ url }), signal); if (!result.ok) return null; return createEvidenceSource({ url, title: result.preview.replace(/^Read page(?: \\(via fallback\\))?:\\s*/i, '').slice(0, 240) || url, sourceType: 'page', sourceTier: sourceTierForUrl(url), retrievedAt: Date.now(), text: result.result, id: `PAGE-${index + 1}` }) })); return outputs.filter((source): source is EvidenceSource => source !== null) }
+async function readPages(pages: Array<{ url: string; relatedEntities: string[] }>, signal?: AbortSignal): Promise<EvidenceSource[]> { const outputs = await Promise.all(pages.map(async (page, index) => { const { url, relatedEntities } = page; throwIfCeoRequestAborted(signal); const result = await dispatch('page_reader', cacheBypassArgs({ url }), signal); if (!result.ok) return null; return createEvidenceSource({ url, title: result.preview.replace(/^Read page(?: \(via fallback\))?:\s*/i, '').slice(0, 240) || url, sourceType: 'page', sourceTier: sourceTierForUrl(url), retrievedAt: Date.now(), text: result.result, id: `PAGE-${index + 1}`, relatedEntities }) })); return outputs.filter((source): source is EvidenceSource => source !== null) }
 async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?: AbortSignal): Promise<ExternalEvidenceExecution> {
   throwIfCeoRequestAborted(signal)
   const failures: string[] = []
@@ -109,7 +109,16 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
   throwIfCeoRequestAborted(signal)
   const searchSources = searchResults.flatMap((entry) => entry.sources)
   const discoveredUrls = [...new Set(searchSources.map((source) => source.url))]
-  const pagesToRead = discoveredUrls.filter((url) => sourceTierForUrl(url) <= 2).slice(0, plan.maxPageReads)
+  const pageEntityMap = new Map<string, string[]>()
+  for (const source of searchSources) {
+    const entities = source.relatedEntities ?? []
+    if (!entities.length) continue
+    pageEntityMap.set(source.url, [...new Set([...(pageEntityMap.get(source.url) ?? []), ...entities])])
+  }
+  const pagesToRead = discoveredUrls
+    .filter((url) => sourceTierForUrl(url) <= 2)
+    .slice(0, plan.maxPageReads)
+    .map((url) => ({ url, relatedEntities: pageEntityMap.get(url) ?? [] }))
   let pageSources: EvidenceSource[] = []
   if (pagesToRead.length) try { pageSources = await readPages(pagesToRead, signal) } catch (error) { throwIfCeoRequestAborted(signal); failures.push(`page_reader: ${error instanceof Error ? error.message : String(error)}`) }
   let secSources: EvidenceSource[] = []
@@ -133,7 +142,9 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
     }
   }
   throwIfCeoRequestAborted(signal)
-  const bundle = buildEvidenceBundle({ profile: plan.profile, operation: plan.operation, sources: [...secSources, ...marketDataSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 })
+  const requiredEntities = plan.researchObjective?.tickers ?? [...new Set(queries.map((query) => query.ticker).filter((ticker): ticker is string => Boolean(ticker)))]
+  if (plan.profile === 'public_equity' && plan.researchObjective && plan.researchObjective.domain !== 'public_equity') throw new Error('EVIDENCE_OBJECTIVE_DOMAIN_MISMATCH')
+  const bundle = buildEvidenceBundle({ profile: plan.profile, operation: plan.operation, sources: [...secSources, ...marketDataSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0, requiredEntities })
   // Deep-audit fix (P0, 2026-09-13): cross-turn claim ledger. Each ticker's freshly fetched SEC source is
   // checked against claims verified in an earlier, separate turn/conversation (lookupRecentVerifiedClaims
   // -- see ceo-claim-ledger.ts), and any genuine disagreement is appended to the bundle's contradictions

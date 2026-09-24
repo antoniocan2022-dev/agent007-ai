@@ -108,6 +108,50 @@ model ContractDraft {
   @@index([userId])
 }
 
+/// Durable CEO research objective. Exactly one row may be ACTIVE per conversation (enforced by the
+/// production partial unique index in reconcile-production-schema.ts). Refinements/continuations keep
+/// the same objective id; explicit supersession creates a new id. The event table preserves the full
+/// lifecycle without making the transcript itself the source of truth.
+model CeoResearchObjective {
+  id               String   @id @default(cuid())
+  conversationId   String
+  userId           String
+  version          Int      @default(1)
+  status           String   @default("active")
+  lifecycleState   String   @default("ESTABLISHED")
+  domain           String
+  evidenceProfile  String
+  operation        String
+  temporalScope    String
+  objectiveAnchor  String
+  currentObjective String
+  tickersJson      String   @default("[]")
+  issuersJson      String   @default("[]")
+  lastTurnSequence Int?
+  resolvedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([conversationId, status, updatedAt])
+  @@index([userId, status, updatedAt])
+}
+
+model CeoResearchObjectiveEvent {
+  id               String   @id @default(cuid())
+  objectiveId      String
+  conversationId   String
+  fromVersion      Int?
+  toVersion        Int
+  lifecycleState   String
+  eventType        String
+  reason           String
+  snapshotJson     String
+  createdAt        DateTime @default(now())
+
+  @@index([objectiveId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
 model Conversation {
   id        String    @id @default(cuid())
   userId    String?

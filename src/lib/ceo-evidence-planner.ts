@@ -4,9 +4,10 @@ import { selectCeoTool } from './ceo-tool-selection'
 // Type-only: ceo-issuer-resolution.ts imports extractEquityTickers (a real value) FROM this file, so
 // this import must stay type-only to avoid a runtime circular dependency -- it's erased at compile time.
 import type { IssuerResolution } from './ceo-issuer-resolution'
+import type { ResearchObjectiveIdentity } from './ceo-research-objective'
 
 export interface EvidenceQuery { id: string; query: string; ticker?: string; purpose: 'identity' | 'market' | 'financials' | 'filing' | 'news' | 'risks' | 'comparison'; sourcePreference: 'sec' | 'company' | 'market' | 'web'; recencyDays?: number }
-export interface ExternalEvidencePlan { profile: EvidenceProfile; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; minimumSources: number; maxSearchQueries: number; maxPageReads: number; queries: EvidenceQuery[]; capability: string; selectedTool?: string; toolSelectionScore?: number; executionStrategy: string; evidenceRequirements: string[]; resolvedIssuers?: readonly IssuerResolution[] }
+export interface ExternalEvidencePlan { profile: EvidenceProfile; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; minimumSources: number; maxSearchQueries: number; maxPageReads: number; queries: EvidenceQuery[]; capability: string; selectedTool?: string; toolSelectionScore?: number; executionStrategy: string; evidenceRequirements: string[]; resolvedIssuers?: readonly IssuerResolution[]; /** Same durable objective identity that initiated this evidence acquisition. */ researchObjective?: ResearchObjectiveIdentity }
 const TICKER_STOPWORDS = new Set(['THE','AND','WITH','THIS','THAT','THOSE','STOCK','STOCKS','SHARE','SHARES','MARKET','PRICE','TARGET','BUY','SELL','HOLD','CASH','FLOW','EPS','SEC','FILING','CEO','CFO','COO','CTO','CIO','CMO','CPO','CHRO','CRO','VP','SVP','EVP','HR','IR','AI','API','CI','CD','DB','SQL','URL','HTTP','HTTPS','SSE','UI','UX','QA','RCA','KPI'])
 export function extractEquityTickers(text: string): string[] { const matches = new Set<string>(); for (const match of text.matchAll(/\(([A-Z]{1,5})\)/g)) if (!TICKER_STOPWORDS.has(match[1])) matches.add(match[1]); for (const match of text.matchAll(/\b([A-Z]{2,5})\b/g)) if (!TICKER_STOPWORDS.has(match[1])) matches.add(match[1]); return [...matches].slice(0, 8) }
 // Fresh-audit fix: 'risks' has always been a valid EvidenceQuery purpose (see the type above) but
@@ -39,7 +40,7 @@ function equityQueries(tickers: string[]): EvidenceQuery[] {
   return queries
 }
 function capabilityContract(input: { evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile }): CeoExecutionContract { return { intent: 'research', evidenceClass: input.evidenceClass, domain: input.domain, operation: input.operation, temporalScope: input.temporalScope, evidenceProfile: input.evidenceProfile, evidenceRequirement: input.evidenceClass === 'external_web' ? 'external_web' : 'multi_source', executionRequirement: 'one_tool', orchestrationOwner: 'ceo_lifecycle', maxTurns: 4, maxRecoveries: 1, latencyBudgetMs: 30000, toolRequired: true, subagentsRequired: false, reason: 'Evidence acquisition capability selection' } }
-export function buildExternalEvidencePlan(input: { objective: string; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; resolvedIssuers?: readonly IssuerResolution[] }): ExternalEvidencePlan {
+export function buildExternalEvidencePlan(input: { objective: string; evidenceClass: EvidenceClass; domain: EvidenceDomain; operation: EvidenceOperation; temporalScope: TemporalScope; evidenceProfile: EvidenceProfile; resolvedIssuers?: readonly IssuerResolution[]; researchObjective?: ResearchObjectiveIdentity }): ExternalEvidencePlan {
   // Domain is authoritative: callers cannot accidentally downgrade public_equity to generic research by passing a stale profile.
   const effectiveEvidenceProfile = deriveEvidenceProfile(input.domain)
   const effectiveInput = effectiveEvidenceProfile === 'none' ? input : { ...input, evidenceProfile: effectiveEvidenceProfile }
@@ -57,7 +58,11 @@ export function buildExternalEvidencePlan(input: { objective: string; evidenceCl
     // ticker-map fetch this pure/synchronous planner deliberately doesn't do itself) supplies tickers
     // resolved from company names too -- additive to, never a replacement for, the raw regex harvest.
     const resolvedTickers = (effectiveInput.resolvedIssuers ?? []).flatMap((resolution) => resolution.resolved ? [resolution.resolved.ticker] : [])
-    const tickers = [...new Set([...extractEquityTickers(effectiveInput.objective), ...resolvedTickers])]
+    // The durable objective is the highest-authority entity registry. A short continuation often contains
+    // no ticker text at all; using it here prevents the evidence plan from silently becoming an untargeted
+    // generic search even though routing has already proved which companies are being researched.
+    const durableTickers = input.researchObjective?.tickers ?? []
+    const tickers = [...new Set([...durableTickers, ...extractEquityTickers(effectiveInput.objective), ...resolvedTickers])]
     const queries = equityQueries(tickers)
     // Fresh-audit fix (round 2): a flat cap of 10 was still too tight once 3+ tickers were requested
     // (up to 8 tickers are allowed, at 4 queries each = 32, +1 comparison). equityQueries() above now
@@ -67,7 +72,7 @@ export function buildExternalEvidencePlan(input: { objective: string; evidenceCl
     // filing and cross-ticker comparison queries degrade under extreme multi-ticker requests.
     const genericQuery = effectiveInput.objective.slice(0, 500)
     const queryCap = Math.min(24, queries.length)
-    if (queries.length > 0) return { profile: 'public_equity', evidenceClass: effectiveInput.evidenceClass, domain: effectiveInput.domain, operation: effectiveInput.operation, temporalScope: effectiveInput.temporalScope, minimumSources: Math.max(3, Math.min(6, tickers.length * 2)), maxSearchQueries: queryCap, maxPageReads: Math.max(2, Math.min(4, tickers.length * 2)), queries: queries.slice(0, queryCap), resolvedIssuers: effectiveInput.resolvedIssuers, ...selectionMeta }
+    if (queries.length > 0) return { profile: 'public_equity', evidenceClass: effectiveInput.evidenceClass, domain: effectiveInput.domain, operation: effectiveInput.operation, temporalScope: effectiveInput.temporalScope, minimumSources: Math.max(3, Math.min(6, tickers.length * 2)), maxSearchQueries: queryCap, maxPageReads: Math.max(2, Math.min(4, tickers.length * 2)), queries: queries.slice(0, queryCap), resolvedIssuers: effectiveInput.resolvedIssuers, researchObjective: input.researchObjective, ...selectionMeta }
     const fallbackQueries: EvidenceQuery[] = [
       { id: 'equity-overview', purpose: 'identity', sourcePreference: 'web', recencyDays: 14, query: genericQuery },
       { id: 'equity-financials', purpose: 'financials', sourcePreference: 'company', recencyDays: 120, query: genericQuery + ' financial results revenue cash debt' },
@@ -84,9 +89,10 @@ export function buildExternalEvidencePlan(input: { objective: string; evidenceCl
       maxPageReads: 3,
       queries: fallbackQueries,
       resolvedIssuers: effectiveInput.resolvedIssuers,
+      researchObjective: input.researchObjective,
       ...selectionMeta,
     }
   }
   const genericQuery = effectiveInput.objective.slice(0, 500)
-  return { profile: effectiveInput.evidenceProfile === 'none' ? 'general_research' : effectiveInput.evidenceProfile, evidenceClass: effectiveInput.evidenceClass, domain: effectiveInput.domain, operation: effectiveInput.operation, temporalScope: effectiveInput.temporalScope, minimumSources: 2, maxSearchQueries: 2, maxPageReads: 2, queries: [{ id: 'general-1', query: genericQuery, purpose: 'identity', sourcePreference: 'web', recencyDays: effectiveInput.temporalScope === 'current' ? 7 : 30 }, { id: 'general-2', query: `${genericQuery} official source`, purpose: 'filing', sourcePreference: 'company', recencyDays: 30 }], resolvedIssuers: effectiveInput.resolvedIssuers, ...selectionMeta }
+  return { profile: effectiveInput.evidenceProfile === 'none' ? 'general_research' : effectiveInput.evidenceProfile, evidenceClass: effectiveInput.evidenceClass, domain: effectiveInput.domain, operation: effectiveInput.operation, temporalScope: effectiveInput.temporalScope, minimumSources: 2, maxSearchQueries: 2, maxPageReads: 2, queries: [{ id: 'general-1', query: genericQuery, purpose: 'identity', sourcePreference: 'web', recencyDays: effectiveInput.temporalScope === 'current' ? 7 : 30 }, { id: 'general-2', query: `${genericQuery} official source`, purpose: 'filing', sourcePreference: 'company', recencyDays: 30 }], resolvedIssuers: effectiveInput.resolvedIssuers, researchObjective: input.researchObjective, ...selectionMeta }
 }

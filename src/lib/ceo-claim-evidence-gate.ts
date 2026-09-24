@@ -48,6 +48,21 @@ function claimValueSupported(sentence: string, sources: EvidenceSource[]): boole
 const QUANTITATIVE_CHANGE_RE = /\b(?:grew|grow|growth|grown|reached|rose|rising|increased?|decreased?|declined?|dropped|fell|hit|doubled|tripled|surged|jumped|plunged)\b/i
 function claimScope(sentence: string): ClaimVerification['scope'] | null { if (LIVE_CLAIM_RE.test(sentence)) return 'live_system'; if (EXTERNAL_CLAIM_RE.test(sentence)) return 'external_web'; if (INTERNAL_CLAIM_RE.test(sentence)) return 'internal_state'; if (QUANTITATIVE_CHANGE_RE.test(sentence) && numericSignatures(sentence).length > 0) return 'external_web'; return null }
 function markerIds(sentence: string): string[] { return [...sentence.matchAll(/\[(S\d+-[0-9a-f]+|SEC-[A-Z0-9]+|PAGE-\d+)\]/gi)].map((match) => match[1]) }
+function claimEntities(sentence: string, bundle: EvidenceBundle, candidateMatches: EvidenceClaimCandidate[]): string[] {
+  const required = bundle.requiredEntities ?? []
+  if (!required.length) return []
+  const sentenceTickers = new Set((sentence.toUpperCase().match(/\b[A-Z]{1,5}\b/g) ?? []))
+  const direct = required.filter((entity) => sentenceTickers.has(entity))
+  if (direct.length) return direct
+  const candidateEntities = candidateMatches.flatMap((candidate) => candidate.relatedEntities ?? []).map((entity) => entity.toUpperCase())
+  const knownCandidateEntities = required.filter((entity) => candidateEntities.includes(entity))
+  if (knownCandidateEntities.length) return [...new Set(knownCandidateEntities)]
+  return required.length === 1 ? [required[0]!] : []
+}
+function entityCompatibleSources(entities: readonly string[], sources: readonly EvidenceSource[]): boolean {
+  if (!entities.length) return false
+  return entities.every((entity) => sources.some((source) => (source.relatedEntities ?? []).some((related) => related.toUpperCase() === entity)))
+}
 function overlapScore(sentence: string, source: EvidenceSource): number {
   const wanted = tokens(sentence)
   if (!wanted.length) return 0
@@ -79,7 +94,9 @@ export function verifyClaimEvidence(content: string, bundle?: EvidenceBundle): {
     const fresh = uniqueSources.some((source) => { const age = Date.now() - source.retrievedAt; return age >= 0 && age <= bundle.freshness.maxAgeMs })
     const topicalSupport = Math.max(...uniqueSources.map((source) => overlapScore(sentence, source)), 0) >= 0.28
     const quantitativeSupport = claimValueSupported(sentence, uniqueSources)
-    const supported = uniqueSources.length > 0 && fresh && topicalSupport && quantitativeSupport
+    const entities = bundle.profile === 'public_equity' ? claimEntities(sentence, bundle, candidateMatches) : []
+    const entityCompatible = bundle.profile !== 'public_equity' || !(bundle.requiredEntities?.length) || entityCompatibleSources(entities, uniqueSources)
+    const supported = uniqueSources.length > 0 && fresh && topicalSupport && quantitativeSupport && entityCompatible
     claims.push({
       claim: sentence.slice(0, 500),
       scope,
@@ -94,7 +111,9 @@ export function verifyClaimEvidence(content: string, bundle?: EvidenceBundle): {
             ? 'Mapped evidence is stale.'
             : !topicalSupport
               ? 'The cited source does not provide sufficient topical support for this claim.'
-              : 'Claim contains quantitative values that do not match the relevant source evidence.',
+              : !quantitativeSupport
+                ? 'Claim contains quantitative values that do not match the relevant source evidence.'
+                : 'The claim does not map to evidence for the specific public-equity entity/entities it names or implies.',
     })
   }
   if (!claims.length) return { passed: true, claims, supportedClaimCount: 0, requiredClaimCount: 0 }

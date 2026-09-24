@@ -47,6 +47,7 @@ import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo-turn-sequencing'
 import type { AttachmentMeta } from '@/lib/tools'
 import { classifyOperationalExecution } from '@/lib/ceo-execution-handoff'
+import { ensureResearchObjective, loadActiveResearchObjective, researchObjectiveFromPreRoute, shouldContinueResearchObjective, type ResearchObjectiveIdentity } from '@/lib/ceo-research-objective'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder()
 
   let contextData: { rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }
+  let activeResearchObjective: ResearchObjectiveIdentity | null = null
   let myTurnSequence = 0
   let isDuplicateRequest = false
   try {
@@ -103,6 +105,7 @@ export async function POST(req: NextRequest) {
     if (conv && conv.userId !== sessionUserId) return new Response(JSON.stringify({ error: 'Conversation not found.' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
     if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50), userId: sessionUserId }, select: { id: true, userId: true } })
     contextData = await loadConversationContext(conversationId, sessionUserId)
+    activeResearchObjective = await loadActiveResearchObjective({ conversationId, userId: sessionUserId })
     const convId = conv.id
     try {
       myTurnSequence = await db.$transaction(async (tx) => {
@@ -135,10 +138,10 @@ export async function POST(req: NextRequest) {
   }
 
   const safeContextRows = safeConversationRows(contextData.rows)
-  let contextSeed: CeoContextComposition = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, signal: requestAbortController.signal })
+  let contextSeed: CeoContextComposition = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, signal: requestAbortController.signal })
   let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
   try { semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch(() => {}); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
-  contextSeed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+  contextSeed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
   // Best-effort: makes this conversation's current decisions durable across future conversations via
   // the existing Memory-backed lexical/semantic retrieval path. Never allowed to affect the response.
   await persistEpisodicDecisionMemory(contextSeed.conversationState).catch(() => {})
@@ -146,8 +149,48 @@ export async function POST(req: NextRequest) {
   // once, inside composeCeoContext, from this same canonicalSemanticContext -- read it here instead of
   // rebuilding it, and pass it into preRouteCeoRequest so its own internal build (previously a second,
   // byte-identical copy used only for curiosity/evidence narrowing then discarded) is skipped too.
-  const decisionContract = contextSeed.decisionContract
-  const preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract)
+  let decisionContract = contextSeed.decisionContract
+  let preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract)
+  // Establish/continue the durable objective before the single turn decision is built. This is the
+  // boundary that converts a transiently inferred equity task into an authoritative identity that all
+  // downstream stages can carry, while preserving the exact current utterance as the response surface.
+  const rawObjectiveCandidate = researchObjectiveFromPreRoute(preRoute, message)
+  const objectiveCandidate = rawObjectiveCandidate && contextSeed.canonicalSemanticContext.speechAct === 'correction'
+    ? { ...rawObjectiveCandidate, currentObjective: message }
+    : rawObjectiveCandidate
+  if (objectiveCandidate) {
+    const continuing = Boolean(activeResearchObjective && shouldContinueResearchObjective(message, activeResearchObjective))
+    const lifecycleState = continuing
+      ? (contextSeed.canonicalSemanticContext.speechAct === 'correction' ? 'CORRECTED' : 'CONTINUED')
+      : 'ESTABLISHED'
+    const ensuredObjective = await ensureResearchObjective({
+      conversationId,
+      userId: sessionUserId,
+      turnSequence: myTurnSequence,
+      candidate: objectiveCandidate,
+      continuation: continuing,
+      lifecycleState,
+      reason: continuing ? 'Natural cross-turn continuation of the active public-equity research objective.' : 'Public-equity research objective established from the current turn.',
+    })
+    if (ensuredObjective) {
+      activeResearchObjective = ensuredObjective
+      preRoute = {
+        ...preRoute,
+        researchObjective: ensuredObjective,
+        routingObjective: ensuredObjective.currentObjective || ensuredObjective.objectiveAnchor,
+        executionContract: { ...preRoute.executionContract, researchObjective: ensuredObjective },
+      }
+      decisionContract = { ...decisionContract, researchObjective: ensuredObjective }
+      // The objective was established after the first canonical context snapshot. Patch that snapshot
+      // in place rather than recomputing semantics/embeddings: every remaining stage now sees the same
+      // authoritative identity without reintroducing duplicate decision construction.
+      contextSeed = {
+        ...contextSeed,
+        canonicalSemanticContext: { ...contextSeed.canonicalSemanticContext, researchObjective: ensuredObjective },
+        researchObjective: ensuredObjective,
+      }
+    }
+  }
   const resolvedPath = resolvePreRoute(preRoute)
   const executionContract = preRoute.executionContract
   // Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issues 1 and 8: the
@@ -238,8 +281,8 @@ export async function POST(req: NextRequest) {
           let externalEvidenceBundle: EvidenceBundle | undefined
           let evidenceTrace: EvidenceTrace | undefined
           if (decisionContract.responseAction !== 'clarify' && (executionContract.evidenceClass === 'external_web' || executionContract.evidenceClass === 'mixed')) {
-            evidenceTrace = startEvidenceTrace({ objective: message, profile: executionContract.evidenceProfile })
-            const evidenceObjective = preRoute.routingObjective || contextSeed.canonicalSemanticContext.meaning || message
+            evidenceTrace = startEvidenceTrace({ objective: activeResearchObjective?.currentObjective || preRoute.routingObjective || message, profile: executionContract.evidenceProfile, requestId, objectiveId: activeResearchObjective?.id, objectiveVersion: activeResearchObjective?.version, tickers: activeResearchObjective?.tickers })
+            const evidenceObjective = activeResearchObjective?.currentObjective || preRoute.routingObjective || contextSeed.canonicalSemanticContext.meaning || message
             // Deep-audit fix (P0, 2026-09-13): resolves company names (not just already-ticker-shaped
             // tokens) against SEC's real registry before planning -- see ceo-issuer-resolution.ts's own
             // comment for the full rationale. Best-effort: buildExternalEvidencePlan already treats
@@ -250,7 +293,7 @@ export async function POST(req: NextRequest) {
             const resolvedIssuers = executionContract.domain === 'public_equity' && executionContract.evidenceProfile === 'public_equity'
               ? await getSecTickerMap(requestAbortController.signal).then((tickerMap) => resolveEquityIssuers(evidenceObjective, tickerMap)).catch((error) => { if (isCeoRequestAborted(error)) throw error; return undefined })
               : undefined
-            const evidencePlan = buildExternalEvidencePlan({ objective: evidenceObjective, evidenceClass: executionContract.evidenceClass, domain: executionContract.domain, operation: executionContract.operation, temporalScope: executionContract.temporalScope, evidenceProfile: executionContract.evidenceProfile, resolvedIssuers })
+            const evidencePlan = buildExternalEvidencePlan({ objective: evidenceObjective, evidenceClass: executionContract.evidenceClass, domain: executionContract.domain, operation: executionContract.operation, temporalScope: executionContract.temporalScope, evidenceProfile: executionContract.evidenceProfile, resolvedIssuers, researchObjective: activeResearchObjective ?? undefined })
             addEvidenceTraceEvent(evidenceTrace, 'planned', { queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources })
             safeEnqueue(sse('progress', { phase: 'evidence_acquisition', profile: evidencePlan.profile, queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources }))
             let evidenceExecution = await executeExternalEvidencePlan(evidencePlan, requestAbortController.signal)
@@ -266,7 +309,7 @@ export async function POST(req: NextRequest) {
             safeEnqueue(sse('progress', { phase: 'evidence_complete', sources: externalEvidenceBundle.sources.length, claims: externalEvidenceBundle.claims.length, sufficient: externalEvidenceBundle.sufficient, attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, pageReads: evidenceExecution.pageReads, secSources: evidenceExecution.secSources, marketDataSources: evidenceExecution.marketDataSources, failures: evidenceExecution.failures.slice(0, 5) }))
           }
           const contextModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, evidence: externalEvidenceContext, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
-          const composed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract: contextSeed.decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+          const composed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
           const response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionPlan: turnDecision.decisionPlan, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) { const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle); addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount, enforcedByQualityGate: true }); }
           const finalTraceState = response.degraded ? (externalEvidenceBundle?.sources.length ? 'PARTIAL' : 'ABSTAIN') : 'FULL'

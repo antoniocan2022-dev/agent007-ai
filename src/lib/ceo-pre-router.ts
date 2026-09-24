@@ -9,6 +9,7 @@ import type { CeoExecutionContract, CeoIntent, EvidenceClass, EvidenceDomain, Ev
 import type { CanonicalConversationContext } from './ceo-cognitive-conversation'
 import { isRetrospectiveConversationRequest, isContinuationOrRestatementRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isObjectiveConfirmationSignal, isBareObjectiveConfirmation, CONTEXTUAL_REFERENCE_RE } from './ceo-conversational-signals'
 import { enforceContractConsistency } from './ceo-contract-consistency-gate'
+import { shouldContinueResearchObjective, type ResearchObjectiveIdentity } from './ceo-research-objective'
 
 const SIMPLE_RE = /^(what is|what's|who is|where is|when is|how much|how many|define|meaning of|translate|calculate)\b/i
 // Item 2 of the "make Agent007 feel like Claude" plan: research|search|look up|find out|verify|validate
@@ -221,10 +222,10 @@ function semanticIntentToCeoIntent(context?: CanonicalConversationContext): CeoI
   if (context.intentHint === 'action') return 'tool_action'
   return undefined
 }
-function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; routingObjective?: string }): PreRouteDecision {
-  const executionContract = normalizeCeoEvidenceContract(input.executionContract)
+function buildDecision(input: { route: PreRouteDecision['route']; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; routingObjective?: string; researchObjective?: ResearchObjectiveIdentity }): PreRouteDecision {
+  const executionContract = normalizeCeoEvidenceContract(input.researchObjective ? { ...input.executionContract, researchObjective: input.researchObjective } : input.executionContract)
   assertCeoEvidenceContractInvariant(executionContract)
-  return { ...input, executionContract }
+  return { ...input, executionContract, ...(input.researchObjective ? { researchObjective: input.researchObjective } : {}) }
 }
 
 function hasSignificantThreadOverlap(message: string, thread: CanonicalConversationContext['state']['threads'][number]): boolean {
@@ -350,7 +351,7 @@ function latestContinuableThread(context?: CanonicalConversationContext): Canoni
 // discarded it entirely, which was the other half of the "overlapping decide-stage" this migration
 // exists to remove. Omitting it preserves the original self-contained behavior for every other caller
 // (tests, offline tooling) that only has semanticContext to hand.
-export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext, decisionContract?: ConversationDecisionContract): PreRouteDecision {
+export function preRouteCeoRequest(messages: readonly { role: string; content: string }[], attachmentsCount = 0, semanticContext?: CanonicalConversationContext, decisionContract?: ConversationDecisionContract, authoritativeResearchObjective?: ResearchObjectiveIdentity): PreRouteDecision {
   const text = latestUserText(messages).replace(/\s+/g, ' ').trim()
   // Long-document audit fix (2026-09-19): every keyword classifier this function drives (self-
   // reflection, semantic intent, external-equity/domain detection, evidence operation/temporal-scope
@@ -390,19 +391,24 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // The inherited objective is only used for routing/grounding; the user's actual text remains the
   // response surface and is never replaced or rewritten. Select the thread once and reuse that same
   // authoritative object for both objective text and domain inheritance, preventing split-brain routing.
-  const inheritedThread = latestContinuableThread(semanticContext)
-  const inheritedObjective = inheritedThread ? (() => {
-    const anchor = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
-    const currentObjective = inheritedThread.currentObjective.trim()
-    if (!anchor) return currentObjective || undefined
-    // Continuity was already proven by latestContinuableThread before this text is built. The current
-    // objective is therefore legitimate task refinement, not evidence that can self-authorize inheritance.
-    // Retain it so the downstream evidence planner receives both the durable subject and the current
-    // scope (e.g. "past two weeks", "press releases", "analyst coverage").
-    if (!currentObjective || currentObjective === anchor) return anchor
-    return anchor + '\n' + currentObjective
-  })() : undefined
-  const finalizeDecision = (input: Parameters<typeof buildDecision>[0]): PreRouteDecision => buildDecision({ ...input, ...(inheritedObjective ? { routingObjective: inheritedObjective } : {}) })
+  const durableResearchObjective = authoritativeResearchObjective ?? semanticContext?.researchObjective
+  const durableResearchContinuation = Boolean(durableResearchObjective && shouldContinueResearchObjective(text, durableResearchObjective))
+  const inheritedThread = durableResearchContinuation ? undefined : latestContinuableThread(semanticContext)
+  const inheritedObjective = durableResearchContinuation && durableResearchObjective
+    ? durableResearchObjective.currentObjective || durableResearchObjective.objectiveAnchor
+    : inheritedThread ? (() => {
+        const anchor = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
+        const currentObjective = inheritedThread.currentObjective.trim()
+        if (!anchor) return currentObjective || undefined
+        if (!currentObjective || currentObjective === anchor) return anchor
+        return anchor + '\n' + currentObjective
+      })() : undefined
+  const inheritedResearchObjective = durableResearchContinuation ? durableResearchObjective : undefined
+  const finalizeDecision = (input: Parameters<typeof buildDecision>[0]): PreRouteDecision => buildDecision({
+    ...input,
+    ...(inheritedObjective ? { routingObjective: inheritedObjective } : {}),
+    ...(inheritedResearchObjective ? { researchObjective: inheritedResearchObjective } : {}),
+  })
   const routingText = inheritedObjective ? `${inheritedObjective}\n${classificationText}` : classificationText
   const proposedDeterministicIntent = inferSemanticIntent(routingText, selfReflection)
   const consistency = enforceContractConsistency({
@@ -427,6 +433,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // production_action/mission_action are included here too for defense in depth even though the
   // interpreter-level guard already covers most of their triggering keywords.
   const objectiveContinuationActive = Boolean(inheritedObjective)
+  const researchObjectiveActive = Boolean(inheritedResearchObjective)
   const deterministicExternalResearch = deterministicIntent === 'research' && (isExternalEquityResearch(routingText) || EXTERNAL_LOOKUP_PHRASE_RE.test(classificationText))
   const deterministicIntentIsGoverned = deterministicIntent === 'self_assessment' || deterministicIntent === 'production_action' || deterministicIntent === 'mission_action' || deterministicIntent === 'tool_action' || deterministicExternalResearch
   const proposedSemanticIntent = deterministicIntentIsGoverned ? deterministicIntent : (assistedIntent ?? deterministicIntent)
@@ -520,7 +527,7 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   // "verify our compliance status" (deterministically 'research' via the bare "verify" match, but
   // actually asking about internal state) down to evidenceClass 'none' instead of contractFor's
   // research-intent default of 'external_web' -- removing 'research' here broke exactly that case.
-  const governedByDeterministicIntent = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'mission_action' || deterministicExternalResearch || inheritedExternalResearch
+  const governedByDeterministicIntent = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'mission_action' || deterministicExternalResearch || inheritedExternalResearch || researchObjectiveActive
   if (semanticContext && canonicalDecision && !governedByDeterministicIntent) {
     const externallyRequired = curiosity?.investigate === true
     const canonicalToolRequired = canonicalDecision.toolRequirement === 'required'
