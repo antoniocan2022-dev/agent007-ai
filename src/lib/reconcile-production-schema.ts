@@ -3,6 +3,13 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 const statements = [
+  `CREATE TABLE IF NOT EXISTS "CeoResearchObjective" ("id" TEXT PRIMARY KEY,"conversationId" TEXT NOT NULL,"userId" TEXT NOT NULL,"version" INTEGER NOT NULL DEFAULT 1,"status" TEXT NOT NULL DEFAULT 'active',"lifecycleState" TEXT NOT NULL DEFAULT 'ESTABLISHED',"domain" TEXT NOT NULL,"evidenceProfile" TEXT NOT NULL,"operation" TEXT NOT NULL,"temporalScope" TEXT NOT NULL,"objectiveAnchor" TEXT NOT NULL,"currentObjective" TEXT NOT NULL,"tickersJson" TEXT NOT NULL DEFAULT '[]',"issuersJson" TEXT NOT NULL DEFAULT '[]',"lastTurnSequence" INTEGER,"resolvedAt" TIMESTAMP(3),"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  'CREATE INDEX IF NOT EXISTS "CeoResearchObjective_conversationId_status_updatedAt_idx" ON "CeoResearchObjective" ("conversationId","status","updatedAt")',
+  'CREATE INDEX IF NOT EXISTS "CeoResearchObjective_userId_status_updatedAt_idx" ON "CeoResearchObjective" ("userId","status","updatedAt")',
+  'CREATE UNIQUE INDEX IF NOT EXISTS "CeoResearchObjective_conversation_active_key" ON "CeoResearchObjective" ("conversationId") WHERE "status" = \'active\'',
+  `CREATE TABLE IF NOT EXISTS "CeoResearchObjectiveEvent" ("id" TEXT PRIMARY KEY,"objectiveId" TEXT NOT NULL,"conversationId" TEXT NOT NULL,"fromVersion" INTEGER,"toVersion" INTEGER NOT NULL,"lifecycleState" TEXT NOT NULL,"eventType" TEXT NOT NULL,"reason" TEXT NOT NULL,"snapshotJson" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  'CREATE INDEX IF NOT EXISTS "CeoResearchObjectiveEvent_objectiveId_createdAt_idx" ON "CeoResearchObjectiveEvent" ("objectiveId","createdAt")',
+  'CREATE INDEX IF NOT EXISTS "CeoResearchObjectiveEvent_conversationId_createdAt_idx" ON "CeoResearchObjectiveEvent" ("conversationId","createdAt")',
   'ALTER TABLE "PhoneConfig" ADD COLUMN IF NOT EXISTS "emailImapHost" TEXT',
   'ALTER TABLE "PhoneConfig" ADD COLUMN IF NOT EXISTS "emailImapPort" TEXT',
   'ALTER TABLE "PhoneConfig" ADD COLUMN IF NOT EXISTS "emailImapUser" TEXT',
