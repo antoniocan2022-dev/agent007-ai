@@ -5,6 +5,7 @@ import type { InstructionWindowExtractionMethod, InstructionWindowResult, Reques
 import { extractInstructionWindowDetails } from './ceo-cognitive-contract'
 import { isCommitmentStatement, isCorrectionRequest, isContinuationOrRestatementRequest, isObjectiveConfirmationSignal, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest } from './ceo-conversational-signals'
 import { hasExplicitSelfAssessmentPhrase, SELF_REFERENCE_RE } from './ceo-self-reflection'
+import { shouldContinueResearchObjective, type ResearchObjectiveIdentity } from './ceo-research-objective'
 
 export type CognitiveDepth = 'direct' | 'contextual' | 'deep' | 'strategic'
 export type ReferenceScope = 'none' | 'same_turn' | 'cross_turn' | 'mixed'
