@@ -249,19 +249,25 @@ function inferContinuableThreadDomain(thread: CanonicalConversationContext['stat
   const objective = (thread.objectiveAnchor ?? thread.title).trim()
   if (!objective) return 'general_web'
 
-  // A continuable thread already has durable subject identity. For public-equity threads,
-  // preserve that domain from the original objective instead of letting a current-turn word
-  // such as "news" or "updates" replace the stronger equity scope.
-  if (isExternalEquityResearch(objective)) return 'public_equity'
+  // Prefer the original thread's explicit entity registry when it exists. Continuation routing must
+  // not let a current-turn surface word such as "news" replace a previously established equity domain.
+  const entityTickers = thread.entities
+    .filter((entity) => /^[A-Z]{2,5}$/.test(entity))
+    .filter((entity) => !COMMON_ACRONYM_RE.test(entity))
 
-  const threadTickers = [...new Set(objective.match(/\b[A-Z]{2,5}\b/g) ?? [])]
+  const objectiveTickers = [...new Set(objective.match(/\b[A-Z]{2,5}\b/g) ?? [])]
     .filter((token) => !COMMON_ACRONYM_RE.test(token))
+
+  const hasEquityMarketSignal = MARKET_SECURITY_RE.test(objective)
+    || /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\b/i.test(objective)
+
   if (
-    threadTickers.length > 0
-    && MARKET_SECURITY_RE.test(objective)
-    && !isInternalEquityContext(objective)
+    !isInternalEquityContext(objective)
+    && hasEquityMarketSignal
+    && (entityTickers.length > 0 || objectiveTickers.length > 0)
   ) return 'public_equity'
 
+  if (isExternalEquityResearch(objective)) return 'public_equity'
   return inferExternalDomain(objective)
 }
 function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
