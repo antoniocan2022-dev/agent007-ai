@@ -33,7 +33,7 @@ export function completeEvidenceTrace(trace: EvidenceTrace, finalState: Evidence
 /** Persist the bounded, redacted trace through the existing durable memory store. */
 export async function persistEvidenceTrace(trace: EvidenceTrace): Promise<boolean> {
   try {
-    const value = JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, objective: trace.objective, profile: trace.profile, startedAt: trace.startedAt, completedAt: trace.completedAt, finalState: trace.finalState, events: trace.events.map((entry) => ({ at: entry.at, event: entry.event, data: entry.data })) })
+    const value = JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, objectiveId: trace.objectiveId, objectiveVersion: trace.objectiveVersion, tickers: trace.tickers, objective: trace.objective, profile: trace.profile, startedAt: trace.startedAt, completedAt: trace.completedAt, finalState: trace.finalState, events: trace.events.map((entry) => ({ at: entry.at, event: entry.event, data: entry.data })) })
     await db.memory.upsert({
       where: { key: `evidence_trace_${trace.traceId}` },
       create: { key: `evidence_trace_${trace.traceId}`, value, category: 'evidence_trace' },
