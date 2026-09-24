@@ -681,6 +681,7 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
     let capturedBody = ''
+    let nonProbePostCount = 0
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = String(init?.method ?? 'GET')
       if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
@@ -708,7 +709,12 @@ describe('CEO cognitive lifecycle', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = String(init?.method ?? 'GET')
       if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
-      if (method === 'POST') { if (!capturedBody) capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'Self-assessment across partners, leadership, strategy, and decisions.' } }] }) }
+      if (method === 'POST') {
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+        nonProbePostCount += 1
+        if (nonProbePostCount === 1) capturedBody = body
+        return jsonResponse({ choices: [{ message: { content: 'Self-assessment across partners, leadership, strategy, and decisions.' } }] }) }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
 
