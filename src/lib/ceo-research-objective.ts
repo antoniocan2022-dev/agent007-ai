@@ -81,8 +81,20 @@ function rowToIdentity(row: {
   }
 }
 
+// Production audit fix (2026-09-24): this exclusion list only covered a handful of the all-caps
+// 2-5 letter acronyms that show up in ordinary business/financial prose -- ESG, IPO, GDP, CPI, ROI,
+// YOY, COGS, USA, and similar were all missing, so a sentence merely discussing e.g. "the company's
+// ESG risk profile" or "IPO timeline" could get misread as a real stock ticker and pollute the durable
+// objective's tracked entity list (which ceo-evidence-certification.ts then treats as a real company
+// requiring its own evidence coverage). Extended with the acronyms most likely to appear in exactly
+// the equity-research prose this function processes.
+// Only pure 2-5 letter all-caps tokens can reach this list at all (the capture regex below is
+// \b[A-Z]{2,5}\b) -- entries with digits (Q1, B2B), an ampersand (R&D, M&A, P&L), mixed case (SaaS),
+// or more than 5 letters (EBITDA) could never actually be matched, so they're deliberately left out
+// rather than kept as dead filter entries.
+const NON_TICKER_ACRONYMS = /^(?:AI|API|CEO|CFO|CTO|CIO|CMO|COO|SEC|NASDAQ|NYSE|USD|ETF|EPS|PPE|KPI|RCA|UI|UX|SQL|HTTP|HTTPS|ESG|IPO|GDP|CPI|PPI|ROI|ROE|ROIC|YOY|QOQ|COGS|USA|EU|UK|FY|GAAP|FDA|FTC|CAGR|TAM|SAM|SOM|NDA|IP|HR|IT|PR|FAQ|LBO|IRR|NPV|WACC|ARR|MRR|DAU|MAU|LTV|CAC|KYC|AML|GDPR|CCPA)$/i
 export function extractResearchObjectiveTickers(text: string): string[] {
-  return unique([...new Set(text.match(/\b[A-Z]{2,5}\b/g) ?? [])].filter((ticker) => !/^(?:AI|API|CEO|CFO|CTO|CIO|CMO|COO|SEC|NASDAQ|NYSE|USD|ETF|EPS|PPE|KPI|RCA|UI|UX|SQL|HTTP|HTTPS)$/i.test(ticker)))
+  return unique([...new Set(text.match(/\b[A-Z]{2,5}\b/g) ?? [])].filter((ticker) => !NON_TICKER_ACRONYMS.test(ticker)))
 }
 
 export function shouldContinueResearchObjective(message: string, objective?: ResearchObjectiveIdentity | null): boolean {
@@ -136,6 +148,23 @@ export async function loadActiveResearchObjective(input: { conversationId: strin
   }
 }
 
+// Production audit fix (2026-09-24): extracted as its own pure function so the actual fix -- the
+// tracked ticker/issuer set is always the UNION of what was already active and what this turn newly
+// contributes, never a bare overwrite that can silently drop an entity a prior turn already
+// established -- is directly unit-testable without mocking the Prisma transaction it runs inside
+// (this codebase has no precedent for mocking db.$transaction; every existing test in this module
+// exercises pure/derived logic instead). See ensureResearchObjective's own call site comment for the
+// production incident this closes.
+export function mergedResearchObjectiveEntities(
+  active: { tickersJson: string; issuersJson: string },
+  candidate: Pick<ResearchObjectiveCandidate, 'tickers' | 'issuers'>,
+): { tickers: string[]; issuers: string[] } {
+  return {
+    tickers: unique([...safeJsonArray(active.tickersJson), ...unique(candidate.tickers)]),
+    issuers: unique([...safeJsonArray(active.issuersJson), ...(candidate.issuers ?? [])], 16),
+  }
+}
+
 export async function ensureResearchObjective(input: {
   conversationId: string
   userId: string
@@ -159,6 +188,24 @@ export async function ensureResearchObjective(input: {
       if (active && input.continuation) {
         const shouldVersion = input.lifecycleState === 'CORRECTED' || input.lifecycleState === 'REFINED'
         const nextVersion = shouldVersion ? active.version + 1 : active.version
+        // Production audit fix (2026-09-24): the tracked ticker/issuer set used to be persisted ONLY on
+        // a version-bumping write (CORRECTED/REFINED) -- an ordinary continuation (lifecycleState
+        // 'CONTINUED', the only other value the real caller ever produces; 'REFINED' is otherwise never
+        // reached) wrote just {lifecycleState, lastTurnSequence, updatedAt}, silently discarding
+        // candidateTickers even when it correctly computed a broader set (researchObjectiveFromPreRoute
+        // already unions the existing objective's tickers with whatever the current turn newly
+        // mentions). Concretely: "Continue the research, and also check MIND" on an active GEOS
+        // objective matches shouldContinueResearchObjective's continuation cues, resolves to
+        // lifecycleState 'CONTINUED', and MIND was then never written to tickersJson -- the durable
+        // objective stayed frozen at ['GEOS'] until a correction ever happened. That silently defeated
+        // ceo-evidence-certification.ts's entityCoverageSatisfied check, which iterates exactly
+        // objective.tickers: an entity never added to that list is never checked for its own evidence
+        // coverage at all, undermining the very guarantee this subsystem exists to provide. Version
+        // bumping (a meaningfully new revision of the objective, for the audit trail) and keeping the
+        // tracked entity set current are separate concerns -- the entity set must stay current on every
+        // write, version bump or not, so it's now merged (union with the existing set, never dropping
+        // an entity a prior turn already established) and included unconditionally.
+        const { tickers: mergedTickers, issuers: mergedIssuers } = mergedResearchObjectiveEntities(active, input.candidate)
         const updated = await tx.ceoResearchObjective.update({
           where: { id: active.id },
           data: shouldVersion
@@ -170,13 +217,15 @@ export async function ensureResearchObjective(input: {
                 operation: input.candidate.operation,
                 temporalScope: input.candidate.temporalScope,
                 currentObjective: normalize(input.candidate.currentObjective).slice(0, 8000) || active.currentObjective,
-                tickersJson: JSON.stringify(candidateTickers.length ? candidateTickers : safeJsonArray(active.tickersJson)),
-                issuersJson: JSON.stringify(unique([ ...safeJsonArray(active.issuersJson), ...(input.candidate.issuers ?? []) ], 16)),
+                tickersJson: JSON.stringify(mergedTickers),
+                issuersJson: JSON.stringify(mergedIssuers),
                 lastTurnSequence: input.turnSequence,
                 updatedAt: now,
               }
             : {
                 lifecycleState: input.lifecycleState,
+                tickersJson: JSON.stringify(mergedTickers),
+                issuersJson: JSON.stringify(mergedIssuers),
                 lastTurnSequence: input.turnSequence,
                 updatedAt: now,
               },
@@ -190,7 +239,7 @@ export async function ensureResearchObjective(input: {
             lifecycleState: input.lifecycleState,
             eventType: input.lifecycleState === 'CONTINUED' ? 'CONTINUED' : input.lifecycleState,
             reason: normalize(input.reason).slice(0, 500),
-            snapshotJson: JSON.stringify({ objectiveAnchor: updated.objectiveAnchor, currentObjective: updated.currentObjective, tickers: candidateTickers }),
+            snapshotJson: JSON.stringify({ objectiveAnchor: updated.objectiveAnchor, currentObjective: updated.currentObjective, tickers: mergedTickers }),
           },
         })
         return updated
