@@ -181,3 +181,34 @@ describe('extractResearchObjectiveTickers: common business acronyms are not misr
     expect(tickers).not.toContain('ROI')
   })
 })
+
+// Production audit fix (2026-09-24): shouldContinueResearchObjective is the actual gate route.ts uses
+// to decide lifecycleState ('CONTINUED' vs 'ESTABLISHED') for the durable objective, and
+// ceo-pre-router.ts's own durableResearchContinuation check. The 2026-09-23 "harden CEO research
+// continuity" commits (8bf64aed/976767cf/cb570051) added isObjectiveAgreementContinuationRequest and
+// wired it into the generic thread-continuity path, ceo-cognitive-conversation.ts's speechAct, and
+// ceo-conversation-state.ts's thread derivation -- but never into this durable-objective-specific
+// detector, even though every one of those commits' own tests (e.g.
+// ceo-active-objective-continuity.test.ts's "inherits the active research objective through an
+// agreement-led task refinement from the live failure shape") only exercised the generic thread system,
+// never a real ResearchObjectiveIdentity. An agreement-led follow-up lacking a ticker, an explicit
+// research-context keyword, or a "those companies"-style thread reference fell through every branch and
+// returned false, making route.ts silently SUPERSEDE the active objective and create a brand-new one
+// (version reset to 1, new id) instead of continuing it.
+describe('shouldContinueResearchObjective: agreement-led continuations recognized elsewhere in the codebase are not lost here', () => {
+  test('an agreement-led refinement with no ticker/context-keyword/thread-phrase still continues the durable objective', () => {
+    expect(shouldContinueResearchObjective('Yes, exactly those. Go with a two-paragraph summary for each.', objective)).toBe(true)
+    expect(shouldContinueResearchObjective('Yes is exactly those. Go with a brief and plain-english overview for each.', objective)).toBe(true)
+  })
+
+  // A bare agreement + continuation cue with zero research-specific content stays intentionally
+  // excluded (existing invariant, unchanged by this fix) -- too ambiguous to justify superseding or
+  // continuing a durable, versioned, evidence-bearing identity from agreement wording alone.
+  test('a bare agreement plus continuation cue alone still does not continue (unchanged, more conservative than the generic thread system)', () => {
+    expect(shouldContinueResearchObjective('ok, go ahead', objective)).toBe(false)
+  })
+
+  test('an agreement-led message for an unrelated topic still does not continue', () => {
+    expect(shouldContinueResearchObjective('Yes, go ahead and check the weather in Montreal.', objective)).toBe(false)
+  })
+})

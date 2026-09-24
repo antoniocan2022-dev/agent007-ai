@@ -1,5 +1,6 @@
 import { db } from './db'
 import type { EvidenceDomain, EvidenceOperation, EvidenceProfile, TemporalScope, PreRouteDecision } from './ceo-cognitive-contract'
+import { isObjectiveAgreementContinuationRequest } from './ceo-conversational-signals'
 
 export const RESEARCH_OBJECTIVE_LIFECYCLES = ['ESTABLISHED', 'REFINED', 'CONTINUED', 'CORRECTED', 'RESOLVED', 'SUPERSEDED', 'ABANDONED'] as const
 export type ResearchObjectiveLifecycleState = (typeof RESEARCH_OBJECTIVE_LIFECYCLES)[number]
@@ -105,6 +106,21 @@ export function shouldContinueResearchObjective(message: string, objective?: Res
   if (/\b(?:github|vercel|deployment|deploy|code|database|invoice|meeting|weather|recipe|vacation)\b/i.test(text) && !/\b(?:stock|shares?|equity|ticker|earnings|financials?|valuation|price|dividend|eps|filing|invest)\b/i.test(text)) return false
   if (EXPLICIT_THREAD_REFERENCES.test(text) || (CONTINUATION_CUES.test(text) && RESEARCH_CONTEXT_CUES.test(text))) return true
   if (/\b(?:it|they|them|this|that|these|those)\b/i.test(text) && /\b(?:general\s+context|context|background|overview|information|details?|update|updates|news|research|analysis|earnings|financials?|valuation|price|risks?)\b/i.test(text)) return true
+  // Production audit fix (2026-09-24): this function -- not isObjectiveAgreementContinuationRequest --
+  // is the actual gate route.ts uses to decide lifecycleState ('CONTINUED' vs 'ESTABLISHED') for the
+  // durable objective, and ceo-pre-router.ts's own durableResearchContinuation check. The 2026-09-23
+  // "harden CEO research continuity" commits added isObjectiveAgreementContinuationRequest and wired it
+  // into the generic thread-continuity path (ceo-pre-router.ts's latestContinuableThread),
+  // ceo-cognitive-conversation.ts's speechAct, and ceo-conversation-state.ts's thread derivation -- but
+  // never into this durable-objective-specific detector. An agreement-led follow-up recognized by every
+  // other continuation signal in the codebase (e.g. "Yes, exactly those. Go with a two-paragraph summary
+  // for each.") but lacking a ticker, an explicit research-context keyword, or a "those companies"-style
+  // thread reference fell through every branch above and returned false here. Back in route.ts, that
+  // made `continuing` false, so ensureResearchObjective took its non-continuation branch: it silently
+  // SUPERSEDED the active objective and created a brand-new one (version reset to 1, new id), discarding
+  // continuity of the audit trail and any evidence-certification trace tied to the prior objective id --
+  // even though the user was plainly continuing the same research thread.
+  if (isObjectiveAgreementContinuationRequest(text)) return true
   const currentTickers = new Set(extractResearchObjectiveTickers(text))
   if ([...currentTickers].some((ticker) => objective.tickers.includes(ticker))) return true
   const objectiveTokens = new Set(objective.objectiveAnchor.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 5))
