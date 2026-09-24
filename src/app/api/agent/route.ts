@@ -178,6 +178,14 @@ export async function POST(req: NextRequest) {
         executionContract: { ...preRoute.executionContract, researchObjective: ensuredObjective },
       }
       decisionContract = { ...decisionContract, researchObjective: ensuredObjective }
+      // The objective was established after the first canonical context snapshot. Patch that snapshot
+      // in place rather than recomputing semantics/embeddings: every remaining stage now sees the same
+      // authoritative identity without reintroducing duplicate decision construction.
+      contextSeed = {
+        ...contextSeed,
+        canonicalSemanticContext: { ...contextSeed.canonicalSemanticContext, researchObjective: ensuredObjective },
+        researchObjective: ensuredObjective,
+      }
     }
   }
   const resolvedPath = resolvePreRoute(preRoute)
