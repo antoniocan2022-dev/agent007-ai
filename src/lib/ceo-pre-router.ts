@@ -414,9 +414,24 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
   const explicitOperational = semanticIntent === 'production_action' || semanticIntent === 'tool_action' || semanticIntent === 'research' || semanticIntent === 'mission_action'
   const routingExternalSubjectDomain = inferExternalDomain(routingText)
   const currentExternalSubjectDomain = inferExternalDomain(classificationText)
-  const activeThreadDomain = objectiveContinuationActive && inheritedThread
-    ? inferContinuableThreadDomain(inheritedThread)
-    : 'general_web'
+  const inheritedThreadEquityAnchor = objectiveContinuationActive && inheritedThread
+    ? (() => {
+        const objective = (inheritedThread.objectiveAnchor ?? inheritedThread.title).trim()
+        const tickerCandidates = [
+          ...inheritedThread.entities.filter((entity) => /^[A-Z]{2,5}$/.test(entity)),
+          ...(objective.match(/\b[A-Z]{2,5}\b/g) ?? []),
+        ]
+        const hasUsableTicker = tickerCandidates.some((ticker) => !COMMON_ACRONYM_RE.test(ticker))
+        const hasEquityContext = MARKET_SECURITY_RE.test(objective)
+          || /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\b/i.test(objective)
+        return hasUsableTicker && hasEquityContext && !isInternalEquityContext(objective)
+      })()
+    : false
+  const activeThreadDomain = inheritedThreadEquityAnchor
+    ? 'public_equity'
+    : (objectiveContinuationActive && inheritedThread
+      ? inferContinuableThreadDomain(inheritedThread)
+      : 'general_web')
   const externalSubjectDomain = objectiveContinuationActive && activeThreadDomain !== 'general_web'
     ? activeThreadDomain
     : (objectiveContinuationActive && routingExternalSubjectDomain !== 'general_web' ? routingExternalSubjectDomain : currentExternalSubjectDomain)
