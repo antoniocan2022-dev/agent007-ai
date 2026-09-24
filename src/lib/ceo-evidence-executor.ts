@@ -109,7 +109,16 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
   throwIfCeoRequestAborted(signal)
   const searchSources = searchResults.flatMap((entry) => entry.sources)
   const discoveredUrls = [...new Set(searchSources.map((source) => source.url))]
-  const pagesToRead = discoveredUrls.filter((url) => sourceTierForUrl(url) <= 2).slice(0, plan.maxPageReads)
+  const pageEntityMap = new Map<string, string[]>()
+  for (const source of searchSources) {
+    const entities = source.relatedEntities ?? []
+    if (!entities.length) continue
+    pageEntityMap.set(source.url, [...new Set([...(pageEntityMap.get(source.url) ?? []), ...entities])])
+  }
+  const pagesToRead = discoveredUrls
+    .filter((url) => sourceTierForUrl(url) <= 2)
+    .slice(0, plan.maxPageReads)
+    .map((url) => ({ url, relatedEntities: pageEntityMap.get(url) ?? [] }))
   let pageSources: EvidenceSource[] = []
   if (pagesToRead.length) try { pageSources = await readPages(pagesToRead, signal) } catch (error) { throwIfCeoRequestAborted(signal); failures.push(`page_reader: ${error instanceof Error ? error.message : String(error)}`) }
   let secSources: EvidenceSource[] = []
