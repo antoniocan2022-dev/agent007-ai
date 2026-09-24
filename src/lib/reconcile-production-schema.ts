@@ -139,10 +139,10 @@ async function main() {
   }
   const required = await prisma.$queryRaw<Array<{ table_name: string }>>`
     SELECT table_name FROM information_schema.tables WHERE table_schema='public'
-      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit')
+      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit','CeoResearchObjective','CeoResearchObjectiveEvent')
   `
   const requiredSet = new Set(required.map(row => row.table_name))
-  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit'].filter(name => !requiredSet.has(name))
+  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit','CeoResearchObjective','CeoResearchObjectiveEvent'].filter(name => !requiredSet.has(name))
   if (missingTables.length) throw new Error(`Schema reconciliation incomplete. Missing tables: ${missingTables.join(', ')}`)
   const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN (
@@ -153,10 +153,10 @@ async function main() {
       'EvidenceEntityNode_entityType_key_key','EvidenceEntityNode_entityType_idx',
       'EvidenceEntityEdge_fromNodeId_toNodeId_relationship_key','EvidenceEntityEdge_fromNodeId_idx','EvidenceEntityEdge_toNodeId_idx',
       'EvidenceWatch_userId_idx','EvidenceWatch_enabled_idx',
-      'EvidenceWatchHit_watchId_createdAt_idx'
+      'EvidenceWatchHit_watchId_createdAt_idx','CeoResearchObjective_conversationId_status_updatedAt_idx','CeoResearchObjective_userId_status_updatedAt_idx','CeoResearchObjective_conversation_active_key','CeoResearchObjectiveEvent_objectiveId_createdAt_idx','CeoResearchObjectiveEvent_conversationId_createdAt_idx'
     )
   `
-  if (indexes.length !== 29) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/29`)
+  if (indexes.length !== 34) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/34`)
 
   const transactionColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
     SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Transaction' AND column_name IN ('ventureId','customerId')
@@ -188,7 +188,7 @@ async function main() {
   `
   if (messageIdempotencyIndex.length !== 1) throw new Error('Message_conversationId_clientRequestId_key unique index is missing.')
 
-  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, transaction customer identity, commercial links, subscription, invoice, customer-success lifecycle, and conversation turn-sequencing/idempotency tables/indexes/constraints present.')
+  console.log('Production schema reconciliation verified: proof ledger, owner-scoped business units, venture scope, transaction customer identity, commercial links, subscription, invoice, customer-success lifecycle, conversation turn-sequencing/idempotency, and durable CEO research-objective tables/indexes/constraints present.')
 }
 
 main().catch((error) => { console.error('Production schema reconciliation failed:', error); process.exitCode = 1 }).finally(async () => { await prisma.$disconnect() })
