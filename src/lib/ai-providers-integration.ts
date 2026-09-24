@@ -140,15 +140,25 @@ export async function toolSerpAPI(args: any): Promise<ToolResult> {
     } catch (e: any) { return fail(`SerpAPI: ${e?.message ?? String(e)}`) }
   })
 }
-export async function toolNewsAPI(args: any): Promise<ToolResult> { const key = process.env.NEWSAPI_KEY || process.env.NEWS_API_KEY; if (!key) return needKey('NewsAPI', 'NEWSAPI_KEY', 'https://newsapi.org'); const q = String(args?.query ?? '').trim(); if (!q) return fail('newsapi_search requires "query"'); return getJson(`https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&pageSize=10&apiKey=${encodeURIComponent(key)}`, {}, 'NewsAPI') }
-export async function toolAlphaVantage(args: any): Promise<ToolResult> { const key = process.env.ALPHA_VANTAGE_API_KEY; if (!key) return needKey('Alpha Vantage', 'ALPHA_VANTAGE_API_KEY', 'https://www.alphavantage.co'); const symbol = String(args?.symbol ?? '').trim(); if (!symbol) return fail('alpha_vantage requires "symbol"'); return getJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(key)}`, {}, 'Alpha Vantage') }
+// Production audit fix (2026-09-24): the live Vercel production environment has this key set as
+// NEWSAPI_API_KEY (matching the product's own "NewsAPI" naming), not NEWSAPI_KEY/NEWS_API_KEY as
+// this codebase's convention and .env.example document -- a real, silent naming-convention drift
+// between whoever configured the runtime env var and this file, confirmed by directly diffing the
+// live Vercel project env list against every process.env read in this file. Without this fallback
+// the tool always returned "needs key" in production despite the key being genuinely configured.
+export async function toolNewsAPI(args: any): Promise<ToolResult> { const key = process.env.NEWSAPI_KEY || process.env.NEWS_API_KEY || process.env.NEWSAPI_API_KEY; if (!key) return needKey('NewsAPI', 'NEWSAPI_KEY', 'https://newsapi.org'); const q = String(args?.query ?? '').trim(); if (!q) return fail('newsapi_search requires "query"'); return getJson(`https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&pageSize=10&apiKey=${encodeURIComponent(key)}`, {}, 'NewsAPI') }
+// Production audit fix (2026-09-24): same naming-convention drift as toolNewsAPI above -- the live
+// Vercel production env has this key set as ALPHAVANTAGE_API_KEY (no underscore between "Alpha" and
+// "Vantage"), not ALPHA_VANTAGE_API_KEY as this codebase's convention documents. Both this quote tool
+// and toolAlphaVantageNews below always returned "needs key" in production without this fallback.
+export async function toolAlphaVantage(args: any): Promise<ToolResult> { const key = process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY; if (!key) return needKey('Alpha Vantage', 'ALPHA_VANTAGE_API_KEY', 'https://www.alphavantage.co'); const symbol = String(args?.symbol ?? '').trim(); if (!symbol) return fail('alpha_vantage requires "symbol"'); return getJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(key)}`, {}, 'Alpha Vantage') }
 // Fresh-audit fix: closes the "financial news with sentiment" gap using the same ALPHA_VANTAGE_API_KEY
 // already configured for toolAlphaVantage above -- no new credential needed. Alpha Vantage's
 // NEWS_SENTIMENT endpoint returns real articles with per-article and per-ticker sentiment scores;
 // formatted with "URL: <link>" labels per article to match this codebase's evidence-extraction
 // convention (see urlsFromSearchResult in ceo-evidence-executor.ts).
 export async function toolAlphaVantageNews(args: any): Promise<ToolResult> {
-  const key = process.env.ALPHA_VANTAGE_API_KEY
+  const key = process.env.ALPHA_VANTAGE_API_KEY || process.env.ALPHAVANTAGE_API_KEY
   if (!key) return needKey('Alpha Vantage News', 'ALPHA_VANTAGE_API_KEY', 'https://www.alphavantage.co')
   const tickers = String(args?.tickers ?? args?.symbol ?? '').trim().toUpperCase()
   const topics = String(args?.topics ?? '').trim()
@@ -208,8 +218,13 @@ export async function toolTavilyExtract(args: any): Promise<ToolResult> { const 
 // for a live snapshot (yahoo_finance is hardcoded to range=5d), none return years of daily bars or
 // the split/dividend events that silently change what a historical price series means.
 
+// Production audit fix (2026-09-24): the live Vercel production env has this key set as
+// ROICAI_API_KEY (matching the product's own "ROIC.ai" name), not ROIC_API_KEY as this codebase's
+// convention documents. Both ROIC.ai tools always returned "needs key" in production without this
+// fallback, confirmed by directly diffing the live Vercel project env list against this file's
+// process.env reads (the same drift class as the NewsAPI/Alpha Vantage fixes above).
 export async function toolRoicStockPrices(args: any): Promise<ToolResult> {
-  const key = process.env.ROIC_API_KEY
+  const key = process.env.ROIC_API_KEY || process.env.ROICAI_API_KEY
   if (!key) return needKey('ROIC.ai Stock Prices', 'ROIC_API_KEY', 'https://www.roic.ai/api')
   const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
   if (!ticker) return fail('roic_stock_prices requires "ticker"')
@@ -235,7 +250,7 @@ export async function toolRoicStockPrices(args: any): Promise<ToolResult> {
 }
 
 export async function toolRoicFinancials(args: any): Promise<ToolResult> {
-  const key = process.env.ROIC_API_KEY
+  const key = process.env.ROIC_API_KEY || process.env.ROICAI_API_KEY
   if (!key) return needKey('ROIC.ai Financials', 'ROIC_API_KEY', 'https://www.roic.ai/api')
   const ticker = String(args?.ticker ?? args?.symbol ?? '').trim().toUpperCase()
   if (!ticker) return fail('roic_financials requires "ticker"')

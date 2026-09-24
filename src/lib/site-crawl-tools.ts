@@ -117,8 +117,14 @@ export async function toolFirecrawlCrawl(args: any, _ctx: ToolContext): Promise<
 
 // Spider.cloud: credential-gated, specializes in anti-bot-resistant scraping/crawling -- a fallback
 // for sites (paywalled news, aggressive bot protection) where Firecrawl or a direct fetch gets blocked.
+// Production audit fix (2026-09-24): the live Vercel production env has this key set as
+// SPIDERCLOUD_API_KEY (matching the product's own "Spider.cloud" name), not SPIDER_API_KEY as this
+// codebase's convention documents -- confirmed by directly diffing the live Vercel project env list
+// against every process.env read in this file. Without this fallback both Spider.cloud tools always
+// returned "needs key" in production despite the key being genuinely configured (same drift class as
+// the NewsAPI/Alpha Vantage/ROIC.ai fixes in ai-providers-integration.ts).
 function spiderHeaders(): Record<string, string> | null {
-  const key = process.env.SPIDER_API_KEY
+  const key = process.env.SPIDER_API_KEY || process.env.SPIDERCLOUD_API_KEY
   if (!key) return null
   return { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }
 }

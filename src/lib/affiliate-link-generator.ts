@@ -10,7 +10,12 @@ function fail(result: string): ToolResult { return { ok: false, preview: result.
 export async function toolAffiliateLinkGenerator(args: any): Promise<ToolResult> {
   const a = args ?? {}
   const network = (a.network ?? '').toLowerCase().trim()
-  const affiliateId = a.affiliateId ?? ''
+  // Production audit fix (2026-09-24): AMAZON_ASSOCIATES_TAG is configured in the live production
+  // environment, but this tool only ever read a.affiliateId -- an argument the caller (the CEO)
+  // has no way to supply, since a secret env var's value is never surfaced into its context. The
+  // Amazon affiliate-link path was consequently unusable autonomously despite the credential being
+  // genuinely configured. A caller-supplied affiliateId still takes precedence (explicit override).
+  const affiliateId = a.affiliateId || (network === 'amazon' ? process.env.AMAZON_ASSOCIATES_TAG : undefined) || ''
   const productId = a.productId ?? a.url ?? ''
   const subId = a.subId ?? ''
   const clickId = a.clickId ?? ''
