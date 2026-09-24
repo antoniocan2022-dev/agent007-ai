@@ -427,7 +427,17 @@ export function preRouteCeoRequest(messages: readonly { role: string; content: s
         return hasUsableTicker && hasEquityContext && !isInternalEquityContext(objective)
       })()
     : false
-  const activeThreadDomain = inheritedThreadEquityAnchor
+  const inheritedObjectiveEquityAnchor = objectiveContinuationActive && inheritedObjective
+    ? (() => {
+        const objective = inheritedObjective.trim()
+        const tickers = objective.match(/\b[A-Z]{2,5}\b/g) ?? []
+        const hasUsableTicker = tickers.some((ticker) => !COMMON_ACRONYM_RE.test(ticker))
+        const hasEquityContext = MARKET_SECURITY_RE.test(objective)
+          || /\b(?:research|analy[sz]e|review|study|investigate|look\s+into)\b/i.test(objective)
+        return hasUsableTicker && hasEquityContext && !isInternalEquityContext(objective)
+      })()
+    : false
+  const activeThreadDomain = inheritedObjectiveEquityAnchor || inheritedThreadEquityAnchor
     ? 'public_equity'
     : (objectiveContinuationActive && inheritedThread
       ? inferContinuableThreadDomain(inheritedThread)
