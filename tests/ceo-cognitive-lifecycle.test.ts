@@ -845,6 +845,62 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderStandingForTests()
   })
 
+  // Production audit fix (2026-09-24): unlike the primary generation call (whose primaryMessages
+  // explicitly includes documentComprehensionMessages), the degraded-mode recovery generation call for a
+  // document-comprehension turn never carried the bounded hierarchical synthesis forward at all --
+  // recoverySourceMessages strips the raw source document via replaceCurrentUserMessage, and nothing else
+  // in the recovery call's messages array ever rendered request.documentComprehensionSynthesis. That
+  // meant the one real second-chance LLM attempt before falling to the canned degraded template ran with
+  // no source content whatsoever. Confirms the recovery call now receives the same bounded synthesis the
+  // primary call did.
+  test('the degraded-mode recovery call for a document-comprehension turn is grounded in the hierarchical synthesis, not left with no source content', async () => {
+    resetProviderHealthForTests()
+    resetProviderStandingForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let nonSectionCalls = 0
+    let recoveryBody = ''
+    const filler = 'Additional background padding this section of the pasted document out to a realistic length so the hierarchical chunker splits it into sections. '.repeat(45)
+    const document = [
+      'SECTION ONE: This report walks through the recommended evidence architecture and canonical routing design in detail.',
+      filler,
+      'SECTION TWO: It draws on the broader market research review, weighing SEC filings, investor relations, news flow, and competitor context.',
+      filler,
+    ].join('\n\n')
+    const objective = `Make a deep comprehension of this document:\n"${document}"`
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method !== 'POST') throw new Error(`unexpected fetch: ${url}`)
+      const body = init?.body ? String(init.body) : ''
+      if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+      const parsed = JSON.parse(body) as { messages?: { content?: string }[] }
+      const messageContents = (parsed.messages ?? []).map((m) => String(m.content ?? ''))
+      const isReduce = messageContents.some((c) => c.includes('extraction notes'))
+      const isMap = !isReduce && /section \d+ of/i.test(messageContents[0] ?? '')
+      // The map/reduce section calls above are real provider calls made ahead of the actual generation
+      // attempt; reset health/standing tracking right after the last of them so none of that traffic
+      // (success or not) leaves the provider looking unhealthy for the generation call this test is
+      // actually exercising.
+      if (isReduce) { resetProviderHealthForTests(); resetProviderStandingForTests(); return jsonResponse({ choices: [{ message: { content: 'SYNTHESIS_MARKER_9f31: bounded synthesis of the supplied source across all processed sections.' } }] }) }
+      if (isMap) return jsonResponse({ choices: [{ message: { content: 'Extraction note for a section.' } }] })
+      nonSectionCalls += 1
+      // The 'full' path uses a multi_pass reasoning strategy plus a 1-attempt escalation budget, so the
+      // first three real generation calls are primary, its unconditional refinement pass (the refinement
+      // result always becomes `final` regardless of the primary's own quality), and the one escalation
+      // repair attempt -- all three must trip the unconditionally forbidden false-completion-claim check
+      // for the quality gate to keep rejecting the output through the whole escalation budget and finally
+      // fall through to tryDegraded. A genuine overclaim is never soft-pass eligible regardless of intent.
+      if (nonSectionCalls <= 3) return jsonResponse({ choices: [{ message: { content: 'I have already deployed the changes to production.' } }] })
+      recoveryBody = body
+      return jsonResponse({ choices: [{ message: { content: 'Recovery answer grounded in the bounded synthesis of the supplied document.' } }] })
+    }) as typeof fetch
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], timeoutMs: 30000, taskType: 'reasoning', verification: 'standard' })
+    expect(recoveryBody).toContain('SYNTHESIS_MARKER_9f31')
+    expect(recoveryBody).toContain('HIERARCHICAL DOCUMENT COMPREHENSION')
+    resetProviderHealthForTests()
+    resetProviderStandingForTests()
+  })
+
   test('integration points use the cognitive lifecycle and preserve the ownership bridge', () => {
     const bridge = readFileSync('src/lib/agent-canonical-bridge.ts', 'utf8')
     const presenter = readFileSync('src/lib/ceo-presenter.ts', 'utf8')
