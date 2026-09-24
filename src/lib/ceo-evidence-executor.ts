@@ -133,7 +133,9 @@ async function executeOnce(plan: ExternalEvidencePlan, querySuffix = '', signal?
     }
   }
   throwIfCeoRequestAborted(signal)
-  const bundle = buildEvidenceBundle({ profile: plan.profile, operation: plan.operation, sources: [...secSources, ...marketDataSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0 })
+  const requiredEntities = plan.researchObjective?.tickers ?? [...new Set(queries.map((query) => query.ticker).filter((ticker): ticker is string => Boolean(ticker)))]
+  if (plan.profile === 'public_equity' && plan.researchObjective && plan.researchObjective.domain !== 'public_equity') throw new Error('EVIDENCE_OBJECTIVE_DOMAIN_MISMATCH')
+  const bundle = buildEvidenceBundle({ profile: plan.profile, operation: plan.operation, sources: [...secSources, ...marketDataSources, ...pageSources, ...searchSources], scope: 'external_web', minimumSources: plan.minimumSources, minimumTierOneSources: plan.profile === 'public_equity' ? 1 : 0, requiredEntities })
   // Deep-audit fix (P0, 2026-09-13): cross-turn claim ledger. Each ticker's freshly fetched SEC source is
   // checked against claims verified in an earlier, separate turn/conversation (lookupRecentVerifiedClaims
   // -- see ceo-claim-ledger.ts), and any genuine disagreement is appended to the bundle's contradictions
