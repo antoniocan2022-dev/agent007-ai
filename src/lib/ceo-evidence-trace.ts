@@ -4,7 +4,7 @@ export type EvidenceTraceEvent = 'planned' | 'search_started' | 'search_complete
 export type EvidenceTraceState = 'FULL' | 'PARTIAL' | 'ABSTAIN'
 
 export interface EvidenceTraceEntry { at: number; event: EvidenceTraceEvent; data: Record<string, unknown> }
-export interface EvidenceTrace { traceId: string; requestId?: string; objective: string; profile: string; startedAt: number; completedAt?: number; events: EvidenceTraceEntry[]; finalState?: EvidenceTraceState }
+export interface EvidenceTrace { traceId: string; requestId?: string; objective: string; profile: string; startedAt: number; completedAt?: number; events: EvidenceTraceEntry[]; finalState?: EvidenceTraceState; objectiveId?: string; objectiveVersion?: number; tickers?: string[] }
 
 function sanitize(value: unknown): unknown {
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
@@ -14,8 +14,8 @@ function sanitize(value: unknown): unknown {
   return String(value).slice(0, 200)
 }
 
-export function startEvidenceTrace(input: { objective: string; profile?: string; requestId?: string }): EvidenceTrace {
-  return { traceId: `evidence_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, requestId: input.requestId, objective: input.objective.slice(0, 500), profile: input.profile ?? 'unknown', startedAt: Date.now(), events: [] }
+export function startEvidenceTrace(input: { objective: string; profile?: string; requestId?: string; objectiveId?: string; objectiveVersion?: number; tickers?: readonly string[] }): EvidenceTrace {
+  return { traceId: `evidence_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, requestId: input.requestId, objective: input.objective.slice(0, 500), profile: input.profile ?? 'unknown', startedAt: Date.now(), events: [], ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}), ...(typeof input.objectiveVersion === 'number' ? { objectiveVersion: input.objectiveVersion } : {}), ...(input.tickers?.length ? { tickers: [...new Set(input.tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))].slice(0, 16) } : {}) }
 }
 export function addEvidenceTraceEvent(trace: EvidenceTrace, event: EvidenceTraceEvent, data: Record<string, unknown> = {}): void {
   trace.events.push({ at: Date.now(), event, data: Object.fromEntries(Object.entries(data).slice(0, 20).map(([key, value]) => [key.slice(0, 80), sanitize(value)])) })
@@ -25,7 +25,7 @@ export function completeEvidenceTrace(trace: EvidenceTrace, finalState: Evidence
   if (trace.completedAt) return trace
   trace.completedAt = Date.now()
   trace.finalState = finalState
-  console.info('[evidence-trace]', JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, profile: trace.profile, finalState, eventCount: trace.events.length, durationMs: trace.completedAt - trace.startedAt }))
+  console.info('[evidence-trace]', JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, objectiveId: trace.objectiveId, objectiveVersion: trace.objectiveVersion, tickers: trace.tickers, profile: trace.profile, finalState, eventCount: trace.events.length, durationMs: trace.completedAt - trace.startedAt }))
   if (process.env.NODE_ENV !== 'test' && process.env.CI !== 'true') void persistEvidenceTrace(trace)
   return trace
 }
