@@ -270,9 +270,39 @@ function inferContinuableThreadDomain(thread: CanonicalConversationContext['stat
   if (isExternalEquityResearch(objective)) return 'public_equity'
   return inferExternalDomain(objective)
 }
+function findTickerAnchoredEquityThread(context: CanonicalConversationContext, current: string): CanonicalConversationContext['state']['threads'][number] | undefined {
+  const hasContinuationSignal =
+    isObjectiveContinuationCue(current)
+    || isBareContinuationOrRestatementRequest(current)
+    || isObjectiveAgreementContinuationRequest(current)
+    || isDemonstrativeContinuationRequest(current)
+    || isObjectiveProgressionRequest(current)
+    || isObjectiveConfirmationSignal(current)
+  if (!hasContinuationSignal) return undefined
+
+  const currentTickers = new Set(current.match(/\b[A-Z]{2,5}\b/g) ?? [])
+  if (!currentTickers.size) return undefined
+
+  const candidates = context.state.threads
+    .filter((thread) => thread.status === 'active' || thread.status === 'paused')
+    .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
+
+  for (const thread of candidates) {
+    const domain = inferContinuableThreadDomain(thread)
+    if (domain !== 'public_equity') continue
+    const threadText = [thread.objectiveAnchor ?? thread.title, thread.currentObjective, ...thread.entities].join(' ')
+    const threadTickers = new Set(threadText.match(/\b[A-Z]{2,5}\b/g) ?? [])
+    if ([...currentTickers].some((ticker) => threadTickers.has(ticker) && !COMMON_ACRONYM_RE.test(ticker))) return thread
+  }
+
+  return undefined
+}
+
 function latestContinuableThread(context?: CanonicalConversationContext): CanonicalConversationContext['state']['threads'][number] | undefined {
   if (!context) return undefined
   const current = context.currentMessage.trim()
+  const tickerAnchoredEquityThread = findTickerAnchoredEquityThread(context, current)
+  if (tickerAnchoredEquityThread) return tickerAnchoredEquityThread
   const broadContinuation = isContinuationOrRestatementRequest(current) || isObjectiveContinuationCue(current)
   const directContinuation =
     isBareContinuationOrRestatementRequest(current)
