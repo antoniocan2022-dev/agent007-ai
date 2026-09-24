@@ -28,7 +28,7 @@ export interface ConversationalWorldModel { schemaVersion: 1; workingTopic: stri
 // disabling the lead-in-phrase branch that only ever needs a real newline to fire). Consumers with a
 // canonical context now read `.instruction` directly; anything without one (tests, offline tooling)
 // keeps calling extractInstructionWindow itself exactly as before -- this is additive, not a narrowing.
-export interface CanonicalConversationContext { schemaVersion: 1; currentMessage: string; instruction: string; sourceLength: number; turnEnvelope: CeoTurnEnvelope; meaning: string; semanticInterpretation: SemanticInterpretation; intentHint: SemanticIntentHint; speechAct: SemanticSpeechAct; cognitiveDepth: CognitiveDepth; referenceScope: ReferenceScope; references: readonly ConversationReference[]; worldModel: ConversationalWorldModel; state: CeoConversationState }
+export interface CanonicalConversationContext { schemaVersion: 1; currentMessage: string; instruction: string; sourceLength: number; turnEnvelope: CeoTurnEnvelope; meaning: string; semanticInterpretation: SemanticInterpretation; intentHint: SemanticIntentHint; speechAct: SemanticSpeechAct; cognitiveDepth: CognitiveDepth; referenceScope: ReferenceScope; references: readonly ConversationReference[]; worldModel: ConversationalWorldModel; state: CeoConversationState; /** Durable objective loaded from the authoritative conversation store. */ researchObjective?: ResearchObjectiveIdentity }
 // Long-document incident (2026-09-19): mirrors the identical fix in ceo-context-composer.ts's normalize()
 // -- previously collapsed all whitespace (including newlines) to a single space, flattening a pasted
 // document's headings/lists/paragraph breaks/code fences before deterministicMeaning/classifyCognitiveDepth
@@ -52,9 +52,15 @@ function detectSelfAssessmentRequest(instruction: InstructionWindowResult, sourc
 function userIntentHint(
   instructionWindow: string,
   turnEnvelope: Pick<CeoTurnEnvelope, 'selfAssessmentRequested'>,
+  researchObjective?: ResearchObjectiveIdentity,
+  currentMessage = instructionWindow,
 ): SemanticIntentHint {
   const text = instructionWindow.toLowerCase()
   if (turnEnvelope.selfAssessmentRequested) return 'self_assessment'
+  // A durable public-equity objective is an authoritative continuity signal. A short follow-up can
+  // contain no research verb at all (e.g. "ok, go ahead with general context on those companies") and
+  // must still enter the governed evidence lane. The helper refuses unrelated/new-topic turns.
+  if (researchObjective && shouldContinueResearchObjective(currentMessage, researchObjective)) return 'research'
   if (/\b(?:deploy|publish|ship|execute|send|create|delete|update|schedule)\b/.test(text)) return 'action'
   if (/\b(?:research|look\s+up|find\s+out|verify|fact[- ]check)\b/.test(text)) return 'research'
   if (/\b(?:choose|pick|decide|recommend|should(?:\s+i|\s+we)?\b|priority|prioritize)\b/.test(text)) return 'decision'
@@ -161,7 +167,7 @@ export function buildCeoTurnEnvelope(input: {
   }
 }
 
-export function buildCanonicalConversationContext(input: { currentMessage: string; rows: readonly PersistedConversationRow[]; state: CeoConversationState; references: readonly ConversationReference[]; memories?: readonly PersistedMemoryRow[]; semanticInterpretation?: Partial<SemanticInterpretation> }): CanonicalConversationContext {
+export function buildCanonicalConversationContext(input: { currentMessage: string; rows: readonly PersistedConversationRow[]; state: CeoConversationState; references: readonly ConversationReference[]; memories?: readonly PersistedMemoryRow[]; semanticInterpretation?: Partial<SemanticInterpretation>; researchObjective?: ResearchObjectiveIdentity }): CanonicalConversationContext {
   const currentMessage = normalize(input.currentMessage)
   const instructionExtraction = extractInstructionWindowDetails(currentMessage)
   const instructionWindow = instructionExtraction.text
@@ -192,9 +198,10 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   // intent. This is the same class of bug already fixed for other classifiers in this file (PR #182/#183/
   // #205/#206) -- inferRequestedOperation two lines below already scans authoritativeText correctly; this
   // was the one remaining classifier still scanning the wider retained window.
+  const durableResearchContinuation = Boolean(input.researchObjective && shouldContinueResearchObjective(currentMessage, input.researchObjective))
   const deterministicIntent = deterministicSpeechAct === 'correction'
-    ? 'conversation'
-    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope)
+    ? (durableResearchContinuation ? 'research' : 'conversation')
+    : userIntentHint(instructionExtraction.authoritativeText, authorityEnvelope, input.researchObjective, currentMessage)
   const suppliedConfidence = Number(input.semanticInterpretation?.confidence)
   const effectiveConfidence = Number.isFinite(suppliedConfidence) ? Math.max(0, Math.min(1, suppliedConfidence)) : 0
   const trustedModelSuggestions = input.semanticInterpretation?.source !== 'deterministic' && effectiveConfidence >= 0.72
@@ -202,7 +209,7 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
   const suggestedSpeechAct = trustedModelSuggestions ? sanitizeSuggestedSpeechAct(input.semanticInterpretation?.suggestedSpeechAct) : undefined
   const suggestedDepth = trustedModelSuggestions ? sanitizeSuggestedDepth(input.semanticInterpretation?.suggestedCognitiveDepth) : undefined
   const resolvedSpeechAct = deterministicSpeechAct === 'correction' ? 'correction' : (suggestedSpeechAct ?? deterministicSpeechAct)
-  const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment'
+  const deterministicIntentIsAuthoritative = deterministicIntent === 'self_assessment' || durableResearchContinuation
   const resolvedIntentHint = deterministicSpeechAct === 'correction'
     ? 'conversation'
     : deterministicIntentIsAuthoritative
@@ -249,6 +256,7 @@ export function buildCanonicalConversationContext(input: { currentMessage: strin
     references: input.references,
     worldModel: buildWorldModel(input.state, input.memories ?? [], input.rows),
     state: input.state,
+    ...(input.researchObjective ? { researchObjective: input.researchObjective } : {}),
   }
 }
 // Stage 2 of the CEO Conversation Kernel migration (2026-09-18): buildConversationDecisionContract
