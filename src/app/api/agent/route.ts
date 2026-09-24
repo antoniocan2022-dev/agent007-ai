@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
   // rebuilding it, and pass it into preRouteCeoRequest so its own internal build (previously a second,
   // byte-identical copy used only for curiosity/evidence narrowing then discarded) is skipped too.
   let decisionContract = contextSeed.decisionContract
-  let preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract, activeResearchObjective ?? undefined)
+  let preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract)
   // Establish/continue the durable objective before the single turn decision is built. This is the
   // boundary that converts a transiently inferred equity task into an authoritative identity that all
   // downstream stages can carry, while preserving the exact current utterance as the response surface.
