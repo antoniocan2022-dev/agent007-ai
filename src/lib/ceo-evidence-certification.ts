@@ -52,13 +52,20 @@ export function certifyCeoEvidenceRun(input: {
   const coveredEntities = coverage.filter((item) => item.sufficient).map((item) => item.entity)
   const missingEntities = objective.tickers.filter((ticker) => !coveredEntities.includes(ticker.toUpperCase()))
   const checkedAt = Date.now()
+  const objectiveTickers = [...new Set(objective.tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))]
+  const planTickers = [...new Set((plan.researchObjective?.tickers ?? []).map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))]
+  const traceTickers = [...new Set((input.trace?.tickers ?? []).map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))]
+  const sameEntitySet = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((entity) => right.includes(entity))
   const objectiveIdentityBound = plan.researchObjective?.id === objective.id
     && plan.researchObjective.version === objective.version
     && plan.researchObjective.domain === objective.domain
-  const planIdentityBound = Boolean(plan.researchObjective && plan.researchObjective.tickers.length >= objective.tickers.length)
-  const traceIdentityBound = Boolean(input.trace && input.trace.objectiveId === objective.id && input.trace.objectiveVersion === objective.version && objective.tickers.every((ticker) => input.trace?.tickers?.includes(ticker)))
+    && plan.researchObjective.evidenceProfile === objective.evidenceProfile
+    && plan.researchObjective.operation === objective.operation
+    && plan.researchObjective.temporalScope === objective.temporalScope
+  const planIdentityBound = Boolean(plan.researchObjective && sameEntitySet(planTickers, objectiveTickers))
+  const traceIdentityBound = Boolean(input.trace && input.trace.objectiveId === objective.id && input.trace.objectiveVersion === objective.version && sameEntitySet(traceTickers, objectiveTickers))
   const externalEvidenceClass = plan.domain === 'public_equity' && plan.profile === 'public_equity' && plan.evidenceClass === 'external_web'
-  const evidenceAcquired = execution.attemptedQueries > 0 && bundle.sources.length > 0
+  const evidenceAcquired = execution.attemptedQueries > 0 && execution.successfulQueries > 0 && bundle.sources.length > 0
   const freshEvidencePresent = bundle.sources.some((source) => {
     const age = checkedAt - source.retrievedAt
     return age >= 0 && age <= bundle.freshness.maxAgeMs
