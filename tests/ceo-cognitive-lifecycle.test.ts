@@ -902,6 +902,139 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderStandingForTests()
   })
 
+  // Self-repair follow-up (2026-09-25), Options 1+3: when incomplete structural coverage is the SOLE
+  // reason a document-comprehension turn degrades, tryDegraded now spends part of the recovery budget
+  // resuming Phase 3 for exactly the sections it never reached, instead of a doomed regeneration attempt
+  // that can never pass (claimCoverageOk is permanently false while sourceCoverageComplete is false).
+  describe('tryDegraded: resuming incomplete Phase 3 coverage instead of a doomed regeneration', () => {
+    const document = [
+      'SECTION ONE: This report walks through the recommended evidence architecture and canonical routing design in detail.',
+      'Additional background padding this section of the pasted document out to a realistic length so the hierarchical chunker splits it into sections. '.repeat(45),
+      'SECTION TWO: It draws on the broader market research review, weighing SEC filings, investor relations, news flow, and competitor context.',
+      'Additional background padding this section of the pasted document out to a realistic length so the hierarchical chunker splits it into sections. '.repeat(45),
+    ].join('\n\n')
+    // Worded to trip ceo-pre-router.ts's 'analysis' intent regex (analyze/analysis/assess/...) --
+    // unlike the sibling test above, this scenario specifically needs a NON-conversational intent,
+    // since coverage only gates `passed` for non-conversational turns (ceo-response-quality-gate.ts's
+    // `coverage` collapses to a bare `nonEmpty` check for conversational intent, which can never be the
+    // isFutileStructuralCoverageEscalation-triggering "coverage is the SOLE blocker" case this suite is
+    // about).
+    const objective = `Analyze and provide a deep comprehension of this document:\n"${document}"`
+    // Modeled directly on the module-level `criticalAnswer` fixture (already proven elsewhere in this
+    // file not to trip continuity/reference-resolution/robotic-language scoring): satisfies structureOk
+    // (headings/bullets/decision language, length >= 320), makes no completion claim, no
+    // robotic/internal-artifact leakage, and -- unlike an earlier draft of this fixture -- avoids any
+    // backward/forward-reference phrasing ("so far", "remaining", "once available") that
+    // scoreCeoConversationQuality's reference-resolution heuristic can misread as an unresolved
+    // conversational reference. With an incomplete structural source model, the ONLY thing left able to
+    // fail is coverage, exactly the isFutileStructuralCoverageEscalation precondition.
+    function safeAnswer(marker: string): string {
+      return `# Recommendation (${marker})\n\nDecision: proceed with the documented evidence architecture and routing design.\n\n## Evidence\n- Confirm the evidence architecture matches the documented canonical routing design.\n- Confirm the independent review result and reconcile any material disagreement.\n- Preserve the supporting evidence so the recommendation remains auditable.\n\n## Risks\n- Proceeding without a complete evidence review could create an avoidable error.\n- Conflicting evidence requires escalation rather than silent selection.\n\n## Next Actions\n1. Complete the independent verification checkpoint.\n2. Record the final evidence and recommendation.`
+    }
+
+    test('a resume that reaches complete coverage lets the recovery-generation loop run on the completed synthesis, instead of skipping straight to the canned fallback', async () => {
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+      process.env.GROQ_API_KEY = 'test-groq'
+      let reduceRound = 0
+      // Every non-map/non-reduce/non-health-probe call's body is captured rather than assumed to land at
+      // a fixed position -- besides primary/refinement/recovery, this path can also spend one call on
+      // the (unrelated, orthogonal) semantic soft-pass tie-breaker (semanticSubstanceCheck) before
+      // falling through to tryDegraded, so asserting an exact position/count here would be brittle.
+      const nonSectionBodies: string[] = []
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method !== 'POST') throw new Error(`unexpected fetch: ${url}`)
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
+        const parsed = JSON.parse(body) as { messages?: { content?: string }[] }
+        const messageContents = (parsed.messages ?? []).map((m) => String(m.content ?? ''))
+        // Anchored to the exact prompt openings (renderMapStepPrompt/renderReduceStepPrompt) rather than
+        // a loose substring/regex test -- a coverage-incomplete document's own internal source-model
+        // block legitimately CONTAINS text like "Section 2 of 6 could not be processed" (the executor's
+        // failureNotes), which a loose `/section \d+ of/i` test on the whole message would also match,
+        // misclassifying the real primary-generation call itself as a map call.
+        const isReduce = messageContents.some((c) => c.startsWith('You were given extraction notes from all'))
+        const isMap = !isReduce && (messageContents[0] ?? '').startsWith('You are reading section')
+        if (isReduce) {
+          reduceRound += 1
+          if (reduceRound === 1) return jsonResponse({ choices: [{ message: { content: 'ROUND1_PARTIAL_SYNTHESIS: only section one processed.' } }] })
+          return jsonResponse({ choices: [{ message: { content: 'ROUND2_COMPLETE_SYNTHESIS: both sections now processed.' } }] })
+        }
+        if (isMap) {
+          const isSectionTwo = /^You are reading section 2 of/.test(messageContents[0] ?? '')
+          // Round 1: section two fails (simulating the transient timeout/failure that left Phase 3
+          // incomplete). Round 2 (the resume, reduceRound is still 1 while these map calls happen):
+          // section two now succeeds.
+          if (isSectionTwo && reduceRound === 0) return jsonResponse({ error: { message: 'upstream unavailable' } }, 503)
+          return jsonResponse({ choices: [{ message: { content: 'Extraction note for a section.' } }] })
+        }
+        nonSectionBodies.push(body)
+        return jsonResponse({ choices: [{ message: { content: safeAnswer(`call ${nonSectionBodies.length}`) } }] })
+      }) as typeof fetch
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], timeoutMs: 30000, taskType: 'reasoning', verification: 'standard' })
+      // No escalation-repair call happened -- confirms the escalation attempt was skipped
+      // (isFutileStructuralCoverageEscalation), not that it never had a budget to try (this path's
+      // maxEscalations is 1).
+      expect(result.generation.escalationCount).toBe(0)
+      // The recovery-generation loop DID run (not skipped) and used the just-completed synthesis, not
+      // the original incomplete one.
+      const recoveryBody = nonSectionBodies.find((b) => b.includes('ROUND2_COMPLETE_SYNTHESIS'))
+      expect(recoveryBody).toBeDefined()
+      expect(recoveryBody).toContain('AUTHORITATIVE HIERARCHICAL DOCUMENT COMPREHENSION')
+      // Generous upper bound (primary + refinement + at most one soft-pass tie-breaker + recovery),
+      // not an exact count -- still catches a real regression that reintroduces a wasted extra call.
+      expect(nonSectionBodies.length).toBeLessThanOrEqual(4)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('a resume that CANNOT reach complete coverage skips the recovery-generation loop entirely -- no wasted regeneration call, no wasted provider health probe', async () => {
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+      process.env.GROQ_API_KEY = 'test-groq'
+      let reduceRound = 0
+      let nonSectionCalls = 0
+      let healthProbeCalls = 0
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (method !== 'POST') throw new Error(`unexpected fetch: ${url}`)
+        const body = init?.body ? String(init.body) : ''
+        if (body.includes('production reasoning health probe')) { healthProbeCalls += 1; return jsonResponse({ choices: [{ message: { content: 'OK' } }] }) }
+        const parsed = JSON.parse(body) as { messages?: { content?: string }[] }
+        const messageContents = (parsed.messages ?? []).map((m) => String(m.content ?? ''))
+        // See the sibling test above for why this is anchored to the exact prompt opening rather than a
+        // loose substring/regex test.
+        const isReduce = messageContents.some((c) => c.startsWith('You were given extraction notes from all'))
+        const isMap = !isReduce && (messageContents[0] ?? '').startsWith('You are reading section')
+        if (isReduce) { reduceRound += 1; return jsonResponse({ choices: [{ message: { content: `ROUND${reduceRound}_PARTIAL_SYNTHESIS: only section one processed.` } }] }) }
+        if (isMap) {
+          const isSectionTwo = /^You are reading section 2 of/.test(messageContents[0] ?? '')
+          // Section two fails BOTH the original pass and the resume -- coverage never completes.
+          if (isSectionTwo) return jsonResponse({ error: { message: 'upstream unavailable' } }, 503)
+          return jsonResponse({ choices: [{ message: { content: 'Extraction note for a section.' } }] })
+        }
+        nonSectionCalls += 1
+        if (nonSectionCalls === 1) return jsonResponse({ choices: [{ message: { content: safeAnswer('primary') } }] })
+        return jsonResponse({ choices: [{ message: { content: safeAnswer('refinement') } }] })
+      }) as typeof fetch
+      const result = await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: objective }], timeoutMs: 30000, taskType: 'reasoning', verification: 'standard' })
+      // No provider health probe was spent on a recovery attempt -- skipRecoveryGeneration correctly
+      // never even launches the candidate lookup, let alone a doomed regeneration call, once the resume
+      // above has already proven coverage still cannot complete.
+      expect(healthProbeCalls).toBe(0)
+      // Primary + refinement, plus at most one orthogonal soft-pass tie-breaker call -- never a doomed
+      // recovery-generation call.
+      expect(nonSectionCalls).toBeLessThanOrEqual(3)
+      expect(result.degraded).toBe(true)
+      expect(result.content).toContain('ROUND2_PARTIAL_SYNTHESIS')
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+  })
+
   // Efficiency fix (2026-09-24): the escalation loop retries with the SAME source messages the primary
   // call already had, so it can genuinely repair phrasing/consistency/continuity misses but can never add
   // document sections Phase 3 never processed. isFutileStructuralCoverageEscalation identifies the one
@@ -1139,7 +1272,12 @@ describe('CEO cognitive lifecycle', () => {
       expect(lifecycleSource).toContain('replaceCurrentUserMessage(request.messages, authoritativeDocumentInstruction)')
       expect(lifecycleSource).toContain('const sourceForGeneration')
       expect(lifecycleSource).toContain('documentStructuralSourceModel: structuralSourceModel')
-      expect(lifecycleSource).toContain('structuralSourceModel: request.documentStructuralSourceModel')
+      // Self-repair follow-up (2026-09-25): tryDegraded's recovery quality re-evaluation now reads
+      // effectiveStructuralSourceModel (the resumed/completed source model when Phase 3 was resumed,
+      // falling back to request.documentStructuralSourceModel otherwise -- see
+      // isFutileStructuralCoverageEscalation's recovery-path wiring), not the raw request field directly.
+      expect(lifecycleSource).toContain('structuralSourceModel: effectiveStructuralSourceModel')
+      expect(lifecycleSource).toContain('resumedDocumentComprehension?.sourceModel ?? request.documentStructuralSourceModel')
     })
 
 

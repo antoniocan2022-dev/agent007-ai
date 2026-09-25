@@ -218,8 +218,14 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   // system message runCeoCognitiveLifecycle's own liveSystemMessages construction uses.
   test('tryDegraded accepts ventureEvidence and ventureEvidenceFreshness, and every call site after the venture lookup passes them through', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
-    expect(lifecycle).toContain("generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness): Promise<CognitiveLifecycleResult>")
-    const callSitesPassingVentureEvidence = (lifecycle.match(/tryDegraded\([^;]*?, ventureEvidence, ventureEvidenceFreshness\)/g) ?? []).length
+    // Self-repair follow-up (2026-09-25): tryDegraded gained one more trailing parameter,
+    // recoveryGenerationFutile, so the caller (quality-gate-failed call site) can tell it the resume
+    // path already applies -- see isFutileStructuralCoverageEscalation's wiring into that call.
+    expect(lifecycle).toContain("generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness, recoveryGenerationFutile = false): Promise<CognitiveLifecycleResult>")
+    // The quality-gate-failed call site now also passes isFutileStructuralCoverageEscalation(quality) as
+    // that final argument, so its ending no longer matches the bare `ventureEvidenceFreshness)` shape the
+    // other 3 call sites still use.
+    const callSitesPassingVentureEvidence = (lifecycle.match(/tryDegraded\([^;]*?, ventureEvidence, ventureEvidenceFreshness(?:, isFutileStructuralCoverageEscalation\(quality\))?\)/g) ?? []).length
     // The 4 call sites downstream of the venture-evidence lookup (no-usable-output, exhausted-escalation,
     // quality-gate-failed, and the outer catch) must all pass it through; the 5th call site (the venture
     // lookup's own failure path) correctly relies on the null/undefined defaults since no evidence exists
@@ -250,7 +256,10 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   // source content at all for a document-comprehension turn.
   test('the recovery generation call is given the hierarchical document-comprehension synthesis in its own messages', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
-    expect(lifecycle).toContain('const recoveryDocumentComprehensionMessages: readonly { role: \'system\'; content: string }[] = request.documentComprehensionSynthesis')
+    // Self-repair follow-up (2026-09-25): this now reads effectiveDocumentSynthesis (the RESUMED,
+    // possibly now-complete synthesis when Phase 3 was resumed) rather than the raw request field
+    // directly, falling back to it when no resume happened -- see resumedDocumentComprehension's wiring.
+    expect(lifecycle).toContain('const recoveryDocumentComprehensionMessages: readonly { role: \'system\'; content: string }[] = effectiveDocumentSynthesis')
     expect(lifecycle).toContain('...recoveryDocumentComprehensionMessages, ...selfAssessmentGuidanceMessages(')
   })
 })
