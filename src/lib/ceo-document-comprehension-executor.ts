@@ -75,8 +75,10 @@ export function shouldExecuteHierarchicalComprehension(
 const MAX_SECTIONS_TO_EXECUTE = 40
 const DEFAULT_TIME_BUDGET_MS = 30_000
 // Below this, there isn't enough time to run even one round-trip safely -- skip rather than attempt
-// a doomed pass that would just add latency without producing a usable synthesis.
-const MIN_VIABLE_TIME_BUDGET_MS = 8_000
+// a doomed pass that would just add latency without producing a usable synthesis. Exported so the
+// recovery-path caller (ceo-cognitive-lifecycle.ts's tryDegraded) can apply the identical floor before
+// even attempting a resume pass, instead of duplicating this number.
+export const MIN_VIABLE_TIME_BUDGET_MS = 8_000
 const MIN_STEP_TIMEOUT_MS = 2_500
 const MAP_STEP_MAX_TOKENS = 500
 const REDUCE_STEP_MAX_TOKENS = 2_000
@@ -109,14 +111,30 @@ function skip(failureNotes: string[], durationMs: number): HierarchicalComprehen
  * insufficient time budget, every map call failing, or the reduce call itself failing; the caller's
  * job in every such case is simply to proceed without a synthesis, exactly as it would have before
  * this executor existed.
+ *
+ * `options.priorExtracts` (self-repair follow-up, 2026-09-25): when the caller already has
+ * successfully-extracted sections from an earlier, time-budget-truncated call on this exact same
+ * document (ceo-cognitive-lifecycle.ts's tryDegraded, resuming after the primary pass hit its time
+ * budget with incomplete coverage), those sections are skipped here rather than re-extracted --
+ * `steps` is filtered down to only the sections still missing, so a resume call spends its whole
+ * budget on genuinely new coverage instead of repeating work already paid for. The reduce step then
+ * runs over prior+new extracts together, and `complete` is computed against the document's true
+ * total section count, not just this call's own steps -- so a resume call that finishes the
+ * remaining sections correctly reports coverageComplete:true even though it only processed a subset
+ * itself. Omitted (the default, every existing caller), this is exactly the original single-pass
+ * behavior: `priorSectionIndexes` is empty, `steps` is the full plan, and `allOutputs` is just
+ * `mapOutputs`.
  */
-export async function executeHierarchicalComprehension(plan: DocumentComprehensionPlan, options?: { signal?: AbortSignal; timeBudgetMs?: number }): Promise<HierarchicalComprehensionResult> {
+export async function executeHierarchicalComprehension(plan: DocumentComprehensionPlan, options?: { signal?: AbortSignal; timeBudgetMs?: number; priorExtracts?: readonly { sectionIndex: number; text: string }[] }): Promise<HierarchicalComprehensionResult> {
   const started = Date.now()
   if (plan.strategy !== 'map_reduce' || !plan.reduceStep) return skip([], Date.now() - started)
   const timeBudgetMs = Math.max(0, options?.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS)
   if (timeBudgetMs < MIN_VIABLE_TIME_BUDGET_MS) return skip(['Insufficient time budget remaining for hierarchical comprehension; proceeding with the source document alone.'], Date.now() - started)
-  const steps = plan.mapSteps.slice(0, MAX_SECTIONS_TO_EXECUTE)
-  const truncatedSectionCount = plan.mapSteps.length - steps.length
+  const priorExtracts = options?.priorExtracts ?? []
+  const priorSectionIndexes = new Set(priorExtracts.map((extract) => extract.sectionIndex))
+  const remainingMapSteps = priorSectionIndexes.size ? plan.mapSteps.filter((step) => !priorSectionIndexes.has(step.sectionIndex)) : plan.mapSteps
+  const steps = remainingMapSteps.slice(0, MAX_SECTIONS_TO_EXECUTE)
+  const truncatedSectionCount = remainingMapSteps.length - steps.length
   const failureNotes: string[] = truncatedSectionCount > 0 ? [`${truncatedSectionCount} additional section(s) beyond the first ${MAX_SECTIONS_TO_EXECUTE} were not covered by this synthesis (bounded execution limit).`] : []
 
   const mapBudgetMs = Math.floor(timeBudgetMs * 0.6)
@@ -159,11 +177,16 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
     if (text) mapOutputs.push({ sectionIndex: step.sectionIndex, text })
     else failureNotes.push(`Section ${step.sectionIndex + 1} of ${plan.trace.sectionCount} could not be processed and is not covered by this synthesis.`)
   }
-  if (!mapOutputs.length) return { executed: false, sectionsProcessed: 0, sectionsFailed: steps.length, failureNotes: [...failureNotes, 'Every section extraction failed; no hierarchical synthesis was produced.'], durationMs: Date.now() - started, complete: false }
+  // Resume support: bail out only when there is NOTHING to synthesize from at all -- a resume call
+  // whose new map steps all failed still has the caller's priorExtracts to fall back on, so it must
+  // not report total failure (which would discard those valid, already-paid-for extracts) the way a
+  // fresh call correctly does when it has nothing else to offer.
+  const allOutputs = priorExtracts.length ? [...priorExtracts, ...mapOutputs] : mapOutputs
+  if (!allOutputs.length) return { executed: false, sectionsProcessed: 0, sectionsFailed: steps.length, failureNotes: [...failureNotes, 'Every section extraction failed; no hierarchical synthesis was produced.'], durationMs: Date.now() - started, complete: false }
 
   const reduceMessages = [
     { role: 'user' as const, content: plan.reduceStep.prompt },
-    ...mapOutputs
+    ...allOutputs
       .sort((a, b) => a.sectionIndex - b.sectionIndex)
       .map((output) => ({ role: 'user' as const, content: `Extraction notes from section ${output.sectionIndex + 1} of ${plan.trace.sectionCount}:\n${output.text}` })),
   ]
@@ -179,11 +202,16 @@ export async function executeHierarchicalComprehension(plan: DocumentComprehensi
       signal: options?.signal,
     })
     const synthesis = reduceResult.content.trim()
-    if (!synthesis) return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, 'The synthesis step returned no content.'], durationMs: Date.now() - started, complete: false }
-    const complete = truncatedSectionCount === 0 && mapOutputs.length === plan.trace.sectionCount && (steps.length === plan.trace.sectionCount) && (steps.length - mapOutputs.length) === 0
-    return { executed: true, synthesis, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes, durationMs: Date.now() - started, sectionExtracts: mapOutputs, complete }
+    // Resume support: completeness and sectionsProcessed/sectionsFailed are now judged against the
+    // document's TRUE total section count (plan.trace.sectionCount / plan.mapSteps.length, which are
+    // always equal -- one map step per section) and the UNION of prior+new extracts, not just this
+    // call's own steps -- a resume call that finishes every remaining section correctly reports
+    // coverageComplete:true even though `steps` here was only the subset still missing.
+    if (!synthesis) return { executed: false, sectionsProcessed: allOutputs.length, sectionsFailed: plan.mapSteps.length - allOutputs.length, failureNotes: [...failureNotes, 'The synthesis step returned no content.'], durationMs: Date.now() - started, complete: false }
+    const complete = truncatedSectionCount === 0 && allOutputs.length === plan.trace.sectionCount
+    return { executed: true, synthesis, sectionsProcessed: allOutputs.length, sectionsFailed: plan.mapSteps.length - allOutputs.length, failureNotes, durationMs: Date.now() - started, sectionExtracts: allOutputs, complete }
   } catch (error) {
     if (isCeoRequestAborted(error)) throw error
-    return { executed: false, sectionsProcessed: mapOutputs.length, sectionsFailed: steps.length - mapOutputs.length, failureNotes: [...failureNotes, `Synthesis step failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`], durationMs: Date.now() - started, complete: false }
+    return { executed: false, sectionsProcessed: allOutputs.length, sectionsFailed: plan.mapSteps.length - allOutputs.length, failureNotes: [...failureNotes, `Synthesis step failed: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`], durationMs: Date.now() - started, complete: false }
   }
 }

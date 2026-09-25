@@ -220,6 +220,102 @@ describe('executeHierarchicalComprehension: map_reduce execution', () => {
     expect(result.complete).toBe(false)
   })
 
+  // Self-repair follow-up (2026-09-25), Option 3: priorExtracts lets a caller (tryDegraded's resume
+  // path in ceo-cognitive-lifecycle.ts) finish a document whose FIRST pass hit its time budget with
+  // incomplete coverage, without re-extracting sections that already succeeded.
+  describe('executeHierarchicalComprehension: resume via priorExtracts', () => {
+    test('sections already in priorExtracts are not re-requested, and the reduce step covers prior+new together', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      const requestedSections: number[] = []
+      const plan = bigPlan(6)
+      const total = plan.mapSteps.length
+      expect(total).toBeGreaterThanOrEqual(4) // needs a few sections for the prior/new split below to be meaningful
+      const priorCount = Math.floor(total / 2)
+      const priorIndexes = plan.mapSteps.slice(0, priorCount).map((step) => step.sectionIndex)
+      const expectedRequestedIndexes = plan.mapSteps.slice(priorCount).map((step) => step.sectionIndex).sort((a, b) => a - b)
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (url.includes('groq.com') && method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('groq.com') && method === 'POST') {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const isReduce = body.messages.some((m: { content: string }) => m.content.includes('extraction notes'))
+          if (isReduce) {
+            // Every extraction note (prior + newly fetched) must reach the reduce step.
+            const noteCount = body.messages.length - 1
+            expect(noteCount).toBe(total)
+            return jsonResponse({ choices: [{ message: { content: 'Synthesis covering all sections, prior and new.' } }] })
+          }
+          const firstPrompt = String(body.messages[0]?.content ?? '')
+          const match = firstPrompt.match(/section (\d+) of/i)
+          if (match) requestedSections.push(Number(match[1]) - 1)
+          return jsonResponse({ choices: [{ message: { content: 'New extraction note.' } }] })
+        }
+        throw new Error(`unexpected call: ${url}`)
+      }) as typeof fetch
+      // The first half of the sections already succeeded in an earlier (time-budget-truncated) call.
+      const priorExtracts = priorIndexes.map((sectionIndex) => ({ sectionIndex, text: `Prior extraction for section ${sectionIndex + 1}.` }))
+      const result = await executeHierarchicalComprehension(plan, { timeBudgetMs: 30_000, priorExtracts })
+      expect(result.executed).toBe(true)
+      // Only the still-missing sections should have been requested this call -- never the prior ones.
+      expect(requestedSections.sort((a, b) => a - b)).toEqual(expectedRequestedIndexes)
+      expect(result.sectionsProcessed).toBe(total)
+      expect(result.sectionsFailed).toBe(0)
+      expect(result.complete).toBe(true)
+      expect(result.sectionExtracts?.length).toBe(total)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('a resume call whose new sections all fail still returns the priorExtracts synthesis instead of reporting total failure', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (url.includes('groq.com') && method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('groq.com') && method === 'POST') {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const isReduce = body.messages.some((m: { content: string }) => m.content.includes('extraction notes'))
+          if (isReduce) return jsonResponse({ choices: [{ message: { content: 'Synthesis from the sections that succeeded earlier.' } }] })
+          return jsonResponse({ error: { message: 'upstream unavailable' } }, 503)
+        }
+        throw new Error(`unexpected call: ${url}`)
+      }) as typeof fetch
+      const plan = bigPlan(6)
+      const total = plan.mapSteps.length
+      const priorIndexes = plan.mapSteps.slice(0, 2).map((step) => step.sectionIndex)
+      const priorExtracts = priorIndexes.map((sectionIndex) => ({ sectionIndex, text: `Prior extraction for section ${sectionIndex + 1}.` }))
+      const result = await executeHierarchicalComprehension(plan, { timeBudgetMs: 30_000, priorExtracts })
+      expect(result.executed).toBe(true)
+      expect(result.synthesis).toContain('Synthesis from the sections')
+      expect(result.sectionsProcessed).toBe(priorExtracts.length)
+      expect(result.sectionsFailed).toBe(total - priorExtracts.length)
+      expect(result.complete).toBe(false)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+
+    test('omitting priorExtracts is byte-identical to the original single-pass behavior', async () => {
+      process.env.GROQ_API_KEY = 'test-groq'
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input); const method = String(init?.method ?? 'GET')
+        if (url.includes('groq.com') && method === 'GET') return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+        if (url.includes('groq.com') && method === 'POST') {
+          const body = JSON.parse(String(init?.body ?? '{}'))
+          const isReduce = body.messages.some((m: { content: string }) => m.content.includes('extraction notes'))
+          return jsonResponse({ choices: [{ message: { content: isReduce ? 'Final synthesis covering all sections.' : 'Extraction note for a section.' } }] })
+        }
+        throw new Error(`unexpected call: ${url}`)
+      }) as typeof fetch
+      const plan = bigPlan(5)
+      const result = await executeHierarchicalComprehension(plan, { timeBudgetMs: 30_000 })
+      expect(result.executed).toBe(true)
+      expect(result.sectionsFailed).toBe(0)
+      expect(result.sectionsProcessed).toBe(plan.mapSteps.length)
+      expect(result.complete).toBe(true)
+      resetProviderHealthForTests()
+      resetProviderStandingForTests()
+    })
+  })
+
   test('a 20-section document remains fully executable within the bounded comprehension budget', async () => {
     process.env.GROQ_API_KEY = 'test-groq'
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

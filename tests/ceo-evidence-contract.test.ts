@@ -114,7 +114,10 @@ describe('CEO evidence contract integrity', () => {
     expect(lifecycle).not.toContain('const recoveredEvidenceContext =')
     expect(lifecycle).toContain('recoveredExternalEvidence: Boolean(recoveredEvidenceContext)')
     const recoveryPlanIndex = lifecycle.indexOf('const evidencePlan = buildExternalEvidencePlan({')
-    const providerRecoveryIndex = lifecycle.indexOf('const availabilityCandidates = (validatedAvailability.length || availabilityAttempted)')
+    // Self-repair follow-up (2026-09-25): this now opens with a skipRecoveryGeneration short-circuit
+    // (see isFutileStructuralCoverageEscalation's recovery-path wiring) ahead of the original
+    // validatedAvailability/availabilityAttempted check, rather than being that check's own first line.
+    const providerRecoveryIndex = lifecycle.indexOf('const availabilityCandidates = skipRecoveryGeneration')
     expect(recoveryPlanIndex).toBeGreaterThan(-1)
     expect(providerRecoveryIndex).toBeGreaterThan(-1)
     expect(recoveryPlanIndex).toBeLessThan(providerRecoveryIndex)
