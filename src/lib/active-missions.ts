@@ -1,5 +1,7 @@
 import { assertMissionTransition, buildArtifactId, registerArtifact, verifyArtifact } from './architecture-control-plane'
 
+// Not to be confused with mission-os.ts's own MissionStage interface ({ stage, status, output?,
+// durationMs? }, one executed pipeline step's result) -- this is a PLANNED..COMPLETED stage-name union.
 export type MissionStage='PLANNED'|'IN_PROGRESS'|'REVIEW'|'DELIVERED'|'VERIFIED'|'OWNER_APPROVAL'|'COMPLETED'
 export const STAGE_ORDER:MissionStage[]=['PLANNED','IN_PROGRESS','REVIEW','DELIVERED','VERIFIED','OWNER_APPROVAL','COMPLETED']
 export type ArtifactType='url'|'transaction_id'|'message_id'|'file_path'|'data'|'none'

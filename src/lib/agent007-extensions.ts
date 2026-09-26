@@ -19,15 +19,10 @@ import { promises as fsp } from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
+import { getOperatorUserId } from './settings'
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
-
-
-async function getOperatorUserId() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
-}
 
 // Fresh-audit fix: this used to collapse a real LLM failure into a plain string
 // ("(LLM unavailable: ...)") indistinguishable from genuine analysis text -- createTool below then

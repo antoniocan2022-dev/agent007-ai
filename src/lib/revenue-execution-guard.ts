@@ -30,6 +30,8 @@ export function isAllowedRevenueAction(action: string): action is RevenueAction 
   return (REVENUE_ACTIONS as readonly string[]).includes(action)
 }
 
+// Not to be confused with autonomy/mission-state.ts's own canTransition(state, event), which
+// checks a mission's PROPOSED..CANCELLED state machine against an event, not a revenue status.
 export function canTransition(from: RevenueStatus, to: RevenueStatus): boolean {
   return TRANSITIONS[from]?.includes(to) ?? false
 }

@@ -15,6 +15,7 @@
 import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
+import { getOperatorUserId } from './settings'
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
@@ -56,11 +57,6 @@ async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): 
 function reportFrom(label: string, r: LlmResult, extra = ''): string {
   if (r.ok) return `${r.content}\n\nCAPABILITY STATUS: ${label} active.${extra}`
   return `(LLM analysis unavailable: ${r.error})\n\nCAPABILITY STATUS: ${label} degraded — the LLM analysis call failed (${r.error}); nothing above is AI-generated.${extra}`
-}
-
-async function getOperatorUserId() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
 }
 
 /* ================================================================ *

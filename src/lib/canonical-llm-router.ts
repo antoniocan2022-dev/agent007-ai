@@ -2,7 +2,7 @@ import { getProviderTaskPolicy, CEO_CONVERSATION_PROVIDER_PRIORITY, type Provide
 import { PROVIDER_RUNTIME_CONFIG, getConfiguredProviders, runGovernedProviderChat, type ProviderRuntimeOutcomeEvidence, type ActiveProviderId } from './provider-runtime-v2'
 import { getHealthScore, isCircuitOpen } from './provider-intelligence'
 import type { TaskType, VerificationTier } from './subagent-governance'
-import { classifyExecution, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
+import { classifyExecution, EXECUTION_CLASS_BUDGET, type AdaptiveExecutionPlan, type ExecutionClass } from './adaptive-execution'
 import { classifyCognitiveDepthFromMessages } from './ceo-cognitive-conversation'
 import { getCeoCancellationSignal } from './ceo-cancellation-context'
 import { CeoRequestAbortedError } from './ceo-cancellation'
@@ -55,10 +55,10 @@ function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
   }
   if (!request.executionClass || request.executionClass === inferred.executionClass) return inferred
   const overrides: Record<ExecutionClass, AdaptiveExecutionPlan> = {
-    fast: { ...inferred, executionClass: 'fast', maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000, parallelizable: false, reason: 'Caller explicitly selected the fast governed lane.' },
-    standard: { ...inferred, executionClass: 'standard', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true, reason: 'Caller explicitly selected the standard governed lane.' },
-    deep: { ...inferred, executionClass: 'deep', maxProviderAttempts: 5, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the deep governed lane.' },
-    mission: { ...inferred, executionClass: 'mission', maxProviderAttempts: 5, maxTokens: 8000, timeoutMs: 60000, parallelizable: true, reason: 'Caller explicitly selected the mission governed lane.' },
+    fast: { ...inferred, executionClass: 'fast', ...EXECUTION_CLASS_BUDGET.fast, parallelizable: false, reason: 'Caller explicitly selected the fast governed lane.' },
+    standard: { ...inferred, executionClass: 'standard', ...EXECUTION_CLASS_BUDGET.standard, parallelizable: true, reason: 'Caller explicitly selected the standard governed lane.' },
+    deep: { ...inferred, executionClass: 'deep', ...EXECUTION_CLASS_BUDGET.deep, parallelizable: true, reason: 'Caller explicitly selected the deep governed lane.' },
+    mission: { ...inferred, executionClass: 'mission', ...EXECUTION_CLASS_BUDGET.mission, parallelizable: true, reason: 'Caller explicitly selected the mission governed lane.' },
   }
   return overrides[request.executionClass]
 }

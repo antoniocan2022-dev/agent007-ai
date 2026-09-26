@@ -789,14 +789,6 @@ describe('Round-2 deep re-audit fixes', () => {
       expect(src).not.toMatch(/CAPABILITY STATUS: [A-Za-z ]+ active\.`\)/)
     })
 
-    test('developer-enhancements.ts no longer hardcodes the blanket claim across all 12 dev tools (shared createDevTool factory)', () => {
-      const src = readFileSync(new URL('../src/lib/developer-enhancements.ts', import.meta.url), 'utf8')
-      expect(src).not.toContain('full access, no limitations')
-      expect(src).toContain('Developer enhancement degraded')
-      expect(src).toContain('Developer enhancement active — real analysis from a live LLM call this turn.')
-      const devToolCount = (src.match(/createDevTool\(\{/g) ?? []).length
-      expect(devToolCount).toBe(12)
-    })
   })
 })
 

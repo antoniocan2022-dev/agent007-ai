@@ -24,6 +24,9 @@ export const VENTURE_EVIDENCE_TYPES = [
   'ai_advantage',
 ] as const
 
+// Not to be confused with venture-autonomy-control.ts's own VentureTemplate (a governed-venture
+// starter kit keyed by templateId/version/name, instantiated per venture) -- this is the single
+// canonical Venture OS scoring/readiness template, keyed by the fixed 'venture_os_canonical'.
 export interface VentureTemplate {
   templateKey: 'venture_os_canonical'
   version: number

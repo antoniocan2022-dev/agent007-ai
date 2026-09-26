@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { db } from './db'
 
+// Not to be confused with autonomy/autonomy-policy.ts's own AutonomyLevel ('L0'..'L4'), which is
+// this codebase's per-request policy tier, not this file's per-capability graduation stage.
 export type AutonomyLevel = 'PROPOSED' | 'ASSISTED' | 'SUPERVISED' | 'AUTONOMOUS'
 export type ActionClass = 'OBSERVE' | 'LOW_RISK' | 'MEDIUM_RISK' | 'HIGH_RISK' | 'IRREVERSIBLE'
 

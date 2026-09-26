@@ -22,6 +22,18 @@ export interface AdaptiveExecutionPlan {
   parallelizable: boolean
 }
 
+// Fresh-audit fix: canonical-llm-router.ts's explicitPlan() used to hand-duplicate these same
+// lane->budget numbers in its own override map, and the two tables had already drifted (its
+// override map gave 'deep'/'mission' 5 provider attempts where this file's own classifyExecution
+// gives them 4). Exporting the budget here and having both classifyExecution's named-lane returns
+// and canonical-llm-router.ts's override map read from it makes that drift structurally impossible.
+export const EXECUTION_CLASS_BUDGET: Record<ExecutionClass, Pick<AdaptiveExecutionPlan, 'maxProviderAttempts' | 'maxTokens' | 'timeoutMs'>> = {
+  fast: { maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000 },
+  standard: { maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000 },
+  deep: { maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000 },
+  mission: { maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000 },
+}
+
 const GREETING_RE = /^(?:hi|hello|hey|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|thx|ok|okay|great|perfect|goodbye|bye|how\s+do\s+you\s+do)[!.?\s]*$/i
 const MISSION_ACTION_RE = /\b(deploy|production\s+change|launch|publish|send|buy|sell|invest|transfer|commit|execute|run|implement|fix|refactor|create\s+(a|an)\s+(mission|venture|artifact|campaign)|start\s+(a|the)\s+mission)\b/i
 const MISSION_CONTEXT_RE = /\b(mission|autonom(?:y|ous)|venture|revenue|customer|transaction|production)\b/i
@@ -100,19 +112,19 @@ export function classifyExecution(
   const missionContext = MISSION_CONTEXT_RE.test(classificationText)
   const missionAction = MISSION_ACTION_RE.test(classificationText)
   if (missionAction || (missionContext && DEEP_RE.test(classificationText))) {
-    return { executionClass: 'mission', reason: 'Governed external, business, production, or mission execution request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
+    return { executionClass: 'mission', reason: 'Governed external, business, production, or mission execution request detected.', ...EXECUTION_CLASS_BUDGET.mission, parallelizable: true }
   }
 
   if (normalized.length > 800 || DEEP_RE.test(classificationText)) {
-    return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', maxProviderAttempts: 4, maxTokens: 8000, timeoutMs: 60000, parallelizable: true }
+    return { executionClass: 'deep', reason: 'Complex reasoning, research, verification, architecture, or analysis request detected.', ...EXECUTION_CLASS_BUDGET.deep, parallelizable: true }
   }
 
   if (containsContextualReference(classificationText)) {
-    return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
+    return { executionClass: 'standard', reason: 'Request contains context-dependent language; preserve the standard conversational path.', ...EXECUTION_CLASS_BUDGET.standard, parallelizable: false }
   }
 
   if (ENUMERATION_RE.test(classificationText)) {
-    return { executionClass: 'standard', reason: 'Request asks for multiple structured items; a short question does not imply a short answer.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: false }
+    return { executionClass: 'standard', reason: 'Request asks for multiple structured items; a short question does not imply a short answer.', ...EXECUTION_CLASS_BUDGET.standard, parallelizable: false }
   }
 
   // maxTokens/timeoutMs raised from 1200/15000 (2026-09): a short question routinely deserves a
@@ -121,14 +133,14 @@ export function classifyExecution(
   // promote genuinely complex requests to the 8000-token lane; this lane is specifically short
   // requests that stayed short because the QUESTION is short, not because the answer should be.
   if (normalized.length <= 220 && FAST_RE.test(normalized)) {
-    return { executionClass: 'fast', reason: 'Short informational request can use the low-overhead governed lane.', maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000, parallelizable: false }
+    return { executionClass: 'fast', reason: 'Short informational request can use the low-overhead governed lane.', ...EXECUTION_CLASS_BUDGET.fast, parallelizable: false }
   }
 
   if (normalized.length <= 280) {
-    return { executionClass: 'fast', reason: 'Short request without deep-work indicators.', maxProviderAttempts: 2, maxTokens: 2400, timeoutMs: 20000, parallelizable: false }
+    return { executionClass: 'fast', reason: 'Short request without deep-work indicators.', ...EXECUTION_CLASS_BUDGET.fast, parallelizable: false }
   }
 
-  return { executionClass: 'standard', reason: 'Normal request requiring standard governed model execution.', maxProviderAttempts: 3, maxTokens: 4000, timeoutMs: 30000, parallelizable: true }
+  return { executionClass: 'standard', reason: 'Normal request requiring standard governed model execution.', ...EXECUTION_CLASS_BUDGET.standard, parallelizable: true }
 }
 
 export function shouldUseFastLane(plan: AdaptiveExecutionPlan, attachmentsCount: number): boolean {

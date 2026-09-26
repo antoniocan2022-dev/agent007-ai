@@ -12,14 +12,10 @@
  */
 import { db } from './db'
 import { type ToolContext, type ToolResult } from './tools'
+import { getOperatorUserId } from './settings'
 
 function ok(preview: string, result: string): ToolResult { return { ok: true, preview, result } }
 function fail(result: string): ToolResult { return { ok: false, preview: result.slice(0, 140), result } }
-
-async function getOperatorUserId(): Promise<string | null> {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
-}
 
 export async function toolCreateEvidenceWatch(args: any, _ctx: ToolContext): Promise<ToolResult> {
   const ticker = String(args?.ticker ?? '').trim().toUpperCase()

@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+// Not to be confused with release-integrity.ts's own ReleaseIdentity (repository/mainSha/
+// certificationSha/deploymentSha/target, the authorization-chain identity) -- this is the
+// deployment-attestation identity (deploymentId/vercelCommitSha/releaseCommitSha/environment).
 export interface ReleaseIdentity {
   deploymentId: string | null
   vercelCommitSha: string | null

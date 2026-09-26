@@ -16,6 +16,7 @@
 import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
+import { getOperatorUserId } from './settings'
 
 /* ---------- shared helpers ---------- */
 function ok(preview: string, result: string): ToolResult {
@@ -25,11 +26,6 @@ function bad(result: string): ToolResult {
   return { ok: false, preview: result.slice(0, 140), result }
 }
 
-
-async function getOperatorUserId() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
-}
 
 /* ==================================================================== *
  * 1. QUANTUM COMPUTE — Full quantum-inspired optimization

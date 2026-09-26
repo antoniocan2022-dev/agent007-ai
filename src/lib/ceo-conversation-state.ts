@@ -1,6 +1,7 @@
 import type { PersistedConversationRow } from './ceo-context-composer'
 export type { PersistedConversationRow } from './ceo-context-composer'
-import { containsInternalArtifactToken } from './ceo-behavioral-policy'
+import { safeConversationRows } from './ceo-behavioral-policy'
+export { safeConversationRows }
 import { isCorrectionRequest, isBareContinuationOrRestatementRequest, isObjectiveContinuationCue, isObjectiveAgreementContinuationRequest, isDemonstrativeContinuationRequest, isObjectiveProgressionRequest, isBareObjectiveConfirmation } from './ceo-conversational-signals'
 import { resolveActiveThread, resolveGeneralReference, resolveOrdinalReference, resolveTemporalReference, type ConversationReferenceKind, type ConversationThreadRecord, type ReferenceCandidate } from './ceo-reference-resolution'
 
@@ -56,8 +57,6 @@ const ENTITY_RE = /\b(?:Agent007|CEO|Vercel|GitHub|OpenAI|Groq|Mistral|Cerebras|
 function normalize(value: string): string { return value.replace(/\s+/g, ' ').trim() }
 function tokens(value: string): string[] { return [...new Set(normalize(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !STOPWORDS.has(token)))] }
 function timestamp(value: PersistedConversationRow['createdAt']): number { if (value instanceof Date) return value.getTime(); if (typeof value === 'number') return value; const parsed = Date.parse(value); return Number.isFinite(parsed) ? parsed : 0 }
-function isSafeConversationRow(row: PersistedConversationRow): boolean { if (!row || typeof row.content !== 'string') return false; if (row.role === 'user') return true; return row.role === 'assistant' && Boolean(row.content.trim()) && !containsInternalArtifactToken(row.content) }
-export function safeConversationRows(rows: readonly PersistedConversationRow[]): PersistedConversationRow[] { return rows.filter(isSafeConversationRow) }
 function toneOf(text: string): ConversationTone { const lower = text.toLowerCase(); if (/\b(angry|frustrated|waste|wasting|ridiculous|broken|disappointed|annoyed)\b/.test(lower)) return 'frustrated'; if (/\b(great|excellent|perfect|awesome|succeeded|success|finally)\b/.test(lower)) return 'celebratory'; if (/\b(code|github|vercel|architecture|deployment|database|typescript|api|provider|ci|sha)\b/.test(lower)) return 'technical'; if (/\b(hello|hi|hey|thanks|thank you|how are you)\b/.test(lower)) return 'friendly'; if (/\b(problem|issue|risk|failure|critical|security)\b/.test(lower)) return 'serious'; return 'neutral' }
 function uniqueRecent(items: string[], max = 6): string[] { return [...new Set(items.map(normalize).filter(Boolean))].slice(-max) }
 function overlap(a: string, b: string): number { const left = new Set(tokens(a)); const right = new Set(tokens(b)); if (!left.size || !right.size) return 0; let matches = 0; for (const token of left) if (right.has(token)) matches += 1; return matches / Math.max(1, Math.min(left.size, right.size)) }

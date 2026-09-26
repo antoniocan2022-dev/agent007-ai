@@ -122,7 +122,10 @@ const INTERNAL_MARKER_PATTERNS = CEO_INTERNAL_ARTIFACT_TOKENS.join('|')
 const INTERNAL_ARTIFACT_TOKEN_RE = new RegExp(`\\b(?:${INTERNAL_MARKER_PATTERNS})(?:\\b|_)`, 'i')
 export function containsInternalArtifactToken(content: string): boolean { return INTERNAL_ARTIFACT_TOKEN_RE.test(content) }
 export function assertUserFacingText(content: string): string { const value = content.trim(); return value && !containsInternalArtifactToken(value) ? value : '' }
-export function safeConversationRows<T extends ConversationalHistoryRow>(rows: readonly T[] = []): T[] { return rows.filter((row) => row.role === 'user' || (row.role === 'assistant' && Boolean(row.content.trim()) && !containsInternalArtifactToken(row.content))) }
+// The single source of truth for this predicate; ceo-conversation-state.ts's own safeConversationRows
+// re-exports this one directly instead of duplicating the filter logic (their PersistedConversationRow
+// is structurally compatible with ConversationalHistoryRow above, so the generic accepts it as-is).
+export function safeConversationRows<T extends ConversationalHistoryRow>(rows: readonly T[] = []): T[] { return rows.filter((row) => Boolean(row) && typeof row.content === 'string' && (row.role === 'user' || (row.role === 'assistant' && Boolean(row.content.trim()) && !containsInternalArtifactToken(row.content)))) }
 
 export function renderCeoBehavioralPolicy(policy: CeoBehavioralPolicy): string {
   const supportingModes = policy.modes.filter((mode) => mode !== policy.leadingMode)

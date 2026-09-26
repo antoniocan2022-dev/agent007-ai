@@ -39,16 +39,12 @@ import { type ToolContext, type ToolResult } from './tools'
 import { db } from './db'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
+import { getOperatorUserId } from './settings'
 
 const BASE_DIR = process.cwd()
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
-
-async function getOperatorUserId() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
-}
 
 function getSelfBaseUrl(): string {
   if (process.env.NEXTAUTH_URL) return process.env.NEXTAUTH_URL.replace(/\/$/, '')
