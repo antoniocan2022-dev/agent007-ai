@@ -242,4 +242,11 @@ function escapeHtml(s: string): string {
  * throws "Cannot access 'SEED_EMAIL' before initialization" depending on which module loads first.
  * This copy is otherwise byte-identical to the canonical implementation.
  */
-export { getOperatorUserId } from '@/lib/settings'
+export async function getOperatorUserId(): Promise<string | null> {
+  try {
+    const u = await db.user.findUnique({ where: { email: SEED_EMAIL } })
+    return u?.id ?? null
+  } catch {
+    return null
+  }
+}
