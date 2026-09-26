@@ -234,5 +234,19 @@ function escapeHtml(s: string): string {
 /**
  * Resolve the single operator userId (the seeded user). Returns null if no
  * user is found.
+ *
+ * Intentionally not delegated to settings.ts's canonical getOperatorUserId (unlike every other
+ * duplicate this fresh audit consolidated): auth.ts -> user-approval.ts -> email.ts already forms
+ * an import chain, and settings.ts itself imports SEED_EMAIL from auth.ts, so importing settings.ts
+ * here closes a real cycle (auth.ts -> user-approval.ts -> email.ts -> settings.ts -> auth.ts) that
+ * throws "Cannot access 'SEED_EMAIL' before initialization" depending on which module loads first.
+ * This copy is otherwise byte-identical to the canonical implementation.
  */
-export { getOperatorUserId } from '@/lib/settings'
+export async function getOperatorUserId(): Promise<string | null> {
+  try {
+    const u = await db.user.findUnique({ where: { email: SEED_EMAIL } })
+    return u?.id ?? null
+  } catch {
+    return null
+  }
+}
