@@ -49,7 +49,14 @@ const DIMENSION_THRESHOLD = 70
 // own comment already establishes it as genuinely fixable by adding acknowledgment language, so it
 // belongs in the same structured, priority-ordered repair mechanism conversational failures get,
 // not the escalation loop's unstructured raw-reason-dump prompt.
-const REPAIR_PRIORITY_ORDER = ['contradictionPreservation', 'referenceResolution', 'relevance', 'continuity', 'coherence', 'naturalness', 'personalityConsistency'] as const
+// Self-repair follow-up (2026-09-26): 'sourceAttributionPresent' sits at the BACK of this order, the
+// opposite end from contradictionPreservation -- ceo-structural-quality-gate.ts's own comment calls it
+// "deliberately advisory, not gating" (a confident, well-grounded answer legitimately doesn't cite every
+// sentence), so unlike every other dimension here it must never independently trigger a REPAIR decision.
+// It only rides along, opportunistically, when a repair is already happening for some other reason (see
+// buildSemanticQualityReport below) -- a genuinely fixable gap (add "the report states..."/"my assessment
+// is..." phrasing) that costs nothing extra to fold into a repair pass already in flight.
+const REPAIR_PRIORITY_ORDER = ['contradictionPreservation', 'referenceResolution', 'relevance', 'continuity', 'coherence', 'naturalness', 'personalityConsistency', 'sourceAttributionPresent'] as const
 
 function meaningSatisfiedFor(contract: ConversationDecisionContract, conversationQuality: ConversationQualityScore | undefined): boolean {
   if (!contract.meaning.trim()) return true
@@ -93,7 +100,10 @@ export function buildSemanticQualityReport(input: {
   // one structural-quality-gate finding wired into failedDimensions here (never claimCoverageOk).
   const contradictionUnpreserved = input.quality.structuralQuality?.applicable === true && !input.quality.structuralQuality.contradictionPreserved
   if (contradictionUnpreserved) failedDimensions.unshift('contradictionPreservation')
-  const repairPriority = REPAIR_PRIORITY_ORDER.filter((dimension) => failedDimensions.includes(dimension))
+  // Self-repair follow-up (2026-09-26): computed here but deliberately NOT added to failedDimensions yet
+  // -- see REPAIR_PRIORITY_ORDER's comment for why it must never independently trigger REPAIR. It is
+  // folded in below, only after `decision` has already been decided by every other criterion.
+  const sourceAttributionMissing = input.quality.structuralQuality?.applicable === true && !input.quality.structuralQuality.sourceAttributionPresent
 
   // Deep-audit finding: this used to be a second, independently-drifting copy of the same "genuine
   // overclaim, never repair -- degrade outright" list kept in ceo-cognitive-lifecycle.ts's own local
@@ -115,6 +125,12 @@ export function buildSemanticQualityReport(input: {
   else if (failedDimensions.length > 0) decision = 'REPAIR'
   else decision = 'PASS'
 
+  // Self-repair follow-up (2026-09-26): only ride along on a REPAIR that's already happening for another
+  // reason -- never the sole cause of one. sourceAttributionMissing is deliberately excluded from the
+  // `failedDimensions.length > 0` check above, so a turn with nothing else wrong still gets PASS.
+  if (decision === 'REPAIR' && sourceAttributionMissing && !failedDimensions.includes('sourceAttributionPresent')) failedDimensions.push('sourceAttributionPresent')
+  const repairPriority = REPAIR_PRIORITY_ORDER.filter((dimension) => failedDimensions.includes(dimension))
+
   return { schemaVersion: 1, decision, meaningSatisfied, contractSatisfied, continuity, referenceResolution, relevance, naturalness, coherence, evidenceDiscipline, personalityConsistency, failedDimensions, repairPriority }
 }
 
@@ -126,6 +142,7 @@ const REPAIR_INSTRUCTION_FOR: Record<string, string> = {
   coherence: 'Make the logical connection between ideas explicit; do not leave claims unconnected or contradictory.',
   naturalness: 'Rewrite in plain, natural conversational language; remove any clinical, procedural, or robotic phrasing.',
   personalityConsistency: 'Speak with the same direct, confident, engaged voice used elsewhere in this conversation.',
+  sourceAttributionPresent: 'Where you draw on the source document, briefly distinguish what the source states from your own inference or judgment (e.g. "the report states..." vs. "based on this, I would..."). Do this opportunistically alongside the other repairs -- do not add citations to every sentence.',
 }
 
 export function buildSemanticRepairPlan(report: SemanticQualityReport): SemanticRepairPlan {

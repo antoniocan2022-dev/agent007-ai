@@ -25,7 +25,15 @@ const DEFAULT_COOLDOWN_MS = 60_000
 // deliberately conservative window so the same broken credential doesn't keep getting retried all day,
 // while still self-healing within a day if the caller never gets a chance to record a real success.
 const DEFAULT_BLOCKED_MS = 24 * 60 * 60_000
-const CACHE_TTL_MS = 5_000
+// Efficiency fix (2026-09-26): a single CEO turn can call getProviderStandings many times (primary
+// generation, escalation, semantic repair, evidence recovery, recovery generation each check standing
+// again) -- with a 5s TTL, any turn slower than that (document comprehension and multi-stage recovery
+// paths routinely are) paid a repeated `db.memory.findUnique` per provider once the TTL rolled over
+// mid-turn, even though nothing about that provider's standing plausibly changed in the meantime. Raised
+// to 15s: still short relative to the standings that matter most (DEFAULT_COOLDOWN_MS 60s,
+// DEFAULT_BLOCKED_MS 24h), so cross-instance staleness stays a minor, self-correcting cost, while cutting
+// the common case of several same-turn reads down to one DB round-trip per provider per turn.
+const CACHE_TTL_MS = 15_000
 
 function memoryKey(provider: ActiveProviderId): string { return `provider_standing_${provider}` }
 function freshStanding(provider: ActiveProviderId): ProviderStanding { return { provider, standing: 'none', updatedAt: 0 } }

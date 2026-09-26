@@ -14,6 +14,7 @@ import {
 } from './autonomy-policy'
 import { getCapabilityMetadata } from './capability-registry'
 import { isVerifiedOwnerAuthorization, type VerifiedOwnerAuthorization } from './owner-authorization'
+import type { ActionClass } from '../autonomy-graduation'
 
 const LEGACY_DESTRUCTIVE_TOOLS = new Set([
   'file_delete', 'file_modify', 'file_write', 'patch_source_file', 'patch_applier',
@@ -80,6 +81,40 @@ export function classifyToolExecution(
     limits?: AutonomyPolicyLimits
   },
 ): AutonomyPolicyDecision {
+  return classifyToolExecutionDetailed(toolName, rawArgs, options).decision
+}
+
+// Self-repair follow-up (2026-09-26): autonomy-graduation.ts's ActionClass evidence ledger
+// (OBSERVE/LOW_RISK/MEDIUM_RISK/HIGH_RISK/IRREVERSIBLE) is only ever fed from ONE production site
+// (venture-operation-loop.ts's heartbeat), hardcoded to 'LOW_RISK' -- so MEDIUM_RISK/HIGH_RISK/
+// IRREVERSIBLE can structurally never accumulate evidence or graduate, not because they're unsafe but
+// because nothing ever scores them. This module already classifies EVERY governed tool call by category
+// and authority (classifyToolExecution above) -- the same classification maps directly onto an
+// ActionClass, so the real risk tier of a real, governed tool execution can finally be attributed
+// correctly instead of only ever being recorded as LOW_RISK. Exposed as a separate "detailed" variant
+// (rather than changing classifyToolExecution's existing return shape, which other callers/tests depend
+// on) so tools-runtime.ts's dispatchTool can record autonomy-graduation evidence under the right class.
+function actionClassForClassification(category: ActionCategory, decision: AutonomyPolicyDecision): ActionClass {
+  if (category === 'data_destructive' || category === 'external_irreversible') return 'IRREVERSIBLE'
+  if (decision.authority === 'AUTONOMOUS_SAFE') return category === 'read' ? 'OBSERVE' : 'LOW_RISK'
+  if (decision.authority === 'AUTONOMOUS_BOUNDED') return 'MEDIUM_RISK'
+  if (category === 'deployment' || category === 'security' || category === 'financial') return 'HIGH_RISK'
+  return 'MEDIUM_RISK'
+}
+
+export function classifyToolExecutionDetailed(
+  toolName: string,
+  rawArgs: unknown,
+  options?: {
+    policyApproved?: boolean
+    confidence?: number
+    affectsProduction?: boolean
+    affectsSecurity?: boolean
+    containsPersonalData?: boolean
+    ownerAuthorization?: VerifiedOwnerAuthorization | null
+    limits?: AutonomyPolicyLimits
+  },
+): { decision: AutonomyPolicyDecision; actionClass: ActionClass } {
   const args = rawArgs && typeof rawArgs === 'object' ? argsAsRecord(rawArgs) : {}
   const metadata = getCapabilityMetadata(toolName)
   const category = metadata?.category ?? inferLegacyCategory(toolName)
@@ -88,7 +123,7 @@ export function classifyToolExecution(
     ? options?.ownerAuthorization
     : null
 
-  return classifyAutonomyAction({
+  const decision = classifyAutonomyAction({
     category,
     estimatedCost: inferCost(args),
     currency: typeof args.currency === 'string' ? args.currency : undefined,
@@ -105,6 +140,8 @@ export function classifyToolExecution(
     confidence,
     ownerAuthorization,
   }, options?.limits)
+
+  return { decision, actionClass: actionClassForClassification(category, decision) }
 }
 
 function argsAsRecord(value: object): Record<string, unknown> {

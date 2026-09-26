@@ -199,10 +199,16 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain("async function attemptValidatedReasoningProvider(timeoutMs: number, taskType: TaskType = 'reasoning', verification: VerificationTier = 'standard')")
     expect(lifecycle).toContain('const governedConfigured = configured.filter((provider) => getGovernedCandidates(provider, taskType, verification).length > 0)')
-    expect(lifecycle).toContain('const probe = await probeProvider(provider, { taskType, verification, timeoutMs:')
+    // Efficiency fix (2026-09-26): the probe budget's candidates are now probed concurrently
+    // (Promise.allSettled) rather than one at a time in a sequential for-await loop -- see this
+    // function's own updated comment for why that's safe (each probe is independent).
+    expect(lifecycle).toContain('const settled = await Promise.allSettled(candidates.map((provider) => probeProvider(provider, { taskType, verification, timeoutMs:')
     // Every call site passes the shared recoveryTaskContext derivation, not the old hardcoded default.
+    // Self-repair follow-up (2026-09-26): a 4th call site was added -- tryDegraded's citation-repair path
+    // (misattributionOnly) probes availability with the same recoveryTaskType/recoveryVerification pair
+    // before its own targeted repair attempt, rather than introducing a second hardcoded default.
     const callSites = (lifecycle.match(/, recoveryTaskType, recoveryVerification\)/g) ?? []).length
-    expect(callSites).toBe(3)
+    expect(callSites).toBe(4)
   })
 
   // Second-pass sibling-call-site audit, re-auditing the fix above: evidenceProvided/evidenceScope in
@@ -221,11 +227,14 @@ describe('CEO Phases 1-3 architecture contracts', () => {
     // Self-repair follow-up (2026-09-25): tryDegraded gained one more trailing parameter,
     // recoveryGenerationFutile, so the caller (quality-gate-failed call site) can tell it the resume
     // path already applies -- see isFutileStructuralCoverageEscalation's wiring into that call.
-    expect(lifecycle).toContain("generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness, recoveryGenerationFutile = false): Promise<CognitiveLifecycleResult>")
-    // The quality-gate-failed call site now also passes isFutileStructuralCoverageEscalation(quality) as
-    // that final argument, so its ending no longer matches the bare `ventureEvidenceFreshness)` shape the
-    // other 3 call sites still use.
-    const callSitesPassingVentureEvidence = (lifecycle.match(/tryDegraded\([^;]*?, ventureEvidence, ventureEvidenceFreshness(?:, isFutileStructuralCoverageEscalation\(quality\))?\)/g) ?? []).length
+    // Self-repair follow-up (2026-09-26): two more trailing parameters, priorDraftContent and
+    // claimVerification, so that same call site can also feed tryDegraded's citation-repair path (see
+    // misattributionOnly's wiring) the failed draft and its per-claim verification detail.
+    expect(lifecycle).toContain("generationOverride?: Partial<CeoGenerationDiagnostics>, ventureEvidence: { ventureId: string; evidence: string } | null = null, ventureEvidenceFreshness?: EvidenceFreshness, recoveryGenerationFutile = false, priorDraftContent?: string, claimVerification?: readonly CeoClaimVerificationSummary[]): Promise<CognitiveLifecycleResult>")
+    // The quality-gate-failed call site now also passes isFutileStructuralCoverageEscalation(quality),
+    // result.content, and quality.claimVerification as its final arguments, so its ending no longer
+    // matches the bare `ventureEvidenceFreshness)` shape the other 3 call sites still use.
+    const callSitesPassingVentureEvidence = (lifecycle.match(/tryDegraded\([^;]*?, ventureEvidence, ventureEvidenceFreshness(?:, isFutileStructuralCoverageEscalation\(quality\)(?:, result\.content, quality\.claimVerification)?)?\)/g) ?? []).length
     // The 4 call sites downstream of the venture-evidence lookup (no-usable-output, exhausted-escalation,
     // quality-gate-failed, and the outer catch) must all pass it through; the 5th call site (the venture
     // lookup's own failure path) correctly relies on the null/undefined defaults since no evidence exists
@@ -245,7 +254,13 @@ describe('CEO Phases 1-3 architecture contracts', () => {
   test('the recovery generation call is given the live venture evidence in its own messages, not just an honest evidenceProvided flag', async () => {
     const lifecycle = await Bun.file(new URL('../src/lib/ceo-cognitive-lifecycle.ts', import.meta.url)).text()
     expect(lifecycle).toContain("const recoveryLiveSystemMessages = ventureEvidence ? [{ role: 'system' as const, content: `LIVE VENTURE STATE (READ ONLY):")
-    expect(lifecycle).toContain('const recoveryEvidenceMessages = recoveredEvidenceContext ?')
+    // Self-repair follow-up (2026-09-26): recoveryEvidenceMessages is now a 3-way ternary, not a bare
+    // `? :` on one line -- see the NO RECOVERABLE EVIDENCE branch's own comment (Eff-2's doomed-
+    // regeneration fix) for why an attempted-but-empty recovery now gets an explicit hedge instruction
+    // instead of silence.
+    expect(lifecycle).toContain('const recoveryEvidenceMessages = recoveredEvidenceContext')
+    expect(lifecycle).toContain("? [{ role: 'system' as const, content: `RECOVERED EXTERNAL EVIDENCE (INTERNAL GROUNDING):")
+    expect(lifecycle).toContain('NO RECOVERABLE EVIDENCE (INTERNAL): A fresh external search was just attempted')
     expect(lifecycle).toContain('const recovery = await runCanonicalLlm({ messages: [...recoveryLiveSystemMessages, ...recoveryEvidenceMessages, ...recoverySelfAssessmentFactsMessages, ...recoveryDocumentComprehensionMessages, ...selfAssessmentGuidanceMessages(')
   })
 

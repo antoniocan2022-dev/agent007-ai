@@ -9,7 +9,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from './tools'
-import { classifyToolExecution, autonomyDenialMessage } from './autonomy/autonomy-runtime'
+import { classifyToolExecutionDetailed, autonomyDenialMessage } from './autonomy/autonomy-runtime'
 import { getVerifiedOwnerAuthorization, isVerifiedOwnerAuthorization } from './autonomy/owner-authorization'
 import { startMandatoryExecution, completeMandatoryExecution } from './execution-contract'
 
@@ -97,7 +97,7 @@ export async function dispatchTool(
     }
   }
 
-  const decision = classifyToolExecution(name, args, {
+  const { decision, actionClass } = classifyToolExecutionDetailed(name, args, {
     confidence: 1,
     ownerAuthorization,
   })
@@ -108,8 +108,25 @@ export async function dispatchTool(
     return { ...denied, executionProof }
   }
 
+  // Self-repair follow-up (2026-09-26): records real graduation evidence under the tool's actual
+  // ActionClass (see classifyToolExecutionDetailed) so MEDIUM_RISK/HIGH_RISK/IRREVERSIBLE work can
+  // finally accumulate the evidence autonomy-graduation.ts's ledger needs to score it -- every
+  // governed call previously only ever fed LOW_RISK via a single, separate heartbeat site. Deliberately
+  // fire-and-forget and fully swallowed: this is observability feeding a slow-moving graduation ledger,
+  // never allowed to add latency or failure risk to the actual tool call it's reporting on.
+  const recordGraduationEvidence = (successful: boolean) => {
+    import('./autonomy-graduation').then(({ recordAutonomyEvidence }) => recordAutonomyEvidence({
+      actionClass,
+      attempts: 1,
+      successes: successful ? 1 : 0,
+      source: `tool:${name}`,
+      idempotencyKey: execution.receipt.id,
+    })).catch(() => {})
+  }
+
   try {
     const result = await rawDispatchTool(name, args, ctx)
+    recordGraduationEvidence(result.ok)
     const executionProof = await finish(
       result.ok ? 'SUCCESS' : 'FAILED',
       { ok: result.ok, result: result.result, preview: result.preview, artifacts: result.artifacts ?? null },
@@ -117,6 +134,7 @@ export async function dispatchTool(
     )
     return { ...result, executionProof }
   } catch (error) {
+    recordGraduationEvidence(false)
     const message = error instanceof Error ? error.message : String(error)
     const executionProof = await finish('FAILED', { error: message.slice(0, 500) }, 'TOOL_THROW')
     throw Object.assign(error instanceof Error ? error : new Error(message), { executionProof })
