@@ -221,18 +221,59 @@ export async function toolMissionMode(args: any): Promise<ToolResult> {
         }), DISPATCH_TIMEOUT_MS, 'Quantum strategy-pivot dispatch')
         actions.push(`🔄 STRATEGY PIVOT: QUANTUM dispatched — ${pivotResult.answer.slice(0, 200)}`)
 
-        // Notify owner via Telegram
+        // Self-repair follow-up (2026-09-26): this mission-tick output never entered the decision
+        // ledger self-inspection (assessCeoSelfInspection) and the executive-state/strategic-horizon
+        // rendering read from -- a real strategy pivot, autonomously triggered by 7+ zero-revenue ticks,
+        // was invisible to every subsystem that reasons about "what has the CEO decided lately."
+        // Recorded as a 'recommend' (QUANTUM proposes alternatives; nothing here has autonomously
+        // committed to and executed one), fail-safe so a ledger-write problem never blocks the tick.
         try {
-          const resp = await fetch('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: process.env.TELEGRAM_CHAT_ID,
-              text: '🔄 Agent007 Strategy Pivot Triggered\n\n' + pivotResult.answer.slice(0, 1000) + '\n\nReason: $0 revenue after ' + missionState.totalRuns + ' mission ticks.',
-              disable_web_page_preview: true,
-            }),
-            signal: AbortSignal.timeout(10000),
+          const { recordCeoRecommendation, generateRecommendationCorrelationId } = await import('./ceo-outcome-learning')
+          await recordCeoRecommendation({
+            correlationId: generateRecommendationCorrelationId(),
+            objective: `Mission strategy review: $0 revenue after ${missionState.totalRuns} mission ticks.`,
+            responseAction: 'recommend',
+            recommendedAction: pivotResult.answer,
+            decisionRationale: `Automated strategy-pivot analysis triggered by ${missionState.totalRuns} consecutive zero-revenue mission ticks.`,
           })
+        } catch (e: any) {
+          actions.push(`Recommendation ledger write failed: ${e?.message?.slice(0, 100)}`)
+        }
+
+        // Self-repair follow-up (2026-09-26): notify owner via Telegram, with an execution receipt for
+        // auditability -- but deliberately NOT through tools-runtime.ts's fully governed dispatchTool.
+        // classifyToolExecution would classify telegram_notify as 'communication' with
+        // externalSideEffect=true and reversible=false, which requires a VERIFIED OWNER SESSION
+        // (getVerifiedOwnerAuthorization reads a live NextAuth request session) or the call is denied --
+        // but this heartbeat runs with no HTTP session at all, so gating it that way would silently and
+        // permanently disable the one alert that exists specifically to reach the owner when they are
+        // NOT there approving anything. Recorded through the same execution-receipt mechanism
+        // dispatchTool uses (for the audit trail every other tool call gets) without the authority gate
+        // that would make an autonomous self-alert impossible to ever send.
+        try {
+          const { startMandatoryExecution, completeMandatoryExecution } = await import('./execution-contract')
+          const execution = await startMandatoryExecution({
+            actorId: 'max-autonomy-engine:strategy-pivot',
+            actorType: 'system',
+            action: 'tool.telegram_notify',
+            idempotencyKey: `strategy-pivot-notify:${missionState.totalRuns}:${now.slice(0, 10)}`,
+            args: { totalRuns: missionState.totalRuns },
+          })
+          let status: 'SUCCESS' | 'FAILED' = 'FAILED'
+          try {
+            const resp = await fetch('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: process.env.TELEGRAM_CHAT_ID,
+                text: '🔄 Agent007 Strategy Pivot Triggered\n\n' + pivotResult.answer.slice(0, 1000) + '\n\nReason: $0 revenue after ' + missionState.totalRuns + ' mission ticks.',
+                disable_web_page_preview: true,
+              }),
+              signal: AbortSignal.timeout(10000),
+            })
+            status = resp.ok ? 'SUCCESS' : 'FAILED'
+          } catch {}
+          await completeMandatoryExecution({ receiptId: execution.receipt.id, missionId: execution.scope.missionId, status, requestHash: execution.requestHash, output: { status } })
         } catch {}
 
         // Save the pivot in mission state

@@ -1,4 +1,4 @@
-import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness, CeoIntent, ResponseAction, CeoComprehensionMode } from './ceo-cognitive-contract'
+import type { QualityResult, EvidenceState, VerificationStatus, EvidenceScope, EvidenceFreshness, CeoIntent, ResponseAction, CeoComprehensionMode, CeoClaimVerificationSummary } from './ceo-cognitive-contract'
 import { extractInstructionWindow } from './ceo-cognitive-contract'
 import { assessStructuralQuality, type StructuralSourceModel } from './ceo-structural-quality-gate'
 import type { EvidenceBundle } from './ceo-evidence-bundle'
@@ -73,7 +73,24 @@ function stem(token: string): string { if (token.length > 5 && token.endsWith('e
 // crossObjectiveSubstitution), regardless of how well the model actually understood the rest. Raised to
 // give document-length objectives a genuinely representative sample; the filtering above already runs on
 // the full input, so this only changes how much of the already-computed token list is retained.
-function normalize(value: string): string[] { return value.toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)).map(stem).slice(0, 2_000) }
+// Efficiency fix (2026-09-26): evaluateCeoQuality is called 4-6+ times in a single turn (primary,
+// each escalation attempt, semantic repair, recovery) and every call re-tokenizes the SAME objective
+// (and often much of the same content, on a re-evaluation of a repaired/escalated draft) from scratch --
+// up to a 2,000-token, document-length string retokenized and re-stemmed each time for no reason, since
+// normalize is a pure function of its input. A small, bounded (FIFO-evicted) memoization cache is safe
+// here specifically because it is pure: the same string always normalizes to the same tokens regardless
+// of which request or turn computed it, so caching introduces no cross-request correctness risk -- only
+// less repeated tokenization work within and across turns that happen to share text.
+const NORMALIZE_CACHE_MAX = 64
+const normalizeCache = new Map<string, string[]>()
+function normalize(value: string): string[] {
+  const cached = normalizeCache.get(value)
+  if (cached) return cached
+  const tokens = value.toLowerCase().split(/[^a-z0-9]+/).map((token) => token.trim()).filter((token) => token.length >= 4 && !STOPWORDS.has(token)).map(stem).slice(0, 2_000)
+  if (normalizeCache.size >= NORMALIZE_CACHE_MAX) { const oldestKey = normalizeCache.keys().next().value; if (oldestKey !== undefined) normalizeCache.delete(oldestKey) }
+  normalizeCache.set(value, tokens)
+  return tokens
+}
 // Splits on ';' as well as '.!?' -- deep-audit fix: "I have already deployed this change; once you
 // approve the budget, we can proceed with phase 2." used to count as one "sentence", so the unrelated
 // conditional clause after the semicolon incorrectly exempted the genuine, unconditioned completion
@@ -294,6 +311,12 @@ const evidenceVerificationApplicable=conversational?externalClaims:(input.eviden
   // than expanding the taxonomy for what is semantically the same failure mode.
   else if(structuralQuality.applicable&&!structuralQuality.contradictionPreserved)failureReason='claim_consistency_failure';else if(!evidenceOk)failureReason=externalClaims?'evidence_insufficient':'quality_failure';else failureReason='quality_failure'}
   let evidenceState:EvidenceState; if(conversational)evidenceState=passed?'NOT_APPLICABLE':'PARTIAL_UNCONFIRMED'; else if(!evidenceVerificationApplicable&&!externalClaims)evidenceState=passed?'NOT_APPLICABLE':'PARTIAL_UNCONFIRMED'; else if(!externalClaims&&input.evidenceScope==='none')evidenceState=passed?'NOT_APPLICABLE':'PARTIAL_UNCONFIRMED'; else if(input.externalExecutionSucceeded===false&&(externalClaims||evidenceVerificationApplicable))evidenceState='UNAVAILABLE'; else evidenceState=evidenceIsVerifiedLive?'LIVE_VERIFIED':passed?'LIVE_EXECUTED':'PARTIAL_UNCONFIRMED';
-  return {decision:passed?'PASS':conversational?'ESCALATE':input.path==='fast'?'DEGRADED':'ESCALATE',evidenceState,verificationStatus,checks:{nonEmpty,contractValid,objectiveCoverage:coverage,internalConsistency:claimConsistency.consistent&&continuityOk&&structuralQuality.contradictionPreserved,evidenceDiscipline:evidenceOk,actionableStructure:structureOk},evidenceScope:input.evidenceScope,evidenceFreshness:input.evidenceFreshness,claimScopes:claims,contextContinuity:continuity?{score:continuity.score,relevantTurnCount:continuity.relevantTurnCount,matchedTurnCount:continuity.matchedTurnCount,understood:continuity.understood}:conversationQuality?{score:conversationQuality.continuity,relevantTurnCount:priorTurns.length,matchedTurnCount:Math.round(priorTurns.length*conversationQuality.continuity/100),understood:continuityOk}:undefined,conversationQuality,responseIntegrity:integrity,structuralQuality,failureReason,reasons:reasons.length?reasons:['Response satisfied the deterministic quality contract.']} as QualityResult
+  // Self-repair follow-up (2026-09-26): surfaces verifyClaimEvidence's own per-claim diagnosis (which used
+  // to be collapsed into the single `claimVerification.passed` boolean consulted by evidenceOk above, then
+  // discarded) so a caller with an evidence_insufficient failure can distinguish "no evidence exists for
+  // this claim" (sourceCount 0) from "evidence exists but didn't satisfy freshness/topical/quantitative/
+  // entity matching" (sourceCount > 0, mis-citation) -- see CeoClaimVerificationSummary's own comment.
+  const claimVerificationSummary: readonly CeoClaimVerificationSummary[] | undefined = 'claims' in claimVerification ? claimVerification.claims.map((claim) => ({ claim: claim.claim, scope: claim.scope, supported: claim.supported, sourceCount: claim.sourceIds.length, reason: claim.reason })) : undefined
+  return {decision:passed?'PASS':conversational?'ESCALATE':input.path==='fast'?'DEGRADED':'ESCALATE',evidenceState,verificationStatus,checks:{nonEmpty,contractValid,objectiveCoverage:coverage,internalConsistency:claimConsistency.consistent&&continuityOk&&structuralQuality.contradictionPreserved,evidenceDiscipline:evidenceOk,actionableStructure:structureOk},evidenceScope:input.evidenceScope,evidenceFreshness:input.evidenceFreshness,claimScopes:claims,contextContinuity:continuity?{score:continuity.score,relevantTurnCount:continuity.relevantTurnCount,matchedTurnCount:continuity.matchedTurnCount,understood:continuity.understood}:conversationQuality?{score:conversationQuality.continuity,relevantTurnCount:priorTurns.length,matchedTurnCount:Math.round(priorTurns.length*conversationQuality.continuity/100),understood:continuityOk}:undefined,conversationQuality,responseIntegrity:integrity,structuralQuality,claimVerification:claimVerificationSummary,failureReason,reasons:reasons.length?reasons:['Response satisfied the deterministic quality contract.']} as QualityResult
 }
 export function evaluateFastResponse(content:string,objective:string):QualityResult{return evaluateCeoQuality({objective,content,path:'fast',intent:'conversation',reviewed:false,externalExecutionSucceeded:true,evidenceVerificationApplicable:false})}

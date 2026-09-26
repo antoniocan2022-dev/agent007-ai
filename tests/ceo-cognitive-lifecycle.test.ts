@@ -372,7 +372,13 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.degraded).toBe(false)
     expect(result.content).toContain('Recommendation')
     expect(result.generation.finalStage).toBe('escalation')
-    expect(result.generation.escalationCount).toBeGreaterThanOrEqual(2)
+    // Self-repair follow-up (2026-09-26): escalationCount now counts genuine content-repair attempts
+    // against decisionPlan.maxEscalations, not raw loop iterations -- a provider-side error (like this
+    // test's simulated 503) no longer consumes an escalation slot (see the escalation while-loop's own
+    // comment in ceo-cognitive-lifecycle.ts). This test's one transient failure followed by one success
+    // therefore reports escalationCount 1, not 2: the RETRY still happened (proven by finalStage
+    // 'escalation' and a passing, non-degraded result), it just correctly didn't cost budget to get there.
+    expect(result.generation.escalationCount).toBe(1)
     // Reset again so the failures this test intentionally caused don't leave a circuit open for any
     // later test in this file.
     resetProviderHealthForTests()

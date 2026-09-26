@@ -15,6 +15,7 @@ import { resolveVentureOrganizationScope, type VentureOrganizationScope } from '
 import { runPortfolioLearningHeartbeat, type PortfolioLearningHeartbeatResult } from './portfolio-learning-heartbeat'
 import { evaluateAndPersistAutonomy, recordAutonomyEvidence, type AutonomyDecision } from './autonomy-graduation'
 import { assessSustainedBusinessOutcome } from './ceo-sustained-outcome'
+import { listOpenRecommendationsForVenture, closeRecommendationWithSustainedOutcome } from './ceo-outcome-learning'
 import { ensureVenture001, VENTURE_001_REFERENCE } from './venture-001'
 import { acquireAutonomyLease } from './venture-autonomy-control'
 
@@ -31,6 +32,7 @@ import { acquireAutonomyLease } from './venture-autonomy-control'
 const GOVERNED_CYCLE_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000
 const SELF_REPAIR_CYCLE_KEY = 'venture-os:last-self-repair-cycle'
 const EVOLUTION_CYCLE_KEY = 'venture-os:last-evolution-cycle'
+const DOMAIN_DRIFT_CYCLE_KEY = 'venture-os:last-domain-drift-cycle'
 
 async function dueForGovernedCycle(key: string): Promise<boolean> {
   const row = await db.memory.findUnique({ where: { key } }).catch(() => null)
@@ -172,6 +174,28 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   try { sustainedOutcome = await assessSustainedBusinessOutcome(ventureId) } catch (error) { findings.push(`Sustained business outcome assessment failed safely: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`) }
   if (sustainedOutcome?.regressedWindows) findings.push(`${sustainedOutcome.regressedWindows} of the last ${sustainedOutcome.windowsFound} KPI window(s) were not real revenue-positive.`)
 
+  // Self-repair follow-up (2026-09-26): closeRecommendationWithSustainedOutcome() (ceo-outcome-learning.ts,
+  // Phase 3 of the executive causal spine) existed only as a tested, unwired function -- this production
+  // heartbeat computed the exact sustained-outcome signal its OPEN recommendations for this venture need
+  // to close against, but never called back into the recommendation ledger to close them. Without this,
+  // summarizeRecommendationLedger's open/awaitingOutcome counts (rendered live in ceo-executive-state.ts
+  // and ceo-strategic-horizon.ts) could only ever grow, never reflect a decision's outcome actually
+  // resolving. Idempotent per recommendation (the function itself checks for a prior closure first) and
+  // fails safely per-recommendation so one bad record can't block the rest of this heartbeat cycle.
+  try {
+    const openRecommendations = await listOpenRecommendationsForVenture(ventureId)
+    for (const recommendation of openRecommendations) {
+      try {
+        const closure = await closeRecommendationWithSustainedOutcome({ recommendationId: recommendation.recommendationId, ventureId })
+        if (closure) findings.push(`Recommendation ${recommendation.recommendationId} closed with a sustained-outcome assessment: ${closure.sustained ? 'sustained' : 'not sustained'}.`)
+      } catch (error) {
+        findings.push(`Recommendation outcome closure failed safely for ${recommendation.recommendationId}: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`)
+      }
+    }
+  } catch (error) {
+    findings.push(`Recommendation outcome closure lookup failed safely: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`)
+  }
+
   // Phase D/E evidence measurement is deliberately bounded to LOW_RISK work at
   // this integration point. Higher-risk action classes require their own evidence
   // streams and never inherit autonomy merely because the heartbeat is healthy.
@@ -188,6 +212,25 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
   })
   const autonomy = await evaluateAndPersistAutonomy('LOW_RISK')
   const mode = autonomyModeForLevel(autonomy.level)
+
+  // Self-repair follow-up (2026-09-26): tools-runtime.ts's dispatchTool now records real graduation
+  // evidence for every governed tool call under its actual ActionClass (see
+  // classifyToolExecutionDetailed in autonomy/autonomy-runtime.ts), not just LOW_RISK -- so evidence for
+  // OBSERVE/MEDIUM_RISK/HIGH_RISK/IRREVERSIBLE work can now genuinely accumulate. Without evaluating it
+  // here too, that evidence would sit recorded but never scored, since evaluateAndPersistAutonomy was
+  // only ever called for LOW_RISK. This venture's own `mode`/lease decision above is deliberately left
+  // bound to LOW_RISK only (unchanged) -- this just lets the OTHER action classes' own graduation
+  // decisions (read separately wherever a MEDIUM/HIGH_RISK/IRREVERSIBLE action checks its own ceiling)
+  // reflect real evidence instead of being permanently stuck at PROPOSED for lack of any evaluation at
+  // all. Failure-isolated per class so one class's evaluation error can't block the others or this cycle.
+  for (const otherClass of ['OBSERVE', 'MEDIUM_RISK', 'HIGH_RISK', 'IRREVERSIBLE'] as const) {
+    try {
+      const decision = await evaluateAndPersistAutonomy(otherClass)
+      if (decision.decision !== 'UNCHANGED') findings.push(`Autonomy graduation for ${otherClass}: ${decision.decision} to ${decision.level} (${decision.reason}).`)
+    } catch (error) {
+      findings.push(`Autonomy graduation evaluation failed safely for ${otherClass}: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`)
+    }
+  }
 
   // Production incident (2026-09-21): this cycle has always computed `mode` from the real,
   // evidence-driven autonomy-graduation decision above, but only ever wrote it into this cycle's
@@ -255,6 +298,34 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       findings.push(`Evolution cycle failed safely: ${message.slice(0, 240)}`)
+    }
+  }
+
+  // Self-repair follow-up (2026-09-26): calculateRecommendationPredictionError (ceo-outcome-learning.ts)
+  // already scores each individual recommendation's prediction accuracy, but nothing aggregated it BY
+  // DOMAIN over time -- a domain whose recent recommendations kept missing never lowered confidence or
+  // forced extra scrutiny for the next one in that same domain. Same throttle pattern as the self-repair/
+  // evolution cycles above: this scans every domain that has ever produced a recommendation, which is
+  // cheap but not free, so it runs roughly daily rather than every 15-minute heartbeat. Persisted per
+  // domain (persistDomainConfidenceSignal) so the hot request path (ceo-cognitive-lifecycle.ts) only
+  // ever needs a single keyed read, never this aggregation itself.
+  if (await dueForGovernedCycle(DOMAIN_DRIFT_CYCLE_KEY).catch(() => false)) {
+    try {
+      const { listDomainsWithRecommendations, assessDomainPredictionDrift, persistDomainConfidenceSignal } = await import('./ceo-outcome-learning')
+      const domains = await listDomainsWithRecommendations()
+      for (const domain of domains) {
+        try {
+          const drift = await assessDomainPredictionDrift(domain)
+          await persistDomainConfidenceSignal(drift)
+          if (drift.recommendedAdjustment !== 'none') findings.push(`Domain '${domain}' prediction drift: ${Math.round(drift.missRate * 100)}% miss rate over ${drift.sampleSize} sample(s) -- ${drift.recommendedAdjustment}.`)
+        } catch (error) {
+          findings.push(`Domain drift assessment failed safely for '${domain}': ${error instanceof Error ? error.message.slice(0, 150) : String(error)}`)
+        }
+      }
+      await markGovernedCycleRun(DOMAIN_DRIFT_CYCLE_KEY)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      findings.push(`Domain drift cycle failed safely: ${message.slice(0, 240)}`)
     }
   }
 
