@@ -1,4 +1,5 @@
 import { db } from "./db"
+import { getOperatorUserId } from "./settings"
 import vm from 'node:vm'
 import path from 'node:path'
 import os from 'node:os'
@@ -1623,15 +1624,11 @@ for (const [name, fn] of Object.entries(PHASE3_TOOLS)) {
 }
 
 // Register communication tools
-async function getOperatorUserIdLocal() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: "asc" } })
-  return u?.id ?? null
-}
 function okLocal(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function badLocal(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
 
 export async function toolSendCommunication(args: { to?: string; channel?: string; message: string; subject?: string }, _ctx: ToolContext): Promise<ToolResult> {
-  const userId = await getOperatorUserIdLocal()
+  const userId = await getOperatorUserId()
   if (!userId) return badLocal('No operator user')
   try {
     const { sendWhatsApp } = await import('./whatsapp-bridge')
@@ -1651,7 +1648,7 @@ export async function toolSendCommunication(args: { to?: string; channel?: strin
 TOOL_REGISTRY.send_communication = { fn: toolSendCommunication, icon: 'send', label: 'Send Communication (SMS/WhatsApp/Email)' }
 
 export async function toolCheckInboundCommands(args: { status?: string; limit?: number }, _ctx: ToolContext): Promise<ToolResult> {
-  const userId = await getOperatorUserIdLocal()
+  const userId = await getOperatorUserId()
   if (!userId) return badLocal('No operator user')
   try {
     const status = args.status ?? 'pending'
@@ -1667,7 +1664,7 @@ export async function toolCheckInboundCommands(args: { status?: string; limit?: 
 TOOL_REGISTRY.check_inbound_commands = { fn: toolCheckInboundCommands, icon: 'inbox', label: 'Check Inbound Commands' }
 
 export async function toolExecuteInboundCommand(args: { command_id?: string; reply_message?: string; mark_completed?: boolean }, _ctx: ToolContext): Promise<ToolResult> {
-  const userId = await getOperatorUserIdLocal()
+  const userId = await getOperatorUserId()
   if (!userId) return badLocal('No operator user')
   const commandId = args.command_id?.toString().trim()
   if (!commandId) return badLocal('Missing command_id')

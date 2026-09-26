@@ -11,6 +11,9 @@ export interface ReleaseAuthorization {
   sourceMainSha: string | null
 }
 
+// Not to be confused with release-attestation.ts's own ReleaseIdentity (deploymentId/
+// vercelCommitSha/releaseCommitSha/environment, the deployment-attestation identity) -- this is
+// the authorization-chain identity (repository/mainSha/certificationSha/deploymentSha/target).
 export interface ReleaseIdentity {
   repository: string
   mainSha: string

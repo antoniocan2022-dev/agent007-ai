@@ -20,6 +20,9 @@ export const MISSION_STATES = [
   'CANCELLED',
 ] as const
 
+// Not to be confused with architecture-control-plane.ts's own MissionState ('PLANNED'..'FAILED',
+// an artifact-delivery lifecycle) or max-autonomy-engine.ts's own local MissionState interface (a
+// $/day mission-mode snapshot) -- this is the PROPOSED..CANCELLED autonomous mission state machine.
 export type MissionState = (typeof MISSION_STATES)[number]
 
 export type MissionEvent =
@@ -76,6 +79,8 @@ const transitionMap = new Map<string, MissionTransition>(
   TRANSITIONS.map((transition) => [`${transition.from}:${transition.event}`, transition]),
 )
 
+// Not to be confused with revenue-execution-guard.ts's own canTransition(from, to), which checks
+// a revenue-request status transition, not this file's mission state machine.
 export function canTransition(state: MissionState, event: MissionEvent): boolean {
   return transitionMap.has(`${state}:${event}`)
 }

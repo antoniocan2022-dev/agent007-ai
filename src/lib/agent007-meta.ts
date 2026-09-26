@@ -15,15 +15,11 @@ import { upsertMemory, recallMemories } from './memory'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
 import { getCanonicalLlmBridge } from './canonical-provider-bridge'
+import { getOperatorUserId } from './settings'
 
 function ok(p: string, r: string): ToolResult { return { ok: true, preview: p, result: r } }
 function bad(r: string): ToolResult { return { ok: false, preview: r.slice(0, 140), result: r } }
 
-
-async function getOperatorUserId() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
-}
 
 async function llm(systemPrompt: string, userPrompt: string, maxTokens = 1500): Promise<string> {
   try {

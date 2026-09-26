@@ -10,6 +10,8 @@ export type EventStatus = 'accepted' | 'processed' | 'failed' | 'ignored'
 export type WorkflowStatus = 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled'
 export type CredentialStatus = 'pending' | 'connected' | 'expired' | 'revoked' | 'error'
 export type BillingStatus = 'pending' | 'paid' | 'failed' | 'refunded' | 'cancelled'
+// Not to be confused with architecture-control-plane.ts's own AuthorityLevel (an OrganizationLevel
+// plus 'TOOL'/'UNKNOWN'), which classifies an org-chart actor, not a permitted execution mode.
 export type AuthorityLevel = 'autonomous' | 'guardrailed' | 'human_approval' | 'forbidden'
 
 export interface CommercialTenant { tenantId:string; ownerUserId:string; name:string; status:'active'|'suspended'|'archived'; businesses:CommercialBusiness[]; createdAt:string; updatedAt:string }

@@ -3,6 +3,9 @@ import { db } from './db'
 import { isCapabilityRegistered } from './autonomy/capability-registry'
 import { directReportsOf, getCommercialNode, type OrganizationLevel, validateCommercialOrganization } from './commercial-organization'
 
+// Not to be confused with commercial-control-plane.ts's own AuthorityLevel ('autonomous' |
+// 'guardrailed' | 'human_approval' | 'forbidden'), which classifies a permitted execution mode,
+// not an org-chart actor's level.
 export type AuthorityLevel = OrganizationLevel | 'TOOL' | 'UNKNOWN'
 export interface DelegationRequest { actorId: string; actorLevel: AuthorityLevel; targetId: string; targetLevel: AuthorityLevel; delegatedBy?: string }
 
@@ -184,6 +187,9 @@ export async function listArtifacts(input?: { ventureId?: string; missionId?: st
   return rows.map((row) => { try { return JSON.parse(row.value) as ArtifactRecord } catch { return null } }).filter((artifact): artifact is ArtifactRecord => Boolean(artifact)).filter((artifact) => !input?.ventureId || artifact.ventureId === input.ventureId).filter((artifact) => !input?.missionId || artifact.missionId === input.missionId).filter((artifact) => !input?.status || artifact.status === input.status)
 }
 
+// Not to be confused with autonomy/mission-state.ts's own MissionState (a PROPOSED..CANCELLED
+// autonomous mission state machine) or max-autonomy-engine.ts's own local MissionState interface
+// (a $/day mission-mode snapshot) -- this is the artifact-delivery lifecycle.
 export type MissionState = 'PLANNED' | 'IN_PROGRESS' | 'REVIEW' | 'DELIVERED' | 'VERIFIED' | 'OWNER_APPROVAL' | 'COMPLETED' | 'BLOCKED' | 'FAILED'
 const TRANSITIONS: Record<MissionState, readonly MissionState[]> = { PLANNED: ['IN_PROGRESS', 'FAILED'], IN_PROGRESS: ['REVIEW', 'FAILED', 'BLOCKED'], REVIEW: ['DELIVERED', 'IN_PROGRESS', 'FAILED', 'BLOCKED'], DELIVERED: ['VERIFIED', 'REVIEW', 'FAILED', 'BLOCKED'], VERIFIED: ['OWNER_APPROVAL', 'FAILED', 'BLOCKED'], OWNER_APPROVAL: ['COMPLETED', 'VERIFIED', 'FAILED'], COMPLETED: [], BLOCKED: ['IN_PROGRESS', 'REVIEW', 'FAILED'], FAILED: [] }
 export function canTransitionMission(from: MissionState, to: MissionState): boolean { return TRANSITIONS[from]?.includes(to) ?? false }

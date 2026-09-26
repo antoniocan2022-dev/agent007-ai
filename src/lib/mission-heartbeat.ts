@@ -15,6 +15,7 @@
 
 import { db } from './db'
 import { loadApprovalLog } from './approval-audit-log'
+import { getOperatorUserId } from './settings'
 
 export type MissionStatus = 'idle' | 'working' | 'paused_owner' | 'stuck' | 'errored' | 'completed' | 'failed'
 
@@ -66,15 +67,6 @@ export interface MissionHeartbeat {
 }
 
 const HEARTBEAT_KEY_PREFIX = 'mission_heartbeat_'
-
-async function getOperatorUserId(): Promise<string | null> {
-  try {
-    const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-    return user?.id ?? null
-  } catch {
-    return null
-  }
-}
 
 /**
  * Save a mission heartbeat to DB.

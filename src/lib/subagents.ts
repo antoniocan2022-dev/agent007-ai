@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { dispatchTool, type AttachmentMeta, type ToolContext, type ToolResult } from '@/lib/tools'
+import { getOperatorUserId } from '@/lib/settings'
 // Provider Gateway Phase B (2026-09-19): runOwnerAwareLlm is agent-canonical-bridge.ts's own export
 // (this '@/lib/agent' alias resolves to that bridge file per tsconfig.json's path mapping) -- it used
 // to be named callLlmWithRetry, identically to agent.ts's genuinely different function of the same
@@ -1997,16 +1998,6 @@ export const SUBAGENT_ICONS: Record<string, string> = Object.fromEntries(
  *   - Append all non-overlay custom rows to the list.
  *   - Filter out disabled agents unless `includeDisabled=true`.
  * ------------------------------------------------------------------ */
-
-async function getOperatorUserId(): Promise<string | null> {
-  try {
-    const user = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-    return user?.id ?? null
-  } catch (e) {
-    console.error('[subagents] getOperatorUserId failed:', e)
-    return null
-  }
-}
 
 function parseAllowedTools(raw: string): string[] {
   try {

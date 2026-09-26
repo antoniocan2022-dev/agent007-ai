@@ -235,11 +235,4 @@ function escapeHtml(s: string): string {
  * Resolve the single operator userId (the seeded user). Returns null if no
  * user is found.
  */
-export async function getOperatorUserId(): Promise<string | null> {
-  try {
-    const u = await db.user.findUnique({ where: { email: SEED_EMAIL } })
-    return u?.id ?? null
-  } catch {
-    return null
-  }
-}
+export { getOperatorUserId } from '@/lib/settings'

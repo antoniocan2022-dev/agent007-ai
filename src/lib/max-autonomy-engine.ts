@@ -40,6 +40,9 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): 
  * 1. MISSION MODE — Autonomous daily pursuit of $20K/month target
  * ════════════════════════════════════════════════════════════════ */
 
+// Not to be confused with autonomy/mission-state.ts's own MissionState (a PROPOSED..CANCELLED
+// autonomous mission state machine) or architecture-control-plane.ts's own MissionState (an
+// artifact-delivery lifecycle) -- this local interface is only this file's $/day mission-mode snapshot.
 interface MissionState {
   lastRunAt: string | null
   totalRuns: number

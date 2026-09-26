@@ -15,6 +15,7 @@
  */
 import { db } from './db'
 import crypto from 'node:crypto'
+import { getOperatorUserId } from './settings'
 
 const OWNER_PHONE = 'OWNER_PHONE'
 const OWNER_EMAIL = 'OWNER_EMAIL'
@@ -402,7 +403,3 @@ export function isAuthorizedOwner(contact: string): boolean {
   return normalized.includes(ownerNormalized) || ownerNormalized.includes(normalized)
 }
 
-async function getOperatorUserId() {
-  const u = await db.user.findFirst({ orderBy: { createdAt: 'asc' } })
-  return u?.id ?? null
-}

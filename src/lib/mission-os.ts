@@ -12,6 +12,8 @@ export const maxDuration = 180
 const MAX_AUTONOMOUS_RECOVERY_ROUNDS = 2
 const VERIFICATION_THRESHOLD = 70
 
+// Not to be confused with active-missions.ts's own MissionStage (a PLANNED..COMPLETED stage-name
+// union) -- this interface is one executed pipeline step's own result record.
 export interface MissionStage { stage: string; status: 'pending' | 'running' | 'complete' | 'failed'; output?: string; durationMs?: number }
 export interface MissionResult { missionId: string; goal: string; stages: MissionStage[]; finalDecision: string; confidence: number; learnings: string[]; success: boolean }
 

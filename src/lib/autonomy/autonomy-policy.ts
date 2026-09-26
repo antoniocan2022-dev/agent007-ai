@@ -8,6 +8,8 @@
 
 import { isVerifiedOwnerAuthorization, type VerifiedOwnerAuthorization } from './owner-authorization'
 
+// Not to be confused with autonomy-graduation.ts's own AutonomyLevel ('PROPOSED'..'AUTONOMOUS'),
+// which tracks a per-capability graduation ledger, not this module's per-request L0..L4 policy tier.
 export const AUTONOMY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L4'] as const
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number]
 
