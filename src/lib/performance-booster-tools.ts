@@ -39,8 +39,16 @@ export async function toolSmartToolRouter(args: any, _ctx: ToolContext): Promise
     'payment': ['stripe_payment_processor', 'paypal_api', 'payment_processor'],
     'money': ['stripe_payment_processor', 'paypal_api', 'financial_tracker', 'revenue_stream_diversifier', 'quantum_revenue_optimizer', 'quantum_income_accelerator', 'financial_report_generator'],
     'marketing': ['automated_social_posting', 'email_marketing_automation_full', 'affiliate_funnel_builder'],
-    'test': ['exhaustive_tool_test', 'exhaustive_system_test', 'exhaustive_connectivity_test', 'comprehensive_self_check'],
+    'test': ['exhaustive_tool_test', 'exhaustive_system_test', 'exhaustive_connectivity_test', 'comprehensive_self_check', 'verify_release_health'],
     'repair': ['self_repair_code', 'force_refresh_settings', 'diagnose_llm', 'verify_deployment', 'fix_hydration'],
+    // Deep-audit addition: verify_release_health proves the deployed code (not just config/env)
+    // matches GitHub main and passes a real live provider call + the CEO's own fixed-behavior
+    // regression probes -- verify_deployment above only checks env vars/config, self_verify_integrity
+    // only checks data (memory/sub-agents/schedules). "production"/"release"/"deploy" queries should
+    // reach this tool on the first category match, not fall through to the label-word fallback scan.
+    'production': ['verify_release_health', 'verify_deployment', 'self_verify_integrity'],
+    'release': ['verify_release_health'],
+    'deploy': ['verify_release_health', 'verify_deployment'],
     'decision': ['autonomous_decision_maker', 'quantum_decision_matrix', 'quantum_strategy_engine'],
     'monitor': ['real_time_data_hub', 'continuous_audit_system', 'market_feedback_collector', 'create_evidence_watch', 'list_evidence_watches', 'check_evidence_watches'],
     'watch': ['create_evidence_watch', 'list_evidence_watches', 'check_evidence_watches'],

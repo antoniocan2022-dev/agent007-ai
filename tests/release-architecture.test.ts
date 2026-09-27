@@ -138,16 +138,23 @@ describe('permanent production release architecture', () => {
   })
 
   test('exposes deployment identity and real provider execution in release-health', () => {
-    const candidates = [
+    const routeCandidates = [
       join(ROOT, 'src/app/api/release-health/route.ts'),
       join(ROOT, 'src/app/api/release-health/route.js'),
     ]
-    const path = candidates.find((candidate) => existsSync(candidate))
-    expect(path).toBeTruthy()
-    const content = readFileSync(path!, 'utf8')
-    expect(content).toContain('actualExecution')
-    expect(content).toContain('tripleProof')
-    expect(content).toContain('organizationGraphFingerprint')
-    expect(content).toContain('deploymentIdentityVerified')
+    const routePath = routeCandidates.find((candidate) => existsSync(candidate))
+    expect(routePath).toBeTruthy()
+    const routeContent = readFileSync(routePath!, 'utf8')
+    // The evidence chain now lives in the shared lib module (runReleaseHealthCheck), reused by both
+    // this HTTP route and the CEO's chat-callable verify_release_health tool -- so the route must wire
+    // to it rather than reimplement it inline.
+    expect(routeContent).toContain('runReleaseHealthCheck')
+    const libPath = join(ROOT, 'src/lib/release-health-check.ts')
+    expect(existsSync(libPath)).toBe(true)
+    const libContent = readFileSync(libPath, 'utf8')
+    expect(libContent).toContain('actualExecution')
+    expect(libContent).toContain('tripleProof')
+    expect(libContent).toContain('organizationGraphFingerprint')
+    expect(libContent).toContain('deploymentIdentityVerified')
   })
 })

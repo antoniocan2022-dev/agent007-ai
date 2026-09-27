@@ -1691,7 +1691,7 @@ import {
   toolSelfLearnFromInteraction, toolSelfAnalyzePerformance, toolSelfOptimizeToolSelection,
   toolSelfReflect, toolSelfSetImprovementGoal,
   toolSelfDiagnose, toolSelfRepairCode, toolSelfRestartServices,
-  toolSelfCleanData, toolSelfVerifyIntegrity,
+  toolSelfCleanData, toolSelfVerifyIntegrity, toolVerifyReleaseHealth,
   toolVerifyOwnerAuthorization, toolLoyaltyOath, toolCheckLoyaltyConstraints,
   toolReportToOwner, toolEmergencyStop,
 } from './agent007-meta'
@@ -1716,6 +1716,7 @@ TOOL_REGISTRY.self_repair_code = { fn: toolSelfRepairCode, icon: 'wrench', label
 TOOL_REGISTRY.self_restart_services = { fn: toolSelfRestartServices, icon: 'refresh-cw', label: 'Self-Restart Services (Baileys, schedules, cache)' }
 TOOL_REGISTRY.self_clean_data = { fn: toolSelfCleanData, icon: 'trash-2', label: 'Self-Clean Data (remove old conversations/logs)' }
 TOOL_REGISTRY.self_verify_integrity = { fn: toolSelfVerifyIntegrity, icon: 'shield-check', label: 'Self-Verify Integrity (verify all systems)' }
+TOOL_REGISTRY.verify_release_health = { fn: toolVerifyReleaseHealth, icon: 'shield-check', label: 'Verify Release Health (deployment + live execution + behavioral probes)' }
 
 // Loyalty Enforcement (5)
 TOOL_REGISTRY.verify_owner_authorization = { fn: toolVerifyOwnerAuthorization, icon: 'user-check', label: 'Verify Owner Authorization (check command source)' }
