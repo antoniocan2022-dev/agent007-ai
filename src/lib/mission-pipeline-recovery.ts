@@ -98,8 +98,19 @@ export interface MissionPipelineSupervisorSweepResult {
  * nothing else needs to observe or replay a separate event. Idempotency across a heartbeat tick that
  * runs twice (or overlaps a slow prior run) comes from acquireMissionExecutionLease -- the same
  * per-mission, TTL'd, DB-backed lease mission-supervisor.ts already relies on for exactly this -- so
- * two concurrent sweeps can both inspect the same due mission but only one ever calls
- * resumeMissionPipeline on it.
+ * two concurrent sweeps can both inspect the same due mission but only one ever re-runs it.
+ *
+ * Deep-audit fix: this deliberately calls runMissionPipeline directly, NOT resumeMissionPipeline.
+ * resumeMissionPipeline unconditionally passes skipOwnerApproval: true, under the documented
+ * assumption that its only caller (/api/missions/[id]/approve) only ever invokes it right after the
+ * owner has actually approved. A crash-triggered auto-retry has no relationship to owner approval at
+ * all -- reusing that function here would have let a mission whose pipeline.requiresOwnerApproval is
+ * true (e.g. product_launch, "involves money + public launch") sail straight through its CEO-stage
+ * approval gate on any transient-network-error retry, silently bypassing the one safety check that
+ * gate exists for. runMissionPipeline's own internal check (hasOwnerApproval) still gates the CEO
+ * stage correctly here, exactly as it would on a fresh run; it also already skips genuinely-completed
+ * stages via the audit log regardless of skipOwnerApproval, so nothing about the actual resume
+ * behavior is lost by not going through resumeMissionPipeline.
  */
 export async function sweepMissionPipelineAutoRetries(now: Date = new Date(), limit = 10): Promise<MissionPipelineSupervisorSweepResult> {
   const result: MissionPipelineSupervisorSweepResult = { inspected: 0, retried: 0, skipped: 0, errors: [] }
@@ -113,9 +124,18 @@ export async function sweepMissionPipelineAutoRetries(now: Date = new Date(), li
     const lease = await acquireMissionExecutionLease(hb.missionId, runId).catch(() => null)
     if (!lease) { result.skipped++; continue }
     try {
-      const { resumeMissionPipeline } = await import('./mission-pipeline')
-      const outcome = await resumeMissionPipeline(hb.missionId)
-      if (outcome.success || !outcome.error) result.retried++
+      const { runMissionPipeline } = await import('./mission-pipeline')
+      const outcome = await runMissionPipeline({
+        missionId: hb.missionId,
+        pipelineType: hb.pipelineType,
+        objective: hb.objective,
+        missionTitle: hb.missionTitle,
+        // Deliberately omitted: skipOwnerApproval. See this function's own header comment.
+      })
+      // A mission correctly pausing for real owner approval is a successful outcome of this retry
+      // (it un-stuck the mission from an infrastructure failure onto a legitimate human-approval
+      // wait), not a sweep error -- only an unexpected failure should count against result.errors.
+      if (outcome.success || outcome.pausedForOwnerApproval || !outcome.error) result.retried++
       else { result.retried++; result.errors.push(`${hb.missionId}: resumed but reported ${outcome.error}`) }
     } catch (error) {
       result.errors.push(`${hb.missionId}: ${error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200)}`)
