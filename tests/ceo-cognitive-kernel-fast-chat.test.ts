@@ -64,4 +64,15 @@ describe('buildCeoDecisionPlan: fast_chat lane forces direct reasoning', () => {
     const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content: 'run the mission' }], preRoute: decision })
     expect(plan.reasoningStrategy).toBe('independent_review')
   })
+
+  test('a fast-routed, non-mission financial taskClass turn keeps independent_review (not downgraded by the fast_chat override)', () => {
+    // Deep-audit regression: this turn is `critical` in buildCeoDecisionPlan (taskClass 'financial')
+    // and path stays 'critical', but before resolveCeoLane also excluded financial/security taskClass,
+    // it still resolved to lane fast_chat and this reasoningStrategy got silently forced to 'direct' --
+    // an internal contradiction with path/qualityTier/verificationRequired all still saying 'critical'.
+    const decision = baseDecision({ taskClass: 'financial', executionContract: baseContract({ intent: 'opinion' }) })
+    const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content: 'is investing in stocks a good idea?' }], preRoute: decision })
+    expect(plan.path).toBe('critical')
+    expect(plan.reasoningStrategy).toBe('independent_review')
+  })
 })

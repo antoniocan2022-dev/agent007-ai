@@ -70,4 +70,18 @@ describe('resolveCeoLane', () => {
     const decision = baseDecision({ route: 'ambiguous' })
     expect(resolveCeoLane(decision)).toBe('deep_cognition')
   })
+
+  test('a fast-routed, non-mission financial taskClass turn resolves to deep_cognition, not fast_chat', () => {
+    // Deep-audit regression: buildCeoDecisionPlan's `critical` gate (ceo-cognitive-kernel.ts) treats
+    // taskClass 'financial'/'security' as needing the independent_review path even when not
+    // mission-relevant -- lane must agree, or a fast_chat-lane turn can end up with path 'critical'
+    // but reasoningStrategy silently forced to 'direct'.
+    const decision = baseDecision({ taskClass: 'financial' })
+    expect(resolveCeoLane(decision)).toBe('deep_cognition')
+  })
+
+  test('a fast-routed, non-mission security taskClass turn resolves to deep_cognition, not fast_chat', () => {
+    const decision = baseDecision({ taskClass: 'security' })
+    expect(resolveCeoLane(decision)).toBe('deep_cognition')
+  })
 })

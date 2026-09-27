@@ -117,6 +117,25 @@ jobs:
       - name: Run release architecture invariants
         run: bun test tests/release-architecture.test.ts
 
+      - name: Reconcile production schema before touching live data
+        # This heartbeat runs on a 15-minute cron and on every push to main, talking
+        # directly to the same production DATABASE_URL Vercel serves -- independently
+        # of the separately-authorized production-release-watchdog deploy (Vercel Git
+        # auto-deployment is disabled; a deploy requires explicit DEPLOY_AGENT007_MAIN).
+        # Without this step, an additive schema change (e.g. Stage 3's Memory.embedding
+        # column) lands on main and this heartbeat fires within minutes with a freshly
+        # `prisma generate`-d client that expects the new column, while production's
+        # actual schema reconciliation only otherwise happens inside a gated Vercel
+        # build (scripts/vercel-build.sh). db:reconcile is idempotent (IF NOT EXISTS
+        # guards throughout), so running it here on every tick is safe and closes that
+        # gap for any future schema change, not just this one.
+        if: ${{ steps.database-gate.outputs.available == 'true' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          bun run db:reconcile
+
       - name: Execute Venture OS operation cycle
         if: ${{ steps.database-gate.outputs.available == 'true' }}
         env:

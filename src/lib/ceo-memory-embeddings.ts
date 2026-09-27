@@ -123,7 +123,7 @@ export const SEMANTIC_RELEVANCE_THRESHOLD = 0.55
 // set would be pure wasted work: computed at write time, never read at query time. Kept as a literal
 // copy of ceo-memory-visibility.ts's own allowlist rather than importing it, so this module (used from
 // low-level write paths like memory.ts/persistent-memory.ts) never has to depend on the visibility
-// module's own import chain; ceo-memory-visibility.test.ts pins both lists to the same values.
+// module's own import chain; tests/ceo-memory-embeddings.test.ts pins both lists to the same values.
 const EMBEDDABLE_MEMORY_CATEGORIES = new Set(['general', 'mission', 'strategy', 'user_goal', 'decision'])
 
 /**
