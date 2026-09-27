@@ -55,6 +55,10 @@ server.log
 *.pid
 *.pid.lock
 
+# Local script output (e.g. scripts/production-verification-audit.ts) -- CI uploads its own copy
+# as a workflow artifact; this is never meant to be committed.
+/.artifacts/
+
 # Skills directory
 /skills/
 
