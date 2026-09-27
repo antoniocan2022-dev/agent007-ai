@@ -493,6 +493,42 @@ export async function toolSelfVerifyIntegrity(_args: any, _ctx: ToolContext): Pr
   } catch (e: any) { return bad(`self_verify_integrity failed: ${e?.message}`) }
 }
 
+// 3.6 — Verify production release/deployment health (source -> build -> deploy -> runtime -> real
+// execution -> behavioral probes -> attestation). self_verify_integrity above checks data/config
+// (tool registry, memory, sub-agents, schedules, communication); this checks the deployment itself --
+// the same evidence chain /api/release-health serves to external monitors, now callable from a chat
+// turn instead of only via a direct HTTP request.
+export async function toolVerifyReleaseHealth(_args: any, _ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const { runReleaseHealthCheck } = await import('./release-health-check')
+    const result = await runReleaseHealthCheck()
+
+    const lines = [
+      `Verify Release Health`,
+      `══════════════════════════════════════════════`,
+      `Overall: ${result.releaseGate ? '✅ RELEASE GATE PASSING' : '⚠ RELEASE GATE FAILING'}`,
+      ``,
+      `Environment: ${result.environment}`,
+      `Deployment: ${result.deploymentId}`,
+      `Release commit: ${result.releaseCommit}`,
+      ``,
+      `  ${result.source.verified ? '✅' : '❌'} Source (GitHub main)     ${result.source.mainSha ?? 'unavailable'}${result.source.error ? ` -- ${result.source.error}` : ''}`,
+      `  ${result.build.verified ? '✅' : '❌'} Build (Vercel)           ${result.build.commitSha ?? 'unavailable'}`,
+      `  ${result.deployment.verified ? '✅' : '❌'} Deployment (runtime)     ${result.deployment.commitSha ?? 'unavailable'}`,
+      `  ${result.proof.tripleProof ? '✅' : '❌'} Source/build/deploy match${result.proof.tripletFailureReason ? ` -- ${result.proof.tripletFailureReason}` : ''}`,
+      `  ${result.actualExecution.verified ? '✅' : '❌'} Actual execution         ${result.actualExecution.verified ? `${result.actualExecution.provider}/${result.actualExecution.model} responded in ${result.actualExecution.responseMs}ms` : (result.actualExecution.error ?? 'failed')}`,
+      `  ${result.behavioralProbes.verified ? '✅' : '❌'} Behavioral probes        ${result.behavioralProbes.probes.filter((p) => p.passed).length}/${result.behavioralProbes.probes.length} passing${result.behavioralProbes.probes.some((p) => !p.passed) ? ` -- failing: ${result.behavioralProbes.probes.filter((p) => !p.passed).map((p) => p.name).join(', ')}` : ''}`,
+      `  ✅ Release attestation    ${result.releaseAttestation.fingerprint}`,
+      ``,
+      `CAPABILITY STATUS: Agent007 can verify its own production release -- source, build, deployment, a real live provider call, and its own fixed behavior -- from this chat turn.`,
+    ]
+
+    return result.releaseGate
+      ? ok('Release gate passing', lines.join('\n'))
+      : bad(lines.join('\n'))
+  } catch (e: any) { return bad(`verify_release_health failed: ${e?.message}`) }
+}
+
 /* ================================================================ *
  * 4. LOYALTY ENFORCEMENT TOOLS (5 tools)
  * ================================================================ */
