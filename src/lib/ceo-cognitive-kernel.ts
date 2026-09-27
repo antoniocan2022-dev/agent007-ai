@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PreRouteDecision, DecisionPlan } from './ceo-cognitive-contract'
-import { CEO_MESSAGE_CLAMP_CHARS } from './ceo-cognitive-contract'
+import { CEO_MESSAGE_CLAMP_CHARS, resolveCeoLane } from './ceo-cognitive-contract'
 import type { TaskType } from './subagent-governance'
 import { capabilitiesForDecision } from './ceo-capability-architecture'
 
@@ -44,6 +44,17 @@ export function buildCeoDecisionPlan(input: {
   // analysis can ever reach 'fast', so decision/analysis are added alongside conversation/opinion.
   const fastPathEscalationEligible = conversationalIntent || contract.intent === 'decision' || contract.intent === 'analysis'
   const maxEscalations = selfAssessment ? 0 : critical ? 2 : deep || fastPathEscalationEligible ? 1 : 0
+  // "Next architecture" program, Stage 2: fast_chat is meant to be the strict, cheap lane -- a
+  // turn that resolved to it must never silently pick up the multi_pass/independent_review
+  // machinery. `deep` above can still turn true on a fast_chat turn purely from
+  // adaptiveExecutionClass === 'deep' (a separate complexity signal from ceo-pre-router.ts's
+  // classifyExecution, independent of missionRelevant/route/orchestrationOwner), which would
+  // otherwise upgrade reasoningStrategy to 'multi_pass' -- an extra LLM call -- underneath a lane
+  // that's supposed to guarantee it never happens. Overriding only reasoningStrategy (not path,
+  // cognitiveDepth, qualityTier, or maxEscalations) keeps every other already-correct field as
+  // computed above; it only removes the one machinery fast_chat must not run.
+  const lane = resolveCeoLane(input.preRoute)
+  const effectiveReasoningStrategy = lane === 'fast_chat' ? 'direct' : reasoningStrategy
   const maxProviderAttempts = selfAssessment ? 4 : critical ? 5 : deep ? 4 : 2
   const latencyBudgetMs = selfAssessment ? contract.latencyBudgetMs : critical ? 90000 : deep ? 60000 : contract.latencyBudgetMs
   const capabilityRequirements = capabilitiesForDecision(contract)
@@ -54,5 +65,5 @@ export function buildCeoDecisionPlan(input: {
   // judges against (objectiveFrom() in ceo-cognitive-lifecycle.ts), so the same turn had three
   // independently-sized views of itself. Nothing currently reads DecisionPlan.objective downstream, but
   // giving it the same canonical clamp as every other representation keeps that true if something starts.
-  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: authoritativeObjective.trim().slice(0, CEO_MESSAGE_CLAMP_CHARS), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract, ...(input.preRoute.researchObjective ? { researchObjective: input.preRoute.researchObjective } : {}) }
+  return { requestId: randomUUID(), preRoute: input.preRoute.route, path, objective: authoritativeObjective.trim().slice(0, CEO_MESSAGE_CLAMP_CHARS), taskClass, missionRelevant, requiredCapabilities, qualityTier, reasoningStrategy: effectiveReasoningStrategy, cognitiveDepth, verificationRequired, maxEscalations, maxProviderAttempts, latencyBudgetMs, executionContract: contract, ...(input.preRoute.researchObjective ? { researchObjective: input.preRoute.researchObjective } : {}) }
 }

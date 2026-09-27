@@ -4,13 +4,13 @@ import { buildCeoConversationStatePrompt, buildCeoPersonalityContract, deriveCeo
 import { buildCanonicalConversationContext, renderCanonicalConversationContext, type CanonicalConversationContext, type SemanticInterpretation } from './ceo-cognitive-conversation'
 import { buildConversationDecisionContract, type ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { filterConversationalMemories } from './ceo-memory-visibility'
-import { cosineSimilarity, getMemoryEmbedding, SEMANTIC_RELEVANCE_THRESHOLD } from './ceo-memory-embeddings'
+import { cosineSimilarity, getMemoryEmbedding, parseStoredMemoryEmbedding, SEMANTIC_RELEVANCE_THRESHOLD } from './ceo-memory-embeddings'
 import type { ResearchObjectiveIdentity } from './ceo-research-objective'
 
 export type CeoContextRole = 'system' | 'user' | 'assistant'
 export type CeoContextModuleName = 'organization' | 'evidence' | 'mission' | 'memory' | 'execution' | 'conversation' | 'attachments' | 'conversation_state' | 'cognitive_context' | 'self_inspection' | 'knowledge' | 'capability_briefing'
 export interface PersistedConversationRow { role: string; content: string; createdAt: Date | string | number }
-export interface PersistedMemoryRow { key: string; value: string; category: string; updatedAt: Date | string | number }
+export interface PersistedMemoryRow { key: string; value: string; category: string; updatedAt: Date | string | number; embedding?: string | null }
 export interface CeoContextComposition { messages: Array<{ role: CeoContextRole; content: string }>; recentMessages: number; relevantOlderMessages: number; summarizedOlderMessages: number; selectedMemoryKeys: string[]; selectedMemories: PersistedMemoryRow[]; semanticMemoryKeys: string[]; modules: CeoContextModuleName[]; conversationState: CeoConversationState; canonicalSemanticContext: CanonicalConversationContext; decisionContract: ConversationDecisionContract; resolvedReferences: string[]; researchObjective?: ResearchObjectiveIdentity }
 export interface CeoContextModules { organization?: string; evidence?: string; mission?: string; memory?: string; execution?: string; attachments?: string; selfInspection?: string; knowledge?: string; capabilityBriefing?: string }
 export interface CeoContextModulePolicyInput { intent: string; missionRelevant: boolean; evidenceClass: string; taskClass?: string; executionRequirement: string; evidence?: string; mission?: string; memory?: string; execution?: string; attachments?: string; selfInspection?: string; knowledge?: string; capabilityBriefing?: string }
@@ -55,7 +55,13 @@ async function recoverSemanticMemories(zeroLexicalCandidates: readonly Persisted
   if (!queryEmbedding) return []
   const candidates = zeroLexicalCandidates.slice(0, MAX_SEMANTIC_RECOVERY_CANDIDATES)
   const results = await Promise.all(candidates.map(async (memory) => {
-    const memoryEmbedding = await getMemoryEmbedding(`${memory.key}: ${memory.value}`, signal)
+    // "Next architecture" program, Stage 3: prefer the embedding computed at write time (see
+    // computeMemoryEmbeddingField in ceo-memory-embeddings.ts) over a live per-candidate call --
+    // eliminates up to MAX_SEMANTIC_RECOVERY_CANDIDATES embedding API calls on every turn that has
+    // zero-lexical-overlap memories. Falls back to exactly today's live call for any row written
+    // before this migration, or whose stored value fails to parse -- never a regression, only fewer
+    // live calls than before.
+    const memoryEmbedding = parseStoredMemoryEmbedding(memory.embedding) ?? await getMemoryEmbedding(`${memory.key}: ${memory.value}`, signal)
     if (!memoryEmbedding) return null
     const similarity = cosineSimilarity(queryEmbedding, memoryEmbedding)
     // Scored by raw similarity (not a flat constant) so recovered memories still rank meaningfully

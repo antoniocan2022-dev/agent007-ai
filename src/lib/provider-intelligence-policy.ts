@@ -9,6 +9,12 @@ import type { ActiveProviderId } from './provider-control-plane'
  */
 export const PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['groq', 'cloudflare', 'mistral', 'cerebras', 'openrouter'] as const
 export const CEO_CONVERSATION_PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['openrouter', 'cloudflare', 'mistral', 'groq', 'cerebras'] as const
+// "Next architecture" program, Stage 2: the fast_chat lane is a latency-bound, deterministic-gate-only
+// lane by design (see resolveCeoLane in ceo-cognitive-contract.ts) -- it should never inherit
+// CEO_CONVERSATION_PROVIDER_PRIORITY's quality-first, openrouter-first ordering (chosen for full
+// CEO reasoning, where the extra latency buys real quality headroom). Groq/Cerebras first instead,
+// matching the platform-wide speed-first PROVIDER_PRIORITY.
+export const CEO_FAST_CHAT_PROVIDER_PRIORITY: readonly ActiveProviderId[] = ['groq', 'cerebras', 'cloudflare', 'mistral', 'openrouter'] as const
 
 const STRICT_TASKS = new Set<TaskType>(['financial', 'security'])
 const ENHANCED_TASKS = new Set<TaskType>(['research', 'reasoning', 'coding', 'analysis', 'operations'])

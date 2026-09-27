@@ -152,6 +152,25 @@ model CeoResearchObjectiveEvent {
   @@index([conversationId, createdAt])
 }
 
+// "Next architecture" program, Stage 1: evidence traces get their own table instead of being
+// persisted into Memory (key/value, category "evidence_trace") -- a generic durable-recall store
+// meant for conversational memory, not an append-only diagnostic record. One flat, typed row per
+// trace (payload holds the bounded/redacted event list as JSON) rather than a second, event-sourced
+// table: nothing currently needs per-event querying, so a second table would be speculative.
+model CeoEvidenceTrace {
+  id               String    @id @default(cuid())
+  traceId          String    @unique
+  requestId        String?
+  objectiveId      String?
+  objectiveVersion Int?
+  finalState       String?
+  payload          String
+  createdAt        DateTime  @default(now())
+
+  @@index([objectiveId])
+  @@index([createdAt])
+}
+
 model Conversation {
   id        String    @id @default(cuid())
   userId    String?
@@ -307,6 +326,13 @@ model Memory {
   key       String   @unique
   value     String
   category  String   @default("general")
+  // "Next architecture" program, Stage 3: embedding vector computed at write time (JSON-encoded
+  // float array), only for memories written under a conversationally-visible category (see
+  // getConversationalVisibleCategories in ceo-memory-visibility.ts) -- those are the only rows
+  // recoverSemanticMemories (ceo-context-composer.ts) ever reads. Nullable: rows written before
+  // this migration, or under a non-visible category, simply have none; recoverSemanticMemories
+  // falls back to its prior live-embedding-per-candidate behavior for exactly those rows.
+  embedding String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt @default(now())
 }

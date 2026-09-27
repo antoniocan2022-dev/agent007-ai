@@ -124,6 +124,14 @@ const statements = [
   'CREATE INDEX IF NOT EXISTS "EvidenceWatch_enabled_idx" ON "EvidenceWatch" ("enabled")',
   `CREATE TABLE IF NOT EXISTS "EvidenceWatchHit" ("id" TEXT PRIMARY KEY,"watchId" TEXT NOT NULL,"observedValue" DOUBLE PRECISION NOT NULL,"detail" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   'CREATE INDEX IF NOT EXISTS "EvidenceWatchHit_watchId_createdAt_idx" ON "EvidenceWatchHit" ("watchId", "createdAt")',
+  // "Next architecture" program, Stage 1 (2026-09-27): dedicated evidence-trace table, replacing
+  // persistence into Memory (category 'evidence_trace').
+  `CREATE TABLE IF NOT EXISTS "CeoEvidenceTrace" ("id" TEXT PRIMARY KEY,"traceId" TEXT NOT NULL,"requestId" TEXT,"objectiveId" TEXT,"objectiveVersion" INTEGER,"finalState" TEXT,"payload" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS "CeoEvidenceTrace_traceId_key" ON "CeoEvidenceTrace" ("traceId")',
+  'CREATE INDEX IF NOT EXISTS "CeoEvidenceTrace_objectiveId_idx" ON "CeoEvidenceTrace" ("objectiveId")',
+  'CREATE INDEX IF NOT EXISTS "CeoEvidenceTrace_createdAt_idx" ON "CeoEvidenceTrace" ("createdAt")',
+  // "Next architecture" program, Stage 3 (2026-09-27): write-time memory embeddings.
+  'ALTER TABLE "Memory" ADD COLUMN IF NOT EXISTS "embedding" TEXT',
 ]
 
 async function main() {
@@ -139,10 +147,10 @@ async function main() {
   }
   const required = await prisma.$queryRaw<Array<{ table_name: string }>>`
     SELECT table_name FROM information_schema.tables WHERE table_schema='public'
-      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit','CeoResearchObjective','CeoResearchObjectiveEvent')
+      AND table_name IN ('PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit','CeoResearchObjective','CeoResearchObjectiveEvent','CeoEvidenceTrace')
   `
   const requiredSet = new Set(required.map(row => row.table_name))
-  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit','CeoResearchObjective','CeoResearchObjectiveEvent'].filter(name => !requiredSet.has(name))
+  const missingTables = ['PhoneConfig','Opportunity','ExecutionReceipt','EvidenceLedger','EvidenceSource','EvidenceClaim','BusinessUnit','Venture','Subscription','Invoice','CustomerSuccessState','RecommendationMissionLink','RecommendationReview','EvidenceEntityNode','EvidenceEntityEdge','EvidenceWatch','EvidenceWatchHit','CeoResearchObjective','CeoResearchObjectiveEvent','CeoEvidenceTrace'].filter(name => !requiredSet.has(name))
   if (missingTables.length) throw new Error(`Schema reconciliation incomplete. Missing tables: ${missingTables.join(', ')}`)
   const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN (
@@ -153,10 +161,11 @@ async function main() {
       'EvidenceEntityNode_entityType_key_key','EvidenceEntityNode_entityType_idx',
       'EvidenceEntityEdge_fromNodeId_toNodeId_relationship_key','EvidenceEntityEdge_fromNodeId_idx','EvidenceEntityEdge_toNodeId_idx',
       'EvidenceWatch_userId_idx','EvidenceWatch_enabled_idx',
-      'EvidenceWatchHit_watchId_createdAt_idx','CeoResearchObjective_conversationId_status_updatedAt_idx','CeoResearchObjective_userId_status_updatedAt_idx','CeoResearchObjective_conversation_active_key','CeoResearchObjectiveEvent_objectiveId_createdAt_idx','CeoResearchObjectiveEvent_conversationId_createdAt_idx'
+      'EvidenceWatchHit_watchId_createdAt_idx','CeoResearchObjective_conversationId_status_updatedAt_idx','CeoResearchObjective_userId_status_updatedAt_idx','CeoResearchObjective_conversation_active_key','CeoResearchObjectiveEvent_objectiveId_createdAt_idx','CeoResearchObjectiveEvent_conversationId_createdAt_idx',
+      'CeoEvidenceTrace_traceId_key','CeoEvidenceTrace_objectiveId_idx','CeoEvidenceTrace_createdAt_idx'
     )
   `
-  if (indexes.length !== 34) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/34`)
+  if (indexes.length !== 37) throw new Error(`Production commercial/proof indexes incomplete: ${indexes.length}/37`)
 
   const transactionColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
     SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Transaction' AND column_name IN ('ventureId','customerId')
@@ -182,6 +191,11 @@ async function main() {
   const messageColumnSet = new Set(messageColumns.map(row => row.column_name))
   const missingMessageColumns = ['turnSequence', 'clientRequestId', 'turnStatus'].filter(name => !messageColumnSet.has(name))
   if (missingMessageColumns.length) throw new Error(`Message schema incomplete. Missing columns: ${missingMessageColumns.join(', ')}`)
+
+  const memoryColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Memory' AND column_name='embedding'
+  `
+  if (memoryColumns.length !== 1) throw new Error('Memory schema incomplete. Missing column: embedding')
 
   const messageIdempotencyIndex = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname='Message_conversationId_clientRequestId_key'

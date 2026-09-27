@@ -62,7 +62,7 @@ jobs:
       - name: Batch 5 — CEO degraded-mode variants
         run: bun test tests/ceo-degraded-mode-continuation-restatement.test.ts tests/ceo-degraded-mode-research-abstention.test.ts tests/ceo-degraded-mode-resolved-reference.test.ts tests/ceo-degraded-mode-self-assessment-grounding.test.ts tests/ceo-risk-abstention-domain-wiring.test.ts
       - name: Batch 6 — CEO evolution, evidence, governance, guardian
-        run: bun test tests/ceo-evidence-freshness-wiring.test.ts tests/ceo-evolution-engine-connection.test.ts tests/ceo-evolution-proposal.test.ts tests/ceo-governance-applicability.test.ts tests/ceo-guardian.test.ts tests/ceo-incident-regression-candidate.test.ts tests/ceo-operator-intelligence-wiring.test.ts
+        run: bun test tests/ceo-evidence-freshness-wiring.test.ts tests/ceo-evolution-engine-connection.test.ts tests/ceo-evolution-proposal.test.ts tests/ceo-failure-reason.test.ts tests/ceo-governance-applicability.test.ts tests/ceo-guardian.test.ts tests/ceo-incident-regression-candidate.test.ts tests/ceo-operator-intelligence-wiring.test.ts
       - name: Batch 7 — CEO live-transcript, phases, pre-router
         run: bun test tests/ceo-live-transcript-investigation-2.test.ts tests/ceo-live-transcript-regression.test.ts tests/ceo-phase2-p0.test.ts tests/ceo-phases-0-10.test.ts tests/ceo-pre-router-external-equity-competitor.test.ts tests/ceo-pre-router-external-lookup-phrasing.test.ts tests/ceo-pre-router-governed-intent-precedence.test.ts tests/ceo-pre-router-retrospective-command-precedence.test.ts
       - name: Batch 8 — CEO quality-gate, response-composer, semantic, world-model

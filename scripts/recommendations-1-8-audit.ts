@@ -82,7 +82,10 @@ const executor = read('src/lib/ceo-evidence-executor.ts')
 if (!executor.includes("return 'web'")) failures.push('External evidence provenance is not fail-closed to generic web evidence.')
 
 const trace = read('src/lib/ceo-evidence-trace.ts')
-if (!trace.includes("category: 'evidence_trace'")) failures.push('Evidence Trace is not stored in the canonical durable memory store.')
+// "Next architecture" program, Stage 1 (2026-09-27): evidence traces moved off the generic Memory
+// key/value store (category 'evidence_trace') onto their own dedicated CeoEvidenceTrace table --
+// still durable, still canonical, just no longer sharing a table meant for conversational recall.
+if (!trace.includes('db.ceoEvidenceTrace.upsert')) failures.push('Evidence Trace is not stored in its canonical dedicated durable table.')
 
 if (failures.length) {
   console.error('Full Recommendations 1–8 audit FAILED:')

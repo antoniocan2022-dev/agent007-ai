@@ -173,6 +173,9 @@ jobs:
       - name: Run CEO lifecycle tests
         run: bun test tests/ceo-cognitive-lifecycle.test.ts
 
+      - name: Run CEO canonical lane resolution tests
+        run: bun test tests/ceo-cognitive-contract-lane.test.ts tests/ceo-cognitive-kernel-fast-chat.test.ts
+
       - name: Run CEO execution contract regressions
         run: bun test tests/ceo-execution-contract.test.ts
 

@@ -30,14 +30,19 @@ export function completeEvidenceTrace(trace: EvidenceTrace, finalState: Evidence
   return trace
 }
 
-/** Persist the bounded, redacted trace through the existing durable memory store. */
+/**
+ * Persist the bounded, redacted trace to its own dedicated table (CeoEvidenceTrace) rather than
+ * Memory -- a generic key/value store meant for conversational recall, not diagnostic records. Kept
+ * as one flat, typed row per trace (payload carries the event list as JSON) rather than a second,
+ * event-sourced table -- see the model's own comment in prisma/schema.prisma.
+ */
 export async function persistEvidenceTrace(trace: EvidenceTrace): Promise<boolean> {
   try {
-    const value = JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, objectiveId: trace.objectiveId, objectiveVersion: trace.objectiveVersion, tickers: trace.tickers, objective: trace.objective, profile: trace.profile, startedAt: trace.startedAt, completedAt: trace.completedAt, finalState: trace.finalState, events: trace.events.map((entry) => ({ at: entry.at, event: entry.event, data: entry.data })) })
-    await db.memory.upsert({
-      where: { key: `evidence_trace_${trace.traceId}` },
-      create: { key: `evidence_trace_${trace.traceId}`, value, category: 'evidence_trace' },
-      update: { value, category: 'evidence_trace' },
+    const payload = JSON.stringify({ traceId: trace.traceId, requestId: trace.requestId, objectiveId: trace.objectiveId, objectiveVersion: trace.objectiveVersion, tickers: trace.tickers, objective: trace.objective, profile: trace.profile, startedAt: trace.startedAt, completedAt: trace.completedAt, finalState: trace.finalState, events: trace.events.map((entry) => ({ at: entry.at, event: entry.event, data: entry.data })) })
+    await db.ceoEvidenceTrace.upsert({
+      where: { traceId: trace.traceId },
+      create: { traceId: trace.traceId, requestId: trace.requestId, objectiveId: trace.objectiveId, objectiveVersion: trace.objectiveVersion, finalState: trace.finalState, payload },
+      update: { finalState: trace.finalState, payload },
     })
     return true
   } catch (error) {

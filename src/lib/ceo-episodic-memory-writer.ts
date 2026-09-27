@@ -1,6 +1,7 @@
 import { db } from './db'
 import { deriveEpisodicDecisionWrites } from './ceo-episodic-memory'
 import type { CeoConversationState } from './ceo-conversation-state'
+import { computeMemoryEmbeddingField } from './ceo-memory-embeddings'
 
 // Prisma's delete throws P2025 (RecordNotFound) whenever the target row never existed -- an expected,
 // benign outcome here (a decision can be marked superseded before this writer ever got a chance to
@@ -35,7 +36,11 @@ function logEpisodicMemoryFailure(op: 'upsert' | 'delete', key: string, error: u
 export async function persistEpisodicDecisionMemory(state: Pick<CeoConversationState, 'decisions' | 'supersededDecisions'>): Promise<void> {
   const { upserts, deletes } = deriveEpisodicDecisionWrites(state)
   await Promise.all([
-    ...upserts.map((write) => db.memory.upsert({ where: { key: write.key }, create: { key: write.key, value: write.value, category: write.category }, update: { value: write.value, category: write.category } }).catch((error) => logEpisodicMemoryFailure('upsert', write.key, error))),
+    // "Next architecture" program, Stage 3: see computeMemoryEmbeddingField's own comment.
+    ...upserts.map(async (write) => {
+      const embedding = await computeMemoryEmbeddingField(write.key, write.value, write.category).catch(() => undefined)
+      return db.memory.upsert({ where: { key: write.key }, create: { key: write.key, value: write.value, category: write.category, embedding }, update: { value: write.value, category: write.category, embedding } }).catch((error) => logEpisodicMemoryFailure('upsert', write.key, error))
+    }),
     ...deletes.map((del) => db.memory.delete({ where: { key: del.key } }).catch((error) => logEpisodicMemoryFailure('delete', del.key, error))),
   ])
 }

@@ -20,7 +20,7 @@ export const BACKUP_TABLES = [
   'UserSetting', 'Experiment', 'PlatformConnection', 'RiskProfile', 'ScalingPlan', 'SentimentLog',
   'RecommendationMissionLink', 'RecommendationReview',
   'EvidenceEntityNode', 'EvidenceEntityEdge', 'EvidenceWatch', 'EvidenceWatchHit',
-  'CeoResearchObjective', 'CeoResearchObjectiveEvent',
+  'CeoResearchObjective', 'CeoResearchObjectiveEvent', 'CeoEvidenceTrace',
 ] as const
 
 type BackupTable = typeof BACKUP_TABLES[number]

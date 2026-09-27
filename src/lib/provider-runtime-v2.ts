@@ -192,7 +192,7 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
   const available = closed.length ? closed : (halfOpen ? [halfOpen] : [])
   const candidates = rankCandidates(available, taskType, request.verification); const maxAttempts = Math.min(Math.max(Math.trunc(request.maxProviderAttempts ?? candidates.length), 1), candidates.length)
   if (!candidates.length) throw new Error(`No governed providers configured and healthy after exclusions. Required priority: ${policy.providerOrder.join(' → ')}`)
-  const attempts: ActiveProviderId[] = []; const failures: string[] = []
+  const attempts: ActiveProviderId[] = []; const failures: string[] = []; const failureKinds: ProviderErrorKind[] = []
   for (const provider of candidates.slice(0, maxAttempts)) {
     throwIfCeoRequestAborted(signal)
     attempts.push(provider)
@@ -212,11 +212,20 @@ export async function runGovernedProviderChat(request: ProviderRuntimeRequest): 
         catch (retryError) {
           if (signal?.aborted || retryError instanceof CeoRequestAbortedError) throw new CeoRequestAbortedError(signal?.reason ?? retryError)
           failures.push(retryError instanceof ProviderControlPlaneError ? `${retryError.provider}:${retryError.kind}${retryError.status ? `:${retryError.status}` : ''} (after compaction)` : `${provider}:UNKNOWN (after compaction)`)
+          failureKinds.push(retryError instanceof ProviderControlPlaneError ? retryError.kind : 'UNKNOWN')
           continue
         }
       }
       failures.push(error instanceof ProviderControlPlaneError ? `${error.provider}:${error.kind}${error.status ? `:${error.status}` : ''}` : `${provider}:UNKNOWN`)
+      failureKinds.push(error instanceof ProviderControlPlaneError ? error.kind : 'UNKNOWN')
     }
   }
-  throw new Error(`All governed providers failed (${attempts.join(' → ')}). Failure classes: ${failures.join(' | ')}`)
+  // "Next architecture" program, Stage 4: carries the last attempt's structured ProviderErrorKind
+  // (via `kind`) instead of a plain Error, so a caller with the raw error can map it precisely
+  // (mapProviderErrorKindToCeoFailureReason in ceo-failure-reason.ts) rather than re-guessing from
+  // this same message string via regex. Still `instanceof Error` (ProviderControlPlaneError extends
+  // it), so every existing catch site here or upstream that only checks that, or only reads
+  // `.message`, is unaffected -- this is purely additive structure on an unchanged message.
+  const lastKind = failureKinds[failureKinds.length - 1] ?? 'UNKNOWN'
+  throw new ProviderControlPlaneError({ provider: attempts[attempts.length - 1] ?? candidates[0]!, kind: lastKind, retryable: getProviderFailurePolicy(lastKind).retryable, message: `All governed providers failed (${attempts.join(' → ')}). Failure classes: ${failures.join(' | ')}` })
 }
