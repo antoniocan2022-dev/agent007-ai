@@ -81,7 +81,12 @@ if (!runtime.includes('recordProviderError') || !runtime.includes('recordProvide
 
 const lifecycle = readFileSync('src/lib/ceo-cognitive-lifecycle.ts', 'utf8')
 for (const required of ['attemptValidatedReasoningProvider', 'stageExclusions', 'tryDegraded', 'probeProvider']) if (!lifecycle.includes(required)) violations.push(`CEO availability/resilience contract missing: ${required}`)
-const releaseHealth = readFileSync('src/app/api/release-health/route.ts', 'utf8')
+// The release-health evidence chain lives in the shared lib module (runReleaseHealthCheck), reused by
+// both the HTTP route and the CEO's chat-callable verify_release_health tool -- so the route must wire
+// to it, and the invariants themselves are checked in the lib module, not reimplemented inline.
+const releaseHealthRoute = readFileSync('src/app/api/release-health/route.ts', 'utf8')
+if (!releaseHealthRoute.includes('runReleaseHealthCheck')) violations.push('Release proof invariant missing: runReleaseHealthCheck wiring in route.ts')
+const releaseHealth = readFileSync('src/lib/release-health-check.ts', 'utf8')
 for (const required of ['tripletProof', 'githubMainSha', 'vercelDeploymentSha', 'releaseHealthSha', 'evidenceHierarchy', 'cspInterpretation']) if (!releaseHealth.includes(required)) violations.push(`Release proof invariant missing: ${required}`)
 const canary = readFileSync('src/app/api/health/provider-canary/route.ts', 'utf8')
 for (const required of ['ceo-reasoning', 'executionValidated', 'acceptableLatency', 'PROVIDER_ORDER']) if (!canary.includes(required)) violations.push(`Production provider canary invariant missing: ${required}`)
