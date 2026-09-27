@@ -8,15 +8,18 @@ import { verifyBehavioralProbes } from '@/lib/release-health-probes'
 // production bugs lived. These probes are pure, synchronous, no-network checks against the actual fixed
 // functions, so a future regression in any of them fails the release gate immediately.
 describe('release-health behavioral probes', () => {
-  test('all three probes pass on the current, correctly-fixed code', () => {
+  test('all probes pass on the current, correctly-fixed code', () => {
     const result = verifyBehavioralProbes()
     expect(result.verified).toBe(true)
-    expect(result.probes).toHaveLength(3)
+    expect(result.probes).toHaveLength(6)
     for (const probe of result.probes) expect(probe.passed).toBe(true)
     expect(result.probes.map((probe) => probe.name)).toEqual([
       'ordinal-reference-markdown-list',
       'taskType-governance-capability-table',
       'half-open-candidate-selection',
+      'ceo-lane-resolution',
+      'provider-failure-taxonomy-bridge',
+      'mission-auto-retry-classification',
     ])
   })
 
@@ -39,5 +42,28 @@ describe('release-health behavioral probes', () => {
     const probe = result.probes.find((item) => item.name === 'half-open-candidate-selection')
     expect(probe?.passed).toBe(true)
     expect(probe?.detail).toContain('real candidate')
+  })
+
+  // "Next architecture" program, Stage 7 additions below.
+
+  test('the ceo-lane-resolution probe specifically proves the financial-taskClass fix, not just the three base lanes', () => {
+    const result = verifyBehavioralProbes()
+    const probe = result.probes.find((item) => item.name === 'ceo-lane-resolution')
+    expect(probe?.passed).toBe(true)
+    expect(probe?.detail).toContain('financial-taskClass exclusion')
+  })
+
+  test('the provider-failure-taxonomy-bridge probe specifically proves BILLING and TIMEOUT map correctly', () => {
+    const result = verifyBehavioralProbes()
+    const probe = result.probes.find((item) => item.name === 'provider-failure-taxonomy-bridge')
+    expect(probe?.passed).toBe(true)
+    expect(probe?.detail).toContain('BILLING and TIMEOUT')
+  })
+
+  test('the mission-auto-retry-classification probe specifically proves the retryable/fatal split', () => {
+    const result = verifyBehavioralProbes()
+    const probe = result.probes.find((item) => item.name === 'mission-auto-retry-classification')
+    expect(probe?.passed).toBe(true)
+    expect(probe?.detail).toContain('transient provider failures classify retryable')
   })
 })

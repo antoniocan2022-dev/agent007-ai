@@ -143,6 +143,10 @@ export async function runVentureOperationCycle(ventureId = 'venture_001', owner 
     maxMissionSupervisorMissions: 5,
     maxMissionLeaderRuns: 2,
     missionStaleMinutes: 30,
+    // "Next architecture" program, Stage 5/6: drain mission-pipeline.ts's durable auto-retry queue
+    // on the same heartbeat cadence as the ActiveMission supervisor above.
+    includeMissionPipelineSupervisor: true,
+    maxMissionPipelineAutoRetries: 10,
   })
   if (manager.status === 'BUSY') throw new Error('Canonical Autonomy Manager heartbeat is already leased by another execution.')
   if (manager.status === 'FAILED') throw new Error(manager.errors.join('; ') || 'Canonical Autonomy Manager heartbeat failed.')

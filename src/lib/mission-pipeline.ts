@@ -31,7 +31,8 @@ import {
   notifyMissionFailed,
   notifyOwnerApprovalRequired,
 } from './mission-notifier'
-import { saveHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
+import { saveHeartbeat, loadHeartbeat, buildHeartbeatFromAuditLog, type MissionHeartbeat } from './mission-heartbeat'
+import { recordMissionStageFailureOnHeartbeat } from './mission-pipeline-recovery'
 
 // ──────────────────────────────────────────────────────────────────
 // PIPELINE DEFINITIONS
@@ -798,6 +799,13 @@ export async function runMissionPipeline(opts: {
           hb.status = 'completed'
           hb.currentStage = null
         }
+        // "Next architecture" program, Stage 5: a stage that ran to completion means the mission is
+        // healthy again -- clear any auto-retry bookkeeping left over from an earlier crash so a
+        // future, unrelated failure starts from a fresh retry budget instead of inheriting a stale
+        // count toward MAX_MISSION_AUTO_RETRIES.
+        hb.lastFailureRetryable = null
+        hb.autoRetryCount = 0
+        hb.nextAutoRetryAt = null
         hb.updatedAt = new Date().toISOString()
         await saveHeartbeat(hb)
       } catch {}
@@ -901,7 +909,13 @@ export async function runMissionPipeline(opts: {
       await notifyMissionFailed(missionId, `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message?.slice(0, 200) ?? 'unknown'}`)
 
       // UPGRADE #144 — Update heartbeat to failed
+      // "Next architecture" program, Stage 5: classify the crash (transient/provider vs. fatal) and
+      // record durable auto-retry bookkeeping on the same heartbeat write, carrying forward the
+      // prior autoRetryCount -- buildHeartbeatFromAuditLog reconstructs a fresh heartbeat from the
+      // audit log with no memory of it. sweepMissionPipelineAutoRetries (mission-pipeline-recovery.ts),
+      // wired into the existing 15-minute autonomy heartbeat, is what actually acts on this.
       try {
+        const priorHeartbeat = await loadHeartbeat(missionId)
         const hb = await buildHeartbeatFromAuditLog({
           missionId,
           missionTitle: opts.missionTitle ?? missionId,
@@ -912,6 +926,7 @@ export async function runMissionPipeline(opts: {
         })
         hb.status = 'failed'
         hb.lastError = `Stage ${stage.stage} (${stage.team}) crashed: ${stageErr?.message?.slice(0, 200) ?? 'unknown'}`
+        recordMissionStageFailureOnHeartbeat(hb, priorHeartbeat?.autoRetryCount ?? 0, stageErr)
         hb.updatedAt = new Date().toISOString()
         await saveHeartbeat(hb)
       } catch {}

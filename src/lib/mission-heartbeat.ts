@@ -54,6 +54,16 @@ export interface MissionHeartbeat {
     maxRounds: number
   } | null
   completedStages: StageTiming[]
+  // "Next architecture" program, Stage 5: durable-mission auto-retry bookkeeping. Optional because
+  // buildHeartbeatFromAuditLog (below) reconstructs a heartbeat purely from the audit log, which has
+  // no notion of these fields -- callers that need them (mission-pipeline-recovery.ts) carry them
+  // forward explicitly from the prior heartbeat rather than relying on a default here.
+  /** Whether the most recent stage crash was classified as safe to auto-retry (see classifyMissionStageFailure). Null until a crash has ever been classified. */
+  lastFailureRetryable?: boolean | null
+  /** Count of auto-retry attempts consumed so far, bounded by MAX_MISSION_AUTO_RETRIES. */
+  autoRetryCount?: number
+  /** ISO timestamp of the earliest time the next auto-retry sweep may resume this mission; null when no retry is pending. */
+  nextAutoRetryAt?: string | null
   estimatedRemainingMs: number | null  // based on avg stage duration
   estimatedCompletionAt: string | null  // ISO date
   lastActivityAt: string | null

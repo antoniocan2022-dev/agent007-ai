@@ -63,6 +63,14 @@ export interface AutonomyManagerRun {
     advanced: number
     failures: number
   }
+  /** "Next architecture" program, Stage 5/6: mission-pipeline.ts's durable auto-retry sweep, distinct
+   *  from missionSupervisor above (which drains the separate ActiveMission queue). */
+  missionPipelineSupervisor?: {
+    inspected: number
+    retried: number
+    skipped: number
+    errors: number
+  }
 }
 
 export interface AutonomyManagerOptions {
@@ -74,6 +82,10 @@ export interface AutonomyManagerOptions {
   maxMissionSupervisorMissions?: number
   maxMissionLeaderRuns?: number
   missionStaleMinutes?: number
+  /** "Next architecture" program, Stage 5/6: opt into draining mission-pipeline.ts's durable
+   *  auto-retry sweep on this same heartbeat tick. */
+  includeMissionPipelineSupervisor?: boolean
+  maxMissionPipelineAutoRetries?: number
 }
 
 const stableId = (prefix: string, ...parts: string[]) =>
@@ -215,6 +227,22 @@ export async function runAutonomyManagerTick(options: AutonomyManagerOptions = {
       } catch (error: any) {
         run.status = 'FAILED'
         run.errors.push(`mission-supervisor: ${error?.message ?? String(error)}`)
+      }
+    }
+
+    // "Next architecture" program, Stage 5/6: drains mission-pipeline.ts's durable auto-retry queue
+    // on the same heartbeat tick that already drains the separate ActiveMission queue above. Kept as
+    // its own opt-in block (not folded into includeMissionSupervisor) since it operates on a
+    // different mission data model entirely -- see mission-pipeline-recovery.ts's own header comment.
+    if (options.includeMissionPipelineSupervisor) {
+      try {
+        const { sweepMissionPipelineAutoRetries } = await import('../mission-pipeline-recovery')
+        const sweepResult = await sweepMissionPipelineAutoRetries(started, options.maxMissionPipelineAutoRetries ?? 10)
+        run.missionPipelineSupervisor = { inspected: sweepResult.inspected, retried: sweepResult.retried, skipped: sweepResult.skipped, errors: sweepResult.errors.length }
+        if (sweepResult.errors.length > 0 && run.status === 'COMPLETED') run.status = 'FAILED'
+      } catch (error: any) {
+        run.status = 'FAILED'
+        run.errors.push(`mission-pipeline-supervisor: ${error?.message ?? String(error)}`)
       }
     }
   } catch (error: any) { run.status = 'FAILED'; run.errors.push(error?.message ?? String(error)) }

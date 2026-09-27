@@ -2,6 +2,10 @@ import { resolveOrdinalReference } from './ceo-reference-resolution'
 import { getGovernedCandidates, type ActiveProviderId } from './provider-control-plane'
 import { pickHalfOpenCandidate } from './provider-intelligence'
 import type { PersistedConversationRow } from './ceo-context-composer'
+import { resolveCeoLane, type PreRouteDecision, type CeoExecutionContract } from './ceo-cognitive-contract'
+import { mapProviderErrorKindToCeoFailureReason } from './ceo-failure-reason'
+import { classifyMissionStageFailure } from './mission-pipeline-recovery'
+import { ProviderControlPlaneError } from './provider-control-plane'
 
 export interface BehavioralProbeResult { name: string; passed: boolean; detail: string }
 
@@ -53,6 +57,57 @@ export function verifyBehavioralProbes(): { verified: boolean; probes: Behaviora
     probes.push({ name: 'half-open-candidate-selection', passed, detail: passed ? 'half-open primitive returns a real candidate for a non-empty input' : `unexpected result: ${String(picked)}` })
   } catch (error) {
     probes.push({ name: 'half-open-candidate-selection', passed: false, detail: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) })
+  }
+
+  // "Next architecture" program, Stage 7: proves the three canonical turn lanes -- and the deep-audit
+  // fix that keeps a financial/security taskClass turn out of fast_chat even on a fast, tool-free,
+  // non-mission route (see resolveCeoLane's own comment) -- still resolve correctly on this exact
+  // deployed commit. A regression here silently changes which providers/verification a whole class of
+  // live turns gets, with no user-visible error to alert on.
+  try {
+    const baseContract = (overrides: Partial<CeoExecutionContract> = {}): CeoExecutionContract => ({
+      intent: 'conversation', evidenceClass: 'none', domain: 'none', operation: 'none', temporalScope: 'none',
+      evidenceProfile: 'none', evidenceRequirement: 'none', executionRequirement: 'llm_only',
+      orchestrationOwner: 'ceo_lifecycle', maxTurns: 1, maxRecoveries: 0, latencyBudgetMs: 15000,
+      toolRequired: false, subagentsRequired: false, reason: 'release-health probe fixture', ...overrides,
+    })
+    const baseDecision = (overrides: Partial<PreRouteDecision> = {}): PreRouteDecision => ({
+      route: 'fast', reason: 'release-health probe fixture', missionRelevant: false, complexitySignals: 0,
+      executionContract: baseContract(), ...overrides,
+    })
+    const fastChat = resolveCeoLane(baseDecision()) === 'fast_chat'
+    const deepCognition = resolveCeoLane(baseDecision({ route: 'full', executionContract: baseContract({ intent: 'analysis' }) })) === 'deep_cognition'
+    const durableMission = resolveCeoLane(baseDecision({ missionRelevant: true })) === 'durable_mission'
+    const financialStaysDeep = resolveCeoLane(baseDecision({ taskClass: 'financial' })) === 'deep_cognition'
+    const passed = fastChat && deepCognition && durableMission && financialStaysDeep
+    probes.push({ name: 'ceo-lane-resolution', passed, detail: passed ? 'fast_chat, deep_cognition, durable_mission, and the financial-taskClass exclusion all resolve correctly' : `lane resolution drifted: fastChat=${fastChat} deepCognition=${deepCognition} durableMission=${durableMission} financialStaysDeep=${financialStaysDeep}` })
+  } catch (error) {
+    probes.push({ name: 'ceo-lane-resolution', passed: false, detail: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) })
+  }
+
+  // "Next architecture" program, Stage 7: proves the Stage 4 provider-to-CEO failure bridge still maps
+  // a real production incident shape (BILLING) and a genuine transient class (TIMEOUT) to the right
+  // CEO-layer reason -- the exact distinction the old message-regex fallback could not make.
+  try {
+    const billing = mapProviderErrorKindToCeoFailureReason('BILLING') === 'provider_unavailable'
+    const timeout = mapProviderErrorKindToCeoFailureReason('TIMEOUT') === 'provider_timeout'
+    const passed = billing && timeout
+    probes.push({ name: 'provider-failure-taxonomy-bridge', passed, detail: passed ? 'BILLING and TIMEOUT both map to their expected CEO failure reason' : `mapping drifted: billing=${billing} timeout=${timeout}` })
+  } catch (error) {
+    probes.push({ name: 'provider-failure-taxonomy-bridge', passed: false, detail: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) })
+  }
+
+  // "Next architecture" program, Stage 7: proves mission-pipeline.ts's Stage 5 auto-retry classifier
+  // still distinguishes a transient provider failure (safe to auto-retry) from a generic/unknown error
+  // (must stay fatal) -- getting this backwards would either strand a healthy mission on a permanent
+  // failure, or retry a genuinely broken one forever.
+  try {
+    const transientRetryable = classifyMissionStageFailure(new ProviderControlPlaneError({ provider: 'groq', kind: 'TIMEOUT', message: 'probe fixture', retryable: true })).retryable === true
+    const genericFatal = classifyMissionStageFailure(new Error('probe fixture: unexpected programming error')).retryable === false
+    const passed = transientRetryable && genericFatal
+    probes.push({ name: 'mission-auto-retry-classification', passed, detail: passed ? 'transient provider failures classify retryable; generic errors classify fatal' : `classification drifted: transientRetryable=${transientRetryable} genericFatal=${genericFatal}` })
+  } catch (error) {
+    probes.push({ name: 'mission-auto-retry-classification', passed: false, detail: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) })
   }
 
   return { verified: probes.every((probe) => probe.passed), probes }
