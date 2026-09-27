@@ -75,4 +75,19 @@ describe('buildCeoDecisionPlan: fast_chat lane forces direct reasoning', () => {
     expect(plan.path).toBe('critical')
     expect(plan.reasoningStrategy).toBe('independent_review')
   })
+
+  test('an explicit missionId keeps independent_review even when the text-based preRoute never set missionRelevant', () => {
+    // Fresh-audit regression (Stages 0-7): mission-supervisor.ts's CEO-leader dispatch and the
+    // mission-active owner-question route both call runCeoCognitiveLifecycle with a real missionId
+    // but no preRoute of their own -- one gets built fresh from the message text. That text (e.g. an
+    // owner casually asking "what's the status?") can easily read as ordinary conversation, not
+    // mission_action, so preRoute.missionRelevant can be false even though missionId is a mission
+    // execution. `critical`'s own missionRelevant computation already ORs in Boolean(missionId); lane
+    // must agree, or path/qualityTier stay 'critical' while reasoningStrategy gets silently forced to
+    // 'direct' by the fast_chat override.
+    const decision = baseDecision({ missionRelevant: false, executionContract: baseContract({ intent: 'conversation' }) })
+    const plan = buildCeoDecisionPlan({ messages: [{ role: 'user', content: "what's the status?" }], preRoute: decision, missionId: 'mission_abc123' })
+    expect(plan.path).toBe('critical')
+    expect(plan.reasoningStrategy).toBe('independent_review')
+  })
 })

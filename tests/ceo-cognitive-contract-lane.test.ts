@@ -84,4 +84,21 @@ describe('resolveCeoLane', () => {
     const decision = baseDecision({ taskClass: 'security' })
     expect(resolveCeoLane(decision)).toBe('deep_cognition')
   })
+
+  test('an explicit missionId routes to durable_mission even when the text-based preRoute never set missionRelevant', () => {
+    // Fresh-audit regression (Stages 0-7): buildCeoDecisionPlan's `critical`/`missionRelevant`
+    // computation is `input.preRoute.missionRelevant || Boolean(input.missionId)` -- an explicit
+    // mission-execution caller (mission-supervisor.ts's CEO-leader dispatch, the mission-active
+    // owner-question route) is trusted unconditionally, independent of whether preRouteCeoRequest's
+    // text classifier happened to read the message content as mission-relevant. resolveCeoLane must
+    // agree, or a mission-tied turn whose phrasing reads as ordinary conversation (e.g. an owner
+    // asking "what's the status?") gets critical=true/qualityTier='critical' from the kernel but
+    // lane falls through to fast_chat, which then silently downgrades reasoningStrategy to 'direct'.
+    const decision = baseDecision({ missionRelevant: false })
+    expect(resolveCeoLane(decision, 'mission_abc123')).toBe('durable_mission')
+  })
+
+  test('no missionId and no other mission signal still resolves to fast_chat (missionId does not force every turn deep)', () => {
+    expect(resolveCeoLane(baseDecision(), undefined)).toBe('fast_chat')
+  })
 })
