@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { SEMANTIC_RELEVANCE_THRESHOLD, cosineSimilarity, getMemoryEmbedding, computeMemoryEmbeddingField, parseStoredMemoryEmbedding } from '@/lib/ceo-memory-embeddings'
+import { getConversationalVisibleCategories } from '@/lib/ceo-memory-visibility'
 
 describe('cosineSimilarity: pure math, defensive on bad input', () => {
   test('identical vectors score 1', () => {
@@ -102,6 +103,39 @@ describe('computeMemoryEmbeddingField: write-time embedding, scoped to conversat
     delete process.env.MISTRAL_API_KEY
     for (const category of ['mission', 'strategy', 'user_goal', 'decision']) {
       expect(await computeMemoryEmbeddingField('key1', 'some value', category)).toBeUndefined()
+    }
+  })
+
+  test('embeds every category ceo-memory-visibility.ts marks conversationally visible, and no others', async () => {
+    // Deep-audit fix: computeMemoryEmbeddingField's own comment claimed a test named
+    // "ceo-memory-visibility.test.ts pins both lists to the same values" -- that file does not exist,
+    // and nothing previously verified the hardcoded EMBEDDABLE_MEMORY_CATEGORIES literal in
+    // ceo-memory-embeddings.ts actually matches ceo-memory-visibility.ts's own allowlist. This drives
+    // the comparison off the real fetch call count for the true allowlist plus one representative
+    // known-non-visible category, so a future drift between the two lists fails loudly here instead
+    // of silently either wasting embedding calls or leaving a visible category's rows unembedded.
+    let callCount = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => {
+      callCount += 1
+      return new Response(JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }), { status: 200 })
+    }) as typeof fetch
+    try {
+      // Distinct text per category, not a shared 'key1'/'some value' literal -- getMemoryEmbedding
+      // caches by text content, and identical text across iterations would mask a real per-call miss
+      // as a false pass once the first category primes the cache.
+      for (const category of getConversationalVisibleCategories()) {
+        callCount = 0
+        const result = await computeMemoryEmbeddingField(`key-${category}`, `value for ${category}`, category)
+        expect(result).toBe(JSON.stringify([0.1, 0.2, 0.3]))
+        expect(callCount).toBe(1)
+      }
+      callCount = 0
+      const nonVisible = await computeMemoryEmbeddingField('key-preference', 'value for preference', 'preference')
+      expect(nonVisible).toBeUndefined()
+      expect(callCount).toBe(0)
+    } finally {
+      globalThis.fetch = originalFetch
     }
   })
 

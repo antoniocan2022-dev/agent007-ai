@@ -238,6 +238,16 @@ export interface PreRouteDecision { route: PreRoute; reason: string; missionRele
 export type CeoLane = 'fast_chat' | 'deep_cognition' | 'durable_mission'
 export function resolveCeoLane(decision: PreRouteDecision): CeoLane {
   if (decision.missionRelevant || decision.executionContract.orchestrationOwner === 'operational_orchestrator') return 'durable_mission'
+  // Deep-audit fix (2026-09-27): a financial/security taskClass turn is exactly what
+  // buildCeoDecisionPlan's own `critical` gate (ceo-cognitive-kernel.ts) exists to catch --
+  // missionRelevant is only one of its three conditions, the other two (taskClass 'financial'/
+  // 'security') are checked here too so lane can never disagree with critical about whether this
+  // turn needs the independent_review verification pass. Before this, a short, tool-free financial/
+  // security opinion question (route 'fast', not mission-relevant) resolved to fast_chat, and Stage
+  // 2's fast_chat override then silently forced reasoningStrategy to 'direct' -- skipping
+  // independent_review -- while decisionPlan.path/qualityTier/verificationRequired all still said
+  // 'critical', an internal contradiction the quality gate never saw.
+  if (decision.taskClass === 'financial' || decision.taskClass === 'security') return 'deep_cognition'
   return decision.route === 'fast' && !decision.executionContract.toolRequired ? 'fast_chat' : 'deep_cognition'
 }
 export interface DecisionPlan { requestId: string; preRoute: PreRoute; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract; researchObjective?: ResearchObjectiveIdentity }
