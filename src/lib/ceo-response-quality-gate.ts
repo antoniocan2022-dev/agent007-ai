@@ -13,7 +13,21 @@ import { isContinuationOrRestatementRequest } from './ceo-conversational-signals
 type EvaluationPath = 'fast' | 'full' | 'critical'
 const STOPWORDS = new Set(['about','after','again','also','because','before','being','between','could','from','have','into','more','most','other','should','that','their','there','these','they','this','those','through','under','what','when','where','which','while','with','would','your','agent007','please','then','than','just','like','really','very','doing','does','doesnt','dont','you','are','how','why','can','tell','give','make','want'])
 const CASUAL_CONVERSATION_RE = /^(?:hi|hello|hey|how(?:'s|\s+is)\s+(?:it|everything|things?)\s+going|how\s+are\s+(?:you|things?)(?:\s+doing)?|how\s+do\s+you\s+do|how\s+is\s+(?:agent007|the\s+(?:system|ceo|agent))\s+doing|you\s+(?:good|okay|alright)|what(?:'s|\s+is)\s+new(?:\s+with\s+you)?|good\s+(?:morning|afternoon|evening)|thanks?|thank\s+you|ok(?:ay)?|great|perfect)[\s,!.?]*$/i
-const LIVE_ASSERTION_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|confirmed|verified|proven|in\s+production|production\s+traffic)\b/i
+// Production incident (2026-09-27): the CEO could not answer a plain "hi" or a self-verification
+// request -- both burned 25-76 seconds cycling through every provider before falling back to a canned
+// "unverified" refusal. Root cause traced to a real production log: the model's own ordinary greeting
+// ("How can I help you today?") contained the word "today", which this regex matched unconditionally,
+// classifying the response as an unverifiable live-system claim requiring fresh evidence that a plain
+// greeting can never supply -- so evidenceOk failed permanently and every escalation attempt reproduced
+// the identical failure, since the model kept phrasing its greeting the same ordinary way. Every word in
+// the old flat list (current(ly)/today/live/deployed/serving/confirmed/verified/proven) is common enough
+// in everyday conversational English to appear with zero connection to system/deployment state. Split
+// into an unambiguous strict form (already specific enough to stand alone) and a loose form that now
+// requires actual system/deployment-context language in the same sentence -- the same co-occurrence
+// mechanism this file already uses for EXTERNAL_CITATION_RE + BUSINESS_FACT_CONTEXT_RE just above.
+const LIVE_ASSERTION_STRICT_RE = /\b(?:in\s+production|production\s+traffic)\b/i
+const LIVE_ASSERTION_LOOSE_RE = /\b(?:current(?:ly)?|today|live|deployed|serving|confirmed|verified|proven)\b/i
+const SYSTEM_STATE_CONTEXT_RE = /\b(?:system|deployment|deploy|service|platform|server|infrastructure|release|uptime|runtime|environment|application|backend|endpoint|production|status|operational|running)\b/i
 const EXTERNAL_ASSERTION_RE = /\b(?:latest\s+(?:market|industry|customer|competitor|report|study)|market\s+(?:is|shows|grew|declined)|customer(?:s)?\s+(?:are|have|said|reported)|competitor(?:s)?\s+(?:are|have|offer)|industry\s+(?:is|shows|grew|declined)|revenue\s+(?:is|was|grew|declined|increased|decreased)|sales\s+(?:are|were|grew|declined|increased|decreased)|stock(?:s)?\s+(?:price|trades?|is)|shares?\s+(?:trade|are)|valuation\s+(?:is|looks|appears))\b/i
 // Bare citation phrasing ("studies show...", "according to...") only counts as an external-web claim
 // requiring live evidence when it is actually anchored to this business's own market/competitive facts
@@ -100,7 +114,8 @@ function normalize(value: string): string[] {
 function sentences(content: string): string[] { return content.split(/\r?\n/).flatMap((line) => line.split(/[.!?;]+/)).map((sentence) => sentence.trim()).filter(Boolean) }
 function positiveAssertionExists(content: string, pattern: RegExp): boolean { return sentences(content).some((sentence) => pattern.test(sentence) && !NEGATION_RE.test(sentence) && !REQUIREMENT_HEDGE_RE.test(sentence)) }
 function externalWebAssertionExists(content: string): boolean { return sentences(content).some((sentence) => (EXTERNAL_ASSERTION_RE.test(sentence) || (EXTERNAL_CITATION_RE.test(sentence) && BUSINESS_FACT_CONTEXT_RE.test(sentence))) && !NEGATION_RE.test(sentence) && !REQUIREMENT_HEDGE_RE.test(sentence)) }
-function claimScopes(content: string): EvidenceScope[] { const scopes: EvidenceScope[] = []; if (positiveAssertionExists(content, INTERNAL_ASSERTION_RE)) scopes.push('internal_state'); if (positiveAssertionExists(content, LIVE_ASSERTION_RE)) scopes.push('live_system'); if (externalWebAssertionExists(content)) scopes.push('external_web'); return scopes }
+function liveSystemAssertionExists(content: string): boolean { return sentences(content).some((sentence) => (LIVE_ASSERTION_STRICT_RE.test(sentence) || (LIVE_ASSERTION_LOOSE_RE.test(sentence) && SYSTEM_STATE_CONTEXT_RE.test(sentence))) && !NEGATION_RE.test(sentence) && !REQUIREMENT_HEDGE_RE.test(sentence)) }
+function claimScopes(content: string): EvidenceScope[] { const scopes: EvidenceScope[] = []; if (positiveAssertionExists(content, INTERNAL_ASSERTION_RE)) scopes.push('internal_state'); if (liveSystemAssertionExists(content)) scopes.push('live_system'); if (externalWebAssertionExists(content)) scopes.push('external_web'); return scopes }
 function validFreshness(freshness?: EvidenceFreshness): freshness is EvidenceFreshness { return Boolean(freshness && Number.isFinite(freshness.observedAt) && Number.isFinite(freshness.maxAgeMs) && freshness.maxAgeMs >= 0) }
 function evidenceIsFresh(freshness: EvidenceFreshness): boolean { const age = Date.now() - freshness.observedAt; return age >= 0 && age <= freshness.maxAgeMs }
 // Long-document incident (2026-09-19): a long objective is almost always a pasted document to comprehend,

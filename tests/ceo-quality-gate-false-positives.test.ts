@@ -49,4 +49,32 @@ describe('P2 quality-gate false positives found via real CI failures', () => {
     expect(result.decision).not.toBe('PASS')
     expect(result.checks.evidenceDiscipline).toBe(false)
   })
+
+  // Production incident (2026-09-27): a live "hi" and a live "can you make a self-verification about
+  // your system" both burned 25-76 seconds cycling through every provider before falling back to a
+  // canned "unverified" refusal. Root-caused against real production logs: the model's own ordinary
+  // greeting ("How can I help you today?") was classified as an unverifiable live_system claim purely
+  // because it contained the word "today" -- with no evidence bundle ever supplied for a plain greeting,
+  // evidenceOk failed permanently, and every escalation attempt reproduced the identical failure since
+  // the model kept phrasing its greeting the same ordinary way.
+  test('an ordinary greeting using common words like "today"/"current"/"live" is not classified as an unverifiable live-system claim -- the exact real production incident behind a "hi" reply and a self-verification reply both being rejected for lacking fresh evidence', () => {
+    const greetings = [
+      'Hi! Good to see you. How can I help you today?',
+      "Hi! I'm here and ready. What's on your mind today?",
+      "Hi! Good to hear from you. I'm currently here and ready to help.",
+    ]
+    for (const content of greetings) {
+      const result = evaluateCeoQuality({ objective: 'hi', content, path: 'fast', intent: 'conversation' })
+      expect(result.claimScopes).not.toContain('live_system')
+      expect(result.decision).toBe('PASS')
+      expect(result.failureReason).not.toBe('evidence_insufficient')
+    }
+  })
+
+  test('a genuine live-system claim naming actual production/deployment state still requires fresh evidence -- confirms the "today"/"current"/"live" false-positive fix did not also silence real claims', () => {
+    const content = 'The current production deployment is verified and serving live traffic.'
+    const result = evaluateCeoQuality({ objective: 'Is the system currently live?', content, path: 'fast', intent: 'self_assessment', externalExecutionSucceeded: true })
+    expect(result.claimScopes).toContain('live_system')
+    expect(result.checks.evidenceDiscipline).toBe(false)
+  })
 })
