@@ -526,7 +526,12 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
   // same preRoute (see resolveCeoLane's own comment) -- recomputed here rather than threaded as a
   // new request field, matching this function's existing pattern for `resolved` just above (also a
   // pure derivation of preRoute, recomputed locally instead of added to CeoCognitiveRequest).
-  const lane = resolveCeoLane(preRoute)
+  // Fresh-audit fix: must pass request.missionId, exactly like the decisionPlan build two lines
+  // above already does -- otherwise this lane can disagree with decisionPlan's own lane-derived
+  // reasoningStrategy override on a mission-tied call (mission-supervisor.ts's CEO-leader dispatch,
+  // the mission-active owner-question route) whose message text doesn't happen to read as
+  // mission_action, silently picking fast_chat's cheap/fast provider order for a 'critical' turn.
+  const lane = resolveCeoLane(preRoute, request.missionId)
   // Phase 2 (2026-09-20): computed once from the same canonical `objective` every evaluateCeoQuality
   // call site below already shares, instead of each call (and objectiveCoverage internally) re-deriving
   // "is this a long document" from a bare length check independently.

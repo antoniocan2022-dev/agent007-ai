@@ -53,7 +53,7 @@ export function buildCeoDecisionPlan(input: {
   // that's supposed to guarantee it never happens. Overriding only reasoningStrategy (not path,
   // cognitiveDepth, qualityTier, or maxEscalations) keeps every other already-correct field as
   // computed above; it only removes the one machinery fast_chat must not run.
-  const lane = resolveCeoLane(input.preRoute)
+  const lane = resolveCeoLane(input.preRoute, input.missionId)
   const effectiveReasoningStrategy = lane === 'fast_chat' ? 'direct' : reasoningStrategy
   const maxProviderAttempts = selfAssessment ? 4 : critical ? 5 : deep ? 4 : 2
   const latencyBudgetMs = selfAssessment ? contract.latencyBudgetMs : critical ? 90000 : deep ? 60000 : contract.latencyBudgetMs

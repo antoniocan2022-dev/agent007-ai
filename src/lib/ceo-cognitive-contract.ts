@@ -236,8 +236,19 @@ export interface PreRouteDecision { route: PreRoute; reason: string; missionRele
 // their own guess from route/orchestrationOwner/missionRelevant separately -- which is what would make
 // lane a fifth competing routing dimension instead of a summary of the one real decision.
 export type CeoLane = 'fast_chat' | 'deep_cognition' | 'durable_mission'
-export function resolveCeoLane(decision: PreRouteDecision): CeoLane {
-  if (decision.missionRelevant || decision.executionContract.orchestrationOwner === 'operational_orchestrator') return 'durable_mission'
+/**
+ * `missionId` mirrors buildCeoDecisionPlan's own `missionRelevant = input.preRoute.missionRelevant ||
+ * Boolean(input.missionId)` (ceo-cognitive-kernel.ts) exactly -- an explicit mission-execution caller
+ * (mission-supervisor.ts's CEO-leader dispatch, the mission-active owner-question route) is a stronger
+ * signal than whatever preRouteCeoRequest's text-based classifier inferred from the message content
+ * alone, and critical already trusts it unconditionally. Before this parameter existed, a mission-tied
+ * turn whose message text didn't happen to read as mission_action (e.g. an owner casually asking
+ * "what's the status?" about a mission) could resolve preRoute.missionRelevant to false, so lane would
+ * fall through to fast_chat while critical was still forced true by missionId -- the exact
+ * lane/critical contradiction this function exists to prevent, just from the other input.
+ */
+export function resolveCeoLane(decision: PreRouteDecision, missionId?: string): CeoLane {
+  if (decision.missionRelevant || Boolean(missionId) || decision.executionContract.orchestrationOwner === 'operational_orchestrator') return 'durable_mission'
   // Deep-audit fix (2026-09-27): a financial/security taskClass turn is exactly what
   // buildCeoDecisionPlan's own `critical` gate (ceo-cognitive-kernel.ts) exists to catch --
   // missionRelevant is only one of its three conditions, the other two (taskClass 'financial'/

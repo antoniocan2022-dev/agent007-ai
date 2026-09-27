@@ -96,6 +96,7 @@ jobs:
               ["src/lib/venture-operation-loop.ts", "export async function runVentureOperationCycle("],
               ["src/lib/venture-operation-loop.ts", "runAutonomyManagerTick("],
               ["src/lib/venture-operation-loop.ts", "includeMissionSupervisor: true"],
+              ["src/lib/venture-operation-loop.ts", "includeMissionPipelineSupervisor: true"],
               ["src/lib/venture-operation-loop.ts", "RECOVERABLE"],
             ]
             for (const [file, token] of checks) {
