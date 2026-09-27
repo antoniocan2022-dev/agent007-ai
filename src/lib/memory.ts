@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { sanitizeMemoryFields, sanitizeMemoryText } from '@/lib/memory-text'
+import { computeMemoryEmbeddingField } from '@/lib/ceo-memory-embeddings'
 
 export type MemoryCategory =
   | 'general'
@@ -190,10 +191,14 @@ export async function upsertMemory(
   category: string = 'general'
 ): Promise<MemoryRecord> {
   const safe = sanitizeMemoryFields({ key, value, category })
+  // "Next architecture" program, Stage 3: best-effort, fails safe to undefined (leaves/sets the
+  // column null) -- never blocks the memory write itself. See computeMemoryEmbeddingField's own
+  // comment for why only conversationally-visible categories are worth embedding at all.
+  const embedding = await computeMemoryEmbeddingField(safe.key, safe.value, safe.category).catch(() => undefined)
   return db.memory.upsert({
     where: { key: safe.key },
-    update: { value: safe.value, category: safe.category, updatedAt: new Date() },
-    create: { key: safe.key, value: safe.value, category: safe.category },
+    update: { value: safe.value, category: safe.category, updatedAt: new Date(), embedding },
+    create: { key: safe.key, value: safe.value, category: safe.category, embedding },
   })
 }
 

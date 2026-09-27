@@ -80,6 +80,23 @@ export async function getMemoryEmbedding(text: string, signal?: AbortSignal): Pr
   }
 }
 
+/**
+ * Parses a Memory row's stored `embedding` column (JSON-encoded float array) back into a vector.
+ * Defensively validates shape exactly like getMemoryEmbedding's own response parsing -- a malformed or
+ * corrupted stored value (should never happen, but this is read from durable storage, not a fresh API
+ * response) returns null rather than throwing, so a caller can fall back to a live embedding call.
+ */
+export function parseStoredMemoryEmbedding(value: string | null | undefined): number[] | null {
+  if (!value) return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((entry) => typeof entry === 'number')) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 /** Standard cosine similarity, defensively returning 0 for empty or mismatched-length vectors rather than throwing. */
 export function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
   if (!a.length || !b.length || a.length !== b.length) return 0
@@ -99,3 +116,29 @@ export function cosineSimilarity(a: readonly number[], b: readonly number[]): nu
  * real signal. Exported so ceo-context-composer.ts's integration and its tests share one number.
  */
 export const SEMANTIC_RELEVANCE_THRESHOLD = 0.55
+
+// "Next architecture" program, Stage 3: memories written under one of these categories are the only
+// ones recoverSemanticMemories (ceo-context-composer.ts) ever reads -- filterConversationalMemories's
+// fail-closed allowlist excludes everything else before ranking runs. Embedding a memory outside this
+// set would be pure wasted work: computed at write time, never read at query time. Kept as a literal
+// copy of ceo-memory-visibility.ts's own allowlist rather than importing it, so this module (used from
+// low-level write paths like memory.ts/persistent-memory.ts) never has to depend on the visibility
+// module's own import chain; ceo-memory-visibility.test.ts pins both lists to the same values.
+const EMBEDDABLE_MEMORY_CATEGORIES = new Set(['general', 'mission', 'strategy', 'user_goal', 'decision'])
+
+/**
+ * Computes the embedding to store on a Memory row at write time, so read-time semantic recall
+ * (recoverSemanticMemories) can compare against a stored vector instead of calling the embeddings API
+ * live for every zero-lexical-overlap candidate on every turn. Uses the exact same text shape
+ * (`${key}: ${value}`) recoverSemanticMemories already uses for its own live per-candidate calls, so
+ * cosine similarity against a live-computed query embedding stays meaningful once this is stored.
+ * Returns undefined (never throws) whenever embedding isn't worthwhile or possible: a non-visible
+ * category (nothing would ever read it), no API key configured, or the call fails -- callers write
+ * `embedding: undefined` in that case, which Prisma treats as "leave/set null", never blocking the
+ * memory write itself.
+ */
+export async function computeMemoryEmbeddingField(key: string, value: string, category: string, signal?: AbortSignal): Promise<string | undefined> {
+  if (!EMBEDDABLE_MEMORY_CATEGORIES.has(category.trim().toLowerCase())) return undefined
+  const vector = await getMemoryEmbedding(`${key}: ${value}`, signal)
+  return vector ? JSON.stringify(vector) : undefined
+}

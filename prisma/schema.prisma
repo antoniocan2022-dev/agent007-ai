@@ -326,6 +326,13 @@ model Memory {
   key       String   @unique
   value     String
   category  String   @default("general")
+  // "Next architecture" program, Stage 3: embedding vector computed at write time (JSON-encoded
+  // float array), only for memories written under a conversationally-visible category (see
+  // getConversationalVisibleCategories in ceo-memory-visibility.ts) -- those are the only rows
+  // recoverSemanticMemories (ceo-context-composer.ts) ever reads. Nullable: rows written before
+  // this migration, or under a non-visible category, simply have none; recoverSemanticMemories
+  // falls back to its prior live-embedding-per-candidate behavior for exactly those rows.
+  embedding String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt @default(now())
 }

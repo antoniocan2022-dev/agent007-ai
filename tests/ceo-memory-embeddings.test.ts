@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
-import { SEMANTIC_RELEVANCE_THRESHOLD, cosineSimilarity, getMemoryEmbedding } from '@/lib/ceo-memory-embeddings'
+import { SEMANTIC_RELEVANCE_THRESHOLD, cosineSimilarity, getMemoryEmbedding, computeMemoryEmbeddingField, parseStoredMemoryEmbedding } from '@/lib/ceo-memory-embeddings'
 
 describe('cosineSimilarity: pure math, defensive on bad input', () => {
   test('identical vectors score 1', () => {
@@ -56,5 +56,71 @@ describe('getMemoryEmbedding: fails safe to null, never throws, never makes a ne
       getMemoryEmbedding('c'),
     ])
     expect(results).toEqual([null, null, null])
+  })
+})
+
+describe('parseStoredMemoryEmbedding: defensive parsing of the Memory.embedding column', () => {
+  test('parses a valid JSON float array', () => {
+    expect(parseStoredMemoryEmbedding(JSON.stringify([0.1, 0.2, 0.3]))).toEqual([0.1, 0.2, 0.3])
+  })
+  test('returns null for null/undefined/empty input', () => {
+    expect(parseStoredMemoryEmbedding(null)).toBeNull()
+    expect(parseStoredMemoryEmbedding(undefined)).toBeNull()
+    expect(parseStoredMemoryEmbedding('')).toBeNull()
+  })
+  test('returns null for malformed JSON rather than throwing', () => {
+    expect(parseStoredMemoryEmbedding('{not valid json')).toBeNull()
+  })
+  test('returns null for valid JSON that is not a non-empty number array', () => {
+    expect(parseStoredMemoryEmbedding('[]')).toBeNull()
+    expect(parseStoredMemoryEmbedding('"a string"')).toBeNull()
+    expect(parseStoredMemoryEmbedding('[1, "two", 3]')).toBeNull()
+    expect(parseStoredMemoryEmbedding('{"a":1}')).toBeNull()
+  })
+})
+
+describe('computeMemoryEmbeddingField: write-time embedding, scoped to conversationally-visible categories', () => {
+  const originalKey = process.env.MISTRAL_API_KEY
+  beforeEach(() => { process.env.MISTRAL_API_KEY = 'test-key' })
+  afterEach(() => { if (originalKey !== undefined) process.env.MISTRAL_API_KEY = originalKey; else delete process.env.MISTRAL_API_KEY })
+
+  test('returns undefined without attempting any embedding call for a non-visible category', async () => {
+    // 'preference' is a real category memory.ts's own MemoryCategory type uses, but it is not in
+    // ceo-memory-visibility.ts's CONVERSATIONAL_VISIBLE_CATEGORIES allowlist -- rankMemories never
+    // reads it, so embedding it would be pure wasted work.
+    const result = await computeMemoryEmbeddingField('key1', 'some value', 'preference')
+    expect(result).toBeUndefined()
+  })
+
+  test('returns undefined (fails safe) for a visible category when no API key is configured', async () => {
+    delete process.env.MISTRAL_API_KEY
+    const result = await computeMemoryEmbeddingField('key1', 'some value', 'general')
+    expect(result).toBeUndefined()
+  })
+
+  test('never throws for any of the other conversationally-visible categories', async () => {
+    delete process.env.MISTRAL_API_KEY
+    for (const category of ['mission', 'strategy', 'user_goal', 'decision']) {
+      expect(await computeMemoryEmbeddingField('key1', 'some value', category)).toBeUndefined()
+    }
+  })
+
+  test('a visible category actually attempts the embeddings call; a non-visible one never does', async () => {
+    let callCount = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => {
+      callCount += 1
+      return new Response(JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const nonVisible = await computeMemoryEmbeddingField('key1', 'some value', 'preference')
+      expect(nonVisible).toBeUndefined()
+      expect(callCount).toBe(0)
+      const visible = await computeMemoryEmbeddingField('key2', 'some other value', 'general')
+      expect(visible).toBe(JSON.stringify([0.1, 0.2, 0.3]))
+      expect(callCount).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })

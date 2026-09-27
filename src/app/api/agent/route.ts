@@ -78,7 +78,7 @@ async function loadConversationContext(conversationId: string, userId: string): 
   // single turn of a very long conversation, not to narrow what relevantOlder can find in practice.
   try { const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'desc' }, take: CONVERSATION_LOAD_TAKE, select: { role: true, content: true, createdAt: true } } } }); rows = safeConversationRows((conversation?.Message ?? []).slice().reverse().map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))) } catch (error) { console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
   let memories: PersistedMemoryRow[] = []
-  try { memories = filterConversationalMemories(await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })) } catch (error) { console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error)); try { const fallback = await getAllPersistentMemory(); memories = filterConversationalMemories(fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))) } catch (fallbackError) { console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError)) } }
+  try { memories = filterConversationalMemories(await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true, embedding: true } })) } catch (error) { console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error)); try { const fallback = await getAllPersistentMemory(); memories = filterConversationalMemories(fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))) } catch (fallbackError) { console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError)) } }
   return { rows, memories }
 }
 
@@ -272,7 +272,13 @@ export async function POST(req: NextRequest) {
   // behind groundingWarranted -- it's a single bounded, indexed query that fails closed to an empty
   // module rather than an error, and a user referencing something they uploaded shouldn't require an
   // explicit self-assessment/decision turn to surface it.
-  const knowledgeResults = await timeCeoTurnStage(telemetry, 'knowledgeMs', () => searchKnowledgeBase(sessionUserId, message, 4).catch(() => []))
+  // "Next architecture" program, Stage 3: the one explicit exception is the fast_chat lane -- it's
+  // meant to be the strict, minimal-cost lane (see resolveCeoLane's own comment), so it skips this
+  // DB round-trip entirely rather than paying it on every casual greeting/opinion question. This is
+  // a deliberate trade-off, not an oversight: a fast_chat turn that actually needed document
+  // grounding wouldn't have resolved to fast_chat in the first place under the pre-router's existing
+  // classification (attachments/tool/evidence requirements already route to 'full').
+  const knowledgeResults = lane === 'fast_chat' ? [] : await timeCeoTurnStage(telemetry, 'knowledgeMs', () => searchKnowledgeBase(sessionUserId, message, 4).catch(() => []))
   const knowledgeContext = knowledgeResults.length ? formatKbContext(knowledgeResults) : undefined
 
   // Only when the turn is specifically a capability/strengths/limitations question (the self-

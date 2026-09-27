@@ -22,6 +22,7 @@
 import { db } from './db'
 import { filterConversationalMemories, getConversationalVisibleCategories } from './ceo-memory-visibility'
 import { sanitizeMemoryFields, sanitizeMemoryText } from './memory-text'
+import { computeMemoryEmbeddingField } from './ceo-memory-embeddings'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
@@ -104,10 +105,12 @@ export async function storePersistentMemory(
   saveToFile(entries)
 
   try {
+    // "Next architecture" program, Stage 3: see computeMemoryEmbeddingField's own comment.
+    const embedding = await computeMemoryEmbeddingField(entry.key, entry.value, entry.category).catch(() => undefined)
     await db.memory.upsert({
       where: { key: entry.key },
-      create: { key: entry.key, value: entry.value, category: entry.category },
-      update: { value: entry.value, category: entry.category },
+      create: { key: entry.key, value: entry.value, category: entry.category, embedding },
+      update: { value: entry.value, category: entry.category, embedding },
     }).catch(() => {})
   } catch {}
 }

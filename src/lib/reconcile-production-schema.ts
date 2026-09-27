@@ -130,6 +130,8 @@ const statements = [
   'CREATE UNIQUE INDEX IF NOT EXISTS "CeoEvidenceTrace_traceId_key" ON "CeoEvidenceTrace" ("traceId")',
   'CREATE INDEX IF NOT EXISTS "CeoEvidenceTrace_objectiveId_idx" ON "CeoEvidenceTrace" ("objectiveId")',
   'CREATE INDEX IF NOT EXISTS "CeoEvidenceTrace_createdAt_idx" ON "CeoEvidenceTrace" ("createdAt")',
+  // "Next architecture" program, Stage 3 (2026-09-27): write-time memory embeddings.
+  'ALTER TABLE "Memory" ADD COLUMN IF NOT EXISTS "embedding" TEXT',
 ]
 
 async function main() {
@@ -189,6 +191,11 @@ async function main() {
   const messageColumnSet = new Set(messageColumns.map(row => row.column_name))
   const missingMessageColumns = ['turnSequence', 'clientRequestId', 'turnStatus'].filter(name => !messageColumnSet.has(name))
   if (missingMessageColumns.length) throw new Error(`Message schema incomplete. Missing columns: ${missingMessageColumns.join(', ')}`)
+
+  const memoryColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+    SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='Memory' AND column_name='embedding'
+  `
+  if (memoryColumns.length !== 1) throw new Error('Memory schema incomplete. Missing column: embedding')
 
   const messageIdempotencyIndex = await prisma.$queryRaw<Array<{ indexname: string }>>`
     SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname='Message_conversationId_clientRequestId_key'
