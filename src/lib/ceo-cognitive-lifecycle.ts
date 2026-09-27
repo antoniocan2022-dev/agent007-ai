@@ -18,7 +18,8 @@ import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
 import type { TaskType, VerificationTier } from './subagent-governance'
 import type { CognitiveLifecycleResult, DecisionPlan, EvidenceScope, EvidenceFreshness, EvidenceState, PreRouteDecision, CeoGenerationDiagnostics, CeoIntent, QualityResult, RequestedOperation, CeoClaimVerificationSummary } from './ceo-cognitive-contract'
-import { inferComprehensionMode, extractInstructionWindow, extractInstructionWindowDetails } from './ceo-cognitive-contract'
+import { inferComprehensionMode, extractInstructionWindow, extractInstructionWindowDetails, resolveCeoLane } from './ceo-cognitive-contract'
+import { CEO_FAST_CHAT_PROVIDER_PRIORITY } from './provider-intelligence-policy'
 import type { ConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { isDocumentOperation, renderConversationDecisionContract } from './ceo-conversation-decision-contract'
 import { inferRequestedOperation, type CanonicalConversationContext } from './ceo-cognitive-conversation'
@@ -519,6 +520,11 @@ async function tryDegraded(request: CeoCognitiveRequest, reason: string, attempt
 
 export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Promise<CognitiveLifecycleResult> {
   const preRoute = request.preRoute ?? preRouteCeoRequest(request.messages, request.attachmentsCount ?? 0); const resolved = resolvePreRoute(preRoute); const decisionPlan = request.decisionPlan ?? buildCeoDecisionPlan({ messages: request.messages, preRoute, missionId: request.missionId, taskType: request.taskType }); const executionPlan = buildCeoExecutionPlan(decisionPlan); const objective = preRoute.researchObjective?.currentObjective || decisionPlan.objective || objectiveFrom(request.messages); const startedAt = Date.now(); const externalExecutionSucceeded = request.externalExecutionSucceeded ?? true;
+  // "Next architecture" program, Stage 2: same canonical lane route.ts already resolved from this
+  // same preRoute (see resolveCeoLane's own comment) -- recomputed here rather than threaded as a
+  // new request field, matching this function's existing pattern for `resolved` just above (also a
+  // pure derivation of preRoute, recomputed locally instead of added to CeoCognitiveRequest).
+  const lane = resolveCeoLane(preRoute)
   // Phase 2 (2026-09-20): computed once from the same canonical `objective` every evaluateCeoQuality
   // call site below already shares, instead of each call (and objectiveCoverage internally) re-deriving
   // "is this a long document" from a bare length check independently.
@@ -623,7 +629,10 @@ export async function runCeoCognitiveLifecycle(request: CeoCognitiveRequest): Pr
     }
   })()
   const primaryMessages = [...worldModelMessages, ...guardianMessages, ...executiveStateMessages, ...liveSystemMessages, ...readinessMessages, ...documentComprehensionMessages, ...domainConfidenceMessages, ...selfAssessmentGuidanceMessages({ intent: decisionPlan.executionContract.intent, objective: generationObjective, priorConversation: request.priorConversation }), ...decisionMessages, ...sourceForGeneration]
-  const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...overrides })
+  // Stage 2: every runCanonicalLlm call in this turn (primary, and the bounded in-place
+  // escalation/repair calls a fast_chat turn can still make) prefers the fast_chat provider order
+  // when this lane applies -- lane is resolved once above and stays true for the whole turn.
+  const stageOptions = (overrides: Record<string, unknown> = {}) => ({ taskType: decisionPlan.executionContract.intent === 'self_assessment' ? 'reasoning' : (request.taskType ?? decisionPlan.taskClass ?? 'reasoning'), verification: selectedVerification, model: request.model, temperature: request.temperature, maxTokens: request.maxTokens, maxProviderAttempts: decisionPlan.maxProviderAttempts, timeoutMs: Math.max(1000, Math.min(60000, deadline - Date.now())), executionClass: resolved === 'fast' ? 'fast' as const : decisionPlan.path === 'critical' ? 'mission' as const : decisionPlan.path === 'full' ? 'deep' as const : 'standard' as const, ...(lane === 'fast_chat' ? { providerOrder: CEO_FAST_CHAT_PROVIDER_PRIORITY } : {}), ...overrides })
   let primary: CanonicalLlmResult | undefined; let review: CanonicalLlmResult | undefined; let final: CanonicalLlmResult | undefined; let escalation = 0; let primaryQuality: CognitiveLifecycleResult['quality'] | undefined; let finalStage: CeoGenerationDiagnostics['finalStage'] = 'primary'
   // Efficiency fix (2026-09-26): tryDegraded's resume-hierarchical-comprehension recovery step (see
   // isFutileStructuralCoverageEscalation's comment) only gets whatever wall-clock time is left AFTER

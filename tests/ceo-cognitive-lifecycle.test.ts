@@ -448,25 +448,26 @@ describe('CEO cognitive lifecycle', () => {
       if (method === 'POST') {
         const body = init?.body ? String(init.body) : ''
         if (body.includes('production reasoning health probe')) return jsonResponse({ choices: [{ message: { content: 'OK' } }] })
-        // OpenRouter's governed profile deliberately outranks every other provider on quality (see the
-        // comment on its GOVERNED_MODEL_PROFILES entry), so primary/escalation generation tries it FIRST
-        // -- opposite of recovery's plain PROVIDER_ORDER-based probing, which tries groq first regardless
-        // of quality. Failing OpenRouter's first 2 real calls (primary + the one allowed escalation, each
-        // internally falling back to groq within its own maxProviderAttempts budget) forces both stages
-        // through groq with quality-failing robotic content, reaching the quality-gate-driven degrade
-        // branch. Only then does recovery run: probing groq first (as production did), succeeding on the
+        // "Next architecture" program, Stage 2: this turn ("What do you think about our team culture?",
+        // a short opinion question with no tool/mission requirement) now resolves to the fast_chat lane,
+        // whose explicit providerOrder (CEO_FAST_CHAT_PROVIDER_PRIORITY, groq-first) governs primary and
+        // escalation directly -- no more quality-first openrouter-first default for this turn, and no
+        // more asymmetry with recovery's own always-groq-first selection (attemptValidatedReasoningProvider,
+        // untouched by Stage 2). With only groq/openrouter configured in this test, every stage now tries
+        // groq first. Groq succeeds (200) with quality-failing robotic content on primary and the one
+        // allowed escalation -- reaching the quality-gate-driven degrade branch without needing an
+        // internal same-call fallback. Only then does recovery run: probing groq first, succeeding on the
         // probe, then failing on the real call with the exact live-incident shape (a billing/payment-limit
         // error the cheap 128-token probe never exercised) -- and falling through to OpenRouter, the
         // second validated candidate, which finally succeeds.
-        if (url.includes('openrouter.ai')) {
-          openrouterNonProbeCalls += 1
-          if (openrouterNonProbeCalls <= 2) return jsonResponse({ error: { message: 'temporarily unavailable' } }, 503)
-          return jsonResponse({ choices: [{ message: { content: 'The real answer: our biggest cultural risk is inconsistent execution standards across teams, not a lack of talent.' } }] })
-        }
         if (url.includes('api.groq.com')) {
           groqNonProbeCalls += 1
           if (groqNonProbeCalls <= 2) return jsonResponse({ choices: [{ message: { content: "As an AI, I can tell you the biggest risk is execution consistency across teams." } }] })
           return jsonResponse({ error: { message: 'Request too large for the organization on this billing plan.' } }, 402)
+        }
+        if (url.includes('openrouter.ai')) {
+          openrouterNonProbeCalls += 1
+          return jsonResponse({ choices: [{ message: { content: 'The real answer: our biggest cultural risk is inconsistent execution standards across teams, not a lack of talent.' } }] })
         }
       }
       throw new Error(`unexpected fetch: ${url}`)
@@ -477,12 +478,11 @@ describe('CEO cognitive lifecycle', () => {
     expect(result.provider).toBe('openrouter')
     expect(result.content).toContain('inconsistent execution standards')
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
-    // groq: 2 quality-failing robotic replies (primary + escalation, each falling back to groq after
-    // OpenRouter's real call fails) + 1 real recovery attempt that fails with the billing error.
+    // groq: 2 quality-failing robotic replies (primary + escalation, both tried groq-first under the
+    // fast_chat lane) + 1 real recovery attempt that fails with the billing error.
     expect(groqNonProbeCalls).toBe(3)
-    // openrouter: 2 real failures (primary + escalation) + 1 real recovery attempt that succeeds --
-    // the fallback this test exists to prove.
-    expect(openrouterNonProbeCalls).toBe(3)
+    // openrouter: only the final successful recovery fallback -- primary/escalation never reach it now.
+    expect(openrouterNonProbeCalls).toBe(1)
     resetProviderHealthForTests()
     resetProviderStandingForTests()
   })
