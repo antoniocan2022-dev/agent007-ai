@@ -1,3 +1,5 @@
+import type { ProviderErrorKind } from './provider-control-plane'
+
 /** Canonical CEO failure taxonomy shared across runtime, recovery, degraded mode, and diagnostics. */
 export type CeoFailureReason =
   | 'invalid_request'
@@ -73,4 +75,35 @@ export function inferCeoFailureReason(error: unknown): CeoFailureReason {
 
 export function createCeoFailure(input: Omit<CeoFailure, 'retryable'> & { retryable?: boolean }): CeoFailure {
   return { ...input, retryable: input.retryable ?? CEO_FAILURE_RETRYABLE[input.reason] }
+}
+
+// "Next architecture" program, Stage 4: one shared vocabulary between the infrastructure layer
+// (provider-control-plane.ts's ProviderErrorKind, precisely classified from real HTTP status/message
+// shapes -- see classifyProviderError) and this CEO repair taxonomy, instead of two independently-
+// evolving ones. Before this, a provider failure reaching the CEO layer had already been reduced to a
+// plain string message by the time inferCeoFailureReason/ceo-degraded-mode.ts's own inferFailureReason
+// ran their own regex heuristics on it (`/provider|model|llm/i`) -- reasonable as a last-resort
+// fallback for genuinely unstructured errors, but a real loss of precision for a failure the provider
+// layer had already classified exactly. Callers that still have the raw error should prefer this
+// mapping when it's a ProviderControlPlaneError (see its `kind` field) over inferring from text.
+export function mapProviderErrorKindToCeoFailureReason(kind: ProviderErrorKind): CeoFailureReason {
+  switch (kind) {
+    case 'TIMEOUT': return 'provider_timeout'
+    case 'AUTHENTICATION':
+    case 'AUTHORIZATION':
+    case 'BILLING':
+    case 'RATE_LIMIT':
+    case 'MODEL_UNAVAILABLE':
+    case 'MODEL_NOT_GOVERNED':
+    case 'CATALOG_UNAVAILABLE':
+      return 'provider_unavailable'
+    case 'REQUEST_TOO_LARGE':
+    case 'INVALID_REQUEST':
+      return 'invalid_request'
+    case 'NETWORK':
+    case 'UPSTREAM':
+    case 'UNKNOWN':
+    default:
+      return 'provider_error'
+  }
 }
