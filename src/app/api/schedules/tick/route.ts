@@ -5,6 +5,7 @@ import { runOrchestrator } from '@/lib/orchestrator'
 import { backgroundFire } from '@/lib/runtime/background-tasks'
 import { notifyMissionOutcome } from '@/lib/mission-notifications'
 import { preRouteCeoRequest } from '@/lib/ceo-pre-router'
+import { resolveCeoLane } from '@/lib/ceo-cognitive-contract'
 import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'
 import { composeCeoContext, buildCeoContextModules, type PersistedConversationRow } from '@/lib/ceo-context-composer'
 import { safeConversationRows } from '@/lib/ceo-behavioral-policy'
@@ -95,6 +96,12 @@ async function executeScheduledRun(conversationId: string, objective: string): P
 
   const decisionContract = contextSeed.decisionContract
   const preRoute = preRouteCeoRequest(contextSeed.messages, 0, contextSeed.canonicalSemanticContext, decisionContract)
+  // Stage 1 of the "next architecture" program: same canonical lane read here as in /api/agent, for
+  // consistent cross-path observability. This scheduler path keeps its own bespoke turn-processing
+  // sequence for now (a full merge into one Turn Controller is real work, out of scope here) --
+  // this is purely an additive log, changing no scheduled-tick behavior.
+  const lane = resolveCeoLane(preRoute)
+  console.log('[schedules-tick-lane]', JSON.stringify({ lane, route: preRoute.route, missionRelevant: preRoute.missionRelevant }))
   const turnDecision = buildCeoTurnDecision({
     messages: contextSeed.messages,
     preRoute,

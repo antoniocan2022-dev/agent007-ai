@@ -8,6 +8,7 @@ import { beginInteractive, endInteractive } from '@/lib/load-tracker'
 import { runCeoCognitiveLifecycle } from '@/lib/ceo-cognitive-lifecycle'
 import { buildCeoTurnDecision } from '@/lib/ceo-turn-decision'
 import { preRouteCeoRequest, resolvePreRoute } from '@/lib/ceo-pre-router'
+import { resolveCeoLane } from '@/lib/ceo-cognitive-contract'
 import { withOrchestrationOwner } from '@/lib/ceo-execution-owner'
 import { RecoveryBudget, RecoveryBudgetExceededError, recoveryEventFromMessage } from '@/lib/ceo-recovery-policy'
 import { AgentRequestTimeoutError, AGENT_REQUEST_BUDGET_MS, runWithAgentRequestBudget } from '@/lib/agent-request-budget'
@@ -48,6 +49,7 @@ import { isUniqueConstraintViolation, normalizeClientRequestId } from '@/lib/ceo
 import type { AttachmentMeta } from '@/lib/tools'
 import { classifyOperationalExecution } from '@/lib/ceo-execution-handoff'
 import { ensureResearchObjective, loadActiveResearchObjective, researchObjectiveFromPreRoute, shouldContinueResearchObjective, type ResearchObjectiveIdentity } from '@/lib/ceo-research-objective'
+import { createCeoTurnTelemetry, timeCeoTurnStage, timeCeoTurnStageSync, logCeoTurnTelemetry, type CeoTurnTelemetry } from '@/lib/ceo-turn-telemetry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -65,9 +67,16 @@ async function persistPostResponseDecisionMemory(input: { conversationRows: read
   await persistEpisodicDecisionMemory(state)
 }
 function sse(event: string, data: unknown): string { const identity = getDeploymentIdentity(); const publicEvent = resolveCeoPublicSseEvent(event); const payload = { ...projectCeoPublicSsePayload(event, data), deploymentId: identity.deploymentId, releaseCommit: identity.releaseCommit }; return `event: ${publicEvent}\ndata: ${JSON.stringify(payload)}\n\n` }
+/** See the comment on its one use in loadConversationContext below. */
+const CONVERSATION_LOAD_TAKE = 200
 async function loadConversationContext(conversationId: string, userId: string): Promise<{ rows: PersistedConversationRow[]; memories: PersistedMemoryRow[] }> {
   let rows: PersistedConversationRow[] = []
-  try { const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'asc' }, select: { role: true, content: true, createdAt: true } } } }); rows = safeConversationRows((conversation?.Message ?? []).map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))) } catch (error) { console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
+  // Stage 1 of the "next architecture" program: bounded bootstrap. composeCeoContext's own
+  // relevantOlder search (ceo-context-composer.ts) can reach back further than its recent-message
+  // window, so this cap stays generous (CONVERSATION_LOAD_TAKE) rather than trimming to just the
+  // recent-message limit -- the goal is to stop an unbounded full-history load/table-scan on every
+  // single turn of a very long conversation, not to narrow what relevantOlder can find in practice.
+  try { const conversation = await db.conversation.findFirst({ where: { id: conversationId, userId }, select: { Message: { orderBy: { createdAt: 'desc' }, take: CONVERSATION_LOAD_TAKE, select: { role: true, content: true, createdAt: true } } } }); rows = safeConversationRows((conversation?.Message ?? []).slice().reverse().map((row) => ({ role: row.role, content: row.content, createdAt: row.createdAt }))) } catch (error) { console.warn('[api/agent] Conversation rows load failed:', error instanceof Error ? error.message.slice(0, 180) : String(error)) }
   let memories: PersistedMemoryRow[] = []
   try { memories = filterConversationalMemories(await db.memory.findMany({ orderBy: { updatedAt: 'desc' }, take: 40, select: { key: true, value: true, category: true, updatedAt: true } })) } catch (error) { console.warn('[api/agent] Direct memory query failed, falling back to file-backed store:', error instanceof Error ? error.message.slice(0, 180) : String(error)); try { const fallback = await getAllPersistentMemory(); memories = filterConversationalMemories(fallback.slice(0, 40).map((entry) => ({ key: entry.key, value: entry.value, category: entry.category, updatedAt: entry.createdAt }))) } catch (fallbackError) { console.warn('[api/agent] File-backed memory fallback also failed:', fallbackError instanceof Error ? fallbackError.message.slice(0, 180) : String(fallbackError)) } }
   return { rows, memories }
@@ -75,8 +84,12 @@ async function loadConversationContext(conversationId: string, userId: string): 
 
 
 export async function POST(req: NextRequest) {
+  const turnStartedAt = Date.now()
+  const telemetry: CeoTurnTelemetry = createCeoTurnTelemetry()
   await ensureDbReady().catch(() => {})
+  const authStartedAt = Date.now()
   const session = await getServerSession(authOptions)
+  telemetry.authMs += Date.now() - authStartedAt
   const sessionUserId = typeof (session?.user as { id?: unknown } | undefined)?.id === 'string' ? (session!.user as { id: string }).id : ''
   if (!sessionUserId) return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
   let body: any
@@ -104,8 +117,8 @@ export async function POST(req: NextRequest) {
     let conv = await db.conversation.findUnique({ where: { id: conversationId }, select: { id: true, userId: true } })
     if (conv && conv.userId !== sessionUserId) return new Response(JSON.stringify({ error: 'Conversation not found.' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
     if (!conv) conv = await db.conversation.create({ data: { id: conversationId, title: message.slice(0, 50), userId: sessionUserId }, select: { id: true, userId: true } })
-    contextData = await loadConversationContext(conversationId, sessionUserId)
-    activeResearchObjective = await loadActiveResearchObjective({ conversationId, userId: sessionUserId })
+    contextData = await timeCeoTurnStage(telemetry, 'conversationLoadMs', () => loadConversationContext(conversationId, sessionUserId))
+    activeResearchObjective = await timeCeoTurnStage(telemetry, 'objectiveLoadMs', () => loadActiveResearchObjective({ conversationId, userId: sessionUserId }))
     const convId = conv.id
     try {
       myTurnSequence = await db.$transaction(async (tx) => {
@@ -138,10 +151,11 @@ export async function POST(req: NextRequest) {
   }
 
   const safeContextRows = safeConversationRows(contextData.rows)
-  let contextSeed: CeoContextComposition = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, signal: requestAbortController.signal })
+  telemetry.conversationRowsLoaded = contextData.rows.length
+  let contextSeed: CeoContextComposition = await timeCeoTurnStage(telemetry, 'contextComposeMs', () => composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, signal: requestAbortController.signal }))
   let semanticInterpretation: Awaited<ReturnType<typeof interpretCeoSemantics>> = { source: 'deterministic' }
-  try { semanticInterpretation = await interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch(() => {}); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
-  contextSeed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
+  try { semanticInterpretation = await timeCeoTurnStage(telemetry, 'semanticInterpretationMs', () => interpretCeoSemantics(contextSeed.canonicalSemanticContext, requestAbortController.signal)) } catch (error) { if (isCeoRequestAborted(error)) { req.signal.removeEventListener('abort', onRequestAbort); await closeCeoTurnMarker({ conversationId, turnSequence: myTurnSequence }).catch(() => {}); return new Response(JSON.stringify({ error: 'Request cancelled.' }), { status: 499, headers: { 'Content-Type': 'application/json' } }) } }
+  contextSeed = await timeCeoTurnStage(telemetry, 'contextComposeMs', () => composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, semanticInterpretation, reuseSemanticContext: { selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal }))
   // Best-effort: makes this conversation's current decisions durable across future conversations via
   // the existing Memory-backed lexical/semantic retrieval path. Never allowed to affect the response.
   await persistEpisodicDecisionMemory(contextSeed.conversationState).catch(() => {})
@@ -150,7 +164,7 @@ export async function POST(req: NextRequest) {
   // rebuilding it, and pass it into preRouteCeoRequest so its own internal build (previously a second,
   // byte-identical copy used only for curiosity/evidence narrowing then discarded) is skipped too.
   let decisionContract = contextSeed.decisionContract
-  let preRoute = preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract)
+  let preRoute = timeCeoTurnStageSync(telemetry, 'decisionMs', () => preRouteCeoRequest(contextSeed.messages, atts.length, contextSeed.canonicalSemanticContext, decisionContract))
   // Establish/continue the durable objective before the single turn decision is built. This is the
   // boundary that converts a transiently inferred equity task into an authoritative identity that all
   // downstream stages can carry, while preserving the exact current utterance as the response surface.
@@ -192,6 +206,11 @@ export async function POST(req: NextRequest) {
     }
   }
   const resolvedPath = resolvePreRoute(preRoute)
+  // Stage 1 of the "next architecture" program: the one canonical turn lane, read off this same
+  // preRoute decision the moment it's final -- see resolveCeoLane's own comment for why this is a
+  // label over the existing single decision rather than a new classification.
+  const lane = resolveCeoLane(preRoute)
+  telemetry.lane = lane
   const executionContract = preRoute.executionContract
   // Phase 2 of the CEO Conversation Kernel migration (external audit, 2026-09-19), issues 1 and 8: the
   // single "DECIDE" authority for this turn -- built exactly once, here, from the same preRoute and
@@ -199,7 +218,7 @@ export async function POST(req: NextRequest) {
   // every runCeoCognitiveLifecycle call below instead of letting each one
   // build its own, so buildCeoDecisionPlan runs at most once per turn by construction, not merely
   // because Stage 1b's branching happens to make those call sites mutually exclusive.
-  const turnDecision = buildCeoTurnDecision({ messages: contextSeed.messages, preRoute, missionId: undefined, taskType: preRoute.taskClass, decisionContract })
+  const turnDecision = timeCeoTurnStageSync(telemetry, 'decisionMs', () => buildCeoTurnDecision({ messages: contextSeed.messages, preRoute, missionId: undefined, taskType: preRoute.taskClass, decisionContract }))
   const requestBudgetMs = Math.min(AGENT_REQUEST_BUDGET_MS, executionContract.latencyBudgetMs)
   // CEO Grounding Policy: retrieve the minimum sufficient live context, not everything on every
   // turn. getExecutiveBusinessState is backed by calculateOperationalKpis, which does real DB scans
@@ -234,13 +253,13 @@ export async function POST(req: NextRequest) {
   if (groundingWarranted) {
     const ventureId = resolveVentureId(message)
     const sharedMissions = await listActiveMissionsDB(sessionUserId).catch(() => undefined)
-    const [groundingState, groundingLeadership, groundingHorizon, selfInspectionEvidence, groundingPartnerIntelligence] = await Promise.all([
+    const [groundingState, groundingLeadership, groundingHorizon, selfInspectionEvidence, groundingPartnerIntelligence] = await timeCeoTurnStage(telemetry, 'groundingMs', () => Promise.all([
       getExecutiveBusinessState({ userId: sessionUserId, ventureId }).catch(() => undefined),
       getLeadershipPerformanceLedger(sessionUserId, sharedMissions).catch(() => undefined),
       getStrategicHorizonView(sessionUserId, new Date(), sharedMissions).catch(() => undefined),
       selfInspection.inspect ? gatherCeoSelfInspectionEvidence({ ventureId, missionIds: sharedMissions?.map((mission) => mission.id) }) : Promise.resolve(undefined),
       getPartnerIntelligence(sessionUserId).catch(() => undefined),
-    ])
+    ]))
     executiveState = groundingState
     leadershipLedger = groundingLeadership
     strategicHorizon = groundingHorizon
@@ -253,7 +272,7 @@ export async function POST(req: NextRequest) {
   // behind groundingWarranted -- it's a single bounded, indexed query that fails closed to an empty
   // module rather than an error, and a user referencing something they uploaded shouldn't require an
   // explicit self-assessment/decision turn to surface it.
-  const knowledgeResults = await searchKnowledgeBase(sessionUserId, message, 4).catch(() => [])
+  const knowledgeResults = await timeCeoTurnStage(telemetry, 'knowledgeMs', () => searchKnowledgeBase(sessionUserId, message, 4).catch(() => []))
   const knowledgeContext = knowledgeResults.length ? formatKbContext(knowledgeResults) : undefined
 
   // Only when the turn is specifically a capability/strengths/limitations question (the self-
@@ -296,12 +315,12 @@ export async function POST(req: NextRequest) {
             const evidencePlan = buildExternalEvidencePlan({ objective: evidenceObjective, evidenceClass: executionContract.evidenceClass, domain: executionContract.domain, operation: executionContract.operation, temporalScope: executionContract.temporalScope, evidenceProfile: executionContract.evidenceProfile, resolvedIssuers, researchObjective: activeResearchObjective ?? undefined })
             addEvidenceTraceEvent(evidenceTrace, 'planned', { queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources })
             safeEnqueue(sse('progress', { phase: 'evidence_acquisition', profile: evidencePlan.profile, queryCount: evidencePlan.queries.length, minimumSources: evidencePlan.minimumSources }))
-            let evidenceExecution = await executeExternalEvidencePlan(evidencePlan, requestAbortController.signal)
+            let evidenceExecution = await timeCeoTurnStage(telemetry, 'evidenceMs', () => executeExternalEvidencePlan(evidencePlan, requestAbortController.signal))
             addEvidenceTraceEvent(evidenceTrace, 'search_completed', { attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, sources: evidenceExecution.bundle.sources.length, sufficient: evidenceExecution.bundle.sufficient })
             if (!evidenceExecution.bundle.sufficient) {
               addEvidenceTraceEvent(evidenceTrace, 'recovery_started', { reason: 'Initial evidence bundle did not meet sufficiency requirements.' })
               safeEnqueue(sse('progress', { phase: 'evidence_recovery', reason: 'Initial evidence bundle was insufficient; running a separate evidence-recovery pass.' }))
-              try { const recovered = await recoverExternalEvidencePlan(evidencePlan, requestAbortController.signal); addEvidenceTraceEvent(evidenceTrace, 'recovery_completed', { sources: recovered.bundle.sources.length, sufficient: recovered.bundle.sufficient, failures: recovered.failures.length }); if (recovered.bundle.sources.length > evidenceExecution.bundle.sources.length || recovered.bundle.sufficient) evidenceExecution = recovered } catch (recoveryError) { if (isCeoRequestAborted(recoveryError) || requestAbortController.signal.aborted) throw recoveryError; addEvidenceTraceEvent(evidenceTrace, 'recovery_completed', { sources: 0, sufficient: false, error: recoveryError instanceof Error ? recoveryError.message.slice(0, 200) : String(recoveryError).slice(0, 200) }) }
+              try { const recovered = await timeCeoTurnStage(telemetry, 'evidenceMs', () => recoverExternalEvidencePlan(evidencePlan, requestAbortController.signal)); addEvidenceTraceEvent(evidenceTrace, 'recovery_completed', { sources: recovered.bundle.sources.length, sufficient: recovered.bundle.sufficient, failures: recovered.failures.length }); if (recovered.bundle.sources.length > evidenceExecution.bundle.sources.length || recovered.bundle.sufficient) evidenceExecution = recovered } catch (recoveryError) { if (isCeoRequestAborted(recoveryError) || requestAbortController.signal.aborted) throw recoveryError; addEvidenceTraceEvent(evidenceTrace, 'recovery_completed', { sources: 0, sufficient: false, error: recoveryError instanceof Error ? recoveryError.message.slice(0, 200) : String(recoveryError).slice(0, 200) }) }
             }
             externalEvidenceBundle = evidenceExecution.bundle
             if (externalEvidenceBundle.sources.length > 0) { externalEvidenceContext = renderEvidenceBundleForPrompt(externalEvidenceBundle); externalEvidenceScope = externalEvidenceBundle.scope === 'mixed' ? 'mixed' : 'external_web'; externalEvidenceFreshness = externalEvidenceBundle.freshness }
@@ -309,8 +328,14 @@ export async function POST(req: NextRequest) {
             safeEnqueue(sse('progress', { phase: 'evidence_complete', sources: externalEvidenceBundle.sources.length, claims: externalEvidenceBundle.claims.length, sufficient: externalEvidenceBundle.sufficient, attemptedQueries: evidenceExecution.attemptedQueries, successfulQueries: evidenceExecution.successfulQueries, pageReads: evidenceExecution.pageReads, secSources: evidenceExecution.secSources, marketDataSources: evidenceExecution.marketDataSources, failures: evidenceExecution.failures.slice(0, 5) }))
           }
           const contextModules = buildCeoContextModules({ intent: executionContract.intent, missionRelevant: preRoute.missionRelevant, evidenceClass: executionContract.evidenceClass, taskClass: preRoute.taskClass, executionRequirement: executionContract.executionRequirement, evidence: externalEvidenceContext, attachments: atts.length ? attachmentContextSuffix(atts) : undefined, selfInspection: selfInspectionContext, knowledge: knowledgeContext, capabilityBriefing: capabilityBriefingContext })
-          const composed = await composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal })
-          const response = await runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionPlan: turnDecision.decisionPlan, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon }))
+          const composed = await timeCeoTurnStage(telemetry, 'contextComposeMs', () => composeCeoContext({ systemPrompt: buildCeoSystemPrompt(), currentUserMessage: message, persistedMessages: safeContextRows, memories: contextData.memories, researchObjective: activeResearchObjective ?? undefined, modules: contextModules, semanticInterpretation, reuseSemanticContext: { conversationState: contextSeed.conversationState, canonicalSemanticContext: contextSeed.canonicalSemanticContext, decisionContract, resolvedReferences: contextSeed.resolvedReferences, selectedMemories: contextSeed.selectedMemories, semanticMemoryKeys: contextSeed.semanticMemoryKeys }, signal: requestAbortController.signal }))
+          telemetry.messagesInContext = composed.messages.length
+          telemetry.evidenceSourceCount = externalEvidenceBundle?.sources.length ?? 0
+          const response = await timeCeoTurnStage(telemetry, 'cognitiveLifecycleMs', () => runWithCeoCancellationContext(requestAbortController.signal, () => runCeoCognitiveLifecycle({ attachmentsCount: atts.length, messages: composed.messages, taskType: preRoute.taskClass, timeoutMs: executionContract.latencyBudgetMs, contextualEvidence: externalEvidenceContext, evidenceScope: externalEvidenceScope, evidenceFreshness: externalEvidenceFreshness, evidenceBundle: externalEvidenceBundle, priorConversation: safeContextRows, relevantOlderConversation: safeContextRows, preRoute, decisionPlan: turnDecision.decisionPlan, decisionContract, canonicalContext: composed.canonicalSemanticContext, partnerIntelligence, executiveState, leadershipLedger, strategicHorizon })))
+          telemetry.providerAttemptCount = Array.isArray(response.attempts) ? response.attempts.length : 0
+          telemetry.escalationCount = response.generation?.escalationCount ?? 0
+          telemetry.repairPathEntered = telemetry.escalationCount > 0 || Boolean(response.degraded)
+          telemetry.degraded = Boolean(response.degraded)
           if (externalEvidenceBundle && externalEvidenceBundle.sources.length > 0) { const claimVerification = verifyClaimEvidence(response.content, externalEvidenceBundle); addEvidenceTraceEvent(evidenceTrace!, 'gate_evaluated', { passed: claimVerification.passed, requiredClaims: claimVerification.requiredClaimCount, supportedClaims: claimVerification.supportedClaimCount, enforcedByQualityGate: true }); }
           const finalTraceState = response.degraded ? (externalEvidenceBundle?.sources.length ? 'PARTIAL' : 'ABSTAIN') : 'FULL'
           if (evidenceTrace && !evidenceTrace.completedAt) { addEvidenceTraceEvent(evidenceTrace, response.degraded ? 'abstained' : 'completed', { finalState: finalTraceState }); completeEvidenceTrace(evidenceTrace, finalTraceState) }
@@ -326,7 +351,7 @@ export async function POST(req: NextRequest) {
           let responseSuperseded = false
           const provenance = response.quality.finalResponseProvenance
           if (provenance) {
-            try { persistedAssistantMessageId = await persistCeoAssistantMessage({ conversationId, content: response.content, provenance, capturedTurnSequence: myTurnSequence }) } catch (persistErr: any) {
+            try { persistedAssistantMessageId = await timeCeoTurnStage(telemetry, 'persistenceMs', () => persistCeoAssistantMessage({ conversationId, content: response.content, provenance, capturedTurnSequence: myTurnSequence })) } catch (persistErr: any) {
               if (persistErr instanceof CeoResponseSupersededError) { responseSuperseded = true; await recordSupersededCeoResponse({ conversationId, content: response.content, capturedTurnSequence: myTurnSequence, latestRevision: persistErr.latestRevision }).catch((auditErr) => console.warn('[api/agent] Superseded-response audit logging failed:', auditErr instanceof Error ? auditErr.message.slice(0, 150) : String(auditErr))) }
               else { console.warn('[api/agent] CEO-lane assistant persistence failed:', persistErr?.message?.slice(0, 150)); throw persistErr }
             }
@@ -351,6 +376,8 @@ export async function POST(req: NextRequest) {
           if (!responseSuperseded && (decisionContract?.responseAction === 'recommend' || decisionContract?.responseAction === 'decide')) { const correlationId = generateRecommendationCorrelationId(); recordCeoRecommendation({ correlationId, objective: message, responseAction: decisionContract.responseAction, recommendedAction: response.content, decisionRationale: decisionContract.rationale.join('; '), ventureId: resolveVentureId(message), domain: response.decisionPlan.executionContract.domain }).catch((error) => console.warn('[api/agent] Recommendation outcome capture failed:', error instanceof Error ? error.message.slice(0, 180) : String(error))) }
           streamOutcome = responseSuperseded ? 'degraded' : (response.degraded ? 'degraded' : 'completed')
           console.log('[ceo-request-trace]', JSON.stringify({ requestId, endpoint: '/api/agent', deploymentId: releaseAttestation.deploymentId, executedCommitSha: releaseAttestation.executedCommitSha, fingerprint: releaseAttestation.fingerprint, outcome: streamOutcome, executionPath: response.decisionPlan.path, provider: response.provider, model: response.model, superseded: responseSuperseded }))
+          telemetry.totalMs = Date.now() - turnStartedAt
+          logCeoTurnTelemetry(telemetry, requestId)
           if (responseSuperseded) {
             safeEnqueue(sse('superseded', { reason: 'A newer message in this conversation was already accepted before this response finished computing, so it was not added to the conversation.', deployment: deploymentIdentity, requestId, releaseAttestation }))
             safeEnqueue(sse('done', { messageId: null, steps: 0, executionClass: response.decisionPlan.path, deployment: deploymentIdentity, requestId, releaseAttestation, decisionContract, executionContract }))
@@ -400,7 +427,7 @@ export async function POST(req: NextRequest) {
             knowledge: knowledgeContext,
             capabilityBriefing: capabilityBriefingContext,
           })
-          const composedOperational = await composeCeoContext({
+          const composedOperational = await timeCeoTurnStage(telemetry, 'contextComposeMs', () => composeCeoContext({
             systemPrompt: buildCeoSystemPrompt(),
             currentUserMessage: message,
             persistedMessages: safeContextRows,
@@ -416,9 +443,10 @@ export async function POST(req: NextRequest) {
               semanticMemoryKeys: contextSeed.semanticMemoryKeys,
             },
             signal: requestAbortController.signal,
-          })
+          }))
+          telemetry.messagesInContext = composedOperational.messages.length
 
-          const synthesis = await runWithCeoCancellationContext(
+          const synthesis = await timeCeoTurnStage(telemetry, 'cognitiveLifecycleMs', () => runWithCeoCancellationContext(
             requestAbortController.signal,
             () => runCeoCognitiveLifecycle({
               attachmentsCount: atts.length,
@@ -440,7 +468,11 @@ export async function POST(req: NextRequest) {
               leadershipLedger,
               strategicHorizon,
             }),
-          )
+          ))
+          telemetry.providerAttemptCount = Array.isArray(synthesis.attempts) ? synthesis.attempts.length : 0
+          telemetry.escalationCount = synthesis.generation?.escalationCount ?? 0
+          telemetry.repairPathEntered = telemetry.escalationCount > 0 || Boolean(synthesis.degraded)
+          telemetry.degraded = Boolean(synthesis.degraded)
           const metrics = buildCeoRuntimeMetrics({ result: synthesis, decisionContract })
           logCeoRuntimeMetrics(metrics, requestId)
 
@@ -449,12 +481,12 @@ export async function POST(req: NextRequest) {
           const synthesisProvenance = synthesis.quality.finalResponseProvenance
           if (synthesisProvenance) {
             try {
-              persistedAssistantMessageId = await persistCeoAssistantMessage({
+              persistedAssistantMessageId = await timeCeoTurnStage(telemetry, 'persistenceMs', () => persistCeoAssistantMessage({
                 conversationId,
                 content: synthesis.content,
                 provenance: synthesisProvenance,
                 capturedTurnSequence: myTurnSequence,
-              })
+              }))
             } catch (persistErr: any) {
               if (persistErr instanceof CeoResponseSupersededError) {
                 responseSuperseded = true
@@ -491,6 +523,8 @@ export async function POST(req: NextRequest) {
             model: synthesis.model,
             superseded: responseSuperseded,
           }))
+          telemetry.totalMs = Date.now() - turnStartedAt
+          logCeoTurnTelemetry(telemetry, requestId)
           if (responseSuperseded) {
             safeEnqueue(sse('superseded', {
               reason: 'A newer message in this conversation was already accepted before the executive synthesis finished computing, so it was not written as the current answer.',

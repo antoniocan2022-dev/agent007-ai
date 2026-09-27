@@ -225,6 +225,21 @@ export function assertCeoEvidenceContractInvariant(contract: CeoExecutionContrac
   }
 }
 export interface PreRouteDecision { route: PreRoute; reason: string; missionRelevant: boolean; complexitySignals: number; taskClass?: TaskType; adaptiveExecutionClass?: 'fast' | 'standard' | 'deep' | 'mission'; executionContract: CeoExecutionContract; /** Objective inherited from an active conversation thread for routing/evidence grounding only. */ routingObjective?: string; /** Canonical durable objective identity bound to this turn. */ researchObjective?: ResearchObjectiveIdentity }
+
+// "Next architecture" program, Stage 1: one canonical turn-level lane, read off the single
+// PreRouteDecision that preRouteCeoRequest already produces. This is deliberately NOT a new,
+// independently-computed classification sitting alongside PreRoute/CognitivePath/OrchestrationOwner/
+// adaptiveExecutionClass -- preRouteCeoRequest's ~400 lines of battle-tested, incident-driven keyword
+// and continuation logic (see ceo-pre-router.ts) stay exactly as they are. resolveCeoLane is a pure,
+// zero-risk label over their combined output, so lane-aware consumers added from here on (fast-chat
+// provider selection, retrieval gating, telemetry) read one canonical field instead of each re-deriving
+// their own guess from route/orchestrationOwner/missionRelevant separately -- which is what would make
+// lane a fifth competing routing dimension instead of a summary of the one real decision.
+export type CeoLane = 'fast_chat' | 'deep_cognition' | 'durable_mission'
+export function resolveCeoLane(decision: PreRouteDecision): CeoLane {
+  if (decision.missionRelevant || decision.executionContract.orchestrationOwner === 'operational_orchestrator') return 'durable_mission'
+  return decision.route === 'fast' && !decision.executionContract.toolRequired ? 'fast_chat' : 'deep_cognition'
+}
 export interface DecisionPlan { requestId: string; preRoute: PreRoute; path: CognitivePath; objective: string; taskClass: TaskType; missionRelevant: boolean; requiredCapabilities: string[]; qualityTier: 'standard' | 'high' | 'critical'; reasoningStrategy: ReasoningStrategy; cognitiveDepth: 0 | 1 | 2 | 3 | 4; verificationRequired: boolean; maxEscalations: number; maxProviderAttempts: number; latencyBudgetMs: number; executionContract: CeoExecutionContract; researchObjective?: ResearchObjectiveIdentity }
 export interface ExecutionStage { name: 'primary' | 'refinement' | 'independent_review' | 'synthesis'; purpose: string }
 export type CeoGenerationStage = 'none' | 'primary' | 'refinement' | 'semantic_repair' | 'independent_review' | 'synthesis' | 'escalation'
