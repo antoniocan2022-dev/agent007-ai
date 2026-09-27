@@ -1,5 +1,12 @@
 import { db } from '@/lib/db'
-import { SEED_EMAIL } from '@/lib/auth'
+// Deploy-incident fix: SEED_EMAIL must come from seed-user.ts directly, not the @/lib/auth
+// re-export -- importing @/lib/auth for ANY reason executes its module-level `authOptions`
+// construction, which calls getNextAuthSecret() eagerly and throws if NEXTAUTH_SECRET isn't
+// configured (see auth.ts's own comment on this exact hazard). settings.ts is imported by
+// mission-heartbeat.ts, which the Venture OS 24x7 heartbeat's mission-pipeline-supervisor sweep
+// now reaches on every tick -- that GitHub Actions job has no reason to carry NEXTAUTH_SECRET and
+// doesn't, so this import crashed the live production heartbeat the moment this path first ran.
+import { SEED_EMAIL } from '@/lib/seed-user'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
