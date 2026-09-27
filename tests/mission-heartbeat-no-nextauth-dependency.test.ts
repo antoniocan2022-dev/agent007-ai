@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 
 // Deploy incident (2026-09-27): the Venture OS 24x7 Heartbeat's GitHub Actions job has no reason to
 // carry NEXTAUTH_SECRET and doesn't -- it's a background cron script, not a NextAuth request handler.
@@ -36,7 +37,7 @@ describe('mission-heartbeat.ts import chain has no NEXTAUTH_SECRET dependency', 
   })
 
   test('settings.ts imports SEED_EMAIL from seed-user.ts, never from @/lib/auth', () => {
-    const source = require('node:fs').readFileSync(new URL('../src/lib/settings.ts', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../src/lib/settings.ts', import.meta.url), 'utf8')
     expect(source).not.toMatch(/SEED_EMAIL.*from ['"]@\/lib\/auth['"]/)
     expect(source).toMatch(/SEED_EMAIL.*from ['"]@\/lib\/seed-user['"]/)
   })
