@@ -212,6 +212,18 @@ export function getGovernedCandidates(provider: ActiveProviderId, taskType: Task
 }
 export function getModelForProviderGoverned(provider: ActiveProviderId, taskType: TaskType, verification?: VerificationTier): string | undefined { return getGovernedCandidates(provider, taskType, verification)[0] }
 
+// Vision transport fix (2026-09-28): the Vision tool must be pinned to a provider+model that is
+// actually governed as vision-capable -- sending image content to a text-only governed model (every
+// other profile in GOVERNED_MODEL_PROFILES) would either error or be silently ignored by that
+// provider's API. Only one profile currently declares 'vision'; this returns the highest-quality one
+// so the caller can force providerOrder/model rather than relying on the generic taskType-based
+// selection, which has no 'vision' entry in TASK_CAPABILITIES and would happily route to a
+// non-vision-capable provider.
+export function getVisionCapableModel(): { provider: ActiveProviderId; model: string } | undefined {
+  const candidates = GOVERNED_MODEL_PROFILES.filter((profile) => profile.capabilities.includes('vision')).sort((a, b) => b.quality - a.quality)
+  return candidates[0] ? { provider: candidates[0].provider, model: candidates[0].model } : undefined
+}
+
 export function classifyProviderError(provider: ActiveProviderId, status?: number, message = '') {
   const lower = message.toLowerCase()
   if (status === 401) return { provider, kind: 'AUTHENTICATION' as const, status, message, retryable: false }
