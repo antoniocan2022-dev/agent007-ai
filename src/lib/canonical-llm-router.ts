@@ -8,7 +8,15 @@ import { getCeoCancellationSignal } from './ceo-cancellation-context'
 import { CeoRequestAbortedError } from './ceo-cancellation'
 
 export type ProviderId = ActiveProviderId
-export type CanonicalLlmRequest = { messages: readonly { role: 'system' | 'user' | 'assistant'; content: string }[]; taskType?: TaskType; verification?: VerificationTier; thinking?: boolean; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; executionClass?: ExecutionClass; excludeProviders?: readonly ActiveProviderId[]; providerOrder?: readonly ActiveProviderId[]; signal?: AbortSignal }
+// Vision transport fix (2026-09-28): content was strictly `string`, so the only caller building a real
+// multimodal message (canonical-provider-bridge.ts's createVision) had no typed way to pass an image
+// through -- it flattened { type: 'image_url', image_url: { url } } into a bare string, embedding the
+// entire data URI as literal text. Every layer downstream of this type (provider-runtime-v2.ts's
+// ProviderRuntimeRequest.messages, its raw fetch body, its response extractContent(), and
+// provider-control-plane.ts's estimateRequestTokens/compactMessagesForRequestSize) already handles
+// array-part content correctly -- this was the one place still typed as text-only.
+export type CanonicalContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+export type CanonicalLlmRequest = { messages: readonly { role: 'system' | 'user' | 'assistant'; content: string | readonly CanonicalContentPart[] }[]; taskType?: TaskType; verification?: VerificationTier; thinking?: boolean; model?: string; temperature?: number; maxTokens?: number; timeoutMs?: number; maxProviderAttempts?: number; outcomeEvidence?: ProviderRuntimeOutcomeEvidence; executionClass?: ExecutionClass; excludeProviders?: readonly ActiveProviderId[]; providerOrder?: readonly ActiveProviderId[]; signal?: AbortSignal }
 export type CanonicalLlmResult = { provider: ActiveProviderId; model: string; content: string; attempts: ActiveProviderId[]; responseMs: number; policy: ProviderTaskPolicy; executionClass: ExecutionClass; adaptivePlan: AdaptiveExecutionPlan }
 export type ParallelCanonicalResult = { index: number; result?: CanonicalLlmResult; error?: unknown }
 
@@ -35,16 +43,27 @@ const TASK_HINTS: Array<[TaskType, RegExp]> = [
   ['analysis', /\b(analyze|analysis|evaluate|diagnose|audit|assess)\b/i],
 ]
 export function inferTaskType(messages: readonly { role: string; content: string }[]): TaskType { const latestUser = [...messages].reverse().find((message) => message.role === 'user'); const text = latestUser?.content ?? messages[messages.length - 1]?.content ?? ''; for (const [taskType, pattern] of TASK_HINTS) if (pattern.test(text)) return taskType; return 'reasoning' }
+// Vision transport fix (2026-09-28): the taskType/depth classifiers below only ever reason about the
+// TEXT of a turn (keyword matching, reference-word counting) -- they have no use for an image part and
+// were typed assuming content is always a string. Rather than widen every classifier's signature, the
+// image parts are stripped here into a text-only view for classification purposes; the actual
+// structured multimodal content (request.messages, untouched) is what reaches runGovernedProviderChat.
+function extractMessageText(content: string | readonly CanonicalContentPart[]): string {
+  return typeof content === 'string' ? content : content.filter((part) => part.type === 'text').map((part) => part.text).join(' ')
+}
+function textOnlyMessages(messages: CanonicalLlmRequest['messages']): { role: string; content: string }[] {
+  return messages.map((message) => ({ role: message.role, content: extractMessageText(message.content) }))
+}
 function cognitiveDepthForRequest(request: CanonicalLlmRequest, taskType: TaskType) {
   if (taskType !== 'reasoning') return 'direct' as const
-  const latestUser = [...request.messages].reverse().find((message) => message.role === 'user')?.content ?? ''
+  const latestUser = [...textOnlyMessages(request.messages)].reverse().find((message) => message.role === 'user')?.content ?? ''
   const priorTurnCount = request.messages.filter((message) => message.role === 'user' || message.role === 'assistant').length - 1
   const referenceCount = (latestUser.match(/\b(?:it|this|that|these|those|same|earlier|yesterday|previous|continue)\b|\bthe\s+(?:second|first|third|last|other)\b/gi) ?? []).length
   return classifyCognitiveDepthFromMessages(latestUser, priorTurnCount, referenceCount)
 }
 function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
-  const inferred = classifyExecution(request.messages)
-  const taskType = request.taskType ?? inferTaskType(request.messages)
+  const inferred = classifyExecution(textOnlyMessages(request.messages))
+  const taskType = request.taskType ?? inferTaskType(textOnlyMessages(request.messages))
   const depth = cognitiveDepthForRequest(request, taskType)
 
   if (request.executionClass === 'fast' && taskType === 'reasoning' && depth === 'deep') {
@@ -64,7 +83,7 @@ function explicitPlan(request: CanonicalLlmRequest): AdaptiveExecutionPlan {
 }
 export async function runCanonicalLlm(request: CanonicalLlmRequest): Promise<CanonicalLlmResult> {
   const adaptivePlan = explicitPlan(request)
-  const taskType = request.taskType ?? inferTaskType(request.messages)
+  const taskType = request.taskType ?? inferTaskType(textOnlyMessages(request.messages))
   const policy = getProviderTaskPolicy(taskType, request.verification)
   const safePolicyOrder = policy.providerOrder.filter((provider): provider is ActiveProviderId => provider !== 'openai')
   const conversationalDepth = cognitiveDepthForRequest(request, taskType)

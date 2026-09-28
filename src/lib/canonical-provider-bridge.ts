@@ -1,6 +1,8 @@
-import { runCanonicalLlm } from './canonical-llm-router'
+import { runCanonicalLlm, type CanonicalContentPart } from './canonical-llm-router'
+import { getVisionCapableModel } from './provider-control-plane'
 
 type Message = { role: 'system' | 'user' | 'assistant'; content: string }
+type VisionMessage = { role: 'system' | 'user' | 'assistant'; content: string | CanonicalContentPart[] }
 type FunctionArgs = Record<string, unknown>
 
 async function webSearch(query: string, num = 5): Promise<any[]> {
@@ -50,13 +52,35 @@ export function getCanonicalLlmBridge(): any {
           _attempts: result.attempts,
         }
       },
+      // Vision transport fix (2026-09-28): this used to flatten multimodal content -- literally
+      // { type: 'image_url', image_url: { url } } -- into a bare string via `x?.image_url?.url || ''`,
+      // embedding the entire base64 data URI as plain text and sending it to a text-only completion
+      // endpoint. No image content ever actually reached any provider. Now preserves the structured
+      // content array and pins the request to the one governed model actually declared vision-capable
+      // (provider-control-plane.ts's getVisionCapableModel), since generic taskType-based routing has
+      // no 'vision' requirement and would happily pick a text-only provider that can't see the image.
       createVision: async (request: any) => {
         const messages = Array.isArray(request?.messages) ? request.messages : []
-        const normalized = messages.map((m: any) => ({
+        const normalized: VisionMessage[] = messages.map((m: any) => ({
           role: m?.role === 'system' || m?.role === 'assistant' ? m.role : 'user',
-          content: Array.isArray(m?.content) ? m.content.map((x: any) => x?.text || x?.image_url?.url || '').join('\n') : String(m?.content || ''),
-        })) as Message[]
-        const result: any = await runCanonicalLlm({ messages: normalized, taskType: 'analysis', verification: 'standard', executionClass: 'standard', timeoutMs: 30000, maxProviderAttempts: 5 })
+          content: Array.isArray(m?.content)
+            ? m.content.map((x: any): CanonicalContentPart => (x?.type === 'image_url' || x?.image_url)
+                ? { type: 'image_url', image_url: { url: String(x?.image_url?.url ?? '') } }
+                : { type: 'text', text: String(x?.text ?? '') })
+            : String(m?.content ?? ''),
+        }))
+        const visionModel = getVisionCapableModel()
+        if (!visionModel) throw new Error('No governed model is currently configured as vision-capable.')
+        const result: any = await runCanonicalLlm({
+          messages: normalized,
+          taskType: 'analysis',
+          verification: 'standard',
+          executionClass: 'standard',
+          model: visionModel.model,
+          providerOrder: [visionModel.provider],
+          timeoutMs: 30000,
+          maxProviderAttempts: 3,
+        })
         return { choices: [{ message: { role: 'assistant', content: result.content, reasoning_content: result.reasoningContent ?? '' } }] }
       },
     },
