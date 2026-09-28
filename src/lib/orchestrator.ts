@@ -315,6 +315,13 @@ export interface OrchestratorRunResult extends OrchestratorExecutionResult {
     startedAt: number
     finishedAt?: number
   }>
+  // Production incident (2026-09-28): whether the auto-diagnostics block below actually retrieved real,
+  // fresh system-state data this turn -- see that block's own comment. classifyOperationalExecution
+  // (ceo-execution-handoff.ts) reads this to recognize genuine live_system evidence that never shows up
+  // as a tracked `steps` entry, instead of silently defaulting every self-check turn to 'internal_state'.
+  // `report` carries the actual retrieved facts so the CEO response layer's re-synthesis has real
+  // content to ground its answer in, not just an evidence-scope stamp with nothing behind it.
+  diagnosticsEvidence?: { gathered: boolean; observedAt: number; report?: string }
 }
 
 function makeId(prefix: string): string {
@@ -1007,6 +1014,19 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
   const isStrategicQuestion = STRATEGIC_KEYWORDS.test(userMessage) && userMessage.length > 15
 
   let systemStatusReport = ''
+  // Production incident (2026-09-28): a live "run a full self-check and confirm the whole system is
+  // healthy" got auto-diagnosed here (4 real, fresh production fetches below), then a legitimate answer
+  // describing that live state ("...is currently healthy...") was rejected by the quality gate for
+  // lacking "fresh, provenance-matched evidence" -- because this block's real fetch results were only
+  // ever injected as inert prompt text (see the "ACT HANDOFF" instruction below), never surfaced to
+  // classifyOperationalExecution (ceo-execution-handoff.ts), which only recognizes manage_action/
+  // mission_pipeline/verified-tool steps. With zero tracked steps, evidenceScope defaulted to
+  // 'internal_state', which can never satisfy a live_system claim -- so any self-check answer that
+  // actually described current system state was guaranteed to fail, burn the full escalation budget
+  // retrying other providers (which have the same missing evidence), and degrade. diagnosticsEvidence
+  // below threads whether real, fresh diagnostic data was actually retrieved back out to the caller so
+  // it can be recognized as genuine live_system evidence instead of being silently discarded.
+  let diagnosticsEvidence: { gathered: boolean; observedAt: number; report?: string } | undefined
   if (isStrategicQuestion) {
     console.log('[orchestrator] Strategic question detected — auto-executing diagnostics')
     try {
@@ -1024,6 +1044,10 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
       const cap = capRes.status === 'fulfilled' ? capRes.value : null
       const team = teamRes.status === 'fulfilled' ? teamRes.value : null
       const llm = llmRes.status === 'fulfilled' ? llmRes.value : null
+      // At least one diagnostic must have actually returned real data -- every fetch above swallows its
+      // own rejection into `null`, so an all-failed round would otherwise still produce a (near-empty)
+      // report and be misread as successfully gathered live evidence.
+      diagnosticsEvidence = { gathered: Boolean(health || cap || team || llm), observedAt: Date.now() }
 
       // Format as System Status Report
       const lines: string[] = []
@@ -1094,6 +1118,11 @@ CURRENT UTC TIME: ${new Date().toUTCString()}`
         lines.push('')
       }
 
+      // Captured before the "ACT HANDOFF" instruction footer below -- those lines are steering
+      // instructions for this orchestrator's own inner LLM loop, not factual evidence, so they're
+      // deliberately excluded from what gets handed to the CEO response layer as evidence content.
+      const diagnosticsFactsText = lines.join('\n')
+      if (diagnosticsEvidence?.gathered) diagnosticsEvidence.report = diagnosticsFactsText
       lines.push('═══ END SYSTEM STATUS REPORT ═══')
       lines.push('')
       lines.push('ACT HANDOFF: Treat the diagnostics above as internal system evidence only.')
@@ -1819,7 +1848,7 @@ VERIFICATION REQUIRED: Before completing your task, verify the previous leader's
     terminalError,
   })
 
-  return { executionSummary, executionStatus, completionReason, steps }
+  return { executionSummary, executionStatus, completionReason, steps, diagnosticsEvidence }
 
 }
 

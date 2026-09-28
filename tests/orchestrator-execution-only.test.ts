@@ -52,7 +52,12 @@ describe('Phase 3b — interactive route has one RESPOND authority', () => {
 
   test('operational execution is followed by runCeoCognitiveLifecycle and no direct-response bypass remains', () => {
     expect(source).toContain('const result = await withOrchestrationOwner')
-    expect(source).toContain('const operationalEvidence = result.executionSummary')
+    // Production incident (2026-09-28): operationalEvidence now also folds in
+    // result.diagnosticsEvidence.report (real diagnostic facts the orchestrator's auto-diagnostics block
+    // gathers but never records as a `steps` entry) -- still derived purely from `result`, never a
+    // fabricated or LLM-authored answer, which is the invariant this test guards.
+    expect(source).toContain('const operationalEvidence = result.diagnosticsEvidence?.report')
+    expect(source).toContain('result.executionSummary')
     expect(source).toContain('runCeoCognitiveLifecycle({')
     expect(source).not.toContain("tryOperationalDirectResponse")
     expect(source).not.toContain("from '@/lib/ceo-operational-direct-response'")
