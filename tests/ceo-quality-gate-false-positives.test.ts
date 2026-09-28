@@ -77,4 +77,34 @@ describe('P2 quality-gate false positives found via real CI failures', () => {
     expect(result.claimScopes).toContain('live_system')
     expect(result.checks.evidenceDiscipline).toBe(false)
   })
+
+  // Production incident (2026-09-28): "Can you give me updates of 2 stocks: GEOS and MIND Technology.
+  // Make me a brief in your own words." got a genuinely good, evidence-backed prose answer -- then
+  // structureOk rejected it for having no markdown headings, no bullet list, and no decision-vocabulary
+  // word, purely because the user explicitly asked for a plain prose brief rather than a structured
+  // report. Root-caused against real production logs (evidenceSourceCount: 56, ESCALATE, then a
+  // 123-second chain of failed recovery attempts hitting REQUEST_TOO_LARGE on the growing evidence
+  // context) before falling back to a degraded refusal -- self-repair had nothing to repair; the primary
+  // answer was already right, the gate's formatting requirement was wrong for what was actually asked.
+  test('an explicit "brief in your own words" prose request is not rejected for lacking markdown headings/bullets/decision language -- the exact real production incident behind the GEOS/MIND stock brief failing', () => {
+    const objective = 'Can you give me updates of 2 stocks: GEOS and MIND Technology. Make me a brief in your own words.'
+    const content = "Geospace Technologies (GEOS) has been navigating a choppy energy-services market, with revenue tied closely to seismic equipment demand from oil and gas exploration. Recent results have shown the company managing costs carefully while waiting for a more durable recovery in offshore and onshore exploration spending. MIND Technology, on the other hand, has been leaning into its marine technology and defense-adjacent products, and has talked about diversifying away from pure oil-and-gas cyclicality. Both are small-cap names, so they tend to swing more on sentiment and order timing than the broader market."
+    const result = evaluateCeoQuality({ objective, content, path: 'full', intent: 'research', responseAction: 'answer', reviewed: true, externalExecutionSucceeded: true, evidenceScope: 'external_web', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300_000 }, evidenceProvided: true })
+    expect(result.checks.actionableStructure).toBe(true)
+    expect(result.decision).toBe('PASS')
+  })
+
+  test('a request with no explicit prose signal still requires real structure (headings/bullets/decision language) -- confirms the prose-request fix narrows structureOk rather than disabling it', () => {
+    const objective = 'Give me a full research report on GEOS and MIND Technology with a recommendation.'
+    const content = 'Geospace Technologies has been navigating a choppy energy-services market with revenue tied closely to seismic equipment demand. MIND Technology has been leaning into marine technology and defense-adjacent products to diversify away from oil-and-gas cyclicality. Both are small-cap names that swing more on sentiment than the broader market overall in recent trading sessions this quarter.'
+    const result = evaluateCeoQuality({ objective, content, path: 'full', intent: 'research', responseAction: 'answer', reviewed: true, externalExecutionSucceeded: true, evidenceScope: 'external_web', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300_000 }, evidenceProvided: true })
+    expect(result.checks.actionableStructure).toBe(false)
+  })
+
+  test('an explicit prose request on the critical path still requires structure -- the highest-stakes path keeps its structural requirement regardless of phrasing', () => {
+    const objective = 'In your own words, give me a brief on this critical decision.'
+    const content = 'This is a plain prose answer with no headings, no bullets, and no decision vocabulary words describing the situation in a conversational way without any organizing structure at all for the reader to follow along with easily.'
+    const result = evaluateCeoQuality({ objective, content, path: 'critical', intent: 'research', responseAction: 'answer', reviewed: true, externalExecutionSucceeded: true, evidenceScope: 'external_web', evidenceFreshness: { observedAt: Date.now(), maxAgeMs: 300_000 }, evidenceProvided: true })
+    expect(result.checks.actionableStructure).toBe(false)
+  })
 })

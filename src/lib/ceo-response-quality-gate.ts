@@ -52,6 +52,17 @@ const INTERNAL_ASSERTION_RE = /\b(?:architectur(?:e|al)|designed|implemented|con
 const NEGATION_RE = /\b(?:not|no|without|unverified|unknown|unclear|uncertain|cannot|can't|couldn't|wasn't|weren't|didn't|doesn't|isn't|aren't|hasn't|haven't|wouldn't|shouldn't|never)\b/i
 const REQUIREMENT_HEDGE_RE = /\b(?:requires?|would\s+require|needs?\s+to|before\s+(?:it|this|that|i)\s+(?:can|could)|not\s+yet|has\s+not\s+yet|is\s+not\s+yet|remains?\s+unproven|is\s+unproven)\b/i
 const CONVERSATIONAL_ROBOTIC_RE = /\b(?:as an ai|as an assistant|i am an ai|your request|the user|objective:|quality gate|evidence state|execution contract|cannot comply|please provide)\b/i
+// Production incident (2026-09-28): a real "Can you give me updates of 2 stocks: GEOS and MIND
+// Technology. Make me a brief in your own words." request got a genuinely good, evidence-backed prose
+// answer -- then rejected by structureOk below for having no markdown headings, no bullet list, and no
+// decision-vocabulary word, purely because the user explicitly asked for a plain prose brief rather
+// than a structured report. This forced an ESCALATE into a 123-second chain of retries and failed
+// provider recovery attempts (growing evidence context repeatedly hit REQUEST_TOO_LARGE) before falling
+// back to a degraded refusal -- self-repair had nothing to repair; the primary answer was already right.
+// structureOk itself is not disabled: a response still needs *some* organizing signal (headings/bullets/
+// decision language) UNLESS the user's own instruction explicitly asked for unstructured prose, in which
+// case the length floor alone remains as the substantiveness check.
+const EXPLICIT_PROSE_REQUEST_RE = /\b(?:in your own words|in plain (?:english|language)|as a paragraph|a brief\b|briefly|short summary|without (?:headings|bullet points|bullets)|no bullet points|conversational(?:ly)?\s+(?:summary|answer|update)|just (?:tell|give) me)\b/i
 const REPETITION_RE = /(.{18,80})\s+\1/i
 const EMOTIONAL_TONE_RE = /\b(?:frustrated|frustrating|excited|happy|worried|concerned|disappointed|angry|confused|hopeful|great|excellent|thanks|thank you)\b/i
 // EXPLICIT_CONTINUATION_RE was deleted here: isReferenceContinuation below now delegates to the
@@ -227,7 +238,7 @@ const evidenceVerificationApplicable=conversational?externalClaims:(input.eviden
   // when a non-ambiguous, high-confidence resolution is already present, trust it instead of requiring the
   // response to also happen to share the anchor's exact vocabulary.
   const hasHighConfidenceResolvedReference=conversational&&(input.resolvedReferences??[]).some((reference)=>!reference.ambiguous&&reference.confidence>=0.7&&Boolean(reference.resolvedText));
-  const continuityOk=conversational?(continuityScore>=55||hasHighConfidenceResolvedReference):(continuity?continuity.understood:true); const lines=input.content.split(/\r?\n/); const hasHeadings=lines.some((line)=>/^\s*#{1,4}\s+\S+/.test(line)); const hasBullets=lines.some((line)=>/^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(line)); const hasDecisionLanguage=/\b(recommendation|decision|risks?|next steps?|actions?|evidence|assumptions?)\b/i.test(input.content); const selfAssessment=input.intent==='self_assessment'; const structureOk=conversational||selfAssessment?true:input.path==='fast'?true:(hasHeadings||hasBullets||hasDecisionLanguage)&&input.content.length>=(input.path==='critical'?320:180); const reviewed=Boolean(input.reviewed); const verificationStatus:VerificationStatus=conversational?'NOT_REQUIRED':reviewed?'INDEPENDENT_PASS':input.path==='critical'?'NOT_PERFORMED':'NOT_REQUIRED';
+  const continuityOk=conversational?(continuityScore>=55||hasHighConfidenceResolvedReference):(continuity?continuity.understood:true); const lines=input.content.split(/\r?\n/); const hasHeadings=lines.some((line)=>/^\s*#{1,4}\s+\S+/.test(line)); const hasBullets=lines.some((line)=>/^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(line)); const hasDecisionLanguage=/\b(recommendation|decision|risks?|next steps?|actions?|evidence|assumptions?)\b/i.test(input.content); const selfAssessment=input.intent==='self_assessment'; const explicitProseRequested=input.path!=='critical'&&EXPLICIT_PROSE_REQUEST_RE.test(extractInstructionWindow(input.objective)); const structureOk=conversational||selfAssessment?true:input.path==='fast'?true:explicitProseRequested?input.content.length>=180:(hasHeadings||hasBullets||hasDecisionLanguage)&&input.content.length>=(input.path==='critical'?320:180); const reviewed=Boolean(input.reviewed); const verificationStatus:VerificationStatus=conversational?'NOT_REQUIRED':reviewed?'INDEPENDENT_PASS':input.path==='critical'?'NOT_PERFORMED':'NOT_REQUIRED';
   const responseAction=inferredResponseAction(input.intent,input.responseAction,input.objective); const integrity=p2ResponseIntegrity({objective:input.objective,content:input.content,path:input.path,conversational,coverage,responseAction,priorTurns,externalExecutionSucceeded:input.externalExecutionSucceeded});
   // Recommendation 1 (post-generation completion-claim detector): the operator/guardian layers only ever
   // inject a prompt instruction telling the model not to claim it performed a real-world action -- nothing
