@@ -410,7 +410,13 @@ export async function POST(req: NextRequest) {
             requestBudgetMs,
             requestAbortController.signal,
           ))
-          const operationalEvidence = result.executionSummary
+          // Production incident (2026-09-28): executionSummary is built purely from tracked tool `steps`
+          // (see buildOrchestratorExecutionSummary) -- the orchestrator's auto-diagnostics block never
+          // produces a step, so on a zero-tool self-check turn executionSummary carried no facts at all.
+          // classifyOperationalExecution now recognizes diagnosticsEvidence for evidenceScope, but the
+          // CEO lifecycle's re-synthesis still needs the actual retrieved facts to answer from -- append
+          // the captured report text so an evidenceScope stamp is never handed over with nothing behind it.
+          const operationalEvidence = result.diagnosticsEvidence?.report ? `${result.executionSummary}\n\n${result.diagnosticsEvidence.report}` : result.executionSummary
           const operationalHandoff = classifyOperationalExecution(result)
           const operationalToolSteps = result.steps.filter((step) => Boolean(step.toolName))
           console.log('[api/agent] operational execution telemetry', JSON.stringify({

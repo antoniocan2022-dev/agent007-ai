@@ -115,7 +115,10 @@ describe('CEO kernel migration -- Stage 0 structural baseline (source-text, pre-
     // trusting the orchestrator's prose.
     expect(runCount).toBe(2)
     expect(route).toContain('runOrchestrator(')
-    expect(route).toContain('const operationalEvidence = result.executionSummary')
+    // Production incident (2026-09-28): see orchestrator-execution-only.test.ts's matching comment --
+    // operationalEvidence now also folds in real diagnostic facts, still derived purely from `result`.
+    expect(route).toContain('const operationalEvidence = result.diagnosticsEvidence?.report')
+    expect(route).toContain('result.executionSummary')
     expect(route).toContain('runCeoCognitiveLifecycle({')
     expect(route).not.toContain('tryOperationalDirectResponse')
     expect(route).not.toContain('if (direct) {')
