@@ -12,7 +12,7 @@ import { buildCeoDegradedResponse, renderSelfAssessmentSubsystems, type Degraded
 import { composeCeoResponse, sanitizeCeoContentForQualityGate } from './ceo-response-composer'
 import { getCeoVentureEvidenceForObjective } from './ceo-venture-state'
 import { synthesizeExecutiveReadiness } from './ceo-self-reflection'
-import { getConfiguredProviders, getGovernedCandidates, PROVIDER_ORDER } from './provider-control-plane'
+import { getConfiguredProviders, getGovernedCandidates, getModelForProviderGoverned, getProviderInputTokenBudget, PROVIDER_ORDER } from './provider-control-plane'
 import { isCircuitOpen, pickHalfOpenCandidate } from './provider-intelligence'
 import { probeProvider } from './provider-runtime-v2'
 import type { ActiveProviderId } from './provider-control-plane'
@@ -194,6 +194,19 @@ function responseActionInstruction(action?: ConversationDecisionContract['respon
 // by iterating `candidates` in the same fixed priority order (closed-circuit providers first, as chosen
 // above), so which candidate is preferred when multiple pass is unchanged -- only the wall-clock cost of
 // finding out is reduced.
+// Production incident (2026-09-30): live traces showed recovery repeatedly exhausting itself as
+// "groq:REQUEST_TOO_LARGE:413 (after compaction)" for an equity-research turn (66 evidence sources +
+// 18 messages of conversation history) and falling straight to the canned degraded template, even
+// though OpenRouter -- governed at a 1,000,000-token context window versus Groq/Cerebras's 131,072 --
+// was configured and healthy the whole time. Root cause: `ordered` below preserved plain PROVIDER_ORDER
+// (speed-first, groq-first -- the right bias for an ordinary, well-sized call), and attemptBudget only
+// ever probes the first 2 of those 5 providers. For a genuinely large recovery request, that means the
+// two SMALLEST-context providers are the only ones ever probed, while the one provider actually sized
+// for an oversized request is structurally never reached. This function exists solely as tryDegraded's
+// last-resort recovery attempt (see ValidatedAvailability's own comment) -- reliability at fitting the
+// request beats raw speed/cost here -- so the candidates are now sorted by each provider's real input
+// token budget (descending) before the 2-candidate probe budget is applied, giving the highest-capacity
+// provider(s) the probe slots instead of leaving them to PROVIDER_ORDER's speed-first happenstance.
 async function attemptValidatedReasoningProvider(timeoutMs: number, taskType: TaskType = 'reasoning', verification: VerificationTier = 'standard'): Promise<ValidatedAvailability> {
   const configured = getConfiguredProviders()
   if (!configured.length) return []
@@ -201,7 +214,17 @@ async function attemptValidatedReasoningProvider(timeoutMs: number, taskType: Ta
   if (!governedConfigured.length) return []
   const closed = governedConfigured.filter((provider) => !isCircuitOpen(provider))
   const halfOpen = closed.length ? null : pickHalfOpenCandidate(governedConfigured)
-  const ordered = closed.length ? closed : (halfOpen ? [halfOpen] : [])
+  // Budget-ranking note: getProviderInputTokenBudget(provider, taskType, verification) with no explicit
+  // model takes the MINIMUM across every governed candidate on that provider (its conservative preflight-
+  // compaction contract) -- on OpenRouter that minimum is dragged down to Muse Glimmer's 115K by-model
+  // floor, tying it with Groq's 115K and silently erasing the ordering this fix depends on. The provider
+  // actually used for the recovery call is whichever model resolveGovernedModel/probeProvider picks --
+  // the TOP governed candidate for this taskType -- so rank by that specific model's own budget instead.
+  const byInputBudgetDesc = (list: ActiveProviderId[]) => [...list].sort((a, b) => {
+    const topModelFor = (provider: ActiveProviderId) => getModelForProviderGoverned(provider, taskType, verification)
+    return getProviderInputTokenBudget(b, taskType, verification, topModelFor(b)) - getProviderInputTokenBudget(a, taskType, verification, topModelFor(a))
+  })
+  const ordered = closed.length ? byInputBudgetDesc(closed) : (halfOpen ? [halfOpen] : [])
   const attemptBudget = Math.min(ordered.length, 2)
   const candidates = ordered.slice(0, attemptBudget)
   const settled = await Promise.allSettled(candidates.map((provider) => probeProvider(provider, { taskType, verification, timeoutMs: Math.max(2500, Math.min(10000, timeoutMs)), maxTokens: 128, allowHalfOpenProbe: true })))

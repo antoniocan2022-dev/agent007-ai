@@ -435,7 +435,17 @@ describe('CEO cognitive lifecycle', () => {
   // validated. Fixed: attemptValidatedReasoningProvider now returns every validated candidate (still
   // bounded to the same 2-candidate probe budget), and tryDegraded tries them in order, falling through to
   // the next validated candidate instead of degrading the moment the first one's real call fails.
-  test('recovery falls through to a second validated provider when the first one probes healthy but fails on the real generation call', async () => {
+  //
+  // Production incident (2026-09-30): attemptValidatedReasoningProvider's candidate order is now sorted
+  // by each provider's real input-token budget (descending), not plain PROVIDER_ORDER -- a second live
+  // incident showed recovery exhausting itself entirely on Groq/Cloudflare (the two smallest-context
+  // providers, probed first purely because they lead PROVIDER_ORDER) as "REQUEST_TOO_LARGE ... (after
+  // compaction)" for a genuinely large recovery request, while OpenRouter -- governed at a 1,000,000-token
+  // context window, ten times Groq's -- was configured and healthy but never even reached (the 2-candidate
+  // probe budget was already spent). So with both configured here, OpenRouter -- the larger-budget
+  // provider -- is now probed and tried FIRST; this test flips which provider fails the real call to keep
+  // exercising the same fall-through-to-the-second-candidate mechanism under the new order.
+  test('recovery falls through to a second validated provider when the first (larger-budget) one probes healthy but fails on the real generation call', async () => {
     resetProviderHealthForTests()
     resetProviderStandingForTests()
     process.env.GROQ_API_KEY = 'test-groq'
@@ -451,23 +461,21 @@ describe('CEO cognitive lifecycle', () => {
         // "Next architecture" program, Stage 2: this turn ("What do you think about our team culture?",
         // a short opinion question with no tool/mission requirement) now resolves to the fast_chat lane,
         // whose explicit providerOrder (CEO_FAST_CHAT_PROVIDER_PRIORITY, groq-first) governs primary and
-        // escalation directly -- no more quality-first openrouter-first default for this turn, and no
-        // more asymmetry with recovery's own always-groq-first selection (attemptValidatedReasoningProvider,
-        // untouched by Stage 2). With only groq/openrouter configured in this test, every stage now tries
-        // groq first. Groq succeeds (200) with quality-failing robotic content on primary and the one
-        // allowed escalation -- reaching the quality-gate-driven degrade branch without needing an
-        // internal same-call fallback. Only then does recovery run: probing groq first, succeeding on the
-        // probe, then failing on the real call with the exact live-incident shape (a billing/payment-limit
-        // error the cheap 128-token probe never exercised) -- and falling through to OpenRouter, the
-        // second validated candidate, which finally succeeds.
+        // escalation directly. Groq succeeds (200) with quality-failing robotic content on primary and the
+        // one allowed escalation -- reaching the quality-gate-driven degrade branch without needing an
+        // internal same-call fallback. Only then does recovery run: with OpenRouter's much larger input
+        // budget, it is now probed and tried first, succeeding on the probe but failing on the real call
+        // with the exact live-incident shape (a billing/payment-limit error the cheap 128-token probe
+        // never exercised) -- and falling through to Groq, the second validated candidate, which finally
+        // succeeds.
         if (url.includes('api.groq.com')) {
           groqNonProbeCalls += 1
           if (groqNonProbeCalls <= 2) return jsonResponse({ choices: [{ message: { content: "As an AI, I can tell you the biggest risk is execution consistency across teams." } }] })
-          return jsonResponse({ error: { message: 'Request too large for the organization on this billing plan.' } }, 402)
+          return jsonResponse({ choices: [{ message: { content: 'The real answer: our biggest cultural risk is inconsistent execution standards across teams, not a lack of talent.' } }] })
         }
         if (url.includes('openrouter.ai')) {
           openrouterNonProbeCalls += 1
-          return jsonResponse({ choices: [{ message: { content: 'The real answer: our biggest cultural risk is inconsistent execution standards across teams, not a lack of talent.' } }] })
+          return jsonResponse({ error: { message: 'Request too large for the organization on this billing plan.' } }, 402)
         }
       }
       throw new Error(`unexpected fetch: ${url}`)
@@ -475,13 +483,14 @@ describe('CEO cognitive lifecycle', () => {
 
     const result = await runCeoCognitiveLifecycle({ taskType: 'reasoning', messages: [{ role: 'user', content: 'What do you think about our team culture?' }], timeoutMs: 30000 })
     expect(result.degraded).toBe(false)
-    expect(result.provider).toBe('openrouter')
+    expect(result.provider).toBe('groq')
     expect(result.content).toContain('inconsistent execution standards')
     expect(result.content).not.toContain("I couldn't reliably complete that specific request")
     // groq: 2 quality-failing robotic replies (primary + escalation, both tried groq-first under the
-    // fast_chat lane) + 1 real recovery attempt that fails with the billing error.
+    // fast_chat lane) + 1 real recovery attempt that succeeds after OpenRouter's real call fails.
     expect(groqNonProbeCalls).toBe(3)
-    // openrouter: only the final successful recovery fallback -- primary/escalation never reach it now.
+    // openrouter: only the one failed recovery attempt -- primary/escalation never reach it, and recovery
+    // does not retry it a second time within the same candidate.
     expect(openrouterNonProbeCalls).toBe(1)
     resetProviderHealthForTests()
     resetProviderStandingForTests()
