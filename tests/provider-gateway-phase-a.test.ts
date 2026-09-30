@@ -365,7 +365,14 @@ describe('provider-aware context budgets', () => {
   test('uses provider-specific context budgets and the current Groq default', async () => {
     const { getProviderInputTokenBudget, PROVIDER_RUNTIME_CONFIG } = await import('../src/lib/provider-control-plane')
     expect(getProviderInputTokenBudget('groq')).toBe(PROVIDER_RUNTIME_CONFIG.groq.contextWindowTokens - PROVIDER_RUNTIME_CONFIG.groq.inputSafetyMarginTokens)
-    expect(getProviderInputTokenBudget('openrouter')).toBeGreaterThan(getProviderInputTokenBudget('groq'))
+    // 2026-09-30: Muse Glimmer 30B was added as a genuine 'general'-task-eligible OpenRouter candidate
+    // with the same 131K context window as Groq's own governed models -- the provider-wide (no-taskType)
+    // minimum across all of OpenRouter's 'general'-eligible models is now correctly tied with Groq's,
+    // not strictly greater (Math.min genuinely reflects the worst-case model OpenRouter could route a
+    // 'general' request to). OpenRouter's real headroom advantage -- Claude Sonnet 5's 1M context -- is
+    // asserted explicitly on the line after, by requesting that model directly.
+    expect(getProviderInputTokenBudget('openrouter')).toBeGreaterThanOrEqual(getProviderInputTokenBudget('groq'))
+    expect(getProviderInputTokenBudget('openrouter', 'general', undefined, 'anthropic/claude-sonnet-5')).toBeGreaterThan(getProviderInputTokenBudget('groq'))
     expect(PROVIDER_RUNTIME_CONFIG.groq.defaultModel).toBe('openai/gpt-oss-120b')
     expect(PROVIDER_RUNTIME_CONFIG.groq.preferredModels).not.toContain('llama-3.3-70b-versatile')
   })

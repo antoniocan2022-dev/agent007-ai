@@ -61,6 +61,11 @@ export interface ChatMessage {
    * MEMORY_ONLY/PARTIAL_UNCONFIRMED/UNAVAILABLE turn was indistinguishable from a fully grounded one
    * unless the response text itself happened to say so. */
   evidenceState?: EvidenceState
+  /** Which governed provider/model actually answered this turn (route.ts's 'answer'/'done' events
+   * already carry these -- see provider-control-plane.ts's GOVERNED_MODEL_PROFILES for the full
+   * registry), surfaced so the UI can show what generated a given response. */
+  provider?: string
+  model?: string
 }
 
 export interface ConversationMeta {
@@ -972,7 +977,7 @@ function applyEvent(
       set((s) => ({ status: 'streaming', messages: s.messages.map((m) => {
         if (m.id !== assistantId) return m
         const steps = (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__'))
-        return { ...m, content, steps }
+        return { ...m, content, steps, provider: data.provider ?? m.provider, model: data.model ?? m.model }
       }) }))
     }
   } else if (event === 'memory_update') {
@@ -1026,7 +1031,7 @@ function applyEvent(
     set((s) => ({ messages: s.messages.map((m) => {
       if (m.id !== assistantId) return m
       const steps = pendingContent ? (m.steps ?? []).filter((st) => !(st.kind === 'super_thought' && st.thought === '__synthesizing__')) : m.steps
-      return { ...m, content: m.content + pendingContent, steps, evidenceState: data.evidenceState ?? m.evidenceState }
+      return { ...m, content: m.content + pendingContent, steps, evidenceState: data.evidenceState ?? m.evidenceState, provider: data.provider ?? m.provider, model: data.model ?? m.model }
     }) }))
   }
 }

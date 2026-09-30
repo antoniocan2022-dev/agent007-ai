@@ -41,6 +41,12 @@ function MessageBubbleComponent({ message }: { message: ChatMessage }) {
     : message.evidenceState === 'MEMORY_ONLY' ? 'Based on prior context only, not freshly verified'
     : message.evidenceState === 'PARTIAL_UNCONFIRMED' ? 'Partially unconfirmed'
     : null
+  // 2026-09-30: route.ts's 'answer'/'done' events always carry the governed provider/model that
+  // actually generated this turn (see provider-control-plane.ts) -- previously computed server-side
+  // but dropped by the client with no UI consumer. Only shown once the turn is settled (not mid-stream,
+  // since the value can still change across a recovery/escalation retry).
+  const providerLabel = providerDisplayName(message.provider)
+  const modelLabel = message.model ?? null
 
   return (
     <motion.div id={anchorId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="flex gap-3 mb-8 scroll-mt-24">
@@ -56,12 +62,32 @@ function MessageBubbleComponent({ message }: { message: ChatMessage }) {
             <span className="opacity-80">{degradedEvidenceLabel}</span>
           </div>
         )}
+        {!isStreaming && providerLabel && (
+          <div className="mt-1.5 flex items-center gap-1.5 px-2 py-0.5 text-[10px] text-[#7c89b5] w-fit">
+            <span className="opacity-70">via {providerLabel}</span>
+            {modelLabel && <span className="opacity-50 font-mono">· {modelLabel}</span>}
+          </div>
+        )}
       </div>
     </motion.div>
   )
 }
 
 export const MessageBubble = memo(MessageBubbleComponent)
+
+// Mirrors provider-control-plane.ts's PROVIDER_RUNTIME_CONFIG labels -- kept as a small local map
+// rather than importing server-only provider config into a client component.
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  groq: 'Groq',
+  cloudflare: 'Cloudflare Workers AI',
+  mistral: 'Mistral',
+  cerebras: 'Cerebras',
+  openrouter: 'OpenRouter',
+}
+function providerDisplayName(provider?: string): string | null {
+  if (!provider) return null
+  return PROVIDER_DISPLAY_NAMES[provider] ?? provider
+}
 
 function AttachmentChip({ att }: { att: AttachmentMeta }) {
   const isImage = att.mimeType.startsWith('image/') || att.dataUrl

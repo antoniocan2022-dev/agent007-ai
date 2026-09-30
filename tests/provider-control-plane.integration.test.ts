@@ -52,6 +52,22 @@ describe('provider control plane', () => {
     expect(model).toBe('openrouter/free')
   })
 
+  // 2026-09-30: Muse Glimmer 30B (Meta, Apache 2.0) added to the OpenRouter registry -- a real,
+  // genuinely open-weight model, priced well below Claude Sonnet 5. Its quality/speed/costTier were
+  // deliberately tuned so it can never outrank Sonnet 5 in auto-selection (the 'prefers Claude
+  // Sonnet 5' test above encodes that as the intended contract) despite a cheaper costTier scoring
+  // bonus that could otherwise make a materially lower-quality model win on raw score.
+  test('Muse Glimmer 30B is governed on OpenRouter but never outranks Claude Sonnet 5 in auto-selection', async () => {
+    process.env.OPENROUTER_API_KEY = 'test'
+    for (const taskType of ['general', 'reasoning', 'coding', 'analysis', 'security'] as const) {
+      const candidates = getGovernedCandidates('openrouter', taskType, 'enhanced')
+      if (!candidates.includes('meta/muse-glimmer-30b')) continue
+      expect(candidates.indexOf('anthropic/claude-sonnet-5')).toBeLessThan(candidates.indexOf('meta/muse-glimmer-30b'))
+    }
+    const model = await resolveGovernedModel('openrouter', 'reasoning', 'enhanced', 'meta/muse-glimmer-30b')
+    expect(model).toBe('meta/muse-glimmer-30b')
+  })
+
   test('task-aware diagnostics use reasoning rather than operations', async () => {
     process.env.CLOUDFLARE_API_KEY = 'test'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'account-123'
