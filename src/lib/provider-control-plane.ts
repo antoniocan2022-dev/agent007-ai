@@ -76,7 +76,7 @@ export const PROVIDER_RUNTIME_CONFIG: Readonly<Record<ActiveProviderId, Provider
   cloudflare: { id: 'cloudflare', label: 'Cloudflare Workers AI', baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1/chat/completions', apiKeyEnv: 'CLOUDFLARE_API_KEY', modelEnv: 'CLOUDFLARE_MODEL', defaultModel: '@cf/google/gemma-4-26b-a4b-it', modelsUrl: 'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/models/search', accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID', preferredModels: ['@cf/google/gemma-4-26b-a4b-it'], catalogMode: 'live-api', contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
   mistral: { id: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1/chat/completions', apiKeyEnv: 'MISTRAL_API_KEY', modelEnv: 'MISTRAL_MODEL', defaultModel: 'mistral-large-latest', modelsUrl: 'https://api.mistral.ai/v1/models', preferredModels: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'], catalogMode: 'live-api', contextWindowTokens: 256_000, inputSafetyMarginTokens: 20_000 },
   cerebras: { id: 'cerebras', label: 'Cerebras', baseUrl: 'https://api.cerebras.ai/v1/chat/completions', apiKeyEnv: 'CEREBRAS_API_KEY', modelEnv: 'CEREBRAS_MODEL', defaultModel: 'gpt-oss-120b', modelsUrl: 'https://api.cerebras.ai/v1/models', preferredModels: ['gpt-oss-120b', 'llama-3.3-70b'], catalogMode: 'live-api', contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
-  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'anthropic/claude-sonnet-5', preferredModels: ['anthropic/claude-sonnet-5', 'openrouter/free'], catalogMode: 'execution-validated', contextWindowTokens: 1_000_000, inputSafetyMarginTokens: 24_000 },
+  openrouter: { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1/chat/completions', apiKeyEnv: 'OPENROUTER_API_KEY', modelEnv: 'OPENROUTER_MODEL', defaultModel: 'anthropic/claude-sonnet-5', preferredModels: ['anthropic/claude-sonnet-5', 'meta/muse-glimmer-30b', 'openrouter/free'], catalogMode: 'execution-validated', contextWindowTokens: 1_000_000, inputSafetyMarginTokens: 24_000 },
 }
 
 export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
@@ -94,6 +94,22 @@ export const GOVERNED_MODEL_PROFILES: readonly GovernedModelProfile[] = [
   // runtime-config default above. quality/costTier are set clearly above every other governed profile so
   // this wins governed-candidate sorting for any task whose capability requirements it satisfies.
   { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context', 'conversational'], quality: 98, speed: 75, costTier: 3, maxOutputTokens: 16000, contextWindowTokens: 1_000_000, inputSafetyMarginTokens: 24_000 },
+  // Muse Glimmer 30B (Meta Superintelligence Labs, Apache 2.0, added 2026-09-30): a genuinely
+  // open-weight, dense text+image model distilled from the proprietary Muse Spark family -- the first
+  // model in this registry the owner can also legally download and self-host if OpenRouter's hosted
+  // copy is ever unavailable. Its published benchmarks (75.5 MCP Atlas, 51.2 SWE-Bench Pro) are solid
+  // for a 30B model but not frontier, so quality/speed/costTier are deliberately kept below the
+  // threshold that would let getGovernedCandidates' score() (quality*0.55 + speed*0.2 + a costTier
+  // bonus, +6 when a 'reasoning'-task response also lists 'conversational') outrank Claude Sonnet 5
+  // above -- that model's own comment states auto-selection winning is the intended contract, and a
+  // cheap high-speed entry can otherwise out-score a much higher-quality one on this formula purely
+  // via the flat costTier bonus. 'conversational' and 'long-context' are left off both because a 131K
+  // window doesn't clear this registry's own >200K bar for that tag (matching Groq/Cerebras' identically
+  // 131K-context entries, which also go untagged) and to keep this entry's score comfortably under
+  // Claude Sonnet 5's across every task type, not just the one currently asserted by a test. It still
+  // clearly outranks the openrouter/free placeholder (quality 75) and remains selectable explicitly by
+  // model id regardless of auto-selection.
+  { provider: 'openrouter', model: 'meta/muse-glimmer-30b', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'tool-use', 'vision'], quality: 80, speed: 85, costTier: 2, maxOutputTokens: 12000, contextWindowTokens: 131_072, inputSafetyMarginTokens: 16_000 },
   { provider: 'openrouter', model: 'openrouter/free', capabilities: ['reasoning', 'coding', 'research', 'analysis', 'creative', 'tool-use', 'long-context'], quality: 75, speed: 70, costTier: 1, maxOutputTokens: 8000, contextWindowTokens: 200_000, inputSafetyMarginTokens: 24_000 },
 ]
 
