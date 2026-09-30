@@ -777,6 +777,33 @@ describe('CEO cognitive lifecycle', () => {
     resetProviderStandingForTests()
   })
 
+  // Live-production incident (2026-09-30): "tell me about you, make a self-check" answered with a
+  // status table asserting "Knowledge cutoff | Up-to-date as of June 2024" under a green checkmark, as
+  // if it were a verified system fact. No such fact exists anywhere in this codebase (confirmed: no
+  // "knowledge cutoff" string appears outside this guidance) -- the model invented a plausible-sounding
+  // date from its own training and the existing phrasing guidance never told it not to, since that
+  // guidance only covered live/production/operational overclaims, not model/training-identity claims.
+  // Confirms the primary generation call for a self-assessment turn is explicitly told not to present a
+  // specific knowledge-cutoff/training-date/model-version detail as a confirmed fact.
+  test('self-assessment phrasing guidance forbids presenting a specific knowledge-cutoff or model-identity detail as a confirmed fact', async () => {
+    resetProviderHealthForTests()
+    resetProviderStandingForTests()
+    process.env.GROQ_API_KEY = 'test-groq'
+    let capturedBody = ''
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = String(init?.method ?? 'GET')
+      if (method === 'GET' && url.includes('api.groq.com')) return jsonResponse({ data: [{ id: 'llama-3.3-70b-versatile' }] })
+      if (method === 'POST') { if (!capturedBody) capturedBody = init?.body ? String(init.body) : ''; return jsonResponse({ choices: [{ message: { content: 'Self-check content.' } }] }) }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+    await runCeoCognitiveLifecycle({ messages: [{ role: 'user', content: 'tell me about you, make a self-check' }], timeoutMs: 30000 })
+    expect(capturedBody).toContain('SELF-ASSESSMENT PHRASING GUIDANCE')
+    expect(capturedBody).toContain('knowledge-cutoff')
+    expect(capturedBody.toLowerCase()).toContain("isn't a fact the system tracks")
+    resetProviderHealthForTests()
+    resetProviderStandingForTests()
+  })
+
   // Production incident 2026-09-12 (part 2): "but tell me that in your own words" got back the same
   // opening paragraph as the answer it was asking to be rephrased, because nothing told the model this
   // was a restatement of its own prior turn rather than a fresh report request. Confirms the primary

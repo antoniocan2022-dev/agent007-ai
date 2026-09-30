@@ -57,7 +57,13 @@ export const SELF_REFERENCE_RE = /\b(?:you|your|yourself|agent007|ceo|the\s+(?:a
 // so the self-assessment data pipeline never ran and the model had nothing real to answer from. This
 // is a second, independent path into self-reflection recognition (checked below), not a patch that
 // special-cases that one sentence.
-const EXPLICIT_SELF_ASSESSMENT_RE = /\bself[- ](?:assessment|evaluation|review|audit|reflection)\b/i
+// Live-production incident (2026-09-30): "tell me about you, make a self-check" is exactly the kind of
+// explicit self-assessment phrasing this regex exists to catch, but "check" was never in the word list
+// -- so the deterministic path never recognized it (only production's separate model-assisted semantic
+// classifier could, inconsistently), meaning selfAssessmentGuidanceMessages() and its overclaim
+// guardrails were never guaranteed to apply to the single most natural way an owner actually asks for
+// one. "Self-check" is at least as common in ordinary speech as "self-assessment".
+const EXPLICIT_SELF_ASSESSMENT_RE = /\bself[- ](?:assessment|evaluation|review|audit|reflection|check)\b/i
 // Exported so other intent classifiers (e.g. ceo-cognitive-conversation.ts's userIntentHint) can
 // recognize this same explicit phrasing without re-implementing their own copy of the pattern, which
 // is what let two independent self-assessment regexes drift out of sync in the first place. Those
