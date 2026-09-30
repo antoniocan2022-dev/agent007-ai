@@ -27,6 +27,11 @@ describe('CEO self-reflection canonical classifier', () => {
     ['I want a self-evaluation of our partnerships, leadership, and strategic decisions', 'readiness_assessment'],
     ['Run a self-audit on partners, leadership, strategy', 'readiness_assessment'],
     ['Time for a self-review', 'readiness_assessment'],
+    // Live-production incident (2026-09-30): "self-check" was missing from EXPLICIT_SELF_ASSESSMENT_RE's
+    // word list -- at least as common in ordinary speech as "self-assessment", and the exact phrase a
+    // real owner used, so it must be recognized the same deterministic way as its siblings above.
+    ['tell me about you, make a self-check', 'readiness_assessment'],
+    ['Time for a self-check', 'readiness_assessment'],
     // 2026-09-12: none of strengths/weakness/capability/skills/architecture/verified covers the word
     // "upgrade" -- these previously fell through every branch to kind:'none', despite asking exactly
     // the question this classifier exists to answer. CAPABILITY_RE now covers upgrade/new-feature
